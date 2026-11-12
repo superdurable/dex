@@ -1,0 +1,154 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: the function stacks above its Flow. Wide: before and after side by side. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.4rem;
+}
+
+.before,
+.after {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem 0.75rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.after {
+  background: var(--cd-accent-tint);
+}
+
+.lines {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+  list-style: none;
+}
+
+.line {
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  background: var(--cd-tile);
+  color: var(--cd-ink);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+}
+
+.crash {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-left: 0.4rem;
+  color: var(--cd-wait);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.split {
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0;
+}
+
+.layout .split > .wide {
+  display: none;
+}
+
+/* Charge → Ship → Done on one row; Refund hangs under Ship. */
+.graph {
+  display: grid;
+  grid-template-columns: auto auto auto auto auto;
+  grid-template-areas:
+    'charge e1 ship e2 done'
+    '. . down . .'
+    '. . recovery . .';
+  justify-content: center;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.step,
+.end {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.step {
+  background: var(--cd-tile);
+  color: var(--cd-ink);
+}
+
+.end {
+  border: 1px dashed var(--cd-accent);
+  color: var(--cd-accent);
+}
+
+.charge { grid-area: charge; }
+.ship { grid-area: ship; }
+.done { grid-area: done; }
+.e1 { grid-area: e1; }
+.e2 { grid-area: e2; }
+.recovery { grid-area: recovery; }
+
+.down {
+  grid-area: down;
+  justify-self: center;
+  color: var(--cd-wait);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.edge {
+  color: var(--cd-accent);
+  font-weight: 700;
+}
+
+.wait {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--cd-subtle);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+@container (min-width: 36rem) {
+  .layout {
+    grid-template-columns: minmax(0, 0.75fr) minmax(0, 5.5rem) minmax(0, 1.25fr);
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .split {
+    padding: 0;
+  }
+
+  .layout .split > .wide {
+    display: flex;
+  }
+
+  .layout .split > .narrow {
+    display: none;
+  }
+}

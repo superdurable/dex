@@ -6,20 +6,35 @@ slug: /intro/add-to-existing-code
 description: Turn code you already run, such as a function, a queue consumer, a cron or background job, a webhook handler, a chain of service calls, or a script, into a Dex Flow. Split it into Steps, move waits into WaitFor, keep state in Attributes, and place idempotency keys and database writes. Ends with a checklist.
 ---
 
+import FunctionToFlowDiagram from '@site/src/components/diagrams/FunctionToFlowDiagram';
+
 # Add Dex to Existing Code
 
-This page turns code you already run into a Flow, so it continues after a crash, a restart, or a long wait. The same steps apply to:
+This page turns code you already run, such as a function, a queue consumer, a cron job, a webhook handler, or a script, into a Flow that continues after a crash, a restart, or a long wait.
 
-- a function that calls several services in a row;
-- a queue consumer or an event handler;
-- a cron job or a background job;
-- a webhook handler that does more than one thing;
-- a chain of calls across services, such as a saga;
-- a script that someone reruns by hand when it stops.
+<FunctionToFlowDiagram markdownDescription="Before: one function charges the buyer, waits for approval, ships, and refunds; a crash leaves it half done. After: a Flow of Steps, Charge then Ship, which waits for approval or 24 hours, then Done, with Refund when Ship fails." />
 
-The worked example below is one order function. [Order Processing](/use-cases/order-processing) has its full code in every SDK.
+<CodingAgentBox>
 
-## Before you start: install the SDK {#install}
+```text
+Turn <function> in <file> into a Dex Flow.
+
+1. Read https://docs.superdurable.io/intro/add-to-existing-code.md and treat it
+   as the source of truth.
+2. Give each call that changes another system its own Step, move waits into
+   WaitFor, and keep state in Attributes.
+3. Add an idempotency key to every external write.
+4. Add an integration test that runs against dexcli dev.
+
+Rules: keep the existing behavior. Do not invent APIs. Ask me before changing
+code outside this function.
+```
+
+</CodingAgentBox>
+
+<a id="with-a-coding-agent"></a>
+
+## Install the SDK {#install}
 
 Add the SDK and a Worker to the service that runs this code. [Add Dex to an existing service](/components/application#add-to-a-service) shows the install command for each language and where the Worker and Client go.
 

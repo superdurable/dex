@@ -469,6 +469,22 @@ html[data-theme='dark'] {
   gap: 0.75rem;
 }
 
+.docs-section-entry__icon--logo {
+  --section-icon-bg: color-mix(in srgb, #2563eb 12%, transparent);
+  --section-icon-fg: #2563eb;
+}
+
+html[data-theme='dark'] .docs-section-entry__icon--logo {
+  --section-icon-bg: color-mix(in srgb, #60a5fa 16%, transparent);
+  --section-icon-fg: #60a5fa;
+}
+
+.docs-section-entry:hover .docs-section-entry__icon--logo,
+.docs-section-entry:focus-visible .docs-section-entry__icon--logo {
+  background: var(--section-icon-fg);
+  color: var(--docs-tint);
+}
+
 .docs-harness-cards .docs-section-entry {
   margin: 0;
   align-items: flex-start;
@@ -776,5 +792,122 @@ html[data-theme='dark'] .exec-node {
 
   .theme-doc-markdown > h2 {
     margin-top: 2.5rem;
+  }
+}
+
+/* ---------- Coding agent box: a short card at the top of task guides; it opens to install and the full prompt ---------- */
+.coding-agent-box {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0 1.5rem;
+  padding: 0.6rem 0.75rem 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--sd-accent) 35%, var(--docs-hairline));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sd-accent) 6%, var(--docs-tint));
+}
+
+.coding-agent-box > * {
+  min-width: 0;
+}
+
+.coding-agent-box__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.coding-agent-box__icon {
+  display: grid;
+  flex: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+}
+
+.coding-agent-box__title {
+  min-width: 0;
+  color: var(--docs-heading);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.coding-agent-box__copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--sd-accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--docs-tint);
+  color: var(--docs-heading);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coding-agent-box__copy:hover,
+.coding-agent-box__copy:focus-visible {
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+}
+
+.coding-agent-box__label {
+  margin: 0;
+  color: var(--docs-subtle);
+  font-size: 0.88rem;
+}
+
+.coding-agent-box .coding-agent-box__tabs {
+  margin-bottom: 0;
+}
+
+.coding-agent-box .theme-code-block {
+  margin-bottom: 0;
+}
+
+/* Closed: the prompt shows its first lines and fades out. */
+.coding-agent-box:not(.coding-agent-box--open) .coding-agent-box__prompt {
+  max-height: 7.8rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+.coding-agent-box:not(.coding-agent-box--open) .coding-agent-box__prompt button {
+  display: none;
+}
+
+.coding-agent-box__toggle {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.1rem;
+  border: 0;
+  background: none;
+  color: var(--sd-accent);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coding-agent-box__chevron {
+  transition: transform 160ms ease;
+}
+
+.coding-agent-box--open .coding-agent-box__chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coding-agent-box__chevron {
+    transition: none;
   }
 }

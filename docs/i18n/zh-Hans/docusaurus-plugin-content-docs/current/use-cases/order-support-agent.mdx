@@ -482,8 +482,6 @@ export function createVercelAiOrderSupportFlow(
 
 ## Worker {#register-the-worker}
 
-[把 Session 接入你的应用](/agent-frameworks/add-to-your-agent#wire-it-into-your-app)列出了你自己的应用需要的各个部分，每个部分一行说明。这段代码中的 blob cache 是存放大型 Flow 值的本地缓存；[Registry 和 blob cache](/components/application#blob-cache)介绍了它。
-
 一个 Worker 为示例中所有 harness 的 Session Flow 提供服务。在 Python 中，Agent Session 的 Step 是 async 的，所以 Registry 允许 async handler。每个启动 Session 或调用其 RPC 的进程，都要构建同一个 Session Flow。Registry、Worker 和 Client 的设置对每个框架都一样；每个标签页只展示该框架的 Session Flow 如何构建和注册。
 
 <SdkTabs
@@ -722,6 +720,8 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 
 </FrameworkTab>
 </FrameworkTabs>
+
+[把 Session 接入你的应用](/agent-frameworks/add-to-your-agent#wire-it-into-your-app)列出了你自己的应用需要的各个部分，每个部分一行说明。这段代码中的 blob cache 是存放大型 Flow 值的本地缓存；[Registry 和 blob cache](/components/application#blob-cache)介绍了它。
 
 ## Session 路由 {#session-routes}
 

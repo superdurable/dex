@@ -1,11 +1,13 @@
 ---
-title: 生产环境中的 Agent
-sidebar_label: 生产环境中的 Agent
+title: 在生产环境运行 Agent
+sidebar_label: 在生产环境运行 Agent
 slug: /agent-frameworks/production
 description: "在生产环境运行 Agent Session 之前的检查清单：你运行的 server、认证、保留期、Session 与花费上限、升级、tracing、审批期限和 Worker 规格。"
 ---
 
-# 生产环境中的 Agent
+import AgentDeploymentDiagram from '@site/src/components/diagrams/AgentDeploymentDiagram';
+
+# 在生产环境运行 Agent
 
 Agent Session 和其他所有 Flow 运行在同一个 Dex Server 上。把 Session 交给用户使用之前，逐项检查下面的内容。每一行都链接到包含详情的页面。
 
@@ -30,17 +32,7 @@ Agent Session 和其他所有 Flow 运行在同一个 Dex Server 上。把 Sessi
 
 生产环境有三类进程：
 
-```text
- users ──▶ web app replicas            Worker processes
-           (Client: start sessions,    (session Flow: RunModel,
-            send messages, stream)      tool calls, approvals)
-                 │                            ▲
-                 │  RPCs, reads              │  pull tasks (outbound only)
-                 ▼                            │
-              ┌──────────────── Dex Server ───┴──┐
-              │  session state in object storage │
-              └──────────────────────────────────┘
-```
+<AgentDeploymentDiagram markdownDescription="用户访问 Web 应用副本，它们持有 Client，向 Dex Server 发送 RPC 和读取请求。Worker 进程通过出站连接从 Dex Server 拉取任务，运行 Session Flow：模型调用、Tool Call 和审批。Dex Server 把 Session 状态保存在对象存储中。" />
 
 - **Web app replica** 持有 Client。它们启动 Session、发送消息并流式返回回复。它们需要 Session Flow 的定义来编码调用，但从不运行 Step。
 - **Worker 进程** 运行 Session Flow：每次模型调用、Tool Call 和审批等待。对小应用来说，web 进程也可以同时托管 Worker，Agent 快速开始程序就是这样做的。
@@ -79,14 +71,12 @@ from dex_agents import AgentSnapshot, MessageRole
 # A lost response leaves a send's outcome unknown; these codes mean "check first".
 UNCERTAIN_CODES = (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)
 
-
 class MessageSessions(Protocol):
     async def get_agent_snapshot(self, session_id: str) -> AgentSnapshot: ...
 
     async def send_user_message(self, session_id: str, text: str) -> bool: ...
 
     async def delete_queued_message(self, session_id: str, message_id: str) -> bool: ...
-
 
 async def send_user_message_once(
     sessions: MessageSessions,
@@ -118,7 +108,6 @@ async def send_user_message_once(
             break
     await _delete_extra_copies(sessions, session_id, text, copies_before + 1)
 
-
 async def _delete_extra_copies(
     sessions: MessageSessions, session_id: str, text: str, wanted: int
 ) -> None:
@@ -129,7 +118,6 @@ async def _delete_extra_copies(
         return
     for item in reversed(queued[max(0, len(queued) - extra) :]):
         await sessions.delete_queued_message(session_id, item.message_id)
-
 
 def _copies(snapshot: AgentSnapshot, text: str) -> int:
     delivered = sum(

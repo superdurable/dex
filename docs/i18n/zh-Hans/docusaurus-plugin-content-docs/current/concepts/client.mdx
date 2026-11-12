@@ -31,7 +31,7 @@ FlowService 请求 `PublishToChannel` 在没有 Worker 连接时也会把 Channe
 
 ## 一个命令最多处理一次 {#inbound-commands}
 
-Dex 目前会再次执行重复的命令。调用方在响应丢失后重试的 RPC 会再运行一次，重复的 `PublishToChannel` 会把消息投递两次。[限制](/intro/limits#requests-that-can-repeat) 跟踪计划中的修复。
+Dex 目前会再次执行重复的命令。调用方在响应丢失后重试的 RPC 会再运行一次，重复的 `PublishToChannel` 会把消息投递两次。
 
 按所有 Worker 都停止时必须成立的条件选择方式：
 
@@ -39,6 +39,8 @@ Dex 目前会再次执行重复的命令。调用方在响应丢失后重试的 
 - **`PublishToChannel`** 在没有 Worker 连接时也会保存命令，等待中的 Step 之后再处理它。
 
 在 Dex 丢弃重复之前，请在 Flow 里丢弃它们。让调用方为每个命令生成一个请求 ID，并随 RPC 参数或 Channel 消息一起发送。把 Flow 已经处理过的 ID 保存在一个 Attribute 或 AttributeMap 里。处理命令的 RPC 或 Step 先检查这份记录，对已经处理过的 ID 什么也不做。如果有多个 Step 或 RPC 可能同时处理命令，就给这份记录[加锁](/concepts/primitives/attribute#locking)。
+
+[限制](/intro/limits#requests-that-can-repeat) 跟踪计划中的修复。
 
 ## 和其他原语的关系 {#related-primitives}
 

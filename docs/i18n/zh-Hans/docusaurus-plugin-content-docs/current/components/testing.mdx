@@ -12,6 +12,20 @@ description: 用 dexcli dev 启动的真实 Dex Server 测试 Flow。测试运�
 
 **dexcli dev** 几秒内就能启动一个 server，所以每次测试运行都可以启动自己的 server。
 
+<CodingAgentBox>
+
+```text
+为 <FlowType> Flow 加一个集成测试。
+
+1. 阅读 https://docs.superdurable.io/zh-Hans/components/testing.md，把它当作唯一依据。
+2. 在 dexcli dev 启动的 server 上运行测试，使用测试自己的 Worker，每个 Flow 使用唯一的 Flow ID。
+3. 覆盖正常路径和一条失败路径。按 ID 跳过 Timer，用轮询等待，不要用 sleep。
+
+规则：不要 mock Dex。不要编造 API。
+```
+
+</CodingAgentBox>
+
 ## 为测试启动 server {#start-a-server-for-the-tests}
 
 在只给测试使用的端口和数据目录上启动 **dexcli dev**，这样测试永远碰不到你长期运行的本地 server：

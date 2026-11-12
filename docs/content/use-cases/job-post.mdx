@@ -40,29 +40,7 @@ The lock orders updates by when Dex accepts them, not by when clients sent them.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-One locked RPC produces updates. Two consumer Steps deliver them, each at its own pace:
-
-```text
-Create posting (version 0)
-             │
-             ▼
-          InitStep
-        ┌────┴────┐
-        ▼         ▼
- UpdateLinkedIn  UpdateIndeed
- Posting        Posting
-        │         │
- wait on LI     wait on Indeed
- Channel        Channel
-        ▲         ▲
-        │         │
-        └────┬────┘
-             │
- Update RPC [UpdatePostingLock]
- persist version N + publish the same PostingUpdate
-             │
-             └── return version N
-```
+One locked RPC produces updates. The two consumer Steps in the graph above deliver them, each at its own pace.
 
 It uses these patterns:
 
@@ -92,7 +70,6 @@ UPDATE_VERSION = Attribute("UpdateVersion", int)
 UPDATE_POSTING_LOCK = Attribute("UpdatePostingLock", type(None))
 LINKEDIN_POSTING_UPDATES = Channel("LinkedInPostingUpdates", PostingUpdate)
 INDEED_POSTING_UPDATES = Channel("IndeedPostingUpdates", PostingUpdate)
-
 
 class JobPostingFlow(Flow[None]):
     update_version = UPDATE_VERSION
@@ -138,14 +115,12 @@ class JobPostingFlow(Flow[None]):
         self.indeed_posting_updates.publish(context, update)
         return RPCResult(version)
 
-
 class InitStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         return go_to_many(
             StepMovement.of(UpdateLinkedInPosting, None),
             StepMovement.of(UpdateIndeedPosting, None),
         )
-
 
 class UpdateLinkedInPosting(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:

@@ -13,11 +13,13 @@ links to the page that covers it.
 
 <a id="defaults-to-change-before-production"></a>
 
-Three defaults need a change before launch. [Run Dex in Production](/components/production#defaults-to-change-before-production) says how to change each one.
+Three defaults need a change before launch.
 
 - **Closed runs are kept for 7 days.** After that the server deletes the run with its Step history, and its Flow ID can start a new Flow.
 - **Public API authentication is off.** Any client that reaches the server can call it until you configure an authenticator.
 - **Step retries stop after 4 hours.** The Flow then fails, unless the Step has its own retry policy or a failure route.
+
+[Run Dex in Production](/components/production#defaults-to-change-before-production) says how to change each one.
 
 ## Capacity and availability
 
@@ -75,8 +77,6 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 
 ## Requests that can repeat
 
-[Send a command at most once](/concepts/client#inbound-commands) gives the pattern that drops a repeated command.
-
 - **A Step runs at least once.** See
   [Idempotency keys](/concepts/step#idempotency-keys).
 - **An ASYNC Step can rerun on a new snapshot.** If a server node fails before
@@ -91,6 +91,8 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 - **A retried StopFlow without a run ID can stop a newer run.** Pass the run ID.
   Doing this for you is planned in
   [issue 1520](https://github.com/superdurable/dex/issues/1520).
+
+[Send a command at most once](/concepts/client#inbound-commands) gives the pattern that drops a repeated command.
 
 ## Workers and code
 

@@ -17,4 +17,5 @@ export const agentFrameworks = [
   {id: 'openai-agents-sdk', label: 'OpenAI Agents SDK'},
   {id: 'pydantic-ai', label: 'Pydantic AI'},
   {id: 'vercel-ai-sdk', label: 'Vercel AI SDK'},
+  {id: 'built-in-agent-loop', label: 'Built-in agent loop'},
 ];

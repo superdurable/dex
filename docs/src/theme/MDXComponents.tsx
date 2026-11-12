@@ -14,6 +14,7 @@ import DexSkillHostTabs from '@site/src/components/DexSkillHostTabs';
 import SdkTabs, {SdkSnippet} from '@site/src/components/SdkTabs';
 import ScreenshotPlaceholder from '@site/src/components/ScreenshotPlaceholder';
 import DocsFlowDefinitionGraph from '@site/src/components/DocsFlowDefinitionGraph';
+import CodingAgentBox from '@site/src/components/CodingAgentBox';
 import DocsSection from '@site/src/components/DocsSection';
 import FrameworkTabs, {FrameworkTab} from '@site/src/components/FrameworkTabs';
 import CrashTimeline from '@site/src/components/crashTimeline/CrashTimeline';
@@ -36,6 +37,7 @@ export default {
   SdkSnippet,
   ScreenshotPlaceholder,
   DocsFlowDefinitionGraph,
+  CodingAgentBox,
   DocsSection,
   FrameworkTabs,
   FrameworkTab,

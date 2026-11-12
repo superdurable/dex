@@ -1,0 +1,145 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+
+/* Narrow: app, server, and Worker stack. Wide: the server sits between them. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'app' 'to' 'server' 'from' 'worker';
+  gap: 0.4rem;
+}
+
+.app,
+.worker {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.65rem 0.65rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.app {
+  grid-area: app;
+}
+
+.worker {
+  grid-area: worker;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toServer {
+  grid-area: to;
+}
+
+.toWorker {
+  grid-area: from;
+}
+
+.toServer,
+.toWorker {
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0;
+}
+
+.layout .toServer > .wide,
+.layout .toWorker > .wide {
+  display: none;
+}
+
+div.layout .server {
+  grid-area: server;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.hosting {
+  margin-top: 0.2rem;
+  color: var(--cd-accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.frameworks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr));
+  gap: 0.35rem;
+}
+
+.framework {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 9px;
+  background: var(--cd-tile);
+  color: var(--cd-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.framework svg {
+  flex: none;
+  color: var(--cd-external);
+}
+
+.framework.dex svg {
+  color: var(--cd-accent);
+}
+
+.adapter {
+  padding: 0.4rem 0.55rem;
+  border-radius: 9px;
+  background: var(--cd-accent-tint);
+  color: var(--cd-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+@container (min-width: 40rem) {
+  .layout {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 4.2rem) minmax(0, 0.8fr) minmax(0, 4.6rem) minmax(0, 1.75fr);
+    grid-template-areas: 'app to server from worker';
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .toServer,
+  .toWorker {
+    padding: 0;
+  }
+
+  .layout .toServer > .wide,
+  .layout .toWorker > .wide {
+    display: flex;
+  }
+
+  .layout .toServer > .narrow,
+  .layout .toWorker > .narrow {
+    display: none;
+  }
+
+  .frameworks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

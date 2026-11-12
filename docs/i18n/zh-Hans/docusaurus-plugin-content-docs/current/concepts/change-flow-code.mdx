@@ -8,7 +8,21 @@ description: 在 Flow 仍未关闭时怎样部署修改后的 Flow 代码，附�
 
 # 修改 Flow 代码
 
-Flow 可能保持打开几天甚至几个月，所以新代码经常会遇到在旧代码下启动的 Flow。这一页介绍怎样安全地修改代码，以及修复之后怎样重新运行 Flow。[故障转移和部署](/concepts/failover-and-deploys) 列出部署期间哪些会重新运行。
+Flow 可能保持打开几天甚至几个月，所以新代码经常会遇到在旧代码下启动的 Flow。这一页介绍怎样安全地修改代码，以及修复之后怎样重新运行 Flow。
+
+<CodingAgentBox>
+
+```text
+检查我对 <FlowType> Flow 的修改，对它未结束的 Flow 是否安全。
+
+1. 阅读 https://docs.superdurable.io/zh-Hans/concepts/change-flow-code.md，把它当作唯一依据。
+2. 按那一页的检查项比较新旧代码。
+3. 告诉我哪些检查通过、哪些不通过，以及每个不通过的项怎样修复。
+
+规则：只读。不要部署、停止或重跑任何 Flow。
+```
+
+</CodingAgentBox>
 
 ## Flow 代码的版本管理 {#versioning-flow-code}
 
@@ -44,7 +58,7 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 ### 部署前检查 {#check-before-you-deploy}
 
-要用未结束的 Flow 测试新的 Worker 构建，运行下面这些检查。Dex 目前还没有一个命令完成这些检查：
+要用未结束的 Flow 测试新的 Worker 构建，运行下面这些检查：
 
 1. **列出这个类型的未结束的 Flow。** 搜索正在运行的 Flow，以及它们正在等待的 Step 类型。`ActiveStepTypes` 是一个内置的搜索字段。
 
@@ -59,6 +73,8 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
    2. 优雅地停止这个 Worker。
    3. 用新构建对同一个 Dex Server 启动一个 Worker。用 `skip-timer` 跳过 Timer，发送 Flow 正在等待的消息，然后等每个 Flow 结束。
    4. 检查每个 Flow 的结果和 Attribute，并确认新构建没有产生解码错误。
+
+这些检查需要手动完成，因为 Dex 目前还没有一个命令完成这些检查。
 
 ### 示例：给 Charge 加一笔费用 {#versioning-example}
 
@@ -84,6 +100,6 @@ Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute�
 
 ## 下一步 {#next}
 
-- [故障转移和部署](/concepts/failover-and-deploys)
+- [故障转移和部署](/concepts/failover-and-deploys)：部署期间哪些会重新运行。
 - [Step 的保证](/concepts/step#guarantees)
 - [Application（Worker 和 Client）](/components/application)

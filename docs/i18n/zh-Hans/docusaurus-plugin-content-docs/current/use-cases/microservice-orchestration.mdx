@@ -36,15 +36,7 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-这个 Flow 分叉一次，有两种完成方式：
-
-```text
-CallAPI1 ─┬─▶ CallAPI2 ─▶ DeadEnd
-          │
-          └─▶ Wait(Ready | 24h Timer) ─▶ CallAPI3 ─┬─▶ Complete
-                                                   └─▶ CallAPI4 ─▶ Complete
-                                                        (仅 Timer)
-```
+如上图所示，这个 Flow 分叉一次，有两种完成方式。
 
 它组合了以下设计模式：
 
@@ -107,7 +99,6 @@ class CallAPI1(Step[str]):
             StepMovement.of(CallAPI2, None),
             StepMovement.of(CallAPI3, None),
         )
-
 
 class CallAPI3(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:

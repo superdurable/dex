@@ -8,7 +8,7 @@ description: 单个 Dex Server 节点在 AWS 上使用 S3 时的实测吞吐和�
 
 # 性能
 
-本页给出单个 Dex Server 节点的实测数据和运行成本。每次运行及其设置都在 [benchmark 结果目录](https://github.com/superdurable/dex/tree/main/benchmark/results)里，[复现结果](#reproduce-a-result)说明怎样重跑其中一次。
+本页给出单个 Dex Server 节点的实测数据和运行成本。
 
 ## benchmark 怎样运行 {#how-the-benchmark-ran}
 
@@ -19,6 +19,8 @@ description: 单个 Dex Server 节点在 AWS 上使用 S3 时的实测吞吐和�
 - **版本：** Step、Flow 和 Channel 唤醒使用 Dex Server（server-zd）v0.1.23；RPC 和读取使用 v0.1.25。
 - **运行方式：** 每个测试点在一个新 server 上先预热 10 秒，再测量 45 秒。大多数测试点运行三次，表中给出中位数。Flow 启动的每个测试点只运行一次。
 - **负载模型：** 固定数量的并发 client，每个 client 在上一个请求返回后发送下一个请求。server 繁忙之后，延迟随 client 数增长。
+
+每次运行及其设置都在 [benchmark 结果目录](https://github.com/superdurable/dex/tree/main/benchmark/results)里，[复现结果](#reproduce-a-result)说明怎样重跑其中一次。
 
 ## 峰值吞吐 {#peak-throughput}
 

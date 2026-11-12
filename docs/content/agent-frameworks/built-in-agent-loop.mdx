@@ -39,8 +39,6 @@ A failed `RunModel` retries. After its third attempt, the turn fails and the ses
 
 ## Install
 
-In TypeScript, the Dex SDK is a peer package, so install it too.
-
 <SdkTabs
   examples={{
     python: 'agents/python/core',
@@ -61,6 +59,8 @@ npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
 
 </SdkSnippet>
 </SdkTabs>
+
+In TypeScript, the Dex SDK is a peer package, so install it too.
 
 The **litellm** extra and the **ai** package add model clients. The **mcp** extra and `@modelcontextprotocol/sdk` add MCP tools. Leave out what you do not use.
 
@@ -397,188 +397,15 @@ The example page has its own approval buttons. To approve from Dex Web instead, 
 
 ### Approve in Dex Web {#approve-in-dex-web}
 
-Dex Web needs the session graph to show the **Agent session** tab and its controls. Render the graph once for the Flow type into a directory, and start **dexcli dev** with `--flow-rendering-dir`. If **dexcli dev** already runs without that flag, stop it first. Dex Web reads the directory again on each page load, so a graph you render again shows without a restart:
-
-```bash
-mkdir -p definitions
-dex-agents-session-graph --flow-type AIAgentSession --permission ai-agent.operate \
-  --out definitions/ai-agent.json
-dexcli dev --flow-rendering-dir ./definitions
-```
-
-Both the Python and the TypeScript package install **dex-agents-session-graph**. From `examples/python`, run it with **uv run --frozen**. From `examples/typescript`, run it with `npx`.
-
-Open the session's run in Dex Web and select the **Agent session** tab. Choose **Working as** the permission you rendered, such as `ai-agent.operate`. Then select **Approve** or **Reject** on the tool call card. See [Show sessions in Dex Web](/reference/agents/dex-web) for production.
+To approve a built-in loop call in Dex Web, use the Flow type **AIAgentSession** and the permission `ai-agent.operate`. Dex Web approves it the same way as any other session; [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows how.
 
 ## Connect Connectors {#connect-connectors}
 
-The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks/connectors-as-tools#connectors-as-tools) describes. The example adds the Slack tool `slack_post_thread_reply`, which replies in a Slack thread.
+<a id="offer-connector-tools"></a>
+<a id="connector-tool-calls"></a>
+<a id="configure-connector-connection"></a>
 
-### Offer the tool {#offer-connector-tools}
-
-In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install `@superdurable/connectors-sdk` and the Connector package, such as `@superdurable/connector-slack`. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` in Python and `connectorTool` in TypeScript turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/products/ai-agent/slack_connector_tools.py',
-    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
-    """Returns the Slack tool source, or no source when Slack is not configured."""
-    if connection is None:
-        return []
-    return [
-        ConnectorToolSource([
-            # The manifest does not ask for approval; this agent asks before every post.
-            connector_tool(
-                connection.post_thread_reply(), connection.reference, requires_approval=True
-            ),
-        ]),
-    ]
-
-# ...
-
-async def open_slack_project_connection(
-    environment: Mapping[str, str] = os.environ,
-) -> SlackProjectConnection | None:
-    # ...
-    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
-    try:
-        project = await load_from_environment(environment)
-    except FileNotFoundError:
-        _log_slack_not_set_up("the connector configuration file does not exist")
-        return None
-    # ...
-    try:
-        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
-    except BaseException:
-        await project.close()
-        raise
-    return SlackProjectConnection(project, connection)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-export async function openSlackConnectionFromProject(
-  environment: NodeJS.ProcessEnv = process.env,
-): Promise<Connection | undefined> {
-  // ...
-  const project = await loadFromEnvironment(environment);
-  // ...
-  return newProjectConnection(project, slackConnectionName);
-}
-
-// ...
-
-export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
-  if (slack === undefined) {
-    return [];
-  }
-  return [
-    new ConnectorToolSource([
-      connectorTool(slack.operations.postThreadReply(), slack.reference, {
-        manifest,
-        inputValidator: PostThreadReplyInputSchema,
-        // The manifest does not ask for approval; this agent asks before every post.
-        requiresApproval: true,
-      }),
-    ]),
-  ];
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/main.py',
-    typescript: 'examples/typescript/src/registry.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-async def main() -> None:
-    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-    config = ExamplesConfig.from_env()
-    slack_setup = await open_slack_project_connection()
-    try:
-        app_state = ExampleApp(config, slack_setup.connection if slack_setup else None)
-        # ...
-    finally:
-        if slack_setup is not None:
-            await slack_setup.aclose()
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-// One Slack connection for the agent examples; without it they offer no Slack tools.
-const slack = await openSlackConnectionFromProject();
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent takes the Slack tool source next to the MCP tool source:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
-    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-    mcp_tool_sources = (
-        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
-    )
-    definition = AgentDefinition(
-        # ...
-        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
-        # ...
-    )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
-      toolSources: [
-        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
-        ...createSlackConnectorToolSources(slack),
-      ],
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-### How a call runs {#connector-tool-calls}
-
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
-
-### Configure the connection {#configure-connector-connection}
-
-[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
-
-To try it, start the example with `DEX_CONNECTOR_CONFIG_FILE` set. The demo model calls the tool directly:
-
-```text
-/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Hello from Dex"}
-```
-
-The post waits for **Approve** before it runs.
+The agent can call [Connector](/concepts/connector) operations as tools. [Connectors as Tools](/agent-frameworks/connectors-as-tools/?framework=built-in-agent-loop#connect-connectors) shows the built-in loop's code on its own tab.
 
 ## Limits
 

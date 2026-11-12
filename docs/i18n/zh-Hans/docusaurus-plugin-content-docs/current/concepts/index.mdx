@@ -6,9 +6,15 @@ slug: /concepts
 description: "Dex 的编程模型很小。Flow 是一个持久化程序，Step 推动它前进，原语保存它的状态并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。"
 ---
 
+import FlowModelDiagram from '@site/src/components/diagrams/FlowModelDiagram';
+
 # 概念
 
 Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进。原语（Primitive）保存它的状态，并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。
+
+<a id="how-they-fit-together"></a>
+
+<FlowModelDiagram markdownDescription="你的应用通过 Client 启动 Flow、调用它的 RPC、读取或等待它的 Attribute，并接收 Stream 的实时更新。在一个 Flow（一个 Flow ID）内部，Step 依次运行，等待 Channel、Timer 和 SubFlow，并调用 Connector；Flow 保存 Attribute、Channel 和 Stream。" />
 
 ## Flow 和 Step {#flow-and-step}
 
@@ -39,27 +45,6 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 [Connector](/concepts/connector) 把 Flow 连接到外部服务商，例如邮件或支付服务。它为你的 Flow 提供调用该服务商的现成 Step，以及根据服务商事件启动或更新 Flow 的 Trigger。
 
 <a id="它们如何配合"></a>
-
-## 它们如何配合 {#how-they-fit-together}
-
-```text
- Your application                      One Flow (one Flow ID)
- ┌────────────┐   StartFlow, RPC      ┌──────────────────────────────────┐
- │   Client   │ ────────────────────▶ │  Step ──▶ Step ──▶ Step ...      │
- │            │   GetAttributes, wait │   waits on Channel, Timer,       │
- │            │ ◀──────────────────── │   SubFlow; calls Connectors      │
- │            │   Stream (live)       │                                  │
- │            │ ◀──────────────────── │  Attributes  Channels  Streams   │
- └────────────┘                       └──────────────────────────────────┘
-```
-
-**Flow** 是容器。一个 Flow ID（例如订单号）同一时间最多只有一个活跃的 run。
-
-**Step** 推动 Flow 前进。Step 可以等待 Channel 消息、Timer 或 SubFlow。然后它执行自己的工作，例如通过 Connector 发起调用。它返回一个决定，指定接下来的 Step，或者结束 Flow。Step 失败时 Dex 会重试。
-
-**Attribute** 和 **Channel** 是 Flow 的持久化状态。Step 和 RPC 读写它们。Dex 把一个 Step 方法或 RPC 的状态修改和它的结果一起保存。见 [Step 的保证](/concepts/step#guarantees)。
-
-你的应用用 **Client** 启动 Flow、调用 RPC、读取 Attribute，以及等待变化。要修改一个正在运行的 Flow，你的应用调用 RPC。**Stream** 把实时更新带回 UI。
 
 <a id="component"></a>
 

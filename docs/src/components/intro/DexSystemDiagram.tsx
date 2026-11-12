@@ -43,9 +43,9 @@ const EN: Copy = {
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: 'Persists Flow instances and execution.',
-  operate: 'OPERATE · CONNECTS TO DEX SERVER',
-  cli: 'Runs Dex locally and operates Flows from a shell.',
-  web: 'Inspect and act on Flows in the browser.',
+  operate: 'OPERATE',
+  cli: 'Run Dex locally; manage Flows.',
+  web: 'Inspect and act on Flows.',
 };
 
 const ZH: Copy = {
@@ -55,26 +55,28 @@ const ZH: Copy = {
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: '持久化 Flow 实例及其执行。',
-  operate: '运维 · 连接 Dex Server',
-  cli: '在本机运行 Dex，并在终端中操作 Flow。',
-  web: '在浏览器中查看和操作 Flow。',
+  operate: '运维',
+  cli: '本机运行 Dex，管理 Flow。',
+  web: '查看和操作 Flow。',
 };
 
 function RoleNode({
   icon,
   title,
   detail,
+  tone = 'neutral',
   className,
 }: {
   icon: LucideIcon;
   title: string;
   detail: string;
+  tone?: 'neutral' | 'accent';
   className: string;
 }): ReactNode {
   return (
-    <Tile className={clsx(styles.role, className)}>
+    <Tile tone={tone} className={clsx(styles.role, className)}>
       <span className={styles.roleHeading}>
-        <IconBadge icon={icon} isSmall />
+        <IconBadge icon={icon} tone={tone} isSmall />
         <TileTitle>{title}</TileTitle>
       </span>
       <Detail>{detail}</Detail>
@@ -141,8 +143,8 @@ export default function DexSystemDiagram({
             <span className={styles.toolsLabel}>
               <Eyebrow icon={Wrench}>{copy.operate}</Eyebrow>
             </span>
-            <RoleNode icon={SquareTerminal} title="dexcli" detail={copy.cli} className={styles.tool} />
-            <RoleNode icon={Monitor} title="Dex Web" detail={copy.web} className={styles.tool} />
+            <RoleNode icon={SquareTerminal} title="dexcli" detail={copy.cli} tone="accent" className={styles.tool} />
+            <RoleNode icon={Monitor} title="Dex Web" detail={copy.web} tone="accent" className={styles.tool} />
           </div>
         ) : null}
       </div>

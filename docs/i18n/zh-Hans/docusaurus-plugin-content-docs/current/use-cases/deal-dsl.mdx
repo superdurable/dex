@@ -37,31 +37,7 @@ Flow 只会等待前置条件消息、状态转换消息，以及 Step 重试前
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-这个 Flow 是一个小型解释器。定义决定业务路径，由四种 Step 来运行：
-
-```text
-DealStart（定义快照、买家、商品）
-                    │
-                    ▼
-              InitializeDeal
-                    │
-                    ▼
-          WaitForDealCondition ◄──────────────┐
-              等待键控 Channel              │
-                    │                         │
-                    ▼                         │
-           ExecuteDealAction                 │
-             每个动作一个 execution          │
-                    │                         │
-                    ▼                         │
-         EvaluateDealTransition              │
-             可选等待 + 分支 / 兜底           │
-                    │                         │
-              有下一状态？── 是 ─────────────┘
-                    │ 否
-                    ▼
-              用累计状态数据完成
-```
+这个 Flow 是一个小型解释器。定义决定业务路径，由上图中的四种 Step 来运行。
 
 它用到以下模式：
 
@@ -124,7 +100,6 @@ class DealDSLFlow(Flow[DealStart]):
             self.condition_messages,
         )
 
-
 class InitializeDeal(Step[DealStart]):
     def execute(self, context: Context, input: DealStart) -> StepDecision:
         definition = input.definition
@@ -135,7 +110,6 @@ class InitializeDeal(Step[DealStart]):
         self.flow.buyer_id.set(context, input.buyer_id)
         self.flow.state_data.set(context, dict(definition.initial_state_data))
         return go_to(WaitForDealCondition, StateStepInput(definition.initial_state))
-
 
 class WaitForDealCondition(Step[StateStepInput]):
     def wait_for(self, context: Context, input: StateStepInput) -> Wait:
@@ -155,7 +129,6 @@ class WaitForDealCondition(Step[StateStepInput]):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, 0))
         return go_to(EvaluateDealTransition, input)
 
-
 class ExecuteDealAction(Step[ActionStepInput]):
     def execute(self, context: Context, input: ActionStepInput) -> StepDecision:
         state = self.flow.definition.get(context).state(input.state_name)
@@ -166,7 +139,6 @@ class ExecuteDealAction(Step[ActionStepInput]):
         if next_index < len(state.actions):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, next_index))
         return go_to(EvaluateDealTransition, StateStepInput(state.name))
-
 
 class EvaluateDealTransition(Step[StateStepInput]):
     def wait_for(self, context: Context, input: StateStepInput) -> Wait:

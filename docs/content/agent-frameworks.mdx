@@ -4,9 +4,21 @@ title: Durable Agents
 sidebar_label: Durable Agents
 ---
 
+import AgentStackDiagram from '@site/src/components/diagrams/AgentStackDiagram';
+
 # Durable Agents
 
 Dex runs an AI agent as a durable agent session. Build the agent with the built-in agent loop of Dex Agents, or keep one you already wrote with an agent framework; both run on the same session Flow.
+
+A durable agent on Dex has three parts:
+
+- **Your app:** a web app or API that uses a Dex Client to start sessions, send messages, and stream replies.
+- **Dex Server:** stores each session and hands its work to Workers. It runs in Dex Cloud or on your own infrastructure.
+- **Your agent Worker:** your agent, written with your framework or the built-in loop, running through the Dex Agents adapter.
+
+<AgentStackDiagram markdownDescription="Your app, a web app or API with a Dex Client, starts and drives sessions on Dex Server, which runs in Dex Cloud or self-hosted. Your agent Worker pulls Steps from Dex Server and runs your agent through the Dex Agents adapter, with Claude Agent SDK, Google ADK, LangChain and LangGraph, Mastra, OpenAI Agents SDK, Pydantic AI, Vercel AI SDK, or the built-in loop." />
+
+Your agent keeps its framework and code. Dex runs each session as a Flow and records every model call, tool call, and approval as a Step when it finishes. After a Worker crash or a deploy, the session picks up after the last finished call.
 
 ## What Dex adds to your agent {#what-dex-adds}
 
@@ -24,7 +36,7 @@ To see it, run the [Agent Quick Start](/agent-frameworks/quick-start). [Dex vs. 
 
 <a id="coming-from-a-framework"></a>
 
-A harness runs the agent loop: the built-in loop or a framework. Pick yours to open its Agent Quick Start; each framework's limits are on [Sessions](/agent-frameworks/sessions#limits).
+A harness runs the agent loop: the built-in loop or a framework. Pick yours to open its Agent Quick Start; each framework's details and limits are on [Framework Support](/agent-frameworks/framework-support).
 
 <div className="docs-home-sections docs-harness-cards">
   <DocsSection section="agent-frameworks" logo="claude-agent-sdk" to="/agent-frameworks/quick-start/?framework=claude-agent-sdk" title="Claude Agent SDK">
@@ -56,13 +68,14 @@ A harness runs the agent loop: the built-in loop or a framework. Pick yours to o
 ## Pages in this section {#pages}
 
 - [Agent Quick Start](/agent-frameworks/quick-start): run your agent on Dex, stop its Worker, and watch the session continue.
-- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent): what changes in your app, the install line for each framework, and how to wire a session into a web app.
-- [Sessions](/agent-frameworks/sessions): what a session keeps, [how your framework runs a turn](/agent-frameworks/sessions#how-each-framework-runs-a-turn), and [features by harness](/agent-frameworks/sessions#features-by-harness).
+- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent): what changes in your app and your code, the install line for each framework, and how to wire a session into a web app.
+- [Sessions](/agent-frameworks/sessions): what a session is and keeps, and what a turn costs.
 - [Tool Calls](/agent-frameworks/tool-calls): which calls retry and which run at most once.
 - [Approvals](/agent-frameworks/approvals): let a person approve a call before it runs.
 - [Connectors as Tools](/agent-frameworks/connectors-as-tools): call official Connector operations from the agent.
-- [Agents in Production](/agent-frameworks/production): the checklist before you run sessions in production.
+- [Framework Support](/agent-frameworks/framework-support): how your framework runs a turn, its session features, and its limits.
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): build a new agent without a framework.
+- [Run Agents in Production](/agent-frameworks/production): the checklist before you run sessions in production.
 - Examples: [AI Agent](/use-cases/ai-agent) on the built-in loop, and [Order Support Agent](/use-cases/order-support-agent) on each framework.
 
 In the [Agents reference](/reference/agents/): [Tracing](/reference/agents/tracing), [Upgrades](/reference/agents/upgrades), [Session limits](/reference/agents/session-limits), [Spend limits](/reference/agents/spend-limits), and [CLI commands](/reference/agents/cli).
