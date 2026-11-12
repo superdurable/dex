@@ -20,7 +20,7 @@ from typing import Any
 
 import grpc  # type: ignore[import-untyped]
 import pytest
-from dex import ErrorSubStatus, FlowAlreadyStartedError, StartFlowOptions
+from dex import ErrorSubStatus, FlowAlreadyStartedError, FlowNotFoundError, StartFlowOptions
 from jsonschema import Draft202012Validator
 
 from dex_agents import LocalDirectoryMediaStore
@@ -101,15 +101,28 @@ def test_colliding_keys_share_the_short_id_only(case: dict[str, Any]) -> None:
     assert [long for _, long in candidates] == case["long_session_ids"]
 
 
-class _FakeSessions:
-    """Answers StartFlow as the Dex server does for a request ID and ignore-already-started."""
+class _FakeServer:
+    """Answers StartFlow and DescribeFlow as the Dex server does for request IDs."""
 
     def __init__(self, started_request_ids: Mapping[str, str]) -> None:
         self.started_request_ids = dict(started_request_ids)
+        self.new_run_count = 0
+
+    async def describe_flow(self, session_id: str) -> object:
+        if session_id not in self.started_request_ids:
+            raise FlowNotFoundError(
+                grpc.StatusCode.NOT_FOUND,
+                ErrorSubStatus.FLOW_NOT_EXISTS,
+                "not found",
+                "DescribeFlow",
+                session_id,
+            )
+        return object()
 
     async def start_session(
         self, session_id: str, *, options: StartFlowOptions, start_environment: dict[str, str]
     ) -> str:
+        assert options.ignore_already_started
         started_by = self.started_request_ids.get(session_id)
         if started_by is not None and started_by != options.request_id:
             raise FlowAlreadyStartedError(
@@ -119,34 +132,58 @@ class _FakeSessions:
                 "StartFlow",
                 session_id,
             )
-        assert options.ignore_already_started
-        self.started_request_ids[session_id] = str(options.request_id)
+        if started_by is None:
+            self.new_run_count += 1
+            self.started_request_ids[session_id] = str(options.request_id)
         return session_id
 
     async def get_agent_snapshot(self, session_id: str) -> Any:
         return type("Snapshot", (), {"state": object()})()
 
 
-@pytest.mark.parametrize(
-    "case", load_cases("session_ids.json")["start_session_cases"], ids=case_name
-)
-async def test_start_session_cases(case: dict[str, Any]) -> None:
-    sessions = _FakeSessions(case["started_request_ids"])
-    hosted = HostedChatSession(
-        harness_name=case["harness"],
-        sessions=sessions,  # type: ignore[arg-type]
+def hosted_on(server: _FakeServer, harness: str) -> HostedChatSession:
+    return HostedChatSession(
+        harness_name=harness,
+        client=server,  # type: ignore[arg-type]
+        sessions=server,  # type: ignore[arg-type]
         media_store=None,  # type: ignore[arg-type]
         start_environment={},
         connectors=ConnectorsConfig(),
         connectors_mcp_url=None,
         web_url=None,
     )
-    outcome = await hosted.start_session({}, case["idempotency_key"])
-    if "error" in case["expected"]:
+
+
+def assert_start_outcome(outcome: RequestOutcome, expected: Mapping[str, Any]) -> None:
+    if "error" in expected:
         assert outcome.error is not None
-        assert outcome.error["code"] == case["expected"]["error"]
+        assert outcome.error["code"] == expected["error"]
     else:
-        assert outcome.result == {"session_id": case["expected"]["session_id"]}
+        assert outcome.result == {"session_id": expected["session_id"]}
+
+
+@pytest.mark.parametrize(
+    "case", load_cases("session_ids.json")["start_session_cases"], ids=case_name
+)
+async def test_start_session_cases(case: dict[str, Any]) -> None:
+    hosted = hosted_on(_FakeServer(case["started_request_ids"]), case["harness"])
+    assert_start_outcome(await hosted.start_session({}, case["idempotency_key"]), case["expected"])
+
+
+@pytest.mark.parametrize(
+    "sequence", load_cases("session_ids.json")["start_session_sequences"], ids=case_name
+)
+async def test_start_session_sequences(sequence: dict[str, Any]) -> None:
+    server = _FakeServer({})
+    hosted = hosted_on(server, sequence["harness"])
+    for step in sequence["steps"]:
+        if step["op"] == "purge":
+            del server.started_request_ids[step["session_id"]]
+            continue
+        runs_before = server.new_run_count
+        outcome = await hosted.start_session({}, step["idempotency_key"])
+        assert_start_outcome(outcome, step["expected"])
+        assert (server.new_run_count > runs_before) is step["starts_new_run"], step
 
 
 @pytest.mark.parametrize("case", load_cases("open_url.json")["cases"], ids=case_name)
@@ -402,7 +439,8 @@ async def test_the_worker_host_results_match_the_channel_schema(
 ) -> None:
     hosted = HostedChatSession(
         harness_name="scripted",
-        sessions=_FakeSessions({}),  # type: ignore[arg-type]
+        client=_FakeServer({}),  # type: ignore[arg-type]
+        sessions=_FakeServer({}),  # type: ignore[arg-type]
         media_store=LocalDirectoryMediaStore(tmp_path / "media"),
         start_environment={},
         connectors=ConnectorsConfig(),

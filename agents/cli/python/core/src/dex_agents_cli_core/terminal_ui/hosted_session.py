@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx2
-from dex import FlowAlreadyStartedError, StartFlowOptions
+from dex import AsyncClient, FlowAlreadyStartedError, FlowNotFoundError, StartFlowOptions
 
 from dex_agents import (
     MAX_IMAGE_BYTES,
@@ -67,6 +67,7 @@ class HostedChatSession:
         self,
         *,
         harness_name: str,
+        client: AsyncClient,
         sessions: AgentSessionClient,
         media_store: MediaStore,
         start_environment: Mapping[str, str],
@@ -78,6 +79,7 @@ class HostedChatSession:
 
         Args:
             harness_name: The prefix of session IDs.
+            client: The Dex Client, to describe Flows.
             sessions: The session client of the Flow the Worker serves.
             media_store: The store ``put_image`` writes to.
             start_environment: The ``start_environment`` of a new session.
@@ -86,6 +88,7 @@ class HostedChatSession:
             web_url: Dex Web's URL, for its connections, or ``None``.
         """
         self._harness_name = harness_name
+        self._client = client
         self._sessions = sessions
         self._media_store = media_store
         self._start_environment = dict(start_environment)
@@ -120,27 +123,47 @@ class HostedChatSession:
     ) -> RequestOutcome:
         """Start the session the key names, or find the one it already started.
 
-        The key is the start request's ID, so the Dex server returns the run
-        this key started and refuses a Flow ID another request holds.
+        Every start passes the key as the start request's ID, so the Dex
+        server returns the run this key started and refuses a Flow ID another
+        request holds. The long candidate is checked first, so a resend never
+        starts the short one while the long one already holds this key.
         """
-        options = StartFlowOptions(request_id=idempotency_key, ignore_already_started=True)
-        for session_id in candidate_session_ids(self._harness_name, idempotency_key):
-            try:
-                await self._sessions.start_session(
-                    session_id, options=options, start_environment=dict(self._start_environment)
-                )
-            except FlowAlreadyStartedError:
-                _LOGGER.info("another request holds session %s", session_id)
-                continue
-            except Exception:  # Any start failure is reported the same way.
-                _LOGGER.exception("start_session could not start %s", session_id)
-                return RequestOutcome.failed(
-                    "start_failed", f"Session {session_id} could not start; see the log."
-                )
-            return await self._wait_for_session(session_id)
+        short_id, long_id = candidate_session_ids(self._harness_name, idempotency_key)
+        try:
+            is_long_taken = await self._flow_exists(long_id)
+            if is_long_taken and await self._start_with_key(long_id, idempotency_key):
+                return await self._wait_for_session(long_id)
+            if await self._start_with_key(short_id, idempotency_key):
+                return await self._wait_for_session(short_id)
+            if not is_long_taken and await self._start_with_key(long_id, idempotency_key):
+                return await self._wait_for_session(long_id)
+        except Exception:  # Any start failure is reported the same way.
+            _LOGGER.exception("start_session could not start %s", short_id)
+            return RequestOutcome.failed(
+                "start_failed", f"Session {short_id} could not start; see the log."
+            )
         return RequestOutcome.failed(
             "id_conflict", "Other requests already started both session IDs this key derives."
         )
+
+    async def _flow_exists(self, session_id: str) -> bool:
+        try:
+            await self._client.describe_flow(session_id)
+        except FlowNotFoundError:
+            return False
+        return True
+
+    async def _start_with_key(self, session_id: str, idempotency_key: str) -> bool:
+        """Start a session with the key as its request ID; ``False`` when another key holds it."""
+        options = StartFlowOptions(request_id=idempotency_key, ignore_already_started=True)
+        try:
+            await self._sessions.start_session(
+                session_id, options=options, start_environment=dict(self._start_environment)
+            )
+        except FlowAlreadyStartedError:
+            _LOGGER.info("another request holds session %s", session_id)
+            return False
+        return True
 
     async def list_connectors(
         self, params: Mapping[str, Any], idempotency_key: str

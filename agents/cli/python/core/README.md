@@ -156,10 +156,12 @@ The steps of a run:
    when the launcher itself got SIGTERM, which it forwards.
 
 `start_session` derives `<name>-YYYYMMDD-HHMMSS-<6 hex digits>` from the
-request's key, then the same with 12 digits, and starts each with the key as
-the StartFlow request ID and `ignore_already_started`. The Dex server returns
-the session a key already started and refuses one another request holds, so a
-resent key never starts a second session, even from a new launcher.
+request's key, and the same with 12 digits. Every StartFlow passes the key as
+the request ID with `ignore_already_started`, so the Dex server returns the
+session a key already started and refuses one another request holds. It tries
+the long ID first when that Flow exists, then the short ID, then the long ID,
+and answers `id_conflict` when other keys hold both. A resent key never starts
+a second session while the server retains its run, even from a new launcher.
 
 **The Worker host never outlives the launcher for long.** It stops in order
 when the control channel ends, on `shutdown`, on SIGTERM, or when its

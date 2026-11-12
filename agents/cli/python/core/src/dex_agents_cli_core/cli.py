@@ -274,6 +274,7 @@ async def _open_hosted_run(
         raise WorkerHostStartupError(1, str(error)) from error
     hosted = HostedChatSession(
         harness_name=harness.name,
+        client=session_worker.client,
         sessions=session_worker.sessions,
         media_store=inputs.media_store,
         start_environment=session_start_environment(session_worker.identity),
