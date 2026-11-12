@@ -1,0 +1,28 @@
+==== model picker, width 80 ====
+
+  ␛[1;94mModel from the next turn␛[m
+␛[34m▸␛[m ␛[1;34mgpt-5.2   ␛[m  ␛[2mcurrent␛[m
+  gpt-5-mini
+  gpt-5-nano
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                       ␛[2mEnter choose · j/k move · Esc close␛[m
+
+==== effort picker, medium current, width 80 ====
+
+  ␛[1;94mReasoning effort from the next turn␛[m
+  low
+␛[34m▸␛[m ␛[1;34mmedium ␛[m  ␛[2mcurrent␛[m
+  high
+  default  ␛[2mthe model's own default␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mmedium effort␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                       ␛[2mEnter choose · j/k move · Esc close␛[m
+
+==== effort picker, medium current, width 40 ====
+
+  ␛[1;94mReasoning effort from the next turn␛[m
+  low
+␛[34m▸␛[m ␛[1;34mmedium ␛[m  ␛[2mcurrent␛[m
+  high
+  default  ␛[2mthe model's own default␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mmedium effort␛[2m ·…␛[m␛[2m␛[m
+ ␛[2mready␛[m           ␛[2mEnter choose · j/k move␛[m

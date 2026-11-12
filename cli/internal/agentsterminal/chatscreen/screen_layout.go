@@ -97,7 +97,7 @@ func (screen *ChatScreen) appendBlock(kind transcriptBlockKind, block transcript
 // handleScrollKey scrolls the message view and reports whether key did. Home
 // and End need an empty input.
 func (screen *ChatScreen) handleScrollKey(key tea.KeyPressMsg) bool {
-	if screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen {
+	if screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen || screen.settingPicker != nil {
 		return false
 	}
 	page := max(screen.computeLayout().messageHeight-1, 1)
@@ -274,6 +274,8 @@ func (screen *ChatScreen) renderOverlay(layout screenLayout, height int, now tim
 		return help[top : top+height]
 	case screen.isToolPickerOpen:
 		return screen.renderToolPicker(layout.contentWidth, height)
+	case screen.settingPicker != nil:
+		return screen.renderSettingPicker(layout.contentWidth, height)
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		interrupt := screen.interrupts[screen.popupIndex]
 		if interrupt.approval != nil {
@@ -344,10 +346,15 @@ func (screen *ChatScreen) renderActivityLines(width int, now time.Time, spinnerF
 func (screen *ChatScreen) renderStatusBar(width int, now time.Time, spinnerFrame int) []string {
 	symbols := screen.theme.Symbols
 	separator := screen.theme.Secondary.Render(symbols.Separator)
-	identity := " " + strings.Join(nonEmptyStrings(screen.session.Command, screen.session.Model, screen.theme.Secondary.Render(screen.session.Workspace)), separator)
-	if screen.session.Workspace == "" {
-		identity = " " + strings.Join(nonEmptyStrings(screen.session.Command, screen.session.Model), separator)
+	effort := ""
+	if screen.session.ReasoningEffort != "" {
+		effort = screen.session.ReasoningEffort + " effort"
 	}
+	workspace := ""
+	if screen.session.Workspace != "" {
+		workspace = screen.theme.Secondary.Render(screen.session.Workspace)
+	}
+	identity := " " + strings.Join(nonEmptyStrings(screen.session.Command, screen.session.Model, effort, workspace), separator)
 	var metrics []string
 	if turnNumber := screen.displayedTurnNumber(); turnNumber > 0 {
 		metrics = append(metrics, fmt.Sprintf("turn %d", turnNumber))
@@ -400,6 +407,8 @@ func (screen *ChatScreen) currentHints() []string {
 		return []string{"PgUp/PgDn scroll", "Esc close"}
 	case screen.isToolPickerOpen:
 		return []string{"Enter open", "j/k move", "Esc close"}
+	case screen.settingPicker != nil:
+		return []string{"Enter choose", "j/k move", "Esc close"}
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		return screen.popupHints()
 	default:
