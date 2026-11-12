@@ -203,6 +203,10 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_attribute_sync_dropped_entries_total",
         "dexzd_attribute_sync_fenced_writes_total",
         "dexzd_search_skipped_documents_total",
+        "dexzd_config_closed_flow_retention_seconds",
+        "dexzd_config_max_value_bytes",
+        "dexzd_config_max_flow_state_bytes",
+        "dexzd_config_attempt_drain_timeout_seconds",
     ] {
         let family = name.strip_suffix("_total").unwrap_or(name);
         assert!(
@@ -224,6 +228,23 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
             );
         }
     }
+    // Durability applies only to the embedded object store of dev and local.
+    assert!(
+        !body.contains("dexzd_config_durability_mode_info"),
+        "{body}"
+    );
+    let effective_config_log = process.log();
+    let effective_config_line = effective_config_log
+        .lines()
+        .find(|line| line.contains("effective configuration"))
+        .unwrap_or_else(|| {
+            panic!("missing the effective configuration line:\n{effective_config_log}")
+        });
+    assert!(
+        effective_config_line.contains("closed_flow_retention_seconds=604800.0")
+            && !effective_config_line.contains("durability_mode"),
+        "{effective_config_line}"
+    );
     #[cfg(target_os = "linux")]
     for name in [
         "process_resident_memory_bytes",
@@ -326,7 +347,8 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .count();
     // dexzd_history_reads_total adds six series: two kinds by three sources.
     // The history upload limiter adds two gauges: its concurrency limit and in-flight bytes.
-    assert!(series_count <= 210, "scrape has {series_count} series");
+    // The effective configuration adds four gauges; serve has no durability mode series.
+    assert!(series_count <= 214, "scrape has {series_count} series");
     eprintln!("metrics scenario series count: {series_count}");
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());

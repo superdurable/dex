@@ -293,7 +293,9 @@ spelled **strict**, **process-crash-safe**, and **relaxed**.
 | **processCrashSafe** | A process kill. A host crash or power loss can lose recent writes. | Faster. Every write reaches the files before the reply, without fsync. |
 | **relaxed** | Only a graceful stop. | Writes stay in memory until a graceful stop. After an abrupt exit, every start fails until you delete the data directory. |
 
-Keep the default **strict** mode in production.
+Keep the default **strict** mode in production. Since 0.1.29, the running
+server reports its mode; see
+[Effective configuration](#effective-configuration).
 
 ### Application bucket {#single-node-application-bucket}
 
@@ -412,6 +414,10 @@ or **30days**.
 Each Flow run records the value when it starts. A new value applies only to
 Flow runs that start after the node restarts with it. Flow runs that already
 started keep their recorded duration.
+
+The server accepts any positive duration. To confirm the value that a running
+server uses, read it back as described in
+[Effective configuration](#effective-configuration).
 
 From server-zd v0.1.8, a transactional or locking RPC on a closed Flow run
 returns NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A
@@ -812,6 +818,34 @@ Changed in 0.1.21: superseded values no longer count. A Flow that already failed
 Changed in 0.1.23: the rows of completed Steps and of Steps canceled without a Flow close no longer count, so a long-lived run's active state stops growing with every Step it ran.
 
 Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the bookkeeping rows of superseded values. Those rows wait for the history window or for an upload, like history. Before, a run that offloads history and rewrites values often could fill a small budget with them before its first history segment was sealed and uploaded.
+
+## Effective configuration {#effective-configuration}
+
+Since 0.1.29, the server reports the values it runs with for these keys:
+**retention.closedFlowDuration**, **values.maxValueBytes**,
+**limits.maxFlowStateBytes**, and **lifecycle.attemptDrainTimeout**. **dev**
+and **local** also report **dev.durabilityMode**. Each value is the one in
+effect: a key the configuration leaves unset reports its default, including
+the 2-second **lifecycle.attemptDrainTimeout** of **dev**, and a
+**--durability** flag reports the mode it selected. A byte limit above
+9223372036854775807 reports as 9223372036854775807 in the metrics; the log
+line keeps the exact value.
+
+The server reports them in two places:
+
+- The **dexzd_config_** metrics on **metrics.listen**. See
+  [Metrics and alerts](/reference/server/metrics) for their names and types.
+- One INFO line at startup with the message **effective configuration** and
+  these fields: **closed_flow_retention_seconds**, **max_value_bytes**,
+  **max_flow_state_bytes**, **attempt_drain_timeout_seconds**, and, for **dev**
+  and **local**, **durability_mode** in its YAML spelling.
+
+~~~text
+INFO dexzd_server::config: effective configuration closed_flow_retention_seconds=2592000.0 max_value_bytes=16777216 max_flow_state_bytes=67108864 attempt_drain_timeout_seconds=30.0 durability_mode="strict"
+~~~
+
+An application that embeds **local** can scrape these metrics after startup
+and refuse to continue when a value differs from the one it requires.
 
 ## Flow definitions {#flow-definitions}
 

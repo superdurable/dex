@@ -45,6 +45,7 @@ pub use storage_config::{
     ObjectStoreProvider,
 };
 
+use dexzd_metrics::EffectiveConfigMetrics;
 use serde::{Deserialize, Serialize};
 
 /// Groups every server-zd configuration section for validation and component injection.
@@ -113,6 +114,47 @@ impl Config {
                 ignored_key = key.ignored_key,
                 reason = key.reason,
                 "configuration uses a removed key that has no effect; remove it"
+            );
+        }
+    }
+
+    /// Returns the `dexzd_config_*` metric values; durability only with an embedded object store.
+    pub(crate) fn effective_config_metrics(
+        &self,
+        has_embedded_object_store: bool,
+    ) -> EffectiveConfigMetrics {
+        EffectiveConfigMetrics {
+            closed_flow_retention: self.retention.closed_flow_duration,
+            max_value_bytes: self.values.max_value_bytes,
+            max_flow_state_bytes: self.limits.max_flow_state_bytes,
+            attempt_drain_timeout: self.lifecycle.attempt_drain_timeout,
+            embedded_store_durability: has_embedded_object_store
+                .then_some(self.dev.durability_mode.embedded_store_durability()),
+        }
+    }
+
+    /// Logs the values of [`Config::effective_config_metrics`] in one line.
+    pub(crate) fn log_effective_config(&self, has_embedded_object_store: bool) {
+        let closed_flow_retention_seconds = self.retention.closed_flow_duration.as_secs_f64();
+        let max_value_bytes = self.values.max_value_bytes;
+        let max_flow_state_bytes = self.limits.max_flow_state_bytes;
+        let attempt_drain_timeout_seconds = self.lifecycle.attempt_drain_timeout.as_secs_f64();
+        if has_embedded_object_store {
+            tracing::info!(
+                closed_flow_retention_seconds,
+                max_value_bytes,
+                max_flow_state_bytes,
+                attempt_drain_timeout_seconds,
+                durability_mode = self.dev.durability_mode.yaml_name(),
+                "effective configuration"
+            );
+        } else {
+            tracing::info!(
+                closed_flow_retention_seconds,
+                max_value_bytes,
+                max_flow_state_bytes,
+                attempt_drain_timeout_seconds,
+                "effective configuration"
             );
         }
     }
