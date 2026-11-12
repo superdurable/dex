@@ -499,6 +499,8 @@ func (feed *RemoteSessionFeed) readSessionSettings(ctx context.Context, sessionI
 // value, or without key when value is nil. It returns whether the session
 // stored the settings.
 func (feed *RemoteSessionFeed) writeSessionSetting(ctx context.Context, sessionID string, key string, value *string) (bool, error) {
+	feed.settingsMutex.Lock()
+	defer feed.settingsMutex.Unlock()
 	current, err := feed.readSessionSettings(ctx, sessionID)
 	if err != nil {
 		return false, err

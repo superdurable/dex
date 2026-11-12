@@ -30,7 +30,7 @@ type SessionOpened struct {
 	// the model's own default applies.
 	ReasoningEffort string
 	// ReasoningEffortValues are the reasoning efforts the command accepts,
-	// from least to most effort; nil when it has no such setting.
+	// least effort first; nil when it has no such setting.
 	ReasoningEffortValues []string
 	// SessionID is the session Flow ID.
 	SessionID string

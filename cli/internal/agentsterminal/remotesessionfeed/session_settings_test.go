@@ -44,7 +44,7 @@ func oldLaunch() launchcontract.LaunchDocument {
 
 // newSettingsFeed returns a feed over sessions whose loop only counts
 // refresh requests.
-func newSettingsFeed(t *testing.T, launch launchcontract.LaunchDocument, sessions *fakeSessions) (*RemoteSessionFeed, *atomic.Int64) {
+func newSettingsFeed(t *testing.T, launch launchcontract.LaunchDocument, sessions SessionRPCs) (*RemoteSessionFeed, *atomic.Int64) {
 	t.Helper()
 	feed := NewRemoteSessionFeed(RemoteSessionFeedConfig{
 		Sessions: sessions,
@@ -88,6 +88,52 @@ func TestModelAndEffortWriteTheWholeSessionSettings(t *testing.T) {
 		{"mode": "fast", "model": "gpt-5-mini"},
 	}, sessions.recordedSettings())
 	require.Eventually(t, func() bool { return refreshes.Load() == 3 }, time.Second, 5*time.Millisecond)
+}
+
+// heldSettingsSessions holds the first settings write until release closes.
+type heldSettingsSessions struct {
+	*fakeSessions
+	writeCount atomic.Int64
+	isHeld     chan struct{}
+	release    chan struct{}
+}
+
+func (sessions *heldSettingsSessions) UpdateSessionSettings(ctx context.Context, sessionID string, settings map[string]any) (bool, error) {
+	if sessions.writeCount.Add(1) == 1 {
+		close(sessions.isHeld)
+		<-sessions.release
+	}
+	return sessions.fakeSessions.UpdateSessionSettings(ctx, sessionID, settings)
+}
+
+// /effort during a slow /model write keeps the new model, and the reverse.
+func TestConcurrentSettingChangesKeepBothKeys(t *testing.T) {
+	sessions := &heldSettingsSessions{
+		fakeSessions: sessionsWithSettings(map[string]any{"mode": "fast"}),
+		isHeld:       make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+	feed, _ := newSettingsFeed(t, settingsLaunch(), sessions)
+	modelDone, effortDone := make(chan error, 1), make(chan error, 1)
+	go func() {
+		modelDone <- feed.SubmitUserAction(context.Background(), sessionfeed.RunSlashCommand{Name: modelCommandName, Argument: "gpt-5-mini"})
+	}()
+	<-sessions.isHeld
+	go func() {
+		effortDone <- feed.SubmitUserAction(context.Background(), sessionfeed.RunSlashCommand{Name: effortCommandName, Argument: "high"})
+	}()
+	// Unserialized, /effort would read the old settings and finish here.
+	select {
+	case err := <-effortDone:
+		require.NoError(t, err)
+		effortDone <- nil
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(sessions.release)
+	require.NoError(t, <-modelDone)
+	require.NoError(t, <-effortDone)
+	written := sessions.recordedSettings()
+	require.Equal(t, map[string]any{"mode": "fast", "model": "gpt-5-mini", "reasoning_effort": "high"}, written[len(written)-1])
 }
 
 // /effort takes only a declared value or default, and says the choices.

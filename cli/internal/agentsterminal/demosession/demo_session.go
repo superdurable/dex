@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 )
@@ -209,7 +210,7 @@ func (script *demoScript) changeSetting(command sessionfeed.RunSlashCommand) err
 	switch {
 	case command.Name == "model" && argument == "":
 		return script.notice(sessionfeed.NoticeSeverityInfo, "The model is "+script.model+". Type a model ID after /model to change it.")
-	case command.Name == "model" && strings.ContainsAny(argument, " \t"):
+	case command.Name == "model" && strings.ContainsFunc(argument, isSpaceOrControl):
 		return script.notice(sessionfeed.NoticeSeverityError, "A model ID has no spaces or control characters; the model did not change.")
 	case command.Name == "model":
 		script.model = argument
@@ -231,6 +232,10 @@ func (script *demoScript) changeSetting(command sessionfeed.RunSlashCommand) err
 		return script.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses the model's default reasoning effort.")
 	}
 	return script.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses "+argument+" reasoning effort.")
+}
+
+func isSpaceOrControl(character rune) bool {
+	return unicode.IsSpace(character) || unicode.IsControl(character)
 }
 
 // playTurns plays a turn for text, then one turn per queued message.

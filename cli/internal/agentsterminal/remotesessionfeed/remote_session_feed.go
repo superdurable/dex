@@ -125,6 +125,9 @@ type RemoteSessionFeed struct {
 
 	// actionMutex keeps one local request action at a time, in order.
 	actionMutex sync.Mutex
+	// settingsMutex keeps one session settings read-modify-write at a time,
+	// so /model and /effort never drop each other's key.
+	settingsMutex sync.Mutex
 
 	isStartingSession atomic.Bool
 
