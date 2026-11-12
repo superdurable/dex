@@ -99,7 +99,7 @@ const graph = {
     {id: 'wait:Wait:any', kind: 'wait', name: 'anyOf', parentId: 'step:Wait', condition: 'not is_ready()',
       wait: {type: 'anyOf', conditions: [{kind: 'timer', label: 'one_day timer'}, {kind: 'channel', label: 'approval.for 1'}]}},
     {id: 'decision:Begin', kind: 'decision', name: 'goTo', parentId: 'step:Begin', condition: 'needs_wait', decision: {type: 'goTo'}},
-    {id: 'decision:Begin:done', kind: 'decision', name: 'gracefulComplete', parentId: 'step:Begin', condition: 'not needs_wait',
+    {id: 'decision:Begin:done', kind: 'decision', name: 'gracefulComplete', parentId: 'step:Begin', condition: 'not (context.has_timer_fired())',
       decision: {type: 'gracefulComplete'}},
     {id: 'decision:Wait:fail', kind: 'decision', name: 'forceFail', parentId: 'step:Wait', decision: {type: 'forceFail'}},
     {id: 'decision:Wait:empty', kind: 'decision', name: 'forceCompleteIfChannelsEmpty', parentId: 'step:Wait',
@@ -179,9 +179,9 @@ try {
 
   // Flow graphs read as a numbered list of Steps, start Step first, with their waits, state, and moves in words.
   assert.match(home, /\*\*Flow：SampleFlow\*\*\n\n\*\*Step 列表\*\*\n\n1\. `Begin`（起始 Step）：Starts the sample\.\n/);
-  assert.match(home, /   - 写入 `status`\n   - 转到 `Wait` 条件 `needs_wait`\n   - 完成 Flow 条件 `not needs_wait`\n2\. `Wait`\n/);
+  assert.match(home, /   - 写入 `status`\n   - 转到 `Wait` 条件 `needs_wait`\n   - 完成 Flow 条件 Timer 未触发（`not \(context.has_timer_fired\(\)\)`）\n2\. `Wait`\n/);
   assert.match(home, /   - 不等待 条件 `is_ready\(\)`\n/);
-  assert.match(home, /   - 等待以下任一条件 Timer `one_day timer`、Channel `approval.for 1` 条件 `not is_ready\(\)`\n/);
+  assert.match(home, /   - 等待以下任一条件 Timer `one_day`、Channel `approval`（1 条消息） 条件 `not is_ready\(\)`\n/);
   assert.match(home, /   - 让 Flow 失败\n   - Channel 为空时完成 Flow\n   - Execute 失败时转到 `Begin`\n/);
   assert.match(home, /\*\*RPC 列表\*\*\n\n- `describe`\n  - 读取 `status`\n/);
   assert.doesNotMatch(home, /`rpcResult`/);

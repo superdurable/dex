@@ -63,6 +63,13 @@ In this example, the start Step waits for one message on the
 **ApprovalMessages** Channel, or for a Timer. The
 **publishApprovalMessage** RPC publishes the approval.
 
+The Step also reads a second Channel, **QueuedMessages**, without waiting on
+it. Its **StepOptions** ask Dex to load that Channel's pending messages for
+**Execute**. **Execute** checks them first. It deletes the message it uses by
+its ID, so the message is not read again. [Manage pending
+messages](#manage-pending-messages) explains these calls. For a plain wait,
+you need only the first Channel and the RPC.
+
 <SdkTabs
 examples={{
 python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
@@ -312,6 +319,8 @@ per order, customer, or job. A ChannelMap has one name and one message type.
 Each instance key has its own FIFO queue.
 
 ## Reference
+
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
 
 The [Channel](/reference/python/channel) page of each SDK reference lists the
 API names in that language.

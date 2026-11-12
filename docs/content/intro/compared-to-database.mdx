@@ -180,6 +180,10 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 | Crash during the charge call | The consumer runs again. The payment API needs an idempotency key. | The Charge Step runs again. The payment API needs an idempotency key. |
 | Several workers | You build row claiming, or rely on queue delivery and duplicate checks. | Dex sends each task to one of your Workers. |
 
+### Your own tables
+
+You keep the tables that the rest of your system reads, such as the orders table for reports and support tools. Dex holds the process state: which Step ran and what the order is waiting for. A Step writes to your table like any other call, with an upsert keyed by the order ID, so a rerun writes the same row again. [Dex and Your Database](/components/your-database) shows the pattern, and when to let Dex copy Attributes into your database instead.
+
 ### When requirements change
 
 Each new requirement changes both designs:

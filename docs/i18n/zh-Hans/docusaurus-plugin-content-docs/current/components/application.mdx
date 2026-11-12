@@ -23,9 +23,36 @@ Worker 启动时，可以把它的 Flow 的 Flow Definition Graph 发布到 serv
 
 <a id="启用拉取模式"></a>
 
+## 在现有服务中加入 Dex {#add-to-a-service}
+
+Dex 是加进你服务里的一个库，不是包在服务外面的框架。安装你所用语言的 SDK：
+
+~~~bash
+pip install dex-python-sdk                       # Python
+go get github.com/superdurable/dex/sdk-go@latest # Go
+npm install @superdurable/dex                    # TypeScript
+cargo add dex-sdk                                # Rust
+~~~
+
+Java 项目在 Gradle 或 Maven 构建中加入 Maven Central 上的 **io.superdurable:dex-sdk**。
+
+Worker 可以运行在两个地方：
+
+- **在你的服务进程里。** 和 HTTP server 一起启动，[Order Processing](/use-cases/order-processing) 示例就是这样。一次部署既处理请求，也运行 Step。
+- **在单独的进程里。** 如果 Step 需要和 API 不同的扩容方式、资源或发布节奏，就单独部署。[Quick Start](/quick-start) 的 Worker 就是这样运行的。
+
+无论哪种方式，Worker 只发起出站连接，所以不需要负载均衡器或入站端口。你的 handler 创建 Client 来启动 Flow、调用 RPC。[Dex and Your Database](/components/your-database) 说明 Step 怎样写入你服务已有的数据库。
+
 ## 启动 Worker {#enable-pull-mode}
 
 给 Worker 配置 server 地址。Client 也只需要 server 地址。你还可以设置 pull 选项，调整任务容量、注册和关闭行为。
+
+### Registry 和 blob cache {#blob-cache}
+
+Worker 和 Client 各自还需要两个对象：
+
+- **一个包含你的 Flow 的 Registry。** Worker 运行其中 Flow 的 Step 和 RPC。Client 用同样的定义来编码 Flow 的启动输入和 RPC 参数，并解码结果。所以 Client 也要构建 Flow 对象，虽然它从不运行 Step。
+- **一个 blob cache。** Dex 用引用来传递大的值，例如很大的 Attribute。blob cache 是本地一个有大小上限的目录，用来保存这些值，进程就不必再次下载。每个 Worker 和 Client 进程使用自己的目录。缓存里只有副本，删除它不会丢数据。
 
 各 SDK 参考都有可运行的启动示例：[Go](/reference/go/workers)、[Python](/reference/python/workers)、[Java](/reference/java/workers)、[TypeScript](/reference/typescript/workers) 和 [Rust](/reference/rust/workers)。
 
@@ -80,3 +107,23 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 ~~~
 
 只有在搜索结果为空，或者剩下的每个 Flow 都有明确批准的退役计划时，才删除旧代码。
+
+### 示例：给 Charge 加一笔手续费 {#versioning-example}
+
+[Order Processing](/use-cases/order-processing) 里的订单 Flow 按订单金额扣款。新规则要求加收一笔手续费。已经在运行的订单必须保持原来的价格。
+
+1. **在启动时记录版本。** 新的启动 handler 在启动 Flow 时把一个 Attribute（例如 **pricing-version**）设为 2。更早启动的 Flow 没有这个值，表示版本 1。
+2. **按保存的值分支。** **Charge** 读取 **pricing-version**。版本 1 只扣订单金额，版本 2 扣金额加手续费。今天正在 **Ship** 里等待的 Flow 不会再运行 **Charge**，所以不受影响。
+3. **契约变化时新增 Step type。** 假设退款现在需要一个旧 Flow 从未保存的新输入字段。新增一个 Step type，例如 **RefundWithFee**，只在版本 2 中跳转到它。为版本 1 的 Flow 保留 **Refund**。
+4. **一起部署。** 同一个 Worker 构建包含带分支的 **Charge**、**Refund** 和 **RefundWithFee**。滚动部署期间，缺少 **RefundWithFee** 的旧 Worker 会把这个调用交给新 Worker。
+5. **退役旧路径。** 当没有任何运行中的 Flow 是版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是带索引的 Attribute，搜索时除了 Flow type 还可以按它过滤。
+
+整个过程都不需要在 Step 代码里加版本标记。无论哪个 Worker 构建来处理，都是保存的 Attribute 决定 Flow 走哪条路径。
+
+## 用 Time Travel 恢复 Flow {#time-travel}
+
+Time Travel 把一次 Flow run 移回它历史中较早的一个点，并从那里重新运行。部署了某个失败 Step 的修复之后使用它。这次 run 保留原来的 Run ID，并开始一次新的 attempt。
+
+这个点之后的 Step 会再次运行，它们的外部调用也会再次发生。按 [Step](/concepts/step#guarantees) 的说明给每次调用加上幂等键，重复的调用就不会产生第二次效果。
+
+目标点必须在 Flow 最近的历史窗口内。回到 run 开头的 Time Travel 总是可用。可以从 Dex Web、**dexcli** 或 Client 发起。服务端参考中的英文 [Time travel](/reference/server/runtime-client#time-travel) 介绍请求选项和限制。

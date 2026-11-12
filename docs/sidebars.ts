@@ -189,7 +189,9 @@ const sidebars: SidebarsConfig = {
       items: [
         'components/run-locally',
         'components/application',
+        'components/your-database',
         'components/server',
+        'components/production',
         'components/cli',
         'components/web',
       ],

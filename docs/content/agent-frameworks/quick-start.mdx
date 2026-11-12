@@ -17,7 +17,7 @@ A small order support agent. It has two tools on an in-memory order desk:
 - **look_up_order** reads an order. It is a read, so Dex may retry it.
 - **cancel_order** cancels an order that has not shipped. It is a write, so it runs at most once, and only after a person approves it.
 
-You see what Dex adds to a plain agent, run the example, and ask the agent to cancel an order. While the cancellation waits for approval, you stop the Worker and start it again. Then you approve the call and check what ran.
+You see what Dex adds to a plain agent, run the example, and ask the agent to cancel an order. While the cancellation waits for approval, you stop the Worker and start it again. Then you approve the call and check what ran. Last, you kill the Worker in the middle of a tool call and see what Dex runs again.
 
 <CrashTimeline variant="agent" />
 
@@ -884,6 +884,71 @@ The agent looked up order 1002 and asked to cancel it. **cancel_order** needs ap
 4. Select the **Agent session** tab. Set **Working as** to **order-support.operate**, the permission you rendered into the session graph. Then select **Approve** on the **cancel_order** card.
 5. Open the **Timeline**. **look_up_order** and the model calls before the restart ran once. **cancel_order** ran once, after the approval. The agent answered from the recorded results.
 
+## 5. Stop it while a tool runs {#stop-while-a-tool-runs}
+
+Step 4 stopped the Worker while nothing ran. A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
+
+1. In the second terminal, stop the example. Start it again with a 20-second delay on each tool call. Also set a fixed session key, so the session token from the third terminal still works after a restart:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20 DEX_AGENT_SESSION_KEY=demo-key \
+  uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20 DEX_AGENT_SESSION_KEY=demo-key npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Keep the model variables and the provider key that your framework needs from step 3.
+
+2. In the third terminal, start a new session with the step 3 commands. Change the message to **Look up order 1001**, and skip the last command, which waits for an approval.
+3. Within 20 seconds, kill the example as a crash would. Ctrl-C is not a crash: it lets a running call finish first.
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```bash
+pkill -9 -f agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+pkill -9 -f dist/src/main.js
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+4. Start the example again with the command from item 1. About 20 seconds later, the agent answers with the order.
+5. Check how the tool call ran:
+
+```bash
+dexcli flow history --all "$id" | jq '.events[]
+  | select(.payload.context.stepType == "CallTool")
+  | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
+```
+
+**finalAttempt** is **2**. The first attempt failed because the Worker disconnected. **look_up_order** is a read, so Dex ran it again on the new Worker. The model call before it did not run again.
+
+Now try a write. Ask to cancel order 1002 with the full step 3 commands, and approve it in Dex Web as in step 4. Within 20 seconds of approving, kill the example and start it again.
+
+**cancel_order** is a non-idempotent write, so Dex does not run it a second time. The call records **outcome_unknown**, and the agent tells the user so. With the demo model, the reply reads: "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically." Your application then checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
+
 You have run your first durable agent. Its Worker went away in the middle of a conversation, and the session lost nothing and repeated nothing.
 
 ## Use it in your own agent {#use-it-in-your-own-agent}
@@ -1027,8 +1092,127 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 </FrameworkTab>
 </FrameworkTabs>
 
+### Wire the session into your app {#wire-it-into-your-app}
+
+Your app needs the same four pieces as the example, whatever the framework:
+
+1. A **Registry** with your session Flow, a **Worker** that runs its Steps, and a **Client** that calls it. The Worker connects out to Dex, so it needs no open port. Both open a blob cache, a local cache for large values; [Registry and blob cache](/components/application#blob-cache) explains it.
+2. A route that starts a session. The session ID is the Flow ID.
+3. A route that sends a user message, and one that reads the session snapshot with the agent's reply. To stream the reply as it is written, read the [AgentEvents Stream](/reference/agents/event-stream#read-the-stream).
+4. A route that approves or rejects a waiting tool call. [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) covers it.
+
+The Worker and the Client, from the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+    typescript: 'examples/typescript/src/main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry(
+            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
+        )
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+  const registry = createExampleRegistry();
+  const blobCache = openBlobCache({
+    directory: env.blobCacheDir,
+    maxBytes: 1 << 30,
+  });
+  const worker = await startExampleWorker(registry, blobCache, env.serverAddress);
+  const client = new Client(registry, blobCache, {
+    serverAddress: env.serverAddress,
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The session routes, from the example. Each route is one call on the session:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    sessions = AgentSessionClient(app_state.client, example.session_flow)
+```
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+```
+
+```python
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The session token in the example is the example's own access check. It signs the session ID, so one user cannot read another user's session. Use your app's own authentication instead.
+
+To run the session in Dex Web, render its graph with **dex-agents-session-graph**, as step 3 does. The **--permission** value names the role that may approve tool calls in Dex Web. Dex Web shows the approval controls to a person working as that role.
+
 ## Next
 
 - [Sessions](/agent-frameworks/sessions) explains what survived the restart, and how your framework's turn maps onto Steps.
-- [Tool Calls](/agent-frameworks/tool-calls) explains why **cancel_order** can never run twice.
+- [Tool Calls](/agent-frameworks/tool-calls) explains why **cancel_order** runs at most once, and the one narrow case where a write can run twice.
 - [Order Support Agent](/use-cases/order-support-agent) is the full example, with its HTTP routes.

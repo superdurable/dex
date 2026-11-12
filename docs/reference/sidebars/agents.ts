@@ -6,6 +6,7 @@ const sidebars: SidebarsConfig = {
     'index',
     'install',
     'event-stream',
+    'tracing',
     'workers',
     'session-limits',
     'approvals',

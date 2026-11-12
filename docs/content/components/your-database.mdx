@@ -1,0 +1,103 @@
+---
+title: Dex and Your Database
+sidebar_label: Dex and Your Database
+slug: /components/your-database
+description: How a Step writes to the database your service already has, when to copy Flow data to PostgreSQL with Attribute Store sync instead, and how to repair a sync entry that Dex dropped.
+---
+
+# Dex and Your Database
+
+Dex keeps the progress of each Flow. Your service usually keeps its own
+database too, such as an orders table that support tools and reports read.
+This page covers the two ways data moves between them:
+
+- **A Step writes to your database.** Your code makes the write, like any other
+  external call.
+- **Dex copies Attributes to your database.** Attribute Store sync writes
+  selected Attributes to PostgreSQL tables that you own.
+
+## A Step writes to your database {#step-writes}
+
+A Step can write to your database the same way it calls a payment API. Dex
+does not include that write in its own commit. Dex records the Step's result
+after the method returns. So a crash between your database commit and the Dex
+commit runs the Step again, and the write runs a second time.
+
+Make the write safe to repeat:
+
+- **Use an upsert, not an insert.** Key the row by something that is the same
+  on every attempt, such as the Flow ID. For an order Flow, the order ID is the
+  Flow ID, so an **INSERT ... ON CONFLICT (order_id) DO UPDATE** statement sets the
+  same row again.
+- **Write the final value, not a change.** Set **status = 'shipped'** rather
+  than adding one to a counter. A repeated write then leaves the same row.
+- **Key a write per call when the Step runs several times.** A Step that loops,
+  such as a reminder that runs every day, writes a row per run. Add the Step
+  execution ID to the key, so each run has its own row and a retry of that run
+  updates it.
+
+A Step that reads from your database reads whatever is there when the attempt
+runs. A retry of an Execute call reuses the Dex state snapshot of its first
+attempt, but your database can have changed in between. When a decision must
+not change across attempts, store the value in an Attribute in an earlier Step,
+then read the Attribute.
+
+The [Step guarantees](/concepts/step#guarantees) list every case in which a
+Step runs again.
+
+## Dex copies Attributes to your database {#attribute-store-sync}
+
+[Attribute Store sync](/concepts/primitives/attribute#attribute-store-projection)
+copies selected Attributes to PostgreSQL tables that you own. Use it when other
+code needs Flow data as rows:
+
+- reports and dashboards that query with SQL;
+- support tools that list orders by status;
+- data that must stay after Dex deletes a closed Flow.
+
+The copy is one way and eventually consistent:
+
+- The Flow stays the source of truth. A row holds the latest values, not a
+  history.
+- A row usually appears within a second of the commit. A Step or RPC never
+  waits for it.
+- Do not make Flow decisions from the table. Read the Flow's Attributes through
+  an RPC or the Client instead.
+
+### When Dex drops a sync entry {#dropped-entries}
+
+While PostgreSQL is unavailable, Flows keep running, and Dex retries the
+writes. An entry that is still pending after **syncRetryPolicy.totalDuration**
+(one hour by default) is dropped. Dex logs a warning that names the Flow run
+and the store, and increases
+**dexzd_attribute_sync_dropped_entries_total**. The same metric counts writes
+that PostgreSQL rejected with a non-retryable error, such as a value too long
+for its column.
+
+A dropped entry leaves the row's value uncertain. To repair it:
+
+1. Alert on any increase of **dexzd_attribute_sync_dropped_entries_total**.
+2. Find the affected Flow runs in the server log. Each warning names the run
+   and the store.
+3. Compare each row with the Flow's Attributes.
+4. Write the Attributes again. A later write of the same Attributes syncs
+   normally.
+
+[Attribute Store sync](/reference/server/attribute-store-sync) has the
+configuration, the retry policy, and the other metrics.
+
+## The order example {#order-example}
+
+In the [Order Processing](/use-cases/order-processing) example, Dex owns the
+order process: the charge, the wait for approval, shipping, and the refund.
+Your service can still keep an orders table for its other readers.
+
+| Data | Where it lives | How it gets there |
+| --- | --- | --- |
+| Which Step the order is in, its waits and retries | The Flow, in Dex | Dex records it |
+| **order-status**, for support tools | The Flow, plus an optional orders table | Attribute Store sync |
+| A ledger row for the charge | Your payments table | The Charge Step upserts it, keyed by the order ID |
+
+The support tool reads the orders table. The Flow decides from its own
+Attributes. The Charge Step's ledger write and its payment call both use the
+order ID as their key, so a rerun of Charge changes nothing.

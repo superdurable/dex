@@ -13,9 +13,16 @@ CLI, and Web. You write the application. Dex provides the rest.
 | Component | What it does |
 | --- | --- |
 | [Application](/components/application) | Your Workers and Clients. Workers host Flow definitions and run Steps and RPCs. Clients start Flows, call RPCs, and read Attributes. |
-| [Server](/components/server) | server-zd stores Flow state and hands work to Workers. |
+| [Dex Server](/components/server) | Stores Flow state and hands work to Workers. Its binary is **dex-server-zd** (server-zd). |
 | [CLI](/components/cli) | **dexcli** runs a local Dex and operates Flows from a shell. |
 | [Web](/components/web) | Dex Web is the operator UI for inspecting and acting on Flows. |
+
+Two more pages cover how they meet your systems:
+
+- [Dex and Your Database](/components/your-database): how Steps write to the
+  database your service already has, and when Dex copies Attributes into it.
+- [Run Dex in Production](/components/production): a checklist from topology
+  and capacity to backup, upgrades, and monitoring.
 
 ## How they fit together
 

@@ -28,27 +28,6 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 - The toolchain for your language: Python 3.11 or later with uv, Go, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
 - Git, to get the example code.
 
-## Build it with your coding agent
-
-Copy this prompt into a coding agent that has [Dex Skills](/build-with-ai/dex-developer-skill):
-
-```text
-Build the Dex Quick Start app in this folder.
-
-1. Read https://docs.superdurable.io/quick-start.md and treat it as the source
-   of truth for package names, commands, and code.
-2. Install Dex Skills.
-3. Ask which language I want: Python, Go, Java, TypeScript, or Rust.
-4. Start dexcli dev, run the Worker, and start one Flow.
-5. Stop the Worker while the Flow waits on its Timer, restart it, and show me
-   that the Flow completed.
-
-Rules: stay inside this Quick Start. Do not invent APIs. Ask me before
-installing anything else.
-```
-
-Or follow the steps below yourself.
-
 ## 1. Install Dex and get the code
 
 Install **dexcli** with Homebrew and start Dex on your machine. [Run Locally](/components/run-locally) shows how to install it without Homebrew.
@@ -58,7 +37,16 @@ brew install superdurable/tap/dexcli
 dexcli dev
 ```
 
-**dexcli dev** starts Dex Server at **127.0.0.1:8801** and Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). Keep it running.
+**dexcli dev** starts Dex Server and Dex Web. When it is ready, it prints:
+
+```text
+Dex development environment is ready
+
+Dex Web:       http://127.0.0.1:8802
+Dex Server:    127.0.0.1:8801
+```
+
+Keep it running. Log lines from the server scroll above this block.
 
 In a second terminal, get the example code:
 
@@ -121,7 +109,7 @@ The code is already in the folder you cloned. This step and the next one walk th
 
 A Flow is a process that Dex runs to completion. Each Step is one unit of work in it. Dex saves the result of each Step, so a Step that finished does not run again.
 
-**Charge** calls the payment API with an idempotency key and moves to **Ship**. **Ship** waits on a 30-second Timer before it runs. The mock API comes in through the constructor.
+**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a 30-second Timer, then calls the shipping API. Each call passes an idempotency key, which the next steps explain. The mock API comes in through the constructor.
 
 <SdkTabs
   examples={{
@@ -153,7 +141,7 @@ class Ship(Step[str]):
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        self.shop.ship(input)
+        self.shop.ship(input, idempotency_key=f"ship-{input}")
         return graceful_complete(f"shipped {input}")
 
 
@@ -219,7 +207,7 @@ func (Ship) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
 
 // Execute ships the order and completes the Flow.
 func (step Ship) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Ship(orderID)
+	step.shop.Ship(orderID, "ship-"+orderID)
 	return dex.GracefulComplete("shipped " + orderID), nil
 }
 ```
@@ -282,7 +270,7 @@ public final class OrderFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String orderId) {
-            shop.ship(orderId);
+            shop.ship(orderId, "ship-" + orderId);
             return StepDecision.gracefulComplete("shipped " + orderId);
         }
     }
@@ -328,7 +316,7 @@ class Ship implements Step<string> {
   }
 
   public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.ship(orderId);
+    this.shop.ship(orderId, `ship-${orderId}`);
     return gracefulComplete(`shipped ${orderId}`);
   }
 }
@@ -387,7 +375,7 @@ impl Step for Ship {
     }
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.ship(&order_id);
+        self.shop.ship(&order_id, &format!("ship-{order_id}"));
         Ok(StepDecision::graceful_complete(format!(
             "shipped {order_id}"
         )))
@@ -701,7 +689,7 @@ The order ID is also the Flow ID. Dex runs one Flow for each ID.
 
 ## 4. Start a Flow
 
-Start the Worker in the second terminal:
+Start the Worker in the second terminal, in the example folder:
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -741,7 +729,13 @@ cargo run --locked --bin worker
 </SdkSnippet>
 </SdkTabs>
 
-Start a Flow in a third terminal:
+The Worker prints:
+
+```text
+Worker is ready. Press Ctrl+C to stop it.
+```
+
+Start a Flow in a third terminal, in the same folder:
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -781,15 +775,39 @@ cargo run --locked --bin start
 </SdkSnippet>
 </SdkTabs>
 
-The Worker prints **Charged order-...**. Ship now waits on its Timer.
+The start command prints the new Flow's ID, which is also the order ID:
+
+```text
+Started Flow order-1a2b3c4d. Ship runs in 30 seconds.
+```
+
+The Worker prints the charge. Ship now waits on its Timer.
+
+```text
+Charged order-1a2b3c4d with key charge-order-1a2b3c4d
+```
 
 ## 5. Stop the Worker
 
 Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command.
 
-When the Timer fires, the new Worker prints **Shipped order-...**. It does not print **Charged** again. Dex had saved the result of Charge, so only Ship ran.
+When the Timer fires, the new Worker prints the shipment:
 
-A Step can still run more than once. Suppose the Worker stops in the middle of Charge, after the payment call but before Dex saves the result. Dex then runs Charge again. That is why Charge passes an idempotency key: the payment API charges each key only once. [Step guarantees](/concepts/step#guarantees) lists when a Step can run again.
+```text
+Worker is ready. Press Ctrl+C to stop it.
+Shipped order-1a2b3c4d with key ship-order-1a2b3c4d
+```
+
+It does not print **Charged** again. Dex had saved the result of Charge, so only Ship ran.
+
+A Step that was cut off in the middle can run again, so each call passes an idempotency key. [Step guarantees](/concepts/step#guarantees) explains when this happens and how to build the key.
+
+### If nothing happens
+
+- **The Worker does not print "Worker is ready".** Check that **dexcli dev** is still running and printed "Dex development environment is ready".
+- **Dex runs on another address.** Set **DEX_FLOW_SERVICE_ADDRESS**, such as **127.0.0.1:8801**, in both the Worker's and the start command's terminal.
+- **The start command fails.** Run it from the example folder, after the install command in step 1.
+- **Ship ran before you stopped the Worker.** You missed the 30-second window. Start another Flow and stop the Worker sooner.
 
 ## 6. See the run in Dex Web
 
@@ -802,6 +820,25 @@ The Timeline tab shows the same run's events from left to right:
 ![Dex Web Timeline](/img/quick-start/timeline.png)
 
 You have run your first durable Flow. Its Worker stopped in the middle of a wait, and the Flow finished without running Charge again.
+
+## Optional: build it with a coding agent
+
+If you use a coding agent with [Dex Skills](/build-with-ai/dex-developer-skill), it can do these steps for you. Copy this prompt into it:
+
+```text
+Build the Dex Quick Start app in this folder.
+
+1. Read https://docs.superdurable.io/quick-start.md and treat it as the source
+   of truth for package names, commands, and code.
+2. Install Dex Skills.
+3. Ask which language I want: Python, Go, Java, TypeScript, or Rust.
+4. Start dexcli dev, run the Worker, and start one Flow.
+5. Stop the Worker while the Flow waits on its Timer, restart it, and show me
+   that the Flow completed.
+
+Rules: stay inside this Quick Start. Do not invent APIs. Ask me before
+installing anything else.
+```
 
 ## Next
 

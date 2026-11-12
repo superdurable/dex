@@ -1,0 +1,93 @@
+---
+title: Tracing
+sidebar_label: Tracing
+description: "An agent session emits OpenTelemetry GenAI spans for each activation, model call, and tool call. Your application brings the OpenTelemetry SDK and exporter."
+---
+
+# Tracing
+
+An agent session emits OpenTelemetry spans that follow the GenAI semantic
+conventions. Tracing is on by default. Your application brings the
+OpenTelemetry SDK and an exporter, and the session uses the global tracer
+provider. Without the OpenTelemetry API, the session emits nothing and stores
+nothing extra.
+
+## Install {#install}
+
+The Python **otel** extra installs only the OpenTelemetry API. In TypeScript,
+**@opentelemetry/api** is an optional peer dependency.
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/core/README.md',
+    typescript: 'agents/typescript/core/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install "dex-agents[otel]" opentelemetry-sdk opentelemetry-exporter-otlp
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-proto
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Spans {#spans}
+
+The session emits one trace per activation. An activation is a burst of Steps
+between durable waits. It starts when the session takes a user message or an
+approval answer, and it ends when the session waits again.
+
+| Span | Emitted by |
+| --- | --- |
+| **invoke_agent** with the agent name | The Step that starts the activation. It is the trace root. |
+| **chat**, or **chat** with the model name | Each attempt of **RunModel** and **CompactContext** |
+| **execute_tool** with the tool name | Each attempt of **CallTool** and **CallSingleAttemptTool** |
+
+Every span carries the Flow ID as **gen_ai.conversation.id** and
+**session.id**. Each attempt is its own span, so a retried model call or tool
+call shows as a second span of the same Step. An attempt whose Worker died
+exports no span. A new turn, and each approval answer, starts a new trace
+linked to the previous one.
+
+While a tool call runs, its **execute_tool** span is the current span. While a
+model call runs, the activation's root is current. Framework and HTTP client
+instrumentation therefore nests under the activation.
+
+Tracing never fails a Step. An error from OpenTelemetry, such as a span
+processor that throws, is logged, and the span is skipped.
+
+## Options {#options}
+
+Pass the options as **tracing** in the session options: **AgentTracingOptions**
+in Python, an object in TypeScript.
+
+| Python | TypeScript | Default | Meaning |
+| --- | --- | --- | --- |
+| **is_enabled** | **isEnabled** | true | False emits nothing and never loads OpenTelemetry. |
+| **tracer_provider** | **tracerProvider** | the global provider | The provider to emit with. |
+| **agent_name** | **agentName** | the Flow type | **gen_ai.agent.name** and the **invoke_agent** span name. |
+| **should_capture_message_content** | **shouldCaptureMessageContent** | false | Put message text, tool arguments, and tool results on spans. |
+| **semantic_conventions_version** | **semanticConventionsVersion** | 1.42.0-dev | The GenAI semantic conventions version. |
+
+By default, spans carry only Dex references, such as message keys and tool
+call IDs, because the content is already durable in Dex. Content can be large
+and sensitive. Turn content capture on only where your tracing backend may
+store it.
+
+The GenAI conventions are still in development, so attribute names can change
+between versions. **1.42.0-dev** carries **gen_ai.provider.name** and the cache
+and reasoning token counts. Pick **1.36.0** when a tracing backend still reads
+the older names. It carries **gen_ai.system** and only the input and output
+token counts, and it cannot capture content.
+
+The package READMEs list every span attribute:
+[Python](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#tracing)
+and
+[TypeScript](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#tracing).

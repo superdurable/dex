@@ -18,8 +18,13 @@ one Flow that is started once and receives Channel messages. Under failures,
 RPCs, SubFlows, **StopFlow**, and Attribute locks are outside the proof. The
 failure proof also assumes **SYNC** methods only, retries that never run out,
 and no failure policy.
+The proofs are about a model of Dex, not the server code itself. Each failure
+rule in the model is written down next to the server code that implements it,
+and reviewers checked each rule against that code.
 [What the proof assumes](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes)
-lists every condition.
+lists every condition, and
+[How it was checked](/correctness-and-expressiveness/failure-transparency-proof#how-it-was-checked)
+describes the checks.
 
 ## Expressiveness
 

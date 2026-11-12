@@ -49,7 +49,7 @@ The Flow charges the buyer and then waits for the seller's approval, with remind
 - The storefront's start handler starts the Flow and waits for ChargeStep with the Client's wait-for-Step-completion API. It then tells the buyer "payment received". It does not poll a status of its own.
 - **Attribute order-status** is indexed, so support staff can search for stuck orders.
 
-A Step can run more than once, for example after a Worker crash in the middle of a call. So the payment call needs an idempotency key, built from the Flow ID and the Step execution ID. The [Step guarantees](/concepts/step#guarantees) list when a Step runs again.
+A Step can run more than once, so the payment call sends an [idempotency key](/concepts/step#idempotency-keys).
 
 The [Order Processing](/use-cases/order-processing) example has the full code of this Flow and its handlers in every SDK.
 
@@ -61,14 +61,7 @@ Your application contains a **Worker** and a **Client**, both built with the Dex
 
 ## How this differs from replay-based durable execution
 
-Replay-based engines rebuild a workflow function's state by **replaying** its event history. Side effects go in **activities**. Workflow code must be **deterministic**: it cannot read the clock, use random numbers, or do IO directly. The event history has a size limit, so large application data does not belong in it.
-
-Dex has no replayed workflow function:
-
-- Step and RPC code is ordinary code. It may read the clock and call any library.
-- A code change does not break a running Flow with a replay error.
-- Waits, RPCs, and locks are part of the Flow model.
-- **Attribute** data lives in a blob store, not in an event history. You can sync it to a database you already run.
+Replay-based engines rebuild a workflow's state by replaying its event history. So workflow code must be deterministic, and it reads the time and random values through the engine's APIs. Dex does not replay code. Step code is ordinary code that may read the clock and call any library. A code change does not break a running Flow with a replay error.
 
 [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) maps each tool family's terms onto Dex, and says when another tool fits better.
 

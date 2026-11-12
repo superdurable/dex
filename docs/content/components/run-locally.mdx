@@ -20,10 +20,10 @@ brew install superdurable/tap/dexcli
 brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 ```
 
-Without Homebrew, download the archive for your system from the [**dexcli** releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true). Each release has a **cli-v** tag and one archive per system, such as **dexcli_v1.45.0_linux_amd64.tar.gz**. The archive holds **dexcli** and **dex-server-zd**. Keep both files in the same directory on your **PATH**:
+Without Homebrew, download the archive for your system from the [**dexcli** releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true). Each release has a **cli-v** tag and one archive per system, such as **dexcli_vVERSION_linux_amd64.tar.gz**. The archive holds **dexcli** and **dex-server-zd**. Keep both files in the same directory on your **PATH**:
 
 ```bash
-tar xzf dexcli_v1.45.0_linux_amd64.tar.gz
+tar xzf dexcli_vVERSION_linux_amd64.tar.gz   # VERSION is the release you downloaded
 sudo mv dexcli dex-server-zd /usr/local/bin/
 dexcli version
 ```
@@ -44,6 +44,38 @@ default ports are free, the addresses are:
 | --- | --- |
 | Dex Web | **http://127.0.0.1:8802** |
 | Dex Server | **127.0.0.1:8801** |
+
+**dexcli dev** first prints server log lines. When Dex is ready, it ends with a
+summary like this:
+
+```text
+Dex development environment is ready
+
+Dex Web:       http://127.0.0.1:8802
+Connectors MCP: http://127.0.0.1:8802/mcp
+Dex Server:    127.0.0.1:8801
+State dir:     /Users/you/.dex/zd/8801
+
+Press Ctrl+C to stop.
+```
+
+Point your Workers and Clients at the **Dex Server** address. Open the
+**Dex Web** address in a browser. The state directory keeps your Flows across
+restarts of **dexcli dev**.
+
+## If something does not work
+
+- **A Worker or Client cannot connect.** Check that **dexcli dev** is still
+  running and printed **Dex development environment is ready**. Use the
+  **Dex Server** address that it printed. The examples read it from
+  **DEX_FLOW_SERVICE_ADDRESS** and default to **127.0.0.1:8801**.
+- **A port is taken.** **dexcli dev** then picks other free ports and prints
+  them. To choose the ports yourself, pass **-dex-port** and **-web-port**.
+- **The Worker is ready, but nothing runs.** Check that the Worker and the
+  start command register the same Flow, and that they connect to the same
+  **Dex Server**. Dex Web lists the Flow and shows the Step that waits.
+- **You want a clean start.** Stop **dexcli dev** and delete its state
+  directory. Every Flow is lost.
 
 ## Run a second Dex
 

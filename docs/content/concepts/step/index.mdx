@@ -265,7 +265,8 @@ A Step returns **StepOptions** to control how its methods run. **WaitFor** and
   [Last failure info](/reference/python/failure-and-retries#last-failure-info).
 - **Durability** chooses when Dex stores the result. **SYNC**, the default,
   stores it before the next work starts. **ASYNC** is faster, but a server
-  failure can make the method run again.
+  failure can make the method run again. See
+  [SYNC and ASYNC Steps](#sync-and-async).
 - **Heartbeat** lets a long method report progress and save a checkpoint.
 - **State loading** and **Attribute locks** choose which state the method
   loads and which Attributes it locks.
@@ -280,15 +281,30 @@ Four rules matter most:
   the move to the next Step.
 - **A Step that was cut off can run again.** A crash, a timeout, or a retry
   can repeat a method that already called an external system. So a Step runs
-  at least once, not exactly once. Send an idempotency key with each external
-  call, built from the Flow ID and the StepExecutionID or from your own
-  business key.
+  at least once, not exactly once. The next section says how to make that
+  safe.
 - **A retry sees the state of its first attempt.** A retry of **Execute**
   reuses the state snapshot of the first attempt. It does not see Attribute
   writes made since then. To wait for such a write, have the writer publish a
   Channel message, and wait for it in the next Step's **WaitFor**.
 - **Parallel writers can overwrite each other.** Two Steps or RPCs that read
   and then write the same Attribute need a lock on it. The details follow.
+
+### Idempotency keys {#idempotency-keys}
+
+Send an idempotency key with each external call that changes something, such
+as a payment or an email. The service that applies the effect uses the key to
+drop a repeat. Build the key from values that stay the same on every attempt:
+
+- the Flow ID and a name for the call, such as **charge-order-1042**, when the
+  Flow makes that call once;
+- the Flow ID and the **StepExecutionID**, such as **order-1042/Charge-2**,
+  when the Step runs more than once in the Flow.
+
+Do not use the attempt number, the time, or a random value in the key. They
+change on a retry. Other pages link here instead of repeating this rule.
+
+### What Dex saves {#what-dex-saves}
 
 Dex saves each **WaitFor** or **Execute** call on its own. It saves the call's
 Attribute writes and Channel publications together with its result, and only
@@ -309,11 +325,6 @@ See [Attribute locks](/concepts/primitives/attribute#locking).
 <a id="unknown-outcome"></a>
 <a id="design-for-redelivery"></a>
 
-A Step method can run more than once. A retry runs it again after a failure.
-Dex cannot always tell whether a failed attempt ran the work. Make each
-external effect idempotent. Key it by the Flow ID and the StepExecutionID, or
-by your own business key. Send the key to the service that applies the effect.
-
 ### Failure and redelivery {#failure-and-redelivery-summary}
 
 These cases repeat a method or leave its outcome unknown. They hold for every
@@ -327,19 +338,42 @@ SDK:
   rerun can start from an older checkpoint.
 - **A canceled method keeps running.** Dex does not stop its code. Its
   external calls still take effect.
-- **ASYNC durability can repeat an attempt.** An ASYNC Step does not wait for
-  its start to reach object storage. If the server node crashes first, the same
-  attempt runs again, possibly with different input.
+- **An ASYNC Step can repeat an attempt.** See
+  [SYNC and ASYNC Steps](#sync-and-async).
 - **Retries can run out without an answer.** The recovery Step then learns
   that the work certainly did not run (**NOT_STARTED**) or that it may have
   run (**NOT_COMPLETED**). On **NOT_COMPLETED**, check the target system by
   the idempotency key before you repeat or report the effect.
 
-[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery)
-in the SDK reference gives the exact rules for each case.
+Failure and redelivery in the SDK reference gives the exact rules for each
+case: [Python](/reference/python/failure-and-retries#failure-and-redelivery) ·
+[Go](/reference/go/failure-and-retries#failure-and-redelivery) ·
+[Java](/reference/java/failure-and-retries#failure-and-redelivery) ·
+[TypeScript](/reference/typescript/failure-and-retries#failure-and-redelivery) ·
+[Rust](/reference/rust/failure-and-retries#failure-and-redelivery).
 
-When retries run out, the recovery Step learns whether the work certainly did
-not run, or may have run.
+### SYNC and ASYNC Steps {#sync-and-async}
+
+A Step's **durability** chooses when Dex stores its progress.
+
+- **SYNC** is the default. Dex stores the start of each attempt before the
+  Worker receives it, and stores the result before the Flow moves on. Each of
+  these waits for a write to object storage.
+- **ASYNC** hands the task to the Worker, and starts the next work, before the
+  start and the result are stored. Dex batches these writes over about 20
+  milliseconds. A single Flow runs faster. If a Dex Server node fails before
+  the write, Dex runs the same attempt again on a new state snapshot, so it
+  can read different Attribute values. Later work that started from the lost
+  result runs again too.
+
+Choose **SYNC** for effects that need the tightest guarantees. Choose
+**ASYNC** for short Steps where latency matters and a rare rerun is
+acceptable. A **StepOptions** setting picks the durability of one Step, and
+**FlowConfig** sets it for a whole Flow.
+[Performance and Maturity](/intro/performance-and-maturity) gives measured
+latency for both.
+
+### Cancellation, completion, and order {#cancellation-completion-order}
 
 Canceling a Step discards everything its current method has not saved: its
 Attribute writes, its Channel publications, and its decision. What its
@@ -367,6 +401,8 @@ strictly. Do not rely on the order in which parallel Steps start or finish.
 Use a Channel or an Attribute lock when the order matters.
 
 ## Reference
+
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
 
 The SDK reference covers:
 

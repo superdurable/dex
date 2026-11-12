@@ -12,8 +12,9 @@ RPCs read and write it. Dex stores it with the Flow, so you do not need a
 database for intermediate state.
 
 An Attribute lives as long as its Flow. Dex deletes it when it deletes the Flow,
-after the retention period that follows Flow closure. To keep the data longer,
-see [Keep data after the Flow](#attribute-store-projection).
+after the retention period that follows Flow closure. The retention period is
+7 days by default; see [Retention](/reference/server/configuration#retention).
+To keep the data longer, see [Keep data after the Flow](#attribute-store-projection).
 
 ## When to use an Attribute
 
@@ -258,6 +259,10 @@ impl Step for AttributeStep {
 </SdkSnippet>
 </SdkTabs>
 
+The excerpt shows only the status Attribute. The example Flow also declares
+the AttributeMap and the other Attributes that the sections below use, and
+lists each of them in its persistence schema.
+
 ## AttributeMap {#attributemap}
 
 An **AttributeMap** is a set of Attributes with keys chosen at run time. Use it
@@ -269,9 +274,14 @@ collection.
 <SdkSnippet lang="python">
 
 ```python
-progress = AttributeMap("primitive-attribute-progress", str)
+class AttributeFlow(Flow[str]):
+    progress = AttributeMap(
+        "primitive-attribute-progress",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
+    )
 
-progress.set(context, "payment", "authorized")
+self.flow.progress.set(context, "payment", "authorized")
 ```
 
 </SdkSnippet>
@@ -329,7 +339,10 @@ See [when a read needs an RPC](/concepts/client#related-primitives) and
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
 An indexed Attribute can be used in **SearchFlows** queries to find Flow
-runs. The example above indexes the status Attribute. See
+runs. The example above indexes the status Attribute. Its index key,
+**keyword1**, names a search slot rather than a business field. Slots are
+numbered by type and shared by every Flow type in a namespace, so two Flow
+types can each put a different field in **keyword1**. See
 [Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
 index keys, and AttributeMap indexes.
 
@@ -462,8 +475,9 @@ What to expect:
 - Dex writes in the background. A write never delays a Step, an RPC, or a
   SetAttributes call. Writes for the same Flow ID keep their order.
 - When a write fails, Dex retries it for a limited time. It then drops the
-  write and logs an error. Dex does not replay old values or fill a newly
-  configured store.
+  write and logs a warning. Dex does not replay old values or fill a newly
+  configured store. [Dex and Your Database](/components/your-database) shows
+  how to detect a dropped write and repair the row.
 - When a Flow completes or fails on its own, it stays running until its
   pending writes are written or dropped. StopFlow does not wait.
 - Deleting an Attribute writes NULL to its column. Dex does not delete the row
@@ -477,6 +491,8 @@ retries, metrics, and local development. The
 [Entity Store](/design-patterns/entity-store) pattern shows a complete example.
 
 ## Reference
+
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
 
 The [Attribute](/reference/python/attribute) page of each SDK reference lists the
 API names in that language.

@@ -12,6 +12,13 @@ slug: /use-cases/order-processing
 
 按 [本地运行](/components/run-locally) 的说明，用 **dexcli dev** 启动本地 Dex，并保持运行。
 
+另开一个终端，下载示例代码。下面的命令都在它创建的 **dex** 目录里运行。
+
+```bash
+git clone https://github.com/superdurable/dex.git
+cd dex
+```
+
 
 ## 2. Flow、Step 和 RPC
 
@@ -19,7 +26,9 @@ slug: /use-cases/order-processing
 
 把 mock 的支付和发货 API 传给 Flow 的 constructor。不要事后用 setter 设置，也不要从全局变量读取。
 
-mock service 扣款时不带幂等键。真实的支付调用必须带上幂等键，因为一个 Step 可能运行不止一次。用 Flow ID 生成这个键，这样 Charge 重新运行时会发送同一个键。[Step 的保证](/concepts/step#guarantees)列出了 Step 会再次运行的情况。
+mock service 扣款时不带幂等键。真实的支付调用必须带上幂等键，原因见 [Step 的保证](/concepts/step#guarantees)。
+
+**order-status** Attribute 建了索引，所以可以按状态搜索 Flow。它的索引键 **keyword1** 是各个 Flow 类型共用的编号搜索槽位，不是字段名。槽位的说明见 [读取和搜索 Attribute](/concepts/primitives/attribute#read-and-search-attributes)。
 
 <SdkTabs
   examples={{
@@ -765,7 +774,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker 和 Client
 
-创建连接到 **dexcli**（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。
+创建连接到 **dexcli**（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。
 
 Worker 主动连到 **dexcli** 接收任务，所以不需要开放入站端口。容量、就绪状态和生产环境配置见英文的 [Workers and the task queue](/reference/server/workers)。
 
@@ -781,9 +790,7 @@ Worker 主动连到 **dexcli** 接收任务，所以不需要开放入站端口�
 
 ```python
         service = MyDependencyService()
-        pattern_service = ServiceDependency()
 
-        self.money_transfer = MoneyTransferFlow(service)
         self.order_processing = OrderProcessingFlow(service)
 ```
 
@@ -1214,14 +1221,15 @@ async fn describe(
 
 ## 5. 运行
 
-保持 **dexcli dev** 在跑。另开一个终端：
+保持 **dexcli dev** 在跑。在第二个终端的 **dex** 目录里，安装并启动对应语言的示例应用：
 
 <SdkTabs>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python
-uv run python main.py
+uv sync --locked
+uv run --frozen python main.py
 ```
 
 </SdkSnippet>
@@ -1246,6 +1254,7 @@ cd examples/java
 
 ```bash
 cd examples/typescript
+npm install
 npm start
 ```
 
@@ -1260,7 +1269,9 @@ cargo run --locked
 </SdkSnippet>
 </SdkTabs>
 
-然后启动一笔订单，打开 Dex Web，再批准发货：
+示例应用在端口 **8080** 上运行一个 Worker 和一个 HTTP controller。
+
+在第三个终端里启动一笔订单，打开 Dex Web，再批准发货：
 
 ```bash
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
@@ -1272,7 +1283,7 @@ curl -s 'http://127.0.0.1:8080/products/order-processing/start'
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
 ```
 
-把 **FLOW_ID** 换成刚才复制的 **flowID**。这条 Flow 会发货并完成。
+把 **FLOW_ID** 换成刚才复制的 **flowID**。示例应用把这个查询参数叫作 **workflowId**，但它接收的就是 Flow ID。这条 Flow 会发货并完成。
 
 ## 6. Dex Web
 
@@ -1286,7 +1297,7 @@ Timeline tab 从左到右显示同一次 run 的事件。选中一个事件，�
 
 ## 接下来
 
-- [概念](/concepts)
-- [为什么是 Dex？](/intro/what-is-dex)
-- [与数据库对比](/intro/compared-to-database)
-- [产品示例](/use-cases)
+- [概念](/concepts)：这个示例用到的 Flow、Step、Channel、Timer 等基本组成部分。
+- [你的应用](/components/application)：怎样在你自己的服务里加入 Worker 和 Client。
+- [与数据库对比](/intro/compared-to-database)：用数据库和队列实现的同一个订单流程。
+- [产品示例](/use-cases)：更多完整示例，包括两个 AI agent。

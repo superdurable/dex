@@ -1,14 +1,16 @@
 ---
 title: Dex Server
 sidebar_label: Dex Server
-description: "Dex Server stores every Flow's state and hands Steps and RPCs to Workers. Its only runtime dependency is object storage, such as Amazon S3 or an S3-compatible store. Dex Server ships as one binary, dex-server-zd. Its releases and reference pages call it server-zd."
+description: "Dex Server stores every Flow's state and hands Steps and RPCs to Workers. It stores that state in object storage, such as Amazon S3 or an S3-compatible store, and needs no other database. Dex Server ships as one binary, dex-server-zd. Its releases and reference pages call it server-zd."
 ---
 
 # Dex Server
 
-Dex Server stores every Flow's state and hands Steps and RPCs to Workers. Its
-only runtime dependency is object storage, such as Amazon S3 or an
-S3-compatible store. Dex Server ships as one binary, **dex-server-zd**. Its
+Dex Server stores every Flow's state and hands Steps and RPCs to Workers. It
+stores that state in object storage, such as Amazon S3 or an S3-compatible
+store, and needs no other database. A PostgreSQL-compatible db9 database can
+take the place of object storage; see
+[db9 provider](/reference/server/object-storage#db9). Dex Server ships as one binary, **dex-server-zd**. Its
 releases and reference pages call it **server-zd**.
 
 ## How it works
@@ -19,7 +21,12 @@ cache from object storage.
 
 One active process serves a cluster. It holds a lease in object storage, so a
 second process cannot write at the same time. You can run standby processes
-that take over when the active process stops. [Performance and
+that take over when the active process stops.
+
+The cluster splits its Flows into partitions, and today the one active node
+owns every partition. So one node's capacity is the ceiling of a cluster. To
+grow past it, use a larger node, or run separate clusters, each with its own
+Flows and Workers. [Performance and
 Maturity](/intro/performance-and-maturity) gives measured throughput and
 latency for one node.
 

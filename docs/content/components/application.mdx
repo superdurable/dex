@@ -28,6 +28,35 @@ or **dexcli** starts also runs on your Workers.
 A Worker can publish the Flow Definition Graphs of its Flows to the server when
 it starts. Dex Web reads them there to draw each Flow.
 
+## Add Dex to an existing service {#add-to-a-service}
+
+Dex adds a library to your service, not a framework around it. Install the SDK
+for your language:
+
+~~~bash
+pip install dex-python-sdk                       # Python
+go get github.com/superdurable/dex/sdk-go@latest # Go
+npm install @superdurable/dex                    # TypeScript
+cargo add dex-sdk                                # Rust
+~~~
+
+For Java, add **io.superdurable:dex-sdk** from Maven Central to your Gradle or
+Maven build.
+
+The Worker can run in two places:
+
+- **Inside your service process.** Start it next to your HTTP server, as the
+  [Order Processing](/use-cases/order-processing) example does. One deployment
+  then serves requests and runs Steps.
+- **In its own process.** Deploy it separately when Steps need different
+  scaling, resources, or release timing than your API. The
+  [Quick Start](/quick-start) runs its Worker this way.
+
+Either way, the Worker only makes outbound connections, so it needs no load
+balancer or inbound port. Your handlers create a Client to start Flows and call
+RPCs. [Dex and your database](/components/your-database) explains how Steps
+write to the database your service already has.
+
 ## Start a Worker {#enable-pull-mode}
 
 Configure the Worker with the server address. A Client needs only the server
@@ -55,17 +84,17 @@ and [Rust](/reference/rust/workers).
 
 ## Pass services to the Flow {#pass-services-to-the-flow}
 
-Pass each service that a Flow calls, such as a payment API, to the Flow constructor. Do not set it later with a setter. Do not read it from a global variable.
+Pass each service that a Flow calls, such as a payment API, to the Flow constructor. Then every Step has its services from the moment the Worker registers the Flow, and a test can pass a fake service the same way. A setter or a global variable leaves a window in which a Step can run without its service.
 
 ## Start a Flow from a handler {#start-a-flow-from-a-handler}
 
-A **start** handler starts the Flow. Then it waits for the first Step with the Client **wait-for-Step-completion** API. It does not poll a status of its own.
+A **start** handler starts the Flow. When the caller needs to know that the first Step finished, such as a charge before the order page shows "paid", the handler waits for that Step with the Client **wait-for-Step-completion** API. The wait ends when Dex records the Step, so the handler needs no status table or polling loop of its own.
 
 ## Send commands and read state through RPCs {#send-commands-through-rpcs}
 
-A handler that changes a Flow calls an RPC, such as **approve**. The RPC publishes the message to a Channel. A handler that reads a Flow calls a read RPC, such as **describe**. The handlers get the Client and the Flow from their constructor or factory arguments.
+A handler that changes a Flow calls an RPC, such as **approve**. The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
 
-The [Order Processing](/use-cases/order-processing) example shows these three rules in full code.
+The [Order Processing](/use-cases/order-processing) example shows these three patterns in full code.
 
 ## Capacity and shutdown
 
@@ -79,7 +108,8 @@ routing, capacity, shutdown, and network settings.
 
 ## Operate it in production
 
-When a Flow does not advance or fails, follow
+[Run Dex in production](/components/production) lists what to set up before
+launch. When a Flow does not advance or fails, follow
 [Troubleshoot a Flow run](/reference/web/debugging).
 
 ## Versioning Flow code
@@ -131,6 +161,34 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 Only remove the old code after the result is empty or every remaining Flow has
 an explicitly approved retirement plan.
+
+### Example: add a fee to Charge {#versioning-example}
+
+The order Flow from [Order Processing](/use-cases/order-processing) charges the
+order amount. A new rule adds a handling fee. Orders that are already open must
+keep the old price.
+
+1. **Record the version at start.** The new start handler sets an Attribute,
+   such as **pricing-version**, to 2 when it starts a Flow. Flows that started
+   earlier have no value, which means version 1.
+2. **Branch on the stored value.** **Charge** reads **pricing-version**. It
+   charges the amount alone for version 1 and the amount plus the fee for
+   version 2. A Flow that waits in **Ship** today never runs **Charge** again,
+   so it is not affected.
+3. **Add a Step type for a changed contract.** Suppose the refund now needs a
+   new input field that old Flows never stored. Add a new Step type, such as
+   **RefundWithFee**, and go to it only from version 2. Keep **Refund** for
+   version 1 Flows.
+4. **Deploy both.** One Worker build contains **Charge** with the branch,
+   **Refund**, and **RefundWithFee**. During a rolling deployment, an older
+   Worker that lacks **RefundWithFee** hands that call to a newer one.
+5. **Retire the old path.** When no open Flow has version 1, remove the
+   version 1 branch and **Refund**. Search for such Flows first. If
+   **pricing-version** is an indexed Attribute, the search can filter on it
+   as well as on the Flow type.
+
+No step of this needs a version marker in Step code. The stored Attribute
+decides which path a Flow takes, whatever Worker build serves it.
 
 ## Recover a Flow with Time Travel {#time-travel}
 

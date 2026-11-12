@@ -111,7 +111,7 @@ parameters.
 
 An explicit zero for a duration, **syncBatchSize**, or a retry policy field
 means its default. The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.26/server-zd/config/dex-server-zd.example.yaml)
 shows the section with comments.
 
 | Key | Default | Notes |
@@ -228,7 +228,7 @@ than the one that failed. A newer Flow run of the same Flow ID waits for the
 older one, so rows keep the order of Flow runs.
 
 Dex drops entries that are still pending **syncRetryPolicy.totalDuration** after
-they were first marked, and logs an error. Later writes of the same Attributes
+they were first marked, and logs a warning that names the Flow run and the store. Later writes of the same Attributes
 sync normally. **dexzd_attribute_sync_dropped_entries_total** counts dropped
 entries. It also counts entries that the store rejected with a non-retryable
 error.

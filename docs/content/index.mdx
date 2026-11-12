@@ -10,18 +10,9 @@ Dex is a **Durable Execution** platform. A database stores your data. Dex also s
 
 You write the process as a Flow: a set of Steps in your own language, each of which says which Step runs next. Attributes, Channels, RPCs, and Connectors hold its state and connect it to the outside.
 
-## Build with your coding agent
-
-Paste this into a coding agent that has [Dex Skills](/build-with-ai/dex-developer-skill):
-
-```text
-Build the Dex Quick Start app in this folder. Read
-https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
-```
-
 ## New to Dex
 
-Not sure where to begin? [Get Started](/get-started) lists the paths.
+Start with the [Quick Start](/quick-start). [Get Started](/get-started) suggests a path by goal, with the time each one takes.
 
 <div className="docs-home-sections">
   <DocsSection section="intro" to="/quick-start" title="Quick Start">
@@ -37,6 +28,15 @@ Not sure where to begin? [Get Started](/get-started) lists the paths.
     Flow, Step, and the six primitives.
   </DocsSection>
 </div>
+
+## Optional: build with your coding agent
+
+If your coding agent has [Dex Skills](/build-with-ai/dex-developer-skill), paste this into it. It follows the same Quick Start for you:
+
+```text
+Build the Dex Quick Start app in this folder. Read
+https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
+```
 
 ## What you can build
 
@@ -96,7 +96,7 @@ Not sure where to begin? [Get Started](/get-started) lists the paths.
     Reusable Flow shapes for parallel work, timers, failures, and messaging.
   </DocsSection>
   <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    A machine-checked proof of what Dex can express.
+    Computer-checked proofs of what Dex can express and what failures can change. They cover one Flow that receives Channel messages. The failure proof assumes SYNC Steps and leaves out RPCs, SubFlows, locks, and failure policies.
   </DocsSection>
   <DocsSection section="glossary" to="/glossary" title="Glossary">
     Every Dex term in one place.

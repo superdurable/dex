@@ -14,7 +14,23 @@ One Flow run is one agent session. The Flow ID is the session ID. Dex Agents bui
 
 The session stores the conversation in Attributes. A session waits for the next user message without holding a Worker. It can wait for days.
 
-Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session sends their results to the model. Each Step adds a round trip to Dex. A turn in which the model asks for three tools and then answers takes five Steps: two model calls and three tool calls. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) lists measured Step latencies.
+Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The Steps of one turn are:
+
+| Step | What it does |
+| --- | --- |
+| **RunModel** | Makes one model call and records the response. |
+| **CallTool** | Runs one call of a read or an idempotent write. Dex may retry it. |
+| **CallSingleAttemptTool** | Runs one call of any other write. Dex runs it at most once. |
+| **AwaitToolApproval** | Waits for a person to approve or reject a tool call. It holds no Worker. |
+| **ResumeTurn** | Waits for every tool result of the model response, then moves back to **RunModel**. |
+
+The tool calls of one model response run in parallel. When they all finish, **ResumeTurn** sends their results to the model.
+
+### Latency and cost {#latency-and-cost}
+
+Every session Step is SYNC: Dex commits the Step's result to object storage before the session moves on. A turn in which the model asks for three tools and then answers takes six Steps: two **RunModel**, three tool Steps, and one **ResumeTurn**. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) measured a p50 of about 105 ms for a SYNC Step on a 2-vCPU server at half of its peak load. The three tool Steps run in parallel, so the turn waits on four Steps in a row. At that p50, they add about 0.4 seconds to the turn, on top of the model and tool time.
+
+A **RunModel** Step retries up to three attempts within 30 minutes. A retry sends the model call to the provider again, so you pay for its tokens again. **run_model_limit** in Python, or **runModelLimit** in TypeScript, lowers the attempts for an expensive call. [Step timeouts](/reference/agents/workers#timeouts) lists the defaults.
 
 A crash repeats only the Step that was running. Dex does not replay the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step.
 
@@ -33,6 +49,10 @@ A stopped session stays readable for the retention period, and then Dex deletes 
 
 ## How your framework runs a turn {#how-each-framework-runs-a-turn}
 
+Most adapters stop the framework before a tool runs, so each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The next **RunModel** gives the framework the recorded results, so no tool runs again. A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**. The Claude Agent SDK is the exception: it runs reads inside **RunModel**.
+
+The tabs show how each framework is stopped and resumed, and where a framework differs.
+
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
@@ -50,7 +70,7 @@ Claude Code runs a whole turn, so the adapter splits a turn into segments. One *
 
 A write tool call ends the segment. It waits in **AwaitToolApproval** when it needs approval. Then it runs in its own Step: **CallTool** for an idempotent write, **CallSingleAttemptTool** for any other write. **ResumeTurn** then returns to **RunModel**, which resumes the same Claude session. The CLI gets the recorded result and does not run the tool again.
 
-A failed segment retries, up to three attempts, and reruns whole. Model calls and reads inside it run again. A write that ran in its own Step never runs again.
+A failed segment retries, up to three attempts, and reruns whole. Model calls and reads inside it run again. A write that ran in its own Step does not run again when the segment retries.
 
 A turn that looks up an order runs one **RunModel** Step. A turn that cancels an order runs **RunModel**, **AwaitToolApproval**, **CallSingleAttemptTool**, **ResumeTurn**, and **RunModel**.
 
@@ -67,9 +87,7 @@ Use it when your agent already uses Google ADK, including sequential, loop, and 
 
 The adapter adds a plugin to the ADK App. For each tool call, the plugin asks ADK for a confirmation, so ADK pauses before the tool runs. Each **RunModel** Step makes one model call and stores the turn's ADK events.
 
-Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The tool Step runs the tool once. The next **RunModel** confirms the paused calls, and the plugin returns the recorded results instead of running the tools again.
-
-A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+The tool Step runs the tool once. The next **RunModel** confirms the paused calls, and the plugin returns the recorded results instead of running the tools again.
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
@@ -84,11 +102,9 @@ Use it when your agent already uses LangChain **create_agent** or a LangGraph gr
 
 **DurableToolCallMiddleware** stops each tool call with a LangGraph interrupt, so no tool runs inside **RunModel**. The **RunModel** Step runs the graph to its next tool calls, usually with one model call, and stores the graph checkpoint.
 
-Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The tool Step validates the arguments and calls the tool once. The next **RunModel** restores the checkpoint and resumes the graph with the recorded results.
+The tool Step validates the arguments and calls the tool once. The next **RunModel** restores the checkpoint and resumes the graph with the recorded results.
 
 A custom graph builds its tool node with **durable_tool_node** instead of **ToolNode**. Its state must hold the conversation as LangChain messages.
-
-A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
@@ -103,9 +119,7 @@ Use it when your agent already uses Mastra. Keep the agent, its tools, and its m
 
 Every agent tool, read tools included, goes to Mastra as a client tool. So Mastra stops after the model call with the tool calls. Each **RunModel** Step makes one model call.
 
-Each tool call runs the agent's original tool once, in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The next **RunModel** adds the recorded results and calls the model again.
-
-A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+Each tool call runs the agent's original tool once, in its own Step. The next **RunModel** adds the recorded results and calls the model again.
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
@@ -120,11 +134,9 @@ Use it when your agent already uses the OpenAI Agents SDK, with or without hando
 
 The adapter copies the agent graph once and intercepts every function tool. So the SDK stops right after each model call and returns the tool calls the model asks for. Each **RunModel** Step makes one model call.
 
-Each function tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The next **RunModel** restores the SDK's run state and gives it the recorded results. The tool does not run again.
+Each function tool call runs in its own Step. The next **RunModel** restores the SDK's run state and gives it the recorded results. The tool does not run again.
 
 A handoff is not a function tool. It runs inside **RunModel**, so a Step that hands off also makes the next agent's model call.
-
-A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
@@ -139,9 +151,7 @@ Use it when your agent already uses Pydantic AI. Keep the agent, its tools, and 
 
 Each **RunModel** Step runs the agent with a capability that marks every function tool as an external tool. Pydantic AI never runs an external tool, so the run ends right after the model asks for tools.
 
-Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The tool Step runs the tool once, through the agent, so the agent's tool hooks run there. The next **RunModel** resumes the run with the recorded results.
-
-A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+The tool Step runs the tool once, through the agent, so the agent's tool hooks run there. The next **RunModel** resumes the run with the recorded results.
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
@@ -156,9 +166,7 @@ Use it when your TypeScript application already uses AI SDK models and tools. Ke
 
 Every tool reaches the model without its **execute**, so the AI SDK returns the tool calls instead of running them. Each **RunModel** Step makes one model call with **streamText**.
 
-Each tool call runs the tool's original **execute** in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The next **RunModel** adds the recorded results, checks **stopWhen**, and calls the model again.
-
-A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+Each tool call runs the tool's original **execute** in its own Step. The next **RunModel** adds the recorded results, checks **stopWhen**, and calls the model again.
 
 </FrameworkTab>
 </FrameworkTabs>

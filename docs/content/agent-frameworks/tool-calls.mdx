@@ -53,7 +53,12 @@ Each tool call ends with one record:
 
 The model reads every record and decides what to do next. A failed or unknown call does not fail the session.
 
-A call that Dex knows never ran records **failed**. Its error starts with "the tool did not run, so it is safe to call again", and the model can call the tool again. A call that may have run records **outcome_unknown** instead, unless it is a read. Dex never runs such a call again. See [A call that never ran](/reference/agents/failures#never-run-outcome-unknown) for how Dex decides.
+Which record a failed call gets depends on whether its tool may have run:
+
+- **No attempt reached a Worker.** The tool did not run, so the call records **failed**. Its error starts with "the tool did not run, so it is safe to call again", and the model can call the tool again.
+- **An attempt reached a Worker, and then the Worker stopped.** The tool may have run, even before its first heartbeat reached Dex. **CallTool** retries a read or an idempotent write first. When its attempts run out, a read records **failed**. Any other call records **outcome_unknown**, and Dex never runs it again.
+
+[A call that never ran](/reference/agents/failures#never-run-outcome-unknown) shows how Dex tells the two apart.
 
 ### At-most-once has one exception {#tool-runs-twice}
 

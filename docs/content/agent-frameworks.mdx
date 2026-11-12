@@ -21,6 +21,23 @@ Many agent frameworks can save the conversation after each step, with a checkpoi
 
 To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read the two complete examples: [AI Agent](/use-cases/ai-agent), a general agent on the built-in loop, and [Order Support Agent](/use-cases/order-support-agent), the same agent on each framework.
 
+## Dex terms on these pages {#dex-terms}
+
+| Term | Meaning |
+| --- | --- |
+| **Flow** | A durable process that Dex runs to completion. One agent session is one Flow run, and the session ID is its Flow ID. |
+| **Step** | One unit of work in a Flow. Dex records each Step's result, so a Step that finished does not run again. |
+| **Worker** | Your process that runs the Steps. It connects out to Dex, so it needs no open port. |
+| **Client** | The part of your app that starts sessions and calls them. |
+| **Attribute** | A named value that a Flow keeps. A session keeps its conversation and tool calls in Attributes. |
+| **RunModel** | The Step that makes a model call. |
+| **CallTool** | The Step that runs a read or an idempotent write. Dex may retry it. |
+| **CallSingleAttemptTool** | The Step that runs any other write. Dex runs it at most once. |
+| **AwaitToolApproval** | The Step that waits for a person to approve a tool call. It holds no Worker. |
+| **ResumeTurn** | The Step that waits for every tool result of a model response, then calls the model again. |
+
+[Concepts](/concepts) explains Flows, Steps, and the other Dex building blocks.
+
 ## Pages in this section {#pages}
 
 - [Agent Quick Start](/agent-frameworks/quick-start): run your agent on Dex, stop its Worker, and watch the session continue.
@@ -29,7 +46,6 @@ To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read t
 - [Approvals](/agent-frameworks/approvals): let a person approve a call before it runs.
 - [Connectors as Tools](/agent-frameworks/connectors-as-tools): call official Connector operations from the agent.
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): build a new agent without a framework.
-
 
 ## Choose a harness {#choose-a-harness}
 
@@ -48,7 +64,15 @@ A harness is the code that runs the agent loop: the built-in loop or a framework
 
 ## Run sessions in production {#run-sessions-in-production}
 
-The [Agents reference](/reference/agents/) covers install, the Stream backend, sizing, timeouts, limits, approval deadlines, Connector tools, spend limits, upgrades, credentials, and Dex Web.
+- [Read the stream](/reference/agents/event-stream#read-the-stream): show the reply in your UI as the model writes it.
+- [Tracing](/reference/agents/tracing): OpenTelemetry spans for each model call and tool call.
+- [Latency and cost](/agent-frameworks/sessions#latency-and-cost): what each Step adds to a turn, and what a retried model call costs.
+- [Upgrades](/reference/agents/upgrades): deploy new agent code while sessions wait.
+- [Spend limits](/reference/agents/spend-limits): cap model spend per account or API key.
+- [Workers and timeouts](/reference/agents/workers): size the Workers that run sessions.
+- [Performance and Maturity](/intro/performance-and-maturity): measured Step latency, release status, and the license.
+
+The [Agents reference](/reference/agents/) covers the rest: install, limits, approval deadlines, Connector tools, credentials, and Dex Web.
 
 ## Related {#related}
 

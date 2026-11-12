@@ -12,6 +12,13 @@ Build and run the order-processing Flow from [Why Dex?](/intro/what-is-dex). You
 
 Start a local Dex with **dexcli dev**, as [Run locally](/components/run-locally) shows. Keep it running.
 
+In a second terminal, get the examples. Every command below runs from the **dex** folder that this creates.
+
+```bash
+git clone https://github.com/superdurable/dex.git
+cd dex
+```
+
 
 ## 2. Flow, Steps, and RPCs
 
@@ -19,7 +26,9 @@ The Flow charges the buyer, waits for the seller's approval on a Channel, and th
 
 Pass the mock payment and shipping API to the Flow constructor. Do not set them later with a setter, and do not read them from a global variable.
 
-The mock service charges without an idempotency key. A real payment call must pass one, because a Step can run more than once. Derive the key from the Flow ID, so a rerun of Charge sends the same key. [Step guarantees](/concepts/step#guarantees) lists when a Step can run again.
+The mock service charges without an idempotency key. A real payment call must pass one, as [Step guarantees](/concepts/step#guarantees) explains.
+
+The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, **keyword1**, is a numbered search slot that Flow types share, not a field name. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
 
 <SdkTabs
   examples={{
@@ -765,7 +774,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker and Client
 
-Create a Registry, a Worker, and a Client that connect to **dexcli** at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it.
+Create a Registry, a Worker, and a Client that connect to **dexcli** at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it. The samples app registers every example Flow in one Registry, so the snippets below show only the lines for this Flow where they can.
 
 The Worker connects out to **dexcli** to receive tasks, so it needs no open inbound port.
 [Workers and the task queue](/reference/server/workers) covers capacity, readiness, and
@@ -783,9 +792,7 @@ production setup.
 
 ```python
         service = MyDependencyService()
-        pattern_service = ServiceDependency()
 
-        self.money_transfer = MoneyTransferFlow(service)
         self.order_processing = OrderProcessingFlow(service)
 ```
 
@@ -1216,14 +1223,15 @@ async fn describe(
 
 ## 5. Run
 
-Keep **dexcli dev** running. In another terminal:
+Keep **dexcli dev** running. In the second terminal, from the **dex** folder, install and start the samples app for your language:
 
 <SdkTabs>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python
-uv run python main.py
+uv sync --locked
+uv run --frozen python main.py
 ```
 
 </SdkSnippet>
@@ -1248,6 +1256,7 @@ cd examples/java
 
 ```bash
 cd examples/typescript
+npm install
 npm start
 ```
 
@@ -1262,7 +1271,9 @@ cargo run --locked
 </SdkSnippet>
 </SdkTabs>
 
-Then start an order, open Dex Web, and approve the shipment:
+The samples app runs a Worker and an HTTP controller on port **8080**.
+
+In a third terminal, start an order, open Dex Web, and approve the shipment:
 
 ```bash
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
@@ -1274,7 +1285,7 @@ Copy **flowID** from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:880
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
 ```
 
-Replace **FLOW_ID** with the **flowID** you copied. The Flow ships the item and completes.
+Replace **FLOW_ID** with the **flowID** you copied. The samples app names this query parameter **workflowId**, but it takes the Flow ID. The Flow ships the item and completes.
 
 ## 6. Dex Web
 
@@ -1288,7 +1299,7 @@ The Timeline tab shows the same run's events from left to right. Select an event
 
 ## Next
 
-- [Concepts](/concepts)
-- [Why Dex?](/intro/what-is-dex)
-- [Compared to Database](/intro/compared-to-database)
-- [Product Examples](/use-cases)
+- [Concepts](/concepts): Flows, Steps, Channels, Timers, and the other building blocks this example uses.
+- [Your Application](/components/application): how to add a Worker and a Client to your own service.
+- [Compared to Database](/intro/compared-to-database): the same order process built on a database and queues.
+- [Product Examples](/use-cases): more complete examples, including two AI agents.

@@ -44,6 +44,8 @@ const localeCopies = {
       waits: {until: 'Waits for', anyOf: 'Waits for any of', allOf: 'Waits for all of', skipWaitImmediately: 'Does not wait',
         failure: 'Waits after a failure'},
       conditionKinds: {channel: 'Channel', timer: 'Timer', subflow: 'SubFlow'},
+      timerFired: 'the Timer fired', timerNotFired: 'the Timer did not fire', codeOpen: ' (', codeClose: ')',
+      messages: count => (count === '1' ? ' (1 message)' : ` (${count} messages)`),
     },
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
     otherPages: 'Other pages',
@@ -66,6 +68,8 @@ const localeCopies = {
       waits: {until: '等待', anyOf: '等待以下任一条件', allOf: '等待以下全部条件', skipWaitImmediately: '不等待',
         failure: '失败后等待'},
       conditionKinds: {channel: 'Channel', timer: 'Timer', subflow: 'SubFlow'},
+      timerFired: 'Timer 已触发', timerNotFired: 'Timer 未触发', codeOpen: '（', codeClose: '）',
+      messages: count => `（${count} 条消息）`,
     },
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
     otherPages: '其他页面',
@@ -163,13 +167,25 @@ function llmsSections(versions, copy, movedPages = new Set()) {
   for (const {version, pages} of versions) {
     const pagesById = new Map(pages.map(page => [page.id, page]));
     for (const sidebar of Object.values(version.sidebars ?? {})) {
+      // Consecutive top-level pages share one section, titled by the first of them.
+      let pageRun = [];
+      const flushPageRun = () => {
+        if (pageRun.length) sections.push({title: pageRun[0].title, pages: pageRun});
+        pageRun = [];
+      };
       for (const item of sidebar) {
         const sectionPages = sidebarDocIds(item).map(id => pagesById.get(id))
           .filter(page => page && !listed.has(page));
         if (!sectionPages.length) continue;
         sectionPages.forEach(page => listed.add(page));
-        sections.push({title: item.type === 'category' ? item.label : sectionPages[0].title, pages: sectionPages});
+        if (item.type === 'category') {
+          flushPageRun();
+          sections.push({title: item.label, pages: sectionPages});
+        } else {
+          pageRun.push(...sectionPages);
+        }
       }
+      flushPageRun();
     }
   }
   // A page that only says where its content moved helps no reader of llms.txt.
@@ -511,14 +527,41 @@ function waitPhrasing(item, copy) {
   const words = copy.graph;
   const conditions = (item.wait?.conditions ?? []).flatMap((condition, index) => [
     text(`${index ? copy.graph.listJoiner : ' '}${words.conditionKinds[condition.kind] ?? condition.kind} `),
-    inlineCode(condition.label || condition.expression || condition.resourceId || condition.subFlowId || '')]);
+    ...waitConditionPhrasing(condition, words)]);
   const type = item.wait?.type ?? item.name;
   const lead = words.waits[type];
   return [...(lead ? [text(lead)] : [text('WaitFor '), inlineCode(type)]), ...conditions, ...conditionPhrasing(item, copy)];
 }
 
 function conditionPhrasing(item, copy) {
-  return item.condition ? [text(` ${copy.when} `), inlineCode(item.condition)] : [];
+  if (!item.condition) return [];
+  const words = timerConditionWords(item.condition, copy.graph);
+  return words ? [text(` ${copy.when} ${words}${copy.graph.codeOpen}`), inlineCode(item.condition), text(copy.graph.codeClose)]
+    : [text(` ${copy.when} `), inlineCode(item.condition)];
+}
+
+// A Channel label reads "name.for N" and a Timer label "duration timer"; both become plain words.
+function waitConditionPhrasing(condition, words) {
+  const label = condition.label || condition.expression || condition.resourceId || condition.subFlowId || '';
+  const channel = condition.kind === 'channel' && /^(.+)\.for (\d+)$/.exec(label);
+  if (channel) return [inlineCode(channel[1]), text(words.messages(channel[2]))];
+  const timer = condition.kind === 'timer' && /^(.+) timer$/.exec(label);
+  if (timer) return [inlineCode(timer[1])];
+  return [inlineCode(label)];
+}
+
+// Only a condition that is exactly a Timer check, possibly negated, gets plain words.
+function timerConditionWords(condition, words) {
+  let expression = condition.trim();
+  let isNegated = false;
+  for (;;) {
+    const negation = /^(?:not\s*\((.*)\)|!\((.*)\)|not\s+(.*)|!(.*))$/s.exec(expression);
+    if (!negation) break;
+    expression = (negation[1] ?? negation[2] ?? negation[3] ?? negation[4]).trim();
+    isNegated = !isNegated;
+  }
+  if (!/^[\w.]*(?:has_timer_fired|HasTimerFired|hasTimerFired)\(\)$/.test(expression)) return undefined;
+  return isNegated ? words.timerNotFired : words.timerFired;
 }
 
 function expandHostTabs(node, context) {
