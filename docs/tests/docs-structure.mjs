@@ -18,7 +18,7 @@
 // 7. Rules 2 and 5 also hold in each Developer reference component's sidebar. Its index page comes first, and the
 //    shared sidebar hides it because the Developer Reference header already opens it.
 
-import {readdirSync, readFileSync, statSync} from 'node:fs';
+import {existsSync, readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -271,19 +271,41 @@ for (const id of sequenceDocs) {
   }
 }
 
-// Every SDK version pin in the guides names the current SDK line, so a reader's install matches the matrix.
+// Every SDK version pin in the guides and the current reference names the current SDK line, so a
+// reader's install matches the matrix. Changelogs and the snapshots of older lines keep their history.
 {
   const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));
   const sdkLine = versions.go.replace(/\.x$/, '');
-  // pip ==, Go @v, npm @, cargo @= or @, and the Maven coordinate.
-  const pinPattern = /(?:dex-python-sdk==|sdk-go@v|@superdurable\/dex@|cargo add dex-sdk@=?|io\.superdurable:dex-sdk:)(\d+\.\d+)\.\d+/g;
-  for (const root of ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current']) {
+  // pip ==, npm @, Go @v, cargo add @= or @, Cargo.toml "=X.Y.Z" or "X.Y.Z", the Maven/Gradle coordinate,
+  // and a Maven <version> right after the dex-sdk artifactId.
+  const pinPattern = /(?:dex-python-sdk==|sdk-go@v|@superdurable\/dex@|cargo add dex-sdk@=?|dex-sdk = "=?|io\.superdurable:dex-sdk:)(\d+\.\d+)\.\d+/g;
+  const mavenVersion = /<version>(\d+\.\d+)\.\d+<\/version>/;
+  // Lines that name an older SDK on purpose. Each entry needs its reason.
+  const historicalPins = [
+    // {file: 'reference/<sdk>/<page>.mdx', text: '<the pin>', reason: '<why this page names an older release>'},
+  ];
+  const allowed = (file, line) => historicalPins.some((entry) => file === entry.file && line.includes(entry.text));
+  const roots = ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current'];
+  for (const component of ['go', 'python', 'java', 'typescript', 'rust']) {
+    roots.push(`reference/${component}`);
+    const latestSnapshot = `reference-${component}_versioned_docs/version-${versions[component]}`;
+    if (existsSync(join(docsRoot, latestSnapshot))) roots.push(latestSnapshot);
+  }
+  for (const root of roots) {
     for (const file of mdxFiles(join(docsRoot, root))) {
+      const path = relative(docsRoot, file);
+      if (/(^|\/)changelog\.mdx?$/.test(path)) continue;
       const lines = readFileSync(file, 'utf8').split('\n');
       lines.forEach((line, index) => {
-        for (const [pin, line_] of line.matchAll(pinPattern)) {
-          if (line_ !== sdkLine) {
-            failures.push(`${relative(docsRoot, file)}:${index + 1}: ${pin} is not the current SDK line ${sdkLine} (reference/versions.json). Pin ${sdkLine}.x.`);
+        if (allowed(path, line)) return;
+        const found = [...line.matchAll(pinPattern)].map(([pin, minor]) => [pin, minor]);
+        const maven = line.match(mavenVersion);
+        if (maven && /<artifactId>dex-sdk<\/artifactId>/.test(lines.slice(Math.max(0, index - 2), index).join('\n'))) {
+          found.push([maven[0], maven[1]]);
+        }
+        for (const [pin, minor] of found) {
+          if (minor !== sdkLine) {
+            failures.push(`${path}:${index + 1}: ${pin} is not the current SDK line ${sdkLine} (reference/versions.json). Pin ${sdkLine}.x, or run node scripts/generate-reference-install.mjs for the reference landing pages.`);
           }
         }
       });
