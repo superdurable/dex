@@ -29,7 +29,7 @@ pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
 pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore};
 pub use instrumented::InstrumentedObjectStore;
 pub use object_store_error::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation};
-pub use s3::{S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
+pub use s3::{S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
 pub use startup_self_check::{StartupSelfCheckError, StartupSelfCheckFailure, startup_self_check};
 
 use async_trait::async_trait;
