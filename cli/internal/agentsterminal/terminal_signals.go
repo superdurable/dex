@@ -46,11 +46,18 @@ type suspendRequestedMsg struct {
 // the program took the terminal back.
 type resumedMsg struct{}
 
-// terminalSignals handles SIGINT, SIGTERM, SIGHUP, SIGTSTP, and SIGCONT for
-// the chat. SIGTSTP releases the terminal and stops only this process; the
-// terminal is touched again only in the foreground process group.
+// terminalSignals handles SIGINT, SIGTERM, SIGHUP, SIGTSTP, and SIGCONT from
+// the start of the handoff to the end of the chat. Before the chat program
+// is attached it records the first exit signal and calls onEarlySignal, so
+// the handoff stops; Attach hands a recorded signal to the program. SIGTSTP
+// releases the terminal and stops only this process; the terminal is touched
+// again only in the foreground process group.
 type terminalSignals struct {
-	program terminalProgram
+	mutex           sync.Mutex
+	program         terminalProgram
+	earlyExitCode   int
+	onEarlySignal   func()
+	isEarlyReported bool
 
 	isForeground func() bool
 	stopProcess  func()
@@ -62,14 +69,14 @@ type terminalSignals struct {
 	wait         sync.WaitGroup
 }
 
-func newTerminalSignals(program terminalProgram, terminal *os.File) *terminalSignals {
+func newTerminalSignals(terminal *os.File, onEarlySignal func()) *terminalSignals {
 	return &terminalSignals{
-		program:      program,
-		isForeground: func() bool { return isForegroundProcessGroup(terminal) },
-		stopProcess:  stopThisProcess,
-		signals:      make(chan os.Signal, 8),
-		continued:    make(chan struct{}, 1),
-		done:         make(chan struct{}),
+		onEarlySignal: onEarlySignal,
+		isForeground:  func() bool { return isForegroundProcessGroup(terminal) },
+		stopProcess:   stopThisProcess,
+		signals:       make(chan os.Signal, 8),
+		continued:     make(chan struct{}, 1),
+		done:          make(chan struct{}),
 	}
 }
 
@@ -78,6 +85,26 @@ func (handler *terminalSignals) Start() {
 	signal.Notify(handler.signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGTSTP, syscall.SIGCONT)
 	handler.wait.Add(1)
 	go handler.run()
+}
+
+// Attach hands the signals to the chat program from now on, starting with a
+// signal that came before it.
+func (handler *terminalSignals) Attach(program terminalProgram) {
+	handler.mutex.Lock()
+	handler.program = program
+	exitCode := handler.earlyExitCode
+	handler.mutex.Unlock()
+	if exitCode != 0 {
+		go program.Send(externalSignalMsg{exitCode: exitCode})
+	}
+}
+
+// EarlyExitCode returns the exit code of a signal that came before Attach,
+// or 0.
+func (handler *terminalSignals) EarlyExitCode() int {
+	handler.mutex.Lock()
+	defer handler.mutex.Unlock()
+	return handler.earlyExitCode
 }
 
 // Stop ends the handling and restores the default dispositions.
@@ -96,15 +123,13 @@ func (handler *terminalSignals) run() {
 		case received := <-handler.signals:
 			switch received {
 			case syscall.SIGINT:
-				go handler.program.Send(externalSignalMsg{exitCode: exitCodeInterrupted})
+				handler.exit(exitCodeInterrupted)
 			case syscall.SIGTERM:
-				go handler.program.Send(externalSignalMsg{exitCode: exitCodeTerminated})
+				handler.exit(exitCodeTerminated)
 			case syscall.SIGHUP:
-				go handler.program.Send(externalSignalMsg{exitCode: exitCodeHangUp})
+				handler.exit(exitCodeHangUp)
 			case syscall.SIGTSTP:
-				if handler.isSuspending.CompareAndSwap(false, true) {
-					go handler.program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
-				}
+				handler.suspend()
 			case syscall.SIGCONT:
 				select {
 				case handler.continued <- struct{}{}:
@@ -112,6 +137,40 @@ func (handler *terminalSignals) run() {
 				}
 			}
 		}
+	}
+}
+
+// exit sends an exit signal to the program, or records it before Attach.
+func (handler *terminalSignals) exit(exitCode int) {
+	handler.mutex.Lock()
+	program := handler.program
+	isFirstEarly := program == nil && handler.earlyExitCode == 0
+	if isFirstEarly {
+		handler.earlyExitCode = exitCode
+	}
+	handler.mutex.Unlock()
+	switch {
+	case program != nil:
+		go program.Send(externalSignalMsg{exitCode: exitCode})
+	case isFirstEarly && handler.onEarlySignal != nil:
+		handler.onEarlySignal()
+	}
+}
+
+// suspend stops this process. Before the chat owns the terminal there is
+// nothing to release; afterwards the program releases it on its event loop.
+func (handler *terminalSignals) suspend() {
+	handler.mutex.Lock()
+	program := handler.program
+	handler.mutex.Unlock()
+	if program == nil {
+		signal.Reset(syscall.SIGTSTP)
+		handler.stopProcess()
+		signal.Notify(handler.signals, syscall.SIGTSTP)
+		return
+	}
+	if handler.isSuspending.CompareAndSwap(false, true) {
+		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
 	}
 }
 

@@ -81,7 +81,7 @@
       "message": {
         "type": "launch_rejected",
         "code": "dex_setup_failed",
-        "message": "The terminal could not be set up."
+        "message": "The credential that DEX_CREDENTIAL_FILE names is not usable for dex.auth mode bearer."
       }
     }
   ],

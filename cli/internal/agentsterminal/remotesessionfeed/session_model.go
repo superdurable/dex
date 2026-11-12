@@ -312,19 +312,22 @@ func (model *sessionModel) applySnapshot(snapshot dexagents.AgentSnapshot) {
 		}
 	}
 	isSettled := model.applyNewMessages(snapshot, activeTurnID)
-	if isSettled && activeTurnID != "" && !model.finishedTurns[activeTurnID] && !model.startedTurns[activeTurnID] {
-		if model.currentTurnID == "" || model.settleTurn(model.currentTurnID, snapshot) {
-			model.startTurn(activeTurnID, nil)
-		}
-	}
-	if model.currentTurnID != "" && model.currentTurnID == activeTurnID {
-		model.applyToolCalls(snapshot)
-	}
-	model.applyInterrupts(snapshot)
 	if model.currentTurnID != "" && model.currentTurnID != activeTurnID {
 		model.settleTurn(model.currentTurnID, snapshot)
 	}
-	model.applyActivity(snapshot)
+	// While the previous turn waits for its end event, everything of the
+	// next turn waits too: its start, tool rows, interrupts, and activity.
+	isHoldingNextTurn := model.currentTurnID != "" && model.currentTurnID != activeTurnID
+	if !isHoldingNextTurn {
+		if isSettled && activeTurnID != "" && !model.finishedTurns[activeTurnID] && !model.startedTurns[activeTurnID] {
+			model.startTurn(activeTurnID, nil)
+		}
+		if model.currentTurnID != "" && model.currentTurnID == activeTurnID {
+			model.applyToolCalls(snapshot)
+		}
+		model.applyInterrupts(snapshot)
+		model.applyActivity(snapshot)
+	}
 	model.applyQueue(snapshot)
 	model.applyPlan(snapshot)
 	model.applyUsage(snapshot.Usage)

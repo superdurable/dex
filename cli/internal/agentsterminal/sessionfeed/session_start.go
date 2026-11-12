@@ -17,17 +17,20 @@ type SessionStartChanged struct {
 	IsWaiting bool
 }
 
-// SessionStartFinished offers a session that /new started after its wait
-// moved to the background. The screen asks "Started session <id>. Switch to
-// it? y switch · n stay" and switches only with SwitchSession.
+// SessionStartFinished reports the session /new started; it comes before
+// SessionStartChanged ends the wait. While the user still waits in the
+// foreground, the screen switches to it with SwitchSession. After Esc moved
+// the wait to the background, it asks "Started session <id>. Switch to it? y
+// switch · n stay" and never switches silently. The screen decides on its
+// event loop, so an Esc it accepted always wins over a result read later.
 type SessionStartFinished struct {
 	// SessionID is the new session's ID.
 	SessionID string
 }
 
-// MoveSessionStartToBackground lets /new go on without the user waiting. It
-// sends no cancel: the session may still start, and SessionStartFinished
-// offers it.
+// MoveSessionStartToBackground tells the source that the user stopped
+// waiting for /new. It sends no cancel: the session may still start, and
+// SessionStartFinished offers it.
 type MoveSessionStartToBackground struct{}
 
 // SwitchSession switches the chat to another session of the same command,

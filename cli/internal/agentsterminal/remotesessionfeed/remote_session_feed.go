@@ -121,8 +121,7 @@ type RemoteSessionFeed struct {
 	// actionMutex keeps one local request action at a time, in order.
 	actionMutex sync.Mutex
 
-	isStartingSession      atomic.Bool
-	sessionStartBackground chan struct{}
+	isStartingSession atomic.Bool
 
 	stateMutex     sync.Mutex
 	sessionID      string
@@ -158,8 +157,7 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 		updates:  newUpdateQueue(),
 		inputs:   make(chan loopInput, 256),
 
-		sessionStartBackground: make(chan struct{}, 1),
-		sessionID:              config.Launch.Session.SessionID,
+		sessionID: config.Launch.Session.SessionID,
 	}
 }
 

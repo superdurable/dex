@@ -909,7 +909,14 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	case sessionfeed.SessionStartChanged:
 		screen.isSessionStartWaiting = typed.IsWaiting
 	case sessionfeed.SessionStartFinished:
-		screen.pendingSwitchSessionID = typed.SessionID
+		if screen.isSessionStartWaiting {
+			// The user still waits for /new: switch now.
+			screen.isSessionStartWaiting = false
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "Started session "+typed.SessionID+"; switching to it.")
+			command = screen.submitAction(sessionfeed.SwitchSession{SessionID: typed.SessionID})
+		} else {
+			screen.pendingSwitchSessionID = typed.SessionID
+		}
 	case sessionfeed.TurnStarted:
 		screen.startTurn(typed)
 	case sessionfeed.TurnActivityChanged:

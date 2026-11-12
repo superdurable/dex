@@ -99,6 +99,8 @@ CONTRACT_1_TYPES = {
     "result",
 }
 REJECTION_EXIT_CODES: dict[str, int] = load_fixture("launch.json")["rejection_codes"]
+# Checks that run after the launch line passed, so a line alone cannot show them.
+LATER_REJECTION_CODES = ("terminal_failed", "dex_setup_failed")
 
 
 # Schemas.
@@ -414,6 +416,11 @@ class TranscriptChecker:
         verdict = classify_launch_line(
             self._launch_line(steps[0]), self.transcript["terminal_ui_environment"]
         )
+        later_rejection = steps[1].get("message", {}) if len(steps) > 1 else {}
+        if verdict.code is None and later_rejection.get("type") == "launch_rejected":
+            # The line passed; a check after it failed: the terminal, or the Dex setup.
+            assert later_rejection["code"] in LATER_REJECTION_CODES, later_rejection["code"]
+            verdict = LaunchVerdict(later_rejection["code"])
         if verdict.code is not None:
             self._check_rejection(verdict, steps[1:])
             return

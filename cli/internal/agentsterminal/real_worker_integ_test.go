@@ -14,12 +14,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -71,6 +73,49 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("QueueAndSteer", stack.testQueueAndSteer)
 	t.Run("PlanAndRun", stack.testPlanAndRun)
 	t.Run("ImageThroughPutImage", stack.testImageThroughPutImage)
+	t.Run("DebugLogAndStderrStayPrivate", stack.testDebugLogAndStderrStayPrivate)
+}
+
+// The debug log names errors by kind only, never by their text, and nothing
+// written to fd 2 reaches the terminal. A session that does not exist makes
+// the server answer every snapshot with an error that names the session.
+func (stack *realWorkerStack) testDebugLogAndStderrStayPrivate(t *testing.T) {
+	marker := fmt.Sprintf("private-marker-%d", time.Now().UnixNano())
+	probeContext, cancelProbe := context.WithTimeout(context.Background(), 15*time.Second)
+	_, probeErr := stack.sessions.GetAgentSnapshot(probeContext, marker)
+	cancelProbe()
+	require.Error(t, probeErr)
+	require.Contains(t, probeErr.Error(), marker, "the server's error text holds the marker")
+	chat := stack.openChatWithLaunch(t, marker, false, chatLaunch{methods: []string{}, isDebugLogOn: true})
+	chat.waitForScreen("Session not loaded yet")
+	dexcliPID := childProcessID(t, chat.host.Process.Pid)
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("dexcli-agents-tui-%d.log", dexcliPID))
+	if _, err := os.Stat(logPath); err != nil {
+		logPath = filepath.Join("/tmp", fmt.Sprintf("dexcli-agents-tui-%d.log", dexcliPID))
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("remove the debug log: %v", err)
+		}
+	})
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(logPath)
+		return err == nil && strings.Contains(string(data), "read the snapshot: grpc")
+	}, screenWait, 50*time.Millisecond, "the debug log names the snapshot error by kind")
+	// SIGQUIT makes the Go runtime dump every goroutine to fd 2.
+	require.NoError(t, syscall.Kill(dexcliPID, syscall.SIGQUIT))
+	select {
+	case <-chat.hostDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("dexcli did not exit after SIGQUIT")
+	}
+	debugLogText, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	require.NotContains(t, string(debugLogText), marker, "no error text in the debug log")
+	require.NotContains(t, string(debugLogText), "goroutine ", "fd 2 never goes to the debug log")
+	screen := chat.screen()
+	require.NotContains(t, screen, "goroutine ", "fd 2 never reaches the terminal")
+	require.NotContains(t, screen, "SIGQUIT")
 }
 
 // /plan asks for a planning turn; /run approves the draft through execute_plan.
@@ -329,6 +374,7 @@ type chatRun struct {
 	screenPath string
 	hostDone   chan error
 	hostStderr *bytes.Buffer
+	host       *exec.Cmd
 }
 
 // chatLaunch adds launcher methods and the steps the launcher plays after
@@ -337,6 +383,7 @@ type chatLaunch struct {
 	methods       []string
 	hasImages     bool
 	launcherSteps []any
+	isDebugLogOn  bool
 }
 
 func (stack *realWorkerStack) openChat(t *testing.T, sessionID string, isResumed bool) *chatRun {
@@ -383,8 +430,13 @@ func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string,
 	host := exec.Command(stack.pythonPath, contractHostScript, "launcher",
 		"--transcript", transcriptPath, "--pty", "110x32", "--screen-log", chat.screenPath, "--record", recordPath,
 		"--step-timeout", "180", "--pty-input-from-stdin", raceEnvironmentArgument(chat.racePrefix), "--", stack.dexcli, "agents-tui")
+	debugLog := os.Getenv("DEX_AGENTS_TUI_DEBUG")
+	if options.isDebugLogOn {
+		debugLog = "1"
+	}
 	host.Env = []string{"HOME=" + stack.home, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH"),
-		"DEX_AGENTS_TUI_DEBUG=" + os.Getenv("DEX_AGENTS_TUI_DEBUG")}
+		"DEX_AGENTS_TUI_DEBUG=" + debugLog}
+	chat.host = host
 	chat.keys, err = host.StdinPipe()
 	require.NoError(t, err)
 	host.Stderr = chat.hostStderr

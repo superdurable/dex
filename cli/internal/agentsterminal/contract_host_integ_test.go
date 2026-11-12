@@ -79,6 +79,12 @@ var transcriptKeys = map[string][]keystrokes{
 		{afterStep: 1, text: "/new\r"}, {afterStep: 2, text: "\x1b"}, {afterStep: -1, afterScreen: "Switch to it?", text: "n"},
 		{afterStep: -1, afterScreen: "staying in this session", text: "\x04"},
 	},
+	// A second /new while one starts sends nothing; exit before the answer.
+	"chat_start_session_background_exit": {
+		{afterStep: 1, text: "/new\r"}, {afterStep: 2, text: "\x1b"},
+		{afterStep: 2, afterScreen: "keeps starting", text: "/new\r"},
+		{afterStep: 2, afterScreen: "already starting", text: "\x04"},
+	},
 	"launch_terminal_failed_beats_dex_setup": nil,
 	"launch_dex_setup_failed":                nil,
 }
@@ -91,6 +97,10 @@ var transcriptScreenChecks = map[string]func(t *testing.T, screen string){
 	"chat_start_session_background_switch": func(t *testing.T, screen string) {
 		require.NotContains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat switched to the new session")
 		require.Regexp(t, `Session openai-sdk-\d{8}-\d{6}-[0-9a-f]{12} stays in Dex`, screen)
+	},
+	"chat_start_session_background_exit": func(t *testing.T, screen string) {
+		require.Contains(t, screen, "A new session is already starting.")
+		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the summary names the session the chat shows")
 	},
 	"chat_start_session_background_stay": func(t *testing.T, screen string) {
 		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat stayed")

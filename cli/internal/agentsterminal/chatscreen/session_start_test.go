@@ -30,6 +30,34 @@ func TestEscMovesSessionStartToTheBackground(t *testing.T) {
 	require.Len(t, harness.source.recordedActions(), 1, "a second Esc sends nothing")
 }
 
+// The result decides on the event loop: while the user waits it switches at
+// once; after an accepted Esc, a result that comes right after only asks.
+func TestSessionStartResultFollowsTheAcceptedEsc(t *testing.T) {
+	waiting := newScreenHarness(t, harnessOptions{})
+	waiting.feed(sessionfeed.SessionStartChanged{IsWaiting: true}, sessionfeed.SessionStartFinished{SessionID: backgroundSessionID})
+	require.Equal(t, []sessionfeed.UserAction{sessionfeed.SwitchSession{SessionID: backgroundSessionID}}, waiting.source.recordedActions())
+	require.NotContains(t, waiting.plainFrame(), "Switch to it?")
+
+	escaped := newScreenHarness(t, harnessOptions{})
+	escaped.feed(sessionfeed.SessionStartChanged{IsWaiting: true})
+	escaped.press(key(tea.KeyEscape))
+	escaped.feed(sessionfeed.SessionStartFinished{SessionID: backgroundSessionID}, sessionfeed.SessionStartChanged{IsWaiting: false})
+	require.Equal(t, []sessionfeed.UserAction{sessionfeed.MoveSessionStartToBackground{}}, escaped.source.recordedActions(),
+		"no switch after Esc")
+	require.Contains(t, escaped.plainFrame(), "Switch to it?")
+}
+
+// Exiting while /new still starts in the background names the session the
+// chat shows.
+func TestExitWithABackgroundStartNamesTheCurrentSession(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	harness.feed(sessionfeed.SessionStartChanged{IsWaiting: true})
+	harness.press(key(tea.KeyEscape))
+	harness.press(ctrlKey('d'))
+	require.True(t, harness.screen.isExiting)
+	require.Contains(t, harness.screen.ExitSummary(), "openai-sdk-20261111-142233-a1b2c3")
+}
+
 // A session started in the background is offered, never switched to
 // silently; y switches and n stays.
 func TestSessionStartedInTheBackgroundAsksBeforeSwitching(t *testing.T) {

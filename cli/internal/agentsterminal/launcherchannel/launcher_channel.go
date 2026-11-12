@@ -383,9 +383,8 @@ func (channel *LauncherChannel) Call(ctx context.Context, method string, key str
 	case <-channel.ended:
 		return RequestOutcome{Kind: OutcomeChannelEnded}
 	case <-ctx.Done():
-		if err := channel.sendCancel(requestID); err != nil {
-			return RequestOutcome{Kind: OutcomeChannelEnded}
-		}
+		// The chat is ending: the channel closes next, and start_session
+		// is never cancelled, so no cancel is sent.
 		return RequestOutcome{Kind: OutcomeUnknown}
 	case <-timer.C:
 	}

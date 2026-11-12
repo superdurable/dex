@@ -58,15 +58,18 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 			debugLog("close the channel", closeErr)
 		}
 	}()
-	// A signal before the chat runs stops the wait for the launch line.
-	stopSignalWatch := context.AfterFunc(ctx, func() {
+	// One signal receiver covers the whole handoff. A signal before the chat
+	// runs stops the wait for the launch line and decides the exit code.
+	signals := newTerminalSignals(stdin, func() {
 		if closeErr := channel.Close(); closeErr != nil {
 			debugLog("close the channel after a signal", closeErr)
 		}
 	})
+	signals.Start()
+	defer signals.Stop()
 	line, err := channel.ReadLaunchLine()
-	if !stopSignalWatch() {
-		return &ExitError{Code: exitCodeTerminated}
+	if code := signals.EarlyExitCode(); code != 0 {
+		return &ExitError{Code: code}
 	}
 	if err != nil {
 		return &ExitError{Code: exitCodeInvalid}
@@ -75,6 +78,9 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 		func() *launchcontract.LaunchRejection { return checkTerminal(stdin, stdout) }, newDexConnection)
 	if rejection == nil {
 		defer connection.close()
+	}
+	if code := signals.EarlyExitCode(); code != 0 {
+		return &ExitError{Code: code}
 	}
 	if rejection != nil {
 		if sendErr := channel.SendLaunchRejected(rejection); sendErr != nil {
@@ -90,7 +96,7 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(discardWriter{}, discardWriter{}, discardWriter{}))
 	// The chat's own signal handling decides how SIGINT, SIGTERM, and SIGHUP
 	// end it; the caller's signal context would kill it without the exit code.
-	return runChat(context.WithoutCancel(ctx), channel, launch, connection, stdin, stdout)
+	return runChat(context.WithoutCancel(ctx), channel, launch, connection, signals, stdin, stdout)
 }
 
 // dexConnection is the Dex client of the chat and its blob cache.
@@ -183,6 +189,7 @@ func runChat(
 	channel *launcherchannel.LauncherChannel,
 	launch launchcontract.LaunchDocument,
 	connection dexConnection,
+	signals *terminalSignals,
 	stdin *os.File,
 	stdout *os.File,
 ) error {
@@ -232,10 +239,8 @@ func runChat(
 		tea.WithColorProfile(profile),
 		tea.WithoutSignalHandler(),
 	)
-	signals := newTerminalSignals(program, stdin)
-	signals.Start()
+	signals.Attach(program)
 	_, runErr := program.Run()
-	signals.Stop()
 	cancelChat()
 	<-feedDone
 	if summary := screen.ExitSummary(); summary != "" {

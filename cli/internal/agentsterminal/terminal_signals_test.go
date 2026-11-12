@@ -43,7 +43,8 @@ func (program *recordingProgram) sent() []tea.Msg {
 func newTestSignals(t *testing.T, isForeground *atomic.Bool, stops *atomic.Int32) (*terminalSignals, *recordingProgram) {
 	t.Helper()
 	program := &recordingProgram{}
-	handler := newTerminalSignals(program, os.Stdin)
+	handler := newTerminalSignals(os.Stdin, nil)
+	handler.Attach(program)
 	handler.isForeground = isForeground.Load
 	handler.stopProcess = func() { stops.Add(1) }
 	handler.wait.Add(1)
