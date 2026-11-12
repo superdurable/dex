@@ -25,7 +25,12 @@ import {
   assertNoStartedServerLeft,
   enginePorts,
 } from "../fixtures/cli-test-support.js";
-import { summaryForcedOffScriptedHarness, summaryForcedOnScriptedHarness } from "../fixtures/scripted-harness.js";
+import {
+  summaryForcedOffScriptedHarness,
+  summaryForcedOnScriptedHarness,
+  summaryMisreportedOffScriptedHarness,
+  summaryMisreportedOnScriptedHarness,
+} from "../fixtures/scripted-harness.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
@@ -517,13 +522,21 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     });
   }
 
-  for (const [harness, config] of [
-    [summaryForcedOffScriptedHarness, ""],
-    [summaryForcedOnScriptedHarness, "sessions: {summary: off}\n"],
+  for (const [name, harness, config] of [
+    ["auto, Flow off", summaryForcedOffScriptedHarness, ""],
+    ["off, Flow on", summaryForcedOnScriptedHarness, "sessions: {summary: off}\n"],
+    // The options report off, but the schema declares the summary.
+    ["a server URL with auto, Flow declares it", summaryMisreportedOnScriptedHarness, "remote"],
+    ["off, Flow declares it", summaryMisreportedOnScriptedHarness, "sessions: {summary: off}\n"],
+    // The options report on, but the schema declares none of it.
+    ["a server URL with on, Flow declares none", summaryMisreportedOffScriptedHarness, "remote-on"],
   ] as const) {
-    test(`a harness that ignores sessions.summary (${config === "" ? "auto, Flow off" : "off, Flow on"}) stops the command`, async () => {
+    test(`a harness that ignores sessions.summary (${name}) stops the command`, async () => {
       const home = new TestHome(enginePorts(engine), harness);
-      home.writeConfig(`connectors: {enabled: []}\nlocal_tools: {browser: false}\n${config}`);
+      const server = `dex: {server: "http://${engine.serverAddress}"}\n`;
+      const extra =
+        config === "remote" ? server : config === "remote-on" ? `${server}sessions: {summary: on}\n` : config;
+      home.writeConfig(`connectors: {enabled: []}\nlocal_tools: {browser: false}\n${extra}`);
       const chat = start(home);
       assert.notEqual(await chat.waitForExit(), 0);
       assert.match(chat.stderr.all, /sessions\.summary says the session Flow must/);

@@ -41,6 +41,9 @@ from dex import (
 )
 
 from dex_agents import (
+    AGENT_SESSION_LAST_ACTIVITY_AT,
+    AGENT_SESSION_TITLE,
+    AGENT_SESSION_TURN_COUNT,
     AgentSessionClient,
     AgentSessionFlow,
     AgentSessionSummary,
@@ -105,6 +108,14 @@ CONNECTORS_WEB_PATH = "/v1/connectors"
 #: The directory under ``~/.dex/agents`` that ``media.store: auto`` keeps images in.
 MEDIA_DIRECTORY = "media"
 _BLOB_CACHE_BYTES = 64 * 1024 * 1024
+_SESSION_SUMMARY_ATTRIBUTE_NAMES = frozenset(
+    definition.name
+    for definition in (
+        AGENT_SESSION_TITLE,
+        AGENT_SESSION_LAST_ACTIVITY_AT,
+        AGENT_SESSION_TURN_COUNT,
+    )
+)
 #: Most pages of 50 sessions that ``sessions`` loads before it sorts them.
 SESSION_LIST_MAX_PAGES = 5
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
@@ -442,7 +453,9 @@ async def _run(
         media_store=media_store,
         is_session_summary_indexed=is_session_summary_indexed(config),
     )
-    flow = with_turn_config(harness.create_session_flow(context), resolver)
+    harness_flow = harness.create_session_flow(context)
+    _require_session_summary_setting(harness_flow, context.is_session_summary_indexed)
+    flow = with_turn_config(harness_flow, resolver)
     _require_session_summary_setting(flow, context.is_session_summary_indexed)
     if flow.get_flow_type() != flow_type:
         raise CommandError(f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}")
@@ -865,15 +878,23 @@ async def _print_connections(web_url: str) -> None:
 
 
 def _require_session_summary_setting(flow: AgentSessionFlow, is_expected: bool) -> None:
-    """Refuse a harness Flow whose indexed session summary differs from ``sessions.summary``."""
-    if flow.options.summary_attributes_indexed == is_expected:
+    """Refuse a Flow whose declared indexed session summary differs from ``sessions.summary``."""
+    # The persistence schema decides what the Worker registers; the option must agree with it.
+    declared = {
+        definition.name
+        for definition in flow.get_persistence_schema().attributes
+        if definition.name in _SESSION_SUMMARY_ATTRIBUTE_NAMES
+        and getattr(definition, "index", None) is not None
+    }
+    expected_names = _SESSION_SUMMARY_ATTRIBUTE_NAMES if is_expected else frozenset()
+    if declared == expected_names and flow.options.summary_attributes_indexed == is_expected:
         return
     expected = "keep" if is_expected else "leave out"
     raise CommandError(
         f"sessions.summary says the session Flow must {expected} the indexed session summary, "
-        f"but the harness built it with summary_attributes_indexed="
-        f"{flow.options.summary_attributes_indexed}; the harness must pass "
-        "HarnessContext.is_session_summary_indexed"
+        f"but the harness built it declaring {len(declared)} of its 3 indexed Attributes with "
+        f"summary_attributes_indexed={flow.options.summary_attributes_indexed}; the harness "
+        "must pass HarnessContext.is_session_summary_indexed"
     )
 
 

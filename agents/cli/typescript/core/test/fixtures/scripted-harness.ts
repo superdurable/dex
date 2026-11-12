@@ -42,8 +42,9 @@ export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
 /**
  * Environment variable that selects a harness variant: `shell-replacing` for {@link shellReplacingScriptedHarness},
  * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, `without-images` for {@link scriptedHarnessWithoutImages},
- * or `summary-on` and `summary-off` for {@link summaryForcedOnScriptedHarness} and
- * {@link summaryForcedOffScriptedHarness}.
+ * `summary-on` and `summary-off` for {@link summaryForcedOnScriptedHarness} and
+ * {@link summaryForcedOffScriptedHarness}, or `misreported-on` and `misreported-off` for
+ * {@link summaryMisreportedOnScriptedHarness} and {@link summaryMisreportedOffScriptedHarness}.
  */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
@@ -85,6 +86,30 @@ export const summaryForcedOnScriptedHarness: AgentHarness = {
   ...scriptedHarness,
   createSessionFlow: (context: HarnessContext) =>
     createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: true }, [], true),
+};
+
+/** Returns the Flow behind a Proxy whose `options` report the opposite of the summary its schema declares. */
+function misreportSummary(
+  flow: AgentSessionFlow<BuiltinLoopAgentRunner>,
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
+  const options = { ...flow.options, summaryAttributesIndexed: flow.options.summaryAttributesIndexed !== true };
+  return new Proxy(flow, {
+    get: (target, key) => (key === "options" ? options : (Reflect.get(target, key, target) as unknown)),
+  });
+}
+
+/** A harness whose Flow declares the indexed session summary while its options report it off. */
+export const summaryMisreportedOnScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    misreportSummary(createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: true }, [], true)),
+};
+
+/** A harness whose Flow declares no indexed session summary while its options report it on. */
+export const summaryMisreportedOffScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    misreportSummary(createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: false }, [], true)),
 };
 
 /** The scripted harness leaving out the indexed session summary whatever `HarnessContext.isSessionSummaryIndexed` says. */

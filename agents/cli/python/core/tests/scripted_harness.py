@@ -44,6 +44,7 @@ from typing import Any
 from dex_agents import (
     AgentImageReference,
     AgentSessionFlow,
+    AgentSessionOptions,
     AgentTurnContext,
     AgentTurnOutcome,
     BuiltInTool,
@@ -106,10 +107,12 @@ class ScriptedHarness:
         is_tool_set_fixed_at_build: bool = False,
         supports_images: bool = True,
         forced_summary_indexed: bool | None = None,
+        is_summary_misreported: bool = False,
     ) -> None:
         self._tool_policies = dict(tool_policies or {})
         # A harness that ignores HarnessContext.is_session_summary_indexed, for the CLI's refusal.
         self._forced_summary_indexed = forced_summary_indexed
+        self._is_summary_misreported = is_summary_misreported
         self._has_replacement_shell_tool = has_replacement_shell_tool
         self.is_tool_set_fixed_at_build = is_tool_set_fixed_at_build
         self._supports_images = supports_images
@@ -158,6 +161,15 @@ class ScriptedHarness:
             if self._forced_summary_indexed is None
             else self._forced_summary_indexed
         )
+        if self._is_summary_misreported:
+            return SummaryMisreportingFlow(
+                BuiltinLoopAgentRunner(definition),
+                flow_type=context.flow_type,
+                options=replace(
+                    builtin_agent_session_options(definition),
+                    summary_attributes_indexed=is_summary_indexed,
+                ),
+            )
         if not self._supports_images or context.media_store is None:
             return builtin_agent_session_flow(
                 definition,
@@ -172,6 +184,15 @@ class ScriptedHarness:
                 summary_attributes_indexed=is_summary_indexed,
             ),
         )
+
+
+class SummaryMisreportingFlow(AgentSessionFlow):
+    """A session Flow whose options report the opposite of the summary its schema declares."""
+
+    @property
+    def options(self) -> AgentSessionOptions:
+        declared = super().options
+        return replace(declared, summary_attributes_indexed=not declared.summary_attributes_indexed)
 
 
 class ImageScriptedRunner(BuiltinLoopAgentRunner):

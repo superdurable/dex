@@ -17,6 +17,8 @@ import {
   shellReplacingScriptedHarness,
   summaryForcedOffScriptedHarness,
   summaryForcedOnScriptedHarness,
+  summaryMisreportedOffScriptedHarness,
+  summaryMisreportedOnScriptedHarness,
 } from "./scripted-harness.js";
 
 const variants: Readonly<Record<string, AgentHarness>> = {
@@ -25,6 +27,8 @@ const variants: Readonly<Record<string, AgentHarness>> = {
   "without-images": scriptedHarnessWithoutImages,
   "summary-on": summaryForcedOnScriptedHarness,
   "summary-off": summaryForcedOffScriptedHarness,
+  "misreported-on": summaryMisreportedOnScriptedHarness,
+  "misreported-off": summaryMisreportedOffScriptedHarness,
 };
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;
 process.exit(await runAgentCli(harness, processAgentCliIo()));

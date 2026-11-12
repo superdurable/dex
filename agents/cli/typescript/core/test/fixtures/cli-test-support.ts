@@ -36,6 +36,8 @@ import {
   shellReplacingScriptedHarness,
   summaryForcedOffScriptedHarness,
   summaryForcedOnScriptedHarness,
+  summaryMisreportedOffScriptedHarness,
+  summaryMisreportedOnScriptedHarness,
 } from "./scripted-harness.js";
 
 const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.meta.url));
@@ -342,6 +344,10 @@ export class TestHome {
       ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
       ...(this.harness === summaryForcedOnScriptedHarness ? { [scriptedHarnessVariantVariable]: "summary-on" } : {}),
       ...(this.harness === summaryForcedOffScriptedHarness ? { [scriptedHarnessVariantVariable]: "summary-off" } : {}),
+      ...(this.harness === summaryMisreportedOnScriptedHarness ? { [scriptedHarnessVariantVariable]: "misreported-on" } : {}),
+      ...(this.harness === summaryMisreportedOffScriptedHarness
+        ? { [scriptedHarnessVariantVariable]: "misreported-off" }
+        : {}),
     };
   }
 

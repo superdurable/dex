@@ -10,7 +10,8 @@
 
 ``DEX_AGENTS_TEST_WITHOUT_IMAGES=1`` runs a harness whose runner takes no images.
 ``DEX_AGENTS_TEST_FORCED_SUMMARY=on`` or ``off`` runs a harness that ignores
-``HarnessContext.is_session_summary_indexed``.
+``HarnessContext.is_session_summary_indexed``; ``misreported-on`` or
+``misreported-off`` declares that summary while its options report the opposite.
 """
 
 import os
@@ -29,7 +30,8 @@ if __name__ == "__main__":
         run_agent_cli(
             ScriptedHarness(
                 supports_images=supports_images,
-                forced_summary_indexed=None if forced is None else forced == "on",
+                forced_summary_indexed=None if forced is None else forced.endswith("on"),
+                is_summary_misreported=forced is not None and forced.startswith("misreported"),
             )
         )
     )

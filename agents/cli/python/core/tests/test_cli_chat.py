@@ -317,13 +317,23 @@ async def test_sessions_summary_follows_the_config_and_the_server(
 
 
 @pytest.mark.parametrize(
-    ("forced", "summary"),
-    [("off", None), ("on", "off")],
+    ("forced", "server", "summary"),
+    [
+        ("off", "auto", None),
+        ("on", "auto", "off"),
+        # The options report off, but the schema declares the summary.
+        ("misreported-on", "url", None),
+        ("misreported-on", "auto", "off"),
+        # The options report on, but the schema declares none of it.
+        ("misreported-off", "url", "on"),
+    ],
 )
 async def test_a_harness_that_ignores_sessions_summary_stops_the_command(
-    cli_home: CliHome, forced: str, summary: str | None
+    cli_home: CliHome, forced: str, server: str, summary: str | None
 ) -> None:
     values: dict[str, Any] = dict(NO_CONNECTORS)
+    if server == "url":
+        values["dex"] = {"server": f"http://{cli_home.address}"}
     if summary is not None:
         values["sessions"] = {"summary": summary}
     cli_home.write_config(config_yaml(values))

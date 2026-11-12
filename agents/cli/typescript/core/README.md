@@ -106,8 +106,9 @@ session Flow keeps that summary: `auto`, the default, keeps it only with
 any server; `off` never. The CLI core passes the result to the harness as
 `HarnessContext.isSessionSummaryIndexed`, and the harness builds its Flow with
 `summaryAttributesIndexed` set to it. The command refuses to start when the
-Flow's `options.summaryAttributesIndexed` differs, so a custom harness must
-honor the field. A session that a release before 0.6.0 started shows `—` for the
+Flow's persistence schema, or its `options.summaryAttributesIndexed`, differs,
+so a custom harness must honor the field. The check verifies what the Flow
+declares; it does not sandbox harness code. A session that a release before 0.6.0 started shows `—` for the
 title, and for the time and the turn count until its next turn.
 Two processes in the same environment share their sessions' Steps. Because
 tool settings may differ between them, the Worker that runs a tool Step

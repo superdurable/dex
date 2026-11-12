@@ -72,7 +72,8 @@ export interface BuiltinAgentSessionFlowOptions {
  * ```
  * @param definition - The agent definition.
  * @param flowType - Flow type, unique within the Registry. Keep it stable: running sessions resume by it.
- * @param flowOptions - The media store; see {@link BuiltinAgentSessionFlowOptions}. Since 0.5.0.
+ * @param flowOptions - The media store (since 0.5.0) and `summaryAttributesIndexed` (since 0.6.0, default `false`);
+ * see {@link BuiltinAgentSessionFlowOptions}.
  * @returns A new Flow; its `runner` is the {@link BuiltinLoopAgentRunner}.
  * @throws {TypeError} When the definition is invalid; see {@link BuiltinLoopAgentRunner} and
  * `createAgentSessionFlow`.

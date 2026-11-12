@@ -54,7 +54,10 @@ section: Added
   `HarnessContext.is_session_summary_indexed` /
   `HarnessContext.isSessionSummaryIndexed`; every built-in harness builds its
   Flow with it, and the command refuses to start when a harness's Flow does
-  not follow it, in either direction. A custom harness must honor the field.
+  not follow it, in either direction. The check reads the Flow's persistence
+  schema, which decides the index keys the Worker registers, and its options;
+  it verifies what the Flow declares and does not sandbox harness code. A
+  custom harness must honor the field.
   The TypeScript `EffectiveConfig` gains an optional `sessions` field, which
   `resolveConfig` always sets. `sessions` loads up to five pages of 50
   sessions, sorts them by last activity, says when more exist, and adds the

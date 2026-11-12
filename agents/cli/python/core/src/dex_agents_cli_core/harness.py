@@ -132,9 +132,12 @@ class AgentHarness(Protocol):
         the model sees the images the user attaches. Build the Flow with
         ``AgentSessionOptions.summary_attributes_indexed`` equal to
         ``context.is_session_summary_indexed``, such as through an adapter's
-        ``summary_attributes_indexed`` argument. The CLI core refuses to start
-        with a Flow that keeps the indexed session summary when the file's
-        ``sessions.summary`` leaves it off, or the other way around.
+        ``summary_attributes_indexed`` argument. The CLI core checks the Flow's
+        persistence schema, which decides the index keys the Worker registers,
+        and its options. It refuses to start with a Flow that declares the
+        indexed session summary when the file's ``sessions.summary`` leaves it
+        off, or the other way around. The check verifies what the Flow
+        declares; it does not sandbox harness code.
 
         Args:
             context: The configuration, workspace, and tool sources.

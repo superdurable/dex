@@ -116,8 +116,9 @@ server URL may be shared; `on` keeps it with any server; `off` never. The CLI
 core passes the result to the harness as
 `HarnessContext.is_session_summary_indexed`, and the harness builds its Flow
 with `summary_attributes_indexed` set to it. The command refuses to start when
-the Flow's `options.summary_attributes_indexed` differs, so a custom harness
-must honor the field. A session that a release before 0.6.0 started has no title,
+the Flow's persistence schema, or its `options.summary_attributes_indexed`,
+differs, so a custom harness must honor the field. The check verifies what the
+Flow declares; it does not sandbox harness code. A session that a release before 0.6.0 started has no title,
 and has no time or turn count until its next turn:
 
 ```text

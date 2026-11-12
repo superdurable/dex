@@ -121,19 +121,31 @@ export function processAgentCliIo(): AgentCliIo {
   };
 }
 
-/** Refuses a harness Flow whose indexed session summary differs from the file's `sessions.summary`. */
+const sessionSummaryAttributeNames: ReadonlySet<string> = new Set([
+  "AgentSessionTitle",
+  "AgentSessionLastActivityAt",
+  "AgentSessionTurnCount",
+]);
+
+/** Refuses a harness Flow whose declared indexed session summary differs from the file's `sessions.summary`. */
 function requireSessionSummarySetting(
   flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   isExpected: boolean,
 ): void {
-  const isIndexed = flow.options.summaryAttributesIndexed === true;
-  if (isIndexed !== isExpected) {
-    throw new Error(
-      `sessions.summary says the session Flow must ${isExpected ? "keep" : "leave out"} the indexed session summary, ` +
-        `but the harness built it with summaryAttributesIndexed ${String(isIndexed)}; the harness must pass ` +
-        "HarnessContext.isSessionSummaryIndexed",
-    );
+  // The persistence schema decides what the Worker registers; the option must agree with it.
+  const declaredCount = (flow.getPersistenceSchema?.()?.attributes ?? []).filter(
+    (definition) => sessionSummaryAttributeNames.has(definition.name) && definition.index !== undefined,
+  ).length;
+  const isOptionOn = flow.options.summaryAttributesIndexed === true;
+  if (declaredCount === (isExpected ? sessionSummaryAttributeNames.size : 0) && isOptionOn === isExpected) {
+    return;
   }
+  throw new Error(
+    `sessions.summary says the session Flow must ${isExpected ? "keep" : "leave out"} the indexed session summary, ` +
+      `but the harness built it declaring ${declaredCount} of its ${sessionSummaryAttributeNames.size} indexed ` +
+      `Attributes with summaryAttributesIndexed ${String(isOptionOn)}; the harness must pass ` +
+      "HarnessContext.isSessionSummaryIndexed",
+  );
 }
 
 /**

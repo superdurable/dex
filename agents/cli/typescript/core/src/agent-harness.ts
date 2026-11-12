@@ -142,9 +142,10 @@ export interface AgentHarness {
    * Builds the session Flow. The CLI core calls it once at startup and registers the Flow in its Worker and Client.
    *
    * Build the Flow with `summaryAttributesIndexed` equal to {@link HarnessContext.isSessionSummaryIndexed}, such as
-   * through an adapter factory's `summaryAttributesIndexed` option. The CLI core reads `flow.options` and refuses to
-   * start when the Flow keeps the indexed session summary while the file's `sessions.summary` leaves it off, or the
-   * other way around.
+   * through an adapter factory's `summaryAttributesIndexed` option. The CLI core checks the Flow's persistence schema,
+   * which decides the index keys the Worker registers, and its `options`. It refuses to start when the Flow declares
+   * the indexed session summary while the file's `sessions.summary` leaves it off, or the other way around. The check
+   * verifies what the Flow declares; it does not sandbox harness code.
    *
    * @param context - The configuration, the instructions, the tool sources, and the per-turn resolver.
    * @returns The session Flow, of type {@link HarnessContext.flowType}.
