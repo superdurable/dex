@@ -16,7 +16,9 @@ use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::transport::Channel;
 
-use super::harness::{S3Emulator, ServeConfig, ServeProcess, free_loopback_address};
+use super::harness::{
+    S3Emulator, ServeConfig, ServeProcess, TestObjectStoreProvider, free_loopback_address,
+};
 use super::{
     HELD_LEASE_DURATION, NODE_ID, PRIMARY_BUCKET, PRIMARY_PREFIX, SHUTDOWN_BUDGET,
     run_greeting_flow, start_greeting_worker,
@@ -36,7 +38,25 @@ const LEASE_WAIT_LOG_LINE: &str = "another process holds the node lease";
 /// A waiting standby takes over promptly after SIGTERM and serves every acknowledged Flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn waiting_standby_takes_over_without_losing_writes() {
-    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    assert_waiting_standby_takes_over_without_losing_writes(TestObjectStoreProvider::S3).await;
+}
+
+/// The same takeover with `objectStore.provider: aliyunOSS`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn aliyun_oss_waiting_standby_takes_over_without_losing_writes() {
+    assert_waiting_standby_takes_over_without_losing_writes(TestObjectStoreProvider::AliyunOss)
+        .await;
+}
+
+async fn assert_waiting_standby_takes_over_without_losing_writes(
+    provider: TestObjectStoreProvider,
+) {
+    let primary = S3Emulator::start_with_dialect(
+        PRIMARY_BUCKET,
+        SignatureVerification::Strict,
+        provider.api_dialect(),
+    )
+    .await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let serve_config = |name: &str, listen| {
@@ -51,6 +71,7 @@ async fn waiting_standby_takes_over_without_losing_writes() {
             parade_db: None,
         }
         .write_with_snapshot_schedule(&path, SNAPSHOT_INTERVAL, LOG_DELETION_DELAY);
+        provider.select_in_config(&path);
         path
     };
     let log_prefix = format!("{PRIMARY_PREFIX}/log/{NODE_ID}/");
