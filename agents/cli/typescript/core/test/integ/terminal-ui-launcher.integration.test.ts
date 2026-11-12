@@ -564,7 +564,7 @@ describe("the terminal UI launcher", () => {
     assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
   });
 
-  test("a DEXCLI that names no executable file stops the command in terminal UI mode, but not with --plain", async () => {
+  test("a DEXCLI that names no executable file stops the command in terminal UI mode and in the plain chat", async () => {
     const home = newHome();
     const missing = join(home.directory, "missing-dexcli");
     const terminal = startOnTerminal(home, undefined, [], { DEXCLI: missing });
@@ -572,10 +572,16 @@ describe("the terminal UI launcher", () => {
     assert.match(terminal.terminal.all, new RegExp(`DEXCLI is not an executable file: ${missing}\\. Unset DEXCLI`));
     assert.doesNotMatch(terminal.terminal.all, /Plain chat:/);
     assert.deepEqual(runRecords(home), []);
-    const plain = startOnTerminal(home, undefined, ["--plain"], { DEXCLI: missing });
-    await plain.terminal.waitFor("Type a message");
-    plain.type("/exit\r");
-    assert.equal(await plain.waitForExit(), 0, plain.terminal.all);
+    // The plain chat needs dexcli only to start a dexcli dev, so these ports have none.
+    const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+    const plainHome = newHome(quietConfig, new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }));
+    const plain = startOnTerminal(plainHome, undefined, ["--plain"], { DEXCLI: missing });
+    assert.equal(await plain.waitForExit(), 1, plain.terminal.all);
+    assert.match(
+      plain.terminal.all,
+      new RegExp(`dex-agents-scripted: DEXCLI is not an executable file: ${missing}\\. Unset DEXCLI`),
+    );
+    assert.doesNotMatch(plain.terminal.all, /Starting dexcli dev|Type a message/);
   });
 
   test("the lines of a dexcli dev the command started and the Worker host's startup lines reach the launch document", async () => {
