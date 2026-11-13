@@ -9,6 +9,7 @@
 //! Two `serve` processes of one node ID on the soak's prefix, an active and a hot standby,
 //! behind a router that sends clients to whichever one serves.
 
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -20,6 +21,7 @@ use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_check_response::ServingStatus;
 use tonic_health::pb::health_client::HealthClient;
 
+use super::log_tally::LogTally;
 use super::metrics_tally::MetricsTally;
 use super::target::SoakTarget;
 use crate::harness::free_loopback_address;
@@ -42,6 +44,11 @@ const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(1);
 const FAILED_START_MARKER: &str = "dex-server-zd: starting the engine: ";
 /// Failed starts of one slot in a row before the soak gives up; a supervisor restarts the rest.
 const MAX_CONSECUTIVE_FAILED_STARTS: usize = 3;
+/// More unplanned exits and failed starts of one slot within the window fail the soak.
+const MAX_EXITS_IN_WINDOW: usize = 3;
+const EXIT_WINDOW: Duration = Duration::from_secs(10 * 60);
+/// The prefix of the line that a process prints to stderr when it stops on an error.
+const PROCESS_STOP_MARKER: &str = "dex-server-zd: ";
 const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// One process position: fixed addresses, a local directory, and its current process.
@@ -59,6 +66,10 @@ struct SoakSlot {
     last_scrape: Option<String>,
     /// Starts that failed since the slot last served or followed as a hot standby.
     consecutive_failed_starts: usize,
+    /// When each unplanned exit and failed start of the slot within [`EXIT_WINDOW`] happened.
+    recent_exits: VecDeque<Instant>,
+    /// The current process's log up to this byte is in the log tally.
+    scanned_log_bytes: usize,
 }
 
 /// What the cluster reports when it stops.
@@ -69,6 +80,9 @@ pub(crate) struct ClusterReport {
     pub(crate) stale_batch_restarts: usize,
     /// The error line of every start that failed and was restarted.
     pub(crate) failed_starts: Vec<String>,
+    /// The time, process, exit status, and stop reason of every other exit that was restarted.
+    pub(crate) unplanned_exits: Vec<String>,
+    pub(crate) log_tally: LogTally,
 }
 
 /// The soak's serve processes and the router in front of them.
@@ -80,7 +94,10 @@ pub(crate) struct SoakCluster {
     permitted_stale_batch_stops: usize,
     stale_batch_restarts: usize,
     failed_starts: Vec<String>,
+    unplanned_exits: Vec<String>,
     tally: MetricsTally,
+    log_tally: LogTally,
+    created_at: Instant,
 }
 
 impl SoakCluster {
@@ -123,6 +140,8 @@ impl SoakCluster {
                 process_count: 0,
                 last_scrape: None,
                 consecutive_failed_starts: 0,
+                recent_exits: VecDeque::new(),
+                scanned_log_bytes: 0,
             });
         }
         let router = ReadinessRouter::start(
@@ -145,7 +164,10 @@ impl SoakCluster {
             permitted_stale_batch_stops: 0,
             stale_batch_restarts: 0,
             failed_starts: Vec::new(),
+            unplanned_exits: Vec::new(),
             tally: MetricsTally::default(),
+            log_tally: LogTally::default(),
+            created_at: Instant::now(),
         }
     }
 
@@ -211,41 +233,45 @@ impl SoakCluster {
         }
     }
 
-    /// Sends SIGKILL to `slot`'s process after a last metrics scrape.
+    /// Sends SIGKILL to `slot`'s process after a last metrics scrape; a process that already
+    /// exited is recorded as an exit instead.
     pub(crate) async fn kill(&mut self, slot: usize) {
         self.scrape(slot).await;
+        if self.reap_exited_process(slot) {
+            return;
+        }
         let entry = &mut self.slots[slot];
         let mut process = entry
             .process
             .take()
             .unwrap_or_else(|| panic!("slot {} has no process to kill", entry.name));
         process.kill().await;
-        if let Some(scrape) = entry.last_scrape.take() {
-            self.tally.add_process(&scrape);
-        }
+        self.retire_process(slot, &process.log());
         self.permitted_stale_batch_stops += 1;
     }
 
-    /// Sends SIGTERM to `slot`'s process and requires a clean exit.
+    /// Sends SIGTERM to `slot`'s process and requires a clean exit; a process that already
+    /// exited is recorded as an exit instead.
     pub(crate) async fn terminate(&mut self, slot: usize) {
         self.scrape(slot).await;
+        if self.reap_exited_process(slot) {
+            return;
+        }
         let entry = &mut self.slots[slot];
         let mut process = entry
             .process
             .take()
             .unwrap_or_else(|| panic!("slot {} has no process to stop", entry.name));
         let status = process.terminate(PROCESS_SHUTDOWN_BUDGET).await;
+        let log = process.log();
         assert_eq!(
             status.code(),
             Some(0),
-            "{} process {} did not stop cleanly:\n{}",
+            "{} process {} did not stop cleanly:\n{log}",
             entry.name,
             entry.process_count,
-            process.log()
         );
-        if let Some(scrape) = entry.last_scrape.take() {
-            self.tally.add_process(&scrape);
-        }
+        self.retire_process(slot, &log);
     }
 
     /// Waits up to `budget` until a slot other than `excluded` serves; returns it.
@@ -301,39 +327,62 @@ impl SoakCluster {
         }
     }
 
-    /// Restarts a process that stopped on a late batch of a killed process, or whose start
-    /// failed, as a container supervisor would; panics on any other exit and on a slot whose
-    /// starts keep failing.
+    /// Restarts every process that exited, as a container supervisor would.
+    ///
+    /// Panics when one slot exits or fails to start too often; see [`Self::reap_exited_process`].
     pub(crate) fn supervise(&mut self) {
         for slot in 0..self.slots.len() {
+            if self.reap_exited_process(slot) {
+                self.spawn(slot);
+            }
+        }
+    }
+
+    /// Returns the number of unplanned exits so far.
+    pub(crate) fn unplanned_exit_count(&self) -> usize {
+        self.unplanned_exits.len()
+    }
+
+    /// Records the exit of `slot`'s process when it exited; returns whether it did.
+    ///
+    /// A stop on a late batch of a killed or exited process is expected. A start that failed
+    /// after the lease is a FAILED START, and every other exit is an UNPLANNED EXIT. Panics after
+    /// [`MAX_CONSECUTIVE_FAILED_STARTS`] failed starts in a row, or after more than
+    /// [`MAX_EXITS_IN_WINDOW`] of both within [`EXIT_WINDOW`].
+    fn reap_exited_process(&mut self, slot: usize) -> bool {
+        let entry = &mut self.slots[slot];
+        let Some(status) = entry
+            .process
+            .as_mut()
+            .and_then(RobustnessProcess::exit_status)
+        else {
+            return false;
+        };
+        let process = entry
+            .process
+            .take()
+            .expect("an exited slot still holds its process");
+        let log = process.log();
+        let process_name = format!("{} process {}", entry.name, entry.process_count);
+        let at = super::elapsed(self.created_at);
+        let failed_start = log
+            .lines()
+            .find(|line| line.starts_with(FAILED_START_MARKER))
+            .filter(|_| status.code() == Some(1))
+            .map(str::to_owned);
+        if self.permitted_stale_batch_stops > 0
+            && status.code() == Some(1)
+            && log.contains(STALE_BATCH_STOP_REASON)
+        {
+            eprintln!(
+                "soak supervisor +{at}: {process_name} stopped on a late batch of an earlier process; restarting it"
+            );
+            self.permitted_stale_batch_stops -= 1;
+            self.stale_batch_restarts += 1;
+        } else {
+            self.count_exit_in_window(slot, &process_name);
             let entry = &mut self.slots[slot];
-            let Some(status) = entry
-                .process
-                .as_mut()
-                .and_then(RobustnessProcess::exit_status)
-            else {
-                continue;
-            };
-            let log = entry
-                .process
-                .as_ref()
-                .map(RobustnessProcess::log)
-                .unwrap_or_default();
-            let failed_start = log
-                .lines()
-                .find(|line| line.starts_with(FAILED_START_MARKER))
-                .map(str::to_owned);
-            if self.permitted_stale_batch_stops > 0
-                && status.code() == Some(1)
-                && log.contains(STALE_BATCH_STOP_REASON)
-            {
-                eprintln!(
-                    "soak supervisor: {} process {} stopped on a late batch of a killed process; restarting it",
-                    entry.name, entry.process_count
-                );
-                self.permitted_stale_batch_stops -= 1;
-                self.stale_batch_restarts += 1;
-            } else if let Some(failed_start) = failed_start.filter(|_| status.code() == Some(1)) {
+            if let Some(failed_start) = failed_start {
                 entry.consecutive_failed_starts += 1;
                 assert!(
                     entry.consecutive_failed_starts < MAX_CONSECUTIVE_FAILED_STARTS,
@@ -342,32 +391,82 @@ impl SoakCluster {
                     entry.consecutive_failed_starts
                 );
                 eprintln!(
-                    "soak supervisor: FAILED START of {} process {}, restarting it: {failed_start}",
-                    entry.name, entry.process_count
+                    "soak supervisor +{at}: FAILED START of {process_name}, restarting it: {failed_start}"
                 );
-                self.failed_starts.push(format!(
-                    "{} process {}: {failed_start}",
-                    entry.name, entry.process_count
-                ));
+                self.failed_starts
+                    .push(format!("{process_name}: {failed_start}"));
             } else {
-                panic!(
-                    "{} process {} exited with {status}:\n{log}",
-                    entry.name, entry.process_count
+                let reason = stop_reason(&log);
+                eprintln!(
+                    "soak supervisor +{at}: UNPLANNED EXIT of {process_name} with {status}, restarting it as standby: {reason}"
                 );
+                self.unplanned_exits
+                    .push(format!("+{at} {process_name} ({status}): {reason}"));
+                // Its unacknowledged batches may land late, like those of a killed process.
+                self.permitted_stale_batch_stops += 1;
             }
-            entry.process = None;
-            if let Some(scrape) = entry.last_scrape.take() {
-                self.tally.add_process(&scrape);
-            }
-            self.spawn(slot);
+        }
+        self.retire_process(slot, &log);
+        true
+    }
+
+    /// Panics when `slot` exits more than [`MAX_EXITS_IN_WINDOW`] times within [`EXIT_WINDOW`].
+    fn count_exit_in_window(&mut self, slot: usize, process_name: &str) {
+        let now = Instant::now();
+        let entry = &mut self.slots[slot];
+        entry.recent_exits.push_back(now);
+        while entry
+            .recent_exits
+            .front()
+            .is_some_and(|exit| now.duration_since(*exit) > EXIT_WINDOW)
+        {
+            entry.recent_exits.pop_front();
+        }
+        assert!(
+            entry.recent_exits.len() <= MAX_EXITS_IN_WINDOW,
+            "slot {} had {} unplanned exits and failed starts within {EXIT_WINDOW:?}, the last of {process_name}; unplanned exits so far: {:#?}",
+            entry.name,
+            entry.recent_exits.len(),
+            self.unplanned_exits
+        );
+    }
+
+    /// Adds the rest of an ended process's log and its last metrics scrape to the tallies.
+    fn retire_process(&mut self, slot: usize, log: &str) {
+        let entry = &mut self.slots[slot];
+        self.log_tally
+            .add_lines(log.get(entry.scanned_log_bytes..).unwrap_or_default());
+        entry.scanned_log_bytes = 0;
+        if let Some(scrape) = entry.last_scrape.take() {
+            self.tally.add_process(&scrape);
         }
     }
 
-    /// Scrapes every running process, keeping each one's latest metrics.
+    /// Scrapes every running process, keeping each one's latest metrics, and adds the new
+    /// complete lines of its log to the log tally.
     pub(crate) async fn scrape_all(&mut self) {
         for slot in 0..self.slots.len() {
             self.scrape(slot).await;
+            self.scan_log(slot);
         }
+    }
+
+    fn scan_log(&mut self, slot: usize) {
+        let entry = &mut self.slots[slot];
+        let Some(process) = &entry.process else {
+            return;
+        };
+        let log = process.log();
+        let complete = log.rfind('\n').map_or(0, |newline| newline + 1);
+        if let Some(new_lines) = log.get(entry.scanned_log_bytes..complete) {
+            self.log_tally.add_lines(new_lines);
+            entry.scanned_log_bytes = complete;
+        }
+    }
+
+    /// Returns the log tally of every ended process and the scanned logs of running ones.
+    pub(crate) fn log_tally_so_far(&self) -> &LogTally {
+        &self.log_tally
     }
 
     async fn scrape(&mut self, slot: usize) {
@@ -440,6 +539,8 @@ impl SoakCluster {
             tally,
             stale_batch_restarts,
             failed_starts,
+            unplanned_exits,
+            log_tally,
             fleet: _fleet,
             ..
         } = self;
@@ -449,6 +550,23 @@ impl SoakCluster {
             process_starts,
             stale_batch_restarts,
             failed_starts,
+            unplanned_exits,
+            log_tally,
         }
     }
+}
+
+/// Returns the last stop line of a process log, else its last ERROR line, else its last line.
+fn stop_reason(log: &str) -> String {
+    let lines: Vec<&str> = log.lines().map(str::trim).collect();
+    lines
+        .iter()
+        .rev()
+        .find(|line| line.starts_with(PROCESS_STOP_MARKER))
+        .or_else(|| lines.iter().rev().find(|line| line.contains(" ERROR ")))
+        .or_else(|| lines.iter().rev().find(|line| !line.is_empty()))
+        .map_or_else(
+            || "<the log is empty>".to_owned(),
+            |line| (*line).to_owned(),
+        )
 }

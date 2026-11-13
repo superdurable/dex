@@ -204,6 +204,50 @@ impl SoakTarget {
         )
     }
 
+    pub(crate) fn is_emulated(&self) -> bool {
+        self.emulator.is_some()
+    }
+
+    /// Holds every log batch write on the emulator for `hold`, keeping its other rules.
+    pub(crate) async fn start_log_stall(&self, hold: Duration) {
+        let emulator = self
+            .emulator
+            .as_ref()
+            .expect("only an emulated target stalls log writes");
+        // COS writes create-only objects with AppendObject.
+        let stall = ["PutObject", "AppendObject"]
+            .map(|operation| {
+                format!(
+                    r#"{{"operation":"{operation}","key_prefix":"{}/log/","action":{{"type":"delay","milliseconds":{}}}}}"#,
+                    self.prefix,
+                    hold.as_millis()
+                )
+            })
+            .join(",");
+        let rules = match self.provider {
+            SoakProvider::TencentCos => format!(
+                "[{},{stall}]",
+                STALE_LISTING_RULES
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+            ),
+            SoakProvider::AliyunOss { .. } => format!("[{stall}]"),
+        };
+        emulator.set_fault_rules(&rules).await;
+    }
+
+    /// Releases the writes that a log stall holds and restores the emulator's other rules.
+    pub(crate) async fn end_log_stall(&self) {
+        let emulator = self
+            .emulator
+            .as_ref()
+            .expect("only an emulated target stalls log writes");
+        emulator.clear_fault_rules().await;
+        if self.provider == SoakProvider::TencentCos {
+            emulator.set_fault_rules(STALE_LISTING_RULES).await;
+        }
+    }
+
     pub(crate) fn credentials(&self) -> (&str, &str) {
         (&self.access_key_id, &self.secret_access_key)
     }

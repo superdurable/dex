@@ -85,9 +85,21 @@ predecessors, with an anchor once generation 1 is gone. The manifest and node le
 listed, and a failed HEAD fails the check. A progress line every 30 seconds and the final summary report the faults,
 takeover times, commit latency, `dexzd_object_store_versioned_listing_stale_total` by site
 (`newest_version_lookup` grows on COS), and the objects by area. Any violation fails the test.
-A process whose start fails after it took the lease restarts, as a container supervisor would
-restart it, and the summary lists it as a FAILED START; three failed starts of one slot in a row
-fail the test.
+The soak restarts a process that exits outside an injected fault as standby, as a container
+supervisor would restart it, and keeps checking every invariant; the counters and vault Flows
+must read back every acknowledged write after each such exit. A process may stop by design, for
+example after `commit pipeline failed: object storage did not accept a log batch before its
+deadline` during an object storage stall. The summary lists a start that failed after it took the
+lease as a FAILED START, and every other exit as an UNPLANNED EXIT with its stop reason: the last
+`dex-server-zd:` line of its log, else its last ERROR line. A stop on a late batch of a killed or
+exited process is counted apart. Three failed starts of one slot in a row fail the test, and so
+do more than three unplanned exits and failed starts of one slot within ten minutes.
+
+The progress line and the summary count hot standby restarts ("the hot standby restarts after an
+error"), takeover retries ("the takeover failed before the node lease"), and WARN and ERROR lines
+across every process log. The summary also lists the 15 most frequent WARN and ERROR patterns, with
+numbers and IDs replaced. These counts only report by default; set
+`DEX_SOAK_MAX_STANDBY_RESTARTS` or `DEX_SOAK_MAX_TAKEOVER_RETRIES` to fail the test above a limit.
 
 Each run writes under a new prefix, `dexzd-soak/<unix-nanos>/`, and deletes every object under
 it at the end, also after a failure. Cleanup trusts only two listings five seconds apart that
@@ -104,6 +116,9 @@ the soak prints.
 | `DEX_SOAK_FAULT_INTERVAL` | Time between faults; defaults to a sixth of the duration, from 30 seconds to 4 minutes |
 | `DEX_SOAK_SEED` | The fault schedule's seed; defaults to the start time, and the soak prints it |
 | `DEX_SOAK_SNAPSHOT_INTERVAL` | `snapshot.interval` of both processes; defaults to `60s`. A longer interval, such as the server default of `10m`, leaves a longer log to replay after a crash |
+| `DEX_SOAK_MAX_STANDBY_RESTARTS` | Unset (default) only reports hot standby restarts; a count fails the test once the restarts over all processes exceed it |
+| `DEX_SOAK_MAX_TAKEOVER_RETRIES` | Unset (default) only reports takeover retries; a count fails the test once the retries over all processes exceed it |
+| `DEX_SOAK_LOG_STALL_INTERVAL` | s3local targets only: how often to hold log batch writes for 15 seconds, outside the fault schedule, so the serving process exits as an UNPLANNED EXIT. Unset by default |
 | `DEX_COS_*`, `DEX_OSS_*` | The bucket variables of the manual tests above, for real targets |
 
 From `server-zd/`, a two-hour soak on Tencent COS:
@@ -131,6 +146,9 @@ A five-minute smoke run on the emulator:
 DEX_SOAK_TARGET=s3local-tencentCOS DEX_SOAK_DURATION=5m \
 cargo test -p dexzd-server --test serve_process object_store_soak -- --ignored --nocapture
 ```
+
+Add `DEX_SOAK_LOG_STALL_INTERVAL=2m` to exercise unplanned exits: each stall must end in one
+UNPLANNED EXIT whose reason names the log batch deadline, and the run must still pass.
 
 Run-level retention purges are not part of the soak: `retention.closedFlowDuration` applies to
 every Flow of a node, so it would also purge the Flows that the final check reads.
