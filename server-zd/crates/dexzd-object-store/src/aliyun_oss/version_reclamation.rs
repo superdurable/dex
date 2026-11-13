@@ -126,9 +126,7 @@ async fn run_reclamation(
     }
 }
 
-/// Limits each key to one reclamation pass per [`MINIMUM_INTERVAL_BETWEEN_PASSES_OF_ONE_KEY`].
-///
-/// A dropped request only keeps versions longer; the next pass of the key reclaims them.
+/// Allows one reclamation pass per key per interval; a dropped request only keeps versions longer.
 #[derive(Debug, Default)]
 struct ReclamationPassThrottle {
     pass_started_at: BTreeMap<String, Instant>,

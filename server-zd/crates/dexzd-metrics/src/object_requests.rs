@@ -183,9 +183,7 @@ struct VersionedListingStaleLabel {
     site: VersionedListingStaleSite,
 }
 
-/// Fixed counters of listings that missed a version this process had just created.
-///
-/// Each site always reports a series, so a dashboard sees zero before the first event.
+/// Fixed per-site counters of listings that missed a version this process had just created.
 #[derive(Clone, Debug)]
 pub struct VersionedListingStaleCounters {
     values: Arc<[Counter; 2]>,
