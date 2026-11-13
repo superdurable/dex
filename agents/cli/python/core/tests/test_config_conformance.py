@@ -115,12 +115,16 @@ def test_session_case(case: dict[str, Any]) -> None:
         harness["harness_default_model"],
     )
 
-    def resolve() -> tuple[dict[str, Any], list[str]]:
-        resolution = resolve_turn_config(effective, case["session_settings"])
-        return resolution.config.to_json(), list(resolution.warnings)
+    def resolve() -> tuple[dict[str, Any], list[str], str | None]:
+        resolution = resolve_turn_config(
+            effective,
+            case["session_settings"],
+            supported_reasoning_efforts=harness["supported_reasoning_efforts"],
+        )
+        return resolution.config.to_json(), list(resolution.warnings), resolution.reasoning_effort
 
     if "turn" in case:
-        assert resolve() == (case["turn"], case["warnings"])
+        assert resolve() == (case["turn"], case["warnings"], case.get("reasoning_effort"))
     else:
         expect_error(resolve, case["error"])
 

@@ -418,6 +418,40 @@ async def test_session_settings_that_switch_the_shell_off_remove_bash(
     assert not (cli_home.workspace / "bash.txt").exists()
 
 
+async def test_session_settings_set_the_reasoning_effort_and_reject_an_undeclared_one(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(NO_CONNECTORS)
+    child = cli_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline("say before")
+    await expect(child, "said: before")
+    await expect(child, "> ")
+    before = cli_home.model_requests()
+    flow_type = session_flow_type(
+        CLAUDE_SDK_CLI_FLOW_TYPE, cli_home.config_path, cli_home.workspace
+    )
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        await sessions.update_session_settings(session_id, {"reasoning_effort": "low"})
+        child.sendline("say after")
+        await expect(child, "said: after")
+        await expect(child, "> ")
+        after = cli_home.model_requests()[len(before) :]
+        await sessions.update_session_settings(session_id, {"reasoning_effort": "minimal"})
+        child.sendline("say never")
+        await expect(child, "[turn failed]", timeout=120)
+        await expect(child, 'unsupported_reasoning_effort at "/reasoning_effort"')
+        await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 1
+    # Claude Code sends the effort as output_config.effort; without a setting, its own default.
+    assert "low" not in [request.get("output_config", {}).get("effort") for request in before]
+    assert after
+    assert {request.get("output_config", {}).get("effort") for request in after} == {"low"}
+    assert len(cli_home.model_requests()) == len(before) + len(after)
+
+
 async def test_with_a_key_the_claude_code_cli_uses_it(cli_home: CliHome) -> None:
     cli_home.write_config(NO_CONNECTORS)
     completed = cli_home.run(stdin="say keyed\n")

@@ -1,31 +1,33 @@
 ---
 id: change-flow-code
-title: Change Flow Code
-sidebar_label: Change Flow Code
+title: Deploy Code Changes
+sidebar_label: Deploy Code Changes
 slug: /concepts/change-flow-code
-description: How to deploy changed Flow code while Flows are still open, with a worked example, and how to recover a Flow with Time Travel after a fix.
+description: What a deploy changes for open Flows, how to deploy changed Flow code while Flows are still open, with a worked example, and how to recover a Flow with Time Travel after a fix.
 ---
 
-# Change Flow Code
+# Deploy Code Changes
 
 Flows can stay open for days or months, so new code often meets Flows that
 started under old code. This page shows how to change code safely and how to
 rerun a Flow after a fix.
 
-<CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/concepts/change-flow-code.md to check whether my change to a Dex Flow is safe for its open runs. Read only: do not deploy, stop, or rerun anything." />
 
-```text
-Check whether my change to the <FlowType> Flow is safe for its open Flows.
+## What a deploy changes {#what-a-deploy-changes}
 
-1. Read https://docs.superdurable.io/concepts/change-flow-code.md and treat it
-   as the source of truth.
-2. Compare the old and new code against the checks on that page.
-3. Tell me which checks pass, which fail, and how to fix each failure.
+- **A Step runs the code of the Worker that takes it.** Dex does not replay
+  earlier Steps. A Flow that waits in a Step today runs the new `Execute` when
+  its conditions are met.
+- **A rolling deploy routes each call to a Worker that has it.** A Worker that lacks a Step type or RPC
+  declines it, and Dex hands the call to another Worker. The Step attempt is
+  not used up.
+- **A Step that already waits keeps its old conditions.** New `WaitFor` code
+  applies to Step executions that start after the deploy. To change what an old
+  Step waits for, publish to its Channel or skip its Timer.
 
-Rules: read only. Do not deploy, stop, or rerun any Flow.
-```
-
-</CodingAgentBox>
+[Failover and Deploys](/concepts/failover-and-deploys) lists what runs again
+during a deploy and a failover.
 
 ## Versioning Flow code {#versioning-flow-code}
 
@@ -175,6 +177,6 @@ in the server reference covers the request options and limits.
 
 ## Next
 
+- [Concepts](/concepts): Flows, Steps, and the primitives they use.
 - [Failover and Deploys](/concepts/failover-and-deploys): what runs again during a deploy.
 - [Step guarantees](/concepts/step#guarantees)
-- [Your Application](/components/application)

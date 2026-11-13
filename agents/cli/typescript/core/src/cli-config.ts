@@ -163,6 +163,11 @@ export type TurnConfig = EffectiveConfig;
  * The stable error codes of a rejected configuration file or session settings, as
  * `agents/conformance/cli_config.json` defines them.
  *
+ * `unsupported_reasoning_effort` rejects a session's `reasoning_effort` that the harness command does not declare
+ * in `AgentHarness.supportedReasoningEfforts`, at `/reasoning_effort`.
+ *
+ * Changed in 0.6.2: adds `unsupported_reasoning_effort`.
+ *
  * @since 0.5.0
  */
 export type ConfigErrorCode =
@@ -173,7 +178,8 @@ export type ConfigErrorCode =
   | "duplicate_connection"
   | "model_required"
   | "widens_connectors"
-  | "widens_local_tools";
+  | "widens_local_tools"
+  | "unsupported_reasoning_effort";
 
 /**
  * A rejected configuration file or session settings, with a stable code and the JSON Pointer of the first
@@ -329,28 +335,58 @@ export function isSessionSummaryIndexed(config: EffectiveConfig): boolean {
 }
 
 /**
+ * One turn's resolution by {@link resolveTurn}: its configuration, the ignored settings keys, and its reasoning
+ * effort.
+ *
+ * @since 0.6.2
+ */
+export interface TurnResolution {
+  /** The turn's configuration: the file's effective configuration with the session's settings applied. */
+  readonly turn: TurnConfig;
+  /** The JSON Pointers of the settings' ignored top-level keys, sorted by key in Unicode code point order. */
+  readonly warnings: readonly string[];
+  /**
+   * The session's `reasoning_effort`, one of the harness command's declared values. Absent when the settings set
+   * none: the model's own default applies, and the harness passes no reasoning effort to its SDK.
+   */
+  readonly reasoningEffort?: string;
+}
+
+/**
  * Returns one turn's configuration: the file's effective configuration with a session's settings applied, and
  * the JSON Pointers of the settings' ignored top-level keys.
  *
  * `model` and `system_prompt` replace the file's values. `connectors.enabled` must fall inside the file's
  * entries, `approval.always` adds tools, and `local_tools` may only switch tools off or shrink the shell allow
- * list. Settings that fail are rejected as a whole. Warnings are sorted by key in Unicode code point order.
+ * list. `reasoning_effort` must be one of `supportedReasoningEfforts`, and it is checked after everything else.
+ * The configuration file has no reasoning effort, so the turn's configuration does not carry it; the result's
+ * `reasoningEffort` does. Settings that fail are rejected as a whole. Warnings are sorted by key in Unicode code
+ * point order.
+ *
+ * Changed in 0.6.2: takes the harness command's reasoning efforts and returns the turn's `reasoningEffort`.
  *
  * @example
  * ```ts
- * const { turn, warnings } = resolveTurn(effective, { connectors: { enabled: ["hackernews"] } });
+ * const { turn, warnings, reasoningEffort } = resolveTurn(
+ *   effective,
+ *   { connectors: { enabled: ["hackernews"] }, reasoning_effort: "high" },
+ *   ["low", "medium", "high"],
+ * );
  * ```
  * @param effective - The file's effective configuration.
  * @param sessionSettings - The session's settings, or `null` for a session without settings.
- * @returns The turn's configuration and the warnings.
- * @throws {ConfigError} `schema`, `duplicate_tool`, `duplicate_connection`, `widens_connectors`, or
- * `widens_local_tools`.
+ * @param supportedReasoningEfforts - The values `reasoning_effort` may take, the harness command's
+ * `AgentHarness.supportedReasoningEfforts`. Defaults to none, which rejects every `reasoning_effort`. Since 0.6.2.
+ * @returns The turn's configuration, the warnings, and the reasoning effort.
+ * @throws {ConfigError} `schema`, `duplicate_tool`, `duplicate_connection`, `widens_connectors`,
+ * `widens_local_tools`, or `unsupported_reasoning_effort`.
  * @since 0.5.0
  */
 export function resolveTurn(
   effective: EffectiveConfig,
   sessionSettings: unknown,
-): { readonly turn: TurnConfig; readonly warnings: readonly string[] } {
+  supportedReasoningEfforts: readonly string[] = [],
+): TurnResolution {
   if (sessionSettings === null || sessionSettings === undefined) {
     return { turn: structuredClone(effective), warnings: [] };
   }
@@ -381,7 +417,14 @@ export function resolveTurn(
     approval: { always },
     local_tools: narrowLocalTools(effective.local_tools, settings.local_tools ?? {}),
   };
-  return { turn, warnings };
+  const reasoningEffort = settings.reasoning_effort;
+  if (reasoningEffort === undefined) {
+    return { turn, warnings };
+  }
+  if (!supportedReasoningEfforts.includes(reasoningEffort)) {
+    throw new ConfigError("unsupported_reasoning_effort", "/reasoning_effort");
+  }
+  return { turn, warnings, reasoningEffort };
 }
 
 /**
@@ -488,6 +531,7 @@ interface FileConfig {
 /** Session settings after the schema accepted them. */
 interface SessionSettingsValue {
   readonly model?: string;
+  readonly reasoning_effort?: string;
   readonly system_prompt?: string;
   readonly connectors?: { readonly enabled?: readonly RawConnectorEntry[] };
   readonly approval?: { readonly always?: readonly string[] };

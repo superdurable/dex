@@ -62,12 +62,15 @@ export class TurnConfigResolver {
    * @param fileInstructions - The file's instructions, or `null`.
    * @param reportWarnings - Called once per distinct settings with the JSON Pointers of their ignored keys.
    * @param readTurnSessionSettings - Reads a session's turn settings, for tool Steps.
+   * @param supportedReasoningEfforts - The harness's `AgentHarness.supportedReasoningEfforts`, which a turn's
+   * `reasoning_effort` must be one of. Defaults to none, which fails every turn that sets one. Since 0.6.2.
    */
   public constructor(
     private readonly effective: EffectiveConfig,
     private readonly fileInstructions: string | null,
     private readonly reportWarnings: (warnings: readonly string[]) => void,
     private readonly readTurnSessionSettings: TurnSessionSettingsReader,
+    private readonly supportedReasoningEfforts: readonly string[] = [],
   ) {
     this.fileTurn = { ...effective, instructions: fileInstructions };
   }
@@ -84,13 +87,18 @@ export class TurnConfigResolver {
     if (cached !== undefined) {
       return cached;
     }
-    const { turn, warnings } = resolveTurn(this.effective, sessionSettings);
+    const { turn, warnings, reasoningEffort } = resolveTurn(
+      this.effective,
+      sessionSettings,
+      this.supportedReasoningEfforts,
+    );
     if (warnings.length > 0) {
       this.reportWarnings(warnings);
     }
     const resolved: ResolvedTurn = {
       ...turn,
       instructions: turn.system_prompt ?? (turn.system_prompt_file === null ? null : this.fileInstructions),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     };
     if (this.cachedTurns.size >= maximumCachedTurns) {
       this.cachedTurns.clear();

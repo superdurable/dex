@@ -6,9 +6,7 @@ slug: /
 
 # Dex Docs
 
-Dex is a **Durable Execution** platform. A database stores your data; Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
-
-You write the process as a **Flow** of **Steps**, and a **Worker** in your service runs the Steps.
+Dex is a lightweight **Durable Execution** platform for AI agents and workflows. Write normal code, and Dex keeps it running through crashes, deploys, and long waits, without replaying your code. Dex stores state in object storage and needs no database to run.
 
 <div className="docs-home-actions">
 
@@ -16,50 +14,45 @@ You write the process as a **Flow** of **Steps**, and a **Worker** in your servi
 
 </div>
 
-<div className="docs-home-sdks">
-
-Quick Start in [Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
-
-</div>
-
 ## Start here
 
-<div className="docs-home-sections">
+<div className="docs-home-sections docs-home-cards">
   <DocsSection section="intro" icon="rocket" to="/quick-start" title="Quick Start">
-    Run a Flow, stop its Worker, and watch Dex continue it.
+    Run a Flow and stop its Worker.
   </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow, Step, and the six primitives.
+  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable Agents">
+    Sessions, tool calls, and approvals.
   </DocsSection>
   <DocsSection section="product-examples" to="/use-cases" title="Examples">
-    Complete processes: an AI agent, orders, subscriptions, and money transfer.
-  </DocsSection>
-  <DocsSection section="components" icon="cloud" to="/components/choose-how-to-run" title="Choose how to run Dex">
-    Dex Cloud runs the server for you, or you run it on your own infrastructure.
+    Agents, orders, and payments.
   </DocsSection>
 </div>
 
 ## Common tasks
 
-<div className="docs-home-sections">
+<div className="docs-home-sections docs-home-cards">
   <DocsSection section="intro" icon="plug" to="/intro/add-to-existing-code" title="Add Dex to existing code">
-    Turn a function, job, or queue consumer you already have into a Flow.
+    Make a function durable.
   </DocsSection>
   <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="Build a durable agent">
-    Keep your agent framework. Each tool call runs in its own Step, and approvals can wait for days.
+    Start from a working agent.
   </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Let a coding agent write it">
-    Install the Dex Skills so your coding agent writes correct Dex code.
+  <DocsSection section="agent-frameworks" icon="wrench" to="/agent-frameworks/add-to-your-agent" title="Add Dex to your agent">
+    Keep your agent framework.
+  </DocsSection>
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
+    Let a coding agent write it.
+  </DocsSection>
+  <DocsSection section="components" icon="cloud" to="/components" title="Run Dex">
+    Dex Cloud or self-hosted.
   </DocsSection>
   <DocsSection section="intro" icon="scale" to="/evaluate" title="Evaluate Dex">
-    How Dex compares with what you run today, its limits, and its measured numbers.
+    Comparisons, limits, and numbers.
   </DocsSection>
 </div>
 
-<div className="docs-home-links">
+<div className="docs-home-sdks">
 
-**Run Dex:** [Run Locally](/components/run-locally) · [Your Application](/components/application) · [Run Dex in Production](/components/production) · [Failover and Deploys](/concepts/failover-and-deploys) · [Change Flow Code](/concepts/change-flow-code) · [Dex and Your Database](/components/your-database) · [Dex Web](/components/web)
-
-**Reference:** [Developer Reference](/reference) · [Design Patterns](/design-patterns) · [Correctness and Expressiveness](/correctness-and-expressiveness) · [Glossary](/glossary)
+Quick Start in [Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
 
 </div>

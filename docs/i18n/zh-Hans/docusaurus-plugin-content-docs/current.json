@@ -3,10 +3,6 @@
     "message": "开始使用",
     "description": "The label for category Get Started in sidebar docs"
   },
-  "sidebar.docs.category.Build with AI": {
-    "message": "使用 AI 构建",
-    "description": "The label for category Build with AI in sidebar docs"
-  },
   "sidebar.docs.category.Durable Agents": {
     "message": "持久化 Agent",
     "description": "The label for category Durable Agents in sidebar docs"
@@ -106,5 +102,17 @@
   "sidebar.docs.link.Agents packages": {
     "message": "Agents 包",
     "description": "The label for link Agents packages in sidebar docs, linking to /reference/agents/"
+  },
+  "sidebar.docs.category.Agents in Depth": {
+    "message": "深入了解 Agent",
+    "description": "The label for category Agents in Depth in sidebar docs"
+  },
+  "sidebar.docs.category.Running Dex in Depth": {
+    "message": "深入了解 Dex 的运行",
+    "description": "The label for category Running Dex in Depth in sidebar docs"
+  },
+  "sidebar.docs.category.Dex Skills in Depth": {
+    "message": "深入了解 Dex Skills",
+    "description": "The label for category Dex Skills in Depth in sidebar docs"
   }
 }

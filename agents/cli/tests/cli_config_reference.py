@@ -148,7 +148,9 @@ def raise_invalid_url(url: str, path: str) -> None:
 
 
 def resolve_turn(
-    effective: Mapping[str, Any], session_settings: object
+    effective: Mapping[str, Any],
+    session_settings: object,
+    supported_reasoning_efforts: Iterable[str] = (),
 ) -> tuple[dict[str, Any], list[str]]:
     """Return one turn's configuration and the JSON Pointers of the ignored settings keys.
 
@@ -156,7 +158,8 @@ def resolve_turn(
 
     Raises:
         ConfigError: ``schema``, ``duplicate_tool``, ``duplicate_connection``,
-            ``widens_connectors``, or ``widens_local_tools``. The whole override is rejected.
+            ``widens_connectors``, ``widens_local_tools``, or
+            ``unsupported_reasoning_effort``. The whole override is rejected.
     """
     turn = copy.deepcopy(dict(effective))
     if session_settings is None:
@@ -184,6 +187,9 @@ def resolve_turn(
     narrow_local_tools(
         turn["local_tools"], effective["local_tools"], session_settings.get("local_tools", {})
     )
+    effort = session_settings.get("reasoning_effort")
+    if effort is not None and effort not in tuple(supported_reasoning_efforts):
+        raise ConfigError("unsupported_reasoning_effort", "/reasoning_effort")
     return turn, warnings
 
 

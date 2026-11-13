@@ -38,6 +38,13 @@ The model defaults to `claude-opus-5-5`; set `model` in the file or pass
 `--model` to change it. The `claude` section has no options yet, and any key in
 it is a configuration error.
 
+The terminal UI's `/model` suggests `claude-opus-5-5`, `claude-sonnet-5-5`,
+`claude-haiku-5-5`, and `claude-fable-5-2`. `/effort`, the `reasoning_effort`
+session setting, takes `low`, `medium`, `high`, `xhigh`, or `max`, and becomes
+the Claude Agent SDK's `effort` option of the turn. Claude Code may lower it
+for a model that does not support that level. Without it, the model's own
+default applies.
+
 Claude Code's own tools replace the CLI core's `files`, `shell`, and `web_fetch`
 tools; the CLI core's browser tools and connector tools stay:
 

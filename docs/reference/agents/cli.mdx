@@ -339,6 +339,7 @@ Web can edit its settings.
 | Field | Rule |
 | --- | --- |
 | **model** | Replaces the file's model. |
+| **reasoning_effort** | Since 0.6.2. Sets the reasoning effort of every model call to one of the values the command offers. Omitted, the model's own default applies. See [Model and reasoning effort](#model-and-effort). |
 | **system_prompt** | Replaces the file's **system_prompt** or **system_prompt_file**. |
 | **connectors.enabled** | Replaces the file's list. Each entry must fall inside one of the file's entries: the same connector, the same connection unless the file's entry names none, and a subset of its operations unless it lists none. When the file has no list, any list narrows it. |
 | **approval.always** | Adds tools to the file's list. |
@@ -359,6 +360,33 @@ session keeps its settings until someone fixes them. The
 defines every field. Settings are stored in the session, so never put a secret
 in them. See [Credentials](/reference/agents/credentials).
 
+### Model and reasoning effort {#model-and-effort}
+
+Since 0.6.2. The settings' **model** and **reasoning_effort** pick the model
+and its reasoning effort for the next turn. The configuration file stays as
+it is: its **model** is the default, and it has no reasoning effort field. In
+the terminal UI, **/model** and **/effort** change both. A resumed session
+keeps them, because they are stored in the session; a session that **/new**
+starts begins with the file's model and the model's default effort.
+
+Each command offers the effort values its SDK accepts, and maps them to that
+SDK. A value the command does not offer fails the turn with
+**unsupported_reasoning_effort at "/reasoning_effort"**. The model must
+support reasoning effort too; a model without it may reject the call.
+
+| Command | Values | Passed to the SDK as |
+| --- | --- | --- |
+| **dex-agents-builtin** (Python) | **low**, **medium**, **high** | LiteLLM **reasoning_effort** |
+| **dex-agents-claude-sdk** | **low**, **medium**, **high**, **xhigh**, **max** | Claude Agent SDK **effort** |
+| **dex-agents-openai-sdk** | **low**, **medium**, **high** | **reasoning.effort** of the model settings |
+| **dex-agents-pydantic-ai** | **low**, **medium**, **high** | Pydantic AI **thinking** |
+| **dex-agents-builtin** (TypeScript), **dex-agents-vercel-ai** | **low**, **medium**, **high** | AI SDK **reasoning** |
+| **dex-agents-pi** | **low**, **medium**, **high** | pi-ai **reasoning** |
+| **dex-agents-deepagents**, **dex-agents-google-adk**, **dex-agents-mastra** | None | These commands have no reasoning effort setting yet |
+
+**/model** offers the file's model, the command's default model, and a few
+models the command suggests. Any other model ID works too.
+
 ## The chat {#chat}
 
 At a terminal, the chat runs in the terminal UI that **dexcli** draws. With
@@ -372,7 +400,8 @@ prints the **--resume** line that continues it.
 
 Since 0.6.0. The terminal UI fills the terminal window. Messages, replies,
 and tool calls scroll above an input box. The bottom line shows the keys that
-work at the moment. The reply streams as it arrives, and Markdown, such as a
+work at the moment. The line above it shows the command, the model, the
+reasoning effort when the session sets one, and the workspace. The reply streams as it arrives, and Markdown, such as a
 table, is drawn as formatted text.
 
 | Key | Action |
@@ -410,7 +439,8 @@ queued message into the running turn instead, and **/drop** deletes it.
 | **/approve** | Open the waiting approvals and questions. |
 | **/steer**, **/drop** | Steer the last queued message into the turn, or delete it. |
 | **/image PATH** | Attach an image to the next message. See [Images](#images). |
-| **/model** [ID] | Show the model, or change it from the next turn. |
+| **/model** [ID] | Pick the model from a list, or change it to ID, from the next turn. Since 0.6.2 with **dexcli** 1.47.0, the list has the command's suggested models; before, only its configured model. |
+| **/effort** [LEVEL] | Since 0.6.2 with **dexcli** 1.47.0. Pick the reasoning effort from a list, or change it to LEVEL, from the next turn. **default** returns to the model's default. See [Model and reasoning effort](#model-and-effort). |
 | **/new** | Start a new session and switch to it. |
 | **/sessions** | Switch to another session of this command. |
 | **/history** | Read earlier messages of this session. |

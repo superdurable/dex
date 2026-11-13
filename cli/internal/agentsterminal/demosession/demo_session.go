@@ -15,9 +15,11 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 )
@@ -53,6 +55,11 @@ const (
 	demoCommand   = "openai-sdk"
 	demoModel     = "gpt-5.2"
 	demoSessionID = "openai-sdk-20261111-142233-a1b2c3"
+)
+
+var (
+	demoModels           = []string{"gpt-5.2", "gpt-5-mini", "gpt-5-nano"}
+	demoReasoningEfforts = []string{"low", "medium", "high"}
 )
 
 // NewDemoSession returns a demo session. The first NextSessionUpdate context
@@ -99,7 +106,8 @@ func (demo *DemoSession) SubmitUserAction(ctx context.Context, action sessionfee
 // DemoSlashCommands returns the slash commands the demo session runs.
 func DemoSlashCommands() []sessionfeed.SlashCommand {
 	return []sessionfeed.SlashCommand{
-		{Name: "model", ArgumentHint: "ID", Description: "change the model"},
+		{Name: "model", ArgumentHint: "ID", IsArgumentOptional: true, Description: "choose the model from the next turn"},
+		{Name: "effort", ArgumentHint: "LEVEL", IsArgumentOptional: true, Description: "choose the reasoning effort from the next turn"},
 		{Name: "image", ArgumentHint: "PATH", Description: "attach an image to the next message"},
 		{Name: "sessions", Description: "switch session"},
 		{Name: "new", Description: "start a session"},
@@ -117,7 +125,7 @@ func (demo *DemoSession) ScriptError() error {
 
 func (demo *DemoSession) playScript(ctx context.Context) {
 	defer close(demo.updates)
-	script := demoScript{demo: demo, ctx: ctx}
+	script := demoScript{demo: demo, ctx: ctx, model: demoModel}
 	err := script.play()
 	demo.mutex.Lock()
 	defer demo.mutex.Unlock()
@@ -129,6 +137,8 @@ type demoScript struct {
 	demo              *DemoSession
 	ctx               context.Context
 	turnNumber        int
+	model             string
+	reasoningEffort   string
 	openInterruptIDs  []string
 	awaitingToolCalls []sessionfeed.ToolCallChanged
 	// deferredActions holds approvals and answers that arrived while the
@@ -137,15 +147,7 @@ type demoScript struct {
 }
 
 func (script *demoScript) play() error {
-	if err := script.send(sessionfeed.SessionOpened{
-		Command:            demoCommand,
-		Model:              demoModel,
-		SessionID:          demoSessionID,
-		IsNewSession:       true,
-		AcceptsTurnControl: true,
-		Workspace:          "~/dex-agent-workspace",
-		WebURL:             "http://127.0.0.1:8802",
-	}); err != nil {
+	if err := script.send(script.opened()); err != nil {
 		return err
 	}
 	if err := script.pause(400 * time.Millisecond); err != nil {
@@ -154,7 +156,6 @@ func (script *demoScript) play() error {
 	if err := script.send(sessionfeed.SessionLoaded{}); err != nil {
 		return err
 	}
-	model := demoModel
 	for {
 		action, err := script.nextAction()
 		if err != nil {
@@ -173,16 +174,8 @@ func (script *demoScript) play() error {
 				}
 				continue
 			}
-			if typed.Name == "model" && typed.Argument != "" {
-				model = typed.Argument
-				if err := script.send(sessionfeed.SessionOpened{
-					Command: demoCommand, Model: model, SessionID: demoSessionID,
-					TurnCount: script.turnNumber, IsNewSession: script.turnNumber == 0, AcceptsTurnControl: true,
-					Workspace: "~/dex-agent-workspace", WebURL: "http://127.0.0.1:8802",
-				}); err != nil {
-					return err
-				}
-				if err := script.notice(sessionfeed.NoticeSeverityInfo, "model set to "+model); err != nil {
+			if typed.Name == "model" || typed.Name == "effort" {
+				if err := script.changeSetting(typed); err != nil {
 					return err
 				}
 				continue
@@ -192,6 +185,57 @@ func (script *demoScript) play() error {
 			}
 		}
 	}
+}
+
+// opened describes the demo session with its current model and effort.
+func (script *demoScript) opened() sessionfeed.SessionOpened {
+	return sessionfeed.SessionOpened{
+		Command:               demoCommand,
+		Model:                 script.model,
+		Models:                slices.Clone(demoModels),
+		ReasoningEffort:       script.reasoningEffort,
+		ReasoningEffortValues: slices.Clone(demoReasoningEfforts),
+		SessionID:             demoSessionID,
+		TurnCount:             script.turnNumber,
+		IsNewSession:          script.turnNumber == 0,
+		AcceptsTurnControl:    true,
+		Workspace:             "~/dex-agent-workspace",
+		WebURL:                "http://127.0.0.1:8802",
+	}
+}
+
+// changeSetting runs /model or /effort the way a real session would.
+func (script *demoScript) changeSetting(command sessionfeed.RunSlashCommand) error {
+	argument := command.Argument
+	switch {
+	case command.Name == "model" && argument == "":
+		return script.notice(sessionfeed.NoticeSeverityInfo, "The model is "+script.model+". Type a model ID after /model to change it.")
+	case command.Name == "model" && strings.ContainsFunc(argument, isSpaceOrControl):
+		return script.notice(sessionfeed.NoticeSeverityError, "A model ID has no spaces or control characters; the model did not change.")
+	case command.Name == "model":
+		script.model = argument
+	case argument == "default":
+		script.reasoningEffort = ""
+	case slices.Contains(demoReasoningEfforts, argument):
+		script.reasoningEffort = argument
+	default:
+		choices := strings.Join(append(slices.Clone(demoReasoningEfforts), "default"), ", ")
+		return script.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Unknown reasoning effort %q; choose one of %s.", argument, choices))
+	}
+	if err := script.send(script.opened()); err != nil {
+		return err
+	}
+	if command.Name == "model" {
+		return script.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses "+argument+".")
+	}
+	if script.reasoningEffort == "" {
+		return script.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses the model's default reasoning effort.")
+	}
+	return script.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses "+argument+" reasoning effort.")
+}
+
+func isSpaceOrControl(character rune) bool {
+	return unicode.IsSpace(character) || unicode.IsControl(character)
 }
 
 // playTurns plays a turn for text, then one turn per queued message.

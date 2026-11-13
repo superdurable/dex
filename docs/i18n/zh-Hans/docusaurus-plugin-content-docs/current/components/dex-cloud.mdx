@@ -1,0 +1,35 @@
+---
+title: 在 Dex Cloud 上运行
+sidebar_label: 在 Dex Cloud 上运行
+slug: /components/dex-cloud
+description: 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server。你的 Worker 运行你的代码，通过 TLS、使用 API key 连接到 server 的 endpoint。
+---
+
+# 在 Dex Cloud 上运行
+
+在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server。你的 Worker 仍然运行你的 Flow 代码，可以在你的服务器、你的云或者你的笔记本上。
+
+## 各部分由谁运行 {#what-runs-where}
+
+| | 由谁运行 |
+| --- | --- |
+| Dex Server：存储、升级、容量和监控 | Super Durable |
+| Flow 状态：Flow 输入、Attribute 和 Step 结果 | 由 Dex Server 存储，存储由 Super Durable 运维 |
+| 你的 Worker 和 Flow 代码 | 你自己，部署在你选择的地方 |
+| 你的代码调用你自己的 API 时使用的凭证 | 你自己。它们留在你的 Worker 里。 |
+
+## 连接 Worker 和 Client {#connect}
+
+你在 Dex Cloud 创建的每个 server 都有自己的 endpoint 和 API key。Worker 和 Client 通过 TLS、使用这个 key 连接到这个 endpoint：
+
+- key 放在 [API key credential](/reference/server/authentication#sdk-credentials) 里。
+- TLS 用 SDK 的 [TLS 选项](/reference/server/authentication#tls)。
+
+## 开始使用 {#get-started}
+
+[注册 Dex Cloud](https://dex.superdurable.io/register)，然后创建一个 server。价格、区域和 SLA，请[联系 Super Durable](https://superdurable.io/about/#contact)。
+
+## 下一步 {#next}
+
+- [在生产环境运行 Dex](/components/production)：关于 Worker、代码变更和数据库的检查项在 Dex Cloud 中同样适用。
+- [运维和排错](/components/operate-and-debug)：找到 Flow，修复停住或失败的 Flow。

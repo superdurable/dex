@@ -113,15 +113,36 @@ export class PiModelClients {
    * Returns the model client of a model ID, building it on first use. It reads only pi-ai's model catalog and the
    * environment, so it is cheap enough for every `RunModel` attempt.
    *
+   * With a reasoning effort, the client sets it as `ModelRequest.settings.reasoningEffort` of every call, which
+   * pi-ai sends as the thinking level. Without one, each call keeps its settings, so the model's default applies.
+   *
+   * Changed in 0.6.2: takes the turn's reasoning effort.
+   *
    * @param model - The `<provider>/<model>` model ID.
+   * @param reasoningEffort - The turn's reasoning effort, such as `high`, or `undefined` for none. Since 0.6.2.
    * @returns The client.
    * @throws {Error} When the ID is malformed, pi-ai does not know the model, or the provider's API key is missing.
    */
-  public clientFor(model: string): ModelClient {
-    const cached = this.clients.get(model);
+  public clientFor(model: string, reasoningEffort?: string): ModelClient {
+    const key = JSON.stringify([model, reasoningEffort ?? null]);
+    const cached = this.clients.get(key);
     if (cached !== undefined) {
       return cached;
     }
+    const modelClient = this.buildClient(model);
+    const client: ModelClient =
+      reasoningEffort === undefined
+        ? modelClient
+        : {
+            callModel: (request, output) =>
+              modelClient.callModel({ ...request, settings: { ...request.settings, reasoningEffort } }, output),
+            estimateInputTokens: (request) => modelClient.estimateInputTokens(request),
+          };
+    this.clients.set(key, client);
+    return client;
+  }
+
+  private buildClient(model: string): ModelClient {
     const { provider, modelId } = parsePiModelId(model);
     const catalogModel = (getModel as (provider: string, modelId: string) => Model<Api> | undefined)(provider, modelId);
     if (catalogModel === undefined) {
@@ -129,11 +150,9 @@ export class PiModelClients {
     }
     const baseUrl = this.providerBaseUrls[provider];
     const apiKey = resolvePiProviderApiKey(provider, this.environment);
-    const client = createPiAiModelClient(
+    return createPiAiModelClient(
       baseUrl === undefined ? catalogModel : { ...catalogModel, baseUrl },
       apiKey === undefined ? {} : { apiKey },
     );
-    this.clients.set(model, client);
-    return client;
   }
 }

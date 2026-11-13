@@ -189,7 +189,7 @@ Session 会把每条 user message、模型输出 item 与 tool result 分别保�
 
 Turn 运行期间发送的 message 会在持久化 `QueuedUserMessages` queue 中等待。Message 处于 pending 时，UI 会显示 **Steer** 与 **Delete** 控件。
 
-**Steer** 会在 turn 的下一个 safe Step boundary 应用 message。它不会停止已经开始的模型调用或 Tool Call。尚未开始的 Tool Call，以及仍在等待的 approval、question 与持久化 wait，会记录结构化的 cancellation result。随后 turn 结束，新的 turn 以所有 steered message 开始。**Stop** 调用 `cancel_turn`，以同样方式结束 turn，但不会开始新的 turn。
+**Steer** 会在 turn 的下一个 safe Step boundary 应用 message。它不会停止已经开始的模型调用或 Tool Call。尚未开始的 Tool Call，以及仍在等待的 approval、question 与持久化 wait，会记录结构化的 cancellation result。随后 turn 结束，新的 turn 以所有 steered message 开始。**Stop** 调用 `cancel_turn`，结束 turn，但不会开始新的 turn。它还会停止正在运行的模型调用，丢弃它的回答；已经开始的 Tool Call 仍会完成。
 
 ## 提问与持久化 wait {#questions-and-durable-waits}
 

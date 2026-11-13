@@ -6,7 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Agent, OpenAIProvider, type Model, type ModelProvider } from "@openai/agents";
+import {
+  Agent,
+  OpenAIProvider,
+  type Model,
+  type ModelProvider,
+  type ModelRequest,
+  type ModelSettings,
+} from "@openai/agents";
 import { ConfigError, type AgentHarness, type HarnessContext, type ResolvedTurn } from "@superdurable/dex-agents-cli-core";
 import { createOpenAIAgentsSessionFlow } from "@superdurable/dex-agents-openai-agents";
 
@@ -35,6 +42,8 @@ export const defaultInstructions =
 
 const openaiModelPrefix = "openai/";
 
+type ReasoningEffort = NonNullable<NonNullable<ModelSettings["reasoning"]>["effort"]>;
+
 /**
  * The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal.
  *
@@ -43,6 +52,12 @@ const openaiModelPrefix = "openai/";
  * `gpt-5.2`; an `openai/` prefix is accepted and dropped. Each turn uses the model and instructions its session
  * settings resolve to. The SDK's trace upload is off, because the Dex session already records every model and tool
  * call. The `openai` section has no options yet; any key in it is a configuration error.
+ *
+ * The `reasoning_effort` session setting takes `low`, `medium`, or `high`, and becomes the SDK's
+ * `modelSettings.reasoning.effort` of every model call in the turn. The terminal UI's `/model` suggests `gpt-5.2`,
+ * `gpt-5-mini`, and `gpt-5-nano`.
+ *
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts
@@ -58,6 +73,8 @@ export const openaiSdkHarness: AgentHarness = {
   configSection: "openai",
   flowType: openaiSdkCliFlowType,
   defaultModel: defaultOpenAIModel,
+  supportedReasoningEfforts: ["low", "medium", "high"],
+  suggestedModels: ["gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
   createSessionFlow: (context) => createOpenAISdkSessionFlow(context),
 };
 
@@ -120,12 +137,42 @@ export class TurnModelProvider implements ModelProvider {
   /**
    * Returns the running turn's model.
    *
-   * @returns The SDK's OpenAI model for the turn's model name, without an `openai/` prefix.
+   * Changed in 0.6.2: when the turn has a reasoning effort, the model sets it as `modelSettings.reasoning.effort`
+   * of every request, over the agent's own reasoning settings.
+   *
+   * @returns The SDK's OpenAI model for the turn's model name, without an `openai/` prefix, with the turn's
+   * reasoning effort when it has one.
    */
-  public getModel(): Promise<Model> {
-    const modelId = this.currentTurn().model;
-    return this.openaiProvider.getModel(
-      modelId.startsWith(openaiModelPrefix) ? modelId.slice(openaiModelPrefix.length) : modelId,
+  public async getModel(): Promise<Model> {
+    const turn = this.currentTurn();
+    const model = await this.openaiProvider.getModel(
+      turn.model.startsWith(openaiModelPrefix) ? turn.model.slice(openaiModelPrefix.length) : turn.model,
     );
+    return turn.reasoningEffort === undefined ? model : withReasoningEffort(model, turn.reasoningEffort);
   }
+}
+
+/** Returns the model with every request's reasoning effort set; its other members pass through. */
+function withReasoningEffort(model: Model, effort: string): Model {
+  const withEffort = (request: ModelRequest): ModelRequest => ({
+    ...request,
+    modelSettings: {
+      ...request.modelSettings,
+      // The CLI core accepts only the declared efforts, which the SDK's effort type includes.
+      reasoning: { ...request.modelSettings.reasoning, effort: effort as ReasoningEffort },
+    },
+  });
+  // A Proxy keeps optional members, such as getRetryAdvice, that the Runner finds by presence.
+  return new Proxy(model, {
+    get: (target, key) => {
+      if (key === "getResponse") {
+        return (request: ModelRequest) => target.getResponse(withEffort(request));
+      }
+      if (key === "getStreamedResponse") {
+        return (request: ModelRequest) => target.getStreamedResponse(withEffort(request));
+      }
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === "function" ? (value as (...values: unknown[]) => unknown).bind(target) : value;
+    },
+  });
 }

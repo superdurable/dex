@@ -7,22 +7,9 @@ description: 从下载的示例把你所用框架的 Agent 作为持久化 Dex S
 
 # Agent 快速开始
 
-把你所用框架的 Agent 作为持久化 Dex Session 运行，然后在对话中途停止它，看它继续运行。整个过程大约 10 分钟。
+把你所用框架的 Agent 作为持久化 Dex Session 运行，然后在对话中途停止它，看它继续运行。
 
-<CodingAgentBox>
-
-```text
-在这个文件夹里运行 Dex Agent 快速开始。
-
-1. 阅读 https://docs.superdurable.io/zh-Hans/agent-frameworks/quick-start.md，把它当作唯一依据。
-2. 问我想用哪个框架和哪种语言。
-3. 启动 dexcli dev，运行示例 Agent。
-4. 批准 cancel_order 调用，在它等待时停掉程序，再重启，向我展示 Session 继续运行。
-
-规则：只做这个快速开始里的内容。不要编造 API。安装其他东西之前先问我。
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/agent-frameworks/quick-start.md 在这个文件夹里运行 Dex Agent 快速开始。先问我用哪个框架；安装其他东西之前也先问我。" />
 
 <a id="before-you-start"></a>
 <a id="what-you-will-build"></a>
@@ -377,15 +364,15 @@ pkill -9 -f quick-start-main.js
 </SdkTabs>
 
 3. 带上 `--session-id`、不带消息，再次运行程序。Agent 会回复订单信息。
-4. 查看这次 Tool Call 是如何运行的：
+4. 查看这次 Tool Call 是如何运行的。这条命令需要 `jq`：
 
 ```bash
 dexcli flow history --all SESSION_ID | jq '.events[]
-  | select(.payload.context.stepType == "CallTool")
-  | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
+  | select(.payload.context.stepType == "CallTool" or .payload.context.stepType == "RunModel")
+  | .payload.context | {stepType, finalAttempt, failure: .lastFailureInfo.details.detail}'
 ```
 
-`finalAttempt` 是 **2**。第一次尝试在 Worker 断开时失败；因为 `look_up_order` 是读操作，Dex 在新的 Worker 上再次运行了它。它之前的模型调用只运行了一次。
+`CallTool` Step 的 `finalAttempt` 是 **2**。第一次尝试在 Worker 断开时失败；因为 `look_up_order` 是读操作，Dex 在新的 Worker 上再次运行了它。它之前的模型调用只运行了一次。使用 Claude Agent SDK 时，读取在 `RunModel` 里运行，所以没有 `CallTool` Step：最后一个 `RunModel` Step 的 `finalAttempt` 是 **2**，因为整个分段连同模型调用一起重新运行了。
 
 现在对写操作做同样的事：设置延迟后要求取消订单 1002，批准它，在 20 秒内杀掉程序，再带上 `--session-id` 运行。Dex 把 `cancel_order` 记录为 `outcome_unknown`，并且不会再运行第二次，因为它是非幂等写操作。Agent 会告诉用户结果未知，由你的应用在任何人重试之前先检查订单系统。[核对 outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) 介绍具体做法。
 
@@ -401,7 +388,7 @@ dexcli flow history --all SESSION_ID | jq '.events[]
 ## 下一步 {#next}
 
 - [把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent) 把这个 Agent 移到你自己的应用中，提供完整文件和一个 web app。
-- [Session](/agent-frameworks/sessions) 解释哪些内容在重启后保留了下来，以及你所用框架的 turn 如何对应到 Step。
+- [持久化 Agent 如何工作](/agent-frameworks/how-it-works) 用你的框架术语解释哪些内容在重启后保留了下来。
 - [Tool Call](/agent-frameworks/tool-calls) 解释为什么 `cancel_order` 最多运行一次，以及写操作可能运行两次的那一种少见情况。
 - [内置 Agent Loop](/agent-frameworks/built-in-agent-loop) 不用框架构建 Agent。
 - [订单客服 Agent](/use-cases/order-support-agent) 是完整的示例，包含它的 HTTP route。

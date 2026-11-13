@@ -23,7 +23,7 @@ export const sdkOrder = ['python', 'go', 'java', 'typescript', 'rust'];
 const sdkLabels = {python: 'Python', go: 'Go', java: 'Java', typescript: 'TypeScript', rust: 'Rust'};
 const diagrams = new Set(['DexSystemDiagram', 'ExecutionApproachDiagram', 'StepWaitExecuteDiagram',
   'StepDecisionMovementsDiagram', 'RpcRequestDiagram', 'ChannelScopeDiagram', 'ArchitectureComparison',
-  'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram', 'FunctionToFlowDiagram']);
+  'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram', 'FunctionToFlowDiagram', 'RecoveryModelDiagram', 'AgentTermMapDiagram']);
 // Docusaurus default admonition keywords.
 const admonitionKeywords = ['note', 'tip', 'info', 'warning', 'danger', 'caution', 'important', 'secondary', 'success'];
 const localeCopies = {
@@ -34,7 +34,6 @@ const localeCopies = {
     steps: 'Steps',
     when: 'when',
     diagram: 'Diagram',
-    codingAgent: {title: 'Do it with a coding agent', install: 'Install Dex Skills once:', prompt: 'Then paste this prompt:'},
     graph: {
       conditionOpen: ' when its condition holds (', timerOpen: words => ` when ${words} (`, isCaseLowered: true, sentenceEnd: '.', clauseJoiner: '; ', groupJoiner: ' ',
       flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.', flowGraph: 'Flow graph',
@@ -80,7 +79,6 @@ const localeCopies = {
     steps: 'Step 列表',
     when: '条件',
     diagram: '图示',
-    codingAgent: {title: '用编程 Agent 来做', install: '先安装一次 Dex Skills：', prompt: '然后粘贴这段提示词：'},
     graph: {
       conditionOpen: '（条件 ', timerOpen: words => `（${words}：`, isCaseLowered: false, sentenceEnd: '。', clauseJoiner: '；', groupJoiner: ' ',
       flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。', flowGraph: 'Flow 图',
@@ -174,7 +172,6 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   const otherLocaleBases = (i18n.locales ?? []).filter(item => item !== locale && item !== i18n.defaultLocale)
     .map(item => `/${item}/`);
   const hostData = JSON.parse(await readFile(join(siteDir, 'src/data/dex-skill-hosts.json'), 'utf8'));
-  const codingAgentHosts = JSON.parse(await readFile(join(siteDir, 'src/data/coding-agent-hosts.json'), 'utf8'));
   const entries = new Map();
   const fullTexts = new Map();
   // Per SDK language, each page's body with that language's code, for llms-full.<language>.txt.
@@ -188,7 +185,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     const source = await readFile(sourcePath, 'utf8');
     const context = {page, siteDir, sourcePath, routes, knownRoutes, otherLocaleBases, outDir, baseUrl, siteUrl: siteConfig.url,
       canonicalUrl: new URL(siteConfig.trailingSlash ? `${page.permalink.replace(/\/+$/, '')}/` : page.permalink, siteConfig.url).href,
-      locale, copy, hostData, codingAgentHosts, imports: new Map(), headingIds: new Map(), headingDepth: 1};
+      locale, copy, hostData, imports: new Map(), headingIds: new Map(), headingDepth: 1};
     const prepared = prepareSource(source, {headingIds: context.headingIds, locale, sourcePath});
     let tree;
     try {
@@ -553,7 +550,8 @@ async function expandCrashTimeline(node, context) {
   const separator = localeCopy(context.locale).separator;
   const eventText = event => {
     const actor = copy.actors[event.actor];
-    return event.text.startsWith(actor) ? event.text : `${actor}${separator}${event.text}`;
+    // The opening event is the reader's own action, so it names no actor.
+    return event.kind === 'flow' || event.text.startsWith(actor) ? event.text : `${actor}${separator}${event.text}`;
   };
   return [orderedList(copy.events.map(event => [text(eventText(event))])),
     paragraph(copy.summary)];
@@ -665,12 +663,12 @@ async function expandDocsSection(node, context) {
 }
 
 // Mirrors CodingAgentBox.tsx: the install command for each host, then the page's prompt.
+// The box is for a person starting a coding agent. The agent reads this Markdown, so it gets nothing to re-run.
 async function expandCodingAgentBox(node, context) {
-  const {hosts} = context.codingAgentHosts;
-  const copy = context.copy.codingAgent;
-  const installs = hosts.flatMap(host => [paragraph(`${host.label}:`), {type: 'code', lang: 'bash', value: host.install}]);
-  return [{type: 'blockquote', children: [paragraph(copy.title, true), paragraph(copy.install), ...installs,
-    paragraph(copy.prompt), ...await transformChildren(node.children, context)]}];
+  const prompt = attribute(node, 'prompt', context);
+  if (typeof prompt !== 'string' || !prompt.trim()) fail(context, node, 'CodingAgentBox needs a prompt string');
+  if (/["$`!\\]/.test(prompt)) fail(context, node, 'CodingAgentBox prompt must not contain " $ ` ! or \\');
+  return [];
 }
 
 // A group of section cards exports as a bullet list, one card per item.

@@ -40,6 +40,12 @@ the default instructions. Session settings that change `model` or
 `system_prompt` apply from the session's next turn. The `google_adk` section
 has no options yet, and any key in it is a configuration error.
 
+The command has no reasoning effort setting: Gemini 3 models take a thinking
+level and Gemini 2.5 models a thinking token budget. A session whose settings
+carry `reasoning_effort` fails its turn with `unsupported_reasoning_effort`,
+and the terminal UI does not offer `/effort`. Its `/model` also offers
+`gemini-2.5-pro`.
+
 ## Tools
 
 The agent is one ADK `LlmAgent`. Its tools are the CLI core's connector tools
@@ -76,7 +82,7 @@ connectors MCP server serves a connector read and write. The tests cover a
 chat turn and `--resume`, `read_file` without approval and `write_file` after
 approval, a connector read and an approved connector write that runs once,
 session settings that change the model, and a key in the `google_adk`
-section.
+section. A `reasoning_effort` in the session settings fails the turn.
 They also cover a `system_prompt` set in the session settings, which reaches
 the next model request, and a rejected file write and connector write, which
 never run.

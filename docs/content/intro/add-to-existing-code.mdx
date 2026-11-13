@@ -14,23 +14,7 @@ This page turns code you already run, such as a function, a queue consumer, a cr
 
 <FunctionToFlowDiagram markdownDescription="Before: one function charges the buyer, waits for approval, ships, and refunds; a crash leaves it half done. After: a Flow of Steps, Charge then Ship, which waits for approval or 24 hours, then Done, with Refund when Ship fails." />
 
-<CodingAgentBox>
-
-```text
-Turn <function> in <file> into a Dex Flow.
-
-1. Read https://docs.superdurable.io/intro/add-to-existing-code.md and treat it
-   as the source of truth.
-2. Give each call that changes another system its own Step, move waits into
-   WaitFor, and keep state in Attributes.
-3. Add an idempotency key to every external write.
-4. Add an integration test that runs against dexcli dev.
-
-Rules: keep the existing behavior. Do not invent APIs. Ask me before changing
-code outside this function.
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/intro/add-to-existing-code.md to turn a function in this repository into a Dex Flow. Ask me which function first." />
 
 <a id="with-a-coding-agent"></a>
 
@@ -370,6 +354,16 @@ A crash after the call and before Dex saves the Step still leaves one case where
 
 You can keep the orders table that support and reporting read. Write to it from a Step with an upsert keyed by the order ID, so a repeat writes the same row. Start the Flow from the handler that creates the order, with the order ID as the Flow ID. [Dex and Your Database](/components/your-database) covers both, including what happens when one of the two writes fails.
 
+## Run it in your service {#run-it-in-your-service}
+
+Three pieces connect the Flow to the service you already have:
+
+- **A Worker runs the Steps.** Start it inside your service process, next to your HTTP server. Deploy it as its own process instead when Steps need different scaling, resources, or release timing than your API. The Worker makes only outbound connections, so it needs no load balancer or inbound port.
+- **The Flow constructor takes your services.** Pass each service that a Step calls, such as the payment API, to the Flow constructor. Every Step then has its services from the moment the Worker registers the Flow, and a test can pass a fake service the same way.
+- **A Client starts the Flow from your handler.** The handler that creates the order starts the Flow with the order ID as the Flow ID and a request ID, so a retried request does not start a second Flow. When the caller must know that Charge finished, the handler waits for that Step with the Client's wait-for-Step-completion call. Dex ends the wait when it records the Step, so the handler needs no status table or polling loop.
+
+[Your Application](/components/application) has the code for each piece, including [a minimal service](/components/application#minimal-service) with the Worker in the same process. It also covers Worker capacity, shutdown, and containers.
+
 ## Checklist
 
 - Each call that changes another system is in its own Step, or shares a Step only with calls that succeed or fail together.
@@ -384,7 +378,8 @@ You can keep the orders table that support and reporting read. Write to it from 
 
 ## Next
 
+- [Test Your Flows](/components/testing): test the Flow against a real Dex Server, and skip its Timers.
 - [Run Dex in Production](/components/production): what to set up before the Flow runs in production.
 - [Order Processing](/use-cases/order-processing): this process as runnable code in every SDK.
 - [Concepts](/concepts): each building block in detail.
-- [Change Flow Code](/concepts/change-flow-code): how to change a Flow while some of its runs are still open.
+- [Deploy Code Changes](/concepts/change-flow-code): how to change a Flow while some of its runs are still open.

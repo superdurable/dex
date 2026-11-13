@@ -37,6 +37,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
+| Effective configuration | **dexzd_config_closed_flow_retention_seconds**; **dexzd_config_max_value_bytes**; **dexzd_config_max_flow_state_bytes**; **dexzd_config_attempt_drain_timeout_seconds**; **dexzd_config_durability_mode_info** with **mode**, for **dev** and **local** only |
 | History offload | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_upload_concurrency_limit**; **dexzd_history_upload_in_flight_bytes**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
 | Attribute Store sync | See [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring) |
 | External search projection | See [Monitoring](/reference/server/search#search-projection-monitoring) |
@@ -86,6 +87,36 @@ Workers poll over one persistent stream, so there is no count of empty polls.
 **event="delivered"**, it counts every task frame sent, including RPC task
 frames. When Dex hands out a returned attempt again, it counts again. Long-poll
 waits count toward **flow_read** latency.
+
+Since 0.1.29, the **dexzd_config_** gauges report the values the running node
+uses. They include defaults for keys the configuration leaves unset, and the
+**dev** profile's own defaults. Each gauge keeps its value until the process
+exits. A byte limit above 9223372036854775807, the largest gauge value, reports
+as 9223372036854775807. The startup log line keeps the exact value.
+
+| Metric | Type | Configuration key |
+| --- | --- | --- |
+| **dexzd_config_closed_flow_retention_seconds** | gauge, seconds | **retention.closedFlowDuration** |
+| **dexzd_config_max_value_bytes** | gauge, bytes | **values.maxValueBytes** |
+| **dexzd_config_max_flow_state_bytes** | gauge, bytes | **limits.maxFlowStateBytes** |
+| **dexzd_config_attempt_drain_timeout_seconds** | gauge, seconds | **lifecycle.attemptDrainTimeout** |
+| **dexzd_config_durability_mode_info** | gauge, always 1 | **dev.durabilityMode**, in the **mode** label |
+
+**mode** is **strict**, **processCrashSafe**, or **relaxed**, the YAML
+spelling of **dev.durabilityMode**, also when **--durability** set it. Only
+**dev** and **local** report **dexzd_config_durability_mode_info**, because
+durability applies only to their embedded object store. **serve** leaves it
+out. See
+[Effective configuration](/reference/server/configuration#effective-configuration)
+for the matching startup log line.
+
+~~~text
+# A server that keeps closed Flow runs for less than 30 days
+dexzd_config_closed_flow_retention_seconds < 2592000
+
+# A single-node server that does not run in strict mode
+dexzd_config_durability_mode_info{mode!="strict"} == 1
+~~~
 
 Changed in 0.1.23: **dexzd_history_offload_mode_skipped_partitions_total** was
 removed with the **history.offloadEnabled** switch. Each Flow run now chooses

@@ -39,6 +39,12 @@ set it. The command never passes a model ID string to the AI SDK, so no model
 call goes to the Vercel AI Gateway. It never prints or stores a key; the
 provider package reads it from the environment on each model call.
 
+The terminal UI's `/model` suggests `openai/gpt-5.2`, `openai/gpt-5-mini`,
+`anthropic/claude-opus-5-5`, and `anthropic/claude-sonnet-5-5`. `/effort`, the
+`reasoning_effort` session setting, takes `low`, `medium`, or `high`, and
+becomes the AI SDK's `reasoning` call option of every model call in the turn.
+Without it, the model's own default applies.
+
 ## Configuration and tools
 
 The `vercel_ai` section has no options yet, and any key in it is a

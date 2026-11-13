@@ -10,14 +10,33 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from dataclasses import replace
 from typing import Any
 
 import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
-from agents import Agent, Model, ModelProvider, MultiProvider, RunConfig, RunContextWrapper
+from agents import (
+    Agent,
+    AgentOutputSchemaBase,
+    Handoff,
+    Model,
+    ModelProvider,
+    ModelResponse,
+    ModelSettings,
+    ModelTracing,
+    MultiProvider,
+    RunConfig,
+    RunContextWrapper,
+    Tool,
+    TResponseInputItem,
+)
+from agents.items import TResponseStreamEvent
+from agents.retry import ModelRetryAdvice, ModelRetryAdviceRequest
+from openai.types.responses.response_prompt_param import ResponsePromptParam
+from openai.types.shared import Reasoning
 
 from dex_agents import AgentSessionFlow
 from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
@@ -44,6 +63,15 @@ class OpenAISdkHarness:
     ``litellm/`` prefix needs LiteLLM installed. The CLI core's connector and
     local tools are the agent's only tools. The SDK's own tracing is off, so
     no conversation leaves the machine for the OpenAI traces dashboard.
+
+    The ``reasoning_effort`` session setting accepts ``low``, ``medium``, and
+    ``high``. Each model call of its turn sends it as the SDK's
+    ``ModelSettings.reasoning.effort``. Without it, the call sends none, so
+    the model's default applies. ``suggested_models`` lists OpenAI models
+    for the terminal UI's ``/model``.
+
+    .. versionchanged:: 0.6.2
+       The ``reasoning_effort`` session setting and the suggested models.
     """
 
     name = "openai-sdk"
@@ -53,6 +81,8 @@ class OpenAISdkHarness:
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
     # The SDK fixes an agent's tools when the runner is built.
     is_tool_set_fixed_at_build = True
+    supported_reasoning_efforts = ("low", "medium", "high")
+    suggested_models = ("gpt-5.2", "gpt-5-mini", "gpt-5-nano")
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the OpenAI Agents SDK agent session Flow from the effective configuration.
@@ -88,7 +118,13 @@ class OpenAISdkHarness:
 
 
 class TurnModelProvider(ModelProvider):
-    """Give every model call the running turn's model, which session settings may change."""
+    """Give every model call the running turn's model and reasoning effort.
+
+    Session settings may change both between turns.
+
+    .. versionchanged:: 0.6.2
+       The model carries the turn's ``reasoning_effort``.
+    """
 
     def __init__(self) -> None:
         """Wrap the SDK's default ``MultiProvider``."""
@@ -101,10 +137,101 @@ class TurnModelProvider(ModelProvider):
             model_name: The agent's model, the configuration file's.
 
         Returns:
-            The SDK model for the turn's model name.
+            The SDK model for the turn's model name. With a turn
+            ``reasoning_effort``, every call of the model sends it as
+            ``ModelSettings.reasoning.effort``.
         """
         turn = current_turn_config()
-        return self._provider.get_model(turn.model if turn is not None else model_name)
+        model = self._provider.get_model(turn.model if turn is not None else model_name)
+        if turn is None or turn.reasoning_effort is None:
+            return model
+        return _ReasoningEffortModel(model, turn.reasoning_effort)
+
+
+class _ReasoningEffortModel(Model):
+    """Make every call of an SDK model with one reasoning effort."""
+
+    def __init__(self, model: Model, reasoning_effort: str) -> None:
+        self._model = model
+        self._reasoning_effort = reasoning_effort
+
+    def __getattr__(self, name: str) -> Any:
+        # The SDK probes optional model members, such as the prompt cache key support, by name.
+        if name == "_model":
+            raise AttributeError(name)
+        return getattr(self._model, name)
+
+    async def _cleanup_on_run_end(self, owner: object) -> None:
+        await self._model._cleanup_on_run_end(owner)
+
+    async def close(self) -> None:
+        await self._model.close()
+
+    def get_retry_advice(self, request: ModelRetryAdviceRequest) -> ModelRetryAdvice | None:
+        return self._model.get_retry_advice(request)
+
+    async def get_response(
+        self,
+        system_instructions: str | None,
+        input: str | list[TResponseInputItem],
+        model_settings: ModelSettings,
+        tools: list[Tool],
+        output_schema: AgentOutputSchemaBase | None,
+        handoffs: list[Handoff],
+        tracing: ModelTracing,
+        *,
+        previous_response_id: str | None,
+        conversation_id: str | None,
+        prompt: ResponsePromptParam | None,
+    ) -> ModelResponse:
+        return await self._model.get_response(
+            system_instructions,
+            input,
+            self._with_effort(model_settings),
+            tools,
+            output_schema,
+            handoffs,
+            tracing,
+            previous_response_id=previous_response_id,
+            conversation_id=conversation_id,
+            prompt=prompt,
+        )
+
+    def stream_response(
+        self,
+        system_instructions: str | None,
+        input: str | list[TResponseInputItem],
+        model_settings: ModelSettings,
+        tools: list[Tool],
+        output_schema: AgentOutputSchemaBase | None,
+        handoffs: list[Handoff],
+        tracing: ModelTracing,
+        *,
+        previous_response_id: str | None,
+        conversation_id: str | None,
+        prompt: ResponsePromptParam | None,
+    ) -> AsyncIterator[TResponseStreamEvent]:
+        return self._model.stream_response(
+            system_instructions,
+            input,
+            self._with_effort(model_settings),
+            tools,
+            output_schema,
+            handoffs,
+            tracing,
+            previous_response_id=previous_response_id,
+            conversation_id=conversation_id,
+            prompt=prompt,
+        )
+
+    def _with_effort(self, model_settings: ModelSettings) -> ModelSettings:
+        # Keep the other reasoning fields, such as the summary, that the settings set.
+        reasoning = (
+            Reasoning(effort=self._reasoning_effort)  # type: ignore[arg-type]
+            if model_settings.reasoning is None
+            else model_settings.reasoning.model_copy(update={"effort": self._reasoning_effort})
+        )
+        return replace(model_settings, reasoning=reasoning)
 
 
 def validate_openai_section(options: Mapping[str, Any]) -> None:

@@ -111,6 +111,13 @@ const maximumSymbolicLinkHops = 40;
  * once. File tools refuse paths outside the workspace. The `claude` section has no options yet; any key in it is a
  * configuration error.
  *
+ * The `reasoning_effort` session setting takes `low`, `medium`, `high`, `xhigh`, or `max`, and becomes the Claude
+ * Agent SDK's `effort` option of the turn's segments. Claude Code may lower it for a model that does not support
+ * that level. The terminal UI's `/model` suggests `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, and
+ * `claude-fable-5-2`.
+ *
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
+ *
  * @example
  * ```ts
  * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
@@ -126,6 +133,8 @@ export const claudeSdkHarness: AgentHarness = {
   flowType: claudeSdkCliFlowType,
   defaultModel: defaultClaudeModel,
   replacedLocalTools: ["files", "shell", "web_fetch"],
+  supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  suggestedModels: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"],
   createSessionFlow: (context) => createClaudeSdkSessionFlow(context),
 };
 
@@ -191,9 +200,11 @@ export class ClaudeCodeLocalTools {
    * Changed in 0.6.0: the options load no MCP servers or claude.ai connectors from the user's Claude Code
    * configuration or login.
    *
+   * Changed in 0.6.2: the options carry the turn's reasoning effort as `effort`, when its session settings set one.
+   *
    * @returns Options with the Claude Code tools the turn switches on and the tools of calls the turn already
    * recorded, the workspace as `cwd`, no settings files, and no MCP servers or claude.ai connectors from the
-   * user's Claude Code configuration.
+   * user's Claude Code configuration. They set `effort` only when the turn has a reasoning effort.
    */
   public buildOptions(): ClaudeAgentQueryOptions {
     const turn = this.context.currentTurn();
@@ -201,6 +212,10 @@ export class ClaudeCodeLocalTools {
     const recordedToolNames = new Set((runningTurn.getStore()?.toolCalls ?? []).map((record) => record.toolName));
     return {
       model: turn.model,
+      // The CLI core accepts only the harness's declared efforts, which are the SDK's EffortLevel values.
+      ...(turn.reasoningEffort === undefined
+        ? {}
+        : { effort: turn.reasoningEffort as NonNullable<ClaudeAgentQueryOptions["effort"]> }),
       systemPrompt: turn.instructions ?? defaultInstructions,
       tools: Object.entries(claudeCodeLocalTools)
         .filter(([toolName, tool]) => isLocalToolGroupEnabled(turn, tool.group) || recordedToolNames.has(toolName))

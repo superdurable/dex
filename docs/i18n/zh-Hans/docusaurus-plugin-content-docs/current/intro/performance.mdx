@@ -55,7 +55,7 @@ Channel 唤醒的吞吐包含每次发布前不计时的准备工作。只有它
 - **SYNC Step 要等 S3。** 一个 SYNC Step 要等两次日志提交：它的尝试开始和它的结果。每次提交是一次 S3 PUT，一次提交可以携带许多 Flow 的命令。在 SYNC 峰值下，一次提交平均耗时 41 到 98 毫秒。有负载时，SYNC Step 还要等它所在的批次，所以它需要很多并发 Flow 才能达到峰值吞吐。
 - **一个 Flow 会多出多少时间。** 在 c7gd.large 的半峰值负载下（96 个并发 client），一个 SYNC Step 的 p50 是 105 毫秒。所以一个依次运行五个 SYNC Step 的 Flow，大约要花半秒等待 Dex 提交，再加上你自己代码的时间。Agent Session 用 SYNC Step 处理模型调用和 Tool Call，所以每次调用都给一轮对话增加一次提交。
 - **低负载时。** benchmark 没有在低负载下测量 SYNC Step。轻负载下的 SYNC Step 仍然要等两次提交，即开始和结果，所以一个等待 `Charge` 的 handler 会先后经历大约两次对象存储写入，再加上你自己代码的时间。这些写入在峰值下平均 41 到 98 毫秒；低负载时，预计为你所用对象存储的单次写入延迟。这是估算，不是测量结果。
-- **ASYNC Step 立即继续。** Flow 在提交之前就继续往下走，所以低负载时一个 Step 耗时 1 到 2 毫秒。[SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async) 解释其中的取舍。
+- **ASYNC Step 立即继续。** Flow 在提交之前就继续往下走，所以低负载时一个 Step 耗时 1 到 2 毫秒。[SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async) 解释其中的取舍。
 - **S3 请求数跟随批次，而不是 Step。** Dex Server 把写入合并成日志批次。一个繁忙节点每秒发出 23 到 98 次日志 PUT，与节点大小无关。按每 1,000 次 PUT 0.005 美元计算，每个节点每繁忙一小时最多约 1.8 美元。空闲节点每秒约 0.3 次 PUT，用于续约 lease。
 - **CPU 是瓶颈。** 2 vCPU 节点在每个峰值下都用了 93% 到 99% 的 CPU。16 vCPU 节点在大多数峰值下用了 68% 到 87% 的 CPU。16 vCPU 节点读取大 Attribute 时，瓶颈则是它 15 Gbps 的网络。
 - **读取需要的只有 Dex Server。** RPC 在 Worker 上运行。直接读取 Attribute 只访问 Dex Server，不需要 Worker。

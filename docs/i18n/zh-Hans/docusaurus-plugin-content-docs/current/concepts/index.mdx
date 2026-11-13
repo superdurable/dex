@@ -14,7 +14,7 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 
 <a id="how-they-fit-together"></a>
 
-<FlowModelDiagram markdownDescription="你的应用通过 Client 启动 Flow、调用它的 RPC、读取或等待它的 Attribute，并接收 Stream 的实时更新。在一个 Flow（一个 Flow ID）内部，Step 依次运行，等待 Channel、Timer 和 SubFlow，并调用 Connector；Flow 保存 Attribute、Channel 和 Stream。" />
+<FlowModelDiagram markdownDescription="你的应用通过 Client 启动 Flow、调用它的 RPC、读取或等待它的 Attribute，并接收 Stream 的实时更新。在一个 Flow（一个 Flow ID）内部，Step 依次或并行运行，等待 Channel、Timer 和 SubFlow，并调用 Connector；Flow 保存 Attribute、Channel 和 Stream。" />
 
 ## Flow 和 Step {#flow-and-step}
 
@@ -58,7 +58,7 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 
 ## Dex 保证什么 {#guarantees}
 
-Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存。已经完成的 Step 不会再运行；唯一的例外是 [ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async)，如果 server 节点在写入它的结果之前故障，它可能再运行一次。被中途打断的 Step 可能再运行一次；见[幂等键](/concepts/step#idempotency-keys)。重试读取的是第一次尝试的[状态快照](/concepts/step#guarantees)，而不是之后更新的写入。[Step](/concepts/step#guarantees) 列出了每一条保证和它的限制。
+Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存。已经完成的 Step 不会再运行；唯一的例外是 [ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)，如果 server 节点在写入它的结果之前故障，它可能再运行一次。被中途打断的 Step 可能再运行一次；见[幂等键](/concepts/step#idempotency-keys)。重试读取的是第一次尝试的[状态快照](/concepts/step#guarantees)，而不是之后更新的写入。[Step](/concepts/step#guarantees) 列出了每一条保证和它的限制。
 
 并行的 Step 和 RPC 共享 Attribute，彼此之间不隔离；见 [Attribute lock](/concepts/primitives/attribute#locking)。[故障转移和部署](/concepts/failover-and-deploys)列出崩溃、server 故障转移或部署之后哪些工作会再运行。
 

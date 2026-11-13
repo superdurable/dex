@@ -49,6 +49,13 @@ change the model and the instructions from the next turn on. The
 `deepagents` section has no options yet, and any key in it is a configuration
 error.
 
+The command has no reasoning effort setting: LangChain chat models have no
+provider-neutral effort option. A session whose settings carry
+`reasoning_effort` fails its turn with `unsupported_reasoning_effort`, and the
+terminal UI does not offer `/effort`. Its `/model` also offers
+`openai:gpt-5.2`, `openai:gpt-5-mini`, `anthropic:claude-opus-5-5`, and
+`anthropic:claude-sonnet-5-5`.
+
 ## Deep Agents' tools in Dex
 
 The agent keeps Deep Agents' own tools and behavior. The CLI core adds the
@@ -168,6 +175,7 @@ They also cover the offered tools, which are Deep Agents' own and none of
 the CLI core's file and shell tools; switched-off file and shell tools, which
 are not offered; a model change and a `system_prompt` in the session
 settings, which reach the next model request; and a key in the `deepagents`
-section. The command also checks that its graph has no summarization, that
+section. A `reasoning_effort` in the session settings fails the turn. The
+command also checks that its graph has no summarization, that
 its tool rules cover every tool of the graph, and that a model from the
 session settings reaches every model call.

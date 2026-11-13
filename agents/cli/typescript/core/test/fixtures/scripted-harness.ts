@@ -44,8 +44,9 @@ export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
  * Environment variable that selects a harness variant: `shell-replacing` for {@link shellReplacingScriptedHarness},
  * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, `without-images` for {@link scriptedHarnessWithoutImages},
  * `summary-on` and `summary-off` for {@link summaryForcedOnScriptedHarness} and
- * {@link summaryForcedOffScriptedHarness}, or `misreported-on` and `misreported-off` for
- * {@link summaryMisreportedOnScriptedHarness} and {@link summaryMisreportedOffScriptedHarness}.
+ * {@link summaryForcedOffScriptedHarness}, `misreported-on` and `misreported-off` for
+ * {@link summaryMisreportedOnScriptedHarness} and {@link summaryMisreportedOffScriptedHarness}, or
+ * `without-reasoning-effort` for {@link scriptedHarnessWithoutReasoningEffort}.
  */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
@@ -57,6 +58,7 @@ const loadedImages = new AsyncLocalStorage<ReadonlyMap<string, Uint8Array>>();
  *
  * - `tools`: answers with the offered tool names.
  * - `model`: answers with the turn's model.
+ * - `effort`: answers with the reasoning effort of the model call's settings, or `default`.
  * - `instructions`: answers with the turn's instructions.
  * - `history`: answers with every user message of the session.
  * - `images`: answers with the session's images that the model call loaded from the media store, as
@@ -66,14 +68,26 @@ const loadedImages = new AsyncLocalStorage<ReadonlyMap<string, Uint8Array>>();
  * - `leak`: writes to fd 1 and fd 2 and runs a child that inherits them, then answers `leaked`.
  * - anything else: answers `echo: <text>`.
  *
- * Its runner takes user messages with images, as an image-capable adapter does.
+ * Its runner takes user messages with images, as an image-capable adapter does. It declares the reasoning efforts
+ * `low`, `medium`, and `high`, which its model calls carry in their settings.
  */
 export const scriptedHarness: AgentHarness = {
   name: "scripted",
   configSection: "builtin",
   flowType: "DexAgentsCliScriptedSession",
   defaultModel: "scripted/default",
+  supportedReasoningEfforts: ["low", "medium", "high"],
+  suggestedModels: ["scripted/other", "scripted/default", "scripted/large"],
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, [], true),
+};
+
+/** The scripted harness declaring no reasoning efforts and no suggested models. */
+export const scriptedHarnessWithoutReasoningEffort: AgentHarness = {
+  name: scriptedHarness.name,
+  configSection: scriptedHarness.configSection,
+  flowType: scriptedHarness.flowType,
+  defaultModel: scriptedHarness.defaultModel,
+  createSessionFlow: scriptedHarness.createSessionFlow,
 };
 
 /** The scripted harness with a runner that takes no images. */
@@ -183,19 +197,31 @@ function createScriptedSessionFlow(
   supportsImages: boolean,
 ): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const models = new Map<string, ModelClient>();
-  const modelFor = (model: string): ModelClient => {
-    let client = models.get(model);
+  const modelFor = (model: string, reasoningEffort: string | undefined): ModelClient => {
+    const key = JSON.stringify([model, reasoningEffort ?? null]);
+    let client = models.get(key);
     if (client === undefined) {
-      client = new ScriptedModelClient((request) => respond(request, model));
-      models.set(model, client);
+      const scripted = new ScriptedModelClient((request) => respond(request, model));
+      client =
+        reasoningEffort === undefined
+          ? scripted
+          : {
+              callModel: (request, output) =>
+                scripted.callModel({ ...request, settings: { ...request.settings, reasoningEffort } }, output),
+              estimateInputTokens: (request) => scripted.estimateInputTokens(request),
+            };
+      models.set(key, client);
     }
     return client;
   };
   const definition: AgentDefinition = {
     name: "scripted",
     instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? "You are a scripted test agent.",
-    model: modelFor(context.config.model),
-    resolveModel: (settings) => modelFor(context.resolveTurn(settings).model),
+    model: modelFor(context.config.model, undefined),
+    resolveModel: (settings) => {
+      const turn = context.resolveTurn(settings);
+      return modelFor(turn.model, turn.reasoningEffort);
+    },
     toolSources: context.toolSources,
     tools,
   };
@@ -216,6 +242,9 @@ async function respond(request: ModelRequest, model: string): Promise<ScriptedMo
   }
   if (text === "model") {
     return { text: `model: ${model}` };
+  }
+  if (text === "effort") {
+    return { text: `effort: ${request.settings.reasoningEffort ?? "default"}` };
   }
   if (text === "instructions") {
     return { text: `instructions: ${request.instructions}` };

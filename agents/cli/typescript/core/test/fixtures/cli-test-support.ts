@@ -34,6 +34,7 @@ import {
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
+  scriptedHarnessWithoutReasoningEffort,
   shellReplacingScriptedHarness,
   summaryForcedOffScriptedHarness,
   summaryForcedOnScriptedHarness,
@@ -355,6 +356,9 @@ export class TestHome {
       ...(this.harness === summaryMisreportedOnScriptedHarness ? { [scriptedHarnessVariantVariable]: "misreported-on" } : {}),
       ...(this.harness === summaryMisreportedOffScriptedHarness
         ? { [scriptedHarnessVariantVariable]: "misreported-off" }
+        : {}),
+      ...(this.harness === scriptedHarnessWithoutReasoningEffort
+        ? { [scriptedHarnessVariantVariable]: "without-reasoning-effort" }
         : {}),
     };
   }

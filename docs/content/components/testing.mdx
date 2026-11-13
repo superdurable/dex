@@ -16,22 +16,7 @@ functions, such as a function that builds a request body.
 **dexcli dev** starts a server in a few seconds, so each test run can start its
 own.
 
-<CodingAgentBox>
-
-```text
-Add an integration test for the <FlowType> Flow.
-
-1. Read https://docs.superdurable.io/components/testing.md and treat it as the
-   source of truth.
-2. Run the test against a dexcli dev server, with its own Workers and a unique
-   Flow ID for each Flow.
-3. Cover the normal path and one failure path. Skip Timers by ID, and wait by
-   polling instead of sleeping.
-
-Rules: do not mock Dex. Do not invent APIs.
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/components/testing.md to add an integration test for a Dex Flow in this repository." />
 
 ## Start a server for the tests
 
@@ -433,6 +418,7 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 
 ## Next
 
+- [Build with AI](/build-with-ai/dex-developer-skill): install Dex Skills and let a coding agent write and test the code.
 - [Quick Start](/quick-start): the Flow that these tests run.
 - [Run Locally](/components/run-locally): the options of **dexcli dev**.
 - [Step guarantees](/concepts/step#guarantees): the behavior a test should

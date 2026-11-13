@@ -13,7 +13,9 @@ from __future__ import annotations
 import getpass
 import hashlib
 import os
+import re
 import socket
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -39,6 +41,10 @@ SESSION_ACTION_PERMISSION = "dex-agents-cli.operate"
 _FLOW_TYPE_SUFFIX_LENGTH = 6
 _FLOW_TYPE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 _DEFAULTS_CONFIG_IDENTITY = "defaults"
+# The session settings schema's reasoning_effort pattern, matched whole.
+_REASONING_EFFORT_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+# The terminal UI's /effort uses it to remove the setting.
+_RESERVED_REASONING_EFFORT = "default"
 
 
 class LocalToolGroup(StrEnum):
@@ -94,12 +100,40 @@ class AgentHarness(Protocol):
     A harness that must keep the plain text chat on a terminal sets the
     optional class attribute ``terminal_interface = TerminalInterface.PLAIN``.
 
+    A harness that maps the ``reasoning_effort`` session setting to its SDK
+    sets the optional class attribute ``supported_reasoning_efforts``: a
+    tuple of the values it accepts, from least to most effort, such as
+    ``("low", "medium", "high")``. Each value is a lowercase name: a letter,
+    then up to 31 letters, digits, ``_``, or ``-``. A turn whose settings
+    carry another value fails with ``unsupported_reasoning_effort``. Without
+    the attribute, the harness declares none, and every ``reasoning_effort``
+    setting fails the turn. The harness reads each turn's value as
+    ``ResolvedTurn.reasoning_effort``, such as
+    ``context.resolve_turn(settings).reasoning_effort``, and passes nothing
+    to the SDK when it is ``None``, so the model's own default applies. The
+    terminal UI's ``/effort`` offers the declared values.
+
+    A harness may also set the optional class attribute ``suggested_models``:
+    a tuple of model IDs that the terminal UI's ``/model`` offers after the
+    configured model and ``default_model``. The user may still choose any
+    other model ID. Without it, ``/model`` offers those two only.
+
+    The command checks both attributes when it starts. A value that is not a
+    tuple or list of strings, a duplicate, an empty model ID, or an effort
+    that is not a lowercase name raises ``TypeError`` or ``ValueError``.
+
+    .. versionchanged:: 0.6.2
+       The optional ``supported_reasoning_efforts`` and ``suggested_models``
+       class attributes.
+
     Example:
         >>> class ClaudeHarness:
         ...     name = "claude-sdk"
         ...     config_section = "claude"
         ...     flow_type = "DexAgentsClaudeSdkCliSession"
         ...     default_model = "claude-opus-5-5"
+        ...     supported_reasoning_efforts = ("low", "medium", "high", "xhigh", "max")
+        ...     suggested_models = ("claude-sonnet-5-5", "claude-haiku-5-5")
         ...     replaced_local_tools = frozenset(
         ...         {LocalToolGroup.FILES, LocalToolGroup.SHELL, LocalToolGroup.WEB_FETCH})
         ...
@@ -230,10 +264,11 @@ class HarnessContext:
             session_settings: The turn's settings; ``None`` or ``{}`` for none.
 
         Returns:
-            The turn's configuration and instructions.
+            The turn's configuration, instructions, and reasoning effort.
 
         Raises:
-            ConfigError: If the settings fail the schema or widen the file, so
+            ConfigError: If the settings fail the schema, widen the file, or
+                set a ``reasoning_effort`` the harness does not declare, so
                 the model call fails with ``<code> at "<pointer>"``.
         """
         return self.resolver.resolve(session_settings)
@@ -297,6 +332,64 @@ class HarnessContext:
         if call is not None:
             return self.resolver.resolve(recorded_turn_settings(call))
         return current_turn_config() or _no_running_turn()
+
+
+def declared_reasoning_efforts(harness: AgentHarness) -> tuple[str, ...]:
+    """Return a harness's ``supported_reasoning_efforts``, checked; ``()`` without the attribute.
+
+    Raises:
+        TypeError: If it is not a tuple or list of strings.
+        ValueError: If a value is not a lowercase name, is the reserved
+            ``default``, or appears twice.
+    """
+    efforts = _declared_strings(harness, "supported_reasoning_efforts")
+    for effort in efforts:
+        if _REASONING_EFFORT_NAME.fullmatch(effort) is None:
+            raise ValueError(
+                f"supported_reasoning_efforts value {effort!r} is not a lowercase name"
+            )
+        if effort == _RESERVED_REASONING_EFFORT:
+            raise ValueError(
+                "supported_reasoning_efforts value 'default' is reserved: "
+                "the terminal UI's /effort default returns to the model's default"
+            )
+    return efforts
+
+
+def declared_suggested_models(harness: AgentHarness) -> tuple[str, ...]:
+    """Return a harness's ``suggested_models``, checked; ``()`` without the attribute.
+
+    Raises:
+        TypeError: If it is not a tuple or list of strings.
+        ValueError: If a model ID is empty, has a space or a control
+            character, or appears twice.
+    """
+    models = _declared_strings(harness, "suggested_models")
+    for model in models:
+        if model == "" or any(_is_space_or_control(character) for character in model):
+            raise ValueError(
+                f"suggested_models value {model!r} is not a non-empty model ID "
+                "without spaces or control characters"
+            )
+    return models
+
+
+def _is_space_or_control(character: str) -> bool:
+    # The same rule as the terminal UI's /model ID check.
+    return character.isspace() or unicodedata.category(character) == "Cc"
+
+
+def _declared_strings(harness: AgentHarness, attribute: str) -> tuple[str, ...]:
+    declared = getattr(harness, attribute, ())
+    # A bare string would otherwise read as a tuple of its characters.
+    if not isinstance(declared, tuple | list) or not all(
+        isinstance(value, str) for value in declared
+    ):
+        raise TypeError(f"{attribute} must be a tuple of strings")
+    values = tuple(declared)
+    if len(set(values)) != len(values):
+        raise ValueError(f"{attribute} has a duplicate value")
+    return values
 
 
 def _no_running_turn() -> ResolvedTurn:

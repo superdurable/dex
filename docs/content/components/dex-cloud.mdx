@@ -1,0 +1,35 @@
+---
+title: Run on Dex Cloud
+sidebar_label: Run on Dex Cloud
+slug: /components/dex-cloud
+description: In Dex Cloud, Super Durable runs Dex Server for your application. Your Workers run your code and connect to the server's endpoint over TLS with an API key.
+---
+
+# Run on Dex Cloud
+
+In Dex Cloud, Super Durable runs Dex Server for your application. Your Workers still run your Flow code, on your servers, your cloud, or your laptop.
+
+## What runs where {#what-runs-where}
+
+| | Who runs it |
+| --- | --- |
+| Dex Server: storage, upgrades, capacity, and monitoring | Super Durable |
+| Flow state: Flow inputs, Attributes, and Step results | Stored by Dex Server, in storage that Super Durable operates |
+| Your Workers and your Flow code | You, wherever you deploy them |
+| The credentials your code uses for your own APIs | You. They stay in your Workers. |
+
+## Connect Workers and Clients {#connect}
+
+Each server you create in Dex Cloud has its own endpoint and API key. Your Workers and Clients connect to that endpoint over TLS with the key:
+
+- The key goes in an [API key credential](/reference/server/authentication#sdk-credentials).
+- TLS is the SDK's [TLS option](/reference/server/authentication#tls).
+
+## Get started {#get-started}
+
+[Sign up for Dex Cloud](https://dex.superdurable.io/register), then create a server. For pricing, regions, and SLA, [contact Super Durable](https://superdurable.io/about/#contact).
+
+## Next
+
+- [Run Dex in Production](/components/production): the checklist items for your Workers, code changes, and database apply in Dex Cloud too.
+- [Operate and Debug](/components/operate-and-debug): find a Flow and fix one that is stuck or failed.

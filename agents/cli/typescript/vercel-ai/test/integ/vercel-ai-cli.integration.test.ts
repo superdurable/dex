@@ -24,6 +24,10 @@ function call(toolName: string, toolInput: Readonly<Record<string, unknown>>): s
   return `call ${toolName} ${JSON.stringify(toolInput)}`;
 }
 
+function reasoningEffortOf(request: Readonly<Record<string, unknown>>): unknown {
+  return (request["reasoning"] as { readonly effort?: unknown } | undefined)?.effort;
+}
+
 describe("dex-agents-vercel-ai with the AI SDK OpenAI provider against a scripted Responses API", () => {
   let engine: PrivateDexEngine;
   let api: MockResponsesApi;
@@ -170,6 +174,41 @@ describe("dex-agents-vercel-ai with the AI SDK OpenAI provider against a scripte
     assert.equal(await cli.waitForExit(), 1);
     assert.match(cli.stderr.all, /the model must be openai\/<model> or anthropic\/<model>/);
     assert.deepEqual(api.modelRequests(), []);
+  });
+
+  test("a session's reasoning_effort reaches each model request of the next turn, and an undeclared one fails the turn", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine("say before");
+    await cli.stdout.waitFor("said: before");
+    const firstTurnRequests = api.modelRequests();
+    assert.ok(firstTurnRequests.length >= 1);
+    for (const request of firstTurnRequests) {
+      assert.equal(reasoningEffortOf(request), undefined);
+    }
+
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      await sessions.updateSessionSettings(sessionId, { reasoning_effort: "high" });
+      cli.writeLine(call("read_file", { path: "notes.txt" }));
+      await cli.stdout.waitFor("read_file: buy milk");
+      const nextTurnRequests = api.modelRequests().slice(firstTurnRequests.length);
+      // The first request calls the tool; the last one carries its result.
+      assert.ok(nextTurnRequests.length >= 2);
+      for (const request of nextTurnRequests) {
+        assert.equal(reasoningEffortOf(request), "high");
+      }
+      await sessions.updateSessionSettings(sessionId, { reasoning_effort: "xhigh" });
+    } finally {
+      await environment.close();
+    }
+    cli.writeLine("say after");
+    await cli.stdout.waitFor('Turn failed: unsupported_reasoning_effort at "/reasoning_effort"', 120_000);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 1);
   });
 
   test("a key in the vercel_ai section is a configuration error", async () => {

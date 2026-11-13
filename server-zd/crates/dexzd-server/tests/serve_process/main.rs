@@ -16,6 +16,7 @@ mod attempt_drain;
 mod dev_abrupt_exit;
 mod dev_restart;
 mod dev_soak;
+mod effective_config;
 mod harness;
 mod history_uploads;
 mod lease_release;

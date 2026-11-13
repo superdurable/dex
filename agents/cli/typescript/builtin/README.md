@@ -39,6 +39,12 @@ Any other model ID stops the command, or fails the turn when session settings
 set it. The command never prints or stores a key; the provider package reads
 it from the environment on each model call.
 
+The terminal UI's `/model` suggests `openai/gpt-5.2`, `openai/gpt-5-mini`,
+`anthropic/claude-opus-5-5`, and `anthropic/claude-sonnet-5-5`. `/effort`, the
+`reasoning_effort` session setting, takes `low`, `medium`, or `high`, and
+becomes the AI SDK's `reasoning` option of every model call in the turn.
+Without it, the model's own default applies.
+
 ## Configuration and tools
 
 The `builtin` section has no options yet, and any key in it is a

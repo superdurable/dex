@@ -8,6 +8,22 @@ sidebar_label: Change log
 
 This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
 
+## 1.47 {#v1-47}
+
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0).
+
+### Added
+
+- **dexcli agents-tui**: **/model** without an ID opens a list of the
+  command's suggested models with the current one marked; **/model ID** still
+  takes any model ID. The new **/effort** opens the reasoning effort values the
+  command offers, and **/effort LEVEL** checks the value against them;
+  **default** returns to the model's default. Both change the session's
+  settings from the next turn. The status line shows the reasoning effort when
+  the session sets one. The lists come from dex-agents 0.6.2; with an older
+  command, **/model** lists only its configured model and **/effort** says the
+  command has no reasoning effort setting.
+
 ## 1.46 {#v1-46}
 
 Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/releases/tag/cli-v1.46.0); 1.46.1 released 2026-11-12 as [cli-v1.46.1](https://github.com/superdurable/dex/releases/tag/cli-v1.46.1).

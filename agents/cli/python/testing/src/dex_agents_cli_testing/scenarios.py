@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -142,6 +142,64 @@ async def session_settings_change_the_instructions(
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert instructions in json.dumps(home.model_api.model_requests()[-1].body)
+
+
+async def session_settings_set_the_reasoning_effort(
+    home: CommandHome,
+    config: Mapping[str, Any],
+    flow_type: str,
+    cache_dir: Path,
+    reasoning_effort: str,
+    read_request_effort: Callable[[Mapping[str, Any]], object],
+) -> None:
+    """Set ``reasoning_effort`` in the session settings; the next turn's requests carry it.
+
+    ``read_request_effort`` returns the effort a model API request body carries.
+    The turn before the change must not carry ``reasoning_effort``.
+    """
+    home.write_config({**NO_CONNECTORS, **config})
+    child = home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline("say before")
+    await expect(child, "said: before")
+    await expect(child, "> ")
+    before = home.model_api.model_requests()
+    assert reasoning_effort not in [read_request_effort(request.body) for request in before]
+    async with session_client(home.address, cache_dir, flow_type) as sessions:
+        await sessions.update_session_settings(session_id, {"reasoning_effort": reasoning_effort})
+    child.sendline("say after")
+    await expect(child, "said: after")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    after = home.model_api.model_requests()[len(before) :]
+    assert reasoning_effort in [read_request_effort(request.body) for request in after], [
+        request.body for request in after
+    ]
+
+
+async def session_settings_reject_an_undeclared_reasoning_effort(
+    home: CommandHome,
+    config: Mapping[str, Any],
+    flow_type: str,
+    cache_dir: Path,
+    reasoning_effort: str,
+) -> None:
+    """Set a ``reasoning_effort`` the command does not declare; the turn fails without a request."""
+    home.write_config({**NO_CONNECTORS, **config})
+    child = home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    async with session_client(home.address, cache_dir, flow_type) as sessions:
+        await sessions.update_session_settings(session_id, {"reasoning_effort": reasoning_effort})
+    child.sendline("say never")
+    await expect(child, "[turn failed]", timeout=120)
+    await expect(child, 'unsupported_reasoning_effort at "/reasoning_effort"')
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 1
+    assert not home.model_api.model_requests()
 
 
 async def rejected_writes_never_run(

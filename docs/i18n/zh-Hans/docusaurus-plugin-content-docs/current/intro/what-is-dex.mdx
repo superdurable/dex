@@ -14,6 +14,8 @@ Dex 是一个 Durable Execution（D-Ex）平台。Dex 会在流程运行时记�
 
 一个在中途被打断的 Step 可能再运行一次，所以每次调用其他系统都要带上幂等键：这个值让对方系统认出重复的请求并跳过它。[幂等键](/concepts/step#idempotency-keys)说明怎样构造它。
 
+Dex Server 可以运行在 Dex Cloud 或你自己的基础设施上，Worker 和你的代码运行在一起。[运行 Dex](/components#where-to-run) 比较了两者。
+
 Dex 目前处于 Beta 阶段：已发布的 API 和存储的数据保持兼容，Dex Server 版本为 0.1.x，SDK 版本为 1.x。详见[发布状态](/intro/limits#release-status)。
 
 ## 问题在哪里 {#the-problem}
@@ -69,7 +71,7 @@ Flow 把数据保存在 **Attribute** 里，例如订单状态。**RPC** 让你�
 
 基于 replay 的引擎通过重放事件历史来重建 workflow 的状态。所以 workflow 代码必须是确定性的，读取时间和随机值都要通过引擎的 API。Dex 不重放代码。Step 代码就是普通代码，可以读时钟，也可以调用任何库。修改代码不会让正在运行的 Flow 因为 replay 而出错。
 
-[Dex vs. 其他引擎](/intro/compared-to-durable-execution)把每一类工具的术语对应到 Dex，并说明什么时候别的工具更合适。
+[Dex vs. Temporal](/intro/compared-to-durable-execution)把 Temporal 的每项核心能力对应到 Dex，并说明什么时候 Temporal 更合适。
 
 ## 下一步
 

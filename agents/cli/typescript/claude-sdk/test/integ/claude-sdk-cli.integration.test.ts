@@ -385,6 +385,38 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
     assert.equal(existsSync(join(home.workspace, "bash.txt")), false);
   });
 
+  test("a session's reasoning_effort is the effort of the next turn's model requests, and an undeclared one fails the turn", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine("say before");
+    await cli.stdout.waitFor("said: before");
+    const firstTurnRequests = api.modelRequests();
+    assert.ok(firstTurnRequests.length >= 1);
+    for (const request of firstTurnRequests) {
+      assert.doesNotMatch(JSON.stringify(request), /"effort":"xhigh"/);
+    }
+
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "xhigh" }), true);
+      cli.writeLine("say during");
+      await cli.stdout.waitFor("said: during");
+      const nextTurnRequests = api.modelRequests().slice(firstTurnRequests.length);
+      assert.ok(nextTurnRequests.length >= 1);
+      for (const request of nextTurnRequests) {
+        assert.match(JSON.stringify(request), /"effort":"xhigh"/);
+      }
+      assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "minimal" }), true);
+    } finally {
+      await environment.close();
+    }
+    cli.writeLine("say after");
+    await cli.stdout.waitFor('Turn failed: unsupported_reasoning_effort at "/reasoning_effort"', 120_000);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 1);
+  });
+
   test("with a key the Claude Code CLI uses it, and the command never writes it down", async () => {
     const home = newHome(noConnectors);
     const cli = start(home);

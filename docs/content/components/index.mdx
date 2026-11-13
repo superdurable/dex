@@ -2,7 +2,7 @@
 id: index
 title: Run Dex
 sidebar_label: Run Dex
-description: "A Dex application runs on four components: your application, Dex Server, dexcli, and Dex Web. You write the application. Dex provides the rest."
+description: "A Dex application runs on four components: your application, Dex Server, dexcli, and Dex Web. You write the application. Dex provides the rest, in Dex Cloud or on your own infrastructure."
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
@@ -15,29 +15,57 @@ A Dex application runs on four components: your application, Dex Server, dexcli,
 
 <DexSystemDiagram withOperatorTools markdownDescription="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC; Dex Server calls the Worker to run Steps and RPCs and persists every Flow. dexcli and Dex Web also connect to Dex Server, to run Dex locally and to inspect and operate Flows." />
 
-Dex Server keeps Flow state in object storage and can copy selected Attributes to PostgreSQL; see [Dex Server](/components/server) and [Dex and Your Database](/components/your-database).
+## Your application {#your-application}
 
-<a id="local-and-production"></a>
+Your application is the code you deploy. It has two parts:
+
+- A **Worker** runs your `WaitFor`, `Execute`, and RPC handlers when Dex hands it work.
+- A **Client** starts Flows and calls RPCs.
+
+A process can run a Worker, a Client, or both. A Worker opens outbound streams to Dex Server and never listens for calls, so it needs no inbound port. [Your Application](/components/application) shows how to start each one.
+
+## Dex Server {#dex-server}
+
+Dex Server stores every Flow's state and hands Steps and RPCs to Workers. Object storage, such as Amazon S3, is its record and its only required dependency. One active process serves a cluster, and standby processes can take over when it stops. [Dex Server](/components/server) covers its dependencies and what happens when they fail.
+
+## dexcli {#dexcli}
+
+`dexcli` is the Dex command-line tool. **dexcli dev** starts a local Dex Server and Dex Web. **dexcli flow** inspects, searches, and operates Flows. Its output is JSON first, so scripts and coding agents can use it. [CLI (dexcli)](/components/cli) lists its commands.
+
+## Dex Web {#dex-web}
+
+Dex Web is the operator UI. It finds Flows, shows a run's Steps, Attributes, and failures, and draws each Flow from its Flow Definition Graph. It also starts Flows and calls RPCs. Dex Web runs as its own process and leaves end-user authentication to you. [Web (Dex Web)](/components/web) shows how to run it.
+
+## Local and production {#local-and-production}
+
+| Component | Local development | Production |
+| --- | --- | --- |
+| Server | **dexcli dev** starts server-zd | **dex-server-zd serve** with object storage, or Dex Cloud |
+| Web | **dexcli dev** starts Dex Web | A separate **dex-web** process, or **dexcli web** |
+| Application | Your Worker process | Your Worker service, scaled like any service |
+
+The [Quick Start](/quick-start) runs everything locally. [Run Locally](/components/run-locally) has the install options and the troubleshooting for **dexcli dev**.
+
+## Where to run Dex Server {#where-to-run}
+
+<a id="dex-cloud"></a>
+<a id="self-hosted"></a>
+
+Dex Server runs in Dex Cloud, where Super Durable operates it, or on your own infrastructure. Your Workers run your Flow code in both cases, on your servers, your cloud, or your laptop.
+
+| | Dex Cloud | Self-hosted |
+| --- | --- | --- |
+| Who operates Dex Server | Super Durable: storage, upgrades, capacity, and monitoring | You |
+| Where Flow state is stored | In Dex Server's storage, which Super Durable operates | In the object storage bucket you provide |
+| How Workers connect | Over TLS, with the server's API key | Through the authentication and TLS you configure |
+| Start here | [Run on Dex Cloud](/components/dex-cloud) | [Self-Host Dex](/components/self-host) |
 
 ## Pages in this section {#pages}
 
-**Set up**
+- [Run on Dex Cloud](/components/dex-cloud): connect your Workers to a server that Super Durable runs.
+- [Self-Host Dex](/components/self-host): run Dex Server on your own object storage.
+- [Run Dex in Production](/components/production): the checklist before launch.
+- [Operate and Debug](/components/operate-and-debug): find a Flow, fix one that is stuck or failed, and recover it.
+- [Deploy Code Changes](/concepts/change-flow-code): change Flow code while runs are still open.
 
-- [Choose How to Run Dex](/components/choose-how-to-run): Dex Cloud or your own infrastructure, and [local or production](/components/choose-how-to-run#local-and-production).
-- [Run Locally](/components/run-locally): install dexcli and start Dex on your machine.
-
-**Build and test**
-
-- [Your Application](/components/application): add Dex to a service, start a Worker, and start Flows from a handler.
-- [Test Your Flows](/components/testing): test against a real Dex Server.
-- [Dex and Your Database](/components/your-database): write to your own database from a Step, or copy Attributes to PostgreSQL.
-
-**Operate**
-
-- [Dex Server](/components/server): what the server stores and how to run it.
-- [Run Dex in Production](/components/production): the checklist from topology to backup, upgrades, and monitoring.
-- [Failover and Deploys](/concepts/failover-and-deploys): what happens to running Flows when a node or a Worker goes away.
-- [Change Flow Code](/concepts/change-flow-code): change a Flow while runs are still open.
-- [CLI (dexcli)](/components/cli) and [Web (Dex Web)](/components/web): the operator tools.
-
-The [Developer Reference](/reference) has the configuration, limits, and version details of each component.
+[Running Dex in Depth](/reference/running-dex-in-depth) has the full page for each component, and the [Developer Reference](/reference) has their configuration, limits, and version details.

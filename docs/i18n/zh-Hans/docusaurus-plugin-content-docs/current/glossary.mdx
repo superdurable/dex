@@ -161,7 +161,7 @@ Worker 上的 handler，供外部读写一条正在运行的 Flow。
 
 持久化控制流的基本单元，包含可选的 WaitFor 和一个 Execute。
 
-#### [Step durability](/concepts/step/advanced-guarantees#sync-and-async)（Step 持久性） {#step-durability}
+#### [Step durability](/correctness-and-expressiveness/step-guarantees#sync-and-async)（Step 持久性） {#step-durability}
 
 Dex 保存 Step 进度的时机。默认的 **SYNC** 在 Flow 继续之前保存每次尝试的开始和结果。**ASYNC** 先让 Flow 继续，所以服务器故障时这次尝试可能会再运行一次。
 
@@ -197,7 +197,7 @@ Dex 把一条 Flow 的下一个 Step 或 RPC 优先发给之前服务过这条 F
 
 一种 RPC，只有当它要删除的每条 Channel 消息仍处于待处理状态时，Dex 才保存它的修改。持有锁的 RPC 总是 transactional 的。
 
-#### [Turn segment](/agent-frameworks/framework-support#how-each-framework-runs-a-turn)（Turn 分段） {#turn-segment}
+#### [Turn segment](/agent-frameworks/framework-details#how-each-framework-runs-a-turn)（Turn 分段） {#turn-segment}
 
 在 Claude Agent SDK harness 中，一次 turn 里由一次 CLI 运行处理的部分，对应一个 `RunModel` Step。写入类 Tool Call 会结束一个 segment。
 

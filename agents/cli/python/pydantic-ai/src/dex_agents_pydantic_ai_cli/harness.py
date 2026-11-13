@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
@@ -20,6 +20,7 @@ import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before any
 from pydantic_ai import Agent
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.models.wrapper import WrapperModel
+from pydantic_ai.settings import ModelSettings, ThinkingLevel, merge_model_settings
 
 from dex_agents import AgentSessionFlow
 from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
@@ -45,6 +46,16 @@ class PydanticAiHarness:
     ``openai:gpt-5.2`` or ``anthropic:claude-opus-5-5``, and the turn's
     instructions. The provider reads its standard environment variables. The
     CLI core's connector and local tools are the agent's only tools.
+
+    The ``reasoning_effort`` session setting accepts ``low``, ``medium``, and
+    ``high``. Each model call of its turn sends it as Pydantic AI's unified
+    ``thinking`` model setting, which each provider maps to its own reasoning
+    or thinking option. Without it, the model's default applies.
+    ``suggested_models`` lists OpenAI and Anthropic models for the terminal
+    UI's ``/model``.
+
+    .. versionchanged:: 0.6.2
+       The ``reasoning_effort`` session setting and the suggested models.
     """
 
     name = "pydantic-ai"
@@ -52,6 +63,13 @@ class PydanticAiHarness:
     flow_type = PYDANTIC_AI_CLI_FLOW_TYPE
     default_model: str | None = DEFAULT_PYDANTIC_AI_MODEL
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
+    supported_reasoning_efforts = ("low", "medium", "high")
+    suggested_models = (
+        "openai:gpt-5.2",
+        "openai:gpt-5-mini",
+        "anthropic:claude-opus-5-5",
+        "anthropic:claude-sonnet-5-5",
+    )
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the Pydantic AI agent session Flow from the effective configuration.
@@ -86,6 +104,10 @@ class TurnModel(WrapperModel):
     """Call the running turn's model, so session settings can change it between turns.
 
     Outside a turn, such as in a compaction summary call, it calls the file's model.
+    Its ``settings`` add the turn's ``reasoning_effort`` as ``thinking``.
+
+    .. versionchanged:: 0.6.2
+       The turn's ``reasoning_effort`` reaches every model call as ``thinking``.
     """
 
     def __init__(self, file_model: str) -> None:
@@ -108,6 +130,18 @@ class TurnModel(WrapperModel):
             model = infer_model(model_name)
             self._models[model_name] = model
         return model
+
+    @property
+    def settings(self) -> ModelSettings | None:
+        """Return the wrapped model's settings, with the turn's reasoning effort as ``thinking``.
+
+        The agent merges these into every request of the turn.
+        """
+        turn = current_turn_config()
+        if turn is None or turn.reasoning_effort is None:
+            return self.wrapped.settings
+        thinking = cast(ThinkingLevel, turn.reasoning_effort)
+        return merge_model_settings(self.wrapped.settings, ModelSettings(thinking=thinking))
 
 
 def validate_pydantic_ai_section(options: Mapping[str, Any]) -> None:

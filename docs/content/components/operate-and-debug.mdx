@@ -1,0 +1,66 @@
+---
+title: Operate and Debug
+sidebar_label: Operate and Debug
+slug: /components/operate-and-debug
+description: Find and read a Flow in Dex Web or with dexcli, fix a Flow that does not advance or that failed, recover it with Time Travel, and know what runs again after a crash.
+---
+
+# Operate and Debug
+
+Dex Web and `dexcli` read Flows through the same Dex Server API as your Workers. Dex Web shows a run in application terms. `dexcli` prints the same data as JSON, for scripts and incident records.
+
+## Find and read a Flow {#find-a-flow}
+
+In Dex Web, **Search** and **Summary** find Flows and show their state. A run's page shows its active Steps, Attributes, and Channels. Its **Timeline** lists each event of the run, with its inputs, outputs, and Attribute changes.
+
+From a terminal, read the same run with its Flow ID and Run ID. These commands only read, and they print JSON:
+
+```bash
+dexcli flow inspect FLOW_ID --run-id RUN_ID
+
+dexcli flow history FLOW_ID --run-id RUN_ID --all
+```
+
+**dexcli flow inspect** returns the current summary and state. **dexcli flow history** returns the run's events. The [CLI reference](/reference/cli/) lists every command.
+
+## A Flow is stuck {#flow-does-not-advance}
+
+A Flow advances only when a Worker takes its next Step. When a Step stays active or its retry count grows, check the Worker first:
+
+1. Collect the Flow ID, Run ID, Flow type, Worker version, and Dex Server address.
+2. Read the Worker logs for handler exceptions, registration failures, and startup configuration.
+3. Check that the Worker's outbound streams to Dex Server are connected, with the right address, TLS, and credentials.
+4. Check that the deployed Worker registers the Flow, Step, and RPC names that the open Flow uses.
+5. Open the Step in Dex Web. Its attempt, Worker error, gRPC status, and stack trace tell an unavailable Worker from an application failure.
+
+After you fix the Worker, an active retry continues on its own. Do not restart or time travel a Flow only to test connectivity.
+
+## A Flow failed {#flow-failed}
+
+A Flow fails when a Step handler fails and its retries run out, or when its Flow timeout is set to fail it. A Flow timeout can also cancel the Flow or run a handler. By default, Step retries stop after 4 hours. In Dex Web, select the failed event in **Timeline**. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
+
+[Troubleshoot a Flow run](/reference/web/debugging) has the full read-only workflow, with screenshots.
+
+## Recover a Flow with Time Travel {#time-travel}
+
+Time Travel moves a run back to an earlier point and runs it again from there. Use it after you deploy a fix. Verify the fix with a new run first.
+
+Every Step after that point runs again, with its external calls, so each call needs an [idempotency key](/concepts/step#idempotency-keys). Input that came from outside the run after that point, such as RPC calls, is applied again by default. Start Time Travel from Dex Web, a Client, or `dexcli flow time-travel`; the [CLI reference](/reference/cli) lists its flags. [Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel) gives the options.
+
+## What runs again after a crash {#what-runs-again}
+
+Dex saves each finished Step, so a crash repeats only the work that was in progress.
+
+| Event | What runs again |
+| --- | --- |
+| A Worker crashes or stops | The Step attempts it was running |
+| A Dex Server node fails over | Every attempt that a Worker had received |
+| You deploy new Step code | Nothing that already finished |
+| You run Time Travel | Every Step after the chosen point |
+
+[Failover and Deploys](/concepts/failover-and-deploys) covers each event, including ASYNC Steps.
+
+## Next
+
+- [Deploy Code Changes](/concepts/change-flow-code): change Flow code while runs are still open.
+- [Troubleshoot a Flow run](/reference/web/debugging): the full debugging workflow.

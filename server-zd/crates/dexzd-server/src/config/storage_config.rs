@@ -10,6 +10,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use dexzd_metrics::EmbeddedStoreDurability;
 use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials};
 use serde::{Deserialize, Serialize};
 
@@ -342,6 +343,25 @@ pub enum DevDurabilityMode {
     ProcessCrashSafe,
     /// Holds writes in memory until a graceful stop; after an abrupt exit, starts fail until data is deleted.
     Relaxed,
+}
+
+impl DevDurabilityMode {
+    /// Returns the YAML spelling of the mode.
+    pub fn yaml_name(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::ProcessCrashSafe => "processCrashSafe",
+            Self::Relaxed => "relaxed",
+        }
+    }
+
+    pub(crate) fn embedded_store_durability(self) -> EmbeddedStoreDurability {
+        match self {
+            Self::Strict => EmbeddedStoreDurability::Strict,
+            Self::ProcessCrashSafe => EmbeddedStoreDurability::ProcessCrashSafe,
+            Self::Relaxed => EmbeddedStoreDurability::Relaxed,
+        }
+    }
 }
 
 /// Holds paths and durability for the single-node `dev` and `local` commands.

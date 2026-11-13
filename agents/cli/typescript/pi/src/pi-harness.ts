@@ -85,8 +85,14 @@ export interface PiSection {
  *
  * The workspace is the directory the command starts in, as in Pi, unless the file sets `workspace`.
  *
+ * The `reasoning_effort` session setting takes `low`, `medium`, or `high`, and becomes pi-ai's thinking level of
+ * every model call in the turn. The harness suggests `anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`,
+ * `openai/gpt-5.2`, and `openai/gpt-5-mini`.
+ *
  * Changed in 0.6.0: Pi's own tool behavior and approval default, connector prefixes, and the launch directory as the
  * default workspace.
+ *
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts
@@ -106,6 +112,8 @@ export const piHarness: AgentHarness = {
   defaultWorkspaceLocation: "launch_directory",
   // Pi keeps the text chat until it gets its own terminal interface.
   terminalInterface: "plain",
+  supportedReasoningEfforts: ["low", "medium", "high"],
+  suggestedModels: ["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5", "openai/gpt-5.2", "openai/gpt-5-mini"],
   createSessionFlow: (context) => createPiSessionFlow(context),
 };
 
@@ -144,7 +152,10 @@ export function createPiSessionFlow(
           section.isProjectContextLoaded ? await projectContext.load() : [],
         ),
       model: modelClients.clientFor(context.config.model),
-      resolveModel: (settings) => modelClients.clientFor(context.resolveTurn(settings).model),
+      resolveModel: (settings) => {
+        const turn = context.resolveTurn(settings);
+        return modelClients.clientFor(turn.model, turn.reasoningEffort);
+      },
       toolSources: [
         ...context.toolSources.map((source) =>
           source.sourceName === connectorsToolSourceName

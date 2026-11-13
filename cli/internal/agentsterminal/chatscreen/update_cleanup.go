@@ -23,6 +23,8 @@ func replaceUpdateControlCharacters(update sessionfeed.SessionUpdate) sessionfee
 	case sessionfeed.SessionOpened:
 		typed.Command, typed.Model, typed.SessionID = oneLine(typed.Command), oneLine(typed.Model), oneLine(typed.SessionID)
 		typed.Workspace, typed.WebURL = oneLine(typed.Workspace), oneLine(typed.WebURL)
+		typed.Models, typed.ReasoningEffort = oneLineEach(typed.Models), oneLine(typed.ReasoningEffort)
+		typed.ReasoningEffortValues = oneLineEach(typed.ReasoningEffortValues)
 		return typed
 	case sessionfeed.UserMessageRecorded:
 		typed.Text, typed.Origin = manyLines(typed.Text), oneLine(typed.Origin)
@@ -159,6 +161,18 @@ func cleanAttachments(attachments []sessionfeed.ImageAttachment) []sessionfeed.I
 
 func oneLine(text string) string {
 	return terminaltheme.ReplaceControlCharacters(terminaltheme.ExpandTabs(text))
+}
+
+// oneLineEach returns a new slice of texts as one line each; nil stays nil.
+func oneLineEach(texts []string) []string {
+	if texts == nil {
+		return nil
+	}
+	cleaned := make([]string, len(texts))
+	for index, text := range texts {
+		cleaned[index] = oneLine(text)
+	}
+	return cleaned
 }
 
 func manyLines(text string) string {

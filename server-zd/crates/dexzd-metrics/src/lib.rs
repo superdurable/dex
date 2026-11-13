@@ -31,6 +31,7 @@ mod semantic;
 mod worker_stream;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc};
 pub use commit_latency::CommitLatency;
@@ -794,6 +795,88 @@ impl NodeMetrics {
     pub fn record_object_error(&self, operation: ObjectOperation) {
         self.object_errors.record(operation);
     }
+}
+
+/// Effective configuration values that a node exposes as `dexzd_config_*` metrics.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EffectiveConfigMetrics {
+    /// How long a closed Flow run stays available, from `retention.closedFlowDuration`.
+    pub closed_flow_retention: Duration,
+    /// Largest stored value, from `values.maxValueBytes`.
+    pub max_value_bytes: u64,
+    /// Largest state of one Flow run, from `limits.maxFlowStateBytes`.
+    pub max_flow_state_bytes: u64,
+    /// Step attempt drain budget at shutdown, from `lifecycle.attemptDrainTimeout`.
+    pub attempt_drain_timeout: Duration,
+    /// Durability of the embedded object store, or `None` when the node uses an external one.
+    pub embedded_store_durability: Option<EmbeddedStoreDurability>,
+}
+
+/// How the embedded object store of `dev` and `local` writes acknowledged data.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum EmbeddedStoreDurability {
+    /// Flushes each acknowledged write with fsync.
+    Strict,
+    /// Writes each acknowledged write to its files without fsync.
+    ProcessCrashSafe,
+    /// Holds writes in memory until a graceful stop.
+    Relaxed,
+}
+
+label_value!(EmbeddedStoreDurability { Strict => "strict", ProcessCrashSafe => "processCrashSafe", Relaxed => "relaxed" });
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct DurabilityModeLabel {
+    mode: EmbeddedStoreDurability,
+}
+
+impl EffectiveConfigMetrics {
+    /// Registers one constant series for each value in `registry`.
+    pub fn register(&self, registry: &mut Registry) {
+        registry.register(
+            "dexzd_config_closed_flow_retention_seconds",
+            "Effective retention.closedFlowDuration.",
+            seconds_gauge(self.closed_flow_retention),
+        );
+        registry.register(
+            "dexzd_config_max_value_bytes",
+            "Effective values.maxValueBytes.",
+            bytes_gauge(self.max_value_bytes),
+        );
+        registry.register(
+            "dexzd_config_max_flow_state_bytes",
+            "Effective limits.maxFlowStateBytes.",
+            bytes_gauge(self.max_flow_state_bytes),
+        );
+        registry.register(
+            "dexzd_config_attempt_drain_timeout_seconds",
+            "Effective lifecycle.attemptDrainTimeout.",
+            seconds_gauge(self.attempt_drain_timeout),
+        );
+        if let Some(durability) = self.embedded_store_durability {
+            let durability_mode = Family::<DurabilityModeLabel, Gauge>::default();
+            durability_mode
+                .get_or_create(&DurabilityModeLabel { mode: durability })
+                .set(1);
+            registry.register(
+                "dexzd_config_durability_mode_info",
+                "Effective dev.durabilityMode of the embedded object store.",
+                durability_mode,
+            );
+        }
+    }
+}
+
+fn seconds_gauge(duration: Duration) -> Gauge<f64, std::sync::atomic::AtomicU64> {
+    let gauge = Gauge::<f64, std::sync::atomic::AtomicU64>::default();
+    gauge.set(duration.as_secs_f64());
+    gauge
+}
+
+fn bytes_gauge(bytes: u64) -> Gauge {
+    let gauge = Gauge::default();
+    gauge.set(i64::try_from(bytes).unwrap_or(i64::MAX));
+    gauge
 }
 
 #[derive(Debug)]

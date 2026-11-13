@@ -49,13 +49,18 @@ interface ConformanceFixture {
     error?: ExpectedError;
   }[];
   readonly session_configs: Readonly<Record<string, unknown>>;
-  readonly session_harness: { harness_section: string; harness_default_model: string | null };
+  readonly session_harness: {
+    harness_section: string;
+    harness_default_model: string | null;
+    supported_reasoning_efforts: string[];
+  };
   readonly session_cases: readonly {
     name: string;
     config: string;
     session_settings: unknown;
     turn?: unknown;
     warnings?: string[];
+    reasoning_effort?: string;
     error?: ExpectedError;
   }[];
 }
@@ -136,14 +141,15 @@ describe("CLI configuration conformance", () => {
         harness.harness_section,
         harness.harness_default_model,
       );
-      const resolve = () => resolveTurn(effective, testCase.session_settings);
+      const resolve = () => resolveTurn(effective, testCase.session_settings, harness.supported_reasoning_efforts);
       if (testCase.error !== undefined) {
         expectError(resolve, testCase.error, allErrorsSessionSettings, testCase.session_settings);
         return;
       }
-      const { turn, warnings } = resolve();
+      const { turn, warnings, reasoningEffort } = resolve();
       assert.deepEqual(turn, testCase.turn);
       assert.deepEqual(warnings, testCase.warnings);
+      assert.equal(reasoningEffort, testCase.reasoning_effort);
     });
   }
 

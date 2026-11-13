@@ -3,12 +3,12 @@ id: dex-developer-skill
 title: 使用 AI 构建
 sidebar_label: 使用 AI 构建
 slug: /build-with-ai/dex-developer-skill
-description: "Dex Skills 是 Dex 官方提供的指导，教 Codex、Claude Code、Cursor 等 coding agent 使用 Dex。有了它，Agent 可以设计和构建 Dex 应用、直接使用公开的 Dex SDK，以及贡献官方 Connector。它可以作为 Plugin 安装，也可以作为三个独立 Skill 的组合安装。"
+description: "Dex Skills 是 Dex 官方提供的指导，教 Codex、Claude Code、Cursor 等 coding agent 使用 Dex。有了它，Agent 可以设计和构建 Dex 应用、直接使用公开的 Dex SDK，以及贡献官方 Connector。"
 ---
 
 # 使用 AI 构建
 
-Dex Skills 教 Codex、Claude Code、Cursor 等 coding agent 设计和构建 Dex 应用、使用 Dex SDK，以及贡献官方 [Connector](/concepts/connector)。这些 Skill 是给 Agent 的指导，不含运行时代码。要真正构建应用，Agent 需要一个代码工作区，见[开始实现前](./dex-developer-skill/dex-app-builder.mdx#before-implementation)。
+Dex Skills 教 Codex、Claude Code、Cursor 等 coding agent 设计和构建 Dex 应用、使用 Dex SDK，以及贡献官方 [Connector](/concepts/connector)。这些 Skill 是给 Agent 的指导，不含运行时代码。
 
 ## 安装与使用 Dex Skills {#install-and-use-dex-skills}
 
@@ -20,19 +20,40 @@ Dex Skills 教 Codex、Claude Code、Cursor 等 coding agent 设计和构建 Dex
 
 :::
 
+## 运行页面顶部的命令 {#copy-a-prompt}
+
+有六个页面在开头放了一个给 coding agent 的框：[快速开始](/quick-start)、[把 Dex 加入现有代码](/intro/add-to-existing-code)、[测试你的 Flow](/components/testing)、[部署代码变更](/concepts/change-flow-code)、[Agent 快速开始](/agent-frameworks/quick-start)和[把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent)。框里有一条给 Claude Code 的命令和一条给 Codex 的命令。它先安装 Dex Skills，再用一行提示词启动 Agent，提示词指向这个页面的 Markdown 版本。
+
+## App Builder 做什么 {#what-app-builder-does}
+
+App Builder 用 Go 后端构建一个完整的 Dex 应用，从业务流程一直到经过测试、已经提交的结果。它分四个阶段：
+
+1. **确认业务流程。** 它先和你讨论。它梳理角色和权限，触发条件、等待、重试和恢复，以及外部系统和它们需要的 Connector 能力。写代码之前，它会和你确定每一个重要的待定问题。
+2. **选择应用界面。** 默认用 Dex Web 作为流程界面。只有产品需要 Dex Web 没有的页面时，才构建自定义 React 界面，并先用 mock 数据做出原型，由你确认。
+3. **设计并实现 Flow。** 写代码之前，它先说明 Flow 的标识、输入和输出、Step、Attribute、Channel、RPC、Timer、重试和恢复。它加载 Dex SDK Skill 来使用 SDK 规则。
+4. **验证并交付。** 它运行模板的完整检查，包括在真实 Dex Server 上的行为和恢复路径。交付内容列出你确认过的决定、构建了什么、测试结果和已知限制，放在一个干净的 Git commit 里。
+
+<a id="before-implementation"></a>
+
+要创建文件和运行测试，App Builder 需要一个代码工作区：一个可写的仓库、编辑文件的工具，以及执行命令的能力。没有工作区时，它仍然可以梳理流程并写出计划。[开始实现前](./dex-developer-skill/dex-app-builder.mdx#before-implementation)列出它先检查哪些事项。
+
+应用需要的官方 Connector、operation、Trigger 或配置界面单元缺失或有问题时，App Builder 会加载 Connector Contributor Skill。贡献还在 review 时，应用可以用这个 Connector 的本地副本测试。在 Connector 以确切版本发布之前，应用不能进入生产。
+
+[Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) 给出完整的工作流程。
+
 ## 选择 Skill {#choose-a-skill}
 
-| Skill | 使用场景 |
-| --- | --- |
-| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | 主要 Skill。梳理流程、做出原型，再在本地构建并测试一个使用 Go 后端的完整应用。 |
-| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | 用 Python、Go、Java、TypeScript 或 Rust 构建、调试、测试和运行 Dex 应用。 |
-| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | 创建、测试并贡献官方 Connector 的 operation、Trigger 和配置界面单元。 |
-
-每个 Skill 的页面说明了什么时候直接调用它，以及它怎样与另外两个配合。
+| Skill | 什么时候直接调用 | 完整页面 |
+| --- | --- | --- |
+| **Dex App Builder** | 需求是一个产品、应用或业务流程。这是主要 Skill，也是默认选择。 | [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) |
+| **Dex SDK** | 任务是范围明确的 SDK 工作，使用 Python、Go、Java、TypeScript 或 Rust，例如调试一个 Flow，或给现有应用加一个 Step。 | [Dex SDK](./dex-developer-skill/dex-sdk.mdx) |
+| **Dex Connector Contributor** | 任务是单独贡献官方 Connector 的 operation、Trigger 或配置界面单元。 | [Dex Connector Contributor](./dex-developer-skill/dex-connector-contributor.mdx) |
 
 ## 信任与权限 {#trust-and-permissions}
 
-只从可信来源安装 Agent 扩展。Dex Skills 的源码和发布版本在 [superdurable/dex-skills](https://github.com/superdurable/dex-skills)。Dex Skills 不添加 MCP server，不需要任何凭据，也不包含应用运行时代码。可选的 hook 会读取已安装的版本和 GitHub 上公开的发布版本信息。如果有新版本，它会告诉你，但不会自动安装。Agent 创建 GitHub fork、推送 branch、打开 pull
-request 或修改运行中的 Flow 之前，仍然需要你的授权。
+只从可信来源安装 Agent 扩展。Dex Skills 的源码和发布版本在 [superdurable/dex-skills](https://github.com/superdurable/dex-skills)。Dex Skills 不添加 MCP server，不需要任何凭据，也不包含应用运行时代码。可选的 hook 会读取已安装的版本和 GitHub 上公开的发布版本信息。如果有新版本，它会告诉你，但不会自动安装。Agent 创建 GitHub fork、推送 branch、打开 pull request 或修改运行中的 Flow 之前，仍然需要你的授权。
 
-接下来请阅读主要 Skill [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx)。
+## 下一步 {#next}
+
+- [持久化 Agent](/agent-frameworks)：把用你的框架构建的 AI Agent 作为持久化 Session 运行。
+- [运行 Dex](/components)：各个组件，以及在哪里运行 Dex Server。

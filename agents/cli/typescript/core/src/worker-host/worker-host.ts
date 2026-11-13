@@ -127,7 +127,7 @@ class WorkerHost {
       flowType: this.opened.flowType,
       isResumed: this.opened.isResumed,
       workspace: this.opened.workspace,
-      capabilities: sessionFlowCapabilities(this.opened),
+      capabilities: sessionFlowCapabilities(this.opened, this.harness),
     });
     await this.stopRequested;
     return this.stop();
@@ -199,14 +199,16 @@ class WorkerHost {
 }
 
 /** Returns what the session Flow the host built supports. */
-function sessionFlowCapabilities(opened: OpenedSessionWorker): SessionFlowCapabilities {
+function sessionFlowCapabilities(opened: OpenedSessionWorker, harness: AgentHarness): SessionFlowCapabilities {
   const runner = opened.flow.runner as { buildUserMessageWithImages?: unknown };
+  const reasoningEfforts = harness.supportedReasoningEfforts ?? [];
   return {
     ...(typeof runner.buildUserMessageWithImages === "function"
       ? { images: { max_per_message: maxImagesPerMessage, max_bytes: maxImageBytes } }
       : {}),
     plan_mode: opened.flow.options.planModeEnabled === true,
     turn_control: true,
+    ...(reasoningEfforts.length === 0 ? {} : { reasoning_effort: { values: [...reasoningEfforts] } }),
   };
 }
 

@@ -1,0 +1,40 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Pairs a framework term (chip) with the Dex name under it. Layout comes from SessionTurnDiagram. */
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.dexName {
+  color: var(--cd-subtle);
+  font-size: 0.68rem;
+}
+
+.state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  background: var(--cd-tile);
+}
+
+.appPair {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}

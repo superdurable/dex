@@ -424,6 +424,30 @@ describe("terminal chat with connectors and session settings", () => {
     assert.equal(await cli.waitForExit(), 1);
   });
 
+  test("a session's reasoning_effort reaches the next turn's model call; a value the harness does not declare fails the turn", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const sessions = await sessionClients.of(home);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine("effort");
+    await cli.stdout.waitFor("effort: default");
+
+    assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "high" }), true);
+    cli.writeLine("effort");
+    await cli.stdout.waitFor("effort: high");
+    assert.doesNotMatch(cli.stderr.all, /Session settings keys ignored/);
+
+    assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "xhigh" }), true);
+    cli.writeLine("effort");
+    await cli.stdout.waitFor('Turn failed: unsupported_reasoning_effort at "/reasoning_effort"', 120_000);
+
+    assert.equal(await sessions.updateSessionSettings(sessionId, {}), true);
+    cli.writeLine("effort");
+    await cli.stdout.waitFor("effort: default");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 1);
+  });
+
   test("an operation limit needs the tool's operation keys in _meta", async () => {
     const cli = start(
       newHome(

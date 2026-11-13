@@ -36,6 +36,7 @@ generate_flow_definition examples/go/products/customer-refund/agentic/workflow.g
 generate_flow_definition examples/go/products/connector-factory/workflow.go connector-factory
 
 generate_flow_definition examples/python/dex_examples/products/order-processing/order_processing_flow.py intro/order-processing
+generate_flow_definition examples/python/quick-start/quick_start/order_flow.py quick-start/order
 
 generate_flow_definition examples/python/dex_examples/patterns/drain-channels/internal/drain_internal_channels_flow.py design-patterns/drain-internal-channels
 generate_flow_definition examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py design-patterns/draining-external-channel
