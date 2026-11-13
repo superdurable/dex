@@ -18,6 +18,7 @@ from dex_agents import (
     AgentUserMessage,
     MessageRole,
     SteerUserMessageRequest,
+    describe_stored_message,
     is_valid_sender_name,
 )
 from tests.conftest import ScriptedAgentHarness
@@ -71,3 +72,16 @@ async def test_a_named_message_reaches_the_model_with_its_name_and_is_stored_wit
 
 def _user_message(messages: Sequence[AgentMessage], turn_id: str) -> AgentMessage:
     return next(m for m in messages if m.turn_id == turn_id and m.role is MessageRole.USER)
+
+
+def test_a_summary_transcript_keeps_the_sender_name() -> None:
+    named = AgentMessage(
+        sequence=2,
+        turn_id="turn-2",
+        role=MessageRole.USER,
+        text="hello there",
+        framework_item="{}",
+        created_at="2026-11-12T00:00:00.000Z",
+        sender_name="Alice",
+    )
+    assert describe_stored_message(named) == "user: Alice: hello there"

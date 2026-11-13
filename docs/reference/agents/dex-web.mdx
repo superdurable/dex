@@ -92,11 +92,13 @@ without calling a Worker. Actions still need a Worker.
 Since 0.6.3, a user message can carry a sender name. Set **sender_name** on
 **AgentUserMessage** for **send_user_message**, or on
 **SteerUserMessageRequest** with **text** for **steer_user_message**. Dex
-Web's **Your name** sets it, and dexcli agents-tui shows the message as
-**› Alice: text**. The session stores the name on the message's
+Web 1.45.2 and later sets it from **Your name**. dexcli 1.47.1 and later
+shows the message as **› Alice: text**; an earlier dexcli shows
+**(another client)**. The session stores the name on the message's
 **AgentMessage.sender_name**. The model sees the message as
 **Alice: text** in every harness, because the session builds the framework
-item from that text. **AgentMessage.text** keeps the text as sent.
+item from that text. A context summary sees it the same way.
+**AgentMessage.text** keeps the text as sent.
 
 A valid name has 1 to 64 Unicode code points. It contains no control
 character and no line or paragraph separator, and it neither starts nor ends
@@ -110,8 +112,9 @@ send any name. Do not base an approval or a permission on it.
 
 An absent name is omitted from the encoded value, so values without one keep
 their bytes. A Worker before 0.6.3 ignores the field: it queues the message
-without the name, and the model sees only the text. Send names after every
-Worker of the Flow type runs 0.6.3 or later.
+without the name, and the model sees only the text. It also drops the name of
+a stored message when it moves the message into an archive chunk. Send names
+after every Worker of the Flow type runs 0.6.3 or later.
 
 Dex Web shows an Action form only to a user **Working as** its permission.
 The session Actions have no condition, so **Working as** hides no session of

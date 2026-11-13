@@ -12,3 +12,6 @@ section: Added
   Encoding omits an absent name, and a Worker before this release ignores it.
 - The session graph declares the optional `sender_name` input of the
   `steer_user_message` Action.
+- `describe_stored_message` (`describeStoredMessage`), which builds the text
+  of a context summary prompt, shows a named user message as
+  `user: <name>: <text>`.

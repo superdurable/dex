@@ -35,6 +35,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from dex_agents.events import AgentEventWriter
 from dex_agents.runner import AgentTurnContext, ModelCallMetadata
+from dex_agents.sender_names import build_sender_named_text
 from dex_agents.values import AgentMessage, AgentUsage, ContextSummary
 
 #: First line of the user text that carries the ``ContextSummary`` into the model input.
@@ -521,11 +522,17 @@ def describe_stored_message(message: AgentMessage) -> str:
     Returns:
         Its role and text, tool arguments, and tool output. A message with none
         of them returns its role and ``framework_item``, such as a model
-        response with several tool calls.
+        response with several tool calls. The text of a message with a
+        ``sender_name`` starts with ``"<sender_name>: "``, as the model saw it.
+
+    .. versionchanged:: 0.6.3
+        A message with a ``sender_name`` shows the name before its text.
     """
     lines: list[str] = []
     if message.text:
-        lines.append(f"{message.role.value}: {message.text}")
+        lines.append(
+            f"{message.role.value}: {build_sender_named_text(message.sender_name, message.text)}"
+        )
     if message.tool_arguments is not None:
         lines.append(f"tool call {message.tool_name}: {message.tool_arguments}")
     if message.tool_output is not None:
