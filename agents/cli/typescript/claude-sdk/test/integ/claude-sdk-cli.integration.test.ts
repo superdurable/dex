@@ -346,6 +346,8 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
 
   test("an approved call is checked again by the Worker that runs it", async () => {
     const home = newHome(noConnectors);
+    // The killed command cannot release its lease, so a short one lets the next command in soon.
+    home.extraEnvironment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS = "3";
     const first = start(home);
     const sessionId = await first.waitForSession();
     const todoPath = join(home.workspace, "todo.txt");
