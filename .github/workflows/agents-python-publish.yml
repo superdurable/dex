@@ -35,8 +35,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEXCLI_RELEASE_TAG: cli-v1.47.0
-  DEXCLI_ARCHIVE: dexcli_v1.47.0_linux_amd64.tar.gz
+  DEXCLI_RELEASE_TAG: cli-v1.47.1
+  DEXCLI_ARCHIVE: dexcli_v1.47.1_linux_amd64.tar.gz
   # Upload order: the core, the adapters, the CLI core, then the CLI commands.
   AGENTS_PYTHON_DISTRIBUTIONS: >-
     dex-agents dex-agents-openai-agents dex-agents-pydantic-ai dex-agents-langgraph dex-agents-google-adk
