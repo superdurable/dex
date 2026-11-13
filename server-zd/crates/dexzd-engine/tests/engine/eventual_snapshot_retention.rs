@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use dexzd_engine::{BlockingWorkPlacement, EngineNodeConfig, LocalStoreConfig};
+use dexzd_engine::{EngineNodeConfig, LocalStoreConfig};
 use dexzd_object_store::{ListingConsistency, ObjectStore};
 
 use crate::harness::TestCluster;
@@ -26,8 +26,6 @@ fn eventual_config(cluster: &TestCluster) -> EngineNodeConfig {
     config.snapshots.interval = Duration::from_secs(24 * 60 * 60);
     config.snapshots.retry_delay = Duration::from_secs(24 * 60 * 60);
     config.snapshots.log_threshold_bytes = u64::MAX;
-    // Paused time would advance while the blocking pool uploads, so uploads take no test time.
-    config.blocking_work = BlockingWorkPlacement::CallingTaskForTest;
     config
 }
 

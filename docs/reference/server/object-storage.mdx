@@ -471,17 +471,19 @@ file they list:
 
 Listings only nominate the other snapshots and files for deletion. The server
 deletes each one once it has stayed unprotected for
-**snapshot.logDeletionDelay**, counted from the first listing that showed it.
-The server measures this time on its own monotonic clock. It never compares
-the clocks of other hosts. Recovery restores only the snapshot that the
-cluster manifest points to, so **snapshot.retainedCount** counts only the
-running server's snapshots.
+**snapshot.logDeletionDelay**. The wait starts at the first cleanup run that
+finds the object unprotected. The server measures this time on its own
+monotonic clock. It never compares the clocks of other hosts. Recovery restores
+only the snapshot that the cluster manifest points to, so
+**snapshot.retainedCount** counts only the running server's snapshots.
 
-So each unprotected object goes at the first cleanup run after it has been
-nominated for **snapshot.logDeletionDelay**. A restart or a takeover starts
-every wait again. A server that never runs for **snapshot.logDeletionDelay**
-therefore deletes none of these objects, and the next server that does
-deletes them.
+A protected object waits twice. Its protection ends first, and its wait as an
+unprotected object starts then. So a replaced pointer, a failed upload, or a
+snapshot beyond **snapshot.retainedCount** stays for up to twice
+**snapshot.logDeletionDelay**, which is 48 hours with the **serve** default.
+A restart or a takeover starts every wait again. A server that never runs for
+**snapshot.logDeletionDelay** therefore deletes none of these objects, and the
+next server that does deletes them.
 
 A run purge first deletes, by key, the hard-delete objects that committed state
 references. It then lists the run's hard-delete prefix twice, at least 5
