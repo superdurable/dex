@@ -18,6 +18,8 @@
 //   npm run agent-quick-start -- openai-agents "Cancel order 1002"
 //   npm run agent-quick-start -- openai-agents --session-id ID
 // The second form resumes a session, for example after you stopped this program at the approval prompt.
+// Pass --approve to approve each pending call without asking, as a coding agent does. Without a terminal
+// and without --approve, the program leaves the call pending in Dex and exits, as if stopped at the prompt.
 
 import { openai } from "@ai-sdk/openai";
 import { randomUUID } from "node:crypto";
@@ -61,7 +63,17 @@ function buildQuickStartAgent(framework: string, orderDesk: OrderDesk): OrderSup
   }
 }
 
+/** No one can answer the prompt, so the call keeps waiting in Dex. */
+class ApprovalLeftPending extends Error {
+  constructor(readonly interrupt: AgentInterrupt) {
+    super(interrupt.toolName);
+  }
+}
+
 async function askForApproval(interrupt: AgentInterrupt): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    throw new ApprovalLeftPending(interrupt);
+  }
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answer = await prompt.question(`${interrupt.toolName} wants to run with ${interrupt.arguments}. Approve? [y/N] `);
@@ -71,11 +83,19 @@ async function askForApproval(interrupt: AgentInterrupt): Promise<boolean> {
   }
 }
 
+async function approveWithoutAsking(interrupt: AgentInterrupt): Promise<boolean> {
+  console.log(`Approved ${interrupt.toolName} with ${interrupt.arguments}.`);
+  return true;
+}
+
 async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { "session-id": { type: "string" } } });
+  const { positionals, values } = parseArgs({
+    allowPositionals: true,
+    options: { "session-id": { type: "string" }, approve: { type: "boolean" } },
+  });
   const [framework, message] = positionals;
   if (framework === undefined || (message === undefined && values["session-id"] === undefined)) {
-    throw new Error(`usage: agent-quick-start <${frameworks.join("|")}> "<message>" [--session-id ID]`);
+    throw new Error(`usage: agent-quick-start <${frameworks.join("|")}> "<message>" [--session-id ID] [--approve]`);
   }
   const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
   const app = await QuickStartApp.start(
@@ -90,7 +110,19 @@ async function main(): Promise<void> {
       await startAgentSession(app.client, app.flow, sessionId, {});
     }
     console.log(`Session ${sessionId}`);
-    for (const reply of await runTurn(app, sessionId, message, askForApproval)) {
+    let replies: string[];
+    try {
+      replies = await runTurn(app, sessionId, message, values.approve ? approveWithoutAsking : askForApproval);
+    } catch (error) {
+      if (!(error instanceof ApprovalLeftPending)) {
+        throw error;
+      }
+      console.log(
+        `${error.interrupt.toolName} waits for approval. Run again with --session-id ${sessionId} --approve to approve it.`,
+      );
+      return;
+    }
+    for (const reply of replies) {
       console.log(`Agent: ${reply}`);
     }
   } finally {
