@@ -99,6 +99,11 @@ function newFilter(field = 'ExecutionStatus'): BasicFilter {
   };
 }
 
+/** A SubFlow reads as a child in the list: its name without the "SubFlow:" prefix, after a child mark. */
+function listFlowIdOf(flowId: string): string {
+  return flowId.startsWith('SubFlow:') && flowId.length > 'SubFlow:'.length ? `↳ ${flowId.slice('SubFlow:'.length)}` : flowId;
+}
+
 const ALL_STATUSES = 'All';
 const QUICK_STATUSES = [ALL_STATUSES, 'Running', 'Failed', 'Completed'] as const;
 type QuickStatus = typeof QUICK_STATUSES[number];
@@ -662,7 +667,7 @@ function renderCell(column: ColumnId, flow: FlowExecution, timezone: 'local' | '
           to={`/v1/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
           title={flow.flowId}
         >
-          {flow.flowId}
+          {listFlowIdOf(flow.flowId)}
         </Link>
       );
     case 'runId':

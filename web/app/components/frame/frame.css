@@ -1449,3 +1449,20 @@ body {
 .v1-page .run-state-timer {
   font-weight: 500;
 }
+
+/* Run details lists each child Flow on its own row, under its heading. */
+.run-facts-children {
+  display: grid;
+  gap: 4px;
+}
+
+.run-facts-children > a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The event list keeps room for the child mark, so a row with one lines up with its neighbours. */
+.v1-page .event-list-child-cell {
+  min-width: 64px;
+}

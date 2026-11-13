@@ -171,11 +171,17 @@ function persistSidebarWidth(kind: SidebarKind, width: number) {
   }
 }
 
-function storedRunTab(): RunTab {
+/** The tab this browser last chose on this run; another run opens on Timeline. */
+function storedRunTab(flowId: string): RunTab {
   if (typeof window === 'undefined') return 'timeline';
   try {
-    const tab = window.localStorage.getItem(runTabStorageKey);
-    return tab && runTabs.has(tab as RunTab) ? tab as RunTab : 'timeline';
+    const stored = window.localStorage.getItem(runTabStorageKey) ?? '';
+    // An older Dex Web saved a bare tab for every run; it still applies until the next choice.
+    if (runTabs.has(stored as RunTab)) return stored as RunTab;
+    const parsed = JSON.parse(stored || 'null') as { flowId?: unknown; tab?: unknown } | null;
+    return parsed?.flowId === flowId && isRunTab(typeof parsed.tab === 'string' ? parsed.tab : null)
+      ? parsed.tab as RunTab
+      : 'timeline';
   } catch (storageError) {
     console.warn('Unable to read the selected run tab preference.', storageError);
     return 'timeline';
@@ -201,9 +207,9 @@ function persistTimelineLaneShown(isShown: boolean) {
   }
 }
 
-function persistRunTab(tab: RunTab) {
+function persistRunTab(flowId: string, tab: RunTab) {
   try {
-    window.localStorage.setItem(runTabStorageKey, tab);
+    window.localStorage.setItem(runTabStorageKey, JSON.stringify({ flowId, tab }));
   } catch (storageError) {
     console.warn('Unable to save the selected run tab preference.', storageError);
   }
@@ -236,7 +242,7 @@ export function RunDetailsPage({
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
-  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab()));
+  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
   const webCatalog = useOptionalWebCatalog();
   // A run page reads only its own Flow type's definitions.
   const runDefinitions = useFlowTypeDefinitions(summary?.flowType);
@@ -687,13 +693,13 @@ export function RunDetailsPage({
   /** Shows a tab and keeps it in the URL, so reloading or sharing the page opens the same tab. */
   const selectTab = useCallback((nextTab: RunTab) => {
     setTab(nextTab);
-    persistRunTab(nextTab);
+    persistRunTab(flowId, nextTab);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set(RUN_VIEW_PARAM, nextTab);
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [flowId, setSearchParams]);
 
   useEffect(() => {
     if (isRunTab(requestedView)) setTab(requestedView);

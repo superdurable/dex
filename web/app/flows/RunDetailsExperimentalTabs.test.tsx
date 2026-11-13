@@ -335,7 +335,7 @@ describe('Run page experimental tabs', () => {
     fireEvent.click(await screen.findByRole('tab', { name: /^Design/ }));
     await waitFor(() => expect(screen.getByLabelText('location').textContent)
       .toBe('/v1/flows/run-flow/run-1?runAttempt=1&view=design'));
-    expect(window.localStorage.getItem('dex.run.selected-tab')).toBe('design');
+    expect(JSON.parse(window.localStorage.getItem('dex.run.selected-tab') ?? '')).toEqual({ flowId: 'run-flow', tab: 'design' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true'));

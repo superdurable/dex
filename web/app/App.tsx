@@ -73,7 +73,9 @@ function FlowRunRoute() {
   const { flowId = '', runId = '' } = useParams();
   const flowPath = `/v1/flows/${encodeURIComponent(flowId)}`;
   return (
+    // Keyed by Flow ID, so each Flow opens fresh on its own remembered tab.
     <RunDetailsPage
+      key={flowId}
       flowId={flowId}
       runId={runId}
       runPath={(chainRunID) => `${flowPath}/${encodeURIComponent(chainRunID)}`}
