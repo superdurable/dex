@@ -46,7 +46,11 @@ pub(super) async fn purge_startup_probe(
     }
 }
 
-/// Deletes generations 1 through the newest of a probe key; probe versions are never reclaimed.
+/// Deletes generations 1 through the newest of a probe key, one at a time from the oldest up;
+/// probe versions are never reclaimed.
+///
+/// A failure keeps the newest version and this process's memory of it, so a retry finds it
+/// and deletes the rest.
 async fn purge_probed_startup_probe(
     locator: &NewestVersionLocator,
     logical_key: &str,
@@ -58,13 +62,10 @@ async fn purge_probed_startup_probe(
     else {
         return Ok(());
     };
-    let keys: Vec<String> = (1..=newest.generation)
-        .map(|generation| version_object_key(logical_key, generation))
-        .collect();
-    for batch in keys.chunks(PROBE_PAGE_KEYS as usize) {
+    for generation in 1..=newest.generation {
         locator
             .inner()
-            .delete_many(batch)
+            .delete(&version_object_key(logical_key, generation))
             .await
             .map_err(|error| inner_error(operation, logical_key, &error))?;
     }

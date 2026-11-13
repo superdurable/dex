@@ -66,9 +66,14 @@ pub enum VersionDiscoveryCheckError {
 /// [`HEAD_PROBING_MARKER_OBJECT_KEY`]. A HEAD-probing store accepts a prefix with the marker. On
 /// a prefix without it, the store lists each mutable key prefix except startup probes. It
 /// refuses a version it finds unless the marker appeared meanwhile, from another HEAD-probing
-/// node starting at the same time, and otherwise creates the marker. Call it at startup, before the store
-/// writes its first version. The check cannot see a listing node that is already running, so
-/// stop every node before changing the discovery of a prefix.
+/// node starting at the same time, and otherwise creates the marker. Call it at startup,
+/// before the store writes its first version.
+///
+/// The check is best effort. HEAD probing must start on a prefix without versions, and the
+/// operator keeps that precondition. The listings find older versions reliably only where
+/// listings show every write, as on Aliyun OSS; a stale listing can look empty. The check also
+/// cannot see a listing node that is already running, so stop every node before changing the
+/// discovery of a prefix.
 ///
 /// Since 0.1.30.
 ///

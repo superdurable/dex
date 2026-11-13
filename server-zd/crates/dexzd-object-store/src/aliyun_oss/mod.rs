@@ -179,10 +179,11 @@ impl AliyunOssObjectStore {
     /// `version_discovery` instead of [`VersionDiscovery::Listing`].
     ///
     /// [`VersionDiscovery::HeadProbing`] needs only strongly consistent HEAD, GET, create-only,
-    /// and DELETE requests on `inner`. A listing that lags behind writes then only adds requests,
-    /// and no clock affects which version a read or write sees. Every store that shares `inner`
-    /// must use the same discovery; run [`crate::check_version_discovery_marker`] first. See the
-    /// example of [`VersionDiscovery`].
+    /// and DELETE requests on `inner`. No listing and no clock affects which version a read or
+    /// write sees; a listing that lags behind writes adds requests and can make a read fail
+    /// transiently. Every store that shares `inner` must use the same discovery, and HEAD
+    /// probing must start on a prefix without versions; run
+    /// [`crate::check_version_discovery_marker`] first. See the example of [`VersionDiscovery`].
     ///
     /// Since 0.1.30.
     ///

@@ -34,7 +34,7 @@ use dexzd_object_store::{
 
 use create_only_store::{
     CreateOnlyStore, FastStoreClock, FreezableStore, ManualStoreClock, RandomDelays,
-    TEST_MINIMUM_SUPERSEDED_AGE, version_key,
+    TEST_MINIMUM_SUPERSEDED_AGE, assert_consecutive_generations, version_key,
 };
 use replacement_history::{ReplacementWorkload, run_replacement_workload_with_discovery};
 
@@ -329,5 +329,6 @@ async fn racing_replacements_stay_linearizable_while_the_store_clock_runs_far_ah
         .await;
         history.assert_linearizable();
         assert!(history.written_count() >= 10, "seed {seed} made progress");
+        assert_consecutive_generations(&physical, KEY).await;
     }
 }

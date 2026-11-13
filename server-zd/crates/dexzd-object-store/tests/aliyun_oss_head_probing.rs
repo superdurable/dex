@@ -36,7 +36,7 @@ use dexzd_object_store::{
 
 use create_only_store::{
     CreateOnlyStore, FreezableStore, ManualStoreClock, RandomDelays, TEST_MINIMUM_SUPERSEDED_AGE,
-    anchor_key, version_key,
+    anchor_key, assert_consecutive_generations, version_key,
 };
 use replacement_history::{ReplacementWorkload, run_replacement_workload_with_discovery};
 
@@ -184,6 +184,7 @@ async fn racing_replacements_have_one_winner_per_generation_without_faults() {
         .await;
         history.assert_linearizable();
         assert!(history.written_count() >= 20, "seed {seed} made progress");
+        assert_consecutive_generations(&physical, KEY).await;
     }
 }
 
@@ -211,6 +212,7 @@ async fn check_stalled_workload(
         run_replacement_workload_with_discovery(physical, KEY, workload, discoveries).await;
     history.assert_linearizable();
     assert!(history.written_count() >= 30, "seed {seed} made progress");
+    assert_consecutive_generations(physical, KEY).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -586,6 +588,200 @@ async fn a_listed_version_reclaimed_before_the_probe_is_never_read() {
         .expect("get")
         .expect("exists");
     assert_eq!(content.bytes, Bytes::from_static(b"five"));
+}
+
+/// A stale writer recreates generation 2 after reclamation, and its own cleanup DELETE fails.
+/// The next reclamation pass of the node that reclaimed generation 2 deletes the leftover.
+#[tokio::test(start_paused = true)]
+async fn reclamation_deletes_a_recreated_version_whose_cleanup_failed() {
+    let physical = CreateOnlyStore::new();
+    let store = head_probing_store(physical.inner());
+    let first = create(&store, "one").await;
+    let stale_view = FreezableStore::new(physical.inner());
+    let stale_writer_store = Arc::new(head_probing_store(
+        Arc::clone(&stale_view) as Arc<dyn ObjectStore>
+    ));
+    let frozen = stale_view.freeze_next(ObjectStoreOperation::Put, &version_key(KEY, 2));
+    let stale_etag = first.clone();
+    let stale_writer = tokio::spawn(async move {
+        stale_writer_store
+            .put(
+                KEY,
+                Bytes::from_static(b"stale two"),
+                WriteCondition::ReplaceIfEtagMatches { etag: stale_etag },
+            )
+            .await
+    });
+    frozen.wait_until_reached().await;
+    let mut etag = first;
+    for body in ["two", "three", "four", "five"] {
+        tokio::time::sleep(RECLAIMABLE_GAP).await;
+        etag = replace(&store, &etag, body).await;
+    }
+    wait_for_existing_generations(&physical, 6, &[5, 4]).await;
+    physical.faults.inject(
+        ObjectStoreOperation::Delete,
+        &version_key(KEY, 2),
+        0,
+        1,
+        FaultAction::FailBeforeEffect,
+    );
+    frozen.release();
+    let outcome = stale_writer
+        .await
+        .expect("the stale writer finishes")
+        .expect("the stale put completes");
+    assert_eq!(outcome, WriteOutcome::PreconditionFailed);
+    assert_eq!(
+        existing_generations(&physical, KEY, 6).await,
+        [5, 4, 2],
+        "the failed cleanup leaves the recreated version"
+    );
+    assert_eq!(current_body(&store).await, Bytes::from_static(b"five"));
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(&store, &etag, "six").await;
+    wait_for_existing_generations(&physical, 6, &[6, 5]).await;
+}
+
+/// Node A's reclamation pass stops just before deleting generation 2, as if its process froze.
+/// Node B then reclaims the same key past it. When A resumes, the versions stay consecutive and
+/// both nodes read the newest one.
+#[tokio::test(start_paused = true)]
+async fn two_nodes_reclaiming_one_key_at_once_leave_consecutive_versions() {
+    let physical = CreateOnlyStore::new();
+    let node_a_view = FreezableStore::new(physical.inner());
+    let node_a = head_probing_store(Arc::clone(&node_a_view) as Arc<dyn ObjectStore>);
+    let node_b = head_probing_store(physical.inner());
+    let mut etag = create(&node_a, "one").await;
+    for body in ["two", "three", "four"] {
+        etag = replace(&node_a, &etag, body).await;
+    }
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    let frozen = node_a_view.freeze_next(ObjectStoreOperation::Delete, &version_key(KEY, 2));
+    etag = replace(&node_a, &etag, "five").await;
+    frozen.wait_until_reached().await;
+    assert_eq!(existing_generations(&physical, KEY, 6).await, [5, 4, 3, 2]);
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(&node_b, &etag, "six").await;
+    wait_for_existing_generations(&physical, 6, &[6, 5]).await;
+    frozen.release();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(existing_generations(&physical, KEY, 6).await, [6, 5]);
+    for store in [&node_a, &node_b] {
+        assert_eq!(current_body(store).await, Bytes::from_static(b"six"));
+    }
+    assert_consecutive_generations(&physical, KEY).await;
+}
+
+/// A process writes the anchor and stops before it deletes generation 1. Every version stays
+/// readable, and a fresh process's reclamation continues from generation 1.
+#[tokio::test(start_paused = true)]
+async fn a_crash_after_the_anchor_leaves_versions_that_another_node_reclaims() {
+    let physical = CreateOnlyStore::with_stale_listings(Duration::MAX);
+    let crashed = head_probing_store(physical.inner());
+    let mut etag = create(&crashed, "one").await;
+    etag = replace(&crashed, &etag, "two").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    // The delete of generation 1 never happens, as when the process dies right after the anchor.
+    physical.faults.inject(
+        ObjectStoreOperation::Delete,
+        &version_key(KEY, 1),
+        0,
+        1,
+        FaultAction::FailBeforeEffect,
+    );
+    etag = replace(&crashed, &etag, "three").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(existing_generations(&physical, KEY, 4).await, [3, 2, 1]);
+    assert!(
+        physical
+            .store
+            .head(&anchor_key(KEY))
+            .await
+            .expect("head")
+            .is_some()
+    );
+    drop(crashed);
+    // The first listing of the versions, made before the first write, stays empty.
+    let fresh_reader = head_probing_store(physical.inner());
+    assert_eq!(
+        current_body(&fresh_reader).await,
+        Bytes::from_static(b"three"),
+        "generation 1 is still there, so probing from it finds the newest version"
+    );
+    // The successor's reclamation lists current versions to find their write times.
+    physical.store.expire_stale_listings();
+    let successor = head_probing_store(physical.inner());
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(&successor, &etag, "four").await;
+    wait_for_existing_generations(&physical, 4, &[4, 3]).await;
+    assert_eq!(current_body(&successor).await, Bytes::from_static(b"four"));
+}
+
+/// A probe delete that fails partway keeps the newest version readable, and a retry deletes
+/// what is left.
+#[tokio::test(start_paused = true)]
+async fn a_partly_deleted_probe_key_keeps_its_newest_version_until_a_retry() {
+    let physical = CreateOnlyStore::new();
+    let store = head_probing_store(physical.inner());
+    let probe_key = "probe/3-3";
+    let mut etag = match store
+        .put(
+            probe_key,
+            Bytes::from_static(b"one"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create")
+    {
+        WriteOutcome::Written { etag } => etag,
+        WriteOutcome::PreconditionFailed => panic!("the probe is new"),
+    };
+    for body in ["two", "three"] {
+        etag = match store
+            .put(
+                probe_key,
+                Bytes::from_static(body.as_bytes()),
+                WriteCondition::ReplaceIfEtagMatches { etag },
+            )
+            .await
+            .expect("replace")
+        {
+            WriteOutcome::Written { etag } => etag,
+            WriteOutcome::PreconditionFailed => panic!("the replacement uses the newest ETag"),
+        };
+    }
+    physical.faults.inject(
+        ObjectStoreOperation::Delete,
+        &version_key(probe_key, 2),
+        0,
+        1,
+        FaultAction::FailBeforeEffect,
+    );
+    store
+        .delete(probe_key)
+        .await
+        .expect_err("the delete of generation 2 fails");
+    assert_eq!(existing_generations(&physical, probe_key, 4).await, [3, 2]);
+    assert_eq!(
+        store
+            .get(probe_key)
+            .await
+            .expect("get")
+            .expect("the newest version stays")
+            .bytes,
+        Bytes::from_static(b"three")
+    );
+    store
+        .delete(probe_key)
+        .await
+        .expect("the retry deletes the rest");
+    assert!(
+        existing_generations(&physical, probe_key, 4)
+            .await
+            .is_empty()
+    );
+    assert!(store.get(probe_key).await.expect("get").is_none());
 }
 
 #[tokio::test(start_paused = true)]

@@ -66,9 +66,12 @@ pub enum VersionDiscovery {
     /// HEAD requests past a lower bound find the newest version, and reads of the neighboring
     /// generations confirm it and each create. Reclamation deletes versions from the oldest up.
     ///
-    /// It needs strongly consistent HEAD, GET, create-only, and DELETE requests. Its results never
-    /// depend on listings or on any clock; a listing that lags behind writes only adds requests.
-    /// Tencent COS needs it, because its listings can repeat a listing from seconds earlier.
+    /// It needs strongly consistent HEAD, GET, create-only, and DELETE requests. The versions it
+    /// reads and the outcomes of conditional writes never depend on listings or on any clock. A
+    /// listing that lags behind writes adds requests, and one that stays stale through every
+    /// attempt makes a read fail transiently. Use it only on a prefix without versions written
+    /// by [`VersionDiscovery::Listing`]. Tencent COS needs it, because its listings can repeat a
+    /// listing from seconds earlier.
     HeadProbing,
 }
 

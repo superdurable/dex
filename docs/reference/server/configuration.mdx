@@ -69,8 +69,8 @@ S3-compatible store, set it to an HTTP or HTTPS URL. Set
 Since 0.1.30, **objectStore.versionDiscovery** selects how **aliyunOSS** finds
 the newest version of a replaced object: **list**, the default, or **head**.
 **tencentCOS** always uses **head** and rejects **list**. Other providers keep
-no versions and reject the key. **head** starts only on an empty prefix, and a
-prefix never returns to **list**. See
+no versions and reject the key. Set **head** only on an empty prefix; startup
+checks this on a best-effort basis. A prefix never returns to **list**. See
 [Finding the newest version](/reference/server/object-storage#version-discovery).
 
 A prefix cannot switch providers on existing data.

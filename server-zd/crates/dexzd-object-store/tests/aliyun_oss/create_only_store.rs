@@ -371,6 +371,20 @@ impl CreateOnlyStore {
     }
 }
 
+/// Asserts that the versions stored for `logical_key` are consecutive generations, as HEAD
+/// probing keeps them once no stale writer is left; reads current objects, not a stale listing.
+pub(crate) async fn assert_consecutive_generations(physical: &CreateOnlyStore, logical_key: &str) {
+    physical.store.expire_stale_listings();
+    let generations = physical.generations(logical_key).await;
+    for pair in generations.windows(2) {
+        assert_eq!(
+            pair[0],
+            pair[1] + 1,
+            "the versions of {logical_key} have a gap: {generations:?}"
+        );
+    }
+}
+
 /// Returns the physical key of `generation` of `logical_key`.
 pub(crate) fn version_key(logical_key: &str, generation: u64) -> String {
     format!("{logical_key}.v/{:020}", u64::MAX - generation)
@@ -512,6 +526,8 @@ impl ObjectStore for FreezableStore {
     }
 
     async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
+        self.wait_while_frozen(ObjectStoreOperation::Delete, key)
+            .await;
         self.inner.delete(key).await
     }
 

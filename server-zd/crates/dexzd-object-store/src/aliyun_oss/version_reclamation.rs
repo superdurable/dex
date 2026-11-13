@@ -316,8 +316,9 @@ async fn reclaim_oldest_versions_first(
         if generation > highest_reclaimable {
             return;
         }
-        // A lagging listing can still show a generation this process deleted.
+        // A lagging listing, or a stale writer's recreated version, can show a deleted generation.
         if generation <= deleted_through {
+            delete_recreated_leftover(context, logical_key, generation).await;
             continue;
         }
         let is_superseded_long_enough = successor_written_at.is_some_and(|written_at| {
@@ -335,6 +336,32 @@ async fn reclaim_oldest_versions_first(
         }
         deleted_through = generation;
         reclaimed.record_deleted(logical_key, generation);
+    }
+}
+
+/// Deletes the object at `generation`, which this process already reclaimed, when it is back.
+///
+/// Every first version up to that generation is gone for good, so the object can only be a
+/// stale writer's recreated version whose own cleanup failed. It lies below the consecutive
+/// versions, so no read returns it and deleting it opens no gap; a stale writer that has not
+/// confirmed it yet reports an unknown outcome instead of a failed precondition. Failures keep
+/// the object for a later pass.
+async fn delete_recreated_leftover(
+    context: &ReclamationContext,
+    logical_key: &str,
+    generation: u64,
+) {
+    let physical_key = version_object_key(logical_key, generation);
+    match context.inner.head(&physical_key).await {
+        Ok(None) => {}
+        Ok(Some(_)) => {
+            if let Err(error) = context.inner.delete(&physical_key).await {
+                tracing::warn!(key = %physical_key, %error, "deleting a recreated version failed; a later pass retries");
+            }
+        }
+        Err(error) => {
+            tracing::warn!(key = %physical_key, %error, "reading a reclaimed generation failed; a later pass retries");
+        }
     }
 }
 
