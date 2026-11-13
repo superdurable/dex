@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,6 +108,465 @@ func TestTypeScriptJoinUndeterminedBuilderListIsDynamic(t *testing.T) {
 			require.Equal(t, []string{"dynamic_step_target"}, diagnosticCodes(graph))
 		})
 	}
+}
+
+func TestTypeScriptWaitsRPCsAndTimeoutGolden(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Empty(t, graph.Diagnostics)
+	graph.Source.Path = "waits.ts"
+	actual, err := MarshalJSON(graph)
+	require.NoError(t, err)
+	goldenPath := filepath.Join("testdata", "typescript", "waits.golden.json")
+	if os.Getenv("UPDATE_SCRIPT_GOLDENS") == "1" {
+		require.NoError(t, os.WriteFile(goldenPath, actual, 0o644))
+	}
+	expected, err := os.ReadFile(goldenPath)
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(actual))
+}
+
+func TestTypeScriptUnsupportedWaitsAndRPCsAreBlocking(t *testing.T) {
+	helpers := "\nfunction approvalWait(): Wait {\n  return Wait.until(approvals.forOne());\n}\n" +
+		"\nfunction atMostFour() {\n  return approvals.atMost(4);\n}\n" +
+		"\nfunction plannedSteps() {\n  return [StepMovement.of(FailingWait, \"planned\")];\n}\n"
+	cases := map[string]struct {
+		original    string
+		replacement string
+		codes       []string
+	}{
+		"Wait from a helper": {
+			`return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`,
+			"return approvalWait();",
+			[]string{"hidden_dex_wait"},
+		},
+		"spread condition":      {"approvals.atMost(4),", "...[approvals.atMost(4)],", []string{"dynamic_wait_condition"}},
+		"condition from helper": {"approvals.atMost(4),", "atMostFour(),", []string{"dynamic_wait_condition"}},
+		"opaque RPC result": {
+			"return { output: status.get(context) };",
+			"return Promise.resolve({ output: status.get(context) });",
+			// describe returns approve's results, so it reports the same return.
+			[]string{"hidden_dex_decision", "hidden_dex_decision"},
+		},
+		"nextSteps from helper": {
+			"nextSteps: [StepMovement.of(FailingWait, decision)]",
+			"nextSteps: plannedSteps()",
+			[]string{"dynamic_step_target"},
+		},
+		"spread RPC result": {
+			"return { output: status.get(context) };",
+			"const base = { output: status.get(context) };\n    return { ...base };",
+			[]string{"dynamic_step_target"},
+		},
+		"Stream write in an RPC": {
+			"approvals.publish(context, decision);",
+			"progress.write(context, decision);",
+			// approve writes directly, and describe reaches the write through approve.
+			[]string{"step_progress_outside_step", "step_progress_outside_step"},
+		},
+		"hidden timeout decision": {
+			`return forceFail("approval timed out");`,
+			"return this.timeoutDecision();\n  }\n\n  private timeoutDecision(): StepDecision {\n    return forceFail(\"approval timed out\");",
+			[]string{"hidden_dex_decision"},
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := strings.Replace(string(source), testCase.original, testCase.replacement, 1)
+			require.NotEqual(t, string(source), modified)
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified+helpers), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			errorCodes := make([]string, 0)
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Severity == "error" {
+					errorCodes = append(errorCodes, diagnostic.Code)
+				}
+			}
+			require.Equal(t, testCase.codes, errorCodes, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+// Each case once produced a valid graph that was wrong; it must now be either correct or blocked.
+func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
+	const skipReturn = "      return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)], cancelingSteps: [AwaitApproval] };"
+	const approveBranches = "    if (decision === \"skip\") {\n" + skipReturn + "\n    }\n    return { output: status.get(context) };"
+	const signalWait = `return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`
+	const publish = "approvals.publish(context, decision);"
+	emptyReturn := func(statement string) string {
+		return "    if (decision === \"skip\") " + statement + "\n    return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)] };"
+	}
+	type replacement struct{ original, replacement string }
+	cases := map[string]struct {
+		replacements []replacement
+		codes        []string
+		check        func(t *testing.T, graph *Graph)
+	}{
+		"local nextSteps with a helper element": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [plannedMovement(decision)];\n      return { output: decision, nextSteps };"}},
+			codes:        []string{"dynamic_step_target"},
+		},
+		"local nextSteps emptied after construction": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      nextSteps.length = 0;\n      return { output: decision, nextSteps };"}},
+			codes:        []string{"dynamic_step_target"},
+		},
+		"local nextSteps with a push": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      nextSteps.push(StepMovement.of(ReviewBounds, 1));\n      return { output: decision, nextSteps };"}},
+			codes:        []string{"dynamic_step_target"},
+		},
+		"single-use const nextSteps": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      return { output: decision, nextSteps };"}},
+			check: func(t *testing.T, graph *Graph) {
+				require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `decision === "skip"`))
+			},
+		},
+		"one helper called on every path": {
+			replacements: []replacement{{approveBranches, "    if (decision === \"skip\") return this.finish(context, decision);\n    return this.finish(context, decision);\n  }\n\n  private finish(_context: Context, decision: string): RPCResult<string> {\n    return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)] };"}},
+			check: func(t *testing.T, graph *Graph) {
+				require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `decision === "skip"`))
+				require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `!(decision === "skip")`))
+			},
+		},
+		"empty return":           {replacements: []replacement{{approveBranches, emptyReturn("return;")}}, check: checkGuardedRPCResult},
+		"return undefined":       {replacements: []replacement{{approveBranches, emptyReturn("return undefined;")}}, check: checkGuardedRPCResult},
+		"return void expression": {replacements: []replacement{{approveBranches, emptyReturn("return void 0;")}}, check: checkGuardedRPCResult},
+		"local shadows a Channel in a Wait": {
+			replacements: []replacement{{signalWait, "const approvals = getApprovalChannel();\n      return Wait.until(approvals.forOne(\"priority\"));"}},
+			codes:        []string{"dynamic_wait_condition"},
+		},
+		"local shadows a Channel in a publish": {
+			replacements: []replacement{{publish, "const approvals = getApprovalChannel();\n    approvals.publish(context, decision);"}},
+			codes:        []string{"dynamic_resource_access"},
+		},
+		"one Wait returned twice": {
+			replacements: []replacement{
+				{"  waitFor(context: Context, input: ApprovalInput): Wait {\n", "  waitFor(context: Context, input: ApprovalInput): Wait {\n    const waiting = Wait.until(approvals.forOne());\n"},
+				{signalWait, "if (input.minutes > 1) return waiting;\n      return waiting;"},
+			},
+			check: func(t *testing.T, graph *Graph) {
+				waits := 0
+				for _, node := range graph.Nodes {
+					if node.Kind == "wait" && node.ParentID == "step:AwaitApproval" {
+						waits++
+					}
+				}
+				require.Equal(t, 5, waits)
+			},
+		},
+		"Stream write with a literal key in an RPC": {
+			replacements: []replacement{{publish, `progress["write"](context, decision);`}},
+			codes:        []string{"step_progress_outside_step"},
+		},
+		"publish with a literal key": {
+			replacements: []replacement{{publish, `approvals["publish"](context, decision);`}},
+			check: func(t *testing.T, graph *Graph) {
+				require.True(t, hasScriptEdge(graph, "resource_publish", "rpc:approve", "resource:channel:approvals"))
+			},
+		},
+		"read with a literal key is the only access": {
+			replacements: []replacement{
+				{"    return { output: status.get(context) };", `    return { output: status["get"](context) };`},
+				{`    status.set(context, "timed out");`, ""},
+				{"    status.set(context, approvals.results(context).join(\",\"));", ""},
+			},
+			check: func(t *testing.T, graph *Graph) {
+				require.True(t, hasScriptEdge(graph, "resource_read", "resource:attribute:status", "rpc:approve"))
+			},
+		},
+		"publish with a computed key": {
+			replacements: []replacement{{publish, "const method = \"publish\";\n    approvals[method](context, decision);"}},
+			codes:        []string{"dynamic_resource_access"},
+		},
+	}
+	helpers := "\nfunction plannedMovement(input: string) {\n  return StepMovement.of(FailingWait, input);\n}\n" +
+		"\nfunction getApprovalChannel() {\n  return buckets;\n}\n"
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := string(source)
+			for _, change := range testCase.replacements {
+				require.Contains(t, modified, change.original)
+				modified = strings.Replace(modified, change.original, change.replacement, 1)
+			}
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified+helpers), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+			require.NoError(t, err)
+			errorCodes := make(map[string]bool)
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Severity == "error" {
+					errorCodes[diagnostic.Code] = true
+				}
+			}
+			expectedCodes := make(map[string]bool)
+			for _, code := range testCase.codes {
+				expectedCodes[code] = true
+			}
+			require.Equal(t, expectedCodes, errorCodes, "%+v", graph.Diagnostics)
+			require.Equal(t, len(testCase.codes) == 0, graph.Valid)
+			for _, diagnostic := range graph.Diagnostics {
+				require.NotEqual(t, "unused_resource", diagnostic.Code, diagnostic.Message)
+			}
+			nodeIDs := make(map[string]bool)
+			for _, node := range graph.Nodes {
+				require.False(t, nodeIDs[node.ID], "duplicate node %s", node.ID)
+				nodeIDs[node.ID] = true
+			}
+			edgeKeys := make(map[string]bool)
+			for _, edge := range graph.Edges {
+				key := edge.Kind + " " + edge.From + " " + edge.To + " " + edge.Label
+				require.False(t, edgeKeys[key], "duplicate edge %s", key)
+				edgeKeys[key] = true
+			}
+			if testCase.check != nil {
+				testCase.check(t, graph)
+			}
+		})
+	}
+}
+
+// The review sources in testdata/typescript/shapes either render the correct graph or are blocked.
+// shapes.golden.txt records each graph's decisions, Waits, and edges; it was checked by hand.
+func TestTypeScriptReviewShapes(t *testing.T) {
+	expectedErrorCodes := map[string][]string{
+		"baseline": nil, "both": nil, "computedLiteral": nil, "contextWeakMap": nil, "hard": nil,
+		"helperNestedBinding": nil, "helperParameter": nil, "innerReturn": nil, "nestedHelper": nil,
+		"r03-void-helper": nil, "r10-weakmap": nil, "repeatHelper": nil, "reusedWait": nil,
+		"rpcHelperVoidPath": nil, "streamReboundWriter": nil, "sync": nil, "thisField": nil,
+		"unreachableAfterEmpty": nil, "unrelatedMap": nil, "waitTernary": nil,
+		"aliasMutation": {"dynamic_step_target"}, "aliasPush": {"dynamic_step_target"},
+		"arrayDirectAlias": {"dynamic_step_target"}, "conditionalPush": {"dynamic_step_target"},
+		"directAliasMutation": {"dynamic_step_target"}, "directAliasPush": {"dynamic_step_target"},
+		"originalAliasMutation": {"dynamic_step_target"}, "passed": {"dynamic_step_target"},
+		"r01-alias": {"dynamic_step_target"}, "r02-spread": {"dynamic_step_target"},
+		"spread": {"dynamic_step_target"}, "spreadConditional": {"dynamic_step_target"},
+		"spreadEmpty": {"dynamic_step_target"}, "spreadPassed": {"dynamic_step_target"},
+		"spreadPush": {"dynamic_step_target"}, "typedAlias": {"dynamic_step_target"},
+		"unconditionalPush": {"dynamic_step_target"},
+		"blockShadow":       {"dynamic_resource_access"}, "computedLocal": {"dynamic_resource_access"},
+		"computedModule": {"dynamic_resource_access"}, "contextAlias": {"dynamic_resource_access"},
+		"contextTypeAlias": {"dynamic_resource_access"}, "fieldReassigned": {"dynamic_resource_access"},
+		"helperAlias": {"dynamic_resource_access"}, "helperChangedToBuckets": {"dynamic_resource_access"},
+		"helperInstance": {"dynamic_resource_access"}, "helperReassign": {"dynamic_resource_access"},
+		"helperRecursiveResources": {"dynamic_resource_access"}, "localAlias": {"dynamic_resource_access"},
+		"localInstanceComputed": {"dynamic_resource_access"}, "parameterShadow": {"dynamic_resource_access"},
+		"r04-this-chain": {"dynamic_resource_access"}, "r05-reassigned-helper": {"dynamic_resource_access"},
+		"r06-resource-recursion": {"dynamic_resource_access"}, "r07-context-alias": {"dynamic_resource_access"},
+		"r08-unresolved-computed": {"dynamic_resource_access"}, "r09-writer-computed": {"dynamic_resource_access"},
+		"streamComputedWriter": {"dynamic_resource_access"}, "thisChainWrong": {"dynamic_resource_access"},
+		"moduleReassigned": {"dynamic_resource_access", "dynamic_wait_condition"},
+		"moduleReusedWait": {"hidden_dex_wait"},
+		"r11-result-list":  {"hidden_dex_decision"},
+		"reusedResult":     {"hidden_dex_decision"},
+		"recursiveHelper":  {"dynamic_resource_access", "hidden_dex_decision"},
+		"destructured":     {"dynamic_class", "dynamic_resource_access", "dynamic_step_target", "unknown_step_target"},
+		"thisComputed":     {"dynamic_class", "dynamic_resource_access", "dynamic_step_target", "unknown_step_target"},
+		// Third review: each shape renders the correct graph or is blocked.
+		"review3-arrowHelper":                   {"dynamic_resource_access"},
+		"review3-baseline":                      nil,
+		"review3-callbackDeferred":              {"dynamic_resource_access"},
+		"review3-constructorField":              nil,
+		"review3-contextDestructure":            {"dynamic_resource_access"},
+		"review3-contextInferred":               {"dynamic_resource_access"},
+		"review3-fieldConditionComputedLiteral": {"dynamic_wait_condition"},
+		"review3-fieldNamedHelper":              {"dynamic_class"},
+		"review3-flowChain":                     nil,
+		"review3-flowConstructorReassign":       {"dynamic_resource_access"},
+		"review3-flowGetter":                    {"dynamic_resource_access"},
+		"review3-flowReflect":                   {"dynamic_class", "dynamic_step_target"},
+		"review3-flowSubclass":                  {"dynamic_step_target"},
+		"review3-functionHelper":                {"dynamic_class", "dynamic_resource_access"},
+		"review3-getter":                        {"dynamic_resource_access"},
+		"review3-helperApply":                   {"dynamic_resource_access"},
+		"review3-helperBind":                    {"dynamic_resource_access"},
+		"review3-helperCall":                    {"dynamic_resource_access"},
+		"review3-helperCallShadow":              {"dynamic_resource_access"},
+		"review3-helperContextInference":        nil,
+		"review3-inferredCallback":              {"dynamic_resource_access"},
+		"review3-methodReplacement":             {"dynamic_resource_access"},
+		"review3-moduleConditionAlias":          nil,
+		"review3-moduleObjectAlias":             {"dynamic_resource_access"},
+		"review3-namespaceContext":              {"dynamic_resource_access"},
+		"review3-parameterAliasField":           nil,
+		"review3-paramProperty":                 nil,
+		"review3-propertyReflect":               {"dynamic_resource_access"},
+		"review3-proxyResource":                 {"dynamic_resource_access"},
+		"review3-reassignedCtor":                {"dynamic_resource_access"},
+		"review3-reassignedMethod":              {"dynamic_resource_access"},
+		"review3-reassignedViaHelper":           {"dynamic_class", "dynamic_resource_access"},
+		"review3-reboundArrow":                  {"dynamic_resource_access"},
+		"review3-reboundMethod":                 {"dynamic_resource_access"},
+		"review3-resourceDefaultParameter":      {"dynamic_resource_access"},
+		"review3-resourceSubclass":              {"dynamic_resource_access"},
+		"review3-rpcCancelSameName":             nil,
+		"review3-rpcDuplicateProperty":          {"dynamic_step_target"},
+		"review3-rpcHelperReturnCall":           nil,
+		"review3-rpcHiddenExpressionHelper":     nil,
+		"review3-rpcListSameName":               nil,
+		"review3-rpcListShadowUndefined":        nil,
+		"review3-rpcListShorthand":              nil,
+		"review3-rpcShadowUndefined":            {"hidden_dex_decision"},
+		"review3-rpcVoidHelperCall":             nil,
+		"review3-stepReflect":                   {"dynamic_class", "dynamic_resource_access"},
+		"review3-streamPropertySameName":        nil,
+		"review3-unusedArrow":                   {"dynamic_resource_access"},
+		"review3-unusedFunction":                {"dynamic_resource_access"},
+		"review3-unusedThisArrow":               {"dynamic_resource_access"},
+		"review3-waitMutatedMethod":             {"dynamic_resource_access"},
+		"review3-waitPropertySameName":          nil,
+		"review3-waitResultProperty":            nil,
+	}
+	directory := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "shapes")
+	sources, err := filepath.Glob(filepath.Join(directory, "*.ts"))
+	require.NoError(t, err)
+	require.Len(t, sources, len(expectedErrorCodes))
+	var summary strings.Builder
+	for _, sourcePath := range sources {
+		name := strings.TrimSuffix(filepath.Base(sourcePath), ".ts")
+		expected, isListed := expectedErrorCodes[name]
+		require.True(t, isListed, name)
+		graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+		require.NoError(t, err)
+		errorCodes := make([]string, 0)
+		for _, diagnostic := range graph.Diagnostics {
+			if diagnostic.Severity == "error" && !slices.Contains(errorCodes, diagnostic.Code) {
+				errorCodes = append(errorCodes, diagnostic.Code)
+			}
+		}
+		if expected == nil {
+			expected = []string{}
+		}
+		require.Equal(t, expected, errorCodes, "%s: %+v", name, graph.Diagnostics)
+		require.Equal(t, len(expected) == 0, graph.Valid, name)
+		fmt.Fprintf(&summary, "== %s valid=%t\n", name, graph.Valid)
+		if !graph.Valid {
+			continue
+		}
+		for _, node := range graph.Nodes {
+			if node.Kind == "decision" || node.Kind == "wait" {
+				fmt.Fprintf(&summary, "node %s condition=%q\n", node.ID, node.Condition)
+			}
+		}
+		for _, edge := range graph.Edges {
+			fmt.Fprintf(&summary, "edge %s %s -> %s %s\n", edge.Kind, edge.From, edge.To, edge.Label)
+		}
+		for _, diagnostic := range graph.Diagnostics {
+			fmt.Fprintf(&summary, "%s %s %s\n", diagnostic.Severity, diagnostic.Code, diagnostic.Message)
+		}
+	}
+	goldenPath := filepath.Join("testdata", "typescript", "shapes.golden.txt")
+	if os.Getenv("UPDATE_SCRIPT_GOLDENS") == "1" {
+		require.NoError(t, os.WriteFile(goldenPath, []byte(summary.String()), 0o644))
+	}
+	golden, err := os.ReadFile(goldenPath)
+	require.NoError(t, err)
+	require.Equal(t, string(golden), summary.String())
+}
+
+// The SDK stream integration Flow names a local writer like the Stream field it comes from.
+func TestTypeScriptSDKStreamFlowWriterIsSupported(t *testing.T) {
+	directory := filepath.Dir(scriptFixture(t, "typescript"))
+	source, err := os.ReadFile(filepath.Join("..", "..", "..", "sdk-typescript", "test", "integ", "stream_flow.ts"))
+	require.NoError(t, err)
+	packageSource := strings.ReplaceAll(string(source), `"../../src/index.js"`, `"@superdurable/dex"`)
+	require.NotEqual(t, string(source), packageSource)
+	sourcePath := filepath.Join(directory, "stream_flow.ts")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(packageSource), 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	hasStreamWrite := false
+	for _, edge := range graph.Edges {
+		if edge.Kind == "resource_write" && strings.HasPrefix(edge.To, "resource:stream:") && edge.Label == "write" {
+			hasStreamWrite = true
+		}
+	}
+	require.True(t, hasStreamWrite, "%+v", graph.Edges)
+}
+
+func checkGuardedRPCResult(t *testing.T, graph *Graph) {
+	t.Helper()
+	conditions := make([]string, 0)
+	for _, node := range graph.Nodes {
+		if node.Kind == "decision" && node.ParentID == "rpc:approve" {
+			conditions = append(conditions, node.Condition)
+		}
+	}
+	require.Equal(t, []string{`!(decision === "skip")`}, conditions)
+	require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `!(decision === "skip")`))
+}
+
+// rpcTransitionTargets returns the Steps that the RPC decisions with condition schedule.
+func rpcTransitionTargets(graph *Graph, rpcID string, condition string) []string {
+	decisions := make(map[string]bool)
+	for _, node := range graph.Nodes {
+		if node.Kind == "decision" && node.ParentID == rpcID && node.Condition == condition {
+			decisions[node.ID] = true
+		}
+	}
+	targets := make([]string, 0)
+	for _, edge := range graph.Edges {
+		if edge.Kind == "transition" && decisions[edge.From] {
+			targets = append(targets, edge.To)
+		}
+	}
+	return targets
+}
+
+func hasScriptEdge(graph *Graph, kind string, from string, to string) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind && edge.From == from && edge.To == to {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTypeScriptRPCCancelsRegisteredInstance(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+	source, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	modified := strings.Replace(string(source), "cancelingSteps: [AwaitApproval]", "cancelingSteps: [this.approval]", 1)
+	require.NotEqual(t, string(source), modified)
+	require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	cancellations := make([]Cancellation, 0)
+	for _, node := range graph.Nodes {
+		if node.ID == "decision:rpc:approve:137:14" {
+			cancellations = node.Decision.Cancellations
+		}
+	}
+	require.Equal(t, []Cancellation{{StepID: "step:AwaitApproval", Scope: "all"}}, cancellations)
+}
+
+func TestTypeScriptMultipleFlowsMarkEachFlow(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+	source, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	secondFlow := "\nexport class ReviewFlow implements Flow<number> {\n  getSteps() {\n    return StepList.startStep(new ReviewBounds());\n  }\n}\n"
+	require.NoError(t, os.WriteFile(sourcePath, append(source, secondFlow...), 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	require.Equal(t, []string{"multiple_flows"}, diagnosticCodes(graph))
+	flowNodes := make([]string, 0)
+	for _, node := range graph.Nodes {
+		if node.Kind == "unknown" {
+			require.NotNil(t, node.Span)
+			flowNodes = append(flowNodes, node.ID)
+		}
+	}
+	require.Equal(t, []string{"unknown:flow:ApprovalFlow", "unknown:flow:ReviewFlow"}, flowNodes)
 }
 
 func TestScriptStepAnnotationDiagnostics(t *testing.T) {

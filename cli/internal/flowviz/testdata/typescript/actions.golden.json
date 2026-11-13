@@ -17,6 +17,54 @@
   },
   "nodes": [
     {
+      "id": "decision:rpc:cancelReview:82:12",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:cancelReview",
+      "phase": "rpc",
+      "span": {
+        "startLine": 82,
+        "startColumn": 12,
+        "endLine": 82,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:describeStatus:86:12",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describeStatus",
+      "phase": "rpc",
+      "span": {
+        "startLine": 86,
+        "startColumn": 12,
+        "endLine": 86,
+        "endColumn": 30
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:rejectRefund:73:12",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:rejectRefund",
+      "phase": "rpc",
+      "span": {
+        "startLine": 73,
+        "startColumn": 12,
+        "endLine": 73,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
       "id": "decision:step:FinishStep:45:12",
       "kind": "decision",
       "name": "forceComplete",
@@ -113,6 +161,22 @@
   "edges": [
     {
       "id": "edge:0001",
+      "kind": "resource_write",
+      "from": "rpc:cancelReview",
+      "to": "resource:attribute:caseStatus",
+      "label": "set",
+      "span": {
+        "startLine": 81,
+        "startColumn": 5,
+        "endLine": 81,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0002",
       "kind": "resource_lock",
       "from": "rpc:rejectRefund",
       "to": "resource:attribute:caseStatus",
@@ -127,9 +191,37 @@
         "phase": "rpc",
         "rpcName": "rejectRefund"
       }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_write",
+      "from": "rpc:rejectRefund",
+      "to": "resource:attribute:caseStatus",
+      "label": "set",
+      "span": {
+        "startLine": 72,
+        "startColumn": 5,
+        "endLine": 72,
+        "endColumn": 57
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unused_resource",
+      "message": "attribute gate-request-key has no direct access in the source file",
+      "span": {
+        "startLine": 28,
+        "startColumn": 24,
+        "endLine": 28,
+        "endColumn": 70
+      }
+    }
+  ],
   "groups": [
     {
       "id": "review",

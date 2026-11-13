@@ -722,6 +722,54 @@
         "endLine": 91,
         "endColumn": 112
       }
+    },
+    {
+      "id": "edge:0026",
+      "kind": "resource_read",
+      "from": "resource:channel:reviewCompleted",
+      "to": "step:CollectReviews",
+      "label": "branchResults",
+      "span": {
+        "startLine": 161,
+        "startColumn": 29,
+        "endLine": 161,
+        "endColumn": 74
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0027",
+      "kind": "resource_publish",
+      "from": "step:EscalateReview",
+      "to": "resource:channel:reviewCompleted",
+      "label": "endBranch",
+      "span": {
+        "startLine": 135,
+        "startColumn": 12,
+        "endLine": 135,
+        "endColumn": 91
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0028",
+      "kind": "resource_publish",
+      "from": "step:ReviewDocument",
+      "to": "resource:channel:reviewCompleted",
+      "label": "endBranch",
+      "span": {
+        "startLine": 147,
+        "startColumn": 12,
+        "endLine": 147,
+        "endColumn": 75
+      },
+      "metadata": {
+        "phase": "execute"
+      }
     }
   ],
   "diagnostics": [],

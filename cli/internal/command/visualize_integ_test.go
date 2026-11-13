@@ -147,8 +147,9 @@ func TestVisualizeDynamicPythonTargetWritesPartialArtifacts(t *testing.T) {
 	require.Contains(t, string(data), `"kind": "unknown"`)
 }
 
-func TestVisualizeRepresentativeGoAndPythonFlows(t *testing.T) {
+func TestVisualizeRepresentativeFlows(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	tests := []struct {
 		name        string
 		source      string
@@ -164,6 +165,11 @@ func TestVisualizeRepresentativeGoAndPythonFlows(t *testing.T) {
 		{name: "python stream", source: "examples/python/dex_examples/primitives/stream/stream_flow.py", expectKinds: []string{"stream", "resource_write"}},
 		{name: "go timeout", source: "examples/go/patterns/timeout/workflow.go", expectKinds: []string{"timeout_handler", "timer"}},
 		{name: "python timeout", source: "examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py", expectKinds: []string{"timeout_handler", "timer"}},
+		{name: "typescript drain", source: "examples/typescript/src/patterns/drain-channels/internal/drain-internal-channels-flow.ts", expectKinds: []string{"wait_condition", "resource_publish"}},
+		{name: "typescript branches", source: "examples/typescript/src/primitives/step-decision/step-decision-flow.ts", expectKinds: []string{"decision", "cancel"}},
+		{name: "typescript RPC", source: "examples/typescript/src/primitives/rpc/rpc-flow.ts", expectKinds: []string{"rpc", "resource_publish", "wait_condition"}},
+		{name: "typescript stream", source: "examples/typescript/src/primitives/stream/stream-flow.ts", expectKinds: []string{"stream", "resource_write"}},
+		{name: "typescript timeout", source: "examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts", expectKinds: []string{"timeout_handler", "timer"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -171,6 +177,9 @@ func TestVisualizeRepresentativeGoAndPythonFlows(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
 			require.True(t, graph.Valid, graph.Diagnostics)
+			if strings.HasPrefix(test.name, "typescript") {
+				require.Empty(t, graph.Diagnostics)
+			}
 			for _, kind := range test.expectKinds {
 				require.True(t, graphHasKind(graph, kind), "missing %s in nodes or edges", kind)
 			}
@@ -322,7 +331,10 @@ func TestVisualizeRepresentsStaticWaitFailures(t *testing.T) {
 		"examples/go/primitives/proceed-on-wait-failure/workflow.go",
 		"examples/python/dex_examples/primitives/options_override/options_override_flow.py",
 		"examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py",
+		"examples/typescript/src/primitives/options-override/options-override-flow.ts",
+		"examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts",
 	}
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	for _, source := range sources {
 		t.Run(source, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, source), flowviz.AnalyzeOptions{})
@@ -350,7 +362,9 @@ func TestVisualizeProducesStructuredStepInternals(t *testing.T) {
 	}{
 		{name: "go", source: "examples/go/primitives/channel/workflow.go"},
 		{name: "python", source: "examples/python/dex_examples/primitives/channel/channel_flow.py"},
+		{name: "typescript", source: "examples/typescript/src/primitives/channel/channel-flow.ts"},
 	}
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, test.source), flowviz.AnalyzeOptions{})
@@ -361,10 +375,10 @@ func TestVisualizeProducesStructuredStepInternals(t *testing.T) {
 			require.Len(t, waits, 1)
 			require.NotNil(t, waits[0].Wait)
 			require.Equal(t, "anyOf", waits[0].Wait.Type)
-			if test.name == "python" {
-				require.Equal(t, "step:ChannelWait", waits[0].ParentID)
-			} else {
+			if test.name == "go" {
 				require.Equal(t, "step:channelWait", waits[0].ParentID)
+			} else {
+				require.Equal(t, "step:ChannelWait", waits[0].ParentID)
 			}
 			require.Equal(t, []string{"channel", "timer"}, waitConditionKinds(waits[0].Wait.Conditions))
 			require.Contains(t, waits[0].Wait.Conditions[0].Label, ".for 1")
@@ -389,6 +403,15 @@ func TestVisualizeGroupsConditionalWaitReturns(t *testing.T) {
 	require.NoError(t, os.WriteFile(goSource, []byte(goConditionalWaitFlow), 0o644))
 	pythonSource := filepath.Join(directory, "conditional_wait.py")
 	require.NoError(t, os.WriteFile(pythonSource, []byte(pythonConditionalWaitFlow), 0o644))
+	typeScriptSource := filepath.Join(directory, "conditional_wait.ts")
+	require.NoError(t, os.WriteFile(typeScriptSource, []byte(typeScriptConditionalWaitFlow), 0o644))
+	typeScriptTernarySource := filepath.Join(directory, "conditional_wait_ternary.ts")
+	ternaryFlow := strings.Replace(typeScriptConditionalWaitFlow,
+		"if (useSignal) {\n      return Wait.until(signal.forOne());\n    }\n    return Wait.until(Timer.byDuration(2_000));",
+		"return useSignal ? Wait.until(signal.forOne()) : Wait.until(Timer.byDuration(2_000));", 1)
+	require.NotEqual(t, typeScriptConditionalWaitFlow, ternaryFlow)
+	require.NoError(t, os.WriteFile(typeScriptTernarySource, []byte(ternaryFlow), 0o644))
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 
 	tests := []struct {
 		name           string
@@ -397,6 +420,8 @@ func TestVisualizeGroupsConditionalWaitReturns(t *testing.T) {
 	}{
 		{name: "go", source: goSource, conditionKinds: []string{"channel", "timer"}},
 		{name: "python returns", source: pythonSource, conditionKinds: []string{"channel", "timer"}},
+		{name: "typescript returns", source: typeScriptSource, conditionKinds: []string{"channel", "timer"}},
+		{name: "typescript conditional expression", source: typeScriptTernarySource, conditionKinds: []string{"channel", "timer"}},
 		{name: "python conditional resource", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/conditional_complete_flow.py"), conditionKinds: []string{"channel", "channel"}},
 	}
 	for _, test := range tests {
@@ -461,12 +486,14 @@ func TestVisualizeFormatsChannelBoundsAndDynamicTimers(t *testing.T) {
 	goModule := "module flowvizwaitbounds\n\ngo 1.24.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.Join(repositoryRoot, "sdk-go") + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(goModule), 0o644))
 	sources := map[string]string{
-		"go":     goWaitBoundsFlow,
-		"python": pythonWaitBoundsFlow,
+		"go":         goWaitBoundsFlow,
+		"python":     pythonWaitBoundsFlow,
+		"typescript": typeScriptWaitBoundsFlow,
 	}
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	for language, source := range sources {
 		t.Run(language, func(t *testing.T) {
-			extension := map[string]string{"go": "go", "python": "py"}[language]
+			extension := map[string]string{"go": "go", "python": "py", "typescript": "ts"}[language]
 			sourcePath := filepath.Join(directory, "bounds."+extension)
 			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
 			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
@@ -477,10 +504,13 @@ func TestVisualizeFormatsChannelBoundsAndDynamicTimers(t *testing.T) {
 			for _, fragment := range []string{"Messages.for 2", "Messages.at least 3", "Messages.at most 4", "Messages.for 2…5", "Buckets["} {
 				require.Contains(t, labels, fragment)
 			}
-			if language == "go" {
+			switch language {
+			case "go":
 				require.Contains(t, labels, "time.Duration(input) * time.Second timer")
-			} else {
+			case "python":
 				require.Contains(t, labels, "timedelta(seconds=input) timer")
+			default:
+				require.Contains(t, labels, "input * 1000 timer")
 			}
 			var hasMap bool
 			for _, resource := range graph.Nodes {
@@ -587,7 +617,9 @@ func TestVisualizeStepStreamProgress(t *testing.T) {
 		{name: "python sync generator", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/step_streaming_flow.py")},
 		{name: "python async", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/async_stream_flow.py")},
 		{name: "python buffered alias", source: pythonSource},
+		{name: "typescript", source: filepath.Join(repositoryRoot, "examples/typescript/src/primitives/stream/stream-flow.ts")},
 	}
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), test.source, flowviz.AnalyzeOptions{})
@@ -615,12 +647,14 @@ func TestVisualizeRejectsStepProgressFromRPC(t *testing.T) {
 	goModule := "module flowvizinvalidprogress\n\ngo 1.24.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.Join(repositoryRoot, "sdk-go") + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(goModule), 0o644))
 	sources := map[string]string{
-		"go":     goRPCProgressFlow,
-		"python": pythonRPCProgressFlow,
+		"go":         goRPCProgressFlow,
+		"python":     pythonRPCProgressFlow,
+		"typescript": typeScriptRPCProgressFlow,
 	}
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	for language, source := range sources {
 		t.Run(language, func(t *testing.T) {
-			sourcePath := filepath.Join(directory, "invalid."+map[string]string{"go": "go", "python": "py"}[language])
+			sourcePath := filepath.Join(directory, "invalid."+map[string]string{"go": "go", "python": "py", "typescript": "ts"}[language])
 			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
 
 			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
@@ -1147,6 +1181,106 @@ class BoundsFlow(Flow[int]):
 
     def get_persistence_schema(self):
         return PersistenceSchema.of(messages, buckets)
+`
+
+const typeScriptConditionalWaitFlow = `import { Channel, StepList, Timer, Wait, booleanCodec, gracefulComplete, voidCodec, type Context, type Flow, type PersistenceSchema, type Step, type StepDecision } from "@superdurable/dex";
+
+const signal = new Channel("Signal", voidCodec);
+
+class ConditionalWaitStep implements Step<boolean> {
+  public readonly inputCodec = booleanCodec;
+
+  public waitFor(_context: Context, useSignal: boolean): Wait {
+    if (useSignal) {
+      return Wait.until(signal.forOne());
+    }
+    return Wait.until(Timer.byDuration(2_000));
+  }
+
+  public execute(_context: Context, input: boolean): StepDecision {
+    return gracefulComplete(input);
+  }
+}
+
+export class ConditionalWaitFlow implements Flow<boolean> {
+  private readonly start = new ConditionalWaitStep();
+
+  public getSteps() {
+    return StepList.startStep(this.start);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { channels: [signal] };
+  }
+}
+`
+
+const typeScriptWaitBoundsFlow = `import { Channel, ChannelMap, StepList, Timer, Wait, doubleCodec, gracefulComplete, stringCodec, type Context, type Flow, type PersistenceSchema, type Step, type StepDecision } from "@superdurable/dex";
+
+const messages = new Channel("Messages", stringCodec);
+const buckets = new ChannelMap("Buckets", stringCodec);
+
+class BoundsStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.anyOf(
+      messages.forN(2),
+      messages.atLeast(3),
+      messages.atMost(4),
+      messages.range(2, 5),
+      buckets.forN("priority", input),
+      Timer.byDuration(input * 1000),
+    );
+  }
+
+  public execute(_context: Context, input: number): StepDecision {
+    return gracefulComplete(input);
+  }
+}
+
+export class BoundsFlow implements Flow<number> {
+  private readonly start = new BoundsStep();
+
+  public getSteps() {
+    return StepList.startStep(this.start);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { channels: [messages, buckets] };
+  }
+}
+`
+
+const typeScriptRPCProgressFlow = `import { Stream, StepList, gracefulComplete, rpc, stringCodec, type Context, type Flow, type PersistenceSchema, type RPCResult, type Step, type StepDecision } from "@superdurable/dex";
+
+const progress = new Stream("Progress", stringCodec, 1024);
+
+class Start implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(input);
+  }
+}
+
+export class ProgressFlow implements Flow<string> {
+  private readonly start = new Start();
+
+  public getSteps() {
+    return StepList.startStep(this.start);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { streams: [progress] };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public report(context: Context, input: string): RPCResult<string> {
+    progress.write(context, input);
+    return { output: input };
+  }
+}
 `
 
 const goStepProgressFlow = `package flow

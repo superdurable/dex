@@ -117,7 +117,7 @@ Attribute relations include reads, writes, and locks. The Python analyzer follow
 
 Stream relations describe observable application output, not control flow. They are hidden by default in Designs and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. The graph leaves out heartbeat calls and checkpoint reads.
 
-Go reports **step_progress_outside_step** when an RPC or Flow timeout handler calls **Stream.Write** or creates a writer with **NewBufferedTextStream**. The check also follows same-package helpers and buffered writer aliases. The error names the handler, Stream, and helper location. Move the output to a Step. An RPC can publish a Channel message or return **NextSteps** to schedule that Step.
+Go reports **step_progress_outside_step** when an RPC or Flow timeout handler calls **Stream.Write** or creates a writer with **NewBufferedTextStream**. The check also follows same-package helpers and buffered writer aliases. The error names the handler, Stream, and helper location. Move the output to a Step. An RPC can publish a Channel message or return **NextSteps** to schedule that Step. Since dexcli 1.47.3, TypeScript reports the same diagnostic for **write** or **bufferedText** on a Stream in an RPC or **handleTimeout**, including through a same-file helper.
 
 ## Supported source profile
 
@@ -160,14 +160,11 @@ The TypeScript analyzer recognizes these source shapes:
 - Conditions from **if**, **switch**, conditional expressions, loops, and **try** blocks.
 - **ExecuteFailure.proceedTo** in **getStepOptions**, directly or through a helper method or function in the same file.
 - Attribute, Channel, and Stream definitions, and manifest-declared Connector factories.
+- Since dexcli 1.47.3, **waitFor**, RPC handlers, **handleTimeout**, and resource access in the shapes listed in [TypeScript Waits, RPCs, and resource access](#typescript-waits-rpcs-and-resource-access).
 
-The TypeScript analyzer does not support these features yet:
+More than one Flow in one file produces **multiple_flows**, with one unknown node for each Flow class, as for Go and Python.
 
-- WaitFor methods. A Step with **waitFor** produces the blocking **typescript_wait_for_unsupported** diagnostic.
-- More than one Flow in one file. This produces **multiple_flows**.
-- RPC handlers and **handleTimeout**. Their decisions are not shown, so a Step that only an RPC schedules can report **unreachable_step**.
-- Resource reads, writes, locks, state loads, and Stream writes inside local handlers. The graph has no resource edges for local Steps and skips unused-resource warnings.
-- SubFlows, and the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
+The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go. The analyzer also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
 An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive analysis across files are not supported.
 
@@ -178,6 +175,50 @@ Version 2.0 retains every Version 1 field and requires Step groups and explanati
 Version 2.0 builds an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
 Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK factories **MustNewQueryStep** and **MustNewMutationStep** are still supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. A dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
+
+### TypeScript Waits, RPCs, and resource access {#typescript-waits-rpcs-and-resource-access}
+
+Since dexcli 1.47.3, the TypeScript analyzer reads these handler parts. It accepts only the shapes listed here. Any other shape that it detects is a blocking diagnostic that names it.
+
+The graph describes source written in these shapes in good faith. It does not hold against source written to mislead the analyzer. For untrusted source, the guarantee is that the analyzer never runs it when you pass a [trusted TypeScript compiler](#typescript-compiler).
+
+Every **return** ends its path. Statements after a statement that always returns or throws are unreachable: they add no decision, Wait, or edge.
+
+**waitFor**:
+
+- The return value is a **Wait.until**, **Wait.allOf**, **Wait.anyOf**, **Wait.anyCombinationOf**, or **Wait.skipImmediately** call. The call is written in the **return**, or bound to a **const** declared directly in the **waitFor** body that is used only as a returned value. Each return is its own Wait node. Conditions come from **if**, **switch**, and conditional expressions, as for Execute decisions.
+- Each Wait argument is a condition call written in place with a dot: **Timer.byDuration**, **SubFlow.run**, **ConditionCombination.of**, or a **forOne**, **forN**, **atLeast**, **atMost**, **range**, or Join branch condition on a resource reference described below. Each **ConditionCombination.of** numbers its own conditions from 0, as Go numbers a **Combo**. A static millisecond duration gets a unit label, such as **2 seconds timer**.
+- A **waitFor** that only throws is a failure Wait, as for Go and Python.
+- The graph uses the Go names for two Wait types: **skipWaitImmediately** and **anyComboOf**.
+
+RPC handlers and **handleTimeout**:
+
+- An RPC returns an **RPCResult** object literal written in the **return**, nothing, or a call to a method of the Flow class or a function of the file. Each object literal is an **rpcResult** decision. A called method contributes its own results once for each call, and a method that returns nothing ends the caller's path. Nothing means an empty **return**, **void** expression, or the global **undefined**.
+- **nextSteps** is an array literal of **StepMovement.of** calls written in the object literal. It may also be a block **const** array literal that nothing else reads. **cancelingSteps** follows the same rule and lists Step targets.
+- **handleTimeout** decisions follow the Execute rules.
+
+Resource access in Execute, **waitFor**, RPC, and **handleTimeout**:
+
+- A resource is an **Attribute**, **AttributeMap**, **Channel**, **ChannelMap**, **Join**, or **Stream** created with **new**, optionally configured with **syncToAttributeStore** or **hardDeleteOnNull**. It is declared as a module-level variable or a Flow field that the file assigns once. The file never writes the resource's members or prototype.
+- A resource reference is a module-level name bound to a resource, including a module-level **const** alias of another resource name. It may also be a **this** field chain that the analyzer can follow to a resource, such as **this.status** in a Flow method, **this.flow.status** in a Step that holds its Flow, or a Step field that holds the resource.
+- An access calls a method by name or with a string literal key on a resource reference, such as **approvals.publish(context, value)** or **progress["write"](context, value)**. The call is written in the handler or helper body, not in a nested function. A read points from the resource to the handler. Writes and publishes point from the handler to the resource.
+- A **bufferedText** writer is bound to a **const** and used only by calling its methods. Its **write** calls are Stream writes.
+- A helper is a method declaration of the handler's class or a function declaration of the file, called directly by name. The analyzer follows a helper up to six calls deep when the helper never reassigns or destructures its parameters and does not call itself. A resource reference passed to a helper binds the matching parameter. An edge reached through a helper records the helper in its metadata.
+- Unused resources produce the same **unused_resource** warning as in Go and Python.
+
+These shapes are blocking diagnostics:
+
+- A **waitFor** return that is not a supported Wait, such as a helper call or a module-level Wait constant, produces **hidden_dex_wait**.
+- A Wait argument that is not a supported condition, such as a spread, a helper call, a bound name, a computed method key, or a condition on a local alias, produces **dynamic_wait_condition**. The graph shows that condition as unknown. The Go analyzer follows condition helpers.
+- An RPC result stored in a variable, any other returned value, or a recursive result helper produces **hidden_dex_decision**.
+- A **nextSteps** or **cancelingSteps** value that is not a supported list, such as an alias, a spread, a list that is changed or passed on, or a movement built in a helper, produces **dynamic_step_target**.
+- These produce **dynamic_resource_access**:
+  - a resource call through a computed key, or a resource access inside a nested function, such as a callback;
+  - any method call on a local alias of a resource;
+  - a helper used as a value, such as a callback, **call**, **apply**, or **bind**; **call**, **apply**, or **bind** on any method or function; an arrow function or function expression field called as a helper; a recursive helper; and a helper that reassigns or destructures a parameter;
+  - a resource passed to a function that the analyzer does not follow, and a Stream writer used in another way;
+  - a write to a member of a resource, an **Object.defineProperty**, **Object.assign**, **Reflect.set**, or similar reflective write on a resource or its prototype, and a class that extends a Dex resource class.
+- A call to a resource method name, such as **get** or **publish**, with a Dex **Context** argument on any other receiver also produces **dynamic_resource_access**. Such receivers include destructured or reassigned names, computed fields, values returned by functions, **new Proxy(...)**, and instances of your own classes. The analyzer recognizes the Dex **Context** and **AsyncContext** types through renamed imports, type aliases, and **const** aliases. A receiver that is provably no resource is not checked: a literal, a function, a Dex import other than a resource class, or a new **Map**, **WeakMap**, **Set**, **WeakSet**, **Array**, **Date**, **RegExp**, **Error**, **Promise**, or **URL**.
 
 ### Trusted TypeScript compiler {#typescript-compiler}
 
