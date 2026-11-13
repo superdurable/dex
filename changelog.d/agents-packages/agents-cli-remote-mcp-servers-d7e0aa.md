@@ -12,8 +12,8 @@ section: Added
   names the variable, never its value. `McpServersToolSource`, source name
   `mcp_servers` (`MCP_SERVERS_TOOL_SOURCE_NAME`, `mcpServersToolSourceName`),
   wraps `McpToolSource`, applies each turn's `approval.always`, and checks it
-  again in the tool Step. The new configuration error codes are
-  `insecure_mcp_server_url` and `literal_credential_header`. The rules and
-  cases are in `agents/conformance/cli_config.json`.
+  again in the tool Step. The new configuration error code is
+  `insecure_mcp_server_url`. The rules and cases are in
+  `agents/conformance/cli_config.json`.
 - `@superdurable/dex-agents-pi-cli` and `dex-agents-deepagents-cli`: writes of
   `mcp_servers` tools wait for approval, as connector writes do.

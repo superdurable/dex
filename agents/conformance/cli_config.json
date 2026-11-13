@@ -10,7 +10,6 @@
     "invalid_url": "dex.server, dex.auth.token_url, connectors.mcp, media.endpoint, or an mcp_servers URL passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
     "insecure_token_url": "dex.auth.token_url is an http URL whose host is not loopback: localhost in any case, an IPv4 address in 127.0.0.0/8, or the IPv6 address ::1 in any spelling. path is \"/dex/auth/token_url\".",
     "insecure_mcp_server_url": "An mcp_servers URL is an http URL whose host is not loopback, by the rule of insecure_token_url. path is \"/mcp_servers/<name>/url\".",
-    "literal_credential_header": "An mcp_servers header whose name is credential-like, by the credential_names rule of approval_display.json, has no ${NAME} reference in its value. path is \"/mcp_servers/<name>/headers/<header>\".",
     "auth_needs_server_url": "dex.auth.mode is not none, but dex.server is auto or omitted: the local dexcli dev takes no credential. path is \"/dex/auth\".",
     "tls_needs_https_server": "dex.tls sets ca_file or server_name, but dex.server is not an https URL. An empty dex.tls passes. path is \"/dex/tls\".",
     "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
@@ -21,7 +20,7 @@
     "unsupported_reasoning_effort": "A session's reasoning_effort passes the schema but is not one of the values the harness command declares, or the command declares none. path is \"/reasoning_effort\"."
   },
   "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript CLI core must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
-  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then dex.auth.token_url, then connectors.mcp, then media.endpoint, then each mcp_servers URL; then insecure_token_url; then insecure_mcp_server_url for each mcp_servers URL; then literal_credential_header for each mcp_servers header; then auth_needs_server_url; then tls_needs_https_server; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values. The mcp_servers checks take the servers in Unicode code point order of their names, and a server's headers in Unicode code point order of their names.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then dex.auth.token_url, then connectors.mcp, then media.endpoint, then each mcp_servers URL; then insecure_token_url; then insecure_mcp_server_url for each mcp_servers URL; then auth_needs_server_url; then tls_needs_https_server; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values. The mcp_servers checks take the servers in Unicode code point order of their names.",
   "harness_sections": [
     "claude",
     "openai",
@@ -3887,7 +3886,7 @@
     },
     {
       "name": "mcp-server-credential-header-with-reference",
-      "description": "A credential-like header passes when its value has at least one ${NAME} reference.",
+      "description": "A header value may hold ${NAME} references, also inside other text.",
       "harness_section": "claude",
       "harness_default_model": "claude-opus-5-5",
       "config": {
@@ -4429,8 +4428,8 @@
       }
     },
     {
-      "name": "mcp-server-literal-authorization",
-      "description": "A credential-like header must take its secret from an environment variable.",
+      "name": "mcp-server-literal-header-values",
+      "description": "A header value may be literal, credential-like header names included; ${NAME} references are recommended for secrets.",
       "harness_section": "claude",
       "harness_default_model": "claude-opus-5-5",
       "config": {
@@ -4438,66 +4437,66 @@
           "studio": {
             "url": "https://mcp.example.com/mcp",
             "headers": {
-              "Authorization": "Bearer abc123"
-            }
-          }
-        }
-      },
-      "error": {
-        "code": "literal_credential_header",
-        "path": "/mcp_servers/studio/headers/Authorization"
-      }
-    },
-    {
-      "name": "mcp-server-literal-api-key-lowercase",
-      "description": "Credential-like names are recognized in any case, as approval displays recognize them.",
-      "harness_section": "claude",
-      "harness_default_model": "claude-opus-5-5",
-      "config": {
-        "mcp_servers": {
-          "studio": {
-            "url": "https://mcp.example.com/mcp",
-            "headers": {
+              "Authorization": "Bearer abc123",
               "x-api-key": "k-1"
             }
           }
         }
       },
-      "error": {
-        "code": "literal_credential_header",
-        "path": "/mcp_servers/studio/headers/x-api-key"
-      }
-    },
-    {
-      "name": "mcp-server-literal-headers-in-name-order",
-      "description": "Headers are checked in Unicode code point order of their names, after the servers' names.",
-      "harness_section": "claude",
-      "harness_default_model": "claude-opus-5-5",
-      "config": {
-        "mcp_servers": {
-          "zeta": {
-            "url": "https://zeta.example.com/mcp",
-            "headers": {
-              "Authorization": "Bearer z"
-            }
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
           },
-          "alpha": {
-            "url": "https://alpha.example.com/mcp",
-            "headers": {
-              "X-Api-Key": "a",
-              "Cookie": "c=1"
-            }
+          "tls": {
+            "ca_file": null,
+            "server_name": null
           }
-        }
-      },
-      "error": {
-        "code": "literal_credential_header",
-        "path": "/mcp_servers/alpha/headers/Cookie"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer abc123",
+              "x-api-key": "k-1"
+            },
+            "trust_tool_annotations": false
+          }
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
       }
     },
     {
-      "name": "insecure-mcp-server-url-checked-before-literal-header",
-      "description": "insecure_mcp_server_url comes before literal_credential_header.",
+      "name": "insecure-mcp-server-url-beside-literal-headers",
+      "description": "A literal header value is allowed, and another server's http URL still fails.",
       "harness_section": "claude",
       "harness_default_model": "claude-opus-5-5",
       "config": {
@@ -4516,32 +4515,6 @@
       "error": {
         "code": "insecure_mcp_server_url",
         "path": "/mcp_servers/zeta/url"
-      }
-    },
-    {
-      "name": "literal-header-checked-before-auth-needs-server-url",
-      "description": "literal_credential_header comes before auth_needs_server_url.",
-      "harness_section": "claude",
-      "harness_default_model": "claude-opus-5-5",
-      "config": {
-        "dex": {
-          "auth": {
-            "mode": "bearer",
-            "source": "env"
-          }
-        },
-        "mcp_servers": {
-          "studio": {
-            "url": "https://mcp.example.com/mcp",
-            "headers": {
-              "Authorization": "Bearer a"
-            }
-          }
-        }
-      },
-      "error": {
-        "code": "literal_credential_header",
-        "path": "/mcp_servers/studio/headers/Authorization"
       }
     }
   ],

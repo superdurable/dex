@@ -26,8 +26,6 @@ from jsonschema import Draft202012Validator, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from dex_agents.approval_display import is_credential_like_name
-
 #: ``dex.server``, ``connectors.mcp``, and ``media.store`` value that lets the CLI core choose.
 AUTO = "auto"
 #: ``workspace`` when the file omits it.
@@ -59,9 +57,9 @@ class ConfigError(Exception):
     Attributes:
         code: The stable error code from the conformance file: ``yaml``,
             ``schema``, ``invalid_url``, ``insecure_token_url``,
-            ``insecure_mcp_server_url``, ``literal_credential_header``,
-            ``auth_needs_server_url``, ``tls_needs_https_server``,
-            ``duplicate_tool``, ``duplicate_connection``, ``model_required``,
+            ``insecure_mcp_server_url``, ``auth_needs_server_url``,
+            ``tls_needs_https_server``, ``duplicate_tool``,
+            ``duplicate_connection``, ``model_required``,
             ``widens_connectors``, ``widens_local_tools``, or
             ``unsupported_reasoning_effort``.
         path: JSON Pointer of the first problem, ``""`` for the whole value.
@@ -88,9 +86,7 @@ class ConfigError(Exception):
        ``tls_needs_https_server`` code, at ``/dex/tls``.
 
     .. versionchanged:: 0.6.4
-       The ``insecure_mcp_server_url`` code, at ``/mcp_servers/<name>/url``,
-       and the ``literal_credential_header`` code, at
-       ``/mcp_servers/<name>/headers/<header>``.
+       The ``insecure_mcp_server_url`` code, at ``/mcp_servers/<name>/url``.
     """
 
     def __init__(
@@ -530,8 +526,8 @@ def resolve_config(
 
     Raises:
         ConfigError: ``schema``, ``invalid_url``, ``insecure_token_url``,
-            ``insecure_mcp_server_url``, ``literal_credential_header``,
-            ``auth_needs_server_url``, ``tls_needs_https_server``,
+            ``insecure_mcp_server_url``, ``auth_needs_server_url``,
+            ``tls_needs_https_server``,
             ``duplicate_tool``, ``duplicate_connection``, or
             ``model_required``, in the conformance file's check order.
 
@@ -622,21 +618,13 @@ def _read_mcp_servers(raw_servers: Mapping[str, Any]) -> dict[str, RemoteMcpServ
 
 
 def _raise_unsafe_mcp_servers(servers: Mapping[str, RemoteMcpServerConfig]) -> None:
-    """Reject an http URL off loopback, then a credential header without a variable."""
+    """Reject an http URL whose host is not loopback."""
     names = sorted(servers)
     for name in names:
         if not is_secure_token_url(servers[name].url):
             raise ConfigError(
                 "insecure_mcp_server_url", _json_pointer(["mcp_servers", name, "url"])
             )
-    for name in names:
-        headers = servers[name].headers
-        for header in sorted(headers):
-            if is_credential_like_name(header) and "${" not in headers[header]:
-                raise ConfigError(
-                    "literal_credential_header",
-                    _json_pointer(["mcp_servers", name, "headers", header]),
-                )
 
 
 def is_session_summary_indexed(config: EffectiveConfig) -> bool:

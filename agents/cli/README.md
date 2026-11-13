@@ -218,10 +218,9 @@ so a Dex credential never reaches another server. A variable that is not set
 or is empty stops the command with exit code 2 and a message that names it,
 such as
 `mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty.`
-A value outside printable ASCII stops it the same way. A header whose name
-looks like a credential, such as `Authorization`, `X-Api-Key`, or `Cookie`,
-must hold at least one `${NAME}` (`literal_credential_header`). Only the
-Worker expands the values. The command never prints, logs, or stores them:
+A value outside printable ASCII stops it the same way. A header value may
+also be literal text, but a literal secret then sits in the file: use a
+`${NAME}` reference for every secret. Only the Worker expands the values. The command never prints, logs, or stores them:
 the effective configuration, the session, and the log file keep the text as
 written.
 

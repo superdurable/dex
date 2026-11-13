@@ -940,11 +940,10 @@ Secrets belong in environment variables. In a header value, each
 **$\{NAME\}** is replaced by the value of the environment variable **NAME** when
 the command starts. **NAME** has ASCII letters, digits, and **_**, and does
 not start with a digit. Any other **$** stays as written. The value is used
-exactly as set: it is not trimmed and not expanded again. A header whose name
-looks like a credential, such as **Authorization**, **X-Api-Key**, or
-**Cookie**, must contain at least one **$\{NAME\}**; otherwise the file fails with
-**literal_credential_header**. An **http** URL on another host fails with
-**insecure_mcp_server_url**.
+exactly as set: it is not trimmed and not expanded again. A header value may
+also be literal text, but a literal secret then sits in the file, so use a
+**$\{NAME\}** reference for every secret. An **http** URL on another host fails
+with **insecure_mcp_server_url**.
 
 **DEX_API_KEY**, **DEX_CREDENTIAL**, and **DEX_CREDENTIAL_FILE** count as not
 set, so a Dex credential never reaches another server. A variable that is not

@@ -9,7 +9,6 @@
 import { readFileSync } from "node:fs";
 import { isIPv6 } from "node:net";
 
-import { isCredentialLikeName } from "@superdurable/dex-agents";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import { parseAllDocuments } from "yaml";
 
@@ -242,10 +241,9 @@ export type TurnConfig = EffectiveConfig;
  * `tls_needs_https_server` rejects `dex.tls` settings without an `https` `dex.server`, at `/dex/tls`.
  *
  * `insecure_mcp_server_url` rejects an http `mcp_servers` URL whose host is not loopback, at
- * `/mcp_servers/<name>/url`. `literal_credential_header` rejects an `mcp_servers` header whose name looks like a
- * credential and whose value has no `${NAME}` reference, at `/mcp_servers/<name>/headers/<header>`.
+ * `/mcp_servers/<name>/url`.
  *
- * Changed in 0.6.4: adds `insecure_mcp_server_url` and `literal_credential_header`.
+ * Changed in 0.6.4: adds `insecure_mcp_server_url`.
  *
  * Changed in 0.6.2: adds `unsupported_reasoning_effort`.
  *
@@ -259,7 +257,6 @@ export type ConfigErrorCode =
   | "invalid_url"
   | "insecure_token_url"
   | "insecure_mcp_server_url"
-  | "literal_credential_header"
   | "auth_needs_server_url"
   | "tls_needs_https_server"
   | "duplicate_tool"
@@ -344,9 +341,9 @@ export function parseConfigYaml(text: string): unknown {
 /**
  * Returns the effective configuration of a parsed configuration file.
  *
- * It checks, in this order, the schema, the URLs, the token URL's scheme, the `mcp_servers` URLs' schemes, the
- * `mcp_servers` credential headers, `dex.auth` and `dex.tls` against `dex.server`, the connector entries in list
- * order, and the model, and throws the first failure. It never reads the environment: `mcp_servers` header values
+ * It checks, in this order, the schema, the URLs, the token URL's scheme, the `mcp_servers` URLs' schemes,
+ * `dex.auth` and `dex.tls` against `dex.server`, the connector entries in list order, and the model, and throws the
+ * first failure. It never reads the environment: `mcp_servers` header values
  * keep their `${NAME}` references.
  *
  * @example
@@ -361,8 +358,7 @@ export function parseConfigYaml(text: string): unknown {
  * Since 0.6.0.
  * @returns The effective configuration.
  * @throws {ConfigError} `schema`, `invalid_url`, `insecure_token_url`, `insecure_mcp_server_url`,
- * `literal_credential_header`, `auth_needs_server_url`, `tls_needs_https_server`, `duplicate_tool`,
- * `duplicate_connection`, or `model_required`.
+ * `auth_needs_server_url`, `tls_needs_https_server`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
  *
  * Changed in 0.6.2: reads `dex.auth` and `dex.tls`, and checks them against `dex.server`.
  *
@@ -402,7 +398,6 @@ export function resolveConfig(
     throw new ConfigError("insecure_token_url", "/dex/auth/token_url");
   }
   throwInsecureMcpServerUrls(fileMcpServers, mcpServerNames);
-  throwLiteralCredentialHeaders(fileMcpServers, mcpServerNames);
   if (fileAuth.mode !== "none" && dexServer === defaultDexServer) {
     throw new ConfigError("auth_needs_server_url", "/dex/auth");
   }
@@ -747,21 +742,6 @@ function throwInsecureMcpServerUrls(
   for (const name of sortedNames) {
     if (!isSecureTokenUrl(servers[name]?.url ?? "")) {
       throw new ConfigError("insecure_mcp_server_url", jsonPointerOf(["mcp_servers", name, "url"]));
-    }
-  }
-}
-
-/** Throws for a credential-like header without a `${NAME}` reference, so its secret never sits in the file. */
-function throwLiteralCredentialHeaders(
-  servers: Readonly<Record<string, FileMcpServer>>,
-  sortedNames: readonly string[],
-): void {
-  for (const name of sortedNames) {
-    const headers = servers[name]?.headers ?? {};
-    for (const header of Object.keys(headers).sort(compareCodePoints)) {
-      if (isCredentialLikeName(header) && !(headers[header] ?? "").includes("${")) {
-        throw new ConfigError("literal_credential_header", jsonPointerOf(["mcp_servers", name, "headers", header]));
-      }
     }
   }
 }

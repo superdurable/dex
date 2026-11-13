@@ -225,7 +225,7 @@
     "mcp_servers": {
       "type": "object",
       "default": {},
-      "description": "Remote MCP servers whose tools the agent may call over the Streamable HTTP transport, by server name: 1 to 32 ASCII letters, digits, underscores, or hyphens, starting with a letter. The agent sees each tool as <server name>__<tool name>, and approval.always names it that way. Every call waits for approval unless trust_tool_annotations lets the server's hints mark the tool a read or an idempotent write. Secrets never go in this file: a header value takes them from environment variables with ${NAME} references, which the Worker expands when the command starts. Session settings cannot change it: they ignore an mcp_servers key with a warning.",
+      "description": "Remote MCP servers whose tools the agent may call over the Streamable HTTP transport, by server name: 1 to 32 ASCII letters, digits, underscores, or hyphens, starting with a letter. The agent sees each tool as <server name>__<tool name>, and approval.always names it that way. Every call waits for approval unless trust_tool_annotations lets the server's hints mark the tool a read or an idempotent write. Keep secrets out of this file: a header value can take them from environment variables with ${NAME} references, which the Worker expands when the command starts. Session settings cannot change it: they ignore an mcp_servers key with a warning.",
       "patternProperties": {
         "^[A-Za-z][A-Za-z0-9_-]{0,31}(?![\\s\\S])": {
           "$ref": "#/$defs/mcp_server"
@@ -502,7 +502,7 @@
         "headers": {
           "type": "object",
           "default": {},
-          "description": "HTTP headers sent with every request to the server, such as Authorization, by header name: 1 to 256 HTTP token characters. A value is printable ASCII. Each ${NAME} in it is replaced by the value of the environment variable NAME when the command starts; NAME has ASCII letters, digits, and underscores and does not start with a digit. A variable that is not set, is empty, or holds anything but printable ASCII stops the command. Any other $ stays as written. A header whose name looks like a credential, such as Authorization, X-Api-Key, or Cookie, must contain at least one ${NAME} reference. The command never prints, logs, or stores the expanded values.",
+          "description": "HTTP headers sent with every request to the server, such as Authorization, by header name: 1 to 256 HTTP token characters. A value is printable ASCII. Each ${NAME} in it is replaced by the value of the environment variable NAME when the command starts; NAME has ASCII letters, digits, and underscores and does not start with a digit. A variable that is not set, is empty, or holds anything but printable ASCII stops the command. Any other $ stays as written. A value may be literal; put each secret in a ${NAME} reference instead. The command never prints, logs, or stores the expanded values.",
           "patternProperties": {
             "^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,256}(?![\\s\\S])": {
               "type": "string",

@@ -105,14 +105,6 @@ def resolve_config(
     for name in server_names:
         if not is_secure_token_url(mcp_servers[name]["url"]):
             raise ConfigError("insecure_mcp_server_url", f"/mcp_servers/{name}/url")
-    for name in server_names:
-        headers = mcp_servers[name].get("headers", {})
-        for header in sorted(headers):
-            if is_credential_like_name(header) and "${" not in headers[header]:
-                raise ConfigError(
-                    "literal_credential_header",
-                    json_pointer_of(["mcp_servers", name, "headers", header]),
-                )
     if auth["mode"] != "none" and server == DEFAULT_DEX_SERVER:
         raise ConfigError("auth_needs_server_url", "/dex/auth")
     if tls and not server.startswith("https://"):
@@ -192,44 +184,6 @@ def is_secure_token_url(url: str) -> bool:
     except ValueError:
         return False
     return address.is_loopback
-
-
-CREDENTIAL_WORDS = frozenset(
-    (
-        "apikey apikeys auth authorization bearer cookie cookies cred creds credential credentials "
-        "dsn jwt key otp pass passphrase passwd password passwords privatekey pwd secret secrets "
-        "session sessionid signature token tokens"
-    ).split()
-)
-CREDENTIAL_WORD_ENDINGS = (
-    "apikey",
-    "credential",
-    "credentials",
-    "passwd",
-    "password",
-    "secret",
-    "secrets",
-    "token",
-    "tokens",
-)
-CREDENTIAL_PHRASES = (("connection", "string"), ("conn", "str"))
-
-
-def is_credential_like_name(name: str) -> bool:
-    """Return whether a name looks like it holds a credential, by the approval display rule."""
-    for spelling in (name, re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)):
-        words = [word for word in re.split(r"[^a-z0-9]+", spelling.lower()) if word]
-        if any(
-            word in CREDENTIAL_WORDS or word.endswith(CREDENTIAL_WORD_ENDINGS) for word in words
-        ):
-            return True
-        if any(
-            tuple(words[index : index + len(phrase)]) == phrase
-            for phrase in CREDENTIAL_PHRASES
-            for index in range(len(words))
-        ):
-            return True
-    return False
 
 
 def raise_invalid_url(url: str, path: str) -> None:
