@@ -302,7 +302,9 @@ function resumedTranscript(): Transcript {
   const transcript = readTranscript("chat_ready_then_exit");
   const [launch, ...rest] = transcript.steps;
   const message = launch?.message as { session: Record<string, unknown> };
-  const resumed = { ...launch, message: { ...message, session: { ...message.session, is_resumed: true } } };
+  // A relaunch after a switch also names the left session, which these tests do not fix.
+  const ignore = [...((launch as { ignore?: string[] }).ignore ?? []), "session.previous_session_id"];
+  const resumed = { ...launch, ignore, message: { ...message, session: { ...message.session, is_resumed: true } } };
   return { ...transcript, steps: [resumed, ...rest] };
 }
 

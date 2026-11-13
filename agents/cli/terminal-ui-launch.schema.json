@@ -332,6 +332,11 @@
         "is_resumed": {
           "type": "boolean",
           "description": "true for --resume: the terminal UI loads the history."
+        },
+        "previous_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The session a switch_session left, when the launcher launches the terminal UI again after it. The terminal UI shows that session's history first, then switches to session_id as an in-place switch does."
         }
       }
     },

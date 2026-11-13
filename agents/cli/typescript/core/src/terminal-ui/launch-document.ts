@@ -45,6 +45,8 @@ export interface ChatLaunchDetails {
   readonly flowType: string;
   readonly sessionId: string;
   readonly isResumed: boolean;
+  /** The session a handed-back switch left, which the terminal UI shows first; `undefined` otherwise. */
+  readonly previousSessionId?: string | undefined;
   readonly model: string;
   /** The harness's `defaultModel`, which `/model` offers after {@link model}. */
   readonly harnessDefaultModel: string | null;
@@ -98,7 +100,12 @@ export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, u
       auth: details.auth,
       web_url: details.webUrl,
     },
-    session: { flow_type: details.flowType, session_id: details.sessionId, is_resumed: details.isResumed },
+    session: {
+      flow_type: details.flowType,
+      session_id: details.sessionId,
+      is_resumed: details.isResumed,
+      ...(details.previousSessionId === undefined ? {} : { previous_session_id: details.previousSessionId }),
+    },
     display: {
       model: details.model,
       workspace: home(details.workspace),

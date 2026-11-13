@@ -131,6 +131,9 @@ type LaunchSession struct {
 	SessionID string `json:"session_id"`
 	// IsResumed asks the chat to load the history.
 	IsResumed bool `json:"is_resumed"`
+	// PreviousSessionID is the session a handed-back switch left, or "".
+	// The chat then shows it first, as an in-place switch would.
+	PreviousSessionID string `json:"previous_session_id,omitempty"`
 }
 
 // LaunchDisplay is text to show and never log.

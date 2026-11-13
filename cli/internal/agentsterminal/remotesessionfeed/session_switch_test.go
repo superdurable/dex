@@ -235,3 +235,27 @@ func TestLauncherSessionSwitchHandsTheSessionToTheLauncher(t *testing.T) {
 	updates := drainFeed(feed)
 	require.Equal(t, []sessionfeed.SessionSwitchHandedOff{{SessionID: "new-session"}}, updatesOfType[sessionfeed.SessionSwitchHandedOff](updates))
 }
+
+// A relaunch after a handed-back switch shows the left session, then switches
+// to the launch session with the same separator as an in-place switch.
+func TestRelaunchAfterAHandedBackSwitchShowsTheSwitch(t *testing.T) {
+	harness := newModelHarness(t)
+	harness.feed.launch.Session.PreviousSessionID = "session-0"
+	harness.feed.launch.Session.IsResumed = true
+	loop := newSessionLoop(harness.feed)
+	loop.ctx = context.Background()
+	loop.refreshTimer = time.NewTimer(time.Hour)
+	t.Cleanup(func() { loop.refreshTimer.Stop() })
+	loop.pendingSwitch = &sessionSwitchRequested{sessionID: "session-1", isResumed: true}
+	loop.openSession("session-0", 0, true)
+	opened := updatesOfType[sessionfeed.SessionOpened](harness.drain())
+	require.Equal(t, "session-0", opened[len(opened)-1].SessionID)
+
+	loop.applyFetch(snapshotFetched{epoch: 0, snapshot: snapshotOf(idleState(1))})
+	updates := harness.drain()
+	require.Contains(t, noticeTexts(updatesOfType[sessionfeed.NoticeRaised](updates)), "── session session-1 ──")
+	reopened := updatesOfType[sessionfeed.SessionOpened](updates)
+	require.Equal(t, "session-1", reopened[len(reopened)-1].SessionID)
+	require.Equal(t, "session-1", loop.model.sessionID)
+	require.Equal(t, "session-1", harness.feed.SessionID(), "actions keep writing to the launch session")
+}

@@ -236,7 +236,9 @@ class SwitchingTerminalUi:
         )
         self.first = FakeTerminalUi(directory / "first", switching)
         resumed = chat_transcript([])
+        # The relaunch shows the left session first, as an in-place switch would.
         resumed["steps"][0]["message"]["session"]["is_resumed"] = True
+        resumed["steps"][0]["ignore"].append("session.previous_session_id")
         self.second = FakeTerminalUi(directory / "second", resumed)
         marker = directory / "launched"
         self.dexcli = directory / "dexcli"
@@ -320,7 +322,7 @@ async def test_a_session_switch_in_the_terminal_ui_waits_for_the_session_and_rel
     other.sendline("/exit")
     assert await wait_for_exit(other) == 0
     await expect(switching, f"Took over session {other_session_id}.", timeout=TEST_TTL_SECONDS)
-    assert await read_session_id(switching) == other_session_id
+    await fake.second.wait_for("received", type="launch")
     assert await wait_for_exit(switching) == 0
     assert fake.first.mismatches() == []
     assert fake.second.mismatches() == []

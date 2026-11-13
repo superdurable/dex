@@ -200,7 +200,7 @@ right after the spawn. It holds no secret.
 | `dex.tls` | `enabled`, plus a CA bundle path and a server name, each `null` for the default. |
 | `dex.auth` | How to authenticate, as in the table above. A launch document whose `auth` carries `credential`, `api_key`, `token`, or `access_token` fails the schema. |
 | `dex.web_url` | The Dex Web base URL, or `null`. `open_url` only opens URLs under it. |
-| `session` | chat: `flow_type`, `session_id`, and `is_resumed` (`true` loads the history). sessions: `flow_type`. |
+| `session` | chat: `flow_type`, `session_id`, and `is_resumed` (`true` loads the history), plus `previous_session_id` after a [Session switch](#session-switch). sessions: `flow_type`. |
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. `models` lists the model IDs `/model` offers: the configured model first, then the harness command's suggestions. See [Model and reasoning effort](#model-and-reasoning-effort). |
 | `methods` | The local requests the launcher side serves. |
 | `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. `reasoning_effort` is present only when the harness command maps the `reasoning_effort` session setting to its SDK, with the `values` it accepts, from least to most effort. `launcher_session_switch` is `true` when the launcher opens the session a switch names (see [Session switch](#session-switch)). An absent boolean is `false`. |
@@ -395,9 +395,15 @@ place:
 3. The launcher acts on it only when it read a complete `switch_session` and
    the exit code is 0. It releases the old session, waits until it can take
    the new one, and launches `dexcli` again with a chat launch document for
-   that session (`session_id`, and `is_resumed` from the message). A
-   `switch_session` followed by any other exit is ignored, and the exit
-   counts as usual.
+   that session (`session_id`, and `is_resumed` from the message), with
+   `previous_session_id` set to the session it left and no notices. It
+   prints nothing on the terminal for the switch except the lines of the
+   wait. A `switch_session` followed by any other exit is ignored, and the
+   exit counts as usual.
+4. A terminal UI whose launch document has `previous_session_id` shows that
+   session's history first, then switches to `session_id` as an in-place
+   switch does: the `── session <id> ──` notice, then that session's history.
+   So the switch looks the same as without the capability.
 
 `switch_session` is the last message `dexcli` sends. Without the capability,
 `dexcli` switches in place as before.

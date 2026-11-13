@@ -981,6 +981,7 @@ CHANNEL_FIELD_NAMES: Final = frozenset(
         "params",
         "path",
         "plan_mode",
+        "previous_session_id",
         "reasoning_effort",
         "result",
         "resume_session_id",

@@ -164,9 +164,9 @@ export class TerminalUiChatLauncher {
       this.writeLine(`Resumed session ${startup.sessionId}.`);
     }
     let ready: WorkerHostReady = startup;
-    let isFirstRun = true;
+    let previousSessionId: string | undefined;
     for (;;) {
-      const run = await this.handOff(host, ready, isFirstRun);
+      const run = await this.handOff(host, ready, previousSessionId);
       if (run.kind === "done") {
         return run.outcome;
       }
@@ -175,8 +175,8 @@ export class TerminalUiChatLauncher {
         await this.stopHost();
         return { kind: "exited", exitCode: switchExitCode };
       }
+      previousSessionId = ready.sessionId;
       ready = { ...ready, sessionId: run.sessionId, isResumed: run.isResumed };
-      isFirstRun = false;
     }
   }
 
@@ -236,7 +236,16 @@ export class TerminalUiChatLauncher {
     return exitCode;
   }
 
-  private async handOff(host: WorkerHostProcess, ready: WorkerHostReady, isFirstRun: boolean): Promise<TerminalUiRunOutcome> {
+  /**
+   * Hands the terminal to one terminal UI run.
+   * @param previousSessionId - The session a handed-back switch left, which the run shows first, or `undefined`.
+   */
+  private async handOff(
+    host: WorkerHostProcess,
+    ready: WorkerHostReady,
+    previousSessionId: string | undefined,
+  ): Promise<TerminalUiRunOutcome> {
+    const isFirstRun = previousSessionId === undefined;
     const terminalMode = new TerminalModeGuard();
     this.launch.commandSignals.release();
     const signals = new LauncherSignals();
@@ -252,6 +261,7 @@ export class TerminalUiChatLauncher {
           signals,
           isFirstRun ? this.launch.startedDexcliDevLines : [],
           isFirstRun ? this.workerHostStartupLines : [],
+          previousSessionId,
         );
       } catch (error: unknown) {
         // No terminal UI started, so nothing else stops the Worker host.
@@ -485,6 +495,7 @@ class TerminalUiHandoff {
     signals: LauncherSignals,
     startedDexcliDevLines: readonly string[],
     workerHostStartupLines: readonly string[],
+    previousSessionId: string | undefined,
   ) {
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
@@ -507,6 +518,7 @@ class TerminalUiHandoff {
       flowType: ready.flowType,
       sessionId: ready.sessionId,
       isResumed: ready.isResumed,
+      previousSessionId,
       model: launch.start.effective.model,
       harnessDefaultModel: launch.harnessDefaultModel,
       suggestedModels: launch.suggestedModels,

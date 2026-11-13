@@ -298,13 +298,21 @@ async def run_terminal_ui_chat(
             except SessionLeaseWaitInterrupted:
                 _report_left_session(launch, report, left_session_id)
                 raise
-            report(f"Session {session.session_id}")
-            if launch.start.web_url is not None:
-                report(
-                    f"Dex Web: {launch.start.web_url}/v1/flows/{session.session_id}?view=session"
-                )
+            # A relaunch after a switch shows it in the terminal UI, as an in-place switch did.
+            if left_session_id is None:
+                report(f"Session {session.session_id}")
+                web_url = launch.start.web_url
+                if web_url is not None:
+                    report(f"Dex Web: {web_url}/v1/flows/{session.session_id}?view=session")
             handoff = _Handoff(
-                launch, worker_host, ready, report, restore_signal_handlers, session, notices
+                launch,
+                worker_host,
+                ready,
+                report,
+                restore_signal_handlers,
+                session,
+                notices,
+                previous_session_id=left_session_id,
             )
             outcome = await handoff.run()
             if not isinstance(outcome, _ChatSession):
@@ -624,6 +632,8 @@ class _Handoff:
         restore_signal_handlers: Callable[[], object],
         session: _ChatSession,
         notices: Sequence[Mapping[str, str]],
+        *,
+        previous_session_id: str | None = None,
     ) -> None:
         self._launch = launch
         self._restore_signal_handlers = restore_signal_handlers
@@ -632,6 +642,7 @@ class _Handoff:
         self._report = report
         self._session = session
         self._notices = notices
+        self._previous_session_id = previous_session_id
         self._switch_request: _ChatSession | None = None
         self._lost_lease: tuple[str, SessionTerminalLease] | None = None
         self._terminal_fd = sys.stdin.fileno()
@@ -870,6 +881,11 @@ class _Handoff:
                 "flow_type": self._ready.flow_type,
                 "session_id": self._session.session_id,
                 "is_resumed": self._session.is_resumed,
+                **(
+                    {}
+                    if self._previous_session_id is None
+                    else {"previous_session_id": self._previous_session_id}
+                ),
             },
             "display": dict(launch.display),
             "methods": list(CHAT_METHODS),
