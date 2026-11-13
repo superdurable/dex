@@ -232,6 +232,21 @@ impl CreateOnlyStore {
         Self { store, faults }
     }
 
+    /// Creates an empty store like [`Self::new`] whose listings repeat the first listing of each
+    /// prefix for `lifetime`, as Tencent COS does; helpers that list then see stale listings too.
+    pub(crate) fn with_stale_listings(lifetime: Duration) -> Self {
+        let faults = Arc::new(TestFaults::new());
+        let store = Arc::new(InMemoryObjectStore::with_options_and_stale_listings(
+            InMemoryObjectStoreOptions {
+                injector: Some(Arc::clone(&faults) as Arc<dyn FaultInjector>),
+                clock: Some(Arc::new(TokioWallClock::new())),
+                rejects_replace_if_etag_matches: true,
+            },
+            lifetime,
+        ));
+        Self { store, faults }
+    }
+
     /// Returns the store as the inner store of an adapter.
     pub(crate) fn inner(&self) -> Arc<dyn ObjectStore> {
         Arc::clone(&self.store) as Arc<dyn ObjectStore>

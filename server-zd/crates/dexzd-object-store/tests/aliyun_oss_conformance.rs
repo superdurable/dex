@@ -26,8 +26,8 @@ use dexzd_object_store::{
     AliyunOssObjectStore, ByteRange, InMemoryObjectStore, InMemoryObjectStoreOptions,
     InstrumentedObjectStore, MANIFEST_OBJECT_KEY, MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS,
     ObjectStore, ObjectStoreErrorKind, S3ApiDialect, S3Credentials, S3ObjectStore,
-    S3ObjectStoreConfig, WriteCondition, WriteOutcome, is_mutable_object_key,
-    node_lease_object_key, startup_self_check,
+    S3ObjectStoreConfig, StartupSelfCheckFailure, VersionDiscovery, WriteCondition, WriteOutcome,
+    is_mutable_object_key, node_lease_object_key, startup_self_check,
 };
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 
@@ -198,11 +198,21 @@ async fn plain_keys_keep_create_only_conformance_and_reject_replacement() {
 
 #[tokio::test(start_paused = true)]
 async fn mutable_keys_pass_the_full_conformance_set() {
+    check_full_conformance_set(VersionDiscovery::Listing).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn mutable_keys_pass_the_full_conformance_set_with_head_probing() {
+    check_full_conformance_set(VersionDiscovery::HeadProbing).await;
+}
+
+async fn check_full_conformance_set(version_discovery: VersionDiscovery) {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(
+    let store = AliyunOssObjectStore::with_version_discovery(
         physical.inner(),
         TEST_MINIMUM_SUPERSEDED_AGE,
         NodeMetrics::unregistered(),
+        version_discovery,
     );
     for key in MUTABLE_KEYS {
         check_mutable_key(&store, key).await;
@@ -745,6 +755,7 @@ async fn the_adapter_keeps_its_guarantees_over_the_s3_aliyun_oss_dialect() {
     check_adapter_guarantees_over_dialect(
         s3local_server::S3ApiDialect::AliyunOss,
         S3ApiDialect::AliyunOss,
+        VersionDiscovery::Listing,
     )
     .await;
 }
@@ -754,23 +765,155 @@ async fn the_adapter_keeps_its_guarantees_over_the_s3_tencent_cos_dialect() {
     check_adapter_guarantees_over_dialect(
         s3local_server::S3ApiDialect::TencentCos,
         S3ApiDialect::TencentCos,
+        VersionDiscovery::Listing,
     )
     .await;
+}
+
+#[tokio::test]
+async fn head_probing_keeps_its_guarantees_over_the_s3_aliyun_oss_dialect() {
+    check_adapter_guarantees_over_dialect(
+        s3local_server::S3ApiDialect::AliyunOss,
+        S3ApiDialect::AliyunOss,
+        VersionDiscovery::HeadProbing,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn head_probing_keeps_its_guarantees_over_the_s3_tencent_cos_dialect() {
+    check_adapter_guarantees_over_dialect(
+        s3local_server::S3ApiDialect::TencentCos,
+        S3ApiDialect::TencentCos,
+        VersionDiscovery::HeadProbing,
+    )
+    .await;
+}
+
+/// Over the COS dialect with stale listings, as on real COS, only head probing passes the check.
+#[tokio::test]
+async fn the_startup_self_check_over_stale_cos_listings_needs_head_probing() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let (server, s3_store) = start_dialect_emulator(
+        directory.path(),
+        EtagMode::Opaque,
+        s3local_server::S3ApiDialect::TencentCos,
+        S3ApiDialect::TencentCos,
+    )
+    .await;
+    set_stale_listing_fault(server.local_address()).await;
+    let inner: Arc<dyn ObjectStore> = Arc::new(s3_store);
+    let listing = AliyunOssObjectStore::new(
+        Arc::clone(&inner),
+        TEST_MINIMUM_SUPERSEDED_AGE,
+        NodeMetrics::unregistered(),
+    );
+    let error = startup_self_check(&listing)
+        .await
+        .expect_err("listing discovery cannot confirm a create over a stale listing");
+    assert_eq!(error.check, StartupSelfCheckFailure::InitialCreate);
+    let source = error.source.expect("the create failed in the store");
+    assert_eq!(source.kind, ObjectStoreErrorKind::OutcomeUnknown);
+    assert!(
+        source.detail.contains("shows no well-formed version"),
+        "{source}"
+    );
+    let head_probing = AliyunOssObjectStore::with_version_discovery(
+        Arc::clone(&inner),
+        TEST_MINIMUM_SUPERSEDED_AGE,
+        NodeMetrics::unregistered(),
+        VersionDiscovery::HeadProbing,
+    );
+    startup_self_check(&head_probing)
+        .await
+        .expect("head probing passes the startup self check over stale listings");
+    let mut etag = match head_probing
+        .put(
+            MANIFEST_OBJECT_KEY,
+            Bytes::from_static(b"one"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create")
+    {
+        WriteOutcome::Written { etag } => etag,
+        WriteOutcome::PreconditionFailed => panic!("the manifest is absent"),
+    };
+    for body in ["two", "three", "four"] {
+        // A new adapter has no hint, so it starts from the stale listing.
+        let fresh = AliyunOssObjectStore::with_version_discovery(
+            Arc::clone(&inner),
+            TEST_MINIMUM_SUPERSEDED_AGE,
+            NodeMetrics::unregistered(),
+            VersionDiscovery::HeadProbing,
+        );
+        assert_eq!(
+            fresh
+                .get(MANIFEST_OBJECT_KEY)
+                .await
+                .expect("get")
+                .expect("exists")
+                .etag,
+            etag
+        );
+        etag = match fresh
+            .put(
+                MANIFEST_OBJECT_KEY,
+                Bytes::from_static(body.as_bytes()),
+                WriteCondition::ReplaceIfEtagMatches { etag },
+            )
+            .await
+            .expect("replace")
+        {
+            WriteOutcome::Written { etag } => etag,
+            WriteOutcome::PreconditionFailed => panic!("the replacement uses the newest ETag"),
+        };
+    }
+    assert_eq!(etag_generation(&etag), 4);
+    server.shutdown().await;
+}
+
+async fn set_stale_listing_fault(address: std::net::SocketAddr) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let body = r#"{"rules":[{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":600000}}]}"#;
+    let mut connection = tokio::net::TcpStream::connect(address)
+        .await
+        .expect("the s3local admin endpoint is reachable");
+    let request = format!(
+        "PUT /_s3local/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    connection
+        .write_all(request.as_bytes())
+        .await
+        .expect("the fault request is sent");
+    let mut response = Vec::new();
+    connection
+        .read_to_end(&mut response)
+        .await
+        .expect("the fault response is read");
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
 }
 
 async fn check_adapter_guarantees_over_dialect(
     emulated_dialect: s3local_server::S3ApiDialect,
     dialect: S3ApiDialect,
+    version_discovery: VersionDiscovery,
 ) {
     for etag_mode in [EtagMode::Md5, EtagMode::Opaque] {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let (server, s3_store) =
             start_dialect_emulator(directory.path(), etag_mode, emulated_dialect, dialect).await;
         let inner: Arc<dyn ObjectStore> = Arc::new(s3_store);
-        let store = AliyunOssObjectStore::new(
+        let store = AliyunOssObjectStore::with_version_discovery(
             Arc::clone(&inner),
             TEST_MINIMUM_SUPERSEDED_AGE,
             NodeMetrics::unregistered(),
+            version_discovery,
         );
         for key in MUTABLE_KEYS {
             check_mutable_key(&store, key).await;

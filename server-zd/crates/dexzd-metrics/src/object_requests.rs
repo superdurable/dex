@@ -163,17 +163,25 @@ pub enum VersionedListingStaleSite {
     ConfirmCreatedVersion,
     /// The reclamation listing after a confirmed write did not start at the confirmed version.
     Reclamation,
+    /// With HEAD-probing version discovery, HEAD requests found a newer version than the
+    /// listing that gave their lower bound.
+    NewestVersionLookup,
 }
 
-label_value!(VersionedListingStaleSite { ConfirmCreatedVersion => "confirm_created_version", Reclamation => "reclamation" });
+label_value!(VersionedListingStaleSite { ConfirmCreatedVersion => "confirm_created_version", Reclamation => "reclamation", NewestVersionLookup => "newest_version_lookup" });
 
 impl VersionedListingStaleSite {
-    const ALL: [Self; 2] = [Self::ConfirmCreatedVersion, Self::Reclamation];
+    const ALL: [Self; 3] = [
+        Self::ConfirmCreatedVersion,
+        Self::Reclamation,
+        Self::NewestVersionLookup,
+    ];
 
     const fn index(self) -> usize {
         match self {
             Self::ConfirmCreatedVersion => 0,
             Self::Reclamation => 1,
+            Self::NewestVersionLookup => 2,
         }
     }
 }
@@ -186,7 +194,7 @@ struct VersionedListingStaleLabel {
 /// Fixed per-site counters of listings that missed a version this process had just created.
 #[derive(Clone, Debug)]
 pub struct VersionedListingStaleCounters {
-    values: Arc<[Counter; 2]>,
+    values: Arc<[Counter; 3]>,
 }
 
 impl Default for VersionedListingStaleCounters {

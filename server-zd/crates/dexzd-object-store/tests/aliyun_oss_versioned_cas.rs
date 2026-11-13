@@ -9,6 +9,10 @@
 //! Linearizability of `AliyunOssObjectStore` replacements under races, stale writers,
 //! reclamation, and faults, over an in-memory create-only store on Tokio's paused clock.
 
+#[expect(
+    dead_code,
+    reason = "these tests use only part of the shared create-only store"
+)]
 #[path = "aliyun_oss/create_only_store.rs"]
 mod create_only_store;
 #[path = "aliyun_oss/replacement_history.rs"]

@@ -58,8 +58,8 @@ struct State {
     objects: BTreeMap<String, StoredObject>,
     next_etag: u64,
     counts: BTreeMap<(String, String), u64>,
-    /// First listing of each exact prefix, served again while stale listings are on.
-    stale_listings: BTreeMap<String, ObjectListing>,
+    /// First listing of each exact prefix and when it was made, served again while it is stale.
+    stale_listings: BTreeMap<String, (ObjectListing, tokio::time::Instant)>,
 }
 
 /// Ordered, fault-injecting object store for deterministic simulation. Exact-key call counters grow with observed keys.
@@ -69,7 +69,8 @@ pub struct InMemoryObjectStore {
     injector: Option<Arc<dyn FaultInjector>>,
     clock: Option<Arc<dyn WallClock>>,
     rejects_replace_if_etag_matches: bool,
-    serves_stale_listings: bool,
+    /// How long a listing is served again; `None` lists current objects.
+    stale_listing_lifetime: Option<Duration>,
 }
 
 /// Construction options of an [`InMemoryObjectStore`].
@@ -120,7 +121,7 @@ impl InMemoryObjectStore {
             injector: options.injector,
             clock: options.clock,
             rejects_replace_if_etag_matches: options.rejects_replace_if_etag_matches,
-            serves_stale_listings: false,
+            stale_listing_lifetime: None,
         }
     }
 
@@ -128,15 +129,25 @@ impl InMemoryObjectStore {
     ///
     /// Later listings ignore `start_after` and `max_keys` until [`Self::expire_stale_listings`].
     pub fn with_stale_listings() -> Self {
+        Self::with_options_and_stale_listings(InMemoryObjectStoreOptions::default(), Duration::MAX)
+    }
+
+    /// Creates an empty store configured by `options` whose listings repeat the first listing
+    /// of each exact prefix for `lifetime` on Tokio's clock, as an eventually consistent store
+    /// does. Later listings in that time ignore `start_after` and `max_keys`.
+    pub fn with_options_and_stale_listings(
+        options: InMemoryObjectStoreOptions,
+        lifetime: Duration,
+    ) -> Self {
         Self {
-            serves_stale_listings: true,
-            ..Self::default()
+            stale_listing_lifetime: Some(lifetime),
+            ..Self::with_options(options)
         }
     }
 
     /// Forgets every cached listing, so the next listing of each prefix reads current objects.
     ///
-    /// Only a store created by [`Self::with_stale_listings`] caches listings.
+    /// Only a store created with stale listings caches listings.
     pub fn expire_stale_listings(&self) {
         self.state
             .lock()
@@ -159,15 +170,17 @@ impl InMemoryObjectStore {
 
     /// Returns the cached listing of `prefix` when this store serves stale listings.
     fn stale_listing(&self, prefix: &str) -> Option<ObjectListing> {
-        if !self.serves_stale_listings {
-            return None;
-        }
-        self.state
+        let lifetime = self.stale_listing_lifetime?;
+        let mut state = self
+            .state
             .lock()
-            .expect("in-memory object-store mutex is not poisoned")
-            .stale_listings
-            .get(prefix)
-            .cloned()
+            .expect("in-memory object-store mutex is not poisoned");
+        let (listing, listed_at) = state.stale_listings.get(prefix)?;
+        if listed_at.elapsed() < lifetime {
+            return Some(listing.clone());
+        }
+        state.stale_listings.remove(prefix);
+        None
     }
 
     async fn before_call(
@@ -478,10 +491,11 @@ impl ObjectStore for InMemoryObjectStore {
             objects,
             next_start_after,
         };
-        if self.serves_stale_listings {
-            state
-                .stale_listings
-                .insert(prefix.to_owned(), listing.clone());
+        if self.stale_listing_lifetime.is_some() {
+            state.stale_listings.insert(
+                prefix.to_owned(),
+                (listing.clone(), tokio::time::Instant::now()),
+            );
         }
         drop(state);
         self.after_call(action, ObjectStoreOperation::List, prefix, listing)

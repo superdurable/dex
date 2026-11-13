@@ -16,8 +16,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
-    AliyunOssObjectStore, ObjectStore, ObjectStoreError, ObjectStoreErrorKind, WriteCondition,
-    WriteOutcome,
+    AliyunOssObjectStore, ObjectStore, ObjectStoreError, ObjectStoreErrorKind, VersionDiscovery,
+    WriteCondition, WriteOutcome,
 };
 
 use crate::create_only_store::{CreateOnlyStore, TEST_MINIMUM_SUPERSEDED_AGE, etag_generation};
@@ -125,6 +125,25 @@ pub(crate) async fn run_replacement_workload(
     key: &'static str,
     workload: ReplacementWorkload,
 ) -> ReplacementHistory {
+    run_replacement_workload_with_discovery(physical, key, workload, &[VersionDiscovery::Listing])
+        .await
+}
+
+/// Runs [`run_replacement_workload`] with adapters that take turns using `discoveries`.
+pub(crate) async fn run_replacement_workload_with_discovery(
+    physical: &CreateOnlyStore,
+    key: &'static str,
+    workload: ReplacementWorkload,
+    discoveries: &[VersionDiscovery],
+) -> ReplacementHistory {
+    let adapter = |index: usize| {
+        AliyunOssObjectStore::with_version_discovery(
+            physical.inner(),
+            TEST_MINIMUM_SUPERSEDED_AGE,
+            NodeMetrics::unregistered(),
+            discoveries[index % discoveries.len()],
+        )
+    };
     let ReplacementWorkload {
         writers,
         attempts,
@@ -136,11 +155,7 @@ pub(crate) async fn run_replacement_workload(
     });
     let mut tasks = Vec::new();
     for writer in 0..writers {
-        let store = AliyunOssObjectStore::new(
-            physical.inner(),
-            TEST_MINIMUM_SUPERSEDED_AGE,
-            NodeMetrics::unregistered(),
-        );
+        let store = adapter(writer);
         let recorder = Arc::clone(&recorder);
         let task = tokio::spawn(async move {
             for attempt in 0..attempts {
@@ -180,12 +195,8 @@ pub(crate) async fn run_replacement_workload(
         });
         tasks.push(task);
     }
-    for _ in 0..READER_COUNT {
-        let store = AliyunOssObjectStore::new(
-            physical.inner(),
-            TEST_MINIMUM_SUPERSEDED_AGE,
-            NodeMetrics::unregistered(),
-        );
+    for reader in 0..READER_COUNT {
+        let store = adapter(writers + reader);
         let recorder = Arc::clone(&recorder);
         let task = tokio::spawn(async move {
             for _ in 0..READS_PER_READER {
@@ -199,11 +210,7 @@ pub(crate) async fn run_replacement_workload(
     for task in tasks {
         task.await.expect("a workload task finishes");
     }
-    let store = AliyunOssObjectStore::new(
-        physical.inner(),
-        TEST_MINIMUM_SUPERSEDED_AGE,
-        NodeMetrics::unregistered(),
-    );
+    let store = adapter(0);
     recorder
         .read(&store, key)
         .await

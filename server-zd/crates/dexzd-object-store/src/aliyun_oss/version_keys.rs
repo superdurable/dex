@@ -87,6 +87,21 @@ pub(super) fn version_prefix(logical_key: &str) -> String {
     format!("{logical_key}{VERSION_KEY_SEPARATOR}")
 }
 
+/// Returns a prefix of the versions of `logical_key` older than `generation`, which is at least
+/// 2; it is longer than [`version_prefix`] when `generation` is below about 10^19.
+///
+/// Listings of it are cached apart from reads' listings on stores that repeat listings, like COS.
+pub(super) fn older_versions_prefix(logical_key: &str, generation: u64) -> String {
+    let newest_older = version_object_key(logical_key, generation - 1);
+    let oldest = version_object_key(logical_key, 1);
+    let common_length = newest_older
+        .bytes()
+        .zip(oldest.bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    newest_older[..common_length].to_owned()
+}
+
 /// Returns the physical key of generation `generation` (at least 1) of `logical_key`.
 pub(super) fn version_object_key(logical_key: &str, generation: u64) -> String {
     format!(

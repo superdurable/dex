@@ -29,8 +29,8 @@ use std::path::Path;
 
 pub use aliyun_oss::{
     AliyunOssBucketCheckError, AliyunOssObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
-    STALE_STARTUP_PROBE_AGE, VERSION_OBJECT_KEY_SUFFIX_BYTES, check_aliyun_oss_create_only_writes,
-    check_no_data_of_another_provider,
+    STALE_STARTUP_PROBE_AGE, VERSION_OBJECT_KEY_SUFFIX_BYTES, VersionDiscovery,
+    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
 };
 pub use azure_gcs::{
     AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig, AzureGcsProvider,
