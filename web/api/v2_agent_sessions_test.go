@@ -124,6 +124,49 @@ func TestAgentSessionMessageInvokesSendUserMessage(t *testing.T) {
 	}
 }
 
+func TestAgentSessionMessageCarriesTheSenderName(t *testing.T) {
+	client := &v2TestClient{}
+	client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return &dexpb.InvokeRPCResponse{Output: &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: true}}}, nil
+	}
+	mux := newAgentSessionTestMux(client)
+	for _, testCase := range []struct {
+		senderName string
+		payload    string
+	}{
+		{`"  Alice  "`, `{"plan_mode":false,"sender_name":"Alice","text":"hi"}`},
+		{`"   "`, `{"plan_mode":false,"text":"hi"}`},
+		{`null`, `{"plan_mode":false,"text":"hi"}`},
+		{`"\ud83d\ude00"`, `{"plan_mode":false,"sender_name":"😀","text":"hi"}`},
+		{`"a\\ud800"`, `{"plan_mode":false,"sender_name":"a\\ud800","text":"hi"}`},
+	} {
+		client.rpcRequests = nil
+		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
+			`{"flowType":"SupportAgent","flowId":"session-1","workQueuePermissions":["agent.operate"],"text":"hi",`+
+				`"senderName":`+testCase.senderName+`}`)
+		if response.Code != http.StatusOK || len(client.rpcRequests) != 1 {
+			t.Fatalf("%s: status = %d body=%q", testCase.senderName, response.Code, response.Body.String())
+		}
+		if payload := string(client.rpcRequests[0].GetInput().GetObjValue().GetPayload()); payload != testCase.payload {
+			t.Fatalf("%s: RPC input = %s", testCase.senderName, payload)
+		}
+	}
+	// encoding/json would read each unpaired surrogate escape as U+FFFD, so the route checks the raw string.
+	for _, refused := range []string{
+		`"A\nB"`, `"A\u0007"`, `"\u202eAdmin\u202c"`, `"\u200b"`, `"` + strings.Repeat("x", 65) + `"`,
+		`"\ud800"`, `"A\udc00"`, `"\ud800x"`, `"\ud800\u0041"`, `"\ude00\ud83d"`, `42`,
+	} {
+		client.rpcRequests = nil
+		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
+			`{"flowType":"SupportAgent","flowId":"session-1","workQueuePermissions":["agent.operate"],"text":"hi",`+
+				`"senderName":`+refused+`}`)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "senderName") ||
+			len(client.rpcRequests) != 0 {
+			t.Fatalf("%s: status = %d body=%q", refused, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestAgentSessionSettingsInvokesUpdateSessionSettings(t *testing.T) {
 	client := &v2TestClient{}
 	mux := newAgentSessionTestMux(client)

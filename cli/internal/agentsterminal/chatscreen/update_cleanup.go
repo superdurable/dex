@@ -27,7 +27,7 @@ func replaceUpdateControlCharacters(update sessionfeed.SessionUpdate) sessionfee
 		typed.ReasoningEffortValues = oneLineEach(typed.ReasoningEffortValues)
 		return typed
 	case sessionfeed.UserMessageRecorded:
-		typed.Text, typed.Origin = manyLines(typed.Text), oneLine(typed.Origin)
+		typed.Text, typed.Origin, typed.SenderName = manyLines(typed.Text), oneLine(typed.Origin), oneLine(typed.SenderName)
 		typed.Images = cleanAttachments(typed.Images)
 		return typed
 	case sessionfeed.UserMessageRejected:

@@ -58,6 +58,7 @@ from dex_agents import (
     DEFAULT_REJECTION_TOOL_RESULT,
     DEFAULT_RETAINED_MESSAGE_LIMIT,
     INVALID_TOOL_TASK_POLL_INTERVAL,
+    MAX_SENDER_NAME_LENGTH,
     MAX_SESSION_SETTINGS_BYTES,
     MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
     MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
@@ -137,9 +138,11 @@ from dex_agents import (
     build_context_summary_prompt,
     build_plan_execution_message,
     build_plan_note,
+    build_sender_named_text,
     build_session_title,
     build_turn_failure_note,
     describe_tool_call_outcome,
+    is_valid_sender_name,
     message_sequence_key,
     plan_execution_key,
     session_settings_size,
@@ -833,6 +836,24 @@ def build_value_documents() -> list[dict[str, Any]]:
         "An origin a later release adds decodes and keeps its value.",
         {**RELEASED_MESSAGE, "images": [], "origin": "later_origin"},
     )
+    messages.value(
+        "sender-name",
+        "A user message whose sender declared a name; the framework item carries the prefix.",
+        replace(
+            user_message(),
+            text="hello",
+            framework_item=json.dumps(
+                {"type": "user_text", "text": build_sender_named_text("Alice", "hello")},
+                separators=(",", ":"),
+            ),
+            sender_name="Alice",
+        ),
+    )
+    messages.wire(
+        "explicit-null-sender-name",
+        "An explicit null sender_name reads as no name, which encoding omits.",
+        {**RELEASED_MESSAGE, "images": [], "origin": None, "sender_name": None},
+    )
     messages.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_MESSAGE)
     documents.append(messages)
 
@@ -993,6 +1014,16 @@ def build_value_documents() -> list[dict[str, Any]]:
             "An explicit null plan_mode reads as false.",
             {"text": "hello", "plan_mode": None},
         )
+        .value(
+            "sender-name",
+            "A message whose sender declared a display name.",
+            AgentUserMessage(text="hello", sender_name="\u00c5sa \U0001f600"),
+        )
+        .wire(
+            "explicit-null-sender-name",
+            "An explicit null sender_name reads as no name, which encoding omits.",
+            {"text": "hello", "sender_name": None},
+        )
     )
 
     documents.append(
@@ -1013,6 +1044,11 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
         .value(
             "by-message-id", "Steer a queued message.", SteerUserMessageRequest(message_id="msg-3")
+        )
+        .value(
+            "by-text-with-sender-name",
+            "A new steered message whose sender declared a display name.",
+            SteerUserMessageRequest(text="stop and summarize", sender_name="Alice"),
         )
     )
 
@@ -1617,6 +1653,7 @@ def build_names() -> dict[str, Any]:
             ],
         },
         "session_titles": build_session_title_cases(),
+        "sender_names": build_sender_name_cases(),
         "mcp_resource_and_prompt_tool_names": [
             tool.name for tool in build_resource_and_prompt_tools(MCP_SERVER_NAMES)
         ],
@@ -1663,6 +1700,54 @@ def build_session_title_cases() -> dict[str, Any]:
         "examples": [
             {"name": name, "message": message, "title": build_session_title(message)}
             for name, message in examples
+        ],
+    }
+
+
+def build_sender_name_cases() -> dict[str, Any]:
+    """Return sender names, as code points, with the verdict each core's rule must give.
+
+    Code points, not strings, so a lone surrogate survives JSON in every language.
+    """
+    examples = [
+        ("plain", "Alice"),
+        ("non-ascii", "\u00c5sa \u674e\u96f7"),
+        ("astral-at-limit", "\U0001f600" * MAX_SENDER_NAME_LENGTH),
+        ("inner-space", "Mary Ann"),
+        ("empty", ""),
+        ("over-limit", "x" * (MAX_SENDER_NAME_LENGTH + 1)),
+        ("astral-over-limit", "\U0001f600" * (MAX_SENDER_NAME_LENGTH + 1)),
+        ("leading-space", " Alice"),
+        ("trailing-space", "Alice "),
+        ("leading-no-break-space", "\u00a0Alice"),
+        ("line-feed", "A\nB"),
+        ("tab", "A\tB"),
+        ("bell", "\u0007"),
+        ("next-line", "A\u0085B"),
+        ("line-separator", "A\u2028B"),
+        ("paragraph-separator", "A\u2029B"),
+        ("right-to-left-override", "\u202eAdmin\u202c"),
+        ("zero-width-space-only", "\u200b"),
+        ("zero-width-space-inside", "Al\u200bice"),
+        ("zero-width-joiner", "\U0001f468\u200d\U0001f469"),
+        ("byte-order-mark", "\ufeffAlice"),
+        ("soft-hyphen", "Al\u00adice"),
+        ("lone-high-surrogate", "\ud800"),
+        ("lone-low-surrogate", "A\udc00"),
+    ]
+    return {
+        "format": (
+            "1 to max_code_points Unicode code points; no code point of general category "
+            "Cc, Cf, Cs, Zl, or Zp; the first and last code points are not Zs"
+        ),
+        "max_code_points": MAX_SENDER_NAME_LENGTH,
+        "examples": [
+            {
+                "name": name,
+                "code_points": [ord(character) for character in sender_name],
+                "is_valid": is_valid_sender_name(sender_name),
+            }
+            for name, sender_name in examples
         ],
     }
 
@@ -1920,6 +2005,17 @@ def build_texts() -> dict[str, Any]:
         "plan_execution_message": [
             {"input": {"revision": revision}, "text": build_plan_execution_message(revision)}
             for revision in (1, 12)
+        ],
+        "sender_named_user_message": [
+            {
+                "input": {"sender_name": name, "text": text},
+                "text": build_sender_named_text(name, text),
+            }
+            for name, text in (
+                ("Alice", "hello"),
+                ("\u00c5sa \U0001f600", TRICKY_TEXT),
+                (None, "hi"),
+            )
         ],
         "plan_note": [
             {

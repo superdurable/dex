@@ -16,7 +16,7 @@ and upgrade steps.
 
 ## 0.6 {#v0-6}
 
-Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1).
+Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2).
 
 ### Breaking
 
@@ -30,6 +30,9 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
 - Python and TypeScript CLI commands: a file write's approval carries a diff against the file as it is when the model asks, left out for credential files and content the redaction changes. A shell command's approval carries the working directory and the command with common credential shapes redacted. A Connector tool's approval carries its operation, connection, and short arguments.
 - Python and TypeScript cores: with the new **summary_attributes_indexed** (**summaryAttributesIndexed**) option, a session keeps its title, the time of its latest turn, and its turn count in three indexed Attributes. It is off by default, because the title is the user's first message and the index keys share the namespace's index capacity. **list_agent_sessions** and **listAgentSessions** read a page of sessions with them, and an optional title search, without a snapshot per session and without a Worker. [Reference](/reference/agents/approvals#list-sessions).
 - The CLI commands have a new **sessions.summary** setting. Its default, **auto**, keeps the session summary only with **dex.server: auto**, the local **dexcli dev**; **on** keeps it with any server, and **off** never. Their **sessions** subcommand sorts up to five pages of 50 sessions by last activity, says when more exist, and shows the time of the latest turn, the turn count, and the title. [Reference](/reference/agents/cli#resume).
+- Python and TypeScript CLI commands run against a remote Dex server that requires TLS and a credential. The new **dex.auth** section of the configuration file selects **api_key**, with the key in **DEX_API_KEY**, or **bearer**, with the token in **DEX_CREDENTIAL** or a token file. **dex.tls** adds a CA file or a server name for an **https** **dex.server**. The Worker, every Client, and the terminal UI use them. A missing setting stops the command at startup with a message that names it, and a rejected credential says whether the token endpoint or the server refused it. Shell commands, the browser, and **dexcli dev** never see the credential variables. Without **dex.auth**, the command reads none of these variables, so existing configurations keep working. [Reference](/reference/agents/cli#remote-server). Since 0.6.2.
+- A user message can carry a self-declared sender name, **sender_name**, on **send_user_message** and **steer_user_message**. The model sees the message as **Alice: text**, and Dex Web and dexcli agents-tui show the name. The name is not authenticated. [Reference](/reference/agents/dex-web#sender-names). Since 0.6.2.
+- Python and TypeScript CLI commands: the new **reasoning_effort** session setting picks the reasoning effort of every model call from the next turn. **dex-agents-claude-sdk** offers **low** to **max**; the built-in, OpenAI Agents SDK, Pydantic AI, Vercel AI SDK, and Pi commands offer **low**, **medium**, and **high**. In the terminal UI, with dexcli 1.47.0, **/effort** changes it and **/model** lists the command's suggested models. [Reference](/reference/agents/cli#model-and-effort). Since 0.6.2.
 
 ### Changed
 

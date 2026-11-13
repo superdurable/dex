@@ -59,7 +59,11 @@ impl ObjectStoreInspector {
         );
         Self {
             store: if versioned_store_dialect.is_some() {
-                Arc::new(AliyunOssObjectStore::new(store))
+                Arc::new(AliyunOssObjectStore::new(
+                    store,
+                    dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+                    dexzd_metrics::NodeMetrics::unregistered(),
+                ))
             } else {
                 store
             },

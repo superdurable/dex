@@ -452,9 +452,12 @@ func (flow *AgentSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 // It returns true when the message was queued, and false for whitespace-only
 // text or a message with PlanMode set, because this Go core has no plan mode.
 // It also returns false for a message with images, because this Go core has no
-// image input.
+// image input, and for a SenderName that IsValidSenderName refuses.
 func (flow *AgentSessionFlow) SendUserMessage(ctx dex.Context, input AgentUserMessage) (*dex.RPCResult[bool], error) {
 	if isBlankText(input.Text) || input.PlanMode || len(input.Images) > 0 {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	if input.SenderName != nil && !IsValidSenderName(*input.SenderName) {
 		return &dex.RPCResult[bool]{Output: false}, nil
 	}
 	if err := QueuedUserMessagesChannel.Publish(ctx, input); err != nil {
@@ -698,7 +701,7 @@ func (step StartAgentSession) Execute(ctx dex.Context, input AgentSessionStartIn
 	if input.InitialMessage == nil || isBlankText(*input.InitialMessage) {
 		return dex.GoTo(AwaitUserMessage{session: step.session}, nil), nil
 	}
-	if err := step.session.beginTurn(ctx, state, *input.InitialMessage, input.SessionSettings); err != nil {
+	if err := step.session.beginTurn(ctx, state, AgentUserMessage{Text: *input.InitialMessage}, input.SessionSettings); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(RunModel{session: step.session}, (*CompactContextInput)(nil)), nil
@@ -759,7 +762,7 @@ func (step AwaitUserMessage) Execute(ctx dex.Context, _ dex.None) (*dex.StepDeci
 	if err != nil {
 		return nil, err
 	}
-	if err := step.session.beginTurn(ctx, state, messages[0].Text, sessionSettings); err != nil {
+	if err := step.session.beginTurn(ctx, state, messages[0], sessionSettings); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(RunModel{session: step.session}, (*CompactContextInput)(nil)), nil
@@ -1244,21 +1247,26 @@ func recoveryStepOptions(loads []dex.AttributeDef) *dex.StepOptions {
 }
 
 // beginTurn stores the turn's user message and makes it the active turn with these settings.
-func (flow *AgentSessionFlow) beginTurn(ctx dex.Context, state AgentState, text string, sessionSettings map[string]any) error {
+func (flow *AgentSessionFlow) beginTurn(ctx dex.Context, state AgentState, message AgentUserMessage, sessionSettings map[string]any) error {
 	turnID := fmt.Sprintf("turn-%d", state.TurnCount+1)
 	// The turn keeps these until it ends; later updates wait for the next turn.
 	if err := writeTurnSessionSettings(ctx, turnID, sessionSettings); err != nil {
 		return err
 	}
 	sequence := state.NextMessageSequence
-	userMessage, err := flow.runner.BuildUserMessage(text)
+	userMessage, err := flow.runner.BuildUserMessage(BuildSenderNamedText(message.SenderName, message.Text))
 	if err != nil {
 		return err
 	}
 	if userMessage.Role != MessageRoleUser {
 		return errors.New("BuildUserMessage must return a user message")
 	}
-	state, err = flow.appendMessages(ctx, state, turnID, []FrameworkMessage{userMessage}, true, nil)
+	if message.SenderName != nil {
+		// The framework item carries the name for the model; the display text stays as sent.
+		userMessage.Text = &message.Text
+	}
+	state, err = flow.appendMessages(ctx, state, turnID, []FrameworkMessage{userMessage}, true, nil,
+		[]*string{message.SenderName})
 	if err != nil {
 		return err
 	}
@@ -1396,7 +1404,7 @@ func (flow *AgentSessionFlow) completeTurn(
 	if err != nil {
 		return err
 	}
-	state, err = flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false, nil)
+	state, err = flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -1432,7 +1440,7 @@ func (flow *AgentSessionFlow) startToolCalls(
 	if err := validateToolCallsRequested(outcome, toolCalls); err != nil {
 		return nil, err
 	}
-	state, err := flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false, nil)
+	state, err := flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1739,7 +1747,7 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		noteOrigin := AgentMessageOriginTurnFailureNote
 		origins = append(origins, &noteOrigin)
 	}
-	state, err := flow.appendMessages(ctx, state, turnID, messages, false, origins)
+	state, err := flow.appendMessages(ctx, state, turnID, messages, false, origins, nil)
 	if err != nil {
 		return err
 	}

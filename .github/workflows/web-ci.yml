@@ -68,6 +68,8 @@ jobs:
       DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
+      # rust-cache hashes this env into its key; it matches the Server ZD build cache workflow.
+      RUST_BACKTRACE: "1"
       RUSTUP_TOOLCHAIN: "1.97.1"
       CARGO_BUILD_JOBS: "4"
     steps:
@@ -94,7 +96,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server-zd
-          shared-key: server-zd-paradedb
+          shared-key: server-zd-build
           save-if: false
       - name: Build dex-server-zd
         working-directory: server-zd

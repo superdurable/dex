@@ -54,9 +54,9 @@ during a load leads to another load. After the load, changes come from the
 outbox. Loads happen only at startup, never because the database is slow.
 
 The log shows **loading the partition into the SQL visibility projection** with
-the **reason** for each load. **dexzd_search_initial_loads_total** counts loads,
-and **dexzd_search_initial_load_pending_partitions** reaches 0 when every
-partition is loaded. SearchFlows waits for a partition that is loading. See
+the **reason** for each load. **dexzd_search_initial_load_pending_partitions**
+reaches 0 when every partition is loaded. At the **verbose** metrics level,
+**dexzd_search_initial_loads_total** also counts loads. SearchFlows waits for a partition that is loading. See
 [Read-your-writes](#search-projection-read-your-writes).
 
 ### Read-your-writes {#search-projection-read-your-writes}
@@ -86,20 +86,24 @@ holder exists, or when a restored object storage prefix reuses a schema.
 
 ### Monitoring {#search-projection-monitoring}
 
-| Metric | Meaning |
-| --- | --- |
-| **dexzd_search_outbox_oldest_entry_age_seconds** | Age of the oldest outbox entry that SQL does not hold yet, 0 when none. This is the projection lag. |
-| **dexzd_search_outbox_entries** | Entries that SQL does not hold yet, summed over partitions, as of each partition's last scan |
-| **dexzd_search_outbox_max_partition_entries** | The largest of those per-partition counts |
-| **dexzd_search_outbox_batches_total** with **outcome** | SQL transactions of the projection. Failed transactions are retried. |
-| **dexzd_search_outbox_projected_entries_total** | Outbox entries that committed SQL transactions covered |
-| **dexzd_search_outbox_projected_runs_total** | Rows written or deleted after changes of one run were combined |
-| **dexzd_search_outbox_ack_proposals_total** with **outcome** | Acknowledgement commands. Failed proposals are retried. |
-| **dexzd_search_initial_load_pending_partitions** | Partitions whose initial load has not finished |
-| **dexzd_search_initial_load_documents_total** | Documents that initial loads wrote |
-| **dexzd_search_initial_loads_total** | Partition loads started; the log gives each one's reason |
-| **dexzd_search_projection_mode_skipped_partitions_total** | Stopped partitions that kept their previous projection mode at startup; each one also logs an error |
-| **dexzd_search_skipped_documents_total** | Committed documents that SQL cannot store; search omits them |
+Since 0.1.29, a family is exported at the **metrics.level** in its Level
+column and at every higher level. See
+[Metrics levels](/reference/server/metrics#metrics-levels).
+
+| Metric | Meaning | Level |
+| --- | --- | --- |
+| **dexzd_search_outbox_oldest_entry_age_seconds** | Age of the oldest outbox entry that SQL does not hold yet, 0 when none. This is the projection lag. | **advanced** |
+| **dexzd_search_outbox_entries** | Entries that SQL does not hold yet, summed over partitions, as of each partition's last scan | **advanced** |
+| **dexzd_search_outbox_max_partition_entries** | The largest of those per-partition counts | **verbose** |
+| **dexzd_search_outbox_batches_total** with **outcome** | SQL transactions of the projection. Failed transactions are retried. | **advanced** |
+| **dexzd_search_outbox_projected_entries_total** | Outbox entries that committed SQL transactions covered | **verbose** |
+| **dexzd_search_outbox_projected_runs_total** | Rows written or deleted after changes of one run were combined | **verbose** |
+| **dexzd_search_outbox_ack_proposals_total** with **outcome** | Acknowledgement commands. Failed proposals are retried. | **verbose** |
+| **dexzd_search_initial_load_pending_partitions** | Partitions whose initial load has not finished | **advanced** |
+| **dexzd_search_initial_load_documents_total** | Documents that initial loads wrote | **verbose** |
+| **dexzd_search_initial_loads_total** | Partition loads started; the log gives each one's reason | **verbose** |
+| **dexzd_search_projection_mode_skipped_partitions_total** | Stopped partitions that kept their previous projection mode at startup; each one also logs an error | **verbose** |
+| **dexzd_search_skipped_documents_total** | Committed documents that SQL cannot store; search omits them | **advanced** |
 
 ~~~text
 # Search results lag committed writes by more than 1 minute
@@ -109,7 +113,8 @@ dexzd_search_outbox_oldest_entry_age_seconds > 60
 increase(dexzd_search_outbox_batches_total{outcome="error"}[10m]) > 0
   and increase(dexzd_search_outbox_batches_total{outcome="ok"}[10m]) == 0
 
-# Every acknowledgement failed for 10 minutes, so the outbox only grows
+# Every acknowledgement failed for 10 minutes, so the outbox only grows.
+# Needs the verbose metrics level.
 increase(dexzd_search_outbox_ack_proposals_total{outcome="error"}[10m]) > 0
   and increase(dexzd_search_outbox_ack_proposals_total{outcome="ok"}[10m]) == 0
 

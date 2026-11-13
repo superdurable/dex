@@ -713,6 +713,7 @@ than the whole budget exceeds it, and that segment uploads alone. The budget
 does not count the rows an upload reads from local disk before it reserves, or
 the compressor's working state.
 
+At the **verbose** [metrics level](#metrics),
 **dexzd_history_upload_concurrency_limit** shows the current limit, and
 **dexzd_history_upload_in_flight_bytes** shows the reserved bytes. To keep the limit
 fixed, set **history.uploadMinConcurrency** and **history.uploadConcurrency** to
@@ -822,33 +823,41 @@ Changed in 0.1.23: the rows of completed Steps and of Steps canceled without a F
 
 Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the bookkeeping rows of superseded values. Those rows wait for the history window or for an upload, like history. Before, a run that offloads history and rewrites values often could fill a small budget with them before its first history segment was sealed and uploaded.
 
+## Metrics {#metrics}
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| **metrics.listen** | empty | Address of the plain HTTP **GET /metrics** listener, such as **0.0.0.0:9090**. Empty turns the endpoint off. |
+| **metrics.level** | **advanced** | Since 0.1.29. Which metric families the endpoint exports: **basic**, **advanced**, or **verbose**. Each level includes every family of the levels below it. It applies only while **metrics.listen** is set. |
+
+The endpoint has no authentication, so never expose it publicly. See
+[Metrics and alerts](/reference/server/metrics#metrics-levels) for what each
+level exports.
+
+Changed in 0.1.29: the default **advanced** level no longer exports the
+**verbose** families or the Linux **process_** metrics. Set
+**metrics.level** to **verbose** to export every family.
+
 ## Effective configuration {#effective-configuration}
 
-Since 0.1.29, the server reports the values it runs with for these keys:
-**retention.closedFlowDuration**, **values.maxValueBytes**,
-**limits.maxFlowStateBytes**, and **lifecycle.attemptDrainTimeout**. **dev**
-and **local** also report **dev.durabilityMode**. Each value is the one in
-effect: a key the configuration leaves unset reports its default, including
-the 2-second **lifecycle.attemptDrainTimeout** of **dev**, and a
-**--durability** flag reports the mode it selected. A byte limit above
-9223372036854775807 reports as 9223372036854775807 in the metrics; the log
-line keeps the exact value.
+Since 0.1.29, the server logs the values it runs with for these keys at
+startup: **retention.closedFlowDuration**, **values.maxValueBytes**,
+**limits.maxFlowStateBytes**, **lifecycle.attemptDrainTimeout**, and
+**metrics.level**. **dev** and **local** also log **dev.durabilityMode**. Each
+value is the one in effect: a key the configuration leaves unset logs its
+default, including the 2-second **lifecycle.attemptDrainTimeout** of **dev**,
+and a **--durability** flag logs the mode it selected.
 
-The server reports them in two places:
-
-- The **dexzd_config_** metrics on **metrics.listen**. See
-  [Metrics and alerts](/reference/server/metrics) for their names and types.
-- One INFO line at startup with the message **effective configuration** and
-  these fields: **closed_flow_retention_seconds**, **max_value_bytes**,
-  **max_flow_state_bytes**, **attempt_drain_timeout_seconds**, and, for **dev**
-  and **local**, **durability_mode** in its YAML spelling.
+The server writes them in one INFO line with the message **effective
+configuration** and these fields: **closed_flow_retention_seconds**,
+**max_value_bytes**, **max_flow_state_bytes**,
+**attempt_drain_timeout_seconds**, **metrics_level**, and, for **dev** and
+**local**, **durability_mode**. **metrics_level** and **durability_mode** use
+their YAML spelling.
 
 ~~~text
-INFO dexzd_server::config: effective configuration closed_flow_retention_seconds=2592000.0 max_value_bytes=16777216 max_flow_state_bytes=67108864 attempt_drain_timeout_seconds=30.0 durability_mode="strict"
+INFO dexzd_server::config: effective configuration closed_flow_retention_seconds=2592000.0 max_value_bytes=16777216 max_flow_state_bytes=67108864 attempt_drain_timeout_seconds=30.0 metrics_level="advanced" durability_mode="strict"
 ~~~
-
-An application that embeds **local** can scrape these metrics after startup
-and refuse to continue when a value differs from the one it requires.
 
 ## Flow definitions {#flow-definitions}
 

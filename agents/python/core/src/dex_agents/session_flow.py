@@ -173,6 +173,7 @@ from dex_agents.runner import (
     build_tool_call_note,
     build_turn_failure_note,
 )
+from dex_agents.sender_names import build_sender_named_text, is_valid_sender_name
 from dex_agents.session_settings import check_stored_session_settings
 from dex_agents.session_summary import build_session_title
 from dex_agents.spend_limit import (
@@ -789,12 +790,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         Returns:
             ``True`` when the message was queued; ``False`` for whitespace-only
             text, for a ``plan_mode`` message when
-            ``AgentSessionOptions.plan_mode_enabled`` is not set, or for
+            ``AgentSessionOptions.plan_mode_enabled`` is not set, for a
+            ``sender_name`` that ``is_valid_sender_name`` refuses, or for
             ``images`` that ``validate_image_references`` refuses or that the
             runner cannot take because it does not implement
             ``ImageUserMessageBuilder``.
         """
         if not input.text.strip() or (input.plan_mode and not self._options.plan_mode_enabled):
+            return RPCResult(False)
+        if input.sender_name is not None and not is_valid_sender_name(input.sender_name):
             return RPCResult(False)
         if input.images and not (
             isinstance(self._runner, ImageUserMessageBuilder) and _are_valid_images(input.images)
@@ -889,24 +893,32 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         Returns:
             ``True`` when the message is steered, or queued while no turn is
-            active; ``False`` when both or neither field is set, the text is
-            blank, the message is no longer queued, or the active turn does
-            not accept steering.
+            active; ``False`` when both or neither of ``message_id`` and
+            ``text`` is set, ``sender_name`` is set with ``message_id`` or is
+            refused by ``is_valid_sender_name``, the text is blank, the
+            message is no longer queued, or the active turn does not accept
+            steering.
         """
         if (input.message_id is None) == (input.text is None):
+            return RPCResult(False)
+        if input.sender_name is not None and (
+            input.message_id is not None or not is_valid_sender_name(input.sender_name)
+        ):
             return RPCResult(False)
         state = _optional_agent_state(context)
         if state is None or state.active_turn_id is None:
             # Any Worker version waits for queued messages while idle; a steer might wait forever.
             if input.text is None:
                 return RPCResult(_find_queued_message(context, input.message_id or "") is not None)
-            return self.send_user_message(context, AgentUserMessage(text=input.text))
+            return self.send_user_message(
+                context, AgentUserMessage(text=input.text, sender_name=input.sender_name)
+            )
         if not state.accepts_turn_control:
             return RPCResult(False)
         if input.text is not None:
             if not input.text.strip():
                 return RPCResult(False)
-            steered = AgentUserMessage(text=input.text)
+            steered = AgentUserMessage(text=input.text, sender_name=input.sender_name)
         else:
             queued = _find_queued_message(context, input.message_id or "")
             if queued is None:
@@ -1274,6 +1286,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 self._message_storage,
                 starts_turn=True,
                 origins=[] if executed_plan is None else [AgentMessageOrigin.PLAN_EXECUTION],
+                sender_names=[message.sender_name for message in messages],
             )
             AGENT_STATE.set(
                 context,
@@ -1317,15 +1330,23 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     def _build_stored_user_message(self, message: AgentUserMessage) -> FrameworkMessage:
         """Build the stored item of one user message; the session sets its images itself."""
+        model_text = build_sender_named_text(message.sender_name, message.text)
         if not message.images:
-            return replace(self._runner.build_user_message(message.text), images=())
-        images = tuple(message.images)
-        if isinstance(self._runner, ImageUserMessageBuilder):
-            built = self._runner.build_user_message_with_images(message.text, images)
+            built = replace(self._runner.build_user_message(model_text), images=())
+        elif isinstance(self._runner, ImageUserMessageBuilder):
+            built = replace(
+                self._runner.build_user_message_with_images(model_text, tuple(message.images)),
+                images=tuple(message.images),
+            )
         else:
             # A runner redeployed without image support still stores the images, for display.
-            built = self._runner.build_user_message(message.text)
-        return replace(built, images=images)
+            built = replace(
+                self._runner.build_user_message(model_text), images=tuple(message.images)
+            )
+        if message.sender_name is None:
+            return built
+        # The framework item carries the name for the model; the display text stays as sent.
+        return replace(built, text=message.text)
 
     def _interaction_mode_for_user_messages(
         self, context: Context, messages: Sequence[AgentUserMessage]
@@ -3971,16 +3992,20 @@ def _append_messages(
     *,
     starts_turn: bool = False,
     origins: Sequence[AgentMessageOrigin | None] = (),
+    sender_names: Sequence[str | None] = (),
 ) -> AgentState:
     """Store messages, move full chunks out of the window, and apply retention.
 
     Every caller loads the whole ``AgentMessages`` window. A message too large to
     share a chunk gets its own chunk at once, so no later commit can fail on it.
     The index changes only when chunks are written or deleted. ``origins``,
-    empty or one per message, marks the messages the session wrote itself.
+    empty or one per message, marks the messages the session wrote itself;
+    ``sender_names``, empty or one per message, holds their declared senders.
     """
     if origins and len(origins) != len(messages):
         raise ValueError("origins must be empty or have one value per message")
+    if sender_names and len(sender_names) != len(messages):
+        raise ValueError("sender_names must be empty or have one value per message")
     if not messages and not starts_turn:
         AGENT_STATE.set(context, state)
         return state
@@ -4008,6 +4033,7 @@ def _append_messages(
             created_at=created_at,
             images=list(message.images),
             origin=origins[position] if origins else None,
+            sender_name=sender_names[position] if sender_names else None,
         )
         if _CHUNK_ENVELOPE_BYTES + _message_bytes(stored) > storage.chunk_max_bytes:
             # The first store writes the largest value this message ever needs.

@@ -19,7 +19,8 @@ not raise the minimum protocol version, so Workers and Clients on SDKs before
 Step attempt for lack of capacity, the server puts the attempt back to pending
 without consuming a retry.
 **dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
-counts these returns. This compatibility lasts until server-zd 1.0.
+counts these returns at the default **advanced** metrics level and above. This
+compatibility lasts until server-zd 1.0.
 
 SDK 1.35 and later require server-zd 0.1.17 or later. On an older server, an
 SDK 1.35 Worker fails to start and an SDK 1.35 Client fails its first call. Both

@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from dex_agents_cli_core.dex_connection import describe_dex_refusal_without_details
 from dex_agents_cli_core.terminal_ui.contract import (
     GET_REQUEST_RESULT,
     MAX_IN_FLIGHT_REQUESTS,
@@ -352,8 +353,12 @@ async def _run_handler(
 ) -> RequestOutcome:
     try:
         return await handler(params, key)
-    except Exception:  # A handler bug must still answer the request once.
-        _LOGGER.exception("local request failed: method=%s", method)
+    except Exception as error:  # A handler bug must still answer the request once.
+        refused = describe_dex_refusal_without_details(error)
+        if refused is None:
+            _LOGGER.exception("local request failed: method=%s", method)
+        else:
+            _LOGGER.error("local request failed: method=%s: %s", method, refused)
         return RequestOutcome.failed(
             "request_failed", f"{method} failed; see the log.", is_remembered=False
         )

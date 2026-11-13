@@ -210,13 +210,11 @@ pub(crate) async fn start_server(
             address: config.api.listen,
             source,
         })?;
-    let (mut registry, metrics) = NodeMetrics::registered(
+    let (registry, metrics) = NodeMetrics::registered(
         config.local_storage.directory.clone(),
         config.cluster.partition_count as usize,
+        config.metrics.level,
     );
-    config
-        .effective_config_metrics(embedded_s3.is_some())
-        .register(&mut registry);
     let metrics = Arc::new(metrics);
     metrics.set_role(dexzd_metrics::NodeRole::Starting);
     let metrics_server =

@@ -10,7 +10,6 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use dexzd_metrics::EmbeddedStoreDurability;
 use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials};
 use serde::{Deserialize, Serialize};
 
@@ -355,14 +354,6 @@ impl DevDurabilityMode {
             Self::Strict => "strict",
             Self::ProcessCrashSafe => "processCrashSafe",
             Self::Relaxed => "relaxed",
-        }
-    }
-
-    pub(crate) fn embedded_store_durability(self) -> EmbeddedStoreDurability {
-        match self {
-            Self::Strict => EmbeddedStoreDurability::Strict,
-            Self::ProcessCrashSafe => EmbeddedStoreDurability::ProcessCrashSafe,
-            Self::Relaxed => EmbeddedStoreDurability::Relaxed,
         }
     }
 }

@@ -134,6 +134,8 @@ auth:
 metrics:
   # Empty disables the unauthenticated HTTP GET /metrics endpoint. Never expose it publicly.
   listen: ""
+  # basic, advanced, or verbose; each level adds families to the one below it.
+  level: advanced
 matching:
   dispatchWait: 10s
   stickyWait: 5s

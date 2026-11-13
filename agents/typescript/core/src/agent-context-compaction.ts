@@ -13,6 +13,7 @@ import type {
   DeferredToolOutcome,
   ModelCallMetadata,
 } from "./agent-framework-runner.js";
+import { buildSenderNamedText } from "./agent-sender-names.js";
 import type { AgentMessage, AgentUsage, ContextSummary, SessionSettings } from "./agent-session-values.js";
 
 /**
@@ -227,13 +228,14 @@ export function selectTurnBoundaryCutoff(turn: AgentTurnContext, retainedTokenBu
  *
  * @param message - The stored message.
  * @returns Its role and text, tool arguments, and tool output. A message with none of them returns its role and
- * `frameworkItem`, such as a model response with several tool calls.
+ * `frameworkItem`, such as a model response with several tool calls. Changed in 0.6.2: the text of a message with a
+ * `senderName` starts with `"<senderName>: "`, as the model saw it.
  * @since 0.3.0
  */
 export function describeStoredMessage(message: AgentMessage): string {
   const lines: string[] = [];
   if (message.text) {
-    lines.push(`${message.role}: ${message.text}`);
+    lines.push(`${message.role}: ${buildSenderNamedText(message.senderName, message.text)}`);
   }
   if (message.toolArguments !== null) {
     lines.push(`tool call ${message.toolName ?? ""}: ${message.toolArguments}`);

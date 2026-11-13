@@ -18,6 +18,7 @@ import { isConnectorToolEnabledBy } from "../connector-tool-source.js";
 import { refusal } from "../terminal-ui/local-request-relay.js";
 import { candidateSessionIds } from "../terminal-ui/request-keys.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
+import { describeFailureWithoutDexDetails } from "../dex-connection.js";
 
 /** What the Worker host's methods work on. */
 export interface WorkerHostMethodContext {
@@ -178,7 +179,7 @@ async function startSession(idempotencyKey: string, context: WorkerHostMethodCon
       },
     });
   } catch (error: unknown) {
-    context.log(`start_session failed: ${error instanceof Error ? error.message : String(error)}`);
+    context.log(`start_session failed: ${describeFailureWithoutDexDetails(error)}`);
     return refusal("start_failed", "The new session could not start.");
   }
 }

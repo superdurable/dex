@@ -56,8 +56,9 @@ class ConfigError(Exception):
 
     Attributes:
         code: The stable error code from the conformance file: ``yaml``,
-            ``schema``, ``invalid_url``, ``duplicate_tool``,
-            ``duplicate_connection``, ``model_required``,
+            ``schema``, ``invalid_url``, ``insecure_token_url``,
+            ``auth_needs_server_url``, ``tls_needs_https_server``,
+            ``duplicate_tool``, ``duplicate_connection``, ``model_required``,
             ``widens_connectors``, ``widens_local_tools``, or
             ``unsupported_reasoning_effort``.
         path: JSON Pointer of the first problem, ``""`` for the whole value.
@@ -77,6 +78,11 @@ class ConfigError(Exception):
 
     .. versionchanged:: 0.6.2
        The ``unsupported_reasoning_effort`` code, at ``/reasoning_effort``.
+
+    .. versionchanged:: 0.6.2
+       The ``insecure_token_url`` code, at ``/dex/auth/token_url``, the
+       ``auth_needs_server_url`` code, at ``/dex/auth``, and the
+       ``tls_needs_https_server`` code, at ``/dex/tls``.
     """
 
     def __init__(
@@ -149,14 +155,79 @@ class ConnectorEntry:
 
 
 @dataclass(frozen=True)
+class DexAuthConfig:
+    """The ``dex.auth`` section, as the file writes it: how to authenticate to Dex.
+
+    It never holds a secret. ``resolve_dex_connection_settings`` adds the
+    environment and checks that every needed setting is there.
+
+    Attributes:
+        mode: ``none``, ``api_key``, or ``bearer``.
+        token_url: ``api_key`` only: the token endpoint, or ``None`` when the
+            file omits it and ``DEX_TOKEN_URL`` must give it.
+        server_id: ``api_key`` only: the server ID of the access tokens, or
+            ``None`` when the file omits it and ``DEX_SERVER_ID`` must give it.
+        source: ``bearer`` only: ``env`` or ``file``; ``None`` otherwise.
+        file: ``bearer`` with ``source`` ``file`` only: the token file as
+            written, or ``None`` when ``DEX_CREDENTIAL_FILE`` must give it.
+
+    .. versionadded:: 0.6.2
+    """
+
+    mode: str = "none"
+    token_url: str | None = None
+    server_id: str | None = None
+    source: str | None = None
+    file: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        """Return the section in the conformance file's effective form.
+
+        Returns:
+            The mode and the fields of that mode only, ``null`` when omitted.
+        """
+        if self.mode == "api_key":
+            return {"mode": self.mode, "token_url": self.token_url, "server_id": self.server_id}
+        if self.mode == "bearer" and self.source == "file":
+            return {"mode": self.mode, "source": "file", "file": self.file}
+        if self.mode == "bearer":
+            return {"mode": self.mode, "source": "env"}
+        return {"mode": "none"}
+
+
+@dataclass(frozen=True)
+class DexTlsConfig:
+    """The ``dex.tls`` section, as the file writes it, for an ``https`` ``dex.server``.
+
+    Attributes:
+        ca_file: A PEM file of root CAs to trust as well, as written, or ``None``.
+        server_name: The name the server certificate must match, or ``None``
+            for the ``dex.server`` host.
+
+    .. versionadded:: 0.6.2
+    """
+
+    ca_file: str | None = None
+    server_name: str | None = None
+
+
+@dataclass(frozen=True)
 class DexServerConfig:
     """The ``dex`` section.
 
     Attributes:
         server: ``auto`` or the Dex server URL.
+        auth: How to authenticate to the Dex server.
+
+            .. versionadded:: 0.6.2
+        tls: How to verify an ``https`` Dex server.
+
+            .. versionadded:: 0.6.2
     """
 
     server: str = AUTO
+    auth: DexAuthConfig = field(default_factory=DexAuthConfig)
+    tls: DexTlsConfig = field(default_factory=DexTlsConfig)
 
 
 @dataclass(frozen=True)
@@ -316,7 +387,11 @@ class EffectiveConfig:
             "model": self.model,
             "system_prompt": self.system_prompt,
             "system_prompt_file": self.system_prompt_file,
-            "dex": {"server": self.dex.server},
+            "dex": {
+                "server": self.dex.server,
+                "auth": self.dex.auth.to_json(),
+                "tls": {"ca_file": self.dex.tls.ca_file, "server_name": self.dex.tls.server_name},
+            },
             "connectors": {
                 "mcp": self.connectors.mcp,
                 "enabled": None
@@ -402,9 +477,13 @@ def resolve_config(
         The configuration with every default applied.
 
     Raises:
-        ConfigError: ``schema``, ``invalid_url``, ``duplicate_tool``,
-            ``duplicate_connection``, or ``model_required``, in the
-            conformance file's check order.
+        ConfigError: ``schema``, ``invalid_url``, ``insecure_token_url``,
+            ``auth_needs_server_url``, ``tls_needs_https_server``,
+            ``duplicate_tool``, ``duplicate_connection``, or
+            ``model_required``, in the conformance file's check order.
+
+    .. versionchanged:: 0.6.2
+       Reads ``dex.auth`` and ``dex.tls``.
     """
     if config is None:
         config = {}
@@ -413,13 +492,24 @@ def resolve_config(
     dex = config.get("dex", {})
     connectors = config.get("connectors", {})
     server = dex.get("server", AUTO)
+    auth = dex.get("auth", {"mode": "none"})
+    tls = dex.get("tls", {})
     mcp = connectors.get("mcp", AUTO)
     _raise_invalid_url(server, "/dex/server")
+    token_url = auth.get("token_url")
+    if token_url is not None:
+        _raise_invalid_url(token_url, "/dex/auth/token_url")
     _raise_invalid_url(mcp, "/connectors/mcp")
     media = config.get("media", {})
     endpoint = media.get("endpoint")
     if endpoint is not None:
         _raise_invalid_url(endpoint, "/media/endpoint")
+    if token_url is not None and not is_secure_token_url(token_url):
+        raise ConfigError("insecure_token_url", "/dex/auth/token_url")
+    if auth["mode"] != "none" and server == AUTO:
+        raise ConfigError("auth_needs_server_url", "/dex/auth")
+    if tls and not server.startswith("https://"):
+        raise ConfigError("tls_needs_https_server", "/dex/tls")
     enabled = connectors.get("enabled")
     entries = None if enabled is None else _parse_connector_entries(enabled, None)
     model = config.get("model", harness_default_model)
@@ -431,7 +521,17 @@ def resolve_config(
         model=model,
         system_prompt=config.get("system_prompt"),
         system_prompt_file=config.get("system_prompt_file"),
-        dex=DexServerConfig(server=server),
+        dex=DexServerConfig(
+            server=server,
+            auth=DexAuthConfig(
+                mode=auth["mode"],
+                token_url=token_url,
+                server_id=auth.get("server_id"),
+                source=auth.get("source"),
+                file=auth.get("file"),
+            ),
+            tls=DexTlsConfig(ca_file=tls.get("ca_file"), server_name=tls.get("server_name")),
+        ),
         connectors=ConnectorsConfig(mcp=mcp, enabled=entries),
         approval=ApprovalConfig(always=tuple(config.get("approval", {}).get("always", []))),
         workspace=config.get("workspace", DEFAULT_WORKSPACE),
@@ -626,6 +726,50 @@ def _raise_first_schema_error(validator: Draft202012Validator, instance: object)
             schema_errors=schema_error_locations(errors),
             valid_forms=title if first.validator == "anyOf" and isinstance(title, str) else None,
         )
+
+
+def is_secure_token_url(url: str) -> bool:
+    """Report whether a token URL that passes the URL checks keeps the API key off the network.
+
+    Args:
+        url: An ``http`` or ``https`` URL that passed the schema and the URL checks.
+
+    Returns:
+        ``True`` for ``https``, and for ``http`` on ``localhost`` in any case,
+        an IPv4 address in 127.0.0.0/8, or ``::1``.
+
+    .. versionadded:: 0.6.2
+    """
+    if url.startswith("https://"):
+        return True
+    parts = _URL_PARTS.fullmatch(url)
+    assert parts is not None, "the schema admits only URLs of this shape"
+    host = parts["host"]
+    if host.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host[1:-1] if host.startswith("[") else host)
+    except ValueError:
+        return False
+    return address.is_loopback
+
+
+def is_valid_url(url: str) -> bool:
+    """Report whether a URL of the schema's URL shape passes the ``invalid_url`` checks.
+
+    Args:
+        url: A URL that matches one of the schema's URL patterns.
+
+    Returns:
+        ``True`` when a WHATWG URL parser accepts it with a port of at most 65535.
+
+    .. versionadded:: 0.6.2
+    """
+    try:
+        _raise_invalid_url(url, "")
+    except ConfigError:
+        return False
+    return True
 
 
 def _raise_invalid_url(url: str, path: str) -> None:

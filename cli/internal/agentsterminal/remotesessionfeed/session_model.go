@@ -278,8 +278,9 @@ func (model *sessionModel) emitStoredMessage(message dexagents.AgentMessage, isH
 			model.emitSessionWrittenMessage(*message.Origin, text, message.Sequence)
 			return
 		}
-		recorded := sessionfeed.UserMessageRecorded{Text: text, TurnID: message.TurnID, Sequence: model.screenSequence(message.Sequence), Images: storedImages(message.Images)}
-		if !isHistory && !model.isFirstApply {
+		recorded := sessionfeed.UserMessageRecorded{Text: text, TurnID: message.TurnID, Sequence: model.screenSequence(message.Sequence), Images: storedImages(message.Images), SenderName: storedSenderName(message)}
+		// This terminal never sends a sender name, so a named message came from another client.
+		if !isHistory && !model.isFirstApply && recorded.SenderName == "" {
 			if isLocal, isPrinted := model.takeLocalSend(text); isPrinted {
 				return
 			} else if !isLocal && !model.takeQueuedBeforeChat(text) {
@@ -305,6 +306,15 @@ func (model *sessionModel) emitStoredMessage(message dexagents.AgentMessage, isH
 		}
 		model.emit(historyToolRow(message))
 	}
+}
+
+// storedSenderName returns the declared sender name of a stored message, or
+// empty for none.
+func storedSenderName(message dexagents.AgentMessage) string {
+	if message.SenderName == nil {
+		return ""
+	}
+	return *message.SenderName
 }
 
 // planExecutionRevisionPattern reads the revision from the text of

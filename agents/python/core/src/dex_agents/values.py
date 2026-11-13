@@ -429,6 +429,14 @@ class AgentMessage:
             moves the message into an archive chunk.
 
             .. versionadded:: 0.6.0
+        sender_name: The display name that the sender of this ``USER``
+            message declared, from ``AgentUserMessage.sender_name``, or
+            ``None``. The sender chose it; it is not an authenticated
+            identity. ``text`` holds the message without the name, and the
+            model saw it as ``"<sender_name>: <text>"``. It is ``None`` for
+            every other message. Encoding omits it when it is ``None``.
+
+            .. versionadded:: 0.6.2
 
     Example:
         >>> page = await sessions.list_agent_messages("session-42")
@@ -451,6 +459,7 @@ class AgentMessage:
     created_at: str
     images: list[AgentImageReference] = field(default_factory=list)
     origin: str | None = None
+    sender_name: str | None = field(default=None, metadata={"dex_json_omit_default": True})
 
 
 class QuestionResolution(StrEnum):
@@ -866,11 +875,24 @@ class AgentUserMessage:
             earlier Worker drops them.
 
             .. versionadded:: 0.5.0
+        sender_name: A display name the sender declared, such as a person
+            who sends from Dex Web, or ``None`` for none. The model sees the
+            message as ``"<sender_name>: <text>"``, and UIs show the name next
+            to the message. The sender chooses it: it is not authenticated.
+            A valid name has 1 to ``MAX_SENDER_NAME_LENGTH`` Unicode code
+            points, contains no control, format, or surrogate character and no
+            line break, and neither starts nor ends with a space; the RPCs
+            refuse any other name.
+            Encoding omits it when it is ``None``. A Worker before 0.6.2
+            ignores it.
+
+            .. versionadded:: 0.6.2
     """
 
     text: str
     plan_mode: bool | None = False
     images: list[AgentImageReference] = field(default_factory=list)
+    sender_name: str | None = field(default=None, metadata={"dex_json_omit_default": True})
 
     def __post_init__(self) -> None:
         if self.plan_mode is None:
@@ -975,8 +997,8 @@ class PendingUserMessage:
 class SteerUserMessageRequest:
     """Steer the running turn through the ``steer_user_message`` RPC.
 
-    Set exactly one field. ``message_id`` moves a queued message, and
-    ``text`` sends a new one.
+    Set exactly one of ``message_id`` and ``text``. ``message_id`` moves a
+    queued message, and ``text`` sends a new one.
 
     Example:
         >>> SteerUserMessageRequest(text="Use the staging account instead")
@@ -985,10 +1007,17 @@ class SteerUserMessageRequest:
     Attributes:
         message_id: ``PendingUserMessage.message_id`` of a queued message, or ``None``.
         text: Text of a new steered message, or ``None``.
+        sender_name: The declared display name of the sender of ``text``, as
+            ``AgentUserMessage.sender_name`` describes it, or ``None``. The
+            RPC refuses it together with ``message_id``: a queued message
+            keeps its own name. Encoding omits it when it is ``None``.
+
+            .. versionadded:: 0.6.2
     """
 
     message_id: str | None = None
     text: str | None = None
+    sender_name: str | None = field(default=None, metadata={"dex_json_omit_default": True})
 
 
 @dataclass(frozen=True, kw_only=True)

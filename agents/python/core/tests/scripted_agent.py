@@ -12,6 +12,8 @@ Each ``run_model_step`` is one scripted model call. The model reads commands
 from the user message:
 
 * ``say <text>`` answers ``said: <text>``.
+* ``<name>: <text>``, the text of a message with a sender name, answers
+  ``heard <name>: <text>``.
 * ``recall`` answers with every earlier user message, proving history replay.
 * ``stall <gate>`` writes a text delta, waits at a ``FileGate``, then answers.
 * ``block <gate> <seconds>`` marks a ``FileGate``, blocks the event loop on the first run, then
@@ -46,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
@@ -126,6 +129,8 @@ class ScriptedRunner(AgentFrameworkRunner):
         command = _current_user_text(turn)
         if command.startswith("say "):
             return _answer(command, f"said: {command.removeprefix('say ')}")
+        if _SENDER_NAMED_COMMAND.match(command):
+            return _answer(command, f"heard {command}")
         if command == "recall":
             earlier = [
                 json.loads(message.framework_item)["text"]
@@ -368,6 +373,9 @@ def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
         None if message_window is None else (int(window_size), int(chunk_size)),
         None if run_model_limit is None else (int(method_timeout_seconds), int(maximum_attempts)),
     )
+
+
+_SENDER_NAMED_COMMAND = re.compile(r"^\w+: ")
 
 
 def _chain_batches(command: str) -> list[str]:

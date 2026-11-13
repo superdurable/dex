@@ -1,0 +1,16 @@
+# dex-agents-claude-sdk with its sessions on a remote Dex server that requires an API key.
+# Schema: agents/cli/config.schema.json. Run it with: dex-agents-claude-sdk --config <this file>
+# The API key comes only from DEX_API_KEY; provider keys stay in the environment too.
+model: claude-opus-5-5
+dex:
+  server: https://dex.example.com
+  auth:
+    mode: api_key                                  # Or bearer, with source env or file.
+    token_url: https://auth.example.com/oauth/token  # Or DEX_TOKEN_URL.
+    server_id: dex-prod                            # Or DEX_SERVER_ID.
+  tls:
+    ca_file: ~/certs/dex-ca.pem                    # Only for a private CA. Or DEX_TLS_CA_FILE.
+connectors:
+  enabled: []      # connectors.mcp auto has no connectors MCP server with a remote Dex server.
+workspace: ~/dex-agent-workspace
+claude: {}

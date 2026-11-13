@@ -1,5 +1,5 @@
 {
-  "description": "Dex Agents CLI configuration behavior every CLI core must match: YAML parsing, schema validation, file defaults, the media store, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
+  "description": "Dex Agents CLI configuration behavior every CLI core must match: YAML parsing, schema validation, file defaults, the Dex server's authentication and TLS settings, the media store, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
   "schemas": {
     "config": "agents/cli/config.schema.json",
     "session_settings": "agents/cli/session-settings.schema.json"
@@ -7,7 +7,10 @@
   "error_codes": {
     "yaml": "The file is not one YAML 1.2 document with unique keys. path is always \"\".",
     "schema": "The value fails the schema. CLI cores may report schema errors in any order. Each schema case has exactly one violation, and a CLI core passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
-    "invalid_url": "dex.server, connectors.mcp, or media.endpoint passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
+    "invalid_url": "dex.server, dex.auth.token_url, connectors.mcp, or media.endpoint passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
+    "insecure_token_url": "dex.auth.token_url is an http URL whose host is not loopback: localhost in any case, an IPv4 address in 127.0.0.0/8, or the IPv6 address ::1 in any spelling. path is \"/dex/auth/token_url\".",
+    "auth_needs_server_url": "dex.auth.mode is not none, but dex.server is auto or omitted: the local dexcli dev takes no credential. path is \"/dex/auth\".",
+    "tls_needs_https_server": "dex.tls sets ca_file or server_name, but dex.server is not an https URL. An empty dex.tls passes. path is \"/dex/tls\".",
     "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
     "duplicate_connection": "Two entries cover the same connection. path is the later entry.",
     "model_required": "Neither the file nor the harness command gives a model.",
@@ -16,7 +19,7 @@
     "unsupported_reasoning_effort": "A session's reasoning_effort passes the schema but is not one of the values the harness command declares, or the command declares none. path is \"/reasoning_effort\"."
   },
   "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript CLI core must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
-  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp, then media.endpoint; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then dex.auth.token_url, then connectors.mcp, then media.endpoint; then insecure_token_url; then auth_needs_server_url; then tls_needs_https_server; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values.",
   "harness_sections": [
     "claude",
     "openai",
@@ -189,7 +192,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -236,7 +246,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "https://dex.example.com"
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -280,7 +297,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -336,7 +360,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -416,7 +447,14 @@
         "system_prompt": "You are my personal assistant. Ask before posting anything.\n",
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -485,7 +523,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -536,7 +581,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -587,7 +639,14 @@
         "system_prompt": null,
         "system_prompt_file": "prompts/assistant.md",
         "dex": {
-          "server": "https://dex.example.com:8443/base"
+          "server": "https://dex.example.com:8443/base",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "http://127.0.0.1:8899/mcp",
@@ -634,7 +693,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "http://localhost:7233"
+          "server": "http://localhost:7233",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "https://[::1]/mcp",
@@ -681,7 +747,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "http://[2001:db8::1]:65535/dex"
+          "server": "http://[2001:db8::1]:65535/dex",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "http://127.0.0.1:65535",
@@ -725,7 +798,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "https://10.0.0.255:7233"
+          "server": "https://10.0.0.255:7233",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -769,7 +849,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "http://10.0.0.1"
+          "server": "http://10.0.0.1",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -813,7 +900,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "http://dex-1.2nd.internal:7233"
+          "server": "http://dex-1.2nd.internal:7233",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -857,7 +951,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -918,7 +1019,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -983,7 +1091,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -1054,7 +1169,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -1099,7 +1221,14 @@
         "system_prompt": "",
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -1141,7 +1270,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -1185,7 +1321,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -1230,7 +1373,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2228,6 +2378,1268 @@
         "code": "model_required",
         "path": "/model"
       }
+    },
+    {
+      "name": "auth-api-key",
+      "description": "An API key: the file names the token endpoint and the server ID; the key itself comes from DEX_API_KEY.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-api-key-fields-omitted",
+      "description": "token_url and server_id are optional in the file: DEX_TOKEN_URL and DEX_SERVER_ID may give them.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": null,
+            "server_id": null
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-api-key-loopback-token-urls",
+      "description": "An http token URL is valid on a loopback host, with a plaintext Dex server too.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://127.0.0.1:8801",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://LOCALHOST:9000/token",
+            "server_id": "local"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://127.0.0.1:8801",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://LOCALHOST:9000/token",
+            "server_id": "local"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-api-key-loopback-ipv4-token-url",
+      "description": "Every IPv4 address in 127.0.0.0/8 is loopback.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://127.8.9.10/token"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://127.8.9.10/token",
+            "server_id": null
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-api-key-loopback-ipv6-token-url",
+      "description": "::1 is loopback in any spelling.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://[0:0:0:0:0:0:0:1]:9000/t"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://[0:0:0:0:0:0:0:1]:9000/t",
+            "server_id": null
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-bearer-env",
+      "description": "A bearer token from DEX_CREDENTIAL.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-bearer-file",
+      "description": "A bearer token file, as written; the CLI core expands the path when it uses it.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "~/.dex/token"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "~/.dex/token"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-bearer-file-omitted",
+      "description": "file is optional in the file: DEX_CREDENTIAL_FILE may give it.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "file"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": null
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-none-explicit",
+      "description": "mode none is the default, also with auto.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "tls-settings",
+      "description": "A private CA and a server name for an https server, as written.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://10.0.0.5:8443",
+          "tls": {
+            "ca_file": "certs/ca.pem",
+            "server_name": "dex.internal"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://10.0.0.5:8443",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": "certs/ca.pem",
+            "server_name": "dex.internal"
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "tls-empty-section-with-auto",
+      "description": "An empty dex.tls sets nothing, so it passes with any server.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "tls": {}
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "auth-mode-required",
+      "description": "dex.auth needs a mode.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {}
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "auth-unknown-mode",
+      "description": "Only none, api_key, and bearer.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "oauth"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/mode",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "auth-no-api-key-field",
+      "description": "The API key never goes in the file.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "api_key": "dex_key_123"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/api_key",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-no-token-field",
+      "description": "A bearer token never goes in the file.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "env",
+            "token": "abc"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/token",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-no-credential-field",
+      "description": "No credential field either.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "env",
+            "credential": "abc"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/credential",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-no-access-token-field",
+      "description": "No access token field either.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "access_token": "abc"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/access_token",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-unknown-field",
+      "description": "Other keys are errors.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "audience": "dex"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "auth-token-url-with-bearer",
+      "description": "token_url belongs to api_key only.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "env",
+            "token_url": "https://auth.example.com/oauth/token"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/token_url",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-server-id-with-none",
+      "description": "server_id belongs to api_key only.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "none",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/server_id",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-source-with-api-key",
+      "description": "source belongs to bearer only.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "source": "env"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/source",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-bearer-without-source",
+      "description": "bearer needs a source.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "auth-bearer-unknown-source",
+      "description": "Only env and file.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "keychain"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/source",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "auth-file-with-env-source",
+      "description": "file belongs to source file only.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "env",
+            "file": "~/.dex/token"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/file",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "auth-file-empty",
+      "description": "file is non-empty text without control characters.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": ""
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/file",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "auth-server-id-control-character",
+      "description": "server_id is one line.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "server_id": "dex\nprod"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/server_id",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "auth-token-url-not-http",
+      "description": "token_url is an http or https URL.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "ftp://auth.example.com/t"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/token_url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "auth-token-url-fragment",
+      "description": "token_url has no fragment.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/t#x"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/token_url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "auth-token-url-userinfo",
+      "description": "token_url has no user info.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://me:pw@auth.example.com/t"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/auth/token_url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "auth-token-url-port-out-of-range",
+      "description": "The URL checks of dex.server apply to token_url.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com:70000/t"
+          }
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "server-checked-before-token-url",
+      "description": "dex.server's URL check comes first.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com:70000",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com:70000/t"
+          }
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "token-url-checked-before-mcp",
+      "description": "token_url's URL check comes before connectors.mcp's.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com:70000/t"
+          }
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:70000/mcp"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "auth-token-url-http-remote",
+      "description": "An http token URL must be on a loopback host.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://auth.example.com/token"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_token_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "auth-token-url-http-outside-loopback-range",
+      "description": "128.0.0.1 is not loopback.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://128.0.0.1/token"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_token_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "auth-token-url-http-localhost-suffix",
+      "description": "A name that only starts with localhost is not loopback.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://localhost.example.com/t"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_token_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "auth-with-auto-server",
+      "description": "The local dexcli dev takes no credential.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          }
+        }
+      },
+      "error": {
+        "code": "auth_needs_server_url",
+        "path": "/dex/auth"
+      }
+    },
+    {
+      "name": "auth-with-omitted-server",
+      "description": "An omitted dex.server is auto.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      "error": {
+        "code": "auth_needs_server_url",
+        "path": "/dex/auth"
+      }
+    },
+    {
+      "name": "insecure-token-url-checked-before-auto-server",
+      "description": "insecure_token_url comes before auth_needs_server_url.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://auth.example.com/token"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_token_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "tls-with-auto-server",
+      "description": "TLS settings need an https server.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "tls": {
+            "ca_file": "~/ca.pem"
+          }
+        }
+      },
+      "error": {
+        "code": "tls_needs_https_server",
+        "path": "/dex/tls"
+      }
+    },
+    {
+      "name": "tls-with-http-server",
+      "description": "An http server has no TLS to configure.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://dex.internal:8801",
+          "tls": {
+            "server_name": "dex.internal"
+          }
+        }
+      },
+      "error": {
+        "code": "tls_needs_https_server",
+        "path": "/dex/tls"
+      }
+    },
+    {
+      "name": "auth-checked-before-tls",
+      "description": "auth_needs_server_url comes before tls_needs_https_server.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          },
+          "tls": {
+            "ca_file": "~/ca.pem"
+          }
+        }
+      },
+      "error": {
+        "code": "auth_needs_server_url",
+        "path": "/dex/auth"
+      }
+    },
+    {
+      "name": "tls-unknown-field",
+      "description": "Other keys are errors; there is no client certificate.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "tls": {
+            "cert_file": "~/client.pem"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/tls",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "tls-server-name-with-port",
+      "description": "server_name takes no port.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "tls": {
+            "server_name": "dex.internal:443"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/tls/server_name",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "tls-ca-file-empty",
+      "description": "ca_file is non-empty text.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "tls": {
+            "ca_file": ""
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/tls/ca_file",
+        "keyword": "pattern"
+      }
     }
   ],
   "session_configs": {
@@ -2298,7 +3710,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2362,7 +3781,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2429,7 +3855,14 @@
         "system_prompt": "Answer in French.",
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2506,7 +3939,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2577,7 +4017,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2648,7 +4095,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2706,7 +4160,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2764,7 +4225,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2825,7 +4293,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2903,7 +4378,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -2974,7 +4456,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3042,7 +4531,14 @@
         "system_prompt": null,
         "system_prompt_file": null,
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3089,7 +4585,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3162,7 +4665,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3233,7 +4743,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3304,7 +4821,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3376,7 +4900,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3446,7 +4977,14 @@
         "system_prompt": null,
         "system_prompt_file": "~/notes/assistant-prompt.md",
         "dex": {
-          "server": "auto"
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
         },
         "connectors": {
           "mcp": "auto",
@@ -3830,5 +5368,890 @@
         "path": "/local_tools/shell/enabled"
       }
     }
-  ]
+  ],
+  "dex_connection": {
+    "description": "How a CLI core turns a valid file's dex section and its environment into the Dex connection settings: TLS, and how to authenticate, without any secret. The file's dex.auth.mode alone turns authentication on; the variables never do. Every variable is trimmed, and one that is empty after trimming is not set. A variable overrides the matching field of the selected mode: DEX_TOKEN_URL, DEX_SERVER_ID, and DEX_CREDENTIAL_FILE. DEX_TLS_CA_FILE and DEX_TLS_SERVER_NAME override dex.tls, and are read only for an https dex.server. DEX_TLS and DEX_FLOW_SERVICE_ADDRESS are never read. A file path from the configuration file expands a leading ~ to home and is otherwise relative to the configuration file's directory; a path from a variable expands ~ the same way and is otherwise relative to working_directory. Paths are normalized lexically, without reading the file system. A DEX_TOKEN_URL passes the token_url pattern of the configuration schema and the invalid_url and insecure_token_url checks. The checks run in this order and the first failure is the error: for api_key, the token URL (DEX_TOKEN_URL is checked when it is set), the server ID, then DEX_API_KEY; for bearer env, DEX_CREDENTIAL; for bearer file, the path. An error names the one setting to fix and its message is exact. The settings never hold a secret: auth is the launch document's dex.auth, with the token file's path in file for bearer file.",
+    "context": {
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config_path": "/home/dev/.dex/agents/claude.yaml",
+      "home": "/home/dev",
+      "working_directory": "/work"
+    },
+    "cases": [
+      {
+        "name": "no-auth-reads-no-variables",
+        "description": "Without dex.auth, every Dex variable is ignored, also with auto.",
+        "config": {},
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+          "DEX_SERVER_ID": "dex-prod",
+          "DEX_CREDENTIAL": "token-1",
+          "DEX_CREDENTIAL_FILE": "/run/dex/token",
+          "DEX_TLS_CA_FILE": "/etc/dex/ca.pem",
+          "DEX_TLS_SERVER_NAME": "dex.internal",
+          "DEX_TLS": "true",
+          "DEX_FLOW_SERVICE_ADDRESS": "dex.other:8801"
+        },
+        "settings": {
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "http-server-ignores-tls-variables",
+        "description": "DEX_TLS_CA_FILE and DEX_TLS_SERVER_NAME apply to an https server only.",
+        "config": {
+          "dex": {
+            "server": "http://dex.internal:8801"
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+          "DEX_SERVER_ID": "dex-prod",
+          "DEX_CREDENTIAL": "token-1",
+          "DEX_CREDENTIAL_FILE": "/run/dex/token",
+          "DEX_TLS_CA_FILE": "/etc/dex/ca.pem",
+          "DEX_TLS_SERVER_NAME": "dex.internal",
+          "DEX_TLS": "true",
+          "DEX_FLOW_SERVICE_ADDRESS": "dex.other:8801"
+        },
+        "settings": {
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "https-server-default-trust",
+        "description": "An https server without TLS settings or variables.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com"
+          }
+        },
+        "environment": {},
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "https-server-takes-tls-variables",
+        "description": "The TLS variables apply to an https server without dex.tls too; DEX_TLS never matters.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com"
+          }
+        },
+        "environment": {
+          "DEX_TLS_CA_FILE": " /etc/dex/ca.pem ",
+          "DEX_TLS_SERVER_NAME": "dex.internal",
+          "DEX_TLS": "false"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": "/etc/dex/ca.pem",
+            "server_name": "dex.internal"
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "tls-from-file",
+        "description": "A relative ca_file is relative to the configuration file's directory.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "tls": {
+              "ca_file": "certs/ca.pem",
+              "server_name": "dex.internal"
+            }
+          }
+        },
+        "environment": {},
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": "/home/dev/.dex/agents/certs/ca.pem",
+            "server_name": "dex.internal"
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "tls-variables-override-file",
+        "description": "A variable overrides the file; ~ is the home directory, and a relative variable path is relative to the working directory.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "tls": {
+              "ca_file": "certs/ca.pem",
+              "server_name": "dex.internal"
+            }
+          }
+        },
+        "environment": {
+          "DEX_TLS_CA_FILE": "~/ca.pem",
+          "DEX_TLS_SERVER_NAME": "dex-2.internal"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": "/home/dev/ca.pem",
+            "server_name": "dex-2.internal"
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "tls-blank-variables-keep-file",
+        "description": "A variable that is empty after trimming overrides nothing.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "tls": {
+              "ca_file": "~/certs/ca.pem"
+            }
+          }
+        },
+        "environment": {
+          "DEX_TLS_CA_FILE": "  ",
+          "DEX_TLS_SERVER_NAME": ""
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": "/home/dev/certs/ca.pem",
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "tls-relative-variable-path",
+        "description": "A relative variable path is relative to the working directory, normalized without reading the file system.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com"
+          }
+        },
+        "environment": {
+          "DEX_TLS_CA_FILE": "certs/../ca.pem"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": "/work/ca.pem",
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          }
+        }
+      },
+      {
+        "name": "api-key-from-file",
+        "description": "The file names the endpoint and the server; DEX_API_KEY is trimmed and never shown.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": " dex_key_1\n"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      {
+        "name": "api-key-variables-override-file",
+        "description": "DEX_TOKEN_URL and DEX_SERVER_ID override the file.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "https://auth-2.example.com/token",
+          "DEX_SERVER_ID": "dex-staging"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth-2.example.com/token",
+            "server_id": "dex-staging"
+          }
+        }
+      },
+      {
+        "name": "api-key-fields-from-variables",
+        "description": "With only the mode in the file, the variables give the fields, trimmed.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": " https://auth.example.com/oauth/token\n",
+          "DEX_SERVER_ID": " dex-prod "
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      {
+        "name": "api-key-blank-variables-keep-file",
+        "description": "Empty or blank variables override nothing.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": " ",
+          "DEX_SERVER_ID": ""
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      {
+        "name": "api-key-ignores-bearer-variables",
+        "description": "The mode decides: bearer variables do not conflict with an API key.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_CREDENTIAL": "token-1",
+          "DEX_CREDENTIAL_FILE": "/run/dex/token"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "api_key",
+            "token_url": "https://auth.example.com/oauth/token",
+            "server_id": "dex-prod"
+          }
+        }
+      },
+      {
+        "name": "api-key-loopback-http-variable",
+        "description": "DEX_TOKEN_URL may be http on a loopback host.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "http://127.0.0.1:9000/token",
+          "DEX_SERVER_ID": "local"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://127.0.0.1:9000/token",
+            "server_id": "local"
+          }
+        }
+      },
+      {
+        "name": "api-key-missing-token-url",
+        "description": "A token URL from the file or DEX_TOKEN_URL.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1"
+        },
+        "error": {
+          "setting": "dex.auth.token_url",
+          "message": "dex.auth mode api_key needs a token URL; set dex.auth.token_url or DEX_TOKEN_URL."
+        }
+      },
+      {
+        "name": "api-key-missing-server-id",
+        "description": "A server ID from the file or DEX_SERVER_ID.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1"
+        },
+        "error": {
+          "setting": "dex.auth.server_id",
+          "message": "dex.auth mode api_key needs a server ID; set dex.auth.server_id or DEX_SERVER_ID."
+        }
+      },
+      {
+        "name": "api-key-missing-key",
+        "description": "The key only ever comes from DEX_API_KEY.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {},
+        "error": {
+          "setting": "DEX_API_KEY",
+          "message": "DEX_API_KEY is not set; dex.auth mode api_key needs it."
+        }
+      },
+      {
+        "name": "api-key-blank-key",
+        "description": "A blank DEX_API_KEY is not set.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": " \t\n"
+        },
+        "error": {
+          "setting": "DEX_API_KEY",
+          "message": "DEX_API_KEY is not set; dex.auth mode api_key needs it."
+        }
+      },
+      {
+        "name": "api-key-check-order",
+        "description": "The token URL is checked first, then the server ID, then the key.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key"
+            }
+          }
+        },
+        "environment": {},
+        "error": {
+          "setting": "dex.auth.token_url",
+          "message": "dex.auth mode api_key needs a token URL; set dex.auth.token_url or DEX_TOKEN_URL."
+        }
+      },
+      {
+        "name": "api-key-server-id-before-key",
+        "description": "The server ID is checked before the key.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token"
+            }
+          }
+        },
+        "environment": {},
+        "error": {
+          "setting": "dex.auth.server_id",
+          "message": "dex.auth mode api_key needs a server ID; set dex.auth.server_id or DEX_SERVER_ID."
+        }
+      },
+      {
+        "name": "token-url-variable-not-a-url",
+        "description": "DEX_TOKEN_URL passes the token_url schema pattern and URL checks.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "auth.example.com/token",
+          "DEX_SERVER_ID": "s"
+        },
+        "error": {
+          "setting": "DEX_TOKEN_URL",
+          "message": "DEX_TOKEN_URL must be an http or https URL without user info or a fragment."
+        }
+      },
+      {
+        "name": "token-url-variable-userinfo",
+        "description": "No user info.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "https://me:pw@auth.example.com/token",
+          "DEX_SERVER_ID": "s"
+        },
+        "error": {
+          "setting": "DEX_TOKEN_URL",
+          "message": "DEX_TOKEN_URL must be an http or https URL without user info or a fragment."
+        }
+      },
+      {
+        "name": "token-url-variable-fragment",
+        "description": "No fragment.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "https://auth.example.com/token#x"
+        },
+        "error": {
+          "setting": "DEX_TOKEN_URL",
+          "message": "DEX_TOKEN_URL must be an http or https URL without user info or a fragment."
+        }
+      },
+      {
+        "name": "token-url-variable-port-out-of-range",
+        "description": "The dex.server URL checks apply.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "https://auth.example.com:70000/token"
+        },
+        "error": {
+          "setting": "DEX_TOKEN_URL",
+          "message": "DEX_TOKEN_URL must be an http or https URL without user info or a fragment."
+        }
+      },
+      {
+        "name": "token-url-variable-http-remote",
+        "description": "An http DEX_TOKEN_URL must be on a loopback host.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key",
+              "token_url": "https://auth.example.com/oauth/token",
+              "server_id": "dex-prod"
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1",
+          "DEX_TOKEN_URL": "http://auth.example.com/token"
+        },
+        "error": {
+          "setting": "DEX_TOKEN_URL",
+          "message": "DEX_TOKEN_URL must use https; http is allowed only on localhost, 127.0.0.0/8, and [::1]."
+        }
+      },
+      {
+        "name": "token-url-variable-checked-before-key",
+        "description": "DEX_TOKEN_URL is checked when it is read, before the server ID and the key.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "api_key"
+            }
+          }
+        },
+        "environment": {
+          "DEX_TOKEN_URL": "http://auth.example.com/token"
+        },
+        "error": {
+          "setting": "DEX_TOKEN_URL",
+          "message": "DEX_TOKEN_URL must use https; http is allowed only on localhost, 127.0.0.0/8, and [::1]."
+        }
+      },
+      {
+        "name": "bearer-env",
+        "description": "A bearer token from DEX_CREDENTIAL.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "env"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL": " token-1 "
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          }
+        }
+      },
+      {
+        "name": "bearer-env-missing",
+        "description": "source env needs DEX_CREDENTIAL; a token file does not stand in.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "env"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL_FILE": "/run/dex/token"
+        },
+        "error": {
+          "setting": "DEX_CREDENTIAL",
+          "message": "DEX_CREDENTIAL is not set; dex.auth mode bearer with source env needs it."
+        }
+      },
+      {
+        "name": "bearer-env-blank",
+        "description": "A blank DEX_CREDENTIAL is not set.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "env"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL": "  "
+        },
+        "error": {
+          "setting": "DEX_CREDENTIAL",
+          "message": "DEX_CREDENTIAL is not set; dex.auth mode bearer with source env needs it."
+        }
+      },
+      {
+        "name": "bearer-file-relative-to-config",
+        "description": "A relative file is relative to the configuration file's directory.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "file",
+              "file": "tokens/dex.token"
+            }
+          }
+        },
+        "environment": {},
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "/home/dev/.dex/agents/tokens/dex.token"
+          }
+        }
+      },
+      {
+        "name": "bearer-file-parent-directory",
+        "description": "The path is normalized without reading the file system.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "file",
+              "file": "../secrets/dex.token"
+            }
+          }
+        },
+        "environment": {},
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "/home/dev/.dex/secrets/dex.token"
+          }
+        }
+      },
+      {
+        "name": "bearer-file-home",
+        "description": "A leading ~ is the home directory.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "file",
+              "file": "~/dex.token"
+            }
+          }
+        },
+        "environment": {},
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "/home/dev/dex.token"
+          }
+        }
+      },
+      {
+        "name": "bearer-file-variable-overrides",
+        "description": "DEX_CREDENTIAL_FILE overrides the file's path.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "file",
+              "file": "tokens/dex.token"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL_FILE": "/run/dex/token"
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "/run/dex/token"
+          }
+        }
+      },
+      {
+        "name": "bearer-file-variable-relative",
+        "description": "A relative DEX_CREDENTIAL_FILE is relative to the working directory.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "file"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL_FILE": " run/token "
+        },
+        "settings": {
+          "tls": {
+            "enabled": true,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "file",
+            "file": "/work/run/token"
+          }
+        }
+      },
+      {
+        "name": "bearer-file-missing",
+        "description": "source file needs a path; DEX_CREDENTIAL does not stand in.",
+        "config": {
+          "dex": {
+            "server": "https://dex.example.com",
+            "auth": {
+              "mode": "bearer",
+              "source": "file"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL": "token-1"
+        },
+        "error": {
+          "setting": "dex.auth.file",
+          "message": "dex.auth mode bearer with source file needs a token file; set dex.auth.file or DEX_CREDENTIAL_FILE."
+        }
+      },
+      {
+        "name": "auth-over-plaintext-http",
+        "description": "A credential may go to a plaintext http server; protect the network path.",
+        "config": {
+          "dex": {
+            "server": "http://127.0.0.1:8801",
+            "auth": {
+              "mode": "bearer",
+              "source": "env"
+            }
+          }
+        },
+        "environment": {
+          "DEX_CREDENTIAL": "token-1"
+        },
+        "settings": {
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          }
+        }
+      }
+    ]
+  }
 }

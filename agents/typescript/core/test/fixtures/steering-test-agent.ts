@@ -54,11 +54,14 @@ export interface SteeringTestAgentOptions {
   readonly builderGate?: string;
 }
 
+const senderNamedCommand = /^\w+: /u;
+
 /**
  * Creates the Stepwise steering test agent on a scripted model; tests and Worker children build it identically.
  *
  * The model reads the current turn's last user text, as the Python core's Stepwise test agent does:
  * - `say <text>` answers `said: <text>`; `stall <gate>` waits at the gate, then answers `stalled at <gate>`.
+ * - `<name>: <text>`, the text of a message with a sender name, answers `heard <name>: <text>`.
  * - `lookup-gated <gate> <query>` calls `lookup_order`, a read that waits at the gate.
  * - `publish <message>` calls `publish_note`, a write that needs approval; `publish-as <id> <message>` does the
  *   same with a fixed tool call ID.
@@ -215,6 +218,9 @@ function createSteeringAgentDefinition(markerDirectory: string): AgentDefinition
         return { toolCalls: [{ toolName: "transfer_funds", arguments: { amount: Number(amount), ask_gate: askGate } }] };
       }
       default:
+        if (senderNamedCommand.test(command)) {
+          return { text: `heard ${command}` };
+        }
         throw new Error(`unknown scripted command ${JSON.stringify(command)}`);
     }
   };

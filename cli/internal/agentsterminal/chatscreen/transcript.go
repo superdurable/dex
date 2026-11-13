@@ -138,13 +138,14 @@ func (history *transcript) layOutEntry(index int) {
 }
 
 type userMessageBlock struct {
-	text   string
-	origin string
-	images []sessionfeed.ImageAttachment
+	text       string
+	origin     string
+	senderName string
+	images     []sessionfeed.ImageAttachment
 }
 
 func (block userMessageBlock) Render(width int, theme terminaltheme.Theme) []string {
-	return renderUserMessage(block.text, block.origin, block.images, width, theme)
+	return renderUserMessage(block.text, block.origin, block.senderName, block.images, width, theme)
 }
 
 type replyBlock struct {

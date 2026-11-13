@@ -222,7 +222,12 @@ def test_describe_cases(case: dict[str, Any]) -> None:
             parse_describe_output(output)
 
 
-@pytest.mark.parametrize("output", [b"", b"not json", b"[]", b"{} {}", b"x" * (1_048_578)])
+@pytest.mark.parametrize(
+    "output",
+    [b"", b"not json", b"[]", b"{} {}", b"x" * (1_048_578)],
+    # A 1 MiB value as its own test ID makes pytest stall for minutes.
+    ids=["empty", "not-json", "array", "two-objects", "oversized"],
+)
 def test_describe_output_that_is_not_one_object_is_refused(output: bytes) -> None:
     with pytest.raises(DescribeOutputError):
         parse_describe_output(output)

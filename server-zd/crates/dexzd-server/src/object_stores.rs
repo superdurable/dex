@@ -12,10 +12,11 @@ use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig,
     AzureGcsProvider, Db9ObjectStore, Db9ObjectStoreConfig, GoogleCloudStorageCredentials,
-    InstrumentedObjectStore, ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore,
-    S3ObjectStoreConfig, check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
-    check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
-    check_tencent_cos_holds_no_data_of_another_provider, startup_self_check,
+    InstrumentedObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, ObjectStore, S3ApiDialect,
+    S3Credentials, S3ObjectStore, S3ObjectStoreConfig, check_aliyun_oss_create_only_writes,
+    check_no_data_of_another_provider, check_tencent_cos_bucket_versioning,
+    check_tencent_cos_create_only_writes, check_tencent_cos_holds_no_data_of_another_provider,
+    startup_self_check,
 };
 
 use crate::ServerError;
@@ -243,7 +244,11 @@ async fn connect_versioned_layer(
     bucket: String,
     metrics: &NodeMetrics,
 ) -> Result<Arc<dyn ObjectStore>, ServerError> {
-    let adapter = Arc::new(AliyunOssObjectStore::new(inner));
+    let adapter = Arc::new(AliyunOssObjectStore::new(
+        inner,
+        MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+        metrics.clone(),
+    ));
     match adapter.remove_stale_startup_probes().await {
         Ok(0) => {}
         Ok(removed_probe_keys) => {

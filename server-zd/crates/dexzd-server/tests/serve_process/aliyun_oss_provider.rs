@@ -335,8 +335,9 @@ async fn aliyun_oss_offloaded_history_is_uploaded_and_read_back() {
     let endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let metrics = free_loopback_address();
-    let extra_config =
-        format!("history:\n  segmentTargetBytes: 4096\nmetrics:\n  listen: '{metrics}'\n");
+    let extra_config = format!(
+        "history:\n  segmentTargetBytes: 4096\nmetrics:\n  listen: '{metrics}'\n  level: verbose\n"
+    );
     let server = AliyunOssServer {
         directory: directory.path(),
         endpoint: &endpoint,

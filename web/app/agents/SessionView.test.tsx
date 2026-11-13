@@ -95,6 +95,27 @@ describe('SessionView', () => {
     for (const call of calls) expect(rows.some((row) => row.textContent?.includes(call.toolCallId))).toBe(false);
   });
 
+  it('shows the name a sender declared on their message', () => {
+    loaded = sessionOf({
+      items: [
+        { kind: 'message', key: 'm1', message: {
+          sequence: 1, turnId: 'turn-1', role: 'user', text: 'Hi from my phone.', toolCallId: null,
+          toolName: null, toolArguments: null, toolOutput: null, createdAt: null, senderName: 'Alice',
+        } },
+        { kind: 'message', key: 'm2', message: {
+          sequence: 2, turnId: 'turn-1', role: 'user', text: 'And from the terminal.', toolCallId: null,
+          toolName: null, toolArguments: null, toolOutput: null, createdAt: null, senderName: null,
+        } },
+      ],
+    });
+    render(<SessionView flowId="session-1" flowType="CodingAgent" reloadKey={0} schema={schema} workQueuePermissions={[]} />);
+
+    const named = screen.getByText('Alice', { exact: false, selector: '.ses-who' });
+    expect(named.getAttribute('title')).toBe(SESSION_COPY.senderNameUnverified);
+    expect(named.textContent).toBe(`Alice · ${SESSION_COPY.senderNameUnverifiedShort}`);
+    expect(screen.getAllByText(SESSION_COPY.user)).toHaveLength(1);
+  });
+
   it('draws bold and inline code in message text without reading it as HTML', () => {
     const { container } = render(<p>{messageTextParts('- **`slug.py`**: kept <b>as is</b>, see `tests`')}</p>);
     expect(container.querySelector('strong code')?.textContent).toBe('slug.py');

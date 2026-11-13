@@ -6,11 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ListPlus, SendHorizontal, ShieldCheck, Square } from 'lucide-react';
 import { SESSION_COPY } from './copy';
 import type { SessionActionInvoker } from './InterruptControls';
 import { actionBlockedReason, type SessionActionOutcome, type SessionControlContext } from './sessionActions';
+import { limitSenderNameLength, readStoredSenderName, senderNameToSend, writeStoredSenderName } from './senderName';
 import { sendSessionMessage, sessionRouteBlockedReason, type SessionRouteContext } from './sessionRequests';
 import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
 import type { LoadedAgentSession } from './useAgentSession';
@@ -53,6 +54,14 @@ export function SessionComposer({
 }) {
   const [busy, setBusy] = useState<ComposerAction>('');
   const [message, setMessage] = useState<{ tone: 'note' | 'error'; text: string } | null>(null);
+  const [senderName, setSenderName] = useState(readStoredSenderName);
+  const isComposingSenderNameRef = useRef(false);
+  const changeSenderName = (name: string) => {
+    // An input method's unfinished text may pass the limit, so the name is cut once it is committed.
+    const next = isComposingSenderNameRef.current ? name : limitSenderNameLength(name);
+    setSenderName(next);
+    if (!isComposingSenderNameRef.current) writeStoredSenderName(next);
+  };
   const state = session.view.state;
   const activeTurnId = state?.activeTurnId ?? null;
   const isTurnRunning = activeTurnId !== null;
@@ -94,12 +103,16 @@ export function SessionComposer({
       setBusy('');
     }
   };
+  const namedSender = senderNameToSend(senderName);
+  // A session graph from before sender names refuses the field, so it is sent only when declared.
+  const canSteerWithName = schema.steerUserMessage?.input.fields?.some((field) => field.fieldName === 'sender_name') === true;
+  const steerInput = namedSender !== null && canSteerWithName ? { text, sender_name: namedSender } : { text };
   const send = () => run(
     'send',
-    () => sendSessionMessage(routeContext, text),
+    () => sendSessionMessage(routeContext, text, namedSender),
     isTurnRunning ? SESSION_COPY.queued : SESSION_COPY.steered,
   );
-  const steer = () => run('steer', () => invoke(schema.steerUserMessage, { text }), SESSION_COPY.steered);
+  const steer = () => run('steer', () => invoke(schema.steerUserMessage, steerInput), SESSION_COPY.steered);
 
   const shownReasons = new Set<string | null>([null, hintShownAbove]);
   const blockedNotes: string[] = [];
@@ -125,6 +138,23 @@ export function SessionComposer({
           void (sendBlocked === null ? send() : steer());
         }}
       >
+        {!isComposerBlocked && (
+          <label className="ses-sender" title={SESSION_COPY.senderNameTitle}>
+            <span>{SESSION_COPY.senderNameLabel}</span>
+            <input
+              autoComplete="nickname"
+              placeholder={SESSION_COPY.senderNamePlaceholder}
+              type="text"
+              value={senderName}
+              onChange={(event) => changeSenderName(event.target.value)}
+              onCompositionStart={() => { isComposingSenderNameRef.current = true; }}
+              onCompositionEnd={(event) => {
+                isComposingSenderNameRef.current = false;
+                changeSenderName(event.currentTarget.value);
+              }}
+            />
+          </label>
+        )}
         <div className="ses-composer" data-disabled={isComposerBlocked ? 'true' : undefined}>
           <textarea
             aria-label={SESSION_COPY.steerLabel}

@@ -18,6 +18,7 @@ from __future__ import annotations
 import copy
 import ipaddress
 import json
+import posixpath
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
@@ -82,12 +83,25 @@ def resolve_config(
     raise_first_schema_error(CONFIG_VALIDATOR, config)
     assert isinstance(config, Mapping)
     connectors = config.get("connectors", {})
-    raise_invalid_url(config.get("dex", {}).get("server", DEFAULT_DEX_SERVER), "/dex/server")
+    dex = config.get("dex", {})
+    server = dex.get("server", DEFAULT_DEX_SERVER)
+    auth = dex.get("auth", {"mode": "none"})
+    tls = dex.get("tls", {})
+    raise_invalid_url(server, "/dex/server")
+    token_url = auth.get("token_url")
+    if token_url is not None:
+        raise_invalid_url(token_url, "/dex/auth/token_url")
     raise_invalid_url(connectors.get("mcp", DEFAULT_CONNECTORS_MCP), "/connectors/mcp")
     media = config.get("media", {})
     endpoint = media.get("endpoint")
     if endpoint is not None:
         raise_invalid_url(endpoint, "/media/endpoint")
+    if token_url is not None and not is_secure_token_url(token_url):
+        raise ConfigError("insecure_token_url", "/dex/auth/token_url")
+    if auth["mode"] != "none" and server == DEFAULT_DEX_SERVER:
+        raise ConfigError("auth_needs_server_url", "/dex/auth")
+    if tls and not server.startswith("https://"):
+        raise ConfigError("tls_needs_https_server", "/dex/tls")
     enabled = connectors.get("enabled")
     entries = None if enabled is None else parse_connector_entries(enabled)
     model = config.get("model", harness_default_model)
@@ -99,7 +113,11 @@ def resolve_config(
         "model": model,
         "system_prompt": config.get("system_prompt"),
         "system_prompt_file": config.get("system_prompt_file"),
-        "dex": {"server": config.get("dex", {}).get("server", DEFAULT_DEX_SERVER)},
+        "dex": {
+            "server": server,
+            "auth": effective_auth(auth),
+            "tls": {"ca_file": tls.get("ca_file"), "server_name": tls.get("server_name")},
+        },
         "connectors": {
             "mcp": connectors.get("mcp", DEFAULT_CONNECTORS_MCP),
             "enabled": entries,
@@ -119,6 +137,38 @@ def resolve_config(
         "sessions": {"summary": config.get("sessions", {}).get("summary", DEFAULT_SESSION_SUMMARY)},
         "harness_options": copy.deepcopy(config.get(harness_section, {})),
     }
+
+
+def effective_auth(auth: Mapping[str, Any]) -> dict[str, Any]:
+    """Return dex.auth in effective form: the mode and its own fields, null when omitted."""
+    mode = auth["mode"]
+    if mode == "api_key":
+        return {
+            "mode": mode,
+            "token_url": auth.get("token_url"),
+            "server_id": auth.get("server_id"),
+        }
+    if mode == "bearer" and auth["source"] == "file":
+        return {"mode": mode, "source": "file", "file": auth.get("file")}
+    if mode == "bearer":
+        return {"mode": mode, "source": "env"}
+    return {"mode": "none"}
+
+
+def is_secure_token_url(url: str) -> bool:
+    """Return whether a schema-valid token URL is https, or http on a loopback host."""
+    if url.startswith("https://"):
+        return True
+    parts = URL_PARTS.fullmatch(url)
+    assert parts is not None, "the schema admits only URLs of this shape"
+    host = parts["host"]
+    if host.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host[1:-1] if host.startswith("[") else host)
+    except ValueError:
+        return False
+    return address.is_loopback
 
 
 def raise_invalid_url(url: str, path: str) -> None:
@@ -347,3 +397,114 @@ def json_pointer(error: ValidationError) -> str:
 
 def json_pointer_of(parts: Iterable[object]) -> str:
     return "".join("/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts)
+
+
+TOKEN_URL_PATTERN = re.compile(
+    CONFIG_SCHEMA["properties"]["dex"]["properties"]["auth"]["properties"]["token_url"]["pattern"]
+)
+
+
+class DexConnectionError(Exception):
+    """A Dex connection setting is missing or invalid: the one setting to fix and the message."""
+
+    def __init__(self, setting: str, message: str) -> None:
+        super().__init__(message)
+        self.setting = setting
+        self.message = message
+
+
+def resolve_dex_connection(
+    effective: Mapping[str, Any], environment: Mapping[str, str], context: Mapping[str, str]
+) -> dict[str, Any]:
+    """Return the Dex connection settings of an effective configuration and its environment.
+
+    Raises:
+        DexConnectionError: The first missing or invalid setting, in the conformance order.
+    """
+    variables = {name: value.strip() for name, value in environment.items() if value.strip()}
+    dex = effective["dex"]
+    is_tls = dex["server"].startswith("https://")
+    config_directory = posixpath.dirname(context["config_path"])
+
+    def from_file(path: str | None) -> str | None:
+        return None if path is None else expand_path(path, config_directory, context["home"])
+
+    def from_variable(name: str) -> str | None:
+        value = variables.get(name)
+        if value is None:
+            return None
+        return expand_path(value, context["working_directory"], context["home"])
+
+    tls: dict[str, Any] = {"enabled": is_tls, "ca_file": None, "server_name": None}
+    if is_tls:
+        tls["ca_file"] = from_variable("DEX_TLS_CA_FILE") or from_file(dex["tls"]["ca_file"])
+        tls["server_name"] = variables.get("DEX_TLS_SERVER_NAME") or dex["tls"]["server_name"]
+    auth = dex["auth"]
+    mode = auth["mode"]
+    resolved_auth: dict[str, Any]
+    if mode == "api_key":
+        token_url = variables.get("DEX_TOKEN_URL")
+        if token_url is not None:
+            if TOKEN_URL_PATTERN.match(token_url) is None or not is_valid_url(token_url):
+                raise DexConnectionError(
+                    "DEX_TOKEN_URL",
+                    "DEX_TOKEN_URL must be an http or https URL without user info or a fragment.",
+                )
+            if not is_secure_token_url(token_url):
+                raise DexConnectionError(
+                    "DEX_TOKEN_URL",
+                    "DEX_TOKEN_URL must use https; http is allowed only on localhost, "
+                    "127.0.0.0/8, and [::1].",
+                )
+        token_url = token_url or auth["token_url"]
+        if token_url is None:
+            raise DexConnectionError(
+                "dex.auth.token_url",
+                "dex.auth mode api_key needs a token URL; set dex.auth.token_url or DEX_TOKEN_URL.",
+            )
+        server_id = variables.get("DEX_SERVER_ID") or auth["server_id"]
+        if server_id is None:
+            raise DexConnectionError(
+                "dex.auth.server_id",
+                "dex.auth mode api_key needs a server ID; set dex.auth.server_id or DEX_SERVER_ID.",
+            )
+        if "DEX_API_KEY" not in variables:
+            raise DexConnectionError(
+                "DEX_API_KEY", "DEX_API_KEY is not set; dex.auth mode api_key needs it."
+            )
+        resolved_auth = {"mode": mode, "token_url": token_url, "server_id": server_id}
+    elif mode == "bearer" and auth["source"] == "env":
+        if "DEX_CREDENTIAL" not in variables:
+            raise DexConnectionError(
+                "DEX_CREDENTIAL",
+                "DEX_CREDENTIAL is not set; dex.auth mode bearer with source env needs it.",
+            )
+        resolved_auth = {"mode": mode, "source": "env"}
+    elif mode == "bearer":
+        token_file = from_variable("DEX_CREDENTIAL_FILE") or from_file(auth["file"])
+        if token_file is None:
+            raise DexConnectionError(
+                "dex.auth.file",
+                "dex.auth mode bearer with source file needs a token file; set dex.auth.file or "
+                "DEX_CREDENTIAL_FILE.",
+            )
+        resolved_auth = {"mode": mode, "source": "file", "file": token_file}
+    else:
+        resolved_auth = {"mode": "none"}
+    return {"tls": tls, "auth": resolved_auth}
+
+
+def is_valid_url(url: str) -> bool:
+    """Return whether a URL that matches a schema URL pattern passes the invalid_url checks."""
+    try:
+        raise_invalid_url(url, "")
+    except ConfigError:
+        return False
+    return True
+
+
+def expand_path(path: str, base_directory: str, home: str) -> str:
+    """Expand a leading ~ to home and resolve a relative path against base_directory, lexically."""
+    if path == "~" or path.startswith("~/"):
+        path = home + path[1:]
+    return posixpath.normpath(posixpath.join(base_directory, path))

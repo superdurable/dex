@@ -10,7 +10,7 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1).
+Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2).
 
 ### Breaking
 
@@ -24,6 +24,7 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - **Designs** shows where each definition comes from, a directory file or an upload, and when an uploaded one was generated and uploaded. Without definitions, it explains how to upload them when a Worker starts. [Reference](/reference/web/flow-visualization#render-definitions-in-dex-web).
 - Each **GET /api/v2/catalog** entry carries its **definitionRevision** and, for a Dex Agents session, **agentSession**. [Reference](/reference/web/dex-web#agent-session-view).
 - Dex Web accepts the optional top-level **generatedAt** field in a Version 2.0 Flow Definition Graph and checks that it is an RFC 3339 timestamp. Earlier releases reject a graph that has the field. [Reference](/reference/web/flow-visualization#generated-at).
+- The **Agent session** message box has a **Your name** input. The browser remembers it, and Dex Web sends it with each message, so the agent and the session's other clients see who wrote. The transcript shows the name on user messages. The name is self-declared. See [Agent session view](/reference/web/dex-web#agent-session-view). Since 1.45.2.
 
 ### Changed
 

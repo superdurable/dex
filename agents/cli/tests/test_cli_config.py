@@ -24,11 +24,13 @@ from cli_config_reference import (
     SESSION_SETTINGS_SCHEMA,
     SESSION_SETTINGS_VALIDATOR,
     ConfigError,
+    DexConnectionError,
     canonical_operation_name,
     is_shell_command_allowed,
     json_pointer,
     parse_config_yaml,
     resolve_config,
+    resolve_dex_connection,
     resolve_turn,
     schema_errors,
 )
@@ -36,6 +38,7 @@ from cli_config_reference import (
 FIXTURE: dict[str, Any] = json.loads(
     (CLI_DIR.parent / "conformance" / "cli_config.json").read_text(encoding="utf-8")
 )
+SECRET_VARIABLES = ("DEX_API_KEY", "DEX_CREDENTIAL")
 EXAMPLES = sorted((CLI_DIR / "examples").glob("*.yaml"))
 
 
@@ -101,7 +104,13 @@ def test_every_property_is_described_and_every_config_default_is_stated() -> Non
 def test_schema_defaults_are_the_empty_file_defaults() -> None:
     effective = resolve_config({}, "claude", "m")
     properties = CONFIG_SCHEMA["properties"]
-    assert properties["dex"]["default"] == effective["dex"]
+    assert properties["dex"]["default"] == {
+        "server": effective["dex"]["server"],
+        "auth": effective["dex"]["auth"],
+    }
+    assert properties["dex"]["properties"]["auth"]["default"] == effective["dex"]["auth"]
+    assert properties["dex"]["properties"]["tls"]["default"] == {}
+    assert effective["dex"]["tls"] == {"ca_file": None, "server_name": None}
     assert properties["approval"]["default"] == effective["approval"]
     assert properties["local_tools"]["default"] == effective["local_tools"]
     assert properties["connectors"]["default"] == {"mcp": effective["connectors"]["mcp"]}
@@ -182,6 +191,33 @@ def test_session_case(case: dict[str, Any]) -> None:
         SESSION_SETTINGS_VALIDATOR,
         settings,
     )
+
+
+@pytest.mark.parametrize("case", FIXTURE["dex_connection"]["cases"], ids=case_id)
+def test_dex_connection_case(case: dict[str, Any]) -> None:
+    context = FIXTURE["dex_connection"]["context"]
+    assert list(CONFIG_VALIDATOR.iter_errors(case["config"])) == []
+    effective = resolve_config(
+        case["config"], context["harness_section"], context["harness_default_model"]
+    )
+    if "settings" in case:
+        settings = resolve_dex_connection(effective, case["environment"], context)
+        assert settings == case["settings"]
+        for name in SECRET_VARIABLES:
+            secret = case["environment"].get(name, "").strip()
+            assert secret == "" or secret not in json.dumps(settings), name
+        return
+    with pytest.raises(DexConnectionError) as raised:
+        resolve_dex_connection(effective, case["environment"], context)
+    assert {"setting": raised.value.setting, "message": raised.value.message} == case["error"]
+
+
+def test_dex_connection_errors_hold_no_secret() -> None:
+    for case in FIXTURE["dex_connection"]["cases"]:
+        for name in SECRET_VARIABLES:
+            secret = case["environment"].get(name, "").strip()
+            if "error" in case and secret:
+                assert secret not in case["error"]["message"], case["name"]
 
 
 def expect_error(

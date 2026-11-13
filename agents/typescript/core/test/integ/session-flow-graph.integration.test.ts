@@ -352,7 +352,7 @@ describe("the session Flow Definition Graph", () => {
     const fullInputs: Readonly<Record<string, unknown>> = {
       resolve_interrupt: { interruptId: "a", approved: true, rejectionMessage: null },
       answer_question: { interruptId: "a", answer: "b" },
-      steer_user_message: { messageId: null, text: "b" },
+      steer_user_message: { messageId: null, text: "b", senderName: "c" },
       cancel_turn: { turnId: null },
     };
     for (const action of graph.v2.actions) {

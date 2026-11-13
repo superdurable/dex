@@ -187,8 +187,11 @@ Use **dexzd_history_reads_total** to track reads from local disk, cache, and
 object storage. Use **dexzd_history_value_revivals_total** to track values
 restored to local disk.
 Since 0.1.22, **dexzd_history_expired_objects_deleted_total** and
-**dexzd_history_orphan_objects_deleted_total** count object cleanup. See
-[Metrics and alerts](/reference/server/metrics) for labels and alert thresholds.
+**dexzd_history_orphan_objects_deleted_total** count object cleanup. Since
+0.1.29, these four families need the **verbose** metrics level; the backlog and
+upload families above are exported at the default **advanced** level. See
+[Metrics and alerts](/reference/server/metrics) for labels, levels, and alert
+thresholds.
 
 ## db9 provider {#db9}
 
@@ -285,6 +288,18 @@ copy, or delete them, and do not add a lifecycle rule that expires them. A
 version key is 23 bytes longer than **K**, and OSS allows keys of at most 1023
 bytes. So **UploadFlowDefinitions** accepts Flow types whose object keys are 24
 bytes shorter than on S3.
+
+The server deletes a replaced version once it has been replaced for at least 10
+minutes, at the next write of its key. Once every node runs 0.1.29 or later,
+that margin keeps replacements correct while an OSS listing lags behind a write
+by less than 10 minutes. Nodes of an older release, during a rolling upgrade or
+after a rollback, still delete versions after 60 seconds. A node renews
+its lease every third of **lease.duration**, so with the default of 10 seconds
+each node keeps about 180 lease versions. The versions of a key's last 10
+minutes stay until its next write. **dexzd_object_store_versioned_listing_stale_total**
+counts listings that missed a version the node had just written. See
+[Metrics and alerts](/reference/server/metrics#catalog-commit). Changed in
+0.1.29: the minimum was 60 seconds before.
 
 Every other object keeps its key. Log batches, snapshots, and history segments
 are written once. In the rare case that an uploaded history segment differs from

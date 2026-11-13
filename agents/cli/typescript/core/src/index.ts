@@ -49,6 +49,8 @@ export {
   resolveTurn,
   type ConfigErrorCode,
   type ConnectorEntry,
+  type DexAuthConfig,
+  type DexTlsConfig,
   type EffectiveConfig,
   type LocalToolsConfig,
   type MediaConfig,
@@ -61,8 +63,20 @@ export {
   defaultDexcliDevWebPort,
   defaultDexcliDownloadUrl,
   readCliEnvironment,
+  readDexConnectionVariables,
+  removeDexSecretVariables,
+  dexSecretVariableNames,
   type CliEnvironment,
+  type DexConnectionVariables,
 } from "./cli-environment.js";
+export {
+  DexConnectionSettingsError,
+  resolveDexConnectionSettings,
+  type DexAuthSettings,
+  type DexConnectionPaths,
+  type DexConnectionSettings,
+  type DexTlsSettings,
+} from "./dex-connection.js";
 export {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
