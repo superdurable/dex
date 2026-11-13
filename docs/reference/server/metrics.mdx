@@ -40,8 +40,8 @@ only what a scrape returns. The node records every metric at every level.
 **basic** also skips the local disk walk behind **dexzd_local_storage_bytes**,
 and only **verbose** reads the Linux process metrics from **/proc**.
 
-For scale, one node that ran a few Flows exported 68 series at **basic**, 153
-at **advanced**, and 205 at **verbose**, plus 4 process series on Linux. The
+For scale, one node that ran a few Flows exported 68 series at **basic**, 155
+at **advanced**, and 207 at **verbose**, plus 4 process series on Linux. The
 partition count does not change these numbers.
 
 Changed in 0.1.29: before this release, the endpoint exported every family.
@@ -87,6 +87,26 @@ label's values.
 | **dexzd_object_store_request_errors_total** | counter, failed requests after retries | **operation** | **basic** |
 | **dexzd_object_store_requests_total** | counter, including failed requests | **operation**, **object_kind** | **advanced** |
 | **dexzd_object_store_put_bytes_total** | counter, uploaded bytes | none | **advanced** |
+| **dexzd_object_store_versioned_listing_stale_total** | counter, version listings that missed a version the node had just written; **aliyunOSS** only | **site** | **advanced** |
+
+Since 0.1.29, **dexzd_object_store_versioned_listing_stale_total** counts
+listings of versioned objects that missed a version the node had just written.
+Only the **aliyunOSS** provider writes such versions, so other providers stay
+at 0. Its **site** label is one of:
+
+- **confirm_created_version**: the listing right after a write did not show
+  the new version as the newest. The write fails with an unknown outcome, and
+  the caller reads the key again.
+- **reclamation**: the listing that deletes old versions did not show the
+  version the node had confirmed, and no version two or more generations newer
+  exists that could have deleted it. The node deletes nothing in that pass;
+  the key's next write tries again.
+
+Alert on any increase. In every test so far, an OSS listing showed each write
+at once, so an increase means a listing lagged behind a write. Once every node
+runs 0.1.29 or later, replacements stay correct while that lag is shorter than
+10 minutes. See
+[Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
 
 ### Snapshots, recovery, and local disk {#catalog-recovery}
 
@@ -241,6 +261,7 @@ counts.
 | **standby_mode** | **hot**, **cold** |
 | **store_source** | **hot_standby**, **restored** |
 | **kind**, **source** | **page** or **blob**; **local**, **cache**, or **object_store** |
+| **site** | **confirm_created_version**, **reclamation** |
 
 **rpc_class** labels the latency histogram only for the unary classes, so
 **worker_poll** has no latency series. Only a standby in **following** is hot.

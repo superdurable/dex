@@ -9,12 +9,14 @@
 //! Conditional writes and deletes of mutable keys: create the next generation, then confirm it.
 
 use bytes::Bytes;
+use dexzd_metrics::{VersionedListingStaleCounters, VersionedListingStaleSite};
 
 use crate::aliyun_oss::VersionIdSource;
 use crate::aliyun_oss::version_body::{VersionEtag, VersionHeader};
 use crate::aliyun_oss::version_keys::{version_generation, version_object_key, version_prefix};
 use crate::aliyun_oss::version_reads::{
     VersionReadExtent, inner_error, read_newest_version, read_version_header,
+    record_stale_version_listing,
 };
 use crate::aliyun_oss::version_reclamation::VersionReclaimer;
 use crate::{
@@ -30,6 +32,7 @@ pub(super) struct VersionedObjectWriter<'a> {
     pub(super) inner: &'a dyn ObjectStore,
     pub(super) version_ids: &'a dyn VersionIdSource,
     pub(super) reclaimer: &'a VersionReclaimer,
+    pub(super) listing_stale: &'a VersionedListingStaleCounters,
 }
 
 impl VersionedObjectWriter<'_> {
@@ -221,6 +224,13 @@ impl VersionedObjectWriter<'_> {
             .first()
             .and_then(|newest| version_generation(&newest.key, &prefix));
         let Some(newest_generation) = newest_generation else {
+            record_stale_version_listing(
+                self.listing_stale,
+                VersionedListingStaleSite::ConfirmCreatedVersion,
+                logical_key,
+                generation,
+                None,
+            );
             return Err(unconfirmed(
                 operation,
                 logical_key,
@@ -231,6 +241,13 @@ impl VersionedObjectWriter<'_> {
             return Ok(written);
         }
         if newest_generation < generation {
+            record_stale_version_listing(
+                self.listing_stale,
+                VersionedListingStaleSite::ConfirmCreatedVersion,
+                logical_key,
+                generation,
+                Some(newest_generation),
+            );
             return Err(unconfirmed(
                 operation,
                 logical_key,

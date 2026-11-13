@@ -21,6 +21,9 @@ use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use tokio::time::Instant;
 
+/// The reclamation age of most adapters under test; tests of the production age name it.
+pub(crate) const TEST_MINIMUM_SUPERSEDED_AGE: Duration = Duration::from_secs(60);
+
 /// Wall-clock time that advances with Tokio's paused clock.
 pub(crate) struct TokioWallClock {
     origin: Instant,
