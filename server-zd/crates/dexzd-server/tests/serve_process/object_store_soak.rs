@@ -11,6 +11,7 @@
 
 mod cluster;
 mod layout;
+mod log_tally;
 mod metrics_tally;
 mod target;
 mod vault;
@@ -29,6 +30,7 @@ use tokio::time::Instant;
 use crate::robustness::workload::{LoadShape, Workload};
 use cluster::{KILLED_LEASE_EXPIRY_WAIT, NODE_ID, SoakCluster};
 use layout::check_versioned_layout;
+use log_tally::LogTally;
 use target::{SoakTarget, count_by_area, list_all};
 use vault::Vault;
 
@@ -38,6 +40,14 @@ const SEED_VARIABLE: &str = "DEX_SOAK_SEED";
 const LOG_DIRECTORY_VARIABLE: &str = "DEX_SOAK_LOG_DIR";
 const KEEP_OBJECTS_VARIABLE: &str = "DEX_SOAK_KEEP_OBJECTS";
 const SNAPSHOT_INTERVAL_VARIABLE: &str = "DEX_SOAK_SNAPSHOT_INTERVAL";
+const MAX_STANDBY_RESTARTS_VARIABLE: &str = "DEX_SOAK_MAX_STANDBY_RESTARTS";
+const MAX_TAKEOVER_RETRIES_VARIABLE: &str = "DEX_SOAK_MAX_TAKEOVER_RETRIES";
+const LOG_STALL_INTERVAL_VARIABLE: &str = "DEX_SOAK_LOG_STALL_INTERVAL";
+/// Outlasts the 10 s log batch write deadline, so the serving process stops.
+const LOG_STALL_HOLD: Duration = Duration::from_secs(15);
+/// How long a stall waits for the serving process to exit before it releases the writes.
+const LOG_STALL_BUDGET: Duration = Duration::from_secs(30);
+const TOP_LOG_PATTERNS: usize = 15;
 /// Short enough that every cold restart restores a recent snapshot.
 const DEFAULT_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(60);
 const DEFAULT_DURATION: Duration = Duration::from_secs(2 * 60 * 60);
@@ -144,9 +154,32 @@ struct SoakSettings {
     log_directory: PathBuf,
     keeps_objects: bool,
     snapshot_interval: Duration,
+    /// More hot standby restarts than this fail the soak; `None` only reports them.
+    max_standby_restarts: Option<usize>,
+    max_takeover_retries: Option<usize>,
+    /// How often an s3local soak holds log writes past their deadline, outside the faults.
+    log_stall_interval: Option<Duration>,
 }
 
 impl SoakSettings {
+    /// Panics when the hot standby restarted or a takeover retried more often than allowed.
+    fn check_log_limits(&self, log_tally: &LogTally, when: &str) {
+        if let Some(limit) = self.max_standby_restarts {
+            assert!(
+                log_tally.standby_restarts <= limit,
+                "{when}: the hot standby restarted {} times, more than {MAX_STANDBY_RESTARTS_VARIABLE}={limit}; {log_tally}",
+                log_tally.standby_restarts
+            );
+        }
+        if let Some(limit) = self.max_takeover_retries {
+            assert!(
+                log_tally.takeover_retries <= limit,
+                "{when}: takeovers retried {} times, more than {MAX_TAKEOVER_RETRIES_VARIABLE}={limit}; {log_tally}",
+                log_tally.takeover_retries
+            );
+        }
+    }
+
     /// Returns whether every active process lives long enough to publish a snapshot.
     fn requires_snapshot_restores(&self) -> bool {
         self.fault_interval >= self.snapshot_interval + SNAPSHOT_MARGIN
@@ -197,6 +230,14 @@ impl SoakSettings {
                     panic!("{SNAPSHOT_INTERVAL_VARIABLE} must be a duration, not {text:?}")
                 })
             });
+        let log_stall_interval = std::env::var(LOG_STALL_INTERVAL_VARIABLE)
+            .ok()
+            .filter(|text| !text.is_empty())
+            .map(|text| {
+                parse_duration(&text).unwrap_or_else(|| {
+                    panic!("{LOG_STALL_INTERVAL_VARIABLE} must be a duration, not {text:?}")
+                })
+            });
         Self {
             duration,
             fault_interval,
@@ -204,8 +245,22 @@ impl SoakSettings {
             log_directory,
             keeps_objects: std::env::var(KEEP_OBJECTS_VARIABLE).is_ok_and(|text| text == "1"),
             snapshot_interval,
+            max_standby_restarts: count_limit(MAX_STANDBY_RESTARTS_VARIABLE),
+            max_takeover_retries: count_limit(MAX_TAKEOVER_RETRIES_VARIABLE),
+            log_stall_interval,
         }
     }
+}
+
+/// Returns the count that the environment variable `name` sets, when it sets one.
+fn count_limit(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()
+        .filter(|text| !text.is_empty())
+        .map(|text| {
+            text.parse()
+                .unwrap_or_else(|_| panic!("{name} must be a count, not {text:?}"))
+        })
 }
 
 impl fmt::Display for SoakSettings {
@@ -218,6 +273,17 @@ impl fmt::Display for SoakSettings {
             self.snapshot_interval,
             self.seed,
             self.log_directory.display()
+        )?;
+        if let Some(interval) = self.log_stall_interval {
+            write!(
+                formatter,
+                ", a {LOG_STALL_HOLD:?} log write stall every {interval:?}"
+            )?;
+        }
+        write!(
+            formatter,
+            ", at most {:?} hot standby restarts and {:?} takeover retries",
+            self.max_standby_restarts, self.max_takeover_retries
         )
     }
 }
@@ -328,6 +394,10 @@ async fn object_store_soak() {
     let settings = SoakSettings::from_environment(&run_id, nanos as u64);
     let target = Arc::new(SoakTarget::from_environment(&run_id).await);
     eprintln!("soak: {}; {settings}", target.describe());
+    assert!(
+        settings.log_stall_interval.is_none() || target.is_emulated(),
+        "{LOG_STALL_INTERVAL_VARIABLE} works only on an s3local target"
+    );
     let keeps_objects = settings.keeps_objects;
     let outcome = tokio::spawn(run_soak(Arc::clone(&target), settings, run_id)).await;
     let cleanup_failure = if keeps_objects {
@@ -414,9 +484,34 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
     let mut next_progress_at = started_at + PROGRESS_INTERVAL;
     let mut next_vault_round_at = started_at;
     let mut next_scrape_at = started_at;
+    let mut next_log_stall_at = settings
+        .log_stall_interval
+        .map(|interval| started_at + interval);
+    let mut checked_unplanned_exits = 0;
     let soak_ends_at = started_at + settings.duration;
     while Instant::now() < soak_ends_at {
         cluster.supervise();
+        if cluster.unplanned_exit_count() > checked_unplanned_exits {
+            cluster.wait_for_serving(None, STARTUP_BUDGET).await;
+            check_read_back(
+                &cluster,
+                &workload,
+                &mut vault,
+                started_at,
+                "an unplanned exit",
+            )
+            .await;
+            checked_unplanned_exits = cluster.unplanned_exit_count();
+        }
+        if let Some(stall_at) = next_log_stall_at
+            && Instant::now() >= stall_at
+        {
+            stall_log_writes(&mut cluster, &target, started_at).await;
+            next_log_stall_at = settings
+                .log_stall_interval
+                .map(|interval| Instant::now() + interval);
+            continue;
+        }
         let now = Instant::now();
         if now >= next_vault_round_at {
             if let Err(failure) = vault.run_round(&cluster.router_channel()).await {
@@ -453,11 +548,12 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
                 &format!("fault #{number} {fault:?}"),
             )
             .await;
+            checked_unplanned_exits = cluster.unplanned_exit_count();
             next_fault_at = Instant::now() + settings.fault_interval;
         }
         if now >= next_progress_at {
             eprintln!(
-                "soak +{}: {} serves; {} acknowledged Flow starts and {} acknowledged calls; vault: {}; faults {:?}; {}",
+                "soak +{}: {} serves; {} acknowledged Flow starts and {} acknowledged calls; vault: {}; faults {:?}; {} unplanned exits; {}; {}",
                 elapsed(started_at),
                 cluster
                     .serving_slot()
@@ -466,7 +562,13 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
                 workload.acknowledged_count(),
                 vault.report(),
                 ledger.faults,
+                cluster.unplanned_exit_count(),
+                cluster.log_tally_so_far(),
                 cluster.tally_so_far()
+            );
+            settings.check_log_limits(
+                cluster.log_tally_so_far(),
+                &format!("soak +{}", elapsed(started_at)),
             );
             next_progress_at = now + PROGRESS_INTERVAL;
         }
@@ -559,6 +661,24 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
             .map(|failure| format!("\n    FAILED START {failure}"))
             .collect::<String>()
     );
+    eprintln!(
+        "  {} unplanned exits that a restart recovered{}",
+        cluster_report.unplanned_exits.len(),
+        cluster_report
+            .unplanned_exits
+            .iter()
+            .map(|exit| format!("\n    UNPLANNED EXIT {exit}"))
+            .collect::<String>()
+    );
+    let log_tally = &cluster_report.log_tally;
+    eprintln!(
+        "  logs: {log_tally}; the top {TOP_LOG_PATTERNS} patterns:{}",
+        log_tally
+            .top_patterns(TOP_LOG_PATTERNS)
+            .iter()
+            .map(|(count, pattern)| format!("\n    {count:>7} {pattern}"))
+            .collect::<String>()
+    );
     eprintln!("  metrics: {}", cluster_report.tally);
     eprintln!("  objects by area at the end:");
     for (area, (count, bytes)) in count_by_area(&objects) {
@@ -575,6 +695,33 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
             layout.violations.join("\n")
         );
     }
+    settings.check_log_limits(log_tally, "the summary");
+}
+
+/// Holds log writes until the serving process exits on its write deadline, then releases them.
+async fn stall_log_writes(cluster: &mut SoakCluster, target: &SoakTarget, started_at: Instant) {
+    let exits_before = cluster.unplanned_exit_count();
+    eprintln!(
+        "soak +{}: holding log writes for {LOG_STALL_HOLD:?}, outside the fault schedule",
+        elapsed(started_at)
+    );
+    target.start_log_stall(LOG_STALL_HOLD).await;
+    let deadline = Instant::now() + LOG_STALL_BUDGET;
+    while cluster.unplanned_exit_count() == exits_before && Instant::now() < deadline {
+        cluster.supervise();
+        tokio::time::sleep(LOOP_PAUSE).await;
+    }
+    target.end_log_stall().await;
+    let exits = cluster.unplanned_exit_count() - exits_before;
+    eprintln!(
+        "soak +{}: released the held log writes; {exits} unplanned exits during the stall",
+        elapsed(started_at)
+    );
+    assert!(
+        exits > 0,
+        "soak +{}: a {LOG_STALL_HOLD:?} log write stall stopped no process within {LOG_STALL_BUDGET:?}",
+        elapsed(started_at)
+    );
 }
 
 /// Injects `fault`, waits until the cluster serves with a hot standby again, and records it.
@@ -587,10 +734,19 @@ async fn inject_fault(
     inspection: &dexzd_object_store::S3ObjectStore,
     started_at: Instant,
 ) {
+    let slot_count = cluster.slot_count();
+    let other_slot = |slot: usize| {
+        (0..slot_count)
+            .find(|other| *other != slot)
+            .expect("the cluster has two slots")
+    };
+    // A slot restarted after an unplanned exit may still be catching up.
     let active = cluster.wait_for_serving(None, TAKEOVER_BUDGET).await;
-    let standby = (0..cluster.slot_count())
-        .find(|slot| *slot != active)
-        .expect("the cluster has two slots");
+    cluster
+        .wait_for_hot_standby(other_slot(active), STANDBY_BUDGET)
+        .await;
+    let active = cluster.wait_for_serving(None, TAKEOVER_BUDGET).await;
+    let standby = other_slot(active);
     let from = cluster.slot_name(active).to_owned();
     eprintln!(
         "soak +{}: fault #{number} {fault:?} with {from} active",
