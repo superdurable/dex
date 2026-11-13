@@ -14,14 +14,14 @@ import (
 )
 
 // MaxSenderNameLength is the most Unicode code points AgentUserMessage.SenderName may have.
-// Since 0.6.3.
+// Since 0.6.2.
 const MaxSenderNameLength = 64
 
 // IsValidSenderName reports whether a declared sender display name is valid.
 //
 // send_user_message refuses a message whose SenderName fails this check. Check a name a
 // person typed with it before you send it, after you trim it. Every core applies the same
-// rule. Since 0.6.3.
+// rule. Since 0.6.2.
 //
 //	dexagents.IsValidSenderName("Alice")  // true
 //	dexagents.IsValidSenderName(" Alice") // false
@@ -49,7 +49,7 @@ func IsValidSenderName(senderName string) bool {
 // BuildSenderNamedText returns the text the model sees for one user message.
 //
 // The session prefixes a message that has a sender name with that name, so the model knows
-// who speaks when several people use one session. Since 0.6.3.
+// who speaks when several people use one session. Since 0.6.2.
 //
 //	dexagents.BuildSenderNamedText(&name, "hello") // "Alice: hello" when name is "Alice"
 //

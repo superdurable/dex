@@ -436,7 +436,7 @@ class AgentMessage:
             model saw it as ``"<sender_name>: <text>"``. It is ``None`` for
             every other message. Encoding omits it when it is ``None``.
 
-            .. versionadded:: 0.6.3
+            .. versionadded:: 0.6.2
 
     Example:
         >>> page = await sessions.list_agent_messages("session-42")
@@ -882,10 +882,10 @@ class AgentUserMessage:
             A valid name has 1 to ``MAX_SENDER_NAME_LENGTH`` Unicode code
             points, contains no control character or line break, and neither
             starts nor ends with a space; the RPCs refuse any other name.
-            Encoding omits it when it is ``None``. A Worker before 0.6.3
+            Encoding omits it when it is ``None``. A Worker before 0.6.2
             ignores it.
 
-            .. versionadded:: 0.6.3
+            .. versionadded:: 0.6.2
     """
 
     text: str
@@ -1011,7 +1011,7 @@ class SteerUserMessageRequest:
             RPC refuses it together with ``message_id``: a queued message
             keeps its own name. Encoding omits it when it is ``None``.
 
-            .. versionadded:: 0.6.3
+            .. versionadded:: 0.6.2
     """
 
     message_id: str | None = None

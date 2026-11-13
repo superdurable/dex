@@ -9,7 +9,7 @@
 /**
  * The most Unicode code points `AgentUserMessage.senderName` may have.
  *
- * @since 0.6.3
+ * @since 0.6.2
  */
 export const maxSenderNameLength = 64;
 
@@ -31,7 +31,7 @@ const spaceSeparator = /^\p{Zs}$/u;
  * @returns `true` when the name has 1 to {@link maxSenderNameLength} code points, contains no control character
  * (Unicode category `Cc`) and no line or paragraph separator (`Zl`, `Zp`), and neither starts nor ends with a space
  * separator (`Zs`); `false` otherwise.
- * @since 0.6.3
+ * @since 0.6.2
  */
 export function isValidSenderName(senderName: string): boolean {
   const codePoints = [...senderName];
@@ -57,7 +57,7 @@ export function isValidSenderName(senderName: string): boolean {
  * @param senderName - `AgentUserMessage.senderName`, or `undefined`.
  * @param text - The message text.
  * @returns `"<senderName>: <text>"` when `senderName` is set, and `text` unchanged when it is `undefined`.
- * @since 0.6.3
+ * @since 0.6.2
  */
 export function buildSenderNamedText(senderName: string | undefined, text: string): string {
   return senderName === undefined ? text : `${senderName}: ${text}`;

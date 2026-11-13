@@ -525,7 +525,7 @@ def describe_stored_message(message: AgentMessage) -> str:
         response with several tool calls. The text of a message with a
         ``sender_name`` starts with ``"<sender_name>: "``, as the model saw it.
 
-    .. versionchanged:: 0.6.3
+    .. versionchanged:: 0.6.2
         A message with a ``sender_name`` shows the name before its text.
     """
     lines: list[str] = []

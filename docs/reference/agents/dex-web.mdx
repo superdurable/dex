@@ -89,7 +89,7 @@ without calling a Worker. Actions still need a Worker.
 
 ### Sender names {#sender-names}
 
-Since 0.6.3, a user message can carry a sender name. Set **sender_name** on
+Since 0.6.2, a user message can carry a sender name. Set **sender_name** on
 **AgentUserMessage** for **send_user_message**, or on
 **SteerUserMessageRequest** with **text** for **steer_user_message**. Dex
 Web 1.45.2 and later sets it from **Your name**. dexcli 1.47.1 and later
@@ -111,10 +111,10 @@ The name is self-declared, not authenticated. Anyone who can call the RPC can
 send any name. Do not base an approval or a permission on it.
 
 An absent name is omitted from the encoded value, so values without one keep
-their bytes. A Worker before 0.6.3 ignores the field: it queues the message
+their bytes. A Worker before 0.6.2 ignores the field: it queues the message
 without the name, and the model sees only the text. It also drops the name of
 a stored message when it moves the message into an archive chunk. Send names
-after every Worker of the Flow type runs 0.6.3 or later.
+after every Worker of the Flow type runs 0.6.2 or later.
 
 Dex Web shows an Action form only to a user **Working as** its permission.
 The session Actions have no condition, so **Working as** hides no session of

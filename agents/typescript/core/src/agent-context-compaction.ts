@@ -228,7 +228,7 @@ export function selectTurnBoundaryCutoff(turn: AgentTurnContext, retainedTokenBu
  *
  * @param message - The stored message.
  * @returns Its role and text, tool arguments, and tool output. A message with none of them returns its role and
- * `frameworkItem`, such as a model response with several tool calls. Changed in 0.6.3: the text of a message with a
+ * `frameworkItem`, such as a model response with several tool calls. Changed in 0.6.2: the text of a message with a
  * `senderName` starts with `"<senderName>: "`, as the model saw it.
  * @since 0.3.0
  */

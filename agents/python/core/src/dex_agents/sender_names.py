@@ -14,7 +14,7 @@ import unicodedata
 
 #: The most Unicode code points ``AgentUserMessage.sender_name`` may have.
 #:
-#: .. versionadded:: 0.6.3
+#: .. versionadded:: 0.6.2
 MAX_SENDER_NAME_LENGTH = 64
 
 _REFUSED_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
@@ -33,7 +33,7 @@ def is_valid_sender_name(sender_name: str) -> bool:
         >>> is_valid_sender_name(" Alice")
         False
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
 
     Args:
         sender_name: The name to check.
@@ -64,7 +64,7 @@ def build_sender_named_text(sender_name: str | None, text: str) -> str:
         >>> build_sender_named_text("Alice", "hello")
         'Alice: hello'
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
 
     Args:
         sender_name: ``AgentUserMessage.sender_name``, or ``None``.

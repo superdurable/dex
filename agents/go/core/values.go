@@ -469,7 +469,7 @@ type AgentMessage struct {
 	// SenderName is the display name that the sender of this user message declared, from
 	// AgentUserMessage.SenderName, or nil. The sender chose it; it is not an authenticated
 	// identity. Text holds the message without the name, and the model saw it as
-	// "<SenderName>: <Text>". Encoding omits it when nil. Since 0.6.3.
+	// "<SenderName>: <Text>". Encoding omits it when nil. Since 0.6.2.
 	SenderName *string `json:"sender_name,omitempty"`
 }
 
@@ -998,7 +998,7 @@ type AgentUserMessage struct {
 	// Web, or nil for none. The model sees the message as "<SenderName>: <Text>", and UIs show
 	// the name next to the message. The sender chooses it: it is not authenticated.
 	// send_user_message returns false for a name that IsValidSenderName refuses. Encoding
-	// omits it when nil. A Worker before 0.6.3 ignores it. Since 0.6.3.
+	// omits it when nil. A Worker before 0.6.2 ignores it. Since 0.6.2.
 	SenderName *string `json:"sender_name,omitempty"`
 }
 
@@ -1111,7 +1111,7 @@ type SteerUserMessageRequest struct {
 	Text *string `json:"text"`
 	// SenderName is the declared display name of the sender of Text, as
 	// AgentUserMessage.SenderName describes it, or nil. The RPC refuses it together with
-	// MessageID: a queued message keeps its own name. Encoding omits it when nil. Since 0.6.3.
+	// MessageID: a queued message keeps its own name. Encoding omits it when nil. Since 0.6.2.
 	SenderName *string `json:"sender_name,omitempty"`
 }
 
