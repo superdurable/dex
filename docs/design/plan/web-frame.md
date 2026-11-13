@@ -160,6 +160,46 @@ These rules apply to every surface the frame touches:
 Inside each tab, the look pass comes after the frame. It is listed under Order
 and PRs.
 
+## As built
+
+Review rounds against the real UI changed these parts of the design. The
+implementation follows this section where it differs from the sections above.
+
+- **No inspector column.** The run's facts open from the Flow ID button as
+  **Run details**: started, closed, duration, run attempt or run chain, latest
+  event, Flow type, child Flows with their status, and copy buttons for the
+  Flow ID and Run ID. The selected event keeps its panel on the right.
+- **The Flow ID is the heaviest item in the bar.** A copy button sits beside
+  it, and the Flow type follows it in muted text on wide screens. A SubFlow's
+  ID keeps its end.
+- **Operate is a split button.** Its main action follows the run: **Stop**
+  while it runs, **Time travel from #N** at the failed event on a failed run,
+  and **Time travel** otherwise. The menu holds the other action with its full
+  name.
+- **The trail names relations.** A child Flow's trail links to its parent's
+  current run. A run with child Flows shows their count in the Flow ID button.
+  Overview lists both under **Related Flows**.
+- **A state line under the bar.** A failed run states its error, and every
+  other run states its newest event and Step type. Its button selects that
+  event.
+- **Desktop Timeline.** At 1280px and wider the Timeline shows its overview, a
+  one-line event list in its own scroll box, and the selected event beside
+  them. J, K and the arrow keys move the selection, and T opens time travel at
+  it. The labelled lane is behind **Show lane**.
+- **Time travel from an event.** The selected event's panel and each event row
+  open time travel set to that event.
+- **Jump box.** ⌘K or Ctrl+K suggests Flows by ID prefix, opens a pasted run
+  link, and lists recent runs and pages.
+- **Reachability.** The dot reads `/readyz` every 30 seconds.
+- **Giving way.** The bar gives way in this order: the copy button and the
+  attempt picker (the attempt then shows in the Flow ID button and its picker
+  moves into Run details), then the Flow ID, then the names of later tabs,
+  which keep tooltips. Timeline and Execution graph keep their names longest.
+- **Flows page.** All, Running, Failed and Completed search by status in one
+  click, and a status-only search keeps the search card one row.
+- **Known trade-off.** Without Refresh, a closed run that another client time
+  travels shows the change after a reload.
+
 ## Order and PRs
 
 1. This design (docs only).
