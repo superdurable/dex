@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dexzd_object_store::{ObjectMetadata, ObjectStore};
+use dexzd_object_store::{ListingConsistency, ObjectMetadata, ObjectStore};
 use dexzd_protocol::dexzd::v1::SnapshotManifest;
 use prost::Message;
 use tokio::sync::Mutex;
@@ -29,6 +29,9 @@ pub(crate) struct SnapshotRetention {
     pub(crate) node_id: String,
     pub(crate) retained_count: usize,
     pub(crate) deletion_delay: Duration,
+    /// With an eventually consistent listing, a manifest leaves the catalog only once a read
+    /// misses it too.
+    pub(crate) listing_consistency: ListingConsistency,
 }
 
 /// Decoded snapshot manifests of this node by object key.
@@ -78,6 +81,10 @@ impl SnapshotRetention {
     ) -> Result<Vec<&'catalog SnapshotManifest>, SnapshotError> {
         if !self.refresh(catalog).await? {
             return Ok(Self::kept(catalog));
+        }
+        if !self.listing_consistency.is_strong() {
+            self.read_unlisted_referenced_manifests(catalog, referenced_keys)
+                .await?;
         }
         let mut unreferenced_files: BTreeSet<String> = self
             .find_orphan_files(catalog, now_unix_micros)
@@ -333,10 +340,22 @@ impl SnapshotRetention {
             return Ok(false);
         }
         catalog.completed_scan_number = catalog.completed_scan_number.saturating_add(1);
-        catalog.manifests.retain(|key, _| {
-            catalog.listed_manifest_keys.contains(key)
-                || catalog.inserted_manifest_keys.contains(key)
-        });
+        let unlisted_manifest_keys: Vec<String> = catalog
+            .manifests
+            .keys()
+            .filter(|key| {
+                !catalog.listed_manifest_keys.contains(*key)
+                    && !catalog.inserted_manifest_keys.contains(*key)
+            })
+            .cloned()
+            .collect();
+        for key in unlisted_manifest_keys {
+            // A stale listing can lack a manifest that still exists; files it uses must stay.
+            if self.listing_consistency.is_strong() || self.object_store.head(&key).await?.is_none()
+            {
+                catalog.manifests.remove(&key);
+            }
+        }
         let listed_keys = std::mem::take(&mut catalog.listed_manifest_keys);
         for key in listed_keys {
             if catalog.manifests.contains_key(&key) {
@@ -352,6 +371,28 @@ impl SnapshotRetention {
         }
         catalog.inserted_manifest_keys.clear();
         Ok(true)
+    }
+
+    /// Reads each manifest of this node that the cluster manifest points to and the catalog
+    /// lacks, so an eventually consistent listing cannot hide a published snapshot's files.
+    async fn read_unlisted_referenced_manifests(
+        &self,
+        catalog: &mut SnapshotCatalog,
+        referenced_keys: &BTreeSet<String>,
+    ) -> Result<(), SnapshotError> {
+        let node_prefix = format!("snapshot/{}/", self.node_id);
+        for key in referenced_keys {
+            if !key.starts_with(&node_prefix) || catalog.manifests.contains_key(key) {
+                continue;
+            }
+            let Some(content) = self.object_store.get(key).await? else {
+                continue;
+            };
+            let manifest = SnapshotManifest::decode(content.bytes)?;
+            self.validate(key, &manifest)?;
+            catalog.manifests.insert(key.clone(), manifest);
+        }
+        Ok(())
     }
 
     /// Rejects a manifest whose deletion could remove objects outside this node's snapshots.
@@ -394,8 +435,9 @@ mod tests {
     use bytes::Bytes;
     use dexzd_clock::SystemWallClock;
     use dexzd_object_store::{
-        ByteRange, InMemoryObjectStore, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore,
-        ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
+        ByteRange, InMemoryObjectStore, ListingConsistency, ObjectContent, ObjectListing,
+        ObjectMetadata, ObjectStore, ObjectStoreOperation, ObjectStoreResult, WriteCondition,
+        WriteOutcome,
     };
     use dexzd_protocol::dexzd::v1::{NodeLease, SnapshotFile, SnapshotManifest};
     use prost::Message;
@@ -406,6 +448,8 @@ mod tests {
     use crate::snapshots::ownership_fence::OwnershipFence;
 
     use super::{CANDIDATES_PER_RUN, SnapshotCatalog, SnapshotRetention};
+
+    mod stale_listing_tests;
 
     struct MetadataWithoutTimestamp {
         inner: Arc<InMemoryObjectStore>,
@@ -614,6 +658,7 @@ mod tests {
             node_id: "node-a".to_owned(),
             retained_count: 3,
             deletion_delay: Duration::from_micros(1),
+            listing_consistency: ListingConsistency::Strong,
         };
         let mut catalog = SnapshotCatalog::default();
         retention
@@ -667,6 +712,7 @@ mod tests {
             node_id: "node-a".to_owned(),
             retained_count: 3,
             deletion_delay: Duration::ZERO,
+            listing_consistency: ListingConsistency::Strong,
         };
         let mut catalog = SnapshotCatalog::default();
         retention
@@ -720,6 +766,7 @@ mod tests {
             node_id: "node-a".to_owned(),
             retained_count: 3,
             deletion_delay: Duration::ZERO,
+            listing_consistency: ListingConsistency::Strong,
         };
         let mut catalog = SnapshotCatalog::default();
         retention
@@ -755,6 +802,7 @@ mod tests {
             node_id: "node-a".to_owned(),
             retained_count: 3,
             deletion_delay: Duration::ZERO,
+            listing_consistency: ListingConsistency::Strong,
         };
         let mut catalog = SnapshotCatalog::default();
         retention
@@ -816,6 +864,7 @@ mod tests {
             node_id: "node-a".to_owned(),
             retained_count: 3,
             deletion_delay: Duration::ZERO,
+            listing_consistency: ListingConsistency::Strong,
         };
         let mut catalog = SnapshotCatalog::default();
         retention
@@ -867,6 +916,7 @@ mod tests {
             node_id: "node-a".to_owned(),
             retained_count: 3,
             deletion_delay: Duration::ZERO,
+            listing_consistency: ListingConsistency::Strong,
         };
         let mut catalog = SnapshotCatalog::default();
         retention

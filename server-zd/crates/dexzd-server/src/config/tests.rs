@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{EffectsConfig, HistoryUploadLimits, LocalStoreConfig};
+use dexzd_object_store::ListingConsistency;
 
 use super::engine_config::SERVE_HISTORY_WINDOW_EVENTS;
 use super::{
@@ -2736,6 +2737,31 @@ fn only_tencent_cos_snapshots_skip_empty_write_ahead_logs() {
                 .snapshots
                 .should_skip_empty_write_ahead_log_files,
             should_skip
+        );
+    }
+}
+
+#[test]
+fn only_tencent_cos_reads_past_an_eventually_consistent_listing() {
+    let mut aliyun_oss = valid_config();
+    aliyun_oss.object_store.provider = ObjectStoreProvider::AliyunOss;
+    let mut tencent_cos = tencent_cos_config();
+    tencent_cos.commit.max_in_flight = 7;
+    for (configuration, expected) in [
+        (tencent_cos, ListingConsistency::Eventual),
+        (valid_config(), ListingConsistency::Strong),
+        (aliyun_oss, ListingConsistency::Strong),
+    ] {
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        let engine_node = &components.engine_node;
+        assert_eq!(engine_node.snapshots.listing_consistency, expected);
+        let read_ahead = engine_node.recovery.log_read_ahead;
+        assert_eq!(read_ahead.listing_consistency, expected);
+        assert_eq!(
+            read_ahead.tail_probe_misses,
+            usize::try_from(configuration.commit.max_in_flight).expect("small value"),
+            "recovery probes as many seqs as the writer had batch writes in flight"
         );
     }
 }

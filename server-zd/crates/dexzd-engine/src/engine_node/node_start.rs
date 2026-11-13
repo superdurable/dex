@@ -485,6 +485,7 @@ where
                 node_id: stream.node_id.clone(),
                 retained_count: config.snapshots.retained_count,
                 deletion_delay: config.snapshots.deletion_delay,
+                listing_consistency: config.snapshots.listing_consistency,
             },
             fence: OwnershipFence {
                 object_store: object_store.clone(),

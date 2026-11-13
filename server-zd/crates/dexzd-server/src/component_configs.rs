@@ -18,7 +18,7 @@ use dexzd_engine::{
     default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
-use dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES;
+use dexzd_object_store::{ListingConsistency, VERSION_OBJECT_KEY_SUFFIX_BYTES};
 use dexzd_protocol::dexzd::v1::RunSettings;
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::RocksDbStoreOptions;
@@ -127,6 +127,17 @@ impl ComponentConfigs {
             "history.supersededValueGracePeriod",
             config.history.superseded_value_grace_period,
         )?;
+        let max_in_flight_batches =
+            to_usize("commit.maxInFlight", u64::from(config.commit.max_in_flight))?;
+        // COS may serve an earlier listing of a prefix for seconds.
+        let listing_consistency = match config.object_store.provider {
+            ObjectStoreProvider::TencentCos => ListingConsistency::Eventual,
+            ObjectStoreProvider::S3
+            | ObjectStoreProvider::Db9
+            | ObjectStoreProvider::AliyunOss
+            | ObjectStoreProvider::AzureBlob
+            | ObjectStoreProvider::GoogleCloudStorage => ListingConsistency::Strong,
+        };
         let engine_node = EngineNodeConfig {
             node: NodeConfig {
                 node_id: config.cluster.node_id.clone(),
@@ -175,10 +186,7 @@ impl ComponentConfigs {
                     .unwrap_or(cfg!(debug_assertions)),
                 batch_window: config.commit.batch_window,
                 seal_at_bytes: to_usize("commit.sealAtBytes", config.commit.seal_at_bytes)?,
-                max_in_flight_batches: to_usize(
-                    "commit.maxInFlight",
-                    u64::from(config.commit.max_in_flight),
-                )?,
+                max_in_flight_batches,
                 max_batch_records: to_usize(
                     "commit.maxBatchRecords",
                     u64::from(config.commit.max_batch_records),
@@ -202,6 +210,7 @@ impl ComponentConfigs {
                 // COS cannot create an empty object exclusively; such a log holds no data.
                 should_skip_empty_write_ahead_log_files: config.object_store.provider
                     == ObjectStoreProvider::TencentCos,
+                listing_consistency,
                 ..SnapshotConfig::default()
             },
             recovery: RecoveryConfig {
@@ -215,6 +224,9 @@ impl ComponentConfigs {
                         "recovery.readAheadBytes",
                         config.recovery.read_ahead_bytes,
                     )?,
+                    listing_consistency,
+                    // The recovered writer shares this configuration, so it had at most this many writes in flight.
+                    tail_probe_misses: max_in_flight_batches,
                 },
                 compact_after_replay_bytes: config.local_storage.compact_after_replay_bytes,
                 retained_set_aside_store_count: to_usize(

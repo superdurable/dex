@@ -8,6 +8,8 @@
 
 use std::time::Duration;
 
+use dexzd_object_store::ListingConsistency;
+
 /// Snapshot schedule, retention, and delayed log deletion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotConfig {
@@ -29,6 +31,10 @@ pub struct SnapshotConfig {
     /// [`dexzd_storage::SnapshotUploadOptions`]. Set it for an object store that cannot create
     /// an empty object with a create-only write.
     pub should_skip_empty_write_ahead_log_files: bool,
+    /// Defaults to [`ListingConsistency::Strong`]. With [`ListingConsistency::Eventual`],
+    /// retention keeps a known snapshot manifest that a listing lacks while a read still finds
+    /// it, and reads a manifest the cluster manifest points to when no listing showed it.
+    pub listing_consistency: ListingConsistency,
 }
 
 impl Default for SnapshotConfig {
@@ -41,6 +47,7 @@ impl Default for SnapshotConfig {
             retained_count: 3,
             deletion_delay: Duration::from_secs(24 * 60 * 60),
             should_skip_empty_write_ahead_log_files: false,
+            listing_consistency: ListingConsistency::Strong,
         }
     }
 }
