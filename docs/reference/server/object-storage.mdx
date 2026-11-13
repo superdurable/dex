@@ -294,7 +294,7 @@ with the default of 10 seconds each node keeps about 1,200 lease versions,
 under 200 KB in total. **dexzd_object_store_versioned_listing_stale_total**
 counts listings that missed a version the node had just written. See
 [Metrics and alerts](/reference/server/metrics).
-Changed in 0.1.29: the server kept replaced versions for 60 seconds.
+Changed in 0.1.29: the minimum was 60 seconds before.
 
 Every other object keeps its key. Log batches, snapshots, and history segments
 are written once. In the rare case that an uploaded history segment differs from
