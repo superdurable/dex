@@ -1,0 +1,19 @@
+{
+  "type": "SessionTerminalLease",
+  "wire_kind": "json",
+  "description": "The SessionTerminalLease Attribute.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "A lease that one terminal holds.",
+      "wire": "{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":4242}",
+      "canonical": "{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":4242}"
+    },
+    {
+      "name": "unicode-host",
+      "description": "A host name outside ASCII.",
+      "wire": "{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"b\\u00fcro-mac\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":0}",
+      "canonical": "{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"b\\u00fcro-mac\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":0}"
+    }
+  ]
+}

@@ -1233,6 +1233,117 @@ type TurnCancellationRequest struct {
 	RequestedAt string `json:"requested_at"`
 }
 
+// SessionTerminalLease records the one terminal that has a session open, in the
+// SessionTerminalLease Attribute.
+//
+// A CLI command takes the lease with the acquire_session_terminal_lease RPC
+// before its chat starts and renews it with the same RPC. Another terminal
+// waits until the lease is released or expires. This Go core declares the
+// Attribute but does not serve the lease RPCs. Since 0.6.3.
+type SessionTerminalLease struct {
+	// HolderID is the random ID of the process that holds the lease.
+	HolderID string `json:"holder_id"`
+	// HostName is the holder's host name, shown to a terminal that waits.
+	HostName string `json:"host_name"`
+	// ProcessID is the process ID of the command the user ran.
+	ProcessID int64 `json:"process_id"`
+	// OpenedAt is the RFC 3339 UTC time this holder first acquired the lease.
+	OpenedAt string `json:"opened_at"`
+	// ExpiresAt is the RFC 3339 UTC time the lease ends unless it is renewed.
+	ExpiresAt string `json:"expires_at"`
+}
+
+// UnmarshalJSON decodes the wire object.
+//
+// It returns an error for a missing field or a wrong JSON type.
+func (lease *SessionTerminalLease) UnmarshalJSON(data []byte) error {
+	type wireSessionTerminalLease SessionTerminalLease
+	var decoded wireSessionTerminalLease
+	if err := decodeWireObject(data, &decoded, "SessionTerminalLease",
+		"holder_id", "host_name", "process_id", "opened_at", "expires_at"); err != nil {
+		return err
+	}
+	*lease = SessionTerminalLease(decoded)
+	return nil
+}
+
+// AcquireSessionTerminalLeaseRequest asks the acquire_session_terminal_lease RPC
+// for a session's lease.
+//
+// The RPC grants it when the lease is free, held by HolderID, or expired, and
+// acquiring again with the same HolderID renews it. Since 0.6.3.
+type AcquireSessionTerminalLeaseRequest struct {
+	// HolderID is the caller's random holder ID; it must not be blank.
+	HolderID string `json:"holder_id"`
+	// HostName is the caller's host name, at most 255 code points.
+	HostName string `json:"host_name"`
+	// ProcessID is the process ID of the command the user ran; not negative.
+	ProcessID int64 `json:"process_id"`
+	// TTLSeconds is how long the lease lasts without renewal, from 1 to 3600.
+	TTLSeconds int64 `json:"ttl_seconds"`
+}
+
+// UnmarshalJSON decodes the wire object.
+//
+// It returns an error for a missing field or a wrong JSON type.
+func (request *AcquireSessionTerminalLeaseRequest) UnmarshalJSON(data []byte) error {
+	type wireAcquireSessionTerminalLeaseRequest AcquireSessionTerminalLeaseRequest
+	var decoded wireAcquireSessionTerminalLeaseRequest
+	if err := decodeWireObject(data, &decoded, "AcquireSessionTerminalLeaseRequest",
+		"holder_id", "host_name", "process_id", "ttl_seconds"); err != nil {
+		return err
+	}
+	*request = AcquireSessionTerminalLeaseRequest(decoded)
+	return nil
+}
+
+// SessionTerminalLeaseResult is the output of the acquire_session_terminal_lease RPC.
+//
+// Since 0.6.3.
+type SessionTerminalLeaseResult struct {
+	// IsAcquired is true when the caller holds the lease now.
+	IsAcquired bool `json:"is_acquired"`
+	// Lease is the caller's lease when IsAcquired, the other holder's lease
+	// when refused, or nil for a request that is not valid.
+	Lease *SessionTerminalLease `json:"lease"`
+}
+
+// UnmarshalJSON decodes the wire object; a missing lease decodes as nil.
+//
+// It returns an error for a missing is_acquired or a wrong JSON type.
+func (result *SessionTerminalLeaseResult) UnmarshalJSON(data []byte) error {
+	type wireSessionTerminalLeaseResult SessionTerminalLeaseResult
+	var decoded wireSessionTerminalLeaseResult
+	if err := decodeWireObject(data, &decoded, "SessionTerminalLeaseResult", "is_acquired"); err != nil {
+		return err
+	}
+	*result = SessionTerminalLeaseResult(decoded)
+	return nil
+}
+
+// ReleaseSessionTerminalLeaseRequest asks the release_session_terminal_lease RPC
+// to end one holder's lease.
+//
+// The RPC returns false and changes nothing when another holder, or none,
+// has the lease. Since 0.6.3.
+type ReleaseSessionTerminalLeaseRequest struct {
+	// HolderID is the holder ID that acquired the lease.
+	HolderID string `json:"holder_id"`
+}
+
+// UnmarshalJSON decodes the wire object.
+//
+// It returns an error for a missing holder_id or a wrong JSON type.
+func (request *ReleaseSessionTerminalLeaseRequest) UnmarshalJSON(data []byte) error {
+	type wireReleaseSessionTerminalLeaseRequest ReleaseSessionTerminalLeaseRequest
+	var decoded wireReleaseSessionTerminalLeaseRequest
+	if err := decodeWireObject(data, &decoded, "ReleaseSessionTerminalLeaseRequest", "holder_id"); err != nil {
+		return err
+	}
+	*request = ReleaseSessionTerminalLeaseRequest(decoded)
+	return nil
+}
+
 // ToolCallCancellation wakes the Step that waits on one tool call. This Go core never publishes
 // it.
 type ToolCallCancellation struct {

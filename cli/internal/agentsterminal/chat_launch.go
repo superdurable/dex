@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launchcontract"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launcherchannel"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/remotesessionfeed"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionlisting"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/typedpaths"
@@ -293,6 +294,11 @@ func runChat(
 	_, runErr := program.Run()
 	cancelChat()
 	<-feedDone
+	if code := frames.signalExitCode(); code == 0 && (runErr == nil || errors.Is(runErr, tea.ErrProgramKilled)) {
+		if handedOff, isHandedOff := feed.HandedOffSessionSwitch(); isHandedOff {
+			return sendSessionSwitch(channel, handedOff)
+		}
+	}
 	if summary := screen.ExitSummary(); summary != "" {
 		if _, writeErr := fmt.Fprintln(stdout, summary); writeErr != nil {
 			debugLog("print the exit summary", writeErr)
@@ -306,6 +312,16 @@ func runChat(
 	}
 	if code := feed.ExitCode(); code != 0 {
 		return &ExitError{Code: code}
+	}
+	return nil
+}
+
+// sendSessionSwitch hands the chosen session to the launcher; the deferred
+// channel close follows it.
+func sendSessionSwitch(channel *launcherchannel.LauncherChannel, request sessionfeed.SwitchSession) error {
+	if sendErr := channel.SendSwitchSession(request.SessionID, request.IsResumed); sendErr != nil {
+		debugLog("send switch_session", sendErr)
+		return &ExitError{Code: exitCodeFailure}
 	}
 	return nil
 }

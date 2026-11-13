@@ -37,6 +37,7 @@ from dex_agents.values import (
     AgentUserMessage,
     ContextSummary,
     PlanExecutionRequest,
+    SessionTerminalLease,
     ToolCallCancellation,
     ToolCallCompleted,
     TurnCancellationRequest,
@@ -132,6 +133,12 @@ CONTEXT_SUMMARY: Attribute[ContextSummary] = Attribute("ContextSummary", Context
 #: The settings the next turn starts with: the start input's ``session_settings``, then
 #: each ``update_session_settings``. Unset when the session has none.
 SESSION_SETTINGS: Attribute[dict[str, Any]] = Attribute("SessionSettings", dict[str, Any])
+
+#: The terminal that has the session open, if any: see ``SessionTerminalLease``. Only the
+#: ``acquire_session_terminal_lease`` and ``release_session_terminal_lease`` RPCs write it.
+SESSION_TERMINAL_LEASE: Attribute[SessionTerminalLease] = Attribute(
+    "SessionTerminalLease", SessionTerminalLease
+)
 
 #: The settings a turn started with, tagged with its turn, copied from ``SessionSettings``
 #: when the turn began. A copy from an earlier turn reads as no settings.

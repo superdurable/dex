@@ -203,7 +203,7 @@ right after the spawn. It holds no secret.
 | `session` | chat: `flow_type`, `session_id`, and `is_resumed` (`true` loads the history). sessions: `flow_type`. |
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. `models` lists the model IDs `/model` offers: the configured model first, then the harness command's suggestions. See [Model and reasoning effort](#model-and-reasoning-effort). |
 | `methods` | The local requests the launcher side serves. |
-| `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. `reasoning_effort` is present only when the harness command maps the `reasoning_effort` session setting to its SDK, with the `values` it accepts, from least to most effort. An absent boolean is `false`. |
+| `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. `reasoning_effort` is present only when the harness command maps the `reasoning_effort` session setting to its SDK, with the `values` it accepts, from least to most effort. `launcher_session_switch` is `true` when the launcher opens the session a switch names (see [Session switch](#session-switch)). An absent boolean is `false`. |
 | `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
@@ -266,7 +266,9 @@ retries, and a slow server never causes a fallback.
 - After `ready`, `dexcli`'s exit summary is the only line that says how to
   resume: `/new` can switch sessions, so the launcher could name the wrong
   one. The launcher prints its own resume line only when it continues in the
-  plain chat, or when `dexcli` never sent `ready`.
+  plain chat, or when `dexcli` never sent `ready`. After a `switch_session`
+  `dexcli` prints no exit summary, because the launcher opens the next
+  session (see [Session switch](#session-switch)).
 
 ### When the channel ends
 
@@ -350,6 +352,7 @@ This never falls back to the plain chat, even before `ready`.
 | terminal UI | `request` | `id`, `method`, `params` (an object), and `idempotency_key` except for `get_request_result`. |
 | terminal UI | `cancel` | `id` |
 | terminal UI | `result` | `resume_session_id`; sessions mode only. |
+| terminal UI | `switch_session` | `session_id` and `is_resumed`; chat mode with `capabilities.launcher_session_switch` only. |
 
 Any other `type` is a later addition: the receiver skips the message,
 whatever its fields. A known `type` sent by the wrong side, such as `ready`
@@ -375,6 +378,34 @@ the terminal UI treats the Worker as running, and it never waits for
 exits 0. The launcher acts on it only when it read a complete `result` and the
 exit code is 0. It then checks the session again with `DescribeFlow` (type and
 running) before resuming it.
+
+### Session switch
+
+A launcher that holds a lease on the session it shows, so that one session
+is open in at most one terminal, sets `capabilities.launcher_session_switch`
+to `true` in a chat launch document. Then `dexcli` never switches sessions in
+place:
+
+1. When the user switches with `/sessions`, or to the session `/new`
+   started, `dexcli` first asks about attached images as usual.
+2. It then sends `{"type":"switch_session","session_id":"<id>","is_resumed":<bool>}`
+   once, closes the channel, restores the terminal, prints no exit summary,
+   and exits 0. `is_resumed` is `true` for a session `/sessions` picked and
+   `false` for the one `/new` started.
+3. The launcher acts on it only when it read a complete `switch_session` and
+   the exit code is 0. It releases the old session, waits until it can take
+   the new one, and launches `dexcli` again with a chat launch document for
+   that session (`session_id`, and `is_resumed` from the message). A
+   `switch_session` followed by any other exit is ignored, and the exit
+   counts as usual.
+
+`switch_session` is the last message `dexcli` sends. Without the capability,
+`dexcli` switches in place as before.
+
+dexcli 1.47.2 is the first release that sends `switch_session` and lists
+`launcher_session_switch` in `--describe`. An older `dexcli` ignores the
+capability and switches in place, so the launcher's lease stays on the
+session the chat started in.
 
 ## Requests
 

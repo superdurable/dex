@@ -157,6 +157,9 @@ type LaunchCapabilities struct {
 	// ReasoningEffort holds the reasoning effort values, or nil when the
 	// command has no reasoning effort setting.
 	ReasoningEffort *ReasoningEffortValues `json:"reasoning_effort"`
+	// HasLauncherSessionSwitch makes a session switch end dexcli with a
+	// switch_session message, so the launcher opens that session.
+	HasLauncherSessionSwitch bool `json:"launcher_session_switch"`
 }
 
 // ReasoningEffortValues lists the reasoning_effort session setting values a

@@ -24,6 +24,11 @@ export interface SessionFlowCapabilities {
   readonly turn_control: boolean;
   /** Present only when the harness declares reasoning efforts, with its values from least to most effort. */
   readonly reasoning_effort?: { readonly values: readonly string[] };
+  /**
+   * Whether the launcher takes the lease of a session the terminal UI switches to: the terminal UI then hands a
+   * switch back with `switch_session` and exits.
+   */
+  readonly launcher_session_switch?: boolean;
 }
 
 /** The parts of a chat launch document that come from the command, the server, and the Worker host. */

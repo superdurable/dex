@@ -152,6 +152,14 @@
       }
     },
     {
+      "id": "resource:attribute:SessionTerminalLease",
+      "kind": "attribute",
+      "name": "SessionTerminalLease",
+      "resource": {
+        "valueType": "SessionTerminalLease"
+      }
+    },
+    {
       "id": "resource:channel:SteeredUserMessages",
       "kind": "channel",
       "name": "SteeredUserMessages",
@@ -1119,6 +1127,11 @@
       }
     },
     {
+      "id": "rpc:acquire_session_terminal_lease",
+      "kind": "rpc",
+      "name": "acquire_session_terminal_lease"
+    },
+    {
       "id": "rpc:answer_question",
       "kind": "rpc",
       "name": "answer_question"
@@ -1187,6 +1200,11 @@
       "id": "rpc:list_agent_messages",
       "kind": "rpc",
       "name": "list_agent_messages"
+    },
+    {
+      "id": "rpc:release_session_terminal_lease",
+      "kind": "rpc",
+      "name": "release_session_terminal_lease"
     },
     {
       "id": "rpc:resolve_interrupt",
@@ -1901,138 +1919,152 @@
     {
       "id": "edge:0083",
       "kind": "resource_lock",
+      "from": "rpc:acquire_session_terminal_lease",
+      "to": "resource:attribute:SessionTerminalLease",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0084",
+      "kind": "resource_lock",
       "from": "rpc:answer_question",
       "to": "resource:attribute:PendingInterrupts",
       "label": "Lock"
     },
     {
-      "id": "edge:0084",
+      "id": "edge:0085",
       "kind": "resource_publish",
       "from": "rpc:answer_question",
       "to": "resource:channel:InterruptResolutions",
       "label": "Publish"
     },
     {
-      "id": "edge:0085",
+      "id": "edge:0086",
       "kind": "resource_lock",
       "from": "rpc:cancel_turn",
       "to": "resource:attribute:PendingInterrupts",
       "label": "Lock"
     },
     {
-      "id": "edge:0086",
+      "id": "edge:0087",
       "kind": "resource_lock",
       "from": "rpc:cancel_turn",
       "to": "resource:attribute:TurnCancellationRequest",
       "label": "Lock"
     },
     {
-      "id": "edge:0087",
+      "id": "edge:0088",
       "kind": "transition",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:FinishTurnCancellation",
       "label": "GoTo"
     },
     {
-      "id": "edge:0088",
+      "id": "edge:0089",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:RunModel",
       "label": "Cancel"
     },
     {
-      "id": "edge:0089",
+      "id": "edge:0090",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:CompactContext",
       "label": "Cancel"
     },
     {
-      "id": "edge:0090",
+      "id": "edge:0091",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:RecordTurnFailure",
       "label": "Cancel"
     },
     {
-      "id": "edge:0091",
+      "id": "edge:0092",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:AwaitToolApproval",
       "label": "Cancel"
     },
     {
-      "id": "edge:0092",
+      "id": "edge:0093",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:AwaitQuestionAnswer",
       "label": "Cancel"
     },
     {
-      "id": "edge:0093",
+      "id": "edge:0094",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:AwaitTimer",
       "label": "Cancel"
     },
     {
-      "id": "edge:0094",
+      "id": "edge:0095",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:PollToolTask",
       "label": "Cancel"
     },
     {
-      "id": "edge:0095",
+      "id": "edge:0096",
       "kind": "resource_lock",
       "from": "rpc:execute_plan",
       "to": "resource:attribute:PendingPlanExecution",
       "label": "Lock"
     },
     {
-      "id": "edge:0096",
+      "id": "edge:0097",
       "kind": "resource_publish",
       "from": "rpc:execute_plan",
       "to": "resource:channel:PlanExecutions",
       "label": "Publish"
     },
     {
-      "id": "edge:0097",
+      "id": "edge:0098",
+      "kind": "resource_lock",
+      "from": "rpc:release_session_terminal_lease",
+      "to": "resource:attribute:SessionTerminalLease",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0099",
       "kind": "resource_lock",
       "from": "rpc:resolve_interrupt",
       "to": "resource:attribute:PendingInterrupts",
       "label": "Lock"
     },
     {
-      "id": "edge:0098",
+      "id": "edge:0100",
       "kind": "resource_publish",
       "from": "rpc:resolve_interrupt",
       "to": "resource:channel:InterruptResolutions",
       "label": "Publish"
     },
     {
-      "id": "edge:0099",
+      "id": "edge:0101",
       "kind": "resource_publish",
       "from": "rpc:send_user_message",
       "to": "resource:channel:QueuedUserMessages",
       "label": "Publish"
     },
     {
-      "id": "edge:0100",
+      "id": "edge:0102",
       "kind": "resource_publish",
       "from": "rpc:steer_user_message",
       "to": "resource:channel:QueuedUserMessages",
       "label": "Publish"
     },
     {
-      "id": "edge:0101",
+      "id": "edge:0103",
       "kind": "resource_publish",
       "from": "rpc:steer_user_message",
       "to": "resource:channel:SteeredUserMessages",
       "label": "Publish"
     },
     {
-      "id": "edge:0102",
+      "id": "edge:0104",
       "kind": "resource_publish",
       "from": "rpc:steer_user_message",
       "to": "resource:channel:TurnControlRequests",

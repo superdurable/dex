@@ -11,7 +11,13 @@ import { basename, join, resolve } from "node:path";
 import type { Writable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { DexServiceError, LongPollTimeoutError, RpcLockConflictError, type Client } from "@superdurable/dex";
+import {
+  DexServiceError,
+  LongPollTimeoutError,
+  RequestTimeoutError,
+  RpcLockConflictError,
+  type Client,
+} from "@superdurable/dex";
 import {
   ImageValidationError,
   detectImageMimeType,
@@ -40,6 +46,11 @@ const eventPollTimeoutMs = 2_000;
 const eventCatchUpTimeoutMs = 2_000;
 const lockConflictRetryTimeoutMs = 30_000;
 const grpcFailedPrecondition = 9;
+const grpcDeadlineExceeded = 4;
+const grpcUnavailable = 14;
+/** How long the chat start retries a transient failure, such as a Worker that just disconnected. */
+const chatStartRetryTimeoutMs = 10_000;
+const chatStartRetryIntervalMs = 500;
 const turnEndEventTypes = new Set(["turn_completed", "turn_failed", "turn_cancelled", "turn_steered"]);
 
 type SessionFlow = AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
@@ -94,7 +105,7 @@ export class TerminalChat {
     this.input.onInterrupt(() => this.handleInterrupt());
     this.eventReader = this.readEvents();
     try {
-      const snapshot = await readAgentSnapshot(this.client, this.flow, this.sessionId);
+      const snapshot = await this.readStartSnapshot();
       if (snapshot.state?.activeTurnId !== null && snapshot.state?.activeTurnId !== undefined) {
         this.write("A turn is running; waiting for it.\n");
         await this.awaitTurnEnd(snapshot.state.turnCount);
@@ -124,6 +135,33 @@ export class TerminalChat {
       await this.eventReader;
     }
     return this.hasFailure;
+  }
+
+  /**
+   * Ends the chat soon, without cancelling the turn, as when another terminal took the session.
+   */
+  public stop(): void {
+    this.isExitRequested = true;
+    this.exitController.abort();
+    this.turnCancellation?.abort();
+  }
+
+  /** Reads the first snapshot, retrying transient failures for up to 10 s, then fails with one line. */
+  private async readStartSnapshot(): Promise<AgentSnapshot> {
+    const deadline = Date.now() + chatStartRetryTimeoutMs;
+    for (;;) {
+      try {
+        return await readAgentSnapshot(this.client, this.flow, this.sessionId);
+      } catch (error: unknown) {
+        if (!isTransientDexFailure(error)) {
+          throw error;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error(`cannot read session ${this.sessionId}: ${describe(error)}`, { cause: error });
+        }
+      }
+      await delay(chatStartRetryIntervalMs);
+    }
   }
 
   private async runTurn(text: string): Promise<void> {
@@ -467,6 +505,18 @@ function parsePayload(payload: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/** Whether a failure may pass on its own: a lock conflict, a timeout, or an unavailable or disconnected Worker. */
+function isTransientDexFailure(error: unknown): boolean {
+  if (error instanceof RpcLockConflictError || error instanceof RequestTimeoutError) {
+    return true;
+  }
+  if (!(error instanceof DexServiceError)) {
+    return false;
+  }
+  const code = Number(error.code);
+  return code === grpcUnavailable || code === grpcDeadlineExceeded || /worker stream disconnected/i.test(error.detail);
 }
 
 function isStreamStoreDisabled(error: unknown): boolean {

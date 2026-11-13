@@ -324,7 +324,7 @@ func checkCapabilities(rules *jsonRules, value any) {
 			rules.integer("/capabilities/images/max_bytes", limits["max_bytes"], 1, 1<<62)
 		}
 	}
-	for _, name := range []string{"plan_mode", "turn_control"} {
+	for _, name := range []string{"plan_mode", "turn_control", "launcher_session_switch"} {
 		if flag, exists := capabilities[name]; exists {
 			rules.boolean("/capabilities/"+name, flag)
 		}

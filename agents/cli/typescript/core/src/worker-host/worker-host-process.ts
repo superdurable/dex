@@ -14,8 +14,11 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { WorkerHostStoppedError } from "../terminal-ui/local-request-relay.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
+import type { SessionTerminalLease } from "@superdurable/dex-agents";
+
 import { signalProcessGroup } from "./process-identity.js";
 import {
+  workerHostLeaseMethods,
   workerHostSubcommand,
   type LauncherToWorkerHostMessage,
   type WorkerHostReady,
@@ -23,6 +26,9 @@ import {
   type WorkerHostStartupFailed,
   type WorkerHostToLauncherMessage,
 } from "./worker-host-protocol.js";
+
+/** The session to open does not exist, has another Flow type, or does not run. */
+export class SessionUnavailableError extends Error {}
 
 /** How long each step of a Worker host shutdown waits for the host to exit. */
 export interface WorkerHostStopBounds {
@@ -69,6 +75,8 @@ export class WorkerHostProcess {
   private startupResolver: ((startup: WorkerHostStartup) => void) | undefined;
   private listener: WorkerHostListener | undefined;
   private readonly earlyLogs: string[] = [];
+  private lostLease: { readonly sessionId: string; readonly lease: SessionTerminalLease } | undefined;
+  private onLeaseLost: ((sessionId: string, lease: SessionTerminalLease) => void) | undefined;
 
   /**
    * Starts the Worker host. Its environment is the launcher's, so it holds the provider keys the terminal UI never
@@ -169,6 +177,45 @@ export class WorkerHostProcess {
   }
 
   /**
+   * Asks the Worker host for a session's lease once, which it then renews.
+   * @param sessionId - The session.
+   * @returns The RPC's result.
+   * @throws {Error} When the attempt failed and may be tried again.
+   * @throws {SessionUnavailableError} When the session does not run with this command's Flow type.
+   */
+  public async acquireSessionLease(
+    sessionId: string,
+  ): Promise<{ readonly isAcquired: boolean; readonly lease: SessionTerminalLease | null }> {
+    const outcome = await this.execute(workerHostLeaseMethods.acquire, { session_id: sessionId }, "");
+    if ("error" in outcome) {
+      throw outcome.error.code === "session_unavailable"
+        ? new SessionUnavailableError(outcome.error.message)
+        : new Error(outcome.error.message);
+    }
+    const result = outcome.result as { is_acquired?: unknown; lease?: SessionTerminalLease | null };
+    return { isAcquired: result.is_acquired === true, lease: result.lease ?? null };
+  }
+
+  /**
+   * Asks the Worker host to release a session's lease and stop renewing it.
+   * @param sessionId - The session.
+   */
+  public async releaseSessionLease(sessionId: string): Promise<void> {
+    await this.execute(workerHostLeaseMethods.release, { session_id: sessionId }, "").catch(() => undefined);
+  }
+
+  /**
+   * Sets who hears that another terminal took the lease; one that was lost already is delivered at once.
+   * @param handler - Receives the session and the other holder's lease.
+   */
+  public whenSessionLeaseLost(handler: (sessionId: string, lease: SessionTerminalLease) => void): void {
+    this.onLeaseLost = handler;
+    if (this.lostLease !== undefined) {
+      handler(this.lostLease.sessionId, this.lostLease.lease);
+    }
+  }
+
+  /**
    * Relays one local request to the Worker host.
    * @returns Its outcome.
    * @throws {WorkerHostStoppedError} When the Worker host is gone or stops before it answers.
@@ -236,6 +283,10 @@ export class WorkerHostProcess {
       }
       case "worker_state":
         this.listener?.onStopping();
+        return;
+      case "session_lease_lost":
+        this.lostLease = { sessionId: message.sessionId, lease: message.lease };
+        this.onLeaseLost?.(message.sessionId, message.lease);
         return;
     }
   }

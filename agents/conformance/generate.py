@@ -102,6 +102,7 @@ from dex_agents import (
     AgentState,
     AgentToolCall,
     AgentUsage,
+    AcquireSessionTerminalLeaseRequest,
     AgentUserMessage,
     AnswerQuestionRequest,
     BuiltInTool,
@@ -121,7 +122,10 @@ from dex_agents import (
     PlanTaskStatus,
     QuestionAnswer,
     QuestionResolution,
+    ReleaseSessionTerminalLeaseRequest,
     ResolveInterruptRequest,
+    SessionTerminalLease,
+    SessionTerminalLeaseResult,
     SteerUserMessageRequest,
     ToolCallCancellation,
     ToolCallCancellationReason,
@@ -185,6 +189,8 @@ from dex_agents.session_flow import (
     ALL_PENDING_MESSAGES,
     MESSAGE_PAGE_LIMIT,
     MISSING_TOOL_TASK_POLLER,
+    SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH,
+    SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS,
     SNAPSHOT_MESSAGE_LIMIT,
 )
 from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT
@@ -266,6 +272,10 @@ VALUE_TYPES: dict[str, object] = {
     "SessionSettings": dict[str, Any],
     "UpdateSessionSettingsRequest": UpdateSessionSettingsRequest,
     "TurnSessionSettings": TurnSessionSettings,
+    "SessionTerminalLease": SessionTerminalLease,
+    "AcquireSessionTerminalLeaseRequest": AcquireSessionTerminalLeaseRequest,
+    "SessionTerminalLeaseResult": SessionTerminalLeaseResult,
+    "ReleaseSessionTerminalLeaseRequest": ReleaseSessionTerminalLeaseRequest,
     "ToolCallCancellation": ToolCallCancellation,
     "ToolCallCompleted": ToolCallCompleted,
     "AgentPlanTask": AgentPlanTask,
@@ -1103,6 +1113,71 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
     )
 
+    lease = SessionTerminalLease(
+        holder_id="5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40",
+        host_name="host-a",
+        process_id=4242,
+        opened_at=CREATED_AT,
+        expires_at="2026-11-02T09:30:15.000Z",
+    )
+    documents.append(
+        ValueCases("SessionTerminalLease", "The SessionTerminalLease Attribute.")
+        .value("full", "A lease that one terminal holds.", lease)
+        .value(
+            "unicode-host",
+            "A host name outside ASCII.",
+            replace(lease, host_name="büro-mac", process_id=0),
+        )
+    )
+    documents.append(
+        ValueCases(
+            "AcquireSessionTerminalLeaseRequest",
+            "Input of the acquire_session_terminal_lease RPC.",
+        ).value(
+            "full",
+            "Acquire or renew for 15 seconds.",
+            AcquireSessionTerminalLeaseRequest(
+                holder_id=lease.holder_id, host_name="host-a", process_id=4242, ttl_seconds=15
+            ),
+        )
+    )
+    documents.append(
+        ValueCases(
+            "SessionTerminalLeaseResult",
+            "Output of the acquire_session_terminal_lease RPC.",
+        )
+        .value(
+            "acquired",
+            "The caller holds the lease.",
+            SessionTerminalLeaseResult(is_acquired=True, lease=lease),
+        )
+        .value(
+            "refused",
+            "Another holder has the lease.",
+            SessionTerminalLeaseResult(
+                is_acquired=False, lease=replace(lease, holder_id="other-holder", process_id=77)
+            ),
+        )
+        .value(
+            "invalid", "A request that is not valid.", SessionTerminalLeaseResult(is_acquired=False)
+        )
+        .wire(
+            "without-lease",
+            "A result without the lease field reads as no lease.",
+            {"is_acquired": False},
+        )
+    )
+    documents.append(
+        ValueCases(
+            "ReleaseSessionTerminalLeaseRequest",
+            "Input of the release_session_terminal_lease RPC.",
+        ).value(
+            "full",
+            "Release one holder's lease.",
+            ReleaseSessionTerminalLeaseRequest(holder_id=lease.holder_id),
+        )
+    )
+
     turn_control = ValueCases("TurnControlRequest", "One TurnControlRequests Channel message.")
     for kind in TurnControlKind:
         turn_control.value(f"kind-{kind}", f"Kind {kind}.", TurnControlRequest(kind=kind))
@@ -1649,6 +1724,8 @@ def build_names() -> dict[str, Any]:
                 "AgentPlan.updated_at",
                 "ContextSummary.created_at",
                 "TurnCancellationRequest.requested_at",
+                "SessionTerminalLease.opened_at",
+                "SessionTerminalLease.expires_at",
                 "AgentSessionLastActivityAt",
             ],
         },
@@ -1674,6 +1751,12 @@ def build_names() -> dict[str, Any]:
             "message_rollover_max_chunks_per_commit": MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
             "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
             "default_retained_message_limit": DEFAULT_RETAINED_MESSAGE_LIMIT,
+            "session_terminal_lease_maximum_ttl_seconds": (
+                SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS
+            ),
+            "session_terminal_lease_maximum_host_name_length": (
+                SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH
+            ),
         },
     }
 

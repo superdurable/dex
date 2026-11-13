@@ -928,6 +928,78 @@ export interface TurnCancellationRequest {
 }
 
 /**
+ * The terminal that has a session open, stored in the `SessionTerminalLease` Attribute.
+ *
+ * A CLI command takes the lease before its chat starts, renews it while the chat runs, and releases it when the
+ * chat ends, so one session is open in at most one terminal at a time. The lease expires at {@link expiresAt}
+ * when its holder stops renewing it, such as after the process was killed. The Attribute is unset while no
+ * terminal holds the session.
+ *
+ * @since 0.6.3
+ */
+export interface SessionTerminalLease {
+  /** The random ID of the process that holds the lease. Wire field: `holder_id`. */
+  readonly holderId: string;
+  /** The host name of that process, shown to a terminal that waits. Wire field: `host_name`. */
+  readonly hostName: string;
+  /** The process ID of the command the user ran there. Wire field: `process_id`. */
+  readonly processId: number;
+  /** RFC 3339 UTC time this holder first took the lease; renewals keep it. Wire field: `opened_at`. */
+  readonly openedAt: string;
+  /** RFC 3339 UTC time the lease ends unless its holder renews it. Wire field: `expires_at`. */
+  readonly expiresAt: string;
+}
+
+/**
+ * Input of the `acquire_session_terminal_lease` RPC, which takes or renews a session's terminal lease.
+ *
+ * @example
+ * ```ts
+ * const result = await client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+ *   holderId, hostName: os.hostname(), processId: process.pid, ttlSeconds: 15 });
+ * if (!result.isAcquired) {
+ *   console.log(`open on ${result.lease?.hostName}`);
+ * }
+ * ```
+ * @since 0.6.3
+ */
+export interface AcquireSessionTerminalLeaseRequest {
+  /** The caller's random holder ID, not blank. Acquiring again with the same ID renews. Wire field: `holder_id`. */
+  readonly holderId: string;
+  /** The caller's host name, at most 255 code points. Wire field: `host_name`. */
+  readonly hostName: string;
+  /** The process ID to show to a terminal that waits, 0 or more. Wire field: `process_id`. */
+  readonly processId: number;
+  /** Seconds the lease lasts from now, 1 to 3600. Wire field: `ttl_seconds`. */
+  readonly ttlSeconds: number;
+}
+
+/**
+ * Output of the `acquire_session_terminal_lease` RPC.
+ *
+ * @since 0.6.3
+ */
+export interface SessionTerminalLeaseResult {
+  /** Whether the caller holds the lease now. Wire field: `is_acquired`. */
+  readonly isAcquired: boolean;
+  /**
+   * The lease after the call: the caller's when acquired, the other holder's when refused, and `null` when the
+   * request was invalid. Wire field: `lease`.
+   */
+  readonly lease: SessionTerminalLease | null;
+}
+
+/**
+ * Input of the `release_session_terminal_lease` RPC.
+ *
+ * @since 0.6.3
+ */
+export interface ReleaseSessionTerminalLeaseRequest {
+  /** The holder ID that acquired the lease. Wire field: `holder_id`. */
+  readonly holderId: string;
+}
+
+/**
  * Wake-up of the Step that waits on one tool call, published by `ResumeTurn` to the internal
  * `ToolCallCancellations` ChannelMap instance named by the tool call ID. The waiting Step decides from the
  * session's flags, not from this message.

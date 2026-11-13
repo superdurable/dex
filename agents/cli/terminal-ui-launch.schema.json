@@ -425,6 +425,10 @@
               "description": "The reasoning_effort values the command accepts, from least to most effort, such as low, medium, high. default is reserved: the terminal UI's /effort default removes the setting. An empty list offers none."
             }
           }
+        },
+        "launcher_session_switch": {
+          "type": "boolean",
+          "description": "Chat mode: a session switch (/sessions or /new) ends dexcli with a switch_session message instead of switching in place, and the launcher opens that session."
         }
       }
     },

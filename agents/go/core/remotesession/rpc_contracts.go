@@ -111,6 +111,22 @@ var sessionRPCContracts = []sessionRPCContract{
 		},
 	},
 	{
+		name:             AcquireSessionTerminalLeaseRPCName,
+		goMethodName:     "AcquireSessionTerminalLease",
+		lockedAttributes: []namedAttributeLock{lockAttribute(dexagents.SessionTerminalLeaseAttribute)},
+		define: func(flow *RemoteSessionFlow, options *dex.RPCOptions) dex.RPCDef {
+			return dex.DefineRPC(flow.AcquireSessionTerminalLease, options)
+		},
+	},
+	{
+		name:             ReleaseSessionTerminalLeaseRPCName,
+		goMethodName:     "ReleaseSessionTerminalLease",
+		lockedAttributes: []namedAttributeLock{lockAttribute(dexagents.SessionTerminalLeaseAttribute)},
+		define: func(flow *RemoteSessionFlow, options *dex.RPCOptions) dex.RPCDef {
+			return dex.DefineRPC(flow.ReleaseSessionTerminalLease, options)
+		},
+	},
+	{
 		name:         dexagents.GetAgentSnapshotRPCName,
 		goMethodName: "GetAgentSnapshot",
 		loadedAttributeMaps: []namedAttributeDef{

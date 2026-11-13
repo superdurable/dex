@@ -49,6 +49,18 @@ command prints the `--resume` line that continues it. The command exits with 1
 when a turn or the session failed during the chat, 2 for invalid arguments or
 configuration, and 0 otherwise.
 
+Since 0.6.3, a session is open in at most one terminal. A command that opens a
+session another terminal has open, with `--resume` or by switching to it in the
+terminal UI, waits and shows one line that updates in place, with the other
+terminal's host, process ID, and opening time, the time waited, and how to
+quit. Without a terminal it prints that line once. It asks again every second
+and takes the session as soon as the other terminal exits, or 15 seconds after
+that terminal stopped renewing, such as after it was killed, and then prints
+`Took over session <id>.` Ctrl-C while waiting exits with 130. A chat whose
+session another terminal took, such as after the process was paused for longer
+than that, stops with one line and exits with 1. Commands of earlier releases
+do not take the lease.
+
 `/image <path>` attaches an image file to the next message. A leading `~` is
 the home directory, and a relative path is relative to the current directory.
 The command refuses a missing or special file, a file over `maxImageBytes`

@@ -11,6 +11,8 @@
 
 import type { EffectiveConfig } from "../cli-config.js";
 import type { DexConnectionSettings } from "../dex-connection.js";
+import type { SessionTerminalLease } from "@superdurable/dex-agents";
+
 import type { DexServerConnection } from "../dex-server.js";
 import type { SessionFlowCapabilities } from "../terminal-ui/launch-document.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
@@ -41,6 +43,23 @@ export interface WorkerHostExecuteRequest {
   readonly idempotencyKey: string;
 }
 
+/**
+ * The launcher's own requests, sent as {@link WorkerHostExecuteRequest}s but never offered to the terminal UI:
+ * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, and `release_session_lease {session_id}`
+ * answers `{}`.
+ */
+export const workerHostLeaseMethods = {
+  acquire: "acquire_session_lease",
+  release: "release_session_lease",
+} as const;
+
+/** Another terminal took the lease of the session the Worker host renews. */
+export interface WorkerHostSessionLeaseLost {
+  readonly type: "session_lease_lost";
+  readonly sessionId: string;
+  readonly lease: SessionTerminalLease;
+}
+
 /** A message from the launcher to the Worker host. */
 export type LauncherToWorkerHostMessage = WorkerHostStartRequest | WorkerHostExecuteRequest | { readonly type: "shutdown" };
 
@@ -68,4 +87,5 @@ export type WorkerHostToLauncherMessage =
   | WorkerHostStartupFailed
   | { readonly type: "log"; readonly text: string }
   | { readonly type: "executed"; readonly requestNumber: number; readonly outcome: LocalRequestOutcome }
-  | { readonly type: "worker_state"; readonly state: "stopping" };
+  | { readonly type: "worker_state"; readonly state: "stopping" }
+  | WorkerHostSessionLeaseLost;

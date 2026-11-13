@@ -702,6 +702,29 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
   keys and values that say where the starting program ran. It stays in the Flow's start input and the session never
   reads it, so it is not a setting and cannot change.
 
+## Terminal lease
+
+Since 0.6.3, the session keeps a terminal lease in the `SessionTerminalLease`
+Attribute, so a CLI command can open one session in at most one terminal.
+`acquire_session_terminal_lease` takes the lease when no terminal holds it,
+when the same `holderId` holds it, or when it expired, and stores it for
+`ttlSeconds` from the Worker's clock. Acquiring again with the same holder
+renews it and keeps `openedAt`. Otherwise it returns the other holder's lease
+and changes nothing. `release_session_terminal_lease` frees the lease only
+for its holder. Both RPCs lock `SessionTerminalLease`; a lock conflict is safe
+to retry and never means another holder took the lease. The lease only
+coordinates callers that take it: other clients still read and write the
+session.
+
+```ts
+const result = await client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+  holderId, hostName: os.hostname(), processId: process.pid, ttlSeconds: 15 });
+if (!result.isAcquired && result.lease !== null) {
+  console.log(`open on ${result.lease.hostName}, pid ${result.lease.processId}`);
+}
+await client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId });
+```
+
 ## Images
 
 A user message and a tool result can carry images. Session state holds only an `AgentImageReference` for each image;

@@ -144,6 +144,8 @@ type RemoteSessionFeed struct {
 	hasFailure          bool
 	attachedImages      int
 	isRunning           bool
+	// handedOffSwitch is the switch the launcher opens; nil when none.
+	handedOffSwitch *sessionfeed.SwitchSession
 }
 
 // NewRemoteSessionFeed creates the feed. Call Run to start it.

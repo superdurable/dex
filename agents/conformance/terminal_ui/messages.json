@@ -122,6 +122,57 @@
       "is_valid": true
     },
     {
+      "name": "switch-session",
+      "direction": "tui",
+      "message": {
+        "type": "switch_session",
+        "session_id": "openai-sdk-20261110-091500-0f1e2d",
+        "is_resumed": true
+      },
+      "is_valid": true
+    },
+    {
+      "name": "switch-session-without-is-resumed",
+      "direction": "tui",
+      "message": {
+        "type": "switch_session",
+        "session_id": "openai-sdk-20261110-091500-0f1e2d"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "switch-session-empty-id",
+      "direction": "tui",
+      "message": {
+        "type": "switch_session",
+        "session_id": "",
+        "is_resumed": false
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/session_id",
+        "keyword": "minLength"
+      }
+    },
+    {
+      "name": "switch-session-from-launcher",
+      "direction": "launcher",
+      "message": {
+        "type": "switch_session",
+        "session_id": "openai-sdk-20261110-091500-0f1e2d",
+        "is_resumed": true
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "not"
+      }
+    },
+    {
       "name": "response-result",
       "direction": "launcher",
       "message": {

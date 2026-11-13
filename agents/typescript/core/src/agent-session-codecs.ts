@@ -52,6 +52,10 @@ import type {
   ToolCallCompleted,
   ToolEffect,
   TurnCancellationRequest,
+  AcquireSessionTerminalLeaseRequest,
+  ReleaseSessionTerminalLeaseRequest,
+  SessionTerminalLease,
+  SessionTerminalLeaseResult,
   TurnControlKind,
   TurnControlRequest,
   SessionSettings,
@@ -695,6 +699,71 @@ export function decodeTurnCancellationRequest(value: unknown): TurnCancellationR
   return { turnId: reader.readString("turn_id"), requestedAt: reader.readString("requested_at") };
 }
 
+export function encodeSessionTerminalLease(value: SessionTerminalLease): unknown {
+  return {
+    holder_id: value.holderId,
+    host_name: value.hostName,
+    process_id: value.processId,
+    opened_at: value.openedAt,
+    expires_at: value.expiresAt,
+  };
+}
+
+export function decodeSessionTerminalLease(value: unknown): SessionTerminalLease {
+  const reader = new WireRecordReader(value, "SessionTerminalLease");
+  return {
+    holderId: reader.readString("holder_id"),
+    hostName: reader.readString("host_name"),
+    processId: reader.readInteger("process_id"),
+    openedAt: reader.readString("opened_at"),
+    expiresAt: reader.readString("expires_at"),
+  };
+}
+
+export function encodeAcquireSessionTerminalLeaseRequest(value: AcquireSessionTerminalLeaseRequest): unknown {
+  return {
+    holder_id: value.holderId,
+    host_name: value.hostName,
+    process_id: value.processId,
+    ttl_seconds: value.ttlSeconds,
+  };
+}
+
+export function decodeAcquireSessionTerminalLeaseRequest(value: unknown): AcquireSessionTerminalLeaseRequest {
+  const reader = new WireRecordReader(value, "AcquireSessionTerminalLeaseRequest");
+  return {
+    holderId: reader.readString("holder_id"),
+    hostName: reader.readString("host_name"),
+    processId: reader.readInteger("process_id"),
+    ttlSeconds: reader.readInteger("ttl_seconds"),
+  };
+}
+
+export function encodeSessionTerminalLeaseResult(value: SessionTerminalLeaseResult): unknown {
+  return {
+    is_acquired: value.isAcquired,
+    lease: value.lease === null ? null : encodeSessionTerminalLease(value.lease),
+  };
+}
+
+export function decodeSessionTerminalLeaseResult(value: unknown): SessionTerminalLeaseResult {
+  const reader = new WireRecordReader(value, "SessionTerminalLeaseResult");
+  const lease = reader.readObject("lease");
+  return {
+    isAcquired: reader.readBoolean("is_acquired"),
+    lease: lease == null ? null : decodeSessionTerminalLease(lease),
+  };
+}
+
+export function encodeReleaseSessionTerminalLeaseRequest(value: ReleaseSessionTerminalLeaseRequest): unknown {
+  return { holder_id: value.holderId };
+}
+
+export function decodeReleaseSessionTerminalLeaseRequest(value: unknown): ReleaseSessionTerminalLeaseRequest {
+  const reader = new WireRecordReader(value, "ReleaseSessionTerminalLeaseRequest");
+  return { holderId: reader.readString("holder_id") };
+}
+
 export function encodeToolCallCancellation(value: ToolCallCancellation): unknown {
   return { reason: value.reason };
 }
@@ -995,6 +1064,26 @@ export const turnCancellationRequestCodec = snakeCaseJsonCodec(
   "TurnCancellationRequest",
   encodeTurnCancellationRequest,
   decodeTurnCancellationRequest,
+);
+export const sessionTerminalLeaseCodec = snakeCaseJsonCodec(
+  "SessionTerminalLease",
+  encodeSessionTerminalLease,
+  decodeSessionTerminalLease,
+);
+export const acquireSessionTerminalLeaseRequestCodec = snakeCaseJsonCodec(
+  "AcquireSessionTerminalLeaseRequest",
+  encodeAcquireSessionTerminalLeaseRequest,
+  decodeAcquireSessionTerminalLeaseRequest,
+);
+export const sessionTerminalLeaseResultCodec = snakeCaseJsonCodec(
+  "SessionTerminalLeaseResult",
+  encodeSessionTerminalLeaseResult,
+  decodeSessionTerminalLeaseResult,
+);
+export const releaseSessionTerminalLeaseRequestCodec = snakeCaseJsonCodec(
+  "ReleaseSessionTerminalLeaseRequest",
+  encodeReleaseSessionTerminalLeaseRequest,
+  decodeReleaseSessionTerminalLeaseRequest,
 );
 export const toolCallCancellationCodec = snakeCaseJsonCodec(
   "ToolCallCancellation",

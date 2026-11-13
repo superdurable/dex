@@ -9,7 +9,7 @@
 """A test command whose Worker host closes its control channel but keeps running.
 
 ``DEX_AGENTS_TEST_CONTROL_CHANNEL_END`` picks when: ``before-ready`` closes it
-at once, and ``after-ready`` right after ``worker_ready``.
+at once, and ``after-ready`` right after ``worker_ready`` and the session lease.
 """
 
 import argparse
@@ -29,6 +29,10 @@ _STAY_SECONDS = 60
 
 
 async def _close_and_stay(self: Any, channel: Any, hosted: Any) -> None:
+    # The launcher takes the session's lease before the handoff; answer that first.
+    message = await channel.receive()
+    if message is not None and message.get("method") == worker_host.ACQUIRE_SESSION_LEASE:
+        await self._answer(channel, hosted.request_handlers, message)
     await channel.close()
     await asyncio.sleep(_STAY_SECONDS)
 

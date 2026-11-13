@@ -89,6 +89,17 @@
   ],
   "rpcs": [
     {
+      "name": "acquire_session_terminal_lease",
+      "input": "AcquireSessionTerminalLeaseRequest",
+      "output": "SessionTerminalLeaseResult",
+      "is_transactional": false,
+      "locks": [
+        "SessionTerminalLease"
+      ],
+      "load_attribute_maps": [],
+      "load_channels": []
+    },
+    {
       "name": "answer_question",
       "input": "AnswerQuestionRequest",
       "output": "bool",
@@ -159,6 +170,17 @@
         "AgentMessageChunks",
         "AgentMessages"
       ],
+      "load_channels": []
+    },
+    {
+      "name": "release_session_terminal_lease",
+      "input": "ReleaseSessionTerminalLeaseRequest",
+      "output": "bool",
+      "is_transactional": false,
+      "locks": [
+        "SessionTerminalLease"
+      ],
+      "load_attribute_maps": [],
       "load_channels": []
     },
     {
@@ -314,6 +336,11 @@
       "name": "SessionSettings",
       "kind": "attribute",
       "value_type": "SessionSettings"
+    },
+    {
+      "name": "SessionTerminalLease",
+      "kind": "attribute",
+      "value_type": "SessionTerminalLease"
     },
     {
       "name": "SteeredUserMessages",
@@ -517,6 +544,8 @@
       "AgentPlan.updated_at",
       "ContextSummary.created_at",
       "TurnCancellationRequest.requested_at",
+      "SessionTerminalLease.opened_at",
+      "SessionTerminalLease.expires_at",
       "AgentSessionLastActivityAt"
     ]
   },
@@ -1141,6 +1170,8 @@
     "default_message_chunk_max_bytes": 1048576,
     "message_rollover_max_chunks_per_commit": 4,
     "message_rollover_max_bytes_per_commit": 8388608,
-    "default_retained_message_limit": 1000
+    "default_retained_message_limit": 1000,
+    "session_terminal_lease_maximum_ttl_seconds": 3600,
+    "session_terminal_lease_maximum_host_name_length": 255
   }
 }

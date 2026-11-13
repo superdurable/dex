@@ -43,7 +43,15 @@ type SwitchSession struct {
 	IsResumed bool
 }
 
+// SessionSwitchHandedOff tells the screen that the launcher opens the session
+// a SwitchSession named. The screen exits 0 without its exit summary.
+type SessionSwitchHandedOff struct {
+	// SessionID is the session the launcher opens next.
+	SessionID string
+}
+
 func (SessionStartChanged) isSessionUpdate()       {}
+func (SessionSwitchHandedOff) isSessionUpdate()    {}
 func (SessionStartFinished) isSessionUpdate()      {}
 func (MoveSessionStartToBackground) isUserAction() {}
 func (SwitchSession) isUserAction()                {}

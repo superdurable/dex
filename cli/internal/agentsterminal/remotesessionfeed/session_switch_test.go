@@ -207,3 +207,31 @@ func TestSwitchCancelsImageRequests(t *testing.T) {
 	require.Contains(t, noticeTexts(updatesOfType[sessionfeed.NoticeRaised](updates)), "Image not attached: the chat switched sessions.")
 	require.Eventually(t, func() bool { return len(recorder.switched()) == 1 }, time.Second, 5*time.Millisecond)
 }
+
+// With launcher_session_switch, a switch stays on the session and hands the
+// first chosen session to the launcher.
+func TestLauncherSessionSwitchHandsTheSessionToTheLauncher(t *testing.T) {
+	feed := NewRemoteSessionFeed(RemoteSessionFeedConfig{
+		Sessions: &fakeSessions{},
+		Requests: noLocalRequests{},
+		Launch: launchcontract.LaunchDocument{
+			Session:      launchcontract.LaunchSession{SessionID: "old-session"},
+			Capabilities: launchcontract.LaunchCapabilities{HasLauncherSessionSwitch: true},
+		},
+	})
+	recorder := &loopRecorder{}
+	go recorder.serve(feed)
+	_, isHandedOff := feed.HandedOffSessionSwitch()
+	require.False(t, isHandedOff)
+
+	require.NoError(t, feed.SubmitUserAction(context.Background(), sessionfeed.SwitchSession{SessionID: "new-session"}))
+	require.NoError(t, feed.SubmitUserAction(context.Background(), sessionfeed.SwitchSession{SessionID: "later-session", IsResumed: true}))
+
+	handedOff, isHandedOff := feed.HandedOffSessionSwitch()
+	require.True(t, isHandedOff)
+	require.Equal(t, sessionfeed.SwitchSession{SessionID: "new-session"}, handedOff, "the first switch wins")
+	require.Equal(t, "old-session", feed.SessionID(), "the chat does not switch in place")
+	require.Empty(t, recorder.switched())
+	updates := drainFeed(feed)
+	require.Equal(t, []sessionfeed.SessionSwitchHandedOff{{SessionID: "new-session"}}, updatesOfType[sessionfeed.SessionSwitchHandedOff](updates))
+}

@@ -15,7 +15,12 @@ channel, an internal protocol of one CLI core version:
 
 - launcher to host: ``start``, ``request``, and ``shutdown``;
 - host to launcher: ``worker_ready`` or ``startup_failed``, then
-  ``response``, ``notice``, and ``worker`` (``stopping``).
+  ``response``, ``notice``, ``worker`` (``stopping``), and
+  ``session_lease_lost``.
+
+Besides the relayed local requests, the host serves the launcher's own
+``acquire_session_lease`` and ``release_session_lease`` requests. The host holds
+the session's terminal lease and renews it.
 
 It stops in order when the channel ends, on ``shutdown``, on SIGTERM, or when
 its watchdog finds the launcher gone, and the watchdog bounds that stop.
@@ -55,6 +60,14 @@ from dex_agents_cli_core.terminal_ui.watchdog import ParentDeathWatchdog, set_pa
 WORKER_HOST_COMMAND = "__worker-host"
 #: The local request methods a chat Worker host serves; the launcher relays them.
 HOSTED_METHODS = (PUT_IMAGE, START_SESSION, LIST_CONNECTORS)
+#: The launcher's request for a session's terminal lease: ``{session_id}``.
+ACQUIRE_SESSION_LEASE = "acquire_session_lease"
+#: The launcher's request to release the lease of ``{session_id}``.
+RELEASE_SESSION_LEASE = "release_session_lease"
+#: The host's message that another terminal took the session it held.
+SESSION_LEASE_LOST = "session_lease_lost"
+#: The error of ``acquire_session_lease`` for a session that cannot be opened.
+SESSION_UNAVAILABLE = "session_unavailable"
 _SIGTERM_EXIT_CODE = 143
 _LOGGER = logging.getLogger(__name__)
 _Result = TypeVar("_Result")
