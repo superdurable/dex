@@ -1,4 +1,0 @@
----
-section: Added
----
-- Python and TypeScript CLI commands run against a remote Dex server that requires TLS and a credential. The new **dex.auth** section of the configuration file selects **api_key**, with the key in **DEX_API_KEY**, or **bearer**, with the token in **DEX_CREDENTIAL** or a token file. **dex.tls** adds a CA file or a server name for an **https** **dex.server**. The Worker, every Client, and the terminal UI use them. A missing setting stops the command at startup with a message that names it, and a rejected credential says whether the token endpoint or the server refused it. Shell commands, the browser, and **dexcli dev** never see the credential variables. Without **dex.auth**, the command reads none of these variables, so existing configurations keep working. [Reference](/reference/agents/cli#remote-server).
