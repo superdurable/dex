@@ -989,7 +989,7 @@ body {
 }
 
 
-@container app-bar (max-width: 1360px) {
+@container app-bar (max-width: 1240px) {
   .app-bar.v1-page .run-tabs button {
     gap: 5px;
     padding: 0 8px;
