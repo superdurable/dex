@@ -152,6 +152,9 @@ ships. Prefer patch releases:
   small command, or a small API that existing code does not need to change
   for.
 - A minor release ships a large, important feature or a breaking change.
+  Discuss every minor release of any component with the owner
+  (@longquanzheng) first, and release it only after the owner agrees.
+  Until then, version doc comments use the next patch.
 - When the choice is unclear, ask the owner before releasing.
 
 A patch release folds into its minor's change log entry. List it on the
