@@ -1466,3 +1466,22 @@ body {
 .v1-page .event-list-child-cell {
   min-width: 64px;
 }
+
+/* At laptop widths the event list outranks the event panel: the panel takes less, and rows drop the execution ID. */
+@media (min-width: 1280px) and (max-width: 1439px) {
+  .v1-page .run-content.run-content--horizontal-timeline {
+    grid-template-columns: minmax(560px, 1fr) max(380px, min(var(--run-sidebar-width), 38%));
+  }
+
+  .v1-page .event-list-subject small {
+    display: none;
+  }
+}
+
+/* An early tab's marker is a quiet dot, not an unread badge. */
+.app-bar.v1-page .run-tabs .experimental-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--ui-ink-3);
+  opacity: 0.6;
+}

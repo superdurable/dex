@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
+import { middleTruncate } from './details/RunFactsMenu';
 import { usePreferences } from '../providers';
 import { scopedStorageKey, webURL } from '@/lib/basePath';
 
@@ -101,7 +102,9 @@ function newFilter(field = 'ExecutionStatus'): BasicFilter {
 
 /** A SubFlow reads as a child in the list: its name without the "SubFlow:" prefix, after a child mark. */
 function listFlowIdOf(flowId: string): string {
-  return flowId.startsWith('SubFlow:') && flowId.length > 'SubFlow:'.length ? `↳ ${flowId.slice('SubFlow:'.length)}` : flowId;
+  return flowId.startsWith('SubFlow:') && flowId.length > 'SubFlow:'.length
+    ? `↳ ${middleTruncate(flowId.slice('SubFlow:'.length), 40)}`
+    : flowId;
 }
 
 const ALL_STATUSES = 'All';
