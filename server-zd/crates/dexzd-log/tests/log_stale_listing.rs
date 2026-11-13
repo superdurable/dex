@@ -748,8 +748,7 @@ async fn recover_past_a_repeated_listing<S: ObjectStore>(
     store.puts()
 }
 
-/// Past a listing that keeps repeating, recovery reads the existing batches instead of writing
-/// at each one. Writing at each used to exhaust the 10 s EpochStart write deadline.
+/// Past a repeating listing, recovery reads existing batches instead of writing an EpochStart at each.
 #[tokio::test(start_paused = true)]
 async fn recovery_reads_a_long_tail_that_a_repeated_listing_misses() {
     const UNLISTED_BATCHES: u64 = 1_500;
