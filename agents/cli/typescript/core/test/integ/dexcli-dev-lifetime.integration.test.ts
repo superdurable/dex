@@ -8,6 +8,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
+import { constants } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
@@ -120,6 +121,26 @@ describe("The dexcli dev a command started stops when it exits; a reused one kee
     assert.match(cli.stderr.all, /Stopped the dexcli dev this command started\./);
     await assertStopped(home, pid);
   });
+
+  for (const signal of ["SIGTERM", "SIGHUP"] as const) {
+    test(`${signal} releases the session lease before the started dexcli dev stops`, async () => {
+      const home = await newPrivateHome();
+      const cli = track(CliProcess.start(home));
+      const pid = await startedPid(cli.stderr);
+      const sessionId = await cli.waitForSession();
+      cli.signal(signal);
+      assert.equal(await cli.waitForExit(), 128 + constants.signals[signal]);
+      await assertStopped(home, pid);
+
+      // A lease left behind would make this command wait for its 15-second expiry.
+      const resumed = track(CliProcess.start(home, ["--resume", sessionId]));
+      await startedPid(resumed.stderr);
+      assert.equal(await resumed.waitForSession(), sessionId);
+      assert.doesNotMatch(resumed.stderr.all, /is open in another terminal/);
+      resumed.writeLine("/exit");
+      assert.equal(await resumed.waitForExit(), 0);
+    });
+  }
 
   test("the sessions subcommand stops the dexcli dev it started", async () => {
     const home = await newPrivateHome();

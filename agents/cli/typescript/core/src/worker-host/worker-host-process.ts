@@ -182,12 +182,16 @@ export class WorkerHostProcess {
    * @returns The RPC's result.
    * @throws {Error} When the attempt failed and may be tried again.
    * @throws {SessionUnavailableError} When the session does not run with this command's Flow type.
+   * @throws {WorkerHostStoppedError} When the Worker host is gone, so no later attempt can succeed.
    */
   public async acquireSessionLease(
     sessionId: string,
   ): Promise<{ readonly isAcquired: boolean; readonly lease: SessionTerminalLease | null }> {
     const outcome = await this.execute(workerHostLeaseMethods.acquire, { session_id: sessionId }, "");
     if ("error" in outcome) {
+      if (outcome.error.code === "host_stopped") {
+        throw new WorkerHostStoppedError(outcome.error.message);
+      }
       throw outcome.error.code === "session_unavailable"
         ? new SessionUnavailableError(outcome.error.message)
         : new Error(outcome.error.message);

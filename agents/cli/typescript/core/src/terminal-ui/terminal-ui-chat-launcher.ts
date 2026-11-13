@@ -24,7 +24,7 @@ import type { WorkerHostReady, WorkerHostStartRequest } from "../worker-host/wor
 import { cleanUpWorkerHostRecord } from "../worker-host/leftover-worker-hosts.js";
 import type { DexConnectionVariables } from "../cli-environment.js";
 import { chatLaunchDocument, noticeText, terminalUiAuthOf } from "./launch-document.js";
-import { LocalRequestRelay, refusal, type LocalRequestMethod } from "./local-request-relay.js";
+import { LocalRequestRelay, WorkerHostStoppedError, refusal, type LocalRequestMethod } from "./local-request-relay.js";
 import type { LocalRequestOutcome } from "./request-outcome-table.js";
 import { isOpenUrlAllowed } from "./open-url-policy.js";
 import { TerminalUiChannel, type ChannelMessage } from "./terminal-ui-channel.js";
@@ -204,14 +204,15 @@ export class TerminalUiChatLauncher {
         output: process.stderr,
         isAnimated: isAnimatedWaitingOutput(process.stderr, this.launch.environment.TERM),
         interruptSignal: interrupt.signal,
-        isFinalFailure: (error) => error instanceof SessionUnavailableError,
+        isFinalFailure: isFinalLeaseFailure,
       });
       return outcome === "acquired" ? undefined : exitCode;
     } catch (error: unknown) {
-      if (!(error instanceof SessionUnavailableError)) {
+      if (!isFinalLeaseFailure(error)) {
         throw error;
       }
-      this.writeLine(`${this.launch.commandName}: ${error.message}`);
+      const reason = error instanceof WorkerHostStoppedError ? workerHostStoppedLine : error.message;
+      this.writeLine(`${this.launch.commandName}: ${reason}`);
       return 1;
     } finally {
       for (const [signal, listener] of listeners) {
@@ -725,4 +726,12 @@ function describeExit(exit: TerminalUiExit): string {
 /** Returns a message without its final period, so it fits after `Plain chat:`. */
 function sentence(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().replace(/\.$/, "") : undefined;
+}
+
+/** The line after a Worker host that stopped while the command waited for the lease; Python prints it too. */
+const workerHostStoppedLine = "The Worker host stopped.";
+
+/** Reports whether a lease attempt failed for good: the session cannot open, or the Worker host is gone. */
+function isFinalLeaseFailure(error: unknown): error is SessionUnavailableError | WorkerHostStoppedError {
+  return error instanceof SessionUnavailableError || error instanceof WorkerHostStoppedError;
 }

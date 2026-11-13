@@ -26,6 +26,7 @@ import {
   PseudoTerminalCli,
   chatTranscript,
   readTranscript,
+  runRecords,
   waitUntil,
   type Transcript,
 } from "../fixtures/terminal-ui-test-support.js";
@@ -219,6 +220,31 @@ describe("one terminal per session", () => {
     await second.terminal.waitFor(tookOverLine(sessionId));
     assert.equal(await second.waitForExit(), 0, second.terminal.all);
     assert.equal(fake.launchCount, 1);
+  });
+
+  test("a Worker host that dies while the launcher waits for the lease ends the command with one line", async () => {
+    const home = newHome();
+    const first = start(home);
+    const sessionId = await first.waitForSession();
+    await waitForLeaseHolder(home, sessionId, first.pid);
+    const fake = new FakeTerminalUi([resumedTranscript()]);
+    const second = startOnTerminal(home, ["--resume", sessionId], { DEXCLI: fake.executable });
+    await second.terminal.waitFor("is open in another terminal");
+    const [record] = await pollUntil(
+      async () => {
+        const records = runRecords(home);
+        return records.length === 1 ? records : undefined;
+      },
+      { timeoutMs: 10_000, description: "the waiting launcher's Worker host run record" },
+    );
+
+    process.kill(record!.hostPid, "SIGKILL");
+    assert.equal(await second.waitForExit(15_000), 1, second.terminal.all);
+    assert.ok(second.terminal.all.includes("The Worker host stopped."), second.terminal.all);
+    assert.doesNotMatch(second.terminal.all, /at .*\.js:\d+/);
+    assert.equal(fake.launchCount, 0);
+    first.writeLine("/exit");
+    assert.equal(await first.waitForExit(), 0);
   });
 
   test("a switch_session from the terminal UI moves the lease and relaunches it on the chosen session", async () => {

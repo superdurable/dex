@@ -327,3 +327,44 @@ async def test_a_session_switch_in_the_terminal_ui_waits_for_the_session_and_rel
     assert WAITING_TEXT not in str(reopened.before)
     reopened.sendeof()
     assert await wait_for_exit(reopened) == 0
+
+
+async def test_ctrl_c_during_a_slow_first_lease_call_exits_130_without_a_traceback(
+    cli_home: CliHome,
+) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    first, session_id = await open_first_chat(cli_home)
+    # A paused holder's Worker takes the lease call and never answers it.
+    os.kill(first.pid, signal.SIGSTOP)
+    try:
+        second = cli_home.spawn("--plain", "--resume", session_id)
+        await expect(second, "Using the running dexcli dev")
+        await asyncio.sleep(3)
+        second.sendintr()
+        assert await wait_for_exit(second, timeout=20) == 130
+        assert "Traceback" not in str(second.before)
+    finally:
+        os.kill(first.pid, signal.SIGCONT)
+    first.sendeof()
+    assert await wait_for_exit(first) == 0
+
+
+async def test_a_worker_host_that_dies_while_the_launcher_waits_ends_the_command(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    lease_home(cli_home)
+    first, session_id = await open_first_chat(cli_home)
+    resumed = chat_transcript([pause(300_000)])
+    resumed["steps"][0]["message"]["session"]["is_resumed"] = True
+    fake = FakeTerminalUi(tmp_path / "tui", resumed)
+    screen = io.StringIO()
+    second = start_chat(cli_home, fake, screen, NO_CONNECTORS, "--resume", session_id)
+    await expect(second, f"Session {session_id} {holder_prefix(first.pid)}")
+
+    os.kill(worker_host_pid(cli_home.home / ".dex" / "agents"), signal.SIGKILL)
+    assert await wait_for_exit(second, timeout=20) == 1
+    assert "dex-agents-scripted: The Worker host stopped." in screen.getvalue()
+    assert "Traceback" not in screen.getvalue()
+    assert not fake.was_run()
+    first.sendeof()
+    assert await wait_for_exit(first) == 0

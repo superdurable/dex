@@ -606,23 +606,36 @@ export class AgentCliCommand {
   }
 
   /**
-   * Releases the lease on SIGTERM and SIGHUP. A started `dexcli dev` exits the process itself; otherwise this
-   * exits with 128 plus the signal number.
+   * Ends the plain chat on SIGTERM and SIGHUP in order: release the lease, close the Worker and the Client, stop a
+   * started `dexcli dev`, then exit with 128 plus the signal number.
    */
   private listenForTerminationSignals(): void {
+    // This sequence replaces the started server's own, which would stop it before the release.
+    this.startedDexcliDev.releaseSignals();
+    let isExiting = false;
     for (const signal of ["SIGTERM", "SIGHUP"] as const) {
       const listener = (): void => {
-        const isExitHandledElsewhere = this.startedDexcliDev.isHandlingTerminationSignal(signal);
-        const release = this.releaseHeldSessionLease();
-        if (!isExitHandledElsewhere) {
-          void release
-            .then(() => waitForQueuedOutput([this.io.stdout, this.io.stderr]))
-            .finally(() => process.exit(128 + constants.signals[signal]));
+        if (isExiting) {
+          return;
         }
+        isExiting = true;
+        void this.exitOnTerminationSignal(signal);
       };
       this.terminationListeners.set(signal, listener);
-      // First, so the release RPC leaves before a started dexcli dev begins to stop.
-      process.prependListener(signal, listener);
+      process.on(signal, listener);
+    }
+  }
+
+  private async exitOnTerminationSignal(signal: "SIGTERM" | "SIGHUP"): Promise<void> {
+    // After SIGHUP the terminal is gone; its write errors must not end the command before the stop.
+    for (const stream of [process.stdin, process.stdout, process.stderr]) {
+      stream.on("error", () => undefined);
+    }
+    try {
+      await this.close();
+      await waitForQueuedOutput([this.io.stdout, this.io.stderr]);
+    } finally {
+      process.exit(128 + constants.signals[signal]);
     }
   }
 

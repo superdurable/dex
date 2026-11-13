@@ -206,14 +206,6 @@ export class StartedDexcliDevProcess {
     this.listenForTerminationSignals();
   }
 
-  /**
-   * Returns whether this object still stops the server and exits the process on `signal`.
-   * @param signal - The signal.
-   */
-  public isHandlingTerminationSignal(signal: NodeJS.Signals): boolean {
-    return this.signalListeners.has(signal);
-  }
-
   /** Leaves Ctrl-C to the terminal chat, which cancels a turn on the first one. */
   public releaseInterrupt(): void {
     this.removeSignalListener("SIGINT");

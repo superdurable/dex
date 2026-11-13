@@ -226,9 +226,6 @@ async def wait_for_session_lease(
     Raises:
         SessionLeaseWaitInterrupted: On Ctrl-C while waiting.
     """
-    result = await _attempt_quietly(attempt)
-    if result is not None and result.is_acquired:
-        return
     interrupted = asyncio.Event()
     loop = asyncio.get_running_loop()
     is_sigint_handled = True
@@ -238,6 +235,10 @@ async def wait_for_session_lease(
         is_sigint_handled = False
     display = _WaitingDisplay(session_id, output, is_animated, columns)
     try:
+        # The first try can be slow, such as on a paused Worker; Ctrl-C ends it too.
+        result = await _until_interrupted(_attempt_quietly(attempt), interrupted)
+        if result is not None and result.is_acquired:
+            return
         await _wait_until_acquired(result, attempt, display, interrupted)
     except (KeyboardInterrupt, SessionLeaseWaitInterrupted):
         display.clear()
@@ -249,6 +250,23 @@ async def wait_for_session_lease(
         if is_sigint_handled:
             loop.remove_signal_handler(signal.SIGINT)
     display.finish()
+
+
+async def _until_interrupted(
+    attempting: Awaitable[SessionTerminalLeaseResult | None], interrupted: asyncio.Event
+) -> SessionTerminalLeaseResult | None:
+    """Return one try's result, or raise ``SessionLeaseWaitInterrupted`` on Ctrl-C first."""
+    work = asyncio.ensure_future(attempting)
+    interrupt = asyncio.create_task(interrupted.wait())
+    try:
+        await asyncio.wait({work, interrupt}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        interrupt.cancel()
+        if not work.done():
+            work.cancel()
+    if not work.done() or work.cancelled():
+        raise SessionLeaseWaitInterrupted()
+    return work.result()
 
 
 async def _wait_until_acquired(
