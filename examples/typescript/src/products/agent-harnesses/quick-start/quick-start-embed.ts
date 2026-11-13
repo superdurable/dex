@@ -20,13 +20,15 @@ import {
   readAgentSnapshot,
   sendAgentUserMessage,
   startAgentSession,
+  type AgentFrameworkRunner,
   type AgentSessionFlow,
   type AgentSnapshot,
+  type DeferredToolOutcome,
 } from "@superdurable/dex-agents";
 
 /** Starts a session, sends one message, and returns the session after the turn. */
 export async function askAgent(
-  flow: AgentSessionFlow,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
   sessionId: string,
   message: string,
   serverAddress = "127.0.0.1:8801",
