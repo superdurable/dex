@@ -22,35 +22,26 @@ reply, or a new work item. Use an [Attribute](/concepts/primitives/attribute) fo
 that you overwrite and read many times. Use a [Stream](/concepts/primitives/stream) for
 live progress that a user can afford to lose.
 
-To wait for parallel branches to finish, use a **Join**. A Join is built on a
-ChannelMap, and it counts the branches and keys each round for you. See
-[Await Parallel Steps](/design-patterns/parallel/await).
+To wait for parallel branches to finish, use a **Join**; see
+[Waiting](/concepts/step#waiting).
 
 ## Guarantees
 
 - Dex stores every message durably with the Flow.
-- A repeated publish delivers the message twice today. See
-  [Publish messages](#publish-messages).
 - Messages stay in arrival order.
 - One wait consumes a message. Dex does not copy it to other waiting Steps.
-- A Step can be canceled after its wait consumed messages but before Dex saves
-  its `Execute` result. Then Dex puts the messages back at the front of their
-  Channel, in their original order. Another wait can consume them.
-- A canceled `Execute` may already have seen a returned message. So a message
-  can reach `Execute` twice. Make message processing idempotent.
-- When a Step is canceled because the Flow closes, Dex drops the messages
-  instead. Do not publish work in the same result that force-closes the Flow, with
-  `ForceComplete`, `ForceFail`, or a closing `ForceCompleteIfChannelsEmpty`, if
-  the work must survive. The exact cases are in
-  [Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
-- A Step that waits for several messages can wait forever while other Steps
-  keep taking messages one at a time. On one Channel, do not mix Steps that wait
-  for one message with Steps that wait for several. See
-  [Waiter order](/reference/server/runtime-data#channel-waiter-order).
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
 - Dex publishes a message only when the Step method or RPC that published it
   succeeds. See [Step guarantees](/concepts/step#guarantees).
+- A repeated publish request stores the message twice. Put a business key in
+  the message and skip keys already handled.
+
+A canceled Step can return its consumed messages to the Channel, so a message
+can reach `Execute` twice; a Flow close drops them instead. Waits for one and
+for several messages on the same Channel can starve each other. See
+[Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages)
+and [Waiter order](/reference/server/runtime-data#channel-waiter-order).
 
 ## Define, publish, and wait {#persistence-schema}
 
@@ -270,13 +261,10 @@ fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
 </SdkSnippet>
 </SdkTabs>
 
-`Execute` first takes a message that an RPC queued on a second Channel,
-`QueuedMessages`, if one is pending. See
-[Manage pending messages](#manage-pending-messages). The Timer branch returns
-before it reads Channel results. If the approval wins,
+The Timer branch returns before it reads Channel results. If the approval wins,
 the Channel condition has consumed one message, so the first result is present.
-The full example also loads `QueuedMessages` in the Step options, registers
-the Channels in the persistence schema, and registers the RPC.
+The full example also registers the Channels in the persistence schema and
+registers the RPC.
 
 ## Wait and consume {#wait-and-consume}
 
@@ -292,17 +280,6 @@ as Channel results.
 | `AtMost` | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
 | `AtLeastAtMost` | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
 
-A wake chains commits to object storage before the woken Step runs. The
-publish is committed first. Then Dex records that the wait ended and starts the
-`Execute` attempt, and a SYNC Step stores that start before the Worker gets
-the task. So a wake takes at least as long as a SYNC Step. In the
-[benchmark](/intro/performance#latency-below-the-peak), the time
-from a publish to the start of the woken Step was 139 ms at p50 on the larger
-node at half of its peak. Wakes per second look low for a second reason: before each
-publish, the benchmark client polls the Flow until the Step waits again, and
-that untimed setup counts against throughput. Compare latency, not wakes per
-second, with Steps.
-
 ## Publish messages {#publish-messages}
 
 Inside a Step or RPC, publish with the handler **Context**.
@@ -312,15 +289,10 @@ Flow. This keeps validation, authorization, and related state changes inside the
 Flow. An RPC runs on a Worker, so a Worker of the Flow type must be connected; see
 [RPC guarantees](/concepts/primitives/rpc#guarantees).
 
-Dex Server also accepts a `PublishToChannel` request on its FlowService API,
-for example through **dexcli api**. The server stores that message with no
-Worker online. The SDK Clients do not expose this request.
-
-On both paths, a request sent again after a lost response publishes the message twice. See
-[Requests that can repeat](/intro/limits#requests-that-can-repeat). Make
-the consuming Step safe for a duplicate message. For example, put a business
-key, such as an approval ID, in the message and skip a key the Flow has already
-handled.
+To store a message with no Worker online, see
+[Deliver an event when no Worker runs](/concepts/client#inbound-commands).
+A repeated publish stores the message twice, so make the consuming Step safe
+for a duplicate; see [Send a command at most once](/concepts/client#inbound-commands).
 
 ## Manage pending messages {#manage-pending-messages}
 

@@ -19,13 +19,13 @@ Three defaults need a change before launch.
 - **Public API authentication is off.** Any client that reaches the server can call it until you configure an authenticator.
 - **Step retries stop after 4 hours.** The Flow then fails, unless the Step has its own retry policy or a failure route.
 
-[Run Dex in Production](/components/production#defaults-to-change-before-production) says how to change each one.
+[Run Dex in Production](/components/production#before-you-launch) says how to change each one.
 
 ## Capacity and availability
 
 - **One active node is the ceiling of a cluster.** Dex divides a cluster's
   Flows and task queues into partitions, which are fixed slices of that
-  state. Today one node owns every partition. So a larger load needs a larger node or a separate cluster. See
+  state. One node owns every partition. So a larger load needs a larger node or a separate cluster. See
   [Grow past one node](#grow-past-one-node) and
   [Performance](/intro/performance).
 - **Failover takes up to the lease duration plus 1 second.** The lease is 10
@@ -39,29 +39,17 @@ Three defaults need a change before launch.
 - **Failover reruns in-flight Steps.** Recovery fails every attempt that a
   Worker had received, and each one consumes a retry. See
   [Failover and Deploys](/concepts/failover-and-deploys).
-- **The partition count is fixed at the first start.** The first start
-  records `cluster.partitionCount`, 1024 by default for **serve**, and a
-  later start with a different count fails. Most clusters keep the default; fewer
-  partitions make each built-in SearchFlows call scan less, so choose the
-  count before the first production start if search speed matters. See
+- **The partition count is fixed at the first start.** See
   [Partition count](/reference/server/configuration#single-node-partition-count).
 - **Some upgrades stop the cluster.** Some server releases need every server
   process stopped, standbys included, before the new version starts. Upgrades
   roll forward only. The upgrades page names each such release, so read it
   before you upgrade. See [Upgrades and compatibility](/reference/server/upgrades).
-- **Beta compatibility runs without a fixed support window.** Published APIs,
-  configuration, wire formats, and stored data stay compatible, and a breaking
-  change comes with a migration path. No support period for older releases is
-  promised. See [Release status](#release-status).
-- **Protocol ranges decide compatibility, not version numbers.** Dex Server is at 0.1.x and
-  the SDKs are at 1.x. A Worker or Client works with a server when their
-  protocol ranges overlap. See
-  [Upgrades and compatibility](/reference/server/upgrades).
 
 ## Grow past one node {#grow-past-one-node}
 
 A cluster has one active node, so its capacity is one node's capacity. Two
-options work today:
+options:
 
 - **Use a larger node.** The benchmark on a 16-vCPU node reaches several times
   the throughput of a 2-vCPU node. See
@@ -77,13 +65,12 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 
 ## Requests that can repeat
 
-- **A Step runs at least once.** See
-  [Idempotency keys](/concepts/step#idempotency-keys).
 - **An ASYNC Step can rerun on a new snapshot.** If a server node fails before
   it saves an ASYNC Step's start, the attempt runs again and can read different
   Attribute values. See [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async).
-- **A retried RPC runs again.** Each RPC call is a new request, so a client
-  retry can run the handler twice. See [RPC](/concepts/primitives/rpc#guarantees).
+- **Calling an RPC again runs it again.** Dex Server drops retries within one
+  SDK call by request ID, but each call gets a new request ID. See
+  [RPC](/concepts/primitives/rpc#guarantees).
 - **A repeated Channel publish delivers twice.** A `PublishToChannel`
   request sent again after a lost response stores the message a second time.
 - **A retried StopFlow without a run ID can stop a newer run.** Pass the run ID.
@@ -109,7 +96,7 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 
 | Part | Where it stands |
 | --- | --- |
-| Dex | Beta. Published APIs, configuration, wire formats, and stored data stay compatible. |
+| Dex | Beta. Published APIs, configuration, wire formats, and stored data stay compatible. No support period for older releases is promised. |
 | Dex Server (server-zd) | Version 0.1.x. Upgrades roll forward only, and some stop the cluster. |
 | SDKs | Version 1.x, in Go, Python, Java, TypeScript, and Rust. |
 | Dex Cloud | Super Durable runs Dex Server for you. [Run on Dex Cloud](/components/dex-cloud) describes what it operates and what you run. |
@@ -120,9 +107,8 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 covers upgrades that stop the cluster.
 
 - **Breaking changes come with a migration path.** A breaking change needs an explicit decision first.
-- **Some options are still unsupported.** A Flow start delay and a Flow-level retry policy are rejected. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state itself always stays in Dex Server. [Unsupported features](/reference/server#unsupported-features) links each open issue.
-- **Five SDKs, one model.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
-- **dexcli dev runs a pinned server.** Each dexcli release archive includes the **dex-server-zd** release it was tested with, and **dexcli dev** runs that one. [Run Locally](/components/run-locally) shows how to install and update it.
+- **Some options are unsupported.** A Flow start delay and a Flow-level retry policy are rejected; wait on a Timer in the first Step, and set retry policies per Step. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state always stays in Dex Server. See [Unsupported features](/reference/server#unsupported-features).
+- **dexcli dev runs the dex-server-zd release bundled with it.** See [Run Locally](/components/run-locally).
 
 ## License {#license}
 

@@ -215,13 +215,14 @@ assert.doesNotMatch(footer, /superdurable\.ai|target="_blank"/);
 assert.doesNotMatch(footer, /Process-centric apps|Simple, reliable|>Team<|Book a/);
 assert.match(home, /English/);
 assert.match(home, /简体中文/);
-// Group headers that have no page of their own open their first page.
-assert.match(home, /href="\/get-started\/"[^>]*>(?:(?!<\/a>)[\s\S])*Get Started<\/a>/);
+// The first group is Quick Start; its header opens the Quick Start page.
+assert.doesNotMatch(home, /href="\/get-started\/"/);
+assert.match(home, /href="\/quick-start\/"[^>]*>(?:(?!<\/a>)[\s\S])*Quick Start<\/a>/);
 assert.match(home, /href="\/evaluate\/"[^>]*>(?:(?!<\/a>)[\s\S])*Evaluate Dex<\/a>/);
 
 // The sidebar comes before the page content, so the first match of each label is its sidebar group.
 const sidebarGroupOrder = [
-  'Get Started',
+  'Quick Start',
   'Durable Agents',
   'Run Dex',
   'Concepts',
@@ -251,7 +252,7 @@ for (const page of [home, zhHome, cron, zhCron]) {
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);
-for (const label of ['Dex 文档', '菜单', '文档', '快速开始', 'AI Agents', '示例', '产品', '开发者', '公司', '引擎对比', '联系我们']) {
+for (const label of ['首页', '菜单', '文档', '快速开始', 'AI Agents', '示例', '产品', '开发者', '公司', '引擎对比', '联系我们']) {
   assert.ok(zhHome.includes(label), `Missing Chinese shell label: ${label}`);
 }
 assert.match(zhHome, /href="\/zh-Hans\/quick-start\/"/);
@@ -313,7 +314,7 @@ assert.match(dexSkills, /superdurable\/dex-skills/);
 assert.match(dexSkills, /dex-sdk/);
 assert.match(dexSkills, /dex-app-builder/);
 assert.match(dexSkills, /dex-connector-contributor/);
-assert.match(dexSkills, /primary skill/i);
+assert.match(dexSkills, /main skill/i);
 assert.match(dexSkills, /dex-app-builder\/#before-implementation/);
 assert.match(dexAppBuilder, /writable\s+repository or project, file-editing tools, and command execution/);
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
@@ -384,7 +385,7 @@ assert.match(dexConnectorContributor, /not ready for production until the Connec
 assert.match(dexConnectorContributor, /needs a Go implementation/);
 assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
 assert.match(zhDexSkills, /使用 AI 构建/);
-assert.match(zhDexSkills, /主要 Skill/);
+assert.match(zhDexSkills, /主 Skill/);
 assert.match(zhDexSkills, /开始实现前/);
 assert.match(zhDexAppBuilder, /写入 repository 或项目目录/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));

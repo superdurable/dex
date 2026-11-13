@@ -425,6 +425,23 @@ retry with an already recorded request ID returns its earlier reply. Other RPCs
 still run their handlers on a closed Flow run that is not yet purged, so they
 can read it. server-zd rejects any write that such a handler returns.
 
+### Retention and start deduplication {#retention-and-start-deduplication}
+
+Start deduplication depends on the Flow run still existing:
+
+- **One Flow per ID** holds while any run of that Flow ID exists. With the
+  default ID reuse policy, a second start of the same ID is rejected, or
+  returns the existing run with the already-started option.
+- **A repeated start request** returns the run it started for as long as that
+  run exists.
+
+Dex deletes a closed run after **retention.closedFlowDuration**. The Flow ID is
+then free, so a start with the same ID creates a new Flow. That Flow repeats
+its external effects, such as a charge, unless the external service still
+drops the repeated idempotency key. Keep retention longer than the longest time
+a client can retry, or record the business state in your own table and check it
+before you start.
+
 ## History window {#history-window}
 
 server-zd keeps a recent window of each Flow run's history. The window holds

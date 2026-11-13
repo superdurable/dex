@@ -10,6 +10,10 @@ Store one job posting, make it searchable, and deliver every accepted update to 
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Entity store](/design-patterns/entity-store), [Responsive Update](/design-patterns/responsive-update).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 Each Flow is one job posting for its whole life. It must:
@@ -37,8 +41,6 @@ Failures to handle:
 The lock orders updates by when Dex accepts them, not by when clients sent them. When two callers update at the same time, either one may get the lock first. The returned version is the accepted order. Each job board receives the updates in that order.
 
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 One locked RPC produces updates. The two consumer Steps in the graph above deliver them, each at its own pace.
 
@@ -504,7 +506,7 @@ impl Step for UpdateLinkedInPosting {
 
 ## Demo
 
-Run Dex and any language example server, then create and update a posting from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). This run accepted two updates. The graph shows the Init Step, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions waiting for another Channel message.
+[Run any example](/use-cases#run-any-example) starts the samples app. This run accepted two updates. The graph shows the Init Step, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions waiting for another Channel message.
 
 <a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="Open the full-resolution Step graph">
   <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="Job posting Flow with InitStep and two ordered Channel consumer executions per job board" />

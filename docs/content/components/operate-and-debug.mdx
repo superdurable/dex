@@ -37,15 +37,21 @@ After you fix the Worker, an active retry continues on its own. Do not restart o
 
 ## A Flow failed {#flow-failed}
 
-A Flow fails when a Step handler fails and its retries run out, or when its Flow timeout is set to fail it. A Flow timeout can also cancel the Flow or run a handler. By default, Step retries stop after 4 hours. In Dex Web, select the failed event in **Timeline**. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
+A Flow fails when a Step handler fails and its retries run out, or when its Flow timeout is set to fail it. By default, Step retries stop after 4 hours. In Dex Web, select the failed event in **Timeline**. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
 
 [Troubleshoot a Flow run](/reference/web/debugging) has the full read-only workflow, with screenshots.
 
 ## Recover a Flow with Time Travel {#time-travel}
 
-Time Travel moves a run back to an earlier point and runs it again from there. Use it after you deploy a fix. Verify the fix with a new run first.
+Time Travel moves a run back to an earlier point in its history and runs it again from there. Use it after you deploy a fix for a Step that failed. Verify the fix with a new run first. The run keeps its Run ID and starts a new attempt.
 
-Every Step after that point runs again, with its external calls, so each call needs an [idempotency key](/concepts/step#idempotency-keys). Input that came from outside the run after that point, such as RPC calls, is applied again by default. Start Time Travel from Dex Web, a Client, or `dexcli flow time-travel`; the [CLI reference](/reference/cli) lists its flags. [Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel) gives the options.
+Every Step after that point runs again, with its external calls, so each call needs an [idempotency key](/concepts/step#idempotency-keys).
+
+Time Travel restores the run's state at that point: its Attributes, its Channel messages, and the Steps that were waiting or ready. Input that came from outside the run after that point is then applied again by default: RPC calls, Channel publications, and Attribute writes. This is **write reapply**. Turn it off with `skip_writes_reapply` (`dexcli`: `-skip-writes-reapply`) when that input should not count again.
+
+The target point must be inside the run's recent history window. Time Travel to the beginning of the run is always available.
+
+Start Time Travel from Dex Web, a Client, or `dexcli flow time-travel`; the [CLI reference](/reference/cli) lists its flags. [Time travel](/reference/server/runtime-client#time-travel) in the server reference covers the request, the history window, and the limits.
 
 ## What runs again after a crash {#what-runs-again}
 

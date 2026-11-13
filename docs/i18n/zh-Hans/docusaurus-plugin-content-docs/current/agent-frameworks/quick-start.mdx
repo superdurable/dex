@@ -327,13 +327,13 @@ cancel_order wants to run with {"order_id":"1002","reason":"requested by the cus
 
 Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订单并回复。[审批](/agent-frameworks/approvals) 介绍应用如何读取并答复正在等待的调用，以及人如何在 Dex Web 中批准它。
 
-Coding agent 在命令后加上 `--approve`，代替输入 **y**。程序会批准每个正在等待的调用，并打印批准了什么。
+:::note 给 coding agent
+在命令后加上 `--approve`，代替输入 **y**。程序会批准每个正在等待的调用，并打印批准了什么。没有终端时，程序不会询问：它打印 `cancel_order` 正在等待审批，然后退出，效果和第 3 步中按 Ctrl+C 一样。随后用 `--session-id SESSION_ID --approve` 继续。
+:::
 
 ## 3. 在 Agent 等待时停止程序 {#stop-the-worker}
 
 再次要求取消订单 1002；每次不带 `--session-id` 运行都会启动一个新 Session。程序请你批准时，按 Ctrl+C。程序、它的 Worker 和 Client 都会停止，而 Session 仍在 Dex 中等待。
-
-没有终端时，例如在 coding agent 的 shell 里，程序不会询问。它打印 `cancel_order` 正在等待审批，然后退出，效果和按 Ctrl+C 一样。随后 Agent 用 `--session-id SESSION_ID --approve` 继续。
 
 在同一个文件夹中再次运行第 1 步的命令，用 `--session-id SESSION_ID` 替换消息。新的 Worker 启动，程序会询问同一个 `cancel_order` 调用。输入 **y**。订单只取消一次，重启之前的模型调用仍然是已完成状态。
 
@@ -341,7 +341,7 @@ Coding agent 在命令后加上 `--approve`，代替输入 **y**。程序会批�
 
 ## 4. 在 tool 运行时停止 {#stop-while-a-tool-runs}
 
-在 Tool Call 中途崩溃是更难处理的情况。示例可以放慢每次 Tool Call，让你有时间停止它。
+这一步在 Tool Call 运行时停止程序。示例可以放慢每次 Tool Call，让你有时间停止它。
 
 1. 在第 1 步的命令前加上 `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20`，询问订单 1001。
 2. 在 20 秒内像崩溃那样杀掉程序。崩溃相当于 kill 信号；Ctrl+C 会先让正在运行的调用完成。

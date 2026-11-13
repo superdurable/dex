@@ -19,10 +19,7 @@ Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任�
 
 ## 保证 {#guarantees}
 
-- 一个 Flow ID 同一时间最多只有一个 active run。
-- 一个 Step 方法写入和发布的内容会一次全部生效，或者都不生效。见 [Step 的保证](/concepts/step#guarantees)。
-- 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经持久化存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
-- 没有空闲的 Worker 时，Step 在持久化队列里等待，有 Worker 可用时再运行。
+一个 Flow ID 同一时间最多只有一个 active run。每个 Step 保存什么、什么时候可能再运行，见 [Step 的保证](/concepts/step#guarantees)。
 
 ## Flow 包含什么 {#implement-a-flow}
 
@@ -171,6 +168,19 @@ impl Flow for ExampleFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## 生命周期 {#lifecycle}
+
+[Client](/concepts/client) 用一个 Flow ID 和 start input 启动 Flow。Dex 随后在 Worker 上运行 start Step。每个 Step 返回一个决定：进入下一个或多个 Step，或者关闭 Flow。同一时间可以有多个 Step 处于 active。
+
+Flow 在以下情况下关闭：
+
+- 某个 Step 完成 Flow，或让它失败；
+- 它的 timeout 让它失败或取消它；
+- client 停止它；
+- 用同一个 Flow ID 的新启动终止它；见[新启动关闭 Flow](/reference/server/runtime-data#flow-close-by-new-start)。
+
+timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过它的 RPC 读取和修改它。
+
 ## 标识符 {#identifiers}
 
 "Flow" 这个词可以指 Flow 定义，也可以指一次 Flow run。下面这些标识符把它们区分开。
@@ -185,39 +195,9 @@ impl Flow for ExampleFlow {
 
 大多数 SDK 默认用语言里的类型名作为 `FlowType`，你也可以显式覆盖。还有 Flow run 在运行时，不要改这些名称。
 
-## 生命周期 {#lifecycle}
-
-[Client](/concepts/client) 用一个 Flow ID 和 start input 启动 Flow。Dex 随后在 Worker 上运行 start Step。每个 Step 返回一个决定：进入下一个或多个 Step，或者关闭 Flow。同一时间可以有多个 Step 处于 active。
-
-Flow 在以下情况下关闭：
-
-- 某个 Step 完成 Flow，或让它失败；
-- 它的 timeout 让它失败或取消它；
-- client 停止它；
-- 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。SubFlow 的重启也可能终止之前的子 Flow。见 [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy)。
-
-timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过它的 RPC 读取和修改它。
-
 ## Start options 和配置 {#start-options}
 
-两组选项决定一次 Flow run 的行为：
-
-- `StartFlowOptions` 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
-- `FlowConfig` 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。
-
-用稳定的业务 Flow ID 直接启动 Flow。不要先读取或搜索，检查它是否已经存在。要安全地重试同一次启动，做三件事：使用拒绝第二个 run 的 ID reuse policy；每次重试都发送同一个 request ID；打开“返回已有 run，而不是报 already-started 错误”的启动选项。这样，重试一个已经成功的启动时，会拿到那个 run。如果 policy 允许再启动一个 run，重试就可能启动第二个 run。
-
-这三个选项在各个 SDK 里的名称如下：
-
-| SDK | ID reuse policy | Request ID | 返回已有 run |
-| --- | --- | --- | --- |
-| Python | `id_reuse_policy` | `request_id` | `ignore_already_started=True` |
-| Go | **IDReusePolicy** | `RequestID` | `AlreadyStarted` with **IgnoreError: true** |
-| Java | `idReusePolicy(...)` | `requestId(...)` | `ignoreAlreadyStarted(true)` |
-| TypeScript | `idReusePolicy` | `requestId` | **ignoreAlreadyStarted: true** |
-| Rust | `id_reuse_policy(...)` | `request_id(...)` | `ignore_already_started(true)` |
-
-默认的 ID reuse policy 已经会拒绝同一个 Flow ID 的第二个 run，所以大多数 handler 只需要设置后两个。[一个最小的服务](/components/application#minimal-service) 展示了每个 SDK 里这样做的 handler。
+用稳定的业务 Flow ID 启动；要让重试安全，设置 request ID 和 already-started 选项。[StartFlow 最佳实践](/reference/python/start-flow-options#start-flow-best-practices)给出安全重试的做法，[StartFlowOptions](/reference/python/start-flow-options) 列出所有启动选项。`FlowConfig` 保存运行时设置，Flow 运行期间可以更新。
 
 <a id="参考"></a>
 

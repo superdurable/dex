@@ -7,7 +7,7 @@ slug: /glossary
 
 # 术语表
 
-Dex 术语的简短定义。Dex 源自 iWF，iWF 把 Flow 叫作 Workflow，把 Step 叫作 State。本文档只使用 Dex 的叫法。
+Dex 术语的简短定义。Dex 由 iWF 演进而来，iWF 把 Flow 叫作 Workflow，把 Step 叫作 State。本文档只使用 Dex 的叫法。
 
 #### [Activation](/reference/agents/tracing)（激活） {#activation}
 
@@ -39,7 +39,7 @@ Flow 上一个持久化、有类型的变量。可以为它建索引，用于搜
 
 #### [Channel](/concepts/primitives/channel)
 
-持久化的消息管道。它把消息从 Flow 外部送进来，或者在同一条 Flow 的各部分之间传递。
+单个 Flow run 内部的持久化 FIFO 队列。Step 等待它；Step 和 RPC 向它发布消息。
 
 #### [ChannelMap](/concepts/primitives/channel#channelmap)
 
@@ -59,7 +59,7 @@ Step 要等待的东西，由 WaitFor 返回：一个 Timer、一条 Channel 消
 
 #### [db9](/reference/server/object-storage#db9)
 
-一个独立的数据库产品，使用 PostgreSQL 线协议。Dex Server 可以把数据存在 db9 里，代替对象存储。原生 PostgreSQL 不在列出的生产存储之列。
+一个独立的数据库产品，使用 PostgreSQL 线协议。Dex Server 可以把数据存在 db9 里，代替对象存储。不支持把原生 PostgreSQL 用作生产存储。
 
 #### [Dex Server](/components/server)
 
@@ -151,9 +151,9 @@ Worker 上的 handler，供外部读写一条正在运行的 Flow。
 
 #### [server-zd](/components/server)
 
-当前 Dex Server 实现的名字。它的二进制文件是 **dex-server-zd**。发布说明和参考页面都使用这个名字。
+[Dex Server](#dex-server) 的实现名称，发布说明和参考页面使用这个名字。
 
-#### [状态快照](/concepts/step#guarantees) {#state-snapshot}
+#### [状态快照](/correctness-and-expressiveness/step-guarantees#state-snapshot) {#state-snapshot}
 
 一次 Step 方法尝试读取到的 Flow 状态，即 Dex 把这次尝试交给 Worker 时的 Attribute 值。`Execute` 重试时沿用第一次尝试的快照。Hard-delete Attribute 是例外，Dex 每次尝试都重新读取它们。
 
@@ -185,7 +185,7 @@ Dex 把一条 Flow 的下一个 Step 或 RPC 优先发给之前服务过这条 F
 
 父 Flow 在它的某个 Step 中启动的一次 Flow run。父 Flow 可以像等待其他 Condition 一样等待它。
 
-#### [Time Travel](/concepts/change-flow-code#time-travel)
+#### [Time Travel](/components/operate-and-debug#time-travel)
 
 让一次 Flow run 从历史中更早的某个点重新运行，通常在修复问题之后使用。这次 run 保留原来的 Run ID。它的状态回到那个点，之后的 Step 连同外部调用会再运行一次，之后的外部输入也会重新应用，除非你跳过写入重放。对应的 FlowService 调用是 `ResetFlow`。
 
@@ -193,7 +193,7 @@ Dex 把一条 Flow 的下一个 Step 或 RPC 优先发给之前服务过这条 F
 
 持久化的 sleep 条件。它触发后，正在等待的 Step 继续运行。
 
-#### [Transactional RPC](/concepts/primitives/rpc#transactional-reads-and-writes)
+#### [Transactional RPC](/reference/server/runtime-data#transactional-reads-and-writes)
 
 一种 RPC，只有当它要删除的每条 Channel 消息仍处于待处理状态时，Dex 才保存它的修改。持有锁的 RPC 总是 transactional 的。
 

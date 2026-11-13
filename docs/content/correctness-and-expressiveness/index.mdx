@@ -7,58 +7,17 @@ slug: /correctness-and-expressiveness
 
 # Correctness and Expressiveness
 
-This section answers two questions about Dex.
+Two computer-checked proofs together cover every well-formed program of a
+small concurrent language. On Dex, such a program produces the events of a run
+without failures, except that external effects can repeat, and a repeat can
+come late.
+[What this means for your code](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)
+says how to make repeats safe.
 
-- **Expressiveness**: can Dex express the programs you need?
-- **Correctness**: does Dex stay correct when processes, machines, or networks
-  fail?
-
-## What covers each feature {#coverage}
-
-| Feature | Lean failure proof | Deterministic simulation | Server integration tests |
-| --- | --- | --- | --- |
-| SYNC Steps | Yes | Yes | Yes |
-| ASYNC Steps | No | No | Yes (`create_test.go`, `any_command_close_test.go`) |
-| RPCs, including transactional RPCs | No | Yes | Yes (`rpc_test.go`) |
-| Attribute locks | No | Yes | Yes (`locking_test.go`) |
-| SubFlows | No | Yes | Yes (`subflow_test.go`) |
-| Failure policies and recovery Steps | No | Yes, in the apply-level stage | Yes (`wf_state_execute_method_fail_and_proceed_test.go`) |
-| Heartbeats | Partly: resuming from a heartbeat checkpoint is outside the proof | Yes, with and without values | Yes (`pull_worker_test.go`) |
-| Time Travel | No | No: the simulated clients do not call it | Yes (`reset_by_state_id_test.go`) |
-| StopFlow | No | Yes | Yes (`wf_stop_test.go`) |
-
-The proof column follows [What the proof assumes](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes).
-The simulation column follows the simulation tests in
-[server-zd/integ](https://github.com/superdurable/dex/tree/main/server-zd/integ).
-
-Both proofs are computer-checked, and both have a limited scope. They cover
-one Flow that is started once and receives Channel messages. Under failures,
-RPCs, SubFlows, `StopFlow`, and Attribute locks are outside the proof. The
-failure proof also assumes **SYNC** methods only, retries that never run out,
-and no failure policy.
-The proofs are about a model of Dex, not the server code itself. Each failure
-rule in the model is written down next to the server code that implements it,
-and reviewers checked each rule against that code.
+The proofs are about a model of Dex and hold only under a limited scope, such
+as one Flow, **SYNC** methods only, and retries that never run out.
 [What the proof assumes](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes)
-lists every condition, and
-[How it was checked](/correctness-and-expressiveness/failure-transparency-proof#how-it-was-checked)
-describes the checks.
-
-The server code itself is tested under faults, outside the proof. A
-[deterministic simulation](https://github.com/superdurable/dex/tree/main/server-zd/crates/dexzd-simulation)
-runs the real server engine against simulated object storage, clocks, Workers,
-and clients. It injects slow and lost storage responses, 5xx errors, crashes
-with writes still in flight, takeovers by a new process while the old one still
-writes, and Workers that hang, fail, or disconnect. It then checks that every
-acknowledged write survives and that no read sees uncommitted or stale state. It
-also covers most of what the failure proof leaves out: RPCs, including
-[transactional RPCs](/concepts/primitives/rpc#transactional-reads-and-writes), Attribute locks, child Flows started as SubFlows, StopFlow,
-and hard-delete Attributes. Failure policies and recovery Steps run in its
-apply-level stage, which tests the state machine that applies each command, without
-the engine around it. ASYNC durability is not part of its workload. CI runs it
-nightly. The
-[server integration tests](https://github.com/superdurable/dex/tree/main/server-zd/integ)
-run real Workers against a real server.
+lists every condition.
 
 ## Expressiveness
 
@@ -79,21 +38,24 @@ runnable example and an integration test.
 a Step method fails or runs again.
 
 The [Failure transparency proof](/correctness-and-expressiveness/failure-transparency-proof)
-covers server crashes, standby takeovers, retries, Workers that keep running
-after Dex gave up on them, and duplicate results. These failures add only
-repeated external effects: remove them, and the rest is a sequence the Flow
-can produce without failures. For fair runs, the ending stays the same too. A
-fair run is one where failures stop eventually, the server keeps coming back,
-and every due Timer and ready Step eventually runs; the
-[proof page](/correctness-and-expressiveness/failure-transparency-proof) lists
-the exact conditions.
-The proof's page lists its conditions, such as **SYNC** methods only and
-retries that never run out. This proof is also computer-checked, and the same
-[paper](/papers/dex-expressiveness.pdf) has the full argument.
+shows that server crashes, takeovers, retries, late Workers, and duplicate
+results add only repeated external effects. In fair runs the ending is also
+unchanged. The proof page lists its conditions.
 
-Under the conditions above, the two proofs together cover every well-formed
-program of the small concurrent language. On Dex, such a program produces the events of a run
-without failures, except that external effects can repeat, and a repeat can
-come late.
-[What this means for your code](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)
-says how to make repeats safe.
+## What covers each feature {#coverage}
+
+| Feature | Lean failure proof | Deterministic simulation | Server integration tests |
+| --- | --- | --- | --- |
+| SYNC Steps | Yes | Yes | Yes |
+| ASYNC Steps | No | No | Yes |
+| RPCs, including transactional RPCs | No | Yes | Yes |
+| Attribute locks | No | Yes | Yes |
+| SubFlows | No | Yes | Yes |
+| Failure policies and recovery Steps | No | Yes, in the apply-level stage | Yes |
+| Heartbeats | Partly: resuming from a heartbeat checkpoint is outside the proof | Yes, with and without values | Yes |
+| Time Travel | No | No: the simulated clients do not call it | Yes |
+| StopFlow | No | Yes | Yes |
+
+The proof column follows [What the proof assumes](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes).
+[How it was checked](/correctness-and-expressiveness/failure-transparency-proof#how-it-was-checked)
+describes the simulation and names the integration test for each feature.

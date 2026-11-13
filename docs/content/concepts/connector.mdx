@@ -11,7 +11,6 @@ A **Connector** connects a Flow to an external provider, such as an email,
 payment, or news service. It gives your Flow ready-made Steps that call the
 provider, and Triggers that turn provider events into Flow starts or RPC calls.
 Your application imports a Connector package and uses its Steps like your own.
-Provider credentials never enter durable Flow state.
 
 Official Connectors are released separately from Dex. Before you write
 provider integration code yourself, [find a Connector](#find-a-connector) for
@@ -32,6 +31,26 @@ A Connector can expose five capabilities:
 
 A Connector exposes only the capabilities its provider needs. Your application
 uses the types generated for the exact Connector release it imports.
+
+<a id="use-or-contribute-a-connector"></a>
+<a id="how-it-fits-with-the-other-components"></a>
+
+## Find a Connector {#find-a-connector}
+
+Browse the [Connector catalog](https://connectors.superdurable.io/). It lists
+each released Connector, its operations, and its language support. The catalog
+is the reference for each Connector.
+
+The [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+contains manifests, generated APIs, provider implementations, UI units, and
+runnable examples.
+
+Use the [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx) when an
+application uses a released Connector. Use the
+[Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)
+to add or change an official Connector, operation, Trigger, or UI unit. To
+ask for a Connector the catalog lacks,
+[open a request](https://github.com/superdurable/dex-connectors-library/issues/new).
 
 ## Operations are ready-made Steps {#operations-are-connector-steps}
 
@@ -94,12 +113,11 @@ refer to a connection by its name, not by its credentials. Your application
 resolves the name to credentials when it calls the provider.
 
 Stored credentials stay out of Flow input, Attributes, results, receipts,
-Streams, logs, or generated artifacts.
+Streams, logs, generated artifacts, and Connector UI.
 
 ## Languages
 
-Connectors support Go, Python, and TypeScript. Java and Rust do not support
-Connectors yet. Each language package implements only the operations and
+Connectors support Go, Python, and TypeScript. Each language package implements only the operations and
 Triggers that the Connector lists for that language. Use the language filter in
 the [Connector catalog](https://connectors.superdurable.io/) to see what each
 Connector offers.
@@ -111,26 +129,6 @@ is tested against the same provider scenarios that verify the Go package.
 Runnable examples are under
 **connectors/&lt;directory&gt;/&lt;language&gt;/examples/** in the
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library).
-If you need another language,
-[open a Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new).
-
-<a id="use-or-contribute-a-connector"></a>
-<a id="how-it-fits-with-the-other-components"></a>
-
-## Find a Connector
-
-Browse the [Connector catalog](https://connectors.superdurable.io/). It lists
-each released Connector, its operations, and its language support. The catalog
-is the reference for each Connector.
-
-The [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-contains manifests, generated APIs, provider implementations, UI units, and
-runnable examples.
-
-Use the [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx) when an
-application uses a released Connector. Use the
-[Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)
-to add or change an official Connector, operation, Trigger, or UI unit.
 
 ## Set up Connectors locally
 
@@ -144,7 +142,7 @@ connections and Trigger bindings for a Go application. It does this only in
 3. Start your application with the connection file that Dex Web shows.
 
 Dex Web configures only the exact official Connector release. A Connector's UI
-runs in a sandboxed iframe, and stored credentials never enter it.
+runs in a sandboxed iframe.
 
 The connection file holds plaintext secrets for local use only. Do not commit
 it or use it in production.

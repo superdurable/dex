@@ -17,12 +17,12 @@ const sidebars: SidebarsConfig = {
     'index',
     {
       type: 'category',
-      label: 'Get Started',
+      label: 'Quick Start',
       customProps: {section: 'intro'},
-      link: {type: 'doc', id: 'intro/get-started'},
+      // The header opens the Quick Start, which owns the install. The home page is the docs hub.
       // Build with AI is the coding-agent path; the full skill pages are in Developer Reference > Dex Skills.
+      link: {type: 'doc', id: 'quick-start/index'},
       items: [
-        'quick-start/index',
         'intro/add-to-existing-code',
         'components/testing',
         'build-with-ai/dex-developer-skill',

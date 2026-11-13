@@ -9,6 +9,10 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 
 保存一条职位信息并支持搜索，同时把每个已接受的更新按顺序发送到 LinkedIn 和 Indeed。
 
+**展示：**[实体 Flow](/design-patterns/entity-store)、[响应式更新](/design-patterns/responsive-update)。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## 产品需求
 
 每个 Flow 在整个生命周期内代表一条职位信息。它必须：
@@ -36,8 +40,6 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 lock 按 Dex 接受更新的先后排序，而不是按客户端发出请求的先后。两个调用方同时更新时，谁先拿到 lock 都有可能。返回的版本就是接受的顺序，每个招聘网站都按这个顺序收到更新。
 
 ## Flow 设计
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 一个带 lock 的 RPC 产生更新，上图中的两个 consumer Step 各自按自己的进度投递。
 
@@ -503,7 +505,7 @@ impl Step for UpdateLinkedInPosting {
 
 ## 演示
 
-运行 Dex 和任意语言的示例服务，然后在[示例 Playground](https://github.com/superdurable/dex/tree/main/examples/playground)中创建并更新职位。下面的运行接受了两次更新。执行图显示 Init Step、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。下面的运行接受了两次更新。执行图显示 Init Step、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
 
 <a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="打开原始分辨率 Step graph">
   <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="职位发布 Flow，其中 InitStep 为每个招聘网站启动两个有序的 Channel consumer execution" />

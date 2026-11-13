@@ -11,13 +11,7 @@ slug: /design-patterns/hash-partitioned-attribute-map
 
 ## 稳定分区算法
 
-每种 SDK 使用完全相同的算法：
-
-1. Email 地址必须是非空 ASCII。
-2. 去除首尾的 ASCII 空白。
-3. 把 ASCII 字母 A 到 Z 转为小写。
-4. 对 canonical email 的字节计算 32-bit FNV-1a，溢出时回绕。
-5. 计算 **hash modulo 1000**，把 instance 名格式化为 **partition-000** 到 **partition-999**。
+每种 SDK 都先规范化 email，再用 32-bit FNV-1a 计算 hash，并取 **hash modulo 1000** 作为 partition；见 [Hash partition algorithm](/reference/server/runtime-data#hash-partition-algorithm)（英文）。
 
 Hash 冲突只会让多个 email 落进同一个 partition。Dictionary 仍然用完整的 canonical email 区分记录。
 

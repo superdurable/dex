@@ -10,6 +10,10 @@ Move money between two accounts without leaving a partial debit or credit when a
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 The transfer accepts a source account, destination account, amount, and note. It must:
@@ -19,9 +23,7 @@ The transfer accepts a source account, destination account, amount, and note. It
 3. Complete only after the destination account is credited.
 4. Compensate the transfer when a side-effecting Step still fails after all its retries.
 
-The Flow waits only between retries, never for approval, a Channel message, or an RPC. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
-
-The Rust example stubs the balance check: any positive amount passes. It records ledger changes as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
+The Flow waits only between retries, never for approval, a Channel message, or an RPC. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours.
 
 Failures fall into three groups:
 
@@ -29,11 +31,9 @@ Failures fall into three groups:
 - Memo, debit, and credit calls can fail temporarily. Dex retries them with backoff, and the Flow stays at the same Step.
 - An operation can still fail after all its retries. The Flow then moves to compensation, reverses the transfer, and finishes as failed. Dex retries compensation too, because an incomplete compensation is also a failure.
 
-Make the dependency calls idempotent. The remote system can complete a call before Dex records the result. The Worker then calls it again.
+Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
 
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow is a saga that runs one Step after another:
 
@@ -407,9 +407,15 @@ fn transfer_retry() -> RetryPolicy {
 
 ## Demo
 
-Run Dex and any language example server, then start Money transfer from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The screenshot shows one successful transfer with an amount of 42 units. The Flow debited **checking-account**, credited **savings-account**, and completed all five operations in order: balance check, debit memo, debit, credit memo, and credit.
+[Run any example](/use-cases#run-any-example) starts the samples app. The screenshot shows one successful transfer with an amount of 42 units. The Flow debited **checking-account**, credited **savings-account**, and completed all five operations in order: balance check, debit memo, debit, credit memo, and credit.
 
 ![Completed Money transfer Step execution graph](/img/use-cases/money-transfer-step-execution-graph.jpg)
+
+## Rust example {#rust-example}
+
+The Rust example allows three attempts per Step instead of an hour of retries, so its integration test finishes quickly.
+
+The Rust example stubs the balance check: any positive amount passes. It records ledger changes as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
 
 ## Next
 

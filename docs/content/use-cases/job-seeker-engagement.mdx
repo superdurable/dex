@@ -10,6 +10,10 @@ Keep an employer and a job seeker aligned while the job seeker decides whether t
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Static Parallel Steps](/design-patterns/parallel/static), [Reminder](/design-patterns/durable-timer/reminder), [Interruptible wait](/design-patterns/interruptible), [Responsive Update](/design-patterns/responsive-update), [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 The process accepts an employer ID, job seeker ID, and initial notes. It must:
@@ -30,14 +34,10 @@ Failures and other outcomes to handle:
 - The deadline passes without an acceptance. This is an expected **timeout** result, not an infrastructure failure.
 - A decline is requested after the status has changed, or an acceptance is requested after completion. The RPC rejects the invalid transition without scheduling a notification Step.
 - Email and recruiting-system calls can fail temporarily. Their adapters should return the error so that Dex retries the Step that made the call.
-- A dependency can complete a call and the Worker can then fail before Dex records success. In production, send email and notifications with an idempotency key or another way to drop duplicates.
+- Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
 - Reminder opt-out stops only future reminders. The status and overall acceptance deadline remain active.
 
-The Go, Java, Python, and TypeScript examples implement the full 60-day process. The Rust example has the same start, describe, accept, decline, opt-out, notification, and search endpoints. To keep its integration test short, it uses one decision Channel and a 24-hour Timer instead.
-
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 After **Initialize**, the Flow splits into three parallel branches:
 
@@ -418,11 +418,15 @@ impl Step for WaitForDecision {
 
 ## Demo
 
-Run Dex and any language example server, then start Job seeker engagement from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes `ProcessTimeout`.
+[Run any example](/use-cases#run-any-example) starts the samples app. The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes `ProcessTimeout`.
 
 <a href="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img src="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" alt="Completed Job seeker engagement Step execution graph" />
 </a>
+
+## Rust example {#rust-example}
+
+The Go, Java, Python, and TypeScript examples implement the full 60-day process. The Rust example has the same start, describe, accept, decline, opt-out, notification, and search endpoints. To keep its integration test short, it uses one decision Channel and a 24-hour Timer instead.
 
 ## Next
 

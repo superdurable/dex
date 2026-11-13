@@ -8,6 +8,10 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 
 在求职者决定是否接受机会期间，让雇主、求职者和招聘系统保持同步。
 
+**展示：**[静态并行 Step](/design-patterns/parallel/static)、[提醒](/design-patterns/durable-timer/reminder)、[可中断等待](/design-patterns/interruptible)、[响应式更新](/design-patterns/responsive-update)、[等待 Attribute 匹配](/design-patterns/responsive-update/attribute-match)。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## 产品需求
 
 流程接收雇主 ID、求职者 ID 和初始备注。它必须：
@@ -28,14 +32,10 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 - 截止时间到了，仍未收到接受。这是预期的 **timeout** 结果，不是基础设施故障。
 - 状态改变后请求拒绝，或流程完成后请求接受。RPC 会拒绝无效状态转换，并且不会调度通知 Step。
 - 邮件和招聘系统调用可能临时失败。适配器应返回错误，让 Dex 重试发起该调用的 Step。
-- 依赖系统可能已经完成调用，但 Worker 在 Dex 记录成功之前就失败了。生产环境发送邮件和通知时，要使用幂等键或其他去重方式。
+- 用[幂等键](/concepts/step#idempotency-keys)让每个外部调用都能安全地重复。
 - 退订只停止之后的提醒。当前状态和整体接受截止时间仍然有效。
 
-Go、Java、Python 和 TypeScript 示例实现完整的 60 天流程。Rust 示例有相同的启动、查询、接受、拒绝、退订、通知和搜索端点。为了让集成测试更短，它改用一个决策 Channel 和一个 24 小时 Timer。
-
 ## Flow 设计
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **Initialize** 之后，Flow 分成三个并行分支：
 
@@ -416,11 +416,15 @@ impl Step for WaitForDecision {
 
 ## 演示
 
-运行 Dex 和任意语言的示例服务器，然后从 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动求职者沟通。下面使用 Go 示例：它初始化雇主和求职者、退订提醒、记录一次拒绝，随后接受机会。接受消息唤醒 `ProcessTimeout` 后，Flow 以 **done** 完成。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。下面使用 Go 示例：它初始化雇主和求职者、退订提醒、记录一次拒绝，随后接受机会。接受消息唤醒 `ProcessTimeout` 后，Flow 以 **done** 完成。
 
 <a href="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img src="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" alt="已完成的求职者沟通 Step execution graph" />
 </a>
+
+## Rust 示例 {#rust-example}
+
+Go、Java、Python 和 TypeScript 示例实现完整的 60 天流程。Rust 示例有相同的启动、查询、接受、拒绝、退订、通知和搜索端点。为了让集成测试更短，它改用一个决策 Channel 和一个 24 小时 Timer。
 
 ## 下一步
 

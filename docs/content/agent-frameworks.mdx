@@ -4,21 +4,13 @@ title: Durable Agents
 sidebar_label: Durable Agents
 ---
 
-import AgentStackDiagram from '@site/src/components/diagrams/AgentStackDiagram';
-
 # Durable Agents
 
 Dex runs an AI agent as a durable agent session. Build the agent with the built-in agent loop of Dex Agents, or keep one you already wrote with an agent framework; both run on the same session Flow.
 
-A durable agent on Dex has three parts:
-
-- **Your app:** a web app or API that uses a Dex Client to start sessions, send messages, and stream replies.
-- **Dex Server:** stores each session and hands its work to Workers. It runs in Dex Cloud or on your own infrastructure.
-- **Your agent Worker:** your agent, written with your framework or the built-in loop, running through the Dex Agents adapter.
-
-<AgentStackDiagram markdownDescription="Your app, a web app or API with a Dex Client, starts and drives sessions on Dex Server, which runs in Dex Cloud or self-hosted. Your agent Worker pulls Steps from Dex Server and runs your agent through the Dex Agents adapter, with Claude Agent SDK, Google ADK, LangChain and LangGraph, Mastra, OpenAI Agents SDK, Pi, Pydantic AI, Vercel AI SDK, or the built-in loop." />
-
 Your agent keeps its framework and code. Dex runs each session as a Flow and records every model call, tool call, and approval as a Step when it finishes. After a Worker crash or a deploy, the session picks up after the last finished call.
+
+Your app drives sessions through a Dex Client, Dex Server stores them, and your agent Workers run them. [Deployment shape](/agent-frameworks/production#deployment-shape) shows the setup.
 
 ## What Dex adds to your agent {#what-dex-adds}
 
@@ -28,7 +20,7 @@ Dex keeps your agent code and makes each session durable:
 - **Tool calls with a policy.** Each tool call runs in its own Step: reads retry, and writes that are not idempotent run at most once.
 - **Approvals that wait.** A call that needs a person waits for minutes or days, across restarts and deploys.
 - **Connectors as tools.** The agent calls official Connector operations under the same tool policies.
-- **Observability and control.** Dex Web shows each session, tracing covers each model call and tool call, and spend limits check model spend.
+- **Observability and control.** Dex Web shows each session, tracing covers each model call and tool call, and a spend-limit hook lets your code check model spend around each model call.
 
 To see it, run the [Agent Quick Start](/agent-frameworks/quick-start). [Dex vs. Temporal](/intro/compared-to-durable-execution#agent-frameworks-on-a-durable-execution-engine) compares Dex with Temporal, framework checkpointers, and other engines, and the [Glossary](/glossary) defines the terms these pages use.
 
@@ -78,10 +70,3 @@ A harness runs the agent loop: the built-in loop or a framework. Pick yours to o
 - Examples: [AI Agent](/use-cases/ai-agent) on the built-in loop, and [Order Support Agent](/use-cases/order-support-agent) on each framework.
 
 [Agents in Depth](/reference/agents-in-depth) has the full pages on sessions, tool calls, approvals, Connectors as tools, the built-in agent loop, and how each framework runs on Dex. The [Agents reference](/reference/agents/) has [Tracing](/reference/agents/tracing), [Upgrades](/reference/agents/upgrades), [Session limits](/reference/agents/session-limits), [Spend limits](/reference/agents/spend-limits), and [CLI commands](/reference/agents/cli).
-
-## Next
-
-- [Agent Quick Start](/agent-frameworks/quick-start)
-- [AI Agent](/use-cases/ai-agent)
-- [Step](/concepts/step)
-- [Agents reference](/reference/agents/)

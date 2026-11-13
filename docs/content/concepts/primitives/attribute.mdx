@@ -12,7 +12,7 @@ RPCs read and write it. Dex stores it with the Flow, so you do not need a
 database for intermediate state.
 
 An Attribute lives as long as its Flow. Dex deletes it when it deletes the Flow,
-after the [retention period](/components/production#defaults-to-change-before-production) that follows Flow closure.
+after the [retention period](/components/production#before-you-launch) that follows Flow closure.
 To keep the data longer, see [Keep data after the Flow](#attribute-store-projection).
 
 ## When to use an Attribute
@@ -258,9 +258,8 @@ impl Step for AttributeStep {
 </SdkSnippet>
 </SdkTabs>
 
-The excerpt shows only the status Attribute. The example Flow also declares
-the AttributeMap and the other Attributes that the sections below use, and
-lists each of them in its persistence schema.
+The full example also declares the AttributeMap and other Attributes used
+below.
 
 ## AttributeMap {#attributemap}
 
@@ -326,6 +325,29 @@ self.progress
 </SdkSnippet>
 </SdkTabs>
 
+### Partition a growing collection {#attributemap-partitioning}
+
+A collection that keeps growing should be split across bounded AttributeMap
+instances. [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+describes two patterns. They compare as follows:
+
+| Dimension | Sequentially Chunked | Hash-Partitioned |
+|---|---|---|
+| Grouping | Increasing sequence; one chunk per 100 records | FNV-1a of canonical key modulo 1,000 |
+| Primary goal | Efficient append and ordered pagination | Direct lookup and upsert by stable business key |
+| Typical data | Subscriber history, agent messages, audit events | Customer profiles, account metadata, configuration directories |
+| One read | One sequential chunk | One hash bucket |
+| One write | Rewrite the active chunk; also archive it at rollover | Rewrite the target bucket |
+| Ordering | Preserves insertion order naturally | No natural global order |
+| Lookup by key | Usually scans chunks or needs another index | Calculates one partition directly |
+| Updating old data | Poor fit; archived chunks should stay immutable | Good fit for upsert within the target bucket |
+| Write concurrency | All appends contend on the active chunk | Different partitions use independent locks |
+| Growth | Creates new chunks without rehashing | Fixed partition count; each bucket grows with total data |
+| Distribution | Naturally balanced by record count | Usually balanced, but hot keys can create hot partitions |
+| Changing parameters | New data can use a versioned chunk strategy | A partition-count change requires rehash and migration |
+| Full enumeration | Read chunks in sequence | Read up to 1,000 partitions |
+| Best fit | Append-only data with time or sequence order | Structured values with a stable lookup key |
+
 <a id="initial-attribute-values"></a>
 <a id="read-from-outside-a-flow"></a>
 <a id="indexed-attributes"></a>
@@ -338,19 +360,11 @@ See [when a read needs an RPC](/concepts/client#related-primitives) and
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
 An indexed Attribute can be used in `SearchFlows` queries to find Flow
-runs. The example above indexes the status Attribute. Its index key,
-`keyword1`, names a search slot rather than a business field. Slots are
-numbered by type and shared by every Flow type in a namespace, so two Flow
-types can each put a different field in `keyword1`. Two indexed fields in
-one Flow need different slots, and a slot shared across Flow types must keep
-one index type.
-
-Slots are limited. With the PostgreSQL search backend, each tenant has 10
-Keyword slots and 3 for each other index type, and a slot cannot be freed. Keep
-a list of which slot each Flow type uses. See
-[Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
-index keys, and AttributeMap indexes, and
-[PostgreSQL search](/reference/server/search#postgresql-search) for the limits.
+runs; the example above indexes the status Attribute under the shared search
+slot `keyword1`. See [Indexes](/reference/server/runtime-data#attribute-indexes)
+for how slots are shared across Flow types, and
+[PostgreSQL search](/reference/server/search#postgresql-search) for the slot
+limits.
 
 ## Locks {#locking}
 
@@ -361,33 +375,19 @@ lock, two that read and then write it can overwrite each other's update. See
 the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
 
-Lock any Attribute that two parallel Steps, or a Step and an RPC, read and then write. Dex has no lint or warning for an unlocked read-then-write today.
-To catch a missing lock, write a test that runs those Steps or RPCs at the same
-time and checks the final value.
+Lock any Attribute that two parallel Steps, or a Step and an RPC, read and
+then write. Dex does not detect an unlocked read-then-write. Test it by running
+both writers concurrently and checking the final value.
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
 not declare it can still write the Attribute. Keep locked RPCs short, because an RPC can take a free lock ahead of waiting
 Steps. See [Lock order](/reference/server/runtime-data#lock-order).
 
-A method that declares several locks takes them all at once. It starts only
-when every lock is free and it is first in line for each one. It never holds
-one lock while it waits for another, so two locked methods cannot block each
-other in a cycle.
-
-A Step holds its lock for the whole method, including the external calls it
-makes. A retry keeps the lock while it waits in the queue, and an attempt that
-no Worker can run holds it until the Flow times out or stops. To release such a
-lock, start a Worker that has that Step type, or stop the Flow. Dex has no
-command that releases a single lock. The method timeout and the retry policy
-bound how long a running Step holds a lock. So keep locked methods short, and
-make slow external calls in a Step that holds no lock.
-
-This adds up when a locked Step keeps failing. Its retries keep the lock, and
-the default retry policy keeps retrying for up to 4 hours. For that whole time,
-every other Step and RPC that declares the same lock waits or fails. Set a
-short total duration, such as a few minutes, in the locked method's
-`StepOptions` retry policy, or keep external calls out of it. The
-[StepOptions defaults](/concepts/step#stepoptions) list the retry window.
+Keep locked methods short. Make slow external calls in a Step that holds no
+lock, and set a short total duration, such as a few minutes, in the locked
+method's `StepOptions` retry policy. A failing locked Step holds its lock
+through every retry; see
+[Lock holding](/reference/server/runtime-data#lock-holding).
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 `Execute` runs:
@@ -497,23 +497,10 @@ To sync an Attribute:
 3. Mark the Attribute or AttributeMap with `syncToAttributeStore`.
 4. List the store name in the Flow's `FlowConfig` when you start the Flow.
 
-What to expect:
-
-- The Flow stays the source of truth. A table row holds the latest values, not
-  a history. Do not make Flow decisions from the table.
-- Dex writes in the background. A write never delays a Step, an RPC, or a
-  SetAttributes call. Writes for the same Flow ID keep their order.
-- When a write fails, Dex retries it for a limited time. It then drops the
-  write and logs a warning. Dex does not replay old values or fill a newly
-  configured store. [Dex and Your Database](/components/your-database) shows
-  how to detect a dropped write and repair the row.
-- When a Flow completes or fails on its own, it stays running while pending
-  writes finish. StopFlow does not wait. See
-  [Completion requests](/reference/server/step-and-flow-close#completion-requests).
-- Deleting an Attribute writes NULL to its column. Dex does not delete the row
-  when the Flow closes.
-- A store can split the Flow ID into several key columns, and can write each
-  AttributeMap instance as a row of its own table.
+The Flow stays the source of truth. A table row holds the latest values, not a
+history, so do not make Flow decisions from the table.
+[Dex and Your Database](/components/your-database) describes how sync behaves,
+including dropped writes and repairs.
 
 The [Attribute Store sync](/reference/server/attribute-store-sync) reference
 covers configuration, table requirements, row keys, AttributeMap tables,

@@ -15,8 +15,6 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 大多数后端把状态存在数据库里，再围绕数据库搭建每个流程。下面先用这种方式一种设计一种设计地搭一个订单流程，再用 Dex Flow 实现同一个流程。
 
-**用惯了队列和数据库？** 按这个顺序阅读：本页、[Dex 和你的数据库](/components/your-database)、[Step 保证](/concepts/step#guarantees)、[故障转移和部署](/concepts/failover-and-deploys)，以及[限制](/intro/limits)。
-
 这就是[为什么是 Dex？](/intro/what-is-dex)里的订单流程：扣款，等卖家审批并在等待期间提醒卖家，发货，发货一直失败就退款。每种设计为此需要的部件如下：
 
 <ArchitectureComparison markdownTable={{
@@ -31,20 +29,7 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 ## 数据库把哪些事留给你的代码 {#what-a-database-does-not-do}
 
-PostgreSQL、MySQL、S3 这类数据库和存储服务，负责保存数据，并在你查询时返回数据。它们是被动的：只有你的代码调用它们时，它们才会做事。
-
-可靠的后端需要的不只是存储。它要跑在多台机器上，这样一台出故障不会让服务停下，也能承接更多流量。一个 API 常常要调用好几个别的 API 和服务，一次数据库事务覆盖不了。
-
-一个典型的后端 API 还要：
-
-- 串行或并行地调用多个 API。
-- 安排之后要做的事，比如提醒和业务超时。
-- 等待其他系统，比如人工审批或外部事件。
-- 处理失败：重试、回滚，以及用于人工修复的死信队列（DLQ）。每一步的策略可能都不一样。
-- 能看到每一步的输入、错误，以及还没做完的工作。
-- 流量增长时，依然可用、够快、成本可控。
-
-这些数据库都不提供。每个服务都要把这些代码重新写一遍。
+PostgreSQL、MySQL、S3 这类数据库和存储服务负责保存数据，只有你的代码调用它们时才会做事。调用多个服务、安排之后要做的事、等待其他系统、失败重试，以及展示每一步的进度，都留给你的代码，而且每个服务都要重新写一遍。
 
 ## 起点：连续两次 API 调用 {#start-two-api-calls-in-a-row}
 
@@ -126,7 +111,7 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 
 ### 设计 2：步骤之间用消息队列 {#design-2-a-message-queue-between-steps}
 
-有经验的团队通常会改用消息队列，每一步一个队列：**charge-requests** 和 **ship-requests**。订单先作为一条消息进入 **charge-requests**。扣款消费者处理完这条消息，再往 **ship-requests** 发一条消息。
+下一步通常是改用消息队列，每一步一个队列：**charge-requests** 和 **ship-requests**。订单先作为一条消息进入 **charge-requests**。扣款消费者处理完这条消息，再往 **ship-requests** 发一条消息。
 
 <ExecutionApproachDiagram approach="message-queue" markdownDescription="消息队列在执行连续操作的消费者之间传递任务。每个消费者必须协调操作与消息确认，以处理失败。" />
 
@@ -138,7 +123,7 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 - 带退避的重试和 DLQ 往往要自己补。
   - 比如 Kafka 要额外建重试 topic，SQS 要靠 visibility timeout 绕过去。
   - 查看和恢复 DLQ 里消息的工具，也得自己做。
-- 前端可能要在扣款成功后马上返回（“已付款，订单处理中”）。这时它只能轮询数据库，既别扭又浪费。
+- 前端可能要在扣款成功后马上返回（“已付款，订单处理中”）。这时它必须轮询数据库来获取订单状态。
 
 业务还会不断变化。订单流程常常还要：
 
@@ -187,8 +172,9 @@ Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每�
   ],
 }} />
 
-Ship Step 一小时的重试窗口和进入 Refund 的路径都在它的选项里设置；[把失败转到恢复 Step](/intro/add-to-existing-code#route-a-failure-to-a-recovery-step) 解释了这些选项。[订单处理](/use-cases/order-processing) 用每种 SDK 给出了这个 Flow 的可运行代码。[快速开始](/quick-start) 运行一个更小的版本，只有 Charge Step 和 Ship Step。
+Ship Step 一小时的重试窗口和进入 Refund 的路径都在它的选项里设置；[把失败转到恢复 Step](/intro/add-to-existing-code#route-a-failure-to-a-recovery-step) 解释了这些选项。[订单处理](/use-cases/order-processing) 用每种 SDK 给出了这个 Flow 的可运行代码，并为演示把重试窗口缩短到 3 秒。[快速开始](/quick-start) 运行一个更小的版本，只有 Charge Step 和 Ship Step。
 
 ## 下一步 {#next}
 
-- [Dex vs. Temporal](/intro/compared-to-durable-execution)：Dex 怎样用不同的设计提供 Temporal 和其他持久化执行工具的能力。
+- [Dex vs. Temporal](/intro/compared-to-durable-execution)：Dex 和现有的 durable execution 引擎有什么不同。
+- [评估 Dex](/evaluate)：如果你用惯了队列和数据库，接下来按顺序读哪些页面。

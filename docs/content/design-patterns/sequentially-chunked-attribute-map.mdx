@@ -114,7 +114,7 @@ client.invoke_rpc_with_options(
 
 ## Pagination rules
 
-The **current** token is always valid after the Flow starts. An empty **current** returns an empty page. Archive tokens must contain exactly 20 decimal digits and identify a chunk boundary. A malformed token or a valid-looking token without a stored chunk returns an explicit error.
+A page token is **current** or the 20-digit name of an archived chunk; see [Chunk page tokens](/reference/server/runtime-data#chunk-page-tokens) for the validation rules.
 
 Archived chunks are immutable, so a page read again, such as on a retry, returns the same records. To update older records, use a different pattern or a separate index.
 

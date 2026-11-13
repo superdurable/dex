@@ -271,8 +271,8 @@ The Temporal version reads top to bottom. The opt-out is a Signal handler that s
 | Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. A Worker keeps no history cache. |
 | Search Attributes | Indexed Attributes | |
 | Workflow ID Reuse and Conflict Policy | ID reuse policy and start request ID | See [Flow identity](/concepts/flow). |
-| Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | Cooperative in both. See [Cancel running Steps](/concepts/primitives/rpc#cancel-running-steps). |
-| Reset | [Time Travel](/concepts/change-flow-code#time-travel) | Time Travel keeps the Run ID. |
+| Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | Cooperative in both. See [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). |
+| Reset | [Time Travel](/components/operate-and-debug#time-travel) | Time Travel keeps the Run ID. |
 | Continue-As-New | No equivalent needed | Dex prunes old history events. See [Replay and saved Step results](#the-main-difference-an-explicit-step-graph-not-replayed-code). |
 | Patching, Worker Versioning | Keep old Step types and change data additively | See [Replay and saved Step results](#the-main-difference-an-explicit-step-graph-not-replayed-code). |
 | Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |

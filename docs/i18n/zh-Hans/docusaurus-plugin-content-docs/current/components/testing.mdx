@@ -24,11 +24,19 @@ dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
   -zd-data-dir "$(mktemp -d)" -zd-config zd-overrides.yaml &
 ```
 
-等它的输出显示 **Dex development environment is ready**，然后用 `DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:19802` 运行测试。`processCrashSafe` 设置跳过 fsync，让测试 server 更快。它能扛住进程被杀，但扛不住主机崩溃，所以只在测试中使用。见 [Durability](/reference/server/configuration#single-node-local-durability)（英文）。
+等它的输出显示 **Dex development environment is ready**，然后用 `DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:19802` 运行测试。`processCrashSafe` 设置让测试 server 更快，只用于测试；[Durability](/reference/server/configuration#single-node-local-durability)（英文）对比了各个模式。
 
 仓库里的示例在 CI 中就是这样运行测试的。每个语言目录都有一个 `run-integ-tests.sh` 脚本，它启动 **dexcli dev**，等待它就绪，然后运行测试。
 
 ## 编写测试 {#write-a-test}
+
+在你的测试中遵循这些规则：
+
+- **给每个测试一个唯一的 Flow ID。** 这样多个测试可以同时在一个 server 上运行，之前运行留下的 Flow 也不会干扰。
+- **在测试里运行 Worker。** 用应用里同一个 Registry 构造函数来构建它，这样测试检查的是真实的注册。
+- **用 Client 调用等待，而不是 sleep。** `wait_for_step_completion` 等待一个 Step，`wait_for_flow` 等待 Flow 关闭。
+- **使用记录每次调用的 fake。** 测试的 mock API 保存每一次调用，所以测试能看到重复的调用并计数。
+- **给崩溃测试单独的 Worker。** 注册同一个 Flow type 的 Worker 会共享它的任务。停止 Worker 的测试，只能停止自己的 Worker，而不是其他测试正在用的。
 
 快速开始的重启测试展示了这个模式。它启动自己的 Worker，用唯一的 ID 启动一个 Flow，在第一个 Step 之后停止这个 Worker，再启动第二个 Worker，然后检查在第二个 Worker 上只运行了第二个 Step：
 
@@ -259,14 +267,6 @@ fn restarted_worker_ships_without_charging_again() {
 
 </SdkSnippet>
 </SdkTabs>
-
-在你自己的测试中遵循同样的规则：
-
-- **给每个测试一个唯一的 Flow ID。** 这样多个测试可以同时在一个 server 上运行，之前运行留下的 Flow 也不会干扰。
-- **在测试里运行 Worker。** 用应用里同一个 Registry 构造函数来构建它，这样测试检查的是真实的注册。
-- **用 Client 调用等待，而不是 sleep。** `wait_for_step_completion` 等待一个 Step，`wait_for_flow` 等待 Flow 关闭。
-- **使用记录每次调用的 fake。** 测试的 mock API 保存每一次调用，所以测试能看到重复的调用并计数。
-- **给崩溃测试单独的 Worker。** 注册同一个 Flow type 的 Worker 会共享它的任务。停止 Worker 的测试，只能停止自己的 Worker，而不是其他测试正在用的。
 
 ## 跳过 Timer {#skip-a-timer}
 

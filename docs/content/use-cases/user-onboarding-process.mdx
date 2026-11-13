@@ -10,6 +10,10 @@ Guide a new user from account creation through email verification and two requir
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Reminder](/design-patterns/durable-timer/reminder), [Interruptible wait](/design-patterns/interruptible), [Responsive Update](/design-patterns/responsive-update).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 The process accepts a username, email address, first name, and last name. It must:
@@ -30,13 +34,11 @@ Failures and other outcomes to handle:
 - A task completion can arrive out of order. The RPC then reports that the task is not waiting, and it does not publish the Channel message.
 - A Step method or RPC can fail before it returns. Dex then saves none of that method's Attribute writes or Channel messages. A retry starts from the state that was saved before the method ran.
 - Sending an email can fail temporarily. The email adapter should return the error so that Dex retries the Step.
-- The email provider can accept a message and the Worker can then fail before Dex records success. In production, send email with an idempotency key or another way to drop duplicates.
+- Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
 
 The Go, Java, Python, TypeScript, and Rust examples all implement the full path: verification, task 1, task 2, and completion. Each has an integration test for that path.
 
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow runs four waiting stages in order:
 
@@ -391,7 +393,7 @@ impl Step for AccomplishTask1 {
 
 ## Demo
 
-In this Go run, one user signed up, verified the email, and finished task 1 and task 2. Each stage appears as its own completed Step. Each Step shows the Timer and Channel it waited on before the user action arrived.
+[Run any example](/use-cases#run-any-example) starts the samples app. In this Go run, one user signed up, verified the email, and finished task 1 and task 2. Each stage appears as its own completed Step. Each Step shows the Timer and Channel it waited on before the user action arrived.
 
 <a href="/img/use-cases/user-onboarding-process-step-execution-graph.png">
   <img

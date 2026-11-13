@@ -20,17 +20,10 @@ Choose by access pattern:
 
 | Dimension | Sequentially Chunked | Hash-Partitioned |
 |---|---|---|
-| Grouping | Increasing sequence; one chunk per 100 records | FNV-1a of canonical key modulo 1,000 |
 | Primary goal | Efficient append and ordered pagination | Direct lookup and upsert by stable business key |
-| Typical data | Subscriber history, agent messages, audit events | Customer profiles, account metadata, configuration directories |
-| One read | One sequential chunk | One hash bucket |
-| One write | Rewrite the active chunk; also archive it at rollover | Rewrite the target bucket |
 | Ordering | Preserves insertion order naturally | No natural global order |
 | Lookup by key | Usually scans chunks or needs another index | Calculates one partition directly |
 | Updating old data | Poor fit; archived chunks should stay immutable | Good fit for upsert within the target bucket |
 | Write concurrency | All appends contend on the active chunk | Different partitions use independent locks |
-| Growth | Creates new chunks without rehashing | Fixed partition count; each bucket grows with total data |
-| Distribution | Naturally balanced by record count | Usually balanced, but hot keys can create hot partitions |
-| Changing parameters | New data can use a versioned chunk strategy | A partition-count change requires rehash and migration |
-| Full enumeration | Read chunks in sequence | Read up to 1,000 partitions |
-| Best fit | Append-only data with time or sequence order | Structured values with a stable lookup key |
+
+[Attribute: Partition a growing collection](/concepts/primitives/attribute#attributemap-partitioning) has the full comparison.

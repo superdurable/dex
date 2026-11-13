@@ -523,15 +523,19 @@ is marked invalid, because the load generator may have been the bottleneck.
 #### Reproduce a result
 
 `run-remote.sh` writes `config.env`, `zd-config.yaml`, `points.txt`, and
-`host.txt` into every result set. To rerun a point on new hosts, set the host
-and bucket variables as above and run:
+`host.txt` into every result set. To rerun a point on your own AWS account,
+meet the [prerequisites](#prerequisites), then [launch](#launch) the shared
+resources, a server of the recorded instance type, and a load host in one
+Availability Zone. Set the host and bucket variables as in [Run](#run), and run:
 
 ```bash
 benchmark/aws/reproduce.sh benchmark/results/<run> sequential-steps 512
 ```
 
 It loads the recorded settings from `config.env` and the matching lines from
-`points.txt`. Omit the scenario and concurrency to rerun every point.
+`points.txt`. Omit the scenario and concurrency to rerun every point. When
+you are done, delete everything with `benchmark/aws/teardown.sh` (see
+[Clean up](#clean-up)).
 
 #### Test without AWS
 

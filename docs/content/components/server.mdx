@@ -20,16 +20,15 @@ ships as one binary, **dex-server-zd**; its releases and the
 | A PostgreSQL Attribute Store | No | Copies of selected Attributes in your own tables. See [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection). |
 | A metrics listener | No | Prometheus metrics. See [Metrics](/reference/server/metrics). |
 
-Can you use your own PostgreSQL for Dex Server's state? Not today. db9 is a
-separate database product that speaks the PostgreSQL wire protocol.
-Dex Server can keep its command logs, lease, snapshots, and values there
-instead of in S3. Stock PostgreSQL is not a supported production store for
-this today, although the db9 provider's tests also run against PostgreSQL 16.
+In place of object storage, Dex Server can store its state in db9, a
+PostgreSQL-compatible database: its command logs, lease, snapshots, and
+values. Stock PostgreSQL is not supported as a production store, although the
+db9 provider's tests also run against PostgreSQL 16.
 The database must give durable transactions, row locks, and strongly
 consistent reads, so a read replica does not qualify. See
 [db9 provider](/reference/server/object-storage#db9).
 
-## How it works
+## How it works {#how-it-works}
 
 Object storage is the record. Dex Server keeps a local store only as a cache,
 and a node rebuilds that cache from object storage after a restart.
@@ -44,7 +43,7 @@ One active process serves a cluster. It holds a lease in object storage, so a
 second process cannot write at the same time. You can run standby processes
 that take over when the active process stops.
 
-Today the one active node serves every Flow in a cluster, so its capacity is
+The one active node serves every Flow in a cluster, so its capacity is
 the cluster's ceiling. [Limits](/intro/limits)
 covers this and other limits, and
 [Performance](/intro/performance) gives measured

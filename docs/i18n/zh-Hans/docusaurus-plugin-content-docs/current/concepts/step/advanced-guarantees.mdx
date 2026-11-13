@@ -15,7 +15,11 @@ description: Dex 为每个 Step 方法保存什么，方法什么时候会重新
 
 Dex 单独保存每次 `WaitFor` 或 `Execute` 调用。它把这次调用的 Attribute 写入和 Channel 发布与结果一起保存，而且只在方法成功时保存。对外部系统的调用不在这次保存里。
 
-一个 Step 方法的修改会一次全部生效。但这挡不住其他 Step 和 RPC 同时修改同样的状态。方法读到的是 Dex 把它交给 Worker 时的 Flow 状态。在方法的修改生效之前，其他 Step 和 RPC 可能已经改了这些状态。Dex 不检查方法读到的值是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。要避免这种情况，让它们都在这个 Attribute 上声明 lock。Dex 会让它们依次执行。见 [Attribute lock](/concepts/primitives/attribute#locking)。
+方法读到的是 Dex 把它交给 Worker 时的状态；提交时 Dex 不会重新检查。两个先读后写同一个 Attribute 的方法，都必须给它加 lock。见 [Attribute lock](/concepts/primitives/attribute#locking)。
+
+### 状态快照 {#state-snapshot}
+
+方法的**状态快照**是 Dex 传给它的 Flow 状态：每个普通 Attribute、每个 Channel 的大小，以及它的 `StepOptions` 选中的 AttributeMap 值和待处理的 Channel 消息。Dex 在把第一次尝试交给 Worker 时生成快照。`Execute` 的重试复用这个快照，所以看不到之后写入的 Attribute。要等待这样的写入，让写入方发布一条 Channel 消息，并在下一个 Step 的 `WaitFor` 里等待它。hard-delete Attribute 是例外：Dex 在每次尝试时都会重新读取它们。见[短期 secret](/concepts/primitives/attribute#hard-delete-attributes)。
 
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>
@@ -31,7 +35,6 @@ Dex 单独保存每次 `WaitFor` 或 `Execute` 调用。它把这次调用的 At
 
 - **Worker 在方法中途停止。** 这次尝试失败，重试策略会再运行这个方法。它的外部调用可能已经发生。server 重启或故障转移时，Worker 手上的每次尝试都会这样。
 - **heartbeat 只发送、不确认。** heartbeat checkpoint 可能丢失，所以重新运行可能从更早的 checkpoint 开始。
-- **被取消的方法会继续运行。** Dex 不会停止它的代码，它的外部调用仍然会生效。
 - **ASYNC Step 可能重复一次尝试。** 见 [SYNC 和 ASYNC Step](#sync-and-async)。
 - **重试用完时，结果可能未知。** recovery Step 会知道工作肯定没有运行（`NOT_STARTED`），或者可能运行过（`NOT_COMPLETED`）。遇到 `NOT_COMPLETED` 时，先用幂等键在目标系统里检查，再决定是否重复或报告这个效果。
 
@@ -50,7 +53,9 @@ Step 的 **durability** 决定 Dex 什么时候保存它的进度。
 
 取消一个 Step，会丢弃它当前方法还没有保存的一切：Attribute 写入、Channel 发布和它的决定。它的 `WaitFor` 已经保存的内容保留。一个决定或 RPC 永远不会取消它自己启动的 Step。被取消的 Step 已经消费的消息会怎样，见 [Channel 的保证](/concepts/primitives/channel#guarantees)。
 
-被取消方法的代码会一直运行到方法返回。方法应检查取消状态并返回。见 [Step 取消](/reference/server/step-and-flow-close#step-cancellation)。
+被取消方法的代码会一直运行到方法返回，它的外部调用仍然会生效。方法应检查取消状态并返回。见 [Step 取消](/reference/server/step-and-flow-close#step-cancellation)。
+
+<a id="cancel-a-publishing-step"></a>被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的 Step 或 RPC 也不能替它发布。Dex 要到保存发起取消的那个结果时，才确定取消哪些 Step。那时被取消的 Step 可能已经发布过了。所以不要取消其他 Step 依赖它发布消息的 Step，例如 [临界区](/design-patterns/critical-section)中持有 token 的 Step。要提前停止这样的 Step，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。
 
 `GracefulComplete` 结束它自己的分支，并请求 Dex 在没有 active Step 后完成 Flow。这个请求会一直有效：之后某个分支以 `DeadEnd` 结束，也不会撤回它。见[完成请求](/reference/server/step-and-flow-close#completion-requests)。
 

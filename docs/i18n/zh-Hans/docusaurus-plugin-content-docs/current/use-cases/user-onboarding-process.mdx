@@ -8,6 +8,10 @@ import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-proc
 
 引导新用户完成账号创建、邮箱验证和两个必需的设置任务。
 
+**展示：**[提醒](/design-patterns/durable-timer/reminder)、[可中断等待](/design-patterns/interruptible)、[响应式更新](/design-patterns/responsive-update)。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## 产品需求
 
 流程接收用户名、邮箱地址、名字和姓氏。它必须：
@@ -28,13 +32,11 @@ import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-proc
 - 任务完成操作可能乱序到达。这时 RPC 会返回该任务不在等待中，也不会发布 Channel 消息。
 - Step method 或 RPC 可能在返回前失败。这时 Dex 不会保存该 method 的任何 Attribute 写入或 Channel 消息。重试会从该 method 运行前已保存的状态开始。
 - 发送邮件可能临时失败。邮件适配器应返回错误，让 Dex 重试该 Step。
-- 邮件供应商可能已经接受邮件，但 Worker 在 Dex 记录成功之前就失败了。生产环境发送邮件时，要使用幂等键或其他去重方式。
+- 用[幂等键](/concepts/step#idempotency-keys)让每个外部调用都能安全地重复。
 
 Go、Java、Python、TypeScript 和 Rust 示例都实现了完整路径：邮箱验证、任务 1、任务 2 和完成。每个示例都有覆盖这条路径的集成测试。
 
 ## Flow 设计
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 这个 Flow 按顺序经过四个等待阶段：
 
@@ -389,7 +391,7 @@ impl Step for AccomplishTask1 {
 
 ## 演示
 
-在这次 Go 运行中，一个用户完成注册、验证邮箱，然后完成任务 1 和任务 2。每个阶段都是一个独立的已完成 Step。每个 Step 都显示了用户操作到达之前它在等待的 Timer 和 Channel。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。在这次 Go 运行中，一个用户完成注册、验证邮箱，然后完成任务 1 和任务 2。每个阶段都是一个独立的已完成 Step。每个 Step 都显示了用户操作到达之前它在等待的 Timer 和 Channel。
 
 <a href="/img/use-cases/user-onboarding-process-step-execution-graph.png">
   <img

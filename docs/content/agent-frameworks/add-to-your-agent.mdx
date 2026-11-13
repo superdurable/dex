@@ -15,10 +15,170 @@ Move the example agent of the [Agent Quick Start](/agent-frameworks/quick-start)
 
 - **Your agent definition stays.** You wrap it and give each tool a policy.
 - **Your request handler changes shape.** It sends the user's message to the session and returns. The reply arrives on the session's event stream, or in its snapshot.
-- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. Dex Server runs in Dex Cloud or on your own infrastructure; [Where to run Dex Server](/components#where-to-run) compares the two. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
-- **Each turn waits on Dex commits.** A turn with three parallel tool calls adds about 0.4 seconds; see [Latency and cost](/agent-frameworks/sessions#latency-and-cost).
+- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. Dex Server runs in Dex Cloud or on your own infrastructure; [Where to run Dex Server](/components#where-to-run) compares the two.
+- **Each turn waits on Dex commits.** [Latency and cost](/agent-frameworks/sessions#latency-and-cost) gives the time each turn adds.
 
-[Run Agents in Production](/agent-frameworks/production) lists what to set up. [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits#license) gives the license.
+[Run Agents in Production](/agent-frameworks/production) lists what to set up. [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits) gives the release status and the license.
+
+## Use it in your own agent {#use-it-in-your-own-agent}
+
+Install the adapter with its framework. Each adapter brings in the Dex Agents core. Then copy [the complete files](#complete-files).
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/claude-agent-sdk',
+    typescript: 'agents/typescript/claude-agent-sdk',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-claude-agent-sdk
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**Authentication**
+
+The Worker authenticates the Claude Code CLI with `ANTHROPIC_API_KEY`. Set it in the Worker's environment. It never enters Flow state.
+
+The example builds the CLI's environment so that `ANTHROPIC_API_KEY` is its only credential. Without the key, the example does not register the Claude agent. It serves the other harnesses.
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/google-adk',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-google-adk
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/langgraph',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-langgraph langchain-openai
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/mastra',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/openai-agents',
+    typescript: 'agents/typescript/openai-agents',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-openai-agents
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/pi',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
+npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The second line installs Pi's agent core, for the `AgentTool` type, and pi-schema, for typed arguments. Install them when your tools use them. pi-ai needs Node.js 22.19 or later.
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/pydantic-ai',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/vercel-ai',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
 
 ## What changes in your code {#what-changes-in-your-code}
 
@@ -465,169 +625,9 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/framework-details#limits). The session runs in a Worker and is driven by a Client; [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) shows that host code.
+Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/framework-details#limits). The session runs in a Worker and is driven by a Client. [Wire the session into your app](#wire-it-into-your-app) shows the host code.
 
-## Use it in your own agent {#use-it-in-your-own-agent}
-
-Install the adapter with its framework. Each adapter brings in the Dex Agents core. Then copy [the complete files](#complete-files) below.
-
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/claude-agent-sdk',
-    typescript: 'agents/typescript/claude-agent-sdk',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-claude-agent-sdk
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-**Authentication**
-
-The Worker authenticates the Claude Code CLI with `ANTHROPIC_API_KEY`. Set it in the Worker's environment. It never enters Flow state.
-
-The example builds the CLI's environment so that `ANTHROPIC_API_KEY` is its only credential. Without the key, the example does not register the Claude agent. It serves the other harnesses.
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/google-adk',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-google-adk
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/langgraph',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-langgraph langchain-openai
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/mastra',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/openai-agents',
-    typescript: 'agents/typescript/openai-agents',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-openai-agents
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="pi">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/pi',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
-npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The second line installs Pi's agent core, for the `AgentTool` type, and pi-schema, for typed arguments. Install them when your tools use them. pi-ai needs Node.js 22.19 or later.
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/pydantic-ai',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/vercel-ai',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-</FrameworkTabs>
-
-### The complete files {#complete-files}
+## The complete files {#complete-files}
 
 The quick start program is three files per language. They use only Dex, Dex Agents, and your framework, apart from the example's order desk with its tools and the settings the entry point reads. Read them in the repository:
 
@@ -637,9 +637,9 @@ The quick start program is three files per language. They use only Dex, Dex Agen
 | The runner: Registry, Worker, Client, and one turn with approvals | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
 | The entry point that asks for approval at the prompt | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
 
-### Wire the session into your app {#wire-it-into-your-app}
+## Wire the session into your app {#wire-it-into-your-app}
 
-The change to your agent is small: the wrap in [step 2 of the Agent Quick Start](#what-changes-in-your-code). The rest is hosting code that every Dex app has, a Worker that runs Steps and a Client that calls them. This function is the smallest host. It runs one Worker and one Client in your process, starts a session, sends one message, and returns the session after the turn:
+The change to your agent is small: the wrap in [What changes in your code](#what-changes-in-your-code). The rest is hosting code that every Dex app has, a Worker that runs Steps and a Client that calls them. This function is the smallest host. It runs one Worker and one Client in your process, starts a session, sends one message, and returns the session after the turn:
 
 <SdkTabs
   examples={{
@@ -765,7 +765,7 @@ A web app splits the same pieces across routes:
 
 The [Order Support Agent](/use-cases/order-support-agent) example has these routes over HTTP, for every framework.
 
-#### What replaces the framework call in a web handler {#web-handler}
+### What replaces the framework call in a web handler {#web-handler}
 
 The handler queues the message on the session and returns.
 

@@ -13,17 +13,15 @@ slug: /concepts/primitives/subflow
 SubFlow 主要有两种用途：
 
 1. 把复杂逻辑拆到更小的 Flow 中。这让业务逻辑更容易维护。
-2. 扇出工作。一个 Flow run 不能同时运行太多操作，但可以把工作交给很多 SubFlow。这些 SubFlow 同时运行，父 Flow 因此能达到高得多的并发。
+2. 扇出工作。一个 Flow run 的吞吐量有限。把工作扇出到 SubFlow，让它们并行运行。
 
 ## 保证
 
+父 Flow 关闭时，子 Flow 会继续运行。你需要自己停止它，或者给子 Flow 设置 Flow timeout，让它到时自行结束。
+
 Dex Server 根据父 Flow ID、Step execution 和 condition 序号计算 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
 
-启动 SubFlow 的 Step，Step 类型里不要有短横线。Dex 会让这样的 WaitFor 尝试直接失败，不再重试。见[启动 SubFlow 的 Step 类型](/reference/server/runtime-data#subflow-step-types)。
-
-用同一个父 Flow ID 再启动一次时，新的 run 可能算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。使用默认 policy 时，新的 run 会复用之前 run 的子 Flow。两个子 Flow 都要继续运行时，换一个父 Flow ID。见[之后的父 run](/reference/server/runtime-data#subflow-parent-lifecycle)。
-
-父 Flow 关闭时，子 Flow 会继续运行。你需要自己停止它，或者给子 Flow 设置 Flow timeout，让它到时自行结束。
+启动 SubFlow 的 Step 类型和重新启动的父 Flow ID 都会影响 SubFlow ID；见[启动 SubFlow 的 Step 类型](/reference/server/runtime-data#subflow-step-types)和[之后的父 run](/reference/server/runtime-data#subflow-parent-lifecycle)（英文）。
 
 ## 启动并等待 SubFlow
 

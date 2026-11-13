@@ -26,7 +26,7 @@ Step 写入你的数据库，和它调用支付 API 的方式一样。这次写�
 
 ## 写入你的行并启动 Flow {#write-your-row-and-start-the-flow}
 
-handler 经常为同一个请求写入自己的一行，并启动一个 Flow。使用数据库和队列时，这一对操作需要 transactional outbox。使用 Dex 时，启动本身可以安全地重复，所以 handler 直接重试整个请求。
+handler 经常为同一个请求写入自己的一行，并启动一个 Flow。因为 Dex 的启动可以安全地重复，handler 可以重试整个请求，不需要 transactional outbox。
 
 启动 Flow 时，要让重试找到同一个 run：
 
@@ -49,14 +49,9 @@ handler 经常为同一个请求写入自己的一行，并启动一个 Flow。�
 
 ### 这些保护持续多久 {#how-long-protections-last}
 
-两种保护都依赖 Flow run 仍然存在：
+把保留期设得比 Client 的重试窗口更长。见 [Retention and start deduplication](/reference/server/configuration#retention-and-start-deduplication)（英文）。
 
-- **每个 ID 一个 Flow**：只要这个 Flow ID 的任何 run 还存在，就成立。在默认的 ID 复用策略下，同一个 ID 的第二次启动会被拒绝；设置了 already-started 选项时，会返回已有的 run。
-- **重复的启动请求**：只要它启动的 run 还存在，就会返回这个 run。
-
-Dex 会在已关闭的 run 超过[保留期](/components/production#defaults-to-change-before-production)后删除它。之后这个 Flow ID 就空出来了，用同一个 ID 启动会创建一个新的 Flow。除非支付服务仍然会丢弃重复的键，否则这个新 Flow 会再扣一次款。把保留期设得比 Client 可能重试的最长时间还长，或者把订单状态记在你自己的表里，在启动前先检查。见 [Retention](/reference/server/configuration#retention)（英文）。
-
-对正在运行的 Flow 发出的请求，例如 RPC 调用，也会在一个窗口内按 request ID 去重：一个 run 保留最新的 1,000 个 request ID，用更早的 ID 发起的重试会作为新请求运行（见 [Limits](/reference/server/configuration#limits)（英文）表中的 `limits.maxRequestIdsPerRun`）。
+RPC 调用只在同一次 SDK 调用内部按 request ID 去重；你的代码再次调用 RPC，它就会再运行一次。见 [RPC 的保证](/concepts/primitives/rpc#guarantees) 和 [Limits](/reference/server/configuration#limits)（英文）表中的 `limits.maxRequestIdsPerRun`。
 
 ## Dex 把 Attribute 复制到你的数据库 {#attribute-store-sync}
 
@@ -74,16 +69,7 @@ Dex 会在已关闭的 run 超过[保留期](/components/production#defaults-to-
 
 ### Dex 丢弃同步条目时 {#dropped-entries}
 
-PostgreSQL 不可用期间，Flow 继续运行，Dex 会重试这些写入。超过 `syncRetryPolicy.totalDuration`（默认一小时）仍未完成的条目会被丢弃。Dex 记录一条 warning 日志，写明 Flow run 和 store，并增加 `dexzd_attribute_sync_dropped_entries_total`。PostgreSQL 以不可重试的错误拒绝的写入也计入这个指标，例如值超过了列的长度。
-
-被丢弃的条目会让这一行的值变得不确定。修复步骤：
-
-1. 在 `dexzd_attribute_sync_dropped_entries_total` 任何增加时告警。
-2. 在 server 日志中找到受影响的 Flow run。每条 warning 都写明 run 和 store。
-3. 把每一行和 Flow 的 Attribute 做比较。
-4. 再写一次这些 Attribute。之后对同样 Attribute 的写入会正常同步。
-
-[Attribute Store sync](/reference/server/attribute-store-sync)（英文）介绍配置、重试策略和其他指标。
+PostgreSQL 不可用期间，Flow 继续运行，Dex 会重试这些写入。重试一小时后，写入可能被丢弃；请对 `dexzd_attribute_sync_dropped_entries_total` 设置告警。怎样找到并修复受影响的行，见 [Repair a dropped entry](/reference/server/attribute-store-sync#repair-dropped-entry)（英文）。
 
 ## 订单示例 {#order-example}
 

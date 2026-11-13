@@ -9,14 +9,9 @@ description: 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server�
 
 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server。你的 Worker 仍然运行你的 Flow 代码，可以在你的服务器、你的云或者你的笔记本上。
 
-## 各部分由谁运行 {#what-runs-where}
+## 开始使用 {#get-started}
 
-| | 由谁运行 |
-| --- | --- |
-| Dex Server：存储、升级、容量和监控 | Super Durable |
-| Flow 状态：Flow 输入、Attribute 和 Step 结果 | 由 Dex Server 存储，存储由 Super Durable 运维 |
-| 你的 Worker 和 Flow 代码 | 你自己，部署在你选择的地方 |
-| 你的代码调用你自己的 API 时使用的凭证 | 你自己。它们留在你的 Worker 里。 |
+[注册 Dex Cloud](https://dex.superdurable.io/register)，然后创建一个 server。价格、区域和 SLA，请[联系 Super Durable](https://superdurable.io/about/#contact)。
 
 ## 连接 Worker 和 Client {#connect}
 
@@ -25,9 +20,9 @@ description: 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server�
 - key 放在 [API key credential](/reference/server/authentication#sdk-credentials) 里。
 - TLS 用 SDK 的 [TLS 选项](/reference/server/authentication#tls)。
 
-## 开始使用 {#get-started}
+## 各部分由谁运行 {#what-runs-where}
 
-[注册 Dex Cloud](https://dex.superdurable.io/register)，然后创建一个 server。价格、区域和 SLA，请[联系 Super Durable](https://superdurable.io/about/#contact)。
+你的代码调用你自己的 API 时使用的凭证留在你的 Worker 里。[Dex Server 运行在哪里](/components#where-to-run)对比了 Dex Cloud 和自托管 server。
 
 ## 下一步 {#next}
 

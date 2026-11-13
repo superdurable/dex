@@ -81,8 +81,8 @@ fail with `Unavailable` for an RPC. See
 ## You deploy new code
 
 Each Step attempt runs the code of the Worker that takes it; Dex does not
-[replay](/concepts/change-flow-code#versioning-flow-code) earlier Steps. A Flow that waits in a Step
-today runs the new `Execute` when its conditions are met.
+[replay](/concepts/change-flow-code#versioning-flow-code) earlier Steps. A Flow that already waits in a
+Step runs the new `Execute` when its conditions are met.
 
 During a rolling deploy, a Worker that lacks a Step type or RPC declines it.
 Dex hands the call to another Worker, and the Step attempt is not used up. See
@@ -110,7 +110,7 @@ repeat stops there.
 
 Time Travel moves a Flow run back to an earlier point and runs it again from
 there. Every Step after that point runs again, with its external calls. See
-[Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel).
+[Recover a Flow with Time Travel](/components/operate-and-debug#time-travel).
 
 ## Next
 

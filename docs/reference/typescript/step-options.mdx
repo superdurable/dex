@@ -14,6 +14,24 @@ selections, and lock sets.
 <a id="retry-and-failure-policies"></a><a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="last-failure-info"></a><a id="retry-after"></a>Retry policies, failure policies, and **RetryAfter** are on
 [Failure and retries](./failure-and-retries.mdx).
 
+## Defaults {#defaults}
+
+Each method uses the server defaults until **StepOptions** set its own. The
+defaults are the same for every SDK:
+
+| Setting | Default |
+| --- | --- |
+| Method timeout, for one attempt | 2 hours |
+| Heartbeat timeout | 1 minute |
+| Retry attempts | No limit within the total duration |
+| Retry total duration | 4 hours from the first hand-out to a Worker |
+| Retry backoff | 1 second, doubling up to 100 seconds |
+| Durability | SYNC |
+| Failure policy | Fail the Flow |
+
+[Timeouts and total duration](#timeouts-and-total-duration) explains how these
+limits interact.
+
 ## Override StepOptions per Step execution {#stepoptions-override-per-stepexecution}
 
 The **StepOptions** that a Step type returns apply to all of its Step
@@ -121,6 +139,17 @@ For example, with an **Execute** method timeout of 60 seconds and a
 **HeartbeatTimeout** of 10 seconds, Dex retries a stalled attempt after about
 10 seconds instead of 60. To wait for an external system in
 one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
+
+A loop that heartbeats once per round must finish each round inside the window.
+Keep the poll interval plus the external call timeout at or below
+**HeartbeatTimeout** minus 10 seconds:
+
+```text
+interval + call timeout <= HeartbeatTimeout - 10s
+```
+
+With a one-minute **HeartbeatTimeout** and a 10-second call timeout, the
+interval can be at most 40 seconds.
 
 A heartbeat can carry a checkpoint value. The next attempt receives the latest
 stored checkpoint and can resume from it. A heartbeat without a value clears
