@@ -475,7 +475,7 @@ impl SnapshotRetention {
         Ok(true)
     }
 
-    /// Reads by key the pointed manifests and unresolved manifest writes, which listings can hide.
+    /// Reads pointed manifests and unresolved manifest writes that the catalog lacks, as listings can hide them.
     async fn read_protected_manifests(
         &self,
         catalog: &mut SnapshotCatalog,

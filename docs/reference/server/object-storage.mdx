@@ -457,14 +457,31 @@ requests that page again. Once such pages have taken 5 seconds of one listing
 request, the listing fails as a retryable error, and **ListFlowDefinitions**
 returns **UNAVAILABLE**.
 
-Snapshot retention deletes a snapshot file only when it knows, without a
-listing, every snapshot that can use the file. It reads each snapshot of the
-current owner's lineage by key. A snapshot of an earlier lineage can be missing
-from every listing. So retention keeps a file of an earlier lineage until
-**snapshot.retainedCount** snapshots of later lineages are older than
-**snapshot.logDeletionDelay**. Then retention deletes every snapshot of that
-lineage, listed or not. After a restart or a takeover, files of the former
-owner's snapshots can therefore stay longer than on other providers.
+Snapshot retention on COS decides what to keep from reads of single objects and
+from what the running server did itself. It keeps these snapshots and every
+file they list:
+
+- the snapshot that the cluster manifest points to;
+- each snapshot that the server saw pointed to within the last
+  **snapshot.logDeletionDelay**, so a hot standby can finish restoring it;
+- the newest **snapshot.retainedCount** snapshots that the running server
+  uploaded;
+- a snapshot whose upload failed, until the server reads it or
+  **snapshot.logDeletionDelay** has passed since the upload ended.
+
+Listings only nominate the other snapshots and files for deletion. The server
+deletes each one once it has stayed unprotected for
+**snapshot.logDeletionDelay**, counted from the first listing that showed it.
+The server measures this time on its own monotonic clock. It never compares
+the clocks of other hosts. Recovery restores only the snapshot that the
+cluster manifest points to, so **snapshot.retainedCount** counts only the
+running server's snapshots.
+
+So each unprotected object goes at the first cleanup run after it has been
+nominated for **snapshot.logDeletionDelay**. A restart or a takeover starts
+every wait again. A server that never runs for **snapshot.logDeletionDelay**
+therefore deletes none of these objects, and the next server that does
+deletes them.
 
 A run purge first deletes, by key, the hard-delete objects that committed state
 references. It then lists the run's hard-delete prefix twice, at least 5
@@ -499,6 +516,19 @@ With versioning, the noncurrent-version expiry sets how far back you can
 restore. Replication is asynchronous, so a replica can lag the source. When
 **objectStore.hardDeleteStore** is configured, its prefix holds hard-delete
 Attribute values. Protect it the same way.
+
+With [**tencentCOS**](#tencent-cos), back up the prefix by copying it. Bucket
+versioning and replication are unavailable there: the server rejects a bucket
+that ever had versioning, and COS replication needs versioning. To back up:
+
+1. Stop every node that uses the prefix, or make sure that no server writes to
+   it.
+2. Download every object under the prefix.
+
+The copy holds the newest version of the cluster manifest, the snapshot that
+it points to, and the log after that snapshot. To restore it, upload every
+object to an empty prefix, point **objectStore.prefix** at it, and follow the
+steps below. Copy the prefix of **objectStore.hardDeleteStore** the same way.
 
 To restore:
 
