@@ -197,7 +197,11 @@ describe("remote MCP servers from mcp_servers", () => {
       writeLogLine: () => undefined,
     });
     const reference = JSON.stringify({ mcp_server: "studio", mcp_tool: "search_assets" });
-    const execution = (effect: "read" | "unclassified", requiresApproval: boolean): DeferredToolExecution =>
+    const execution = (
+      effect: "read" | "unclassified",
+      requiresApproval: boolean,
+      toolSourceReference: string | null = reference,
+    ): DeferredToolExecution =>
       ({
         flowId: "flow-1",
         toolCall: {
@@ -212,7 +216,7 @@ describe("remote MCP servers from mcp_servers", () => {
           error: null,
           rejectionMessage: null,
           deferralOrder: 0,
-          toolSourceReference: reference,
+          ...(toolSourceReference === null ? {} : { toolSourceReference }),
         },
         idempotencyKey: `flow-1/turn-1/call-${effect}`,
         attempt: 1,
@@ -228,6 +232,21 @@ describe("remote MCP servers from mcp_servers", () => {
       return true;
     });
     await assert.rejects(source.executeDeferredToolCall(execution("read", true)), ToolExecutionError);
+    // The listing must never pick the server past the trust check.
+    await source.listTools();
+    const unknownReferences = [
+      null,
+      "not json",
+      JSON.stringify({ mcp_tool: "search_assets" }),
+      JSON.stringify({ mcp_server: "other", mcp_tool: "search_assets" }),
+    ];
+    for (const unknownReference of unknownReferences) {
+      await assert.rejects(source.executeDeferredToolCall(execution("read", false, unknownReference)), (error: unknown) => {
+        assert.ok(error instanceof ToolExecutionError);
+        assert.match(error.message, /names no MCP server that this Worker configures/);
+        return true;
+      });
+    }
     assert.equal(remote.runsOf("search_assets").length, runsBefore);
     const outcome = await source.executeDeferredToolCall(execution("unclassified", true));
     assert.equal((outcome as { readonly output?: string }).output, "assets for stored unclassified");

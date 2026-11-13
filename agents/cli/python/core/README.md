@@ -458,7 +458,9 @@ refuses a stored call of a server this Worker does not configure.
 - The source replaces each header value, each part of it between whitespace,
   `=`, `:`, `,`, or `;`, and each value of `mcp_server_secret_texts`, of at
   least 8 characters, with `[redacted]` in errors, tool output, and the log
-  file, so a server that echoes a header leaks nothing.
+  file. This is best-effort for error text only: progress and task status
+  messages and tool descriptions are not redacted. The log filter covers the
+  root logger's handlers that exist when the Worker connects the servers.
 - A listing that no server answers offers no remote tools and prints one
   line, `MCP server tools are unavailable for now; each turn tries again.
   See <log file> for the error.`, until a server answers again. The error

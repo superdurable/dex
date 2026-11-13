@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -338,6 +338,29 @@ async def test_a_worker_that_does_not_trust_the_server_refuses_a_call_another_wo
     with pytest.raises(ToolExecutionError, match="does not trust the annotations"):
         await source.execute_deferred_tool_call(call)
     assert remote_mcp.runs("search_assets") == 0
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        None,
+        "not json",
+        json.dumps({"mcp_tool": "search_assets"}),
+        json.dumps({"mcp_server": "other"}),
+    ],
+)
+async def test_a_call_whose_reference_names_no_configured_server_is_refused_unsent(
+    remote_mcp: FakeRemoteMcp, reference: str | None
+) -> None:
+    # Unit level: the listing must never pick the server past the trust check.
+    source = _untrusted_source(remote_mcp.url)
+    await source.list_file_enabled_tools()
+    call = _stored_call("raw__search_assets", effect=ToolEffect.READ, requires_approval=False)
+    call = replace(call, tool_call=replace(call.tool_call, tool_source_reference=reference))
+    runs_before = remote_mcp.runs("search_assets")
+    with pytest.raises(ToolExecutionError, match="names no MCP server that this Worker configures"):
+        await source.execute_deferred_tool_call(call)
+    assert remote_mcp.runs("search_assets") == runs_before
 
 
 def _exception_chain(error: BaseException) -> list[BaseException]:

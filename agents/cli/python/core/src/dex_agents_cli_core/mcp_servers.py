@@ -402,8 +402,9 @@ class McpServersToolSource:
             ToolExecutionError: If the call had no approval but this Worker's
                 ``approval.always`` names it, if this Worker does not trust its
                 server's annotations and the call had no approval or may be
-                retried, if its server is not configured on this Worker, or if
-                the tool failed. Every error has its secret texts redacted.
+                retried, if its stored reference is missing, malformed, or
+                names a server this Worker does not configure, or if the tool
+                failed. Every error has its secret texts redacted.
 
         .. versionchanged:: 0.6.4
            Checks the call against this Worker's trust of the server's annotations.
@@ -416,10 +417,14 @@ class McpServersToolSource:
                 "it did not run"
             )
         server = self._servers.get(self._server_name_of(record) or "")
-        if (
-            server is not None
-            and not server.trusts_tool_annotations
-            and (not record.requires_approval or record.effect not in _SINGLE_ATTEMPT_EFFECTS)
+        if server is None:
+            # Without a known server, McpToolSource would pick one from its listing.
+            raise ToolExecutionError(
+                f"tool {record.tool_name} did not run: its stored call names no MCP server "
+                "that this Worker configures"
+            )
+        if not server.trusts_tool_annotations and (
+            not record.requires_approval or record.effect not in _SINGLE_ATTEMPT_EFFECTS
         ):
             raise ToolExecutionError(
                 f"tool {record.tool_name} did not run: this Worker does not trust the "
@@ -459,17 +464,14 @@ class McpServersToolSource:
         return outcome
 
     def _server_name_of(self, record: AgentToolCall) -> str | None:
-        """Return the server of a stored call, from its reference or this Worker's listing."""
+        """Return the server that a stored call's reference names, or ``None``."""
         try:
             reference = json.loads(record.tool_source_reference or "null")
         except json.JSONDecodeError:
-            reference = None
+            return None
         if isinstance(reference, dict) and isinstance(reference.get("mcp_server"), str):
             return str(reference["mcp_server"])
-        listed = next(
-            (tool for tool in self._mcp.cached_tools() if tool.name == record.tool_name), None
-        )
-        return None if listed is None else listed.server_name
+        return None
 
 
 def _header_secret_texts(servers: Iterable[McpStreamableHttpServerConfig]) -> list[str]:

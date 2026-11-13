@@ -352,7 +352,8 @@ export class McpServersToolSource implements ToolSource {
    * @returns The tool's outcome.
    * @throws {ToolExecutionError} When the call was refused when it was built, now needs approval it did not have,
    * lacks the approval or single attempt that this Worker requires for a server whose annotations it does not
-   * trust, names a server this Worker does not configure, or failed. Every error has its secrets replaced.
+   * trust, has a missing or malformed reference or names a server this Worker does not configure, or failed. Every
+   * error has its secrets replaced.
    */
   public async executeDeferredToolCall(
     call: DeferredToolExecution,
@@ -385,11 +386,20 @@ export class McpServersToolSource implements ToolSource {
     }
   }
 
-  /** Refuses a call that another Worker built under a broader policy than this Worker's configuration allows. */
+  /**
+   * Refuses a call that names no server this Worker configures, or that another Worker built under a broader policy
+   * than this Worker's configuration allows.
+   */
   private requireLocalAnnotationPolicy(toolCall: AgentToolCall): void {
     const serverName = readMcpServerName(toolCall.toolSourceReference);
     const server = serverName === undefined ? undefined : this.serversByName.get(serverName);
-    if (server === undefined || server.trustsToolAnnotations !== false) {
+    if (server === undefined) {
+      // Without a known server, McpToolSource would pick one from its listing, past this check.
+      throw new ToolExecutionError(
+        `tool ${toolCall.toolName} did not run: its stored call names no MCP server that this Worker configures`,
+      );
+    }
+    if (server.trustsToolAnnotations !== false) {
       return;
     }
     if (!toolCall.requiresApproval || !singleAttemptEffects.has(toolCall.effect)) {

@@ -956,12 +956,16 @@ mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_A
 
 A value outside printable ASCII stops the command the same way. Only the
 Worker expands the values. The command never prints, logs, or stores them. The
-session, the log file, and the terminal UI see the header text as written. A
-server may echo a header value, such as in an HTTP 401 body or a tool error.
-The command then replaces each header value, each part of it between spaces,
-**=**, **:**, **,**, or **;**, and each variable value with **[redacted]** in
-the log file, the terminal, tool output, and errors. Values shorter than 8
-characters stay as they are.
+session, the log file, and the terminal UI see the header text as written.
+
+The server itself can still send a header value back. Error text from the
+server, such as an HTTP 401 body or a tool error, is redacted on a best-effort
+basis: each header value, each part of it between spaces, **=**, **:**, **,**,
+or **;**, and each variable value of at least 8 characters becomes
+**[redacted]** in the log file, the terminal, tool output, and errors. Other
+content the server returns is not covered, such as progress and task status
+messages and tool descriptions. Give a token only to servers you trust with
+it.
 
 Each Worker checks a call again before it runs it. For a server whose
 annotations this Worker does not trust, a call that ran without approval, or
