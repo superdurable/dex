@@ -290,7 +290,10 @@ The server keeps each replaced version for at least one hour before it deletes
 it. That margin keeps replacements correct even if an OSS listing lags behind
 a write by up to an hour. It deletes the old versions of one key at most once
 every 5 minutes. It also deletes them after the key's last write, once they
-are an hour old, while the process keeps running. A node renews its lease every third of **lease.duration**, so
+are an hour old by the OSS clock, while the process keeps running. A version
+can stay until the key's next write when the process stops, when the
+reclamation queue or its 4,096 tracked keys overflow, or when storage requests
+keep failing. A node renews its lease every third of **lease.duration**, so
 with the default of 10 seconds each node keeps about 1,200 lease versions.
 **dexzd_object_store_versioned_listing_stale_total**
 counts listings that missed a version the node had just written. See

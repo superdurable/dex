@@ -220,7 +220,7 @@ impl CreateOnlyStore {
     }
 
     /// Creates an empty store like [`Self::new`] whose write timestamps come from `clock`.
-    pub(crate) fn with_store_clock(clock: TokioWallClock) -> Self {
+    pub(crate) fn with_store_clock(clock: impl WallClock + 'static) -> Self {
         let faults = Arc::new(TestFaults::new());
         let store = Arc::new(InMemoryObjectStore::with_options(
             InMemoryObjectStoreOptions {

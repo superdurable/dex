@@ -134,7 +134,7 @@ impl VersionIdSource for SeededVersionIdSourceForTest {
 /// ```
 pub struct AliyunOssObjectStore {
     inner: Arc<dyn ObjectStore>,
-    version_ids: Box<dyn VersionIdSource>,
+    version_ids: Arc<dyn VersionIdSource>,
     reclaimer: VersionReclaimer,
     listing_stale: VersionedListingStaleCounters,
 }
@@ -153,7 +153,7 @@ impl AliyunOssObjectStore {
     ///
     /// # Panics
     ///
-    /// Panics when called outside a Tokio runtime, or when the minimum age is zero.
+    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second.
     pub fn new(
         inner: Arc<dyn ObjectStore>,
         minimum_superseded_age_before_reclamation: Duration,
@@ -161,7 +161,7 @@ impl AliyunOssObjectStore {
     ) -> Self {
         Self::with_version_id_source(
             inner,
-            Box::new(RandomVersionIdSource),
+            Arc::new(RandomVersionIdSource),
             minimum_superseded_age_before_reclamation,
             metrics,
         )
@@ -175,7 +175,7 @@ impl AliyunOssObjectStore {
     ///
     /// # Panics
     ///
-    /// Panics when called outside a Tokio runtime, or when the minimum age is zero.
+    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second.
     #[cfg(feature = "test-util")]
     pub fn with_seeded_version_ids_for_test(
         inner: Arc<dyn ObjectStore>,
@@ -185,7 +185,7 @@ impl AliyunOssObjectStore {
     ) -> Self {
         Self::with_version_id_source(
             inner,
-            Box::new(SeededVersionIdSourceForTest {
+            Arc::new(SeededVersionIdSourceForTest {
                 seed,
                 issued_ids: std::sync::atomic::AtomicU64::new(0),
             }),
@@ -196,18 +196,20 @@ impl AliyunOssObjectStore {
 
     fn with_version_id_source(
         inner: Arc<dyn ObjectStore>,
-        version_ids: Box<dyn VersionIdSource>,
+        version_ids: Arc<dyn VersionIdSource>,
         minimum_superseded_age_before_reclamation: Duration,
         metrics: NodeMetrics,
     ) -> Self {
         assert!(
-            !minimum_superseded_age_before_reclamation.is_zero(),
-            "reclaiming a version as soon as it is superseded is unsafe"
+            minimum_superseded_age_before_reclamation >= Duration::from_secs(1),
+            "the minimum superseded age must be at least one second, the store timestamp \
+             granularity"
         );
         let listing_stale = metrics.object_store_versioned_listing_stale;
         Self {
             reclaimer: VersionReclaimer::start(
                 Arc::clone(&inner),
+                Arc::clone(&version_ids),
                 minimum_superseded_age_before_reclamation,
                 listing_stale.clone(),
             ),

@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use crate::aliyun_oss::version_keys::{version_prefix, versioned_logical_key};
+use crate::aliyun_oss::VersionIdSource;
+use crate::aliyun_oss::version_body::VersionHeader;
+use crate::aliyun_oss::version_keys::{version_object_key, version_prefix, versioned_logical_key};
 use crate::aliyun_oss::version_reads::inner_error;
 use crate::{
     ObjectMetadata, ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation,
@@ -93,6 +95,64 @@ pub(super) async fn read_store_time(
                 "the store reports no last-write time, so probe ages are unknown",
             )
         })
+}
+
+/// Returns the store time of a clock probe version this call writes to `inner` and deletes.
+///
+/// The probe is generation 1 of a new `probe/store-clock-*` key, as the adapter would write it,
+/// so the stale probe sweep removes it if the delete fails. The store sets its last-write time
+/// during this call, so it is a lower bound of the store's clock when this call returns.
+///
+/// # Errors
+///
+/// Returns the inner store's error when the write or read fails, and
+/// [`ObjectStoreErrorKind::Transient`] when the probe is missing or reports no last-write time.
+pub(super) async fn read_store_time_of_new_probe_version(
+    inner: &dyn ObjectStore,
+    version_ids: &dyn VersionIdSource,
+) -> ObjectStoreResult<i64> {
+    let operation = ObjectStoreOperation::Put;
+    let clock_key = format!(
+        "{STARTUP_PROBE_OBJECT_KEY_PREFIX}store-clock-{:032x}",
+        version_ids.next_version_id()
+    );
+    let physical_key = version_object_key(&clock_key, 1);
+    let header = VersionHeader {
+        version_id: version_ids.next_version_id(),
+        predecessor_id: None,
+        is_tombstone: false,
+    };
+    let created = inner
+        .put(
+            &physical_key,
+            header.encode_with_payload(&[]),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .map_err(|error| inner_error(operation, &clock_key, &error))?;
+    let written_at = match created {
+        WriteOutcome::Written { .. } => inner
+            .head(&physical_key)
+            .await
+            .map_err(|error| inner_error(operation, &clock_key, &error))?
+            .and_then(|metadata| metadata.last_modified_unix_micros),
+        WriteOutcome::PreconditionFailed => None,
+    };
+    if let Err(error) = purge_startup_probe(inner, &clock_key).await {
+        tracing::warn!(
+            key = %clock_key,
+            %error,
+            "deleting a store clock probe failed; the stale probe sweep removes it"
+        );
+    }
+    written_at.ok_or_else(|| {
+        ObjectStoreError::new(
+            operation,
+            &clock_key,
+            ObjectStoreErrorKind::Transient,
+            "the store clock probe reports no last-write time",
+        )
+    })
 }
 
 /// Deletes probe keys whose newest object predates `cutoff_unix_micros`; returns their count.
