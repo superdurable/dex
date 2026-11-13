@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -175,6 +177,63 @@ func TestPythonAnalyzerIgnoresTypeScriptCompilerDirectory(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+}
+
+// Linux caps one argument at 128 KiB, so the analyzer must reach node as a file, never as an argument.
+func TestTypeScriptAnalyzerScriptIsPassedAsPrivateFile(t *testing.T) {
+	scriptPath, removeScript, err := writeTypeScriptAnalyzerScript()
+	require.NoError(t, err)
+	directory := filepath.Dir(scriptPath)
+	directoryInfo, err := os.Stat(directory)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), directoryInfo.Mode().Perm())
+	scriptInfo, err := os.Stat(scriptPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), scriptInfo.Mode().Perm())
+	contents, err := os.ReadFile(scriptPath)
+	require.NoError(t, err)
+	require.Equal(t, typeScriptAnalyzerSource, string(contents))
+	for _, argument := range typeScriptAnalyzerArguments(scriptPath) {
+		require.Less(t, len(argument), 100*1024)
+		require.NotContains(t, argument, "class TypeScriptAnalyzer")
+	}
+	removeScript()
+	require.NoDirExists(t, directory)
+}
+
+// The script directory is a temporary directory, so the script must not resolve modules relative to it.
+func TestTypeScriptAnalyzerScriptRequiresOnlyBuiltinsAndAbsolutePaths(t *testing.T) {
+	requires := regexp.MustCompile(`require\(([^)]*)\)`).FindAllStringSubmatch(typeScriptAnalyzerSource, -1)
+	require.NotEmpty(t, requires)
+	for _, match := range requires {
+		argument := strings.TrimSpace(match[1])
+		isBuiltin := strings.HasPrefix(argument, `"node:`)
+		require.True(t, isBuiltin || argument == "compilerPath", "require(%s) may resolve from the script directory", argument)
+	}
+	for _, relativeName := range []string{"__dirname", "__filename", "require.main", "require.resolve", "module.paths"} {
+		require.NotContains(t, typeScriptAnalyzerSource, relativeName)
+	}
+
+	temporaryRoot := t.TempDir()
+	markerPath := filepath.Join(t.TempDir(), "script-directory-code-ran")
+	plantTypeScriptPackage(t, filepath.Join(temporaryRoot, "node_modules", "typescript"), markerPath)
+	writeTestFile(t, filepath.Join(temporaryRoot, "package.json"), `{"name":"typescript","type":"module","exports":"./node_modules/typescript/index.js"}`)
+	compilerDirectory := trustedTypeScriptCompilerDirectory(t)
+	sourcePath := scriptFixture(t, "typescript")
+	scriptDirectoryParent := filepath.Join(temporaryRoot, "tmp")
+	require.NoError(t, os.MkdirAll(scriptDirectoryParent, 0o700))
+	t.Setenv("TMPDIR", scriptDirectoryParent)
+	for name, options := range map[string]AnalyzeOptions{
+		"default compiler": {SchemaVersion: SchemaVersionV2},
+		"trusted compiler": {SchemaVersion: SchemaVersionV2, TypeScriptCompilerDirectory: compilerDirectory},
+	} {
+		t.Run(name, func(t *testing.T) {
+			graph, err := Analyze(context.Background(), sourcePath, options)
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			require.NoFileExists(t, markerPath)
+		})
+	}
 }
 
 func plantTypeScriptPackage(t *testing.T, packageDirectory string, markerPath string) {
