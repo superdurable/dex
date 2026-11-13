@@ -29,6 +29,7 @@ def test_dex_web_message_is_answered_and_shown_as_another_client(
         [
             {"prompt": "hello from the terminal", "steps": [{"text": "TERMINAL-REPLY"}]},
             {"prompt": "hello from dex web", "steps": [{"text": "DEX-WEB-REPLY"}]},
+            {"prompt": "Alice: hi from alice", "steps": [{"text": "ALICE-REPLY"}]},
         ]
     )
     session = run.spawn(columns=100, lines=40)
@@ -50,6 +51,22 @@ def test_dex_web_message_is_answered_and_shown_as_another_client(
     assert shown is not None, session.describe()
     assert OTHER_CLIENT_LABEL in shown, session.describe()
     assert [str(entry.get("prompt")) for entry in run.model_requests()][-1] == "hello from dex web"
+    session.wait_for_display(READY_STATUS)
+
+    named = web.send_message(
+        "hi from alice", permissions=[SESSION_ACTION_PERMISSION], sender_name="Alice"
+    )
+    assert named.status == 200, named
+    assert named.body.get("output") is True, named
+    session.wait_for_text("ALICE-REPLY", timeout_seconds=90)
+    shown = next((line for line in session.screen.all_lines() if "hi from alice" in line), None)
+    assert shown is not None, session.describe()
+    assert "Alice: hi from alice" in shown, session.describe()
+    assert OTHER_CLIENT_LABEL not in shown, session.describe()
+    # The model sees who spoke.
+    assert [str(entry.get("prompt")) for entry in run.model_requests()][-1] == (
+        "Alice: hi from alice"
+    )
     session.wait_for_display(READY_STATUS)
     session.press("ctrl_d")
     assert session.wait_for_exit() == 0, session.describe()

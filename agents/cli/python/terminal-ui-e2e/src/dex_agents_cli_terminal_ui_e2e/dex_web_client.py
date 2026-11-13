@@ -51,11 +51,17 @@ class DexWebSessionClient:
         definitions = self._get("/api/flow-definitions/by-type", {"flowType": flow_type})
         return str(definitions.body["v2"]["definitionRevision"])
 
-    def send_message(self, text: str, permissions: Sequence[str]) -> DexWebResponse:
-        """Send one message as the composer's Send does, Working as ``permissions``."""
-        return self._post_session_route(
-            "/api/v2/agent-sessions/messages", {"text": text}, permissions
-        )
+    def send_message(
+        self, text: str, permissions: Sequence[str], sender_name: str | None = None
+    ) -> DexWebResponse:
+        """Send one message as the composer's Send does, Working as ``permissions``.
+
+        ``sender_name`` is the composer's "Your name"; ``None`` sends no name.
+        """
+        fields: dict[str, Any] = {"text": text}
+        if sender_name is not None:
+            fields["senderName"] = sender_name
+        return self._post_session_route("/api/v2/agent-sessions/messages", fields, permissions)
 
     def resolve_interrupt(
         self, interrupt_id: str, is_approved: bool, permissions: Sequence[str]
