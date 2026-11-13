@@ -8,6 +8,24 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.29 {#v0-1-29}
+
+Released 2026-11-12 as [server-zd/v0.1.29](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.29).
+
+### Breaking
+
+- With the default **metrics.level** of **advanced**, **GET /metrics** no longer exports these families: **dexzd_snapshot_last_bytes**, **dexzd_startup_read_retries_total**, **dexzd_recovery_last_replayed_bytes**, **dexzd_matching_unsupported_type_entries**, **dexzd_matching_heads_restored_refs_total**, **dexzd_matching_heads_incomplete_scans_total**, **dexzd_step_task_queue_incomplete_seeks_total**, **dexzd_worker_stream_protocol_errors_total**, **dexzd_worker_stream_events_total**, **dexzd_attribute_sync_fenced_writes_total**, **dexzd_search_outbox_max_partition_entries**, **dexzd_search_outbox_projected_entries_total**, **dexzd_search_outbox_projected_runs_total**, **dexzd_search_outbox_ack_proposals_total**, **dexzd_search_initial_load_documents_total**, **dexzd_search_initial_loads_total**, **dexzd_search_projection_mode_skipped_partitions_total**, **dexzd_history_upload_concurrency_limit**, **dexzd_history_upload_in_flight_bytes**, **dexzd_history_upload_bytes_total**, **dexzd_history_reads_total**, **dexzd_history_value_revivals_total**, **dexzd_history_expired_objects_deleted_total**, **dexzd_history_orphan_objects_deleted_total**, **dexzd_hot_standby_lag_batches**, **dexzd_takeover_duration_seconds**, and, on Linux, **process_resident_memory_bytes**, **process_cpu_seconds_total**, **process_start_time_seconds**, and **process_open_fds**. Set **metrics.level** to **verbose** to export them again. [Reference](/reference/server/metrics#metrics-levels).
+- Removed **dexzd_commit_batches_total**. It always equaled **dexzd_commit_latency_seconds_count**; use that series instead. [Reference](/reference/server/metrics#metrics-levels).
+
+### Added
+
+- The server logs the effective values of **retention.closedFlowDuration**, **values.maxValueBytes**, **limits.maxFlowStateBytes**, **lifecycle.attemptDrainTimeout**, and **metrics.level** in one **effective configuration** INFO line at startup, including defaults for unset keys. **dev** and **local** also log **dev.durabilityMode**. [Reference](/reference/server/configuration#effective-configuration).
+- **metrics.level** selects which metric families **GET /metrics** exports: **basic** (golden signals for SLOs and paging alerts), **advanced** (the default; adds capacity, cost, and the lag and failure signals of each optional component), or **verbose** (adds internal mechanisms, throughput detail, and the Linux process metrics). Each level includes the families of the levels below it, and a family keeps the same labels and buckets at every level. The metrics page now lists every family with its type, labels, buckets, and level. [Reference](/reference/server/metrics#metrics-levels).
+
+### Changed
+
+- With **objectStore.provider: aliyunOSS**, the server keeps each replaced version of the manifest, the registry, node leases, and Flow definitions for at least 10 minutes instead of 60 seconds before it deletes it. Once every node runs this release, replacements stay correct while an OSS listing lags behind a write by less than 10 minutes; nodes of an older release still delete versions after 60 seconds. Each node keeps about 180 lease versions at the default **lease.duration**, with the same number of requests per renewal as before. The new **dexzd_object_store_versioned_listing_stale_total** counter, with a **site** label, counts listings that missed a version the node had just written; alert on any increase. [Reference](/reference/server/object-storage#aliyun-oss).
+
 ## 0.1.28 {#v0-1-28}
 
 Released 2026-11-12 as [server-zd/v0.1.28](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.28).
