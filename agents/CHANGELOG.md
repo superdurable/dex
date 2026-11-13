@@ -4,6 +4,72 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.6 (2026-11-13)
+
+### Breaking
+
+- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` now
+  implements `AgentFrameworkRunner<DeferredToolOutcome>`, and its
+  `executeDeferredToolCall` returns `Promise<DeferredToolOutcome>` instead of
+  `Promise<ToolExecutionResult>`. `createClaudeAgentSessionFlow` returns
+  `AgentSessionFlow<ClaudeAgentRunner>` instead of `AgentSessionFlow`, as
+  `createBuiltinAgentSessionFlow` returns `AgentSessionFlow<BuiltinLoopAgentRunner>`.
+  Code that annotates the Flow as a bare `AgentSessionFlow` no longer
+  compiles: drop the annotation, or write
+  `AgentSessionFlow<ClaudeAgentRunner>`. A parameter that takes the Flow of
+  any adapter can use `AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>`.
+  A subclass that overrides `executeDeferredToolCall` declares
+  `Promise<DeferredToolOutcome>`, and code that reads `.output` from its
+  result first checks that the outcome has no `kind`.
+
+### Added
+
+- Python Claude Agent SDK adapter: `ClaudeAgentRunner` polls and cancels the
+  tool tasks of its tool sources. A source call that returns
+  `ToolTaskStarted` waits for its task: `poll_tool_task` polls it through the
+  source on a Timer, and the resumed Claude session receives its result.
+  `cancel_turn` cancels the task through the source's `cancel_tool_task`
+  and records the call `outcome_unknown`. Before, such a call recorded `failed`
+  for a `read` tool and `outcome_unknown` otherwise. `McpToolSource` now sees
+  `supports_tool_tasks` set, so it hands the tasks of a Streamable HTTP
+  server to the session to poll instead of finishing them inside the tool
+  Step.
+  A task that a tool Step was already polling when its Worker upgrades stays
+  in that tool Step: a retried CallTool attempt resumes it from the heartbeat
+  checkpoint, and if the server no longer knows the task, that attempt sends
+  the call again with the same idempotency key. Only calls made after the
+  upgrade hand their tasks to the session.
+- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` polls and
+  cancels the tool tasks of its tool sources through the new `pollToolTask`
+  and `cancelToolTask`. A source call that returns `ToolTaskStarted` waits
+  for its task: the session polls it through the source on a Timer, and the
+  resumed Claude session receives its result. `cancel_turn` records the call
+  `outcome_unknown` and cancels the task through the source. A source call
+  that returns `ToolInputRequested` waits for the user's answer, and the
+  source runs the call again with it, as in the Python adapter. Before, a call
+  that started a task recorded `failed` for a `read` tool and
+  `outcome_unknown` otherwise, and a call that asked a question recorded
+  `failed`. `McpToolSource` now sees `supportsToolTasks` set, so it hands the
+  tasks of a Streamable HTTP server to the session to poll instead of
+  finishing them inside the tool Step. A task that a tool Step was already
+  polling when its Worker upgrades stays in that tool Step: a retried
+  `CallTool` attempt resumes it from the heartbeat checkpoint, and if the
+  server no longer knows the task, that attempt sends the call again with the
+  same idempotency key. Only calls made after the upgrade hand their tasks to
+  the session. The `dex-agents-claude-sdk` command gets the same behavior for
+  its MCP servers and connector tools.
+
+### Changed
+
+- `dex-agents`: `McpToolSource` marks the heartbeat checkpoint of a task it
+  hands to the session with `mcp_task_polled_by_session`, as the TypeScript
+  source does. A retried `CallTool` attempt returns the saved task as
+  `ToolTaskStarted` only when the checkpoint carries the marker, and
+  `will_resume_tool_task_without_sending` is `True` only then. A task saved
+  without it was polled inside its tool Step, so the retried attempt keeps
+  polling it there and sends the call again with the same idempotency key
+  when the server no longer knows the task.
+
 ## 0.6.5 (2026-11-13)
 
 ### Fixed
