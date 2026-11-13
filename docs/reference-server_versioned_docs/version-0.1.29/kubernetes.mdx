@@ -1,6 +1,7 @@
 ---
 title: Kubernetes deployment
 sidebar_label: Kubernetes deployment
+description: "How to run server-zd on Kubernetes: one replica in a StatefulSet, graceful shutdown, and the local store volume."
 ---
 
 # Kubernetes deployment
@@ -55,7 +56,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.3
+          image: docker.io/superdurable/dex-server-zd:0.1.29
           ports:
             - name: grpc
               containerPort: 8801
@@ -99,25 +100,25 @@ spec:
 
 ## Graceful shutdown {#graceful-shutdown}
 
-On SIGTERM, the node stops handing out new Step tasks and reports **NOT_SERVING**.
-It keeps its lease and pull Worker streams open while running attempts finish.
-Heartbeats, completions, and failures continue to commit. The node releases the
-lease only after those attempts finish and their results commit, or after
-**lifecycle.attemptDrainTimeout** expires. A hot standby follows the commits and
-takes over after the release.
+On SIGTERM, the node stops handing out new Step tasks and reports
+**NOT_SERVING**. While running attempts finish, it keeps its lease and pull
+Worker streams open, and it still commits heartbeats, completions, and
+failures. The node releases the lease only after those attempts finish and
+their results commit, or after **lifecycle.attemptDrainTimeout** expires. A hot
+standby follows the commits and takes over after the release.
 
-During the drain, new Flow RPCs answer **UNAVAILABLE**, and the SDKs retry them.
-Steps that are not yet handed to a Worker wait. The successor dispatches them
-after it takes the lease. A Step whose start was already being written when the
-drain began still goes to its Worker and is drained like a running attempt. So
-does a Step that a Worker took from the
-[Step task queue](/reference/server/0.1.24/workers#step-task-queue) before the drain began. Steps still in the
-task queue stay there for the successor.
+During the drain, new Flow RPCs return **UNAVAILABLE**, and the SDKs retry them.
+Steps that the node has not yet handed to a Worker wait, and the successor
+dispatches them after it takes the lease. Two kinds of Steps still go to their
+Worker and are drained like running attempts: a Step that the node was already
+starting when the drain began, and a Step that a Worker took from the
+[Step task queue](/reference/server/0.1.29/workers#step-task-queue) before the drain
+began. Steps still in the task queue stay there for the successor.
 
-**lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
-attempt draining. Step method and heartbeat timeouts still apply during the
+**lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to turn
+off attempt draining. Step method and heartbeat timeouts still apply during the
 drain; the drain does not extend them. Choose a drain timeout long enough for
-the remaining execution time of the Step methods you want to finish.
+the Step methods you want to finish to complete.
 **dexcli dev** uses a **2s** drain unless its configuration sets this field,
 because it stops the server after 10 seconds. **dex-server-zd local** keeps
 the **30s** default.
@@ -129,9 +130,9 @@ it can commit results and release its lease.
 
 After the attempt drain, Workers reconnect, long polls and the Stream Store
 close, and in-flight RPCs get up to 4 seconds to finish. Background work stops,
-then the engine releases the lease. Other open calls end with **UNAVAILABLE**
-so clients retry on the new active process. The metrics listener closes last.
-This teardown has a separate budget of about 15 seconds.
+and then the node releases the lease. Other open calls end with
+**UNAVAILABLE**, so clients retry on the new active process. The metrics
+listener closes last. This teardown has its own budget of about 15 seconds.
 
 The **Step attempt drain ended** log records **attempts_waited**,
 **attempts_finished**, and **attempts_running**, including attempts still waiting
@@ -140,23 +141,21 @@ finished, **timed_out** when the drain timeout expired, or **node_stopped** when
 the node stopped for another reason first. With a **0s** timeout, the node logs
 **Step attempt drain disabled** instead.
 
-The process exits 0 when every step completes. A replacement process with the
-same **cluster.nodeId** then acquires the lease at once. The process exits 1
-when some shutdown step does not complete in time or fails, for example when
-object storage rejects the lease release. A replacement may then wait up to
+The process exits 0 when every shutdown step completes. A replacement process
+with the same **cluster.nodeId** then acquires the lease at once. The process
+exits 1 when a shutdown step fails or does not complete in time, for example
+when object storage rejects the lease release. A replacement may then wait up to
 **lease.duration** plus about 1 second.
 
-Attempts that Dex has not handed to a Worker yet do not fail. The successor
-dispatches them. Attempts that are running when the process lets go of the
-lease are failed by the new active process with **NOT_COMPLETED**, and each
-consumes a retry.
+Attempts that are still running when the process releases the lease fail. The
+new active process fails them with **NOT_COMPLETED**, and each consumes a retry.
 
-A SIGTERM during startup interrupts lease acquisition or recovery. If the node holds
-its lease, it stops startup and releases the lease within the shutdown budget.
-A failed release makes the process exit 1, and the next start may wait for the
-old lease to expire. If the outcome of a lease write is still unknown when the
-SIGTERM arrives, the process exits 0 without releasing that write, and the next
-start may wait for it to expire.
+A SIGTERM during startup interrupts lease acquisition or recovery. If the node
+holds its lease, it stops startup and releases the lease within the shutdown
+budget. If the release fails, the process exits 1, and the next start may wait
+for the old lease to expire. If the outcome of a lease write is still unknown
+when the SIGTERM arrives, the process exits 0 without releasing that lease. The
+next start may then wait for it to expire.
 
 ## Local store volume
 
@@ -172,39 +171,41 @@ after a restart uploads the full local checkpoint to object storage.
 Mount the volume at a parent directory, such as **/var/lib/dex-server-zd**. Set
 **localStorage.directory** to a subdirectory, such as
 **/var/lib/dex-server-zd/store**. When the node cannot reuse an existing local
-store, it renames the directory to a sibling with a **.discarded-** suffix and
-rebuilds it. This happens when RocksDB reports the store corrupt, missing
-files, or in an incompatible format while opening it, or when the store cannot
-be updated from the retained log. That rename fails when the directory is the
-mount point itself.
+store, it sets the store aside: it renames the directory to a sibling with a
+**.discarded-** suffix, and then rebuilds the store. This happens when RocksDB
+reports that the store is corrupt, is missing files, or has an incompatible
+format, or when the node cannot bring the store up to date from the retained
+log. The rename fails when the directory is the mount point itself.
 
 Other errors that stop the node from opening the store fail startup and leave
-the directory in place. Examples are another process that holds the store open
+the directory in place. Examples are another process that holds the store open,
 and a permission error. Stop the other process or fix the permissions, then
 restart. If the store itself cannot be read, for example after a disk error,
 stop the node, move or delete the store directory, and restart. The node then
 rebuilds the store from object storage.
 
-A store that is newer than the metadata in object storage is also set aside,
-and the node logs an error. That copy may be the only local evidence that the
+The node also sets aside a store that is newer than the metadata in object
+storage, and logs an error. That copy may be the only local evidence that the
 metadata went backwards.
 
 After each successful start, the node deletes older set-aside directories. It
 keeps the newest **localStorage.retainedSetAsideStoreCount** of them for
 diagnosis, 1 by default. A copy that the current start set aside always counts
-as the newest. Set the count to 0 to keep none. The node then deletes every
-copy at once, including a copy of a store that is newer than the metadata. The
-node logs each path it deletes. A failed deletion logs a warning and does not
-stop startup. The node deletes only directories that it set aside for this
+as the newest. Set the count to 0 to keep none: the node then deletes every copy
+at once, including a copy of a store that was newer than the metadata.
+
+The node logs each path it deletes. A failed deletion logs a warning and does
+not stop startup. The node deletes only directories that it set aside for this
 store. It never sets aside or deletes the active store while another process
 holds its lock. The node never opens a set-aside copy again. Cleanup does not
 check whether another tool has a set-aside copy open.
 
-The history read cache, **history.readCacheMaxBytes** (1 GiB by default), sits
-next to the store directory on the same volume by default. If you mount the
-volume at **localStorage.directory** itself, point **history.readCacheDirectory**
-into a writable volume, or the cache is lost on every restart. See
-[History offload](/reference/server/0.1.24/configuration#history-offload).
+By default, the history read cache sits next to the store directory on the same
+volume. Its size is **history.readCacheMaxBytes**, 1 GiB by default. If you
+mount the volume at **localStorage.directory** itself, point
+**history.readCacheDirectory** into a writable volume. Otherwise the cache is
+lost on every restart. See
+[History offload](/reference/server/0.1.29/configuration#history-offload).
 
 Size the volume for the live state, plus **localStorage.maxWalBytes** of
 write-ahead log (256 MiB by default), plus room for uncompacted files after a
@@ -249,32 +250,37 @@ Use gRPC health for all three probes:
   still accept TCP connections in the kernel backlog while it serves nothing.
 
 A serving node that never steps down returns to **NOT_SERVING** only by
-exiting, because a lost lease ends the process. Liveness on gRPC health
-therefore does not cause restart loops for it. A
-[step down](/reference/server/0.1.24/high-availability#step-down) makes the active process report **NOT_SERVING** while
-it keeps running as a standby, and a liveness probe on gRPC health would restart
-it. A process that may step down needs the TCP or exec liveness probe of a
-standby.
+exiting, because a lost lease ends the process. So a liveness probe on gRPC
+health does not cause restart loops for it. A
+[step down](/reference/server/0.1.29/high-availability#step-down) is different: the
+active process reports **NOT_SERVING** while it keeps running as a standby, and
+a liveness probe on gRPC health would restart it. A process that may step down
+needs a TCP or exec liveness probe, like a standby.
 
 This probe set is for a single replica. A standby replica stays
 **NOT_SERVING** until it takes over, so it would never pass this startup probe.
 A standby needs a TCP or exec startup probe and liveness probe instead. See
-[hot standby](/reference/server/0.1.24/high-availability#hot-standby-health).
+[hot standby](/reference/server/0.1.29/high-availability#hot-standby-health).
 
 The process exits on its own after a fatal error, such as a lost lease or a
-failed commit. During startup, transient or unknown-outcome object storage read errors are retried
-with jittered exponential backoff. **recovery.startupReadRetryBudget** sets a
-wall-clock window for each read, starting at its first transient or unknown-outcome failure. The
-default is 30 seconds and must be positive. Backoff and subsequent read calls
-count toward that read's window. Concurrent reads do not share time, and a later
-read gets a new window. The error names the operation, object key, and last error
-when the window expires. Missing required objects, corrupt data, access denial,
-and lost lease ownership fail startup without read retries. Lease validity or
-shutdown may end retries sooner. Lease renewal continues during recovery retries.
-The window bounds each read, not the whole startup. After the lease is acquired,
-startup has no overall time limit. A persistent outage still fails startup within
-one read's window, and lease renewal keeps the lease while slow reads make progress.
-The startup probe bounds the total startup time.
-If object storage is unreachable at startup, the conditional-write self-check
-also exits 1. If startup fails, the process exits 1. Kubernetes restarts the
-container with backoff.
+failed commit. If startup fails, the process exits 1, and Kubernetes restarts
+the container with backoff.
+
+During startup, the node retries object storage reads that fail with a
+transient error or an unknown outcome, with jittered exponential backoff.
+**recovery.startupReadRetryBudget** sets a wall-clock window for each read. The
+window starts at the read's first such failure. It defaults to 30 seconds and
+must be positive. Backoff and later attempts of the read count toward its
+window. Concurrent reads do not share time, and a later read gets a new window.
+When the window expires, startup fails with an error that names the operation,
+the object key, and the last error. The lease expiring or a shutdown can end
+retries sooner. The node keeps renewing its lease while it retries.
+
+Missing required objects, corrupt data, access denial, and lost lease ownership
+fail startup at once, without retries. If object storage is unreachable at
+startup, the conditional-write self-check also fails and the process exits 1.
+
+The window bounds each read, not the whole startup. After the node acquires the
+lease, startup has no overall time limit: a persistent outage fails startup
+within one read's window, and slow reads that make progress keep going. The
+startup probe bounds the total startup time.
