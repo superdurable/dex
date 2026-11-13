@@ -361,6 +361,7 @@ concurrent scheduling can change that order. An SDK retry is a separate request 
 | `{"type":"fail_before_commit"}` | Returns `500 InternalError` without invoking the store. |
 | `{"type":"corrupt_body"}` | Requires `operation: "GetObject"`. For successful 200 or 206 responses, flips the first returned byte and preserves the original headers, including checksums and ETag. Empty bodies have no byte to flip. |
 | `{"type":"truncate_response"}` | Requires `GetObject`, `ListBuckets`, `ListObjectsV2`, `ListObjectVersions`, `ListParts`, or `ListMultipartUploads`. Sends part of a successful response body, then terminates the stream with an error. |
+| `{"type":"stale_listing","ttl_milliseconds":2000}` | Requires `ListObjectsV2` and 1 through 600000 milliseconds. Emulates the eventually consistent listing of Tencent COS. The first successful listing of each bucket and exact prefix is cached. Every later listing of that prefix receives the cached response until the TTL passes, whatever its `max-keys`, `start-after`, or continuation token. New keys are missing, deleted keys are still listed, and a truncated page stays truncated. Hits do not extend the TTL. Replacing or deleting the rules drops the cache. |
 
 For example, in off mode test an ambiguous conditional write with automatic SDK retries disabled:
 

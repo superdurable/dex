@@ -119,6 +119,15 @@ impl Controls {
                             "delay must not exceed 600000 milliseconds".into(),
                         ));
                     }
+                    if let FaultAction::StaleListing { ttl_milliseconds } = rule.action
+                        && (rule.operation != Some(S3OperationName::ListObjectsV2)
+                            || !(1..=600_000).contains(&ttl_milliseconds))
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "stale_listing requires operation ListObjectsV2 and 1 to 600000 milliseconds".into(),
+                        ));
+                    }
                     if matches!(rule.action, FaultAction::TruncateResponse {})
                         && !matches!(
                             rule.operation,
@@ -141,11 +150,13 @@ impl Controls {
                 let mut state = self.state.lock().expect("control operations cannot panic");
                 state.rules = replacement.rules;
                 state.random_state = self.config.fault_seed;
+                state.stale_listings.clear();
                 Ok(json!({"rules": state.rules, "seed": self.config.fault_seed}))
             }
             (&Method::DELETE, "/_s3local/faults") => {
                 let mut state = self.state.lock().expect("control operations cannot panic");
                 state.rules.clear();
+                state.stale_listings.clear();
                 self.fault_reset
                     .send_modify(|generation| *generation = generation.wrapping_add(1));
                 state.random_state = self.config.fault_seed;

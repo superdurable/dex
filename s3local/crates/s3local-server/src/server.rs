@@ -280,6 +280,26 @@ async fn handle_request(
         Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
             None => match routing::route(request.method(), request.uri(), request.headers()) {
+                Ok(S3Operation::ListObjectsV2 { bucket, query })
+                    if let Some(FaultAction::StaleListing { ttl_milliseconds }) = fault =>
+                {
+                    let prefix = query.get("prefix").unwrap_or_default().to_owned();
+                    let listed_bucket = bucket.clone();
+                    controls
+                        .serve_stale_listing(
+                            &listed_bucket,
+                            &prefix,
+                            Duration::from_millis(ttl_milliseconds),
+                            dispatch(
+                                store,
+                                request,
+                                S3Operation::ListObjectsV2 { bucket, query },
+                                identity,
+                                controls.config.api_dialect,
+                            ),
+                        )
+                        .await
+                }
                 Ok(operation) => {
                     dispatch(
                         store,
