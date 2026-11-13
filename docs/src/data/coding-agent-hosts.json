@@ -3,12 +3,14 @@
     {
       "id": "claude-code",
       "label": "Claude Code",
-      "install": "claude plugin marketplace add superdurable/dex-skills\nclaude plugin install superdurable-dex@superdurable"
+      "install": "claude plugin marketplace add superdurable/dex-skills\nclaude plugin install superdurable-dex@superdurable",
+      "launch": "claude"
     },
     {
       "id": "codex",
       "label": "Codex",
-      "install": "codex plugin marketplace add superdurable/dex-skills\ncodex plugin add superdurable-dex@superdurable"
+      "install": "codex plugin marketplace add superdurable/dex-skills\ncodex plugin add superdurable-dex@superdurable",
+      "launch": "codex"
     }
   ]
 }

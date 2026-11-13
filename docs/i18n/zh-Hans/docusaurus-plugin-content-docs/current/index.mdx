@@ -7,9 +7,7 @@ slug: /
 
 # Dex 文档
 
-Dex 是一个 **持久化执行（Durable Execution）** 平台。数据库保存你的数据，Dex 还保存流程的进度：哪些 Step 已经运行，返回了什么，流程正在等什么。进程崩溃、重启或者等了很久之后，流程会从停下的地方继续。
-
-你用自己的语言把流程写成一个 **Flow**：一组 **Step**，每个 Step 说明下一步运行哪个 Step。你服务里的 **Worker** 负责运行这些 Step。
+Dex 是一个轻量的 **持久化执行（Durable Execution）** 平台，用于 AI Agent 和工作流。你写普通代码，Dex 让它在崩溃、部署和长时间等待中持续运行，而且不重放你的代码。Dex 把状态存放在对象存储中，运行时不需要数据库。
 
 <div className="docs-home-actions">
 
@@ -17,50 +15,45 @@ Dex 是一个 **持久化执行（Durable Execution）** 平台。数据库保�
 
 </div>
 
-<div className="docs-home-sdks">
-
-按语言快速开始：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
-
-</div>
-
 ## 从这里开始
 
-<div className="docs-home-sections">
+<div className="docs-home-sections docs-home-cards">
   <DocsSection section="intro" icon="rocket" to="/quick-start" title="快速开始">
-    运行一个 Flow，停掉它的 Worker，看 Dex 让它继续。
+    运行一个 Flow，停掉它的 Worker。
   </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="概念">
-    Flow、Step 和六个原语。
+  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="持久化 Agent">
+    Session、tool call 和审批。
   </DocsSection>
   <DocsSection section="product-examples" to="/use-cases" title="示例">
-    完整的流程：AI Agent、订单、订阅和转账。
-  </DocsSection>
-  <DocsSection section="components" icon="cloud" to="/components/choose-how-to-run" title="选择 Dex 的运行方式">
-    Dex Cloud 替你运行 Dex Server，或者你在自己的基础设施上运行它。
+    Agent、订单和支付。
   </DocsSection>
 </div>
 
 ## 常见任务
 
-<div className="docs-home-sections">
+<div className="docs-home-sections docs-home-cards">
   <DocsSection section="intro" icon="plug" to="/intro/add-to-existing-code" title="把 Dex 加入现有代码">
-    把你已有的函数、任务或队列消费者改写成 Flow。
+    让一个函数变得持久。
   </DocsSection>
   <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="构建持久化 Agent">
-    保留你的 Agent 框架。每次 Tool Call 在自己的 Step 里运行，审批可以等上好几天。
+    从一个能运行的 Agent 开始。
   </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="让 coding agent 来写">
-    安装 Dex Skills，让 coding agent 写出正确的 Dex 代码。
+  <DocsSection section="agent-frameworks" icon="wrench" to="/agent-frameworks/add-to-your-agent" title="把 Dex 加入你的 Agent">
+    保留你的 Agent 框架。
+  </DocsSection>
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="使用 AI 构建">
+    让 coding agent 来写。
+  </DocsSection>
+  <DocsSection section="components" icon="cloud" to="/components" title="运行 Dex">
+    Dex Cloud 或自托管。
   </DocsSection>
   <DocsSection section="intro" icon="scale" to="/evaluate" title="评估 Dex">
-    Dex 和你现在用的方案对比如何，它的限制，以及实测数据。
+    对比、限制和实测数据。
   </DocsSection>
 </div>
 
-<div className="docs-home-links">
+<div className="docs-home-sdks">
 
-**运行 Dex：** [本地运行](/components/run-locally) · [你的应用](/components/application) · [在生产环境运行 Dex](/components/production) · [故障转移和部署](/concepts/failover-and-deploys) · [修改 Flow 代码](/concepts/change-flow-code) · [Dex 和你的数据库](/components/your-database) · [Dex Web](/components/web)
-
-**参考：** [开发者参考](/reference) · [设计模式](/design-patterns) · [正确性与表达能力](/correctness-and-expressiveness) · [术语表](/glossary)
+按语言快速开始：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
 
 </div>

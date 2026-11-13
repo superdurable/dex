@@ -1,0 +1,66 @@
+---
+title: 运维和排错
+sidebar_label: 运维和排错
+slug: /components/operate-and-debug
+description: 在 Dex Web 中或用 dexcli 找到并查看 Flow，修复停住或失败的 Flow，用 Time Travel 恢复它，并了解崩溃之后哪些会重新运行。
+---
+
+# 运维和排错
+
+Dex Web 和 `dexcli` 通过和 Worker 相同的 Dex Server API 读取 Flow。Dex Web 用应用的语言展示一次 run。`dexcli` 把同样的数据输出为 JSON，供脚本和事故记录使用。
+
+## 找到并查看 Flow {#find-a-flow}
+
+在 Dex Web 中，**Search** 和 **Summary** 查找 Flow 并显示它们的状态。一次 run 的页面显示它活动中的 Step、Attribute 和 Channel。它的 **Timeline** 列出这次 run 的每个事件，包括输入、输出和 Attribute 变化。
+
+在终端里，用 Flow ID 和 Run ID 读取同一次 run。这些命令只读，输出 JSON：
+
+```bash
+dexcli flow inspect FLOW_ID --run-id RUN_ID
+
+dexcli flow history FLOW_ID --run-id RUN_ID --all
+```
+
+**dexcli flow inspect** 返回当前的摘要和状态。**dexcli flow history** 返回这次 run 的事件。[CLI reference](/reference/cli/)（英文）列出所有命令。
+
+## Flow 停住了 {#flow-does-not-advance}
+
+只有 Worker 接手下一个 Step，Flow 才会推进。某个 Step 一直处于活动状态，或者它的重试次数不断增加时，先检查 Worker：
+
+1. 收集 Flow ID、Run ID、Flow 类型、Worker 版本和 Dex Server 地址。
+2. 查看 Worker 日志中的 handler 异常、注册失败和启动配置。
+3. 检查 Worker 到 Dex Server 的出站连接是否已经建立，地址、TLS 和凭证是否正确。
+4. 检查已部署的 Worker 是否注册了这个未结束的 Flow 用到的 Flow、Step 和 RPC 名称。
+5. 在 Dex Web 中打开这个 Step。它的尝试次数、Worker 错误、gRPC 状态和调用栈能区分 Worker 不可用和应用失败。
+
+修复 Worker 之后，进行中的重试会自己继续。不要只为了测试连通性而重启 Flow 或对它运行 Time Travel。
+
+## Flow 失败了 {#flow-failed}
+
+Step handler 失败且重试用完，或者 Flow 的超时被设置为让它失败，Flow 就会失败。Flow 超时也可以取消 Flow 或运行一个 handler。默认情况下，Step 的重试在 4 小时后停止。在 Dex Web 中，在 **Timeline** 里选中失败的事件。它的 **Failure** 面板显示尝试次数、错误和 gRPC 状态。把失败交给负责这段代码的团队之前，先展开 **Stack trace**。
+
+[Troubleshoot a Flow run](/reference/web/debugging)（英文）有完整的只读排查流程和截图。
+
+## 用 Time Travel 恢复 Flow {#time-travel}
+
+Time Travel 把一次 run 退回到较早的一个点，并从那里重新运行。在部署修复之后使用它。先用一个新的 run 验证修复。
+
+那个点之后的每个 Step 都会重新运行，包括它的外部调用，所以每个调用都需要[幂等键](/concepts/step#idempotency-keys)。那个点之后从 run 外部进来的输入，比如 RPC 调用，默认会再应用一次。可以从 Dex Web、Client 或 `dexcli flow time-travel` 启动 Time Travel；[CLI 参考](/reference/cli)（英文）列出它的参数。[用 Time Travel 恢复 Flow](/concepts/change-flow-code#time-travel) 介绍了它的选项。
+
+## 崩溃之后哪些会重新运行 {#what-runs-again}
+
+Dex 保存每个完成的 Step，所以崩溃只会重复正在进行的工作。
+
+| 事件 | 哪些会重新运行 |
+| --- | --- |
+| Worker 崩溃或停止 | 它正在运行的 Step 尝试 |
+| Dex Server 节点故障转移 | Worker 已经收到的每个尝试 |
+| 你部署新的 Step 代码 | 已经完成的都不会 |
+| 你运行 Time Travel | 选定的点之后的每个 Step |
+
+[故障转移和部署](/concepts/failover-and-deploys)逐一介绍每种事件，包括 ASYNC Step。
+
+## 下一步 {#next}
+
+- [部署代码变更](/concepts/change-flow-code)：在 run 还未结束时修改 Flow 代码。
+- [Troubleshoot a Flow run](/reference/web/debugging)（英文）：完整的排查流程。

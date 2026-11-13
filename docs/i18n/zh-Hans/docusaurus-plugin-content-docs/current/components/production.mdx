@@ -7,7 +7,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 
 # 在生产环境运行 Dex
 
-**dexcli dev** 在一台机器上运行所有组件，用于开发。这一页介绍自托管的生产 server，它和你自己的 Worker 一起运行。页面列出上线前要决定和配置的事项，每一项都链接到有详细说明的页面。
+这一页列出上线前要决定和配置的事项，每一项都链接到有详细说明的页面。大多数事项针对[自托管](/components/self-host)的 server。在 [Dex Cloud](/components/dex-cloud) 中，server 由 Super Durable 运行，你的 Worker 仍在你这一侧运行 Flow 代码，所以 Worker、代码和数据库这几项无论如何都由你负责。
 
 ## 最小的真实部署 {#smallest-deployment}
 
@@ -24,7 +24,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 
 | 事项 | 要知道什么 | 详细说明 |
 | --- | --- | --- |
-| 拓扑 | 一个 active 节点服务整个集群。hot standby 可以接管。 | [Dex Server](/components/server)，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）|
+| 拓扑 | 一个 active 节点服务整个集群。hot standby 可以接管。 | [自托管 Dex](/components/self-host)，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）|
 | 容量和成本 | 瓶颈是 CPU。从小规模开始，见 [容量规划](#sizing)。 | [性能](/intro/performance)，[超出一个节点](/intro/limits#grow-past-one-node) |
 | 存储 | 对象存储保存 server 的全部状态。可以用 db9 代替它（db9 是一个独立的、兼容 PostgreSQL 的数据库产品；普通 PostgreSQL 不受支持）。 | [Object storage and backup](/reference/server/object-storage)（英文），[Dex Server 的依赖](/components/server#dependencies) |
 | 搜索后端 | 内置搜索不需要数据库。大量搜索可以用 PostgreSQL 或 ParadeDB。 | [Search backends](/reference/server/search)（英文）|
@@ -37,7 +37,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 | Worker | Worker 主动建立出站连接。设定它们的任务槽数量，部署时优雅地停止它们。 | [Workers and the task queue](/reference/server/workers)（英文）|
 | 升级 | 升级只向前滚动。先读每个版本的发布说明，有些升级需要停止所有进程。 | [Upgrades and compatibility](/reference/server/upgrades)（英文），[Agent release notes](/reference/agents/upgrades#release-notes)（英文）|
 | 你的数据库 | Step 里的写入必须可以安全地重复。 | [Dex 和你的数据库](/components/your-database) |
-| 代码变更 | 保留旧的 Step 类型和 RPC，直到使用它们的 Flow 关闭。 | [修改 Flow 代码](/concepts/change-flow-code) |
+| 代码变更 | 保留旧的 Step 类型和 RPC，直到使用它们的 Flow 关闭。 | [部署代码变更](/concepts/change-flow-code) |
 
 ### 需要修改的默认值 {#defaults-to-change-before-production}
 
@@ -86,11 +86,11 @@ auth:
 
 ## 出问题时 {#when-something-goes-wrong}
 
-- Flow 停住不动或已经失败：[Troubleshoot a Flow run](/reference/web/debugging)（英文）。
+- Flow 停住不动或已经失败：[运维和排错](/components/operate-and-debug)。
 - 修复之后，从更早的 Step 重新运行来恢复 Flow：[Time Travel](/concepts/change-flow-code#time-travel)。
 - 生产环境中的 Agent Session：[Agents reference](/reference/agents)（英文）。
 
 ## 下一步 {#next}
 
-- [故障转移和部署](/concepts/failover-and-deploys)：Worker 崩溃、Dex Server 节点故障转移或部署新代码时，哪些会重新运行，以及你需要怎么做。
-- [Dex Cloud](/components/choose-how-to-run#dex-cloud)：Super Durable 替你运行 server。
+- [运维和排错](/components/operate-and-debug)：找到 Flow，修复停住或失败的 Flow，并恢复它。
+- [部署代码变更](/concepts/change-flow-code)：在 run 还未结束时修改 Flow 代码。

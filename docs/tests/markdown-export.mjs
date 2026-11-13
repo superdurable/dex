@@ -215,7 +215,7 @@ try {
   await exportMarkdown(options);
   const home = await readFile(join(outDir, 'index.md'), 'utf8');
   // CrashTimeline exports its events as a numbered list in the page locale, without the animation.
-  assert.match(home, /1\. Worker 1 运行 Charge。Dex 保存它的结果。\n2\. Dex Server：/);
+  assert.match(home, /1\. 你启动 Flow，Dex Server 记录下来。\n2\. Worker 1 运行 Charge。Dex 保存它的结果。\n3\. Dex Server：/);
   assert.match(home, /Charge 只运行了一次，Ship 只运行了一次。/);
   assert.match(home, /canonical_url: "https:\/\/docs.example.test\/zh-Hans\/"/);
   assert.match(home, /description: "The Home meta description."/);

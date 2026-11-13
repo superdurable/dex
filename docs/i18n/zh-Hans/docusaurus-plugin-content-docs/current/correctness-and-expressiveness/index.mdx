@@ -40,7 +40,7 @@ server 代码本身在证明之外接受故障测试。一个[确定性模拟](h
 
 ## 正确性 {#correctness}
 
-[Step 的保证](/concepts/step#guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。
+[Step 的进阶保证](/correctness-and-expressiveness/step-guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。
 
 [故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)覆盖 server 崩溃、备用 server 接管、重试、Dex 放弃后仍在运行的 Worker，以及重复的结果。这些故障只会带来重复的外部副作用：去掉它们，剩下的就是这个 Flow 在没有故障时能产生的事件序列。对公平的运行，结局也不变。公平的运行是指：故障最终会停止，server 会不断恢复，每个到期的 Timer 和就绪的 Step 最终都会运行；[证明页面](/correctness-and-expressiveness/failure-transparency-proof)列出了确切的条件。证明的页面列出了它的条件，例如只覆盖 **SYNC** 方法、重试不会用完。这个证明同样经计算机检查，完整论证见同一篇[论文](/papers/dex-expressiveness.pdf)。
 

@@ -1,7 +1,7 @@
 ---
 title: Step 的进阶保证
 sidebar_label: Step 的进阶保证
-slug: /concepts/step/advanced-guarantees
+slug: /correctness-and-expressiveness/step-guarantees
 description: Dex 为每个 Step 方法保存什么，方法什么时候会重新运行或结果未知，SYNC 和 ASYNC 的区别，以及取消、完成和 Step 顺序。
 ---
 
@@ -60,6 +60,7 @@ Dex 大致按 Step 就绪的顺序启动它们，但不严格保证。不要依�
 
 ## 下一步
 
+- [故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof) 证明故障只会让外部效果重复。
 - [Attribute lock](/concepts/primitives/attribute#locking) 防止并行写入互相覆盖。
 - [失败处理](/design-patterns/failure-handling) 把失败的 Step 交给 recovery Step。
 - [性能](/intro/performance)给出 SYNC 和 ASYNC Step 的实测延迟。

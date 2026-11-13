@@ -9,26 +9,13 @@ description: 安装你所用框架的适配器，复制完整的 Agent 文件与
 
 把 [Agent 快速开始](/agent-frameworks/quick-start) 中的示例 Agent 移到你自己的代码中：安装框架的适配器，复制完整文件，再在 Web 应用中对外提供 Session。
 
-<CodingAgentBox>
-
-```text
-用 Dex 让 <file> 中的 Agent 变得持久。
-
-1. 阅读 https://docs.superdurable.io/zh-Hans/agent-frameworks/add-to-your-agent.md 和 https://docs.superdurable.io/zh-Hans/agent-frameworks/framework-support.md，把它们当作唯一依据。
-2. 用对应框架的 Dex Agents 适配器包装这个 Agent，并给每个 tool 指定策略：read、idempotent_write 或 non_idempotent_write。
-3. 把 Session 接入我的 Web 应用：启动 Session、发送消息、流式返回回复。
-4. 在 dexcli dev 上运行，向我展示一个带 Tool Call 的 turn。
-
-规则：无法判断类别的 tool 先问我。不要编造 API。
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/agent-frameworks/add-to-your-agent.md 用 Dex 让这个仓库里的 Agent 变得持久。无法判断类别的 tool 先问我。" />
 
 ## 你的应用会有哪些变化 {#what-changes-in-your-app}
 
 - **Agent 定义保持原样。** 你把它包装一层，并为每个 tool 指定一个策略。
 - **请求处理函数（handler）的形态会变。** 它把用户消息发给 Session 后就返回。回复出现在 Session 的事件流上，或者在它的快照中。
-- **你要多运行两样东西。** Worker 进程运行 Session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[选择 Dex 的运行方式](/components/choose-how-to-run) 对比了两者。Dex 处于 Beta 阶段，Dex Server 的版本是 0.1，一个集群由一个活动节点提供服务。
+- **你要多运行两样东西。** Worker 进程运行 Session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[在哪里运行 Dex Server](/components#where-to-run) 对比了两者。Dex 处于 Beta 阶段，Dex Server 的版本是 0.1，一个集群由一个活动节点提供服务。
 - **每个 turn 都要等待 Dex 提交。** 一个带三个并行 Tool Call 的 turn 大约多花 0.4 秒；参见 [延迟与成本](/agent-frameworks/sessions#latency-and-cost)。
 
 [在生产环境运行 Agent](/agent-frameworks/production) 列出了需要准备的事项。[性能](/intro/performance) 给出具体数字，[限制](/intro/limits#license) 给出许可证说明。
@@ -478,7 +465,7 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-由框架自己运行的 tool，例如 MCP server 和 hosted tool，需要按你所用框架的 [限制](/agent-frameworks/framework-support#limits) 做相应修改。Session 在 Worker 中运行，由 Client 驱动；[把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) 展示了这部分宿主代码。
+由框架自己运行的 tool，例如 MCP server 和 hosted tool，需要按你所用框架的 [限制](/agent-frameworks/framework-details#limits) 做相应修改。Session 在 Worker 中运行，由 Client 驱动；[把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) 展示了这部分宿主代码。
 
 ## 在你自己的 Agent 中使用 {#use-it-in-your-own-agent}
 
@@ -951,5 +938,6 @@ def create_web_app(
 
 ## 下一步 {#next}
 
-[Session](/agent-frameworks/sessions)
+- [框架支持](/agent-frameworks/framework-support)：你的框架支持什么，以及它的限制。
+- [持久化 Agent 如何工作](/agent-frameworks/how-it-works)：把你的框架术语对应到 Dex。
 

@@ -1,0 +1,288 @@
+---
+title: 各框架如何在 Dex 上运行
+sidebar_label: 各框架如何在 Dex 上运行
+slug: /agent-frameworks/framework-details
+description: 每个 Agent 框架的适配器怎样把一个 turn 作为 Step 运行、它有哪些 Session 功能，以及会影响你写 Agent 的限制。
+---
+
+# 各框架如何在 Dex 上运行
+
+每个 Agent 框架都通过自己的适配器运行在同一个 Session Flow 上。选择你的框架，查看它的 turn 怎样对应到 Step、它有哪些 Session 功能，以及它的限制。汇总表见[框架支持](/agent-frameworks/framework-support)。
+
+## 你的框架如何运行一个 turn {#how-each-framework-runs-a-turn}
+
+大多数适配器会在 tool 运行前让框架停下，因此每次 Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。需要审批的调用先在 `AwaitToolApproval` 中等待。下一个 `RunModel` 把记录下来的结果交给框架，因此没有 tool 会再次运行。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Claude Agent SDK 是例外：它在 `RunModel` 内部运行读操作。使用 Pi 时，Agent Loop 由 Dex 自己运行，所以每次 Pi Tool Call 都在自己的 Step 中运行。
+
+下面的标签页展示每个框架如何被暂停和恢复，以及各框架的不同之处。
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+Claude Agent SDK 把 Claude Code 作为 Agent 运行。它的 Agent Loop 在 Claude Code CLI 中运行，CLI 是 Worker 的一个子进程。Dex 适配器在持久化 Session 内运行这个 Agent Loop。它支持 Python 和 TypeScript。
+
+**何时使用**
+
+想要 Claude Code 的 Agent Loop、上下文管理和 tool 时，使用它。你的 Agent 已经在用 Claude Agent SDK 时，也使用它。
+
+如果想要每个 Step 一次模型调用、并行的 tool Step 或 Dex compaction，请使用 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)。
+
+**Session 如何运行**
+
+Claude Code 会运行整个 turn，所以适配器把一个 turn 拆成多个 segment。一个 `RunModel` Step 为一个 segment 运行 CLI。模型调用在 segment 内运行，读操作 tool 也是：延后执行的读操作会让 CLI 重启。Connector Tool Call 是例外：即使是读操作，它也总是离开 segment。见 [连接 Connector](/agent-frameworks/connectors-as-tools#connect-connectors)。
+
+写操作 Tool Call 会结束 segment。需要审批时，它在 `AwaitToolApproval` 中等待。然后它在自己的 Step 中运行：幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。接着 `ResumeTurn` 回到 `RunModel`，后者恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
+
+失败的 segment 会重试，最多尝试三次，并且整体重新运行。其中的模型调用和读操作会再次运行。已经在自己的 Step 中运行过的写操作，在 segment 重试时不会再次运行。
+
+查询订单的 turn 运行一个 `RunModel` Step。取消订单的 turn 依次运行 `RunModel`、`AwaitToolApproval`、`CallSingleAttemptTool`、`ResumeTurn` 和 `RunModel`。
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+Google ADK（Agent Development Kit）为 Gemini 和其他模型构建 Agent 与 multi-agent tree。Dex 适配器在持久化 Session 内运行 ADK Agent。它支持 Python。
+
+**何时使用**
+
+你的 Agent 已经在用 Google ADK 时使用它，包括 sequential、loop 和 parallel Agent。保留 Agent tree 和它的 tool，由 Dex 负责 Session。
+
+**Session 如何运行**
+
+适配器向 ADK App 添加一个 plugin。对每次 Tool Call，plugin 都会向 ADK 请求 confirmation，因此 ADK 会在 tool 运行前暂停。每个 `RunModel` Step 进行一次模型调用，并保存这个 turn 的 ADK event。
+
+Tool Step 运行一次 tool。下一个 `RunModel` 确认暂停的调用，plugin 返回记录下来的结果，而不是再次运行 tool。
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+LangChain `create_agent` 在 LangGraph 之上构建会调用 tool 的 Agent。Dex 适配器在持久化 Session 内运行 `create_agent` Agent 或自定义的 LangGraph graph。它支持 Python。
+
+**何时使用**
+
+你的 Agent 已经在用 LangChain `create_agent` 或 LangGraph graph 时使用它。保留 graph、它的 middleware 和 tool，由 Dex 负责 Session。
+
+**Session 如何运行**
+
+`DurableToolCallMiddleware` 用 LangGraph interrupt 拦下每次 Tool Call，因此 `RunModel` 内不会运行任何 tool。`RunModel` Step 把 graph 运行到它的下一批 Tool Call，通常只有一次模型调用，并保存 graph checkpoint。
+
+Tool Step 校验参数，并调用一次 tool。下一个 `RunModel` 恢复 checkpoint，用记录下来的结果恢复 graph 的运行。
+
+自定义 graph 用 `durable_tool_node` 而不是 `ToolNode` 构建 tool node。它的 state 必须以 LangChain message 的形式保存对话。
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+Mastra 是一个用于 Agent、tool 和 workflow 的 TypeScript 框架。Dex 适配器在持久化 Session 内运行 Mastra Agent。它支持 TypeScript。
+
+**何时使用**
+
+你的 Agent 已经在用 Mastra 时使用它。保留 Agent、它的 tool 和 model router，由 Dex 负责 Session。
+
+**Session 如何运行**
+
+每个 Agent tool，包括读操作 tool，都以 client tool 的形式交给 Mastra。因此 Mastra 在模型调用后带着 Tool Call 停下。每个 `RunModel` Step 进行一次模型调用。
+
+每次 Tool Call 在自己的 Step 中运行一次 Agent 原来的 tool。下一个 `RunModel` 加入记录下来的结果，再次调用模型。
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+OpenAI Agents SDK 用 instructions、function tool 和 handoff 定义 Agent。Dex 适配器在持久化 Session 内运行 SDK 的 runner。它支持 Python 和 TypeScript。
+
+**何时使用**
+
+你的 Agent 已经在用 OpenAI Agents SDK 时使用它，无论是否使用 handoff。保留 SDK 的 Agent 定义、tool 和 guardrail，由 Dex 负责 Session。
+
+**Session 如何运行**
+
+适配器复制一次 Agent graph，并拦截每个 function tool。因此 SDK 在每次模型调用后立即停下，返回模型请求的 Tool Call。每个 `RunModel` Step 进行一次模型调用。
+
+每次 function Tool Call 在自己的 Step 中运行。下一个 `RunModel` 恢复 SDK 的 run state，并把记录下来的结果交给它。Tool 不会再次运行。
+
+与 function tool 不同，handoff 在 `RunModel` 内运行，因此执行 handoff 的 Step 也会进行下一个 Agent 的模型调用。
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+Pi 是一个用于 Agent 的 TypeScript 工具包。它的 **pi-ai** 包调用多家 provider 的模型，它的 agent core 定义 tool。Dex 的包在持久化 Session 中运行 Pi Agent 的模型和 tool。它支持 TypeScript。
+
+**何时使用**
+
+你的 Agent 已经在用 pi-ai 模型和 Pi tool 时使用它。保留模型和 tool，由 Dex 负责 Session 和 Agent Loop。
+
+把 Agent 从 **pi-durable**（Pi 的一个持久化 harness）迁移到 Dex 时，也使用它。Dex 替代的是 pi-durable，而不是 Pi。你的 pi-ai 模型和大部分 Pi tool 可以直接沿用。harness 的入口代码需要改写：`Harness.open`、根对话、`submit` 和 `wait` 变成 Session Flow、Worker 和 Client 调用。pi-durable API 的兼容层在 [issue 1571](https://github.com/superdurable/dex/issues/1571) 中跟踪。
+
+**Session 如何运行**
+
+运行 Agent Loop 的是 Dex，而不是 Pi。Session Flow 就是[内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：`createBuiltinAgentSessionFlow`，模型客户端来自 `createPiAiModelClient`，tool 来自 `piAgentFunctionTool`。Pi 的 `Agent` 和 `agentLoop` 不会被使用。
+
+每个 `RunModel` Step 发出一次 pi-ai 请求。pi-ai 自己的重试是关闭的，所以每次重试都是一次新的 `RunModel` 尝试。Bedrock 是例外，见[限制](#limits)。
+
+每次 Pi Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。没有显式的 `effect` 时，由 tool 的 `replay` 字段决定：`safe` 是幂等写操作，`never` 是非幂等写操作。
+
+一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Session 把每个模型回复存成 pi-ai message，因此一个 Session 可以在两个 turn 之间更换模型。
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+Pydantic AI 用 tool、dependency 和 output type 定义有类型的 Agent。Dex 适配器在持久化 Session 内运行 Pydantic AI Agent。它支持 Python。
+
+**何时使用**
+
+你的 Agent 已经在用 Pydantic AI 时使用它。保留 Agent、它的 tool 和 capability，由 Dex 负责 Session。这个适配器取代 Pydantic AI 自带的 durable execution 集成。
+
+**Session 如何运行**
+
+每个 `RunModel` Step 运行 Agent 时都带一个 capability，它把每个 function tool 标记为 external tool。Pydantic AI 从不运行 external tool，所以模型请求 tool 后，这次 run 就立即结束。
+
+Tool Step 通过 Agent 运行一次 tool，因此 Agent 的 tool hook 也在这里运行。下一个 `RunModel` 用记录下来的结果恢复这次 run。
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API，并支持有类型的 tool。Dex 适配器在持久化 Session 内运行 AI SDK 的 Agent 定义。它支持 TypeScript。
+
+**何时使用**
+
+你的 TypeScript 应用已经在用 AI SDK 的模型和 tool 时使用它。保留模型、tool 和 `stopWhen`，由 Dex 负责 Session。
+
+**Session 如何运行**
+
+每个 tool 交给模型时都不带它的 **execute**，因此 AI SDK 返回 Tool Call 而不是运行它们。每个 `RunModel` Step 用 `streamText` 进行一次模型调用。
+
+每次 Tool Call 在自己的 Step 中运行 tool 原来的 **execute**。下一个 `RunModel` 加入记录下来的结果，检查 `stopWhen`，再次调用模型。
+
+</FrameworkTab>
+</FrameworkTabs>
+
+## 各 Harness 支持的功能 {#features-by-harness}
+
+有些 Session 功能取决于 harness：
+
+| 功能 | 框架适配器 | 内置 Agent Loop 和 Pi |
+| --- | --- | --- |
+| 排队消息、**Steer** 和 `cancel_turn` | 是 | 是 |
+| Dex 对旧 message 的 compaction | 是，Claude Agent SDK 除外 | 是 |
+| 向用户提问（`ask_user`） | 否 | 是 |
+| Plan（plan mode 和 `execute_plan`） | 否 | 是 |
+
+## 限制 {#limits}
+
+每个标签页列出一个适配器中会影响 Agent 写法的限制，以及替代做法。
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+- 每个 segment 只有一次写操作调用离开 turn。包含两次写操作的回复要多花一个 segment 和一次模型调用。同一次回复中的写操作永远不会作为并行的 Step 运行。
+- 在 CLI 内部运行的 tool，例如 **Bash** 或 **Edit**，是 at least once 的。Segment 重新运行时它们也会再次运行。CLI 修改的文件不会被记录。
+- Segment 必须在 `RunModel` 的 method timeout 内完成，默认 15 分钟。可以用 Python 中的 `run_model_limit` 或 TypeScript 中的 `runModelLimit` 调高它。
+- Claude Code 自己压缩 transcript，Dex compaction 保持关闭。长 Session 的终点是 state 上限，而不是 context window：即单个 Session 的 active state，默认 64 MiB（[Session limits](/reference/agents/session-limits)（英文））。
+- 记录下来的 tool result 只保留文本。
+- Subagent 内的写操作调用会被拒绝。模型会被要求在主对话中调用它。
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+- App root 必须是 `BaseAgent`。ADK **Workflow** root 不受支持。
+- Tool 在 ADK run 之外运行，使用新的 `ToolContext`。它对 state 和 artifact 的修改会被丢弃。请把它需要的内容作为参数传入。
+- 在自己的 Step 内请求 confirmation 或 credential 的 tool 会失败。
+- 继续运行且不调用 tool 的 Agent，会在同一个 `RunModel` 中进行它们的模型调用。
+- `before_tool_callback` 在请求这次调用的 `RunModel` 中运行，如果该 Step 重试，它会再次运行。
+- 除 `BuiltInCodeExecutor` 以外的 code executor 都会被拒绝。请改为从 tool 中运行这类代码。
+- **app:** 和 **user:** state key 保存在 Dex Session 中，不跨 Session 共享。
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+- 如果 graph 的节点在 tool node 之前进行多次模型调用，这些调用都在同一个 `RunModel` 中进行。Summarization middleware 和 planner node 就是例子。重试会把它们全部重复。
+- 由 provider 运行的 tool 在 `RunModel` 重新运行时会重复。
+- History 只能追加。Graph 编辑或删除较早的 message，不会改变已保存的 history。
+- 在 turn 之间只保留 message 列表。其他 state key 在每个 turn 开始时都回到默认值；在同一个 turn 内它们会保留。必须跨 turn 保留的值，请放在你自己掌控的存储中，通过 tool 读取。
+- Tool 在 graph 之外运行。它们不能使用 `ToolRuntime`、`InjectedState` 或 `InjectedStore`，也不能返回 graph **Command**。`InjectedToolCallId` 可以使用。
+- Graph 自己抛出 interrupt 是不允许的。
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+- 由 Mastra 自己运行的 tool，例如 sub-agent、workflow 和 Memory tool，不能在 Step 中运行。只有当 `toolPolicies` 把它指定为无需审批的读操作时，适配器才会提供它。此时它在 `RunModel` 内运行，并在该 Step 重新运行时重复。
+- Session 保存每条 message，并把 history 交给 Agent，取代 Mastra Memory。在 Agent 的 defaults 和 scope 中不要设置 Memory thread。需要跨 Session 的 memory 时，按 [Session 记住什么](/agent-frameworks/sessions#what-a-session-remembers) 的说明，给 Agent 一个访问你自己存储的 tool。
+- `beforeToolCall` 和 `afterToolCall` hook 只对 Mastra 自己运行的 tool 生效。
+- Tool result 以文本形式交给模型。`toModelOutput` 不会生效。
+- 调用 `suspend()` 的 tool 会失败。请改用 Session 的审批。
+- Tool 名称最多 63 个字符，只能包含字母、数字、**_** 和 **-**，并且不能以数字或 **-** 开头。
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+- 只有 function tool 有自己的 Step。Hosted tool，例如 web search，在模型调用期间于 provider 端运行。`RunModel` 重新运行时它们会重复。
+- 由 SDK 自己运行的 tool，例如 `Agent.mcp_servers` 的 tool 和本地 shell tool，不能等待审批。适配器默认拒绝它们。
+  - 对于 MCP server，请通过 `tool_sources` 中的 `McpToolSource` 传入，而不是 `mcp_servers`。这样它的每个 tool 都会带着 policy 在自己的 Step 中运行，标记了 `readOnlyHint` 的 tool 是读操作。下面这个来自 Agent 快速开始示例的函数为 Python 版 Agent 快速开始中的 Agent 加入一个 MCP server；import 语句见 [openai_agents_mcp.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_mcp.py)：
+
+    ```python
+    def build_durable_agent_with_mcp(
+        order_desk: OrderDesk, model: str | Model, mcp_servers: Sequence[McpServerConfig]
+    ) -> AgentSessionFlow:
+        """Returns the quick start agent with MCP tools, each call in its own Step.
+
+        The servers go through tool_sources, not Agent.mcp_servers, which the
+        adapter refuses. A tool marked readOnlyHint is a read.
+        """
+        return openai_agents_session_flow(
+            build_plain_agent(order_desk, model),
+            flow_type="OpenAIAgentsMcpQuickStart",
+            tool_policies={
+                "look_up_order": ToolPolicy(ToolEffect.READ),
+                "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+            },
+            tool_sources=[McpToolSource(mcp_servers)],
+        )
+    ```
+
+  - 或者设置 `allow_at_least_once_tools=True`。这些 tool 随后在 `RunModel` 内运行，并在它重试时重复，所以只对读操作这样做。
+  - 把写操作包装成 function tool，让它有自己的 Step。
+- Function tool 的名称在整个 Agent graph 中必须唯一。Graph 在构建 Flow 时被复制，因此之后对它的修改不会影响 Flow。
+- Session 本身就是 history。不要使用 server 管理的 conversation state 或 SDK session。用 `send_user_message` 发送每条新消息，Session 会把之前的 turn 交给 Agent。
+- 在 Python 中，作为 tool 使用的 Agent 会在一个 tool Step 内运行它的嵌套 run。TypeScript 会拒绝这种用法；请改用 handoff。
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+- Dex 并行运行同一个模型回复中的 Tool Call，所以带 `executionMode: "sequential"` 的 tool 会被拒绝。让这个 tool 可以并行运行，或者把这些调用合并到一个 tool 中。
+- Dex 忽略 `AgentToolResult.terminate`，Pi 的 `finishTurn` 也不会运行。要在 tool 之后结束或继续一个 turn，使用 Agent 定义的 `decideTurnContinuation` hook。
+- Pi 的 `beforeToolCall` 和 `afterToolCall` hook 不会运行。审批由 tool policy 决定，tool 自己修改自己的结果。
+- Session 压缩旧消息，取代 Pi 的 `transformContext`。要修改单次请求，使用 `createPiAiModelClient` 的 `prepareRequest` 选项。
+- pi-ai 的 tool choice 只有 **auto** 或 **none**，所以强制调用某个 tool 的请求会失败。让 `planningToolChoice` 保持 **auto**。
+- 模型看到 tool 结果中的文本。只有 Session Flow 配有 media store 时，模型才能看到结果中的图片；否则每张图片都变成一段文本说明。结果的 **details** 不会被保存。
+- pi-durable 的 `defineTool` tool 只有在不使用 **api**、也不返回 **control** 时，才能通过 `piDurableFunctionTool` 运行。把这样的 tool 改写成 Pi `AgentTool`。
+- 把 pi-durable Extension 的 tool 和 prompt 移到 Agent 定义中。Extension 和 fork 不受支持。
+- 使用 Bedrock（`bedrock-converse-stream`）时，AWS SDK 会在一次 `RunModel` 尝试内部重试，因为 pi-ai 在这里忽略自己的重试设置。一次尝试默认最多发出 3 个请求，Dex 的 `RunModel` 重试会让请求数成倍增加。结果仍然正确，因为模型调用没有副作用。要让每次尝试只发出一个请求，在 Worker 的 AWS 配置中设置 `AWS_MAX_ATTEMPTS=1` 或 profile 的 `max_attempts`。
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+- Pydantic AI 自己向模型发出的重试会在同一个 `RunModel` Step 中再进行一次模型调用。例如 tool 参数无效、输出未通过校验时。
+- Output function 在 `RunModel` 内运行，是 at least once 的。请把写操作放在 tool 中。
+- 由 provider 运行的 tool，例如 `WebSearchTool`，在 `RunModel` 重新运行时会重复。
+- Deferred tool 向模型返回文本。图片和文件会丢失。
+- 只在运行时才请求审批的 tool，需要一个带 `requires_approval=True` 的 `ToolPolicy`。
+- `UsageLimits` 和 tool 重试预算按 Step 计算，而不是按 turn。
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+- `RunModel` 中的崩溃会重新运行这次模型调用，以及其中由 provider 执行的 tool。
+- Tool 的 **execute** 会拿到 `toolCallId` 和 `abortSignal`。它的 **messages** 为空，**context** 为 **undefined**。
+- 审批由 Dex 负责。AI SDK 的 `toolApproval` 不对外提供，`needsApproval` 函数会被拒绝。由 provider 执行的 tool 从不等待审批。
+- 每个 tool 都在 Dex 中运行，因此没有 **execute** 的 tool，例如浏览器端 tool，会被拒绝。
+- Tool 的输入和输出必须能经 JSON 序列化后保持不变。
+- `prepareStep`、`activeTools`、**output** 和 stream transform 不对外提供。
+
+</FrameworkTab>
+</FrameworkTabs>
+
+Server 的限制见 [Limits for long sessions](/reference/agents/session-limits)（英文）。
+
+
+## 下一步 {#next}
+
+- [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：拥有全部 Session 功能的 Harness。
+- [在生产环境运行 Agent](/agent-frameworks/production)：为真实用户运行 Session 之前的检查清单。
