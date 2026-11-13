@@ -535,6 +535,155 @@ export interface FlowInfo {
   readonly startedAt: Date;
 }
 
+/**
+ * Describes the live Step state of the current or latest run of one Flow.
+ *
+ * `Client.getFlowState` returns it. Read it to see which Step executions are open and whether one of them is retrying after a
+ * failed attempt. See `Client.getFlowState` for an example.
+ * @since 1.45.1
+ */
+export interface FlowState {
+  /**
+   * Open Step executions of the run, in server order.
+   * The array is empty when the run is closed or has no open Step execution.
+   */
+  readonly activeStepExecutions: readonly ActiveStepExecution[];
+}
+
+/**
+ * Tells where an open Step execution stands.
+ *
+ * - `active`: the WaitFor or Execute method is pending, running, or waiting to retry. Read
+ *   {@link ActiveStepExecution.invocation} for details.
+ * - `waiting`: WaitFor completed and the Step execution waits for its conditions. No Step method
+ *   call is open.
+ * @since 1.45.1
+ */
+export type ActiveStepExecutionPhase = "active" | "waiting";
+
+/**
+ * Describes one open Step execution in a {@link FlowState}.
+ * @since 1.45.1
+ */
+export interface ActiveStepExecution {
+  /**
+   * The Step execution ID, such as `ChargeStep-1`.
+   * It equals `Context.stepExecutionId` inside the Step's handlers.
+   */
+  readonly stepExecutionId: string;
+  /** Registered Step type. */
+  readonly stepType: string;
+  /**
+   * Positive execution number of the Step type in this run.
+   * Pass `StepExecutionId.of(stepType, executionNumber)` to `Client.waitForStepCompletion` or
+   * `Client.skipTimer` to address this Step execution.
+   */
+  readonly executionNumber: number;
+  /** Whether a Step method call is open or the Step waits for its conditions. */
+  readonly phase: ActiveStepExecutionPhase;
+  /**
+   * The open WaitFor or Execute method call, or `undefined` when no call is open.
+   * No call is open in the `waiting` phase.
+   */
+  readonly invocation: StepMethodInvocation | undefined;
+  /**
+   * The latest failed attempt of the open Step method call, or `undefined` when none failed.
+   * A value here while {@link StepMethodInvocation.phase} is `backoff` or a later
+   * attempt is pending or running means that the Step is retrying after a failure.
+   */
+  readonly lastFailure: StepMethodFailureInfo | undefined;
+}
+
+/**
+ * Names the Step method that an open Step method call runs.
+ * @since 1.45.1
+ */
+export type StepMethodName = "waitFor" | "execute";
+
+/**
+ * Tells where the current attempt of an open Step method call stands.
+ *
+ * - `pending`: the attempt waits for its locks or for a Worker. Read
+ *   {@link StepMethodInvocation.pendingReason}.
+ * - `running`: a Worker received the attempt.
+ * - `backoff`: the last attempt failed, and the next attempt waits for its retry backoff.
+ * - `unspecified`: the server reported no phase.
+ * @since 1.45.1
+ */
+export type StepMethodInvocationPhase = "pending" | "running" | "backoff" | "unspecified";
+
+/**
+ * Tells why a pending Step method attempt has not reached a Worker yet.
+ *
+ * - `waitingForWorker`: the attempt waits for a Worker of its Flow type.
+ * - `waitingForSupportingWorker`: Workers of the Flow type are connected, but each one declined
+ *   the Step type.
+ * - `waitingForLocks`: another Step or a transactional RPC holds one of the attempt's locks, or an
+ *   earlier Step waits for one of them.
+ * @since 1.45.1
+ */
+export type StepMethodPendingReason =
+  | "waitingForWorker"
+  | "waitingForSupportingWorker"
+  | "waitingForLocks";
+
+/**
+ * Describes the open WaitFor or Execute method call of an {@link ActiveStepExecution}.
+ * @since 1.45.1
+ */
+export interface StepMethodInvocation {
+  /** The Step method that this call runs. */
+  readonly method: StepMethodName;
+  /** Where the current attempt stands. */
+  readonly phase: StepMethodInvocationPhase;
+  /**
+   * The 1-based pending or running attempt.
+   * In the `backoff` phase it is the next attempt, so it is one more than
+   * {@link StepMethodFailureInfo.attempt}.
+   */
+  readonly attempt: number;
+  /** Why a `pending` attempt waits, or `undefined` in other phases. */
+  readonly pendingReason: StepMethodPendingReason | undefined;
+  /** When the current attempt became pending, or `undefined` in the `backoff` phase. */
+  readonly pendingSince: Date | undefined;
+  /** When a Worker received the `running` attempt, or `undefined` in other phases. */
+  readonly attemptStartedAt: Date | undefined;
+  /**
+   * When the `backoff` phase ends and the next attempt becomes pending.
+   * It is `undefined` in other phases.
+   */
+  readonly backoffFiresAt: Date | undefined;
+}
+
+/**
+ * Describes the latest failed attempt of an open Step method call.
+ *
+ * Dex keeps only the latest failure. It does not report when that attempt failed; read
+ * {@link StepMethodInvocation.backoffFiresAt} for when the next attempt starts.
+ * @since 1.45.1
+ */
+export interface StepMethodFailureInfo {
+  /** The 1-based attempt that failed. */
+  readonly attempt: number;
+  /**
+   * The error type the Worker reported, such as the thrown error's class name.
+   * It is empty when Dex failed the attempt itself, for example when no Worker was available.
+   */
+  readonly errorType: string;
+  /**
+   * The failure message.
+   * It is the Worker's error message, or the server's description when the Worker reported none.
+   */
+  readonly detail: string;
+  /** The Worker-language stack trace, or an empty string when the Worker sent none. */
+  readonly stackTrace: string;
+  /**
+   * The Dex failure category, such as `FLOW_ERROR_TYPE_WORKER_API_FAIL`.
+   * Use it only for logs; its spellings can differ between server versions.
+   */
+  readonly backendError: string;
+}
+
 /** Represents one indexed Flow run returned by `searchFlows`. */
 export interface SearchFlowEntry {
   /** Stable application-assigned Flow ID. */
