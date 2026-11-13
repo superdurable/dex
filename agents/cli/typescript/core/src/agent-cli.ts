@@ -44,6 +44,7 @@ import {
   DexConnectionSettingsError,
   createDexConnectionOptions,
   DescribedDexFailure,
+  describeDexRefusalWithoutDetails,
   describeFailureWithoutDexDetails,
   describeRefusedDexCredential,
   describeRefusedTlsOptions,
@@ -1077,7 +1078,7 @@ const workerReconnectMessage =
   /^(Worker task stream disconnected|Worker task stream did not register|Worker task registration failed|send Worker (task|keepalive) Pong)\b/;
 
 /** Logs library `console.warn` and `console.error` calls, and shows their first line unless it is reconnect noise. */
-class LibraryConsoleRedirection {
+export class LibraryConsoleRedirection {
   private readonly originalWarn = console.warn;
   private readonly originalError = console.error;
 
@@ -1095,7 +1096,8 @@ class LibraryConsoleRedirection {
   }
 
   private handle(level: string, values: readonly unknown[]): void {
-    const text = format(...values);
+    // A Dex refusal's server details may echo the credential, as in the SDK's Flow definition upload warning.
+    const text = format(...values.map((value) => (isObject(value) ? (describeDexRefusalWithoutDetails(value) ?? value) : value)));
     try {
       appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${text}\n`);
     } catch {
@@ -1337,4 +1339,8 @@ function describe(error: unknown): string {
  */
 export function sessionFlowDefinitionUploadFailureLine(flowType: string, error: unknown): string {
   return `session Flow definition upload failed; Dex Web shows this session only with --flow-rendering-dir: flowType=${flowType} ${describe(error)}`;
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
 }

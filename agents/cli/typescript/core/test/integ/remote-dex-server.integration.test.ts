@@ -10,11 +10,12 @@
 // token, the startup errors, and what the terminal UI receives.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { sessionFlowDefinitionUploadFailureLine } from "../../src/agent-cli.js";
+import { LibraryConsoleRedirection, sessionFlowDefinitionUploadFailureLine } from "../../src/agent-cli.js";
 import { describeRefusedDexCredential } from "../../src/dex-connection.js";
 import { assertNoDexSecret, secretSentinels } from "../fixtures/dex-secret-sentinels.js";
 import { AuthenticatedDexServer, acceptedApiKey, acceptedServerId } from "../fixtures/authenticated-dex-server.js";
@@ -264,6 +265,26 @@ describe("a refused credential", () => {
       const line = sessionFlowDefinitionUploadFailureLine("DexAgentsTestSession-abc123", failure);
       assert.ok(!line.includes(secret), line);
       assert.match(line, code === 16 ? /\(UNAUTHENTICATED\)/ : /\(PERMISSION_DENIED\)/);
+    });
+  }
+
+  for (const code of [16, 7]) {
+    test(`an SDK warning with gRPC status ${code} reaches the log and the terminal without server details`, () => {
+      const secret = "bearer-token-echoed-in-sdk-warning-2468";
+      const directory = mkdtempSync(join(tmpdir(), "dex-agents-refusal-log-"));
+      const logPath = join(directory, "command.log");
+      const shown: string[] = [];
+      const redirection = new LibraryConsoleRedirection(logPath, (line) => shown.push(line));
+      try {
+        const failure = Object.assign(new Error(`${code} status: token ${secret}`), { code, details: `token ${secret} is bad` });
+        console.warn("Flow definition upload failed; the Worker continues starting", failure);
+      } finally {
+        redirection.restore();
+      }
+      const logged = readFileSync(logPath, "utf8");
+      rmSync(directory, { recursive: true, force: true });
+      assert.ok(!logged.includes(secret) && !shown.join("\n").includes(secret), logged);
+      assert.match(logged, code === 16 ? /\(UNAUTHENTICATED\)/ : /\(PERMISSION_DENIED\)/);
     });
   }
 });

@@ -25,6 +25,7 @@ from dex_agents.testing import find_free_ports
 from dex_agents_cli_core.cli import _upload_session_flow_definition
 from dex_agents_cli_core.dex_connection import (
     DexConnectionSettings,
+    DexRefusalDetailsFilter,
     describe_rejected_dex_credential,
 )
 from tests.authenticated_dex_server import (
@@ -310,3 +311,27 @@ async def test_a_refused_session_graph_upload_logs_no_server_details(
     (record,) = [record for record in caplog.records if "upload failed" in record.getMessage()]
     assert secret not in record.getMessage()
     assert f"({status})" in record.getMessage()
+
+
+@pytest.mark.parametrize("status", ["UNAUTHENTICATED", "PERMISSION_DENIED"])
+def test_the_log_filter_drops_refusal_details_that_the_sdk_logs(status: str) -> None:
+    secret = "bearer-token-echoed-in-sdk-log-2468"
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.addFilter(DexRefusalDetailsFilter())
+    logger = logging.getLogger(f"dex.test_refusal_filter.{status}")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        failure = RuntimeError(f"upload failed: {secret}")
+        failure.__cause__ = _EchoingStatusError(status, f"token {secret} is bad")
+        logger.warning("Flow definition upload failed; the Worker continues starting: %s", failure)
+        try:
+            raise failure
+        except RuntimeError:
+            logger.exception("pull stream failed")
+    finally:
+        logger.removeHandler(handler)
+    text = stream.getvalue()
+    assert secret not in text
+    assert text.count(f"({status})") == 2

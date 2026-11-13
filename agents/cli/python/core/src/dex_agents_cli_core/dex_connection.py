@@ -16,6 +16,7 @@ The rules are the ``dex_connection`` cases of
 
 from __future__ import annotations
 
+import logging
 import posixpath
 import re
 from collections.abc import Mapping
@@ -539,6 +540,46 @@ def describe_dex_refusal_without_details(failure: BaseException) -> str | None:
         if status is not None:
             return f"the Dex server refused the call ({status}); check dex.auth and its credential"
     return None
+
+
+class DexRefusalDetailsFilter(logging.Filter):
+    """Rewrite log records that carry a Dex refusal, so its server details never reach the log.
+
+    A record whose arguments or exception hold an ``UNAUTHENTICATED`` or
+    ``PERMISSION_DENIED`` error, such as the SDK's Worker reporting a failed
+    Flow definition upload, gets the status code and a local hint instead.
+    A record that already formatted the error into its message text is not
+    recognized.
+
+    .. versionadded:: 0.6.2
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Rewrite the record when it carries a Dex refusal; always keep it.
+
+        Args:
+            record: The record.
+
+        Returns:
+            ``True``.
+        """
+        if isinstance(record.args, tuple):
+            record.args = tuple(_without_refusal_details(value) for value in record.args)
+        failure = record.exc_info[1] if record.exc_info else None
+        refused = None if failure is None else describe_dex_refusal_without_details(failure)
+        if refused is not None:
+            record.msg = f"{record.getMessage()}: {refused}"
+            record.args = None
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
+def _without_refusal_details(value: object) -> object:
+    if not isinstance(value, BaseException):
+        return value
+    refused = describe_dex_refusal_without_details(value)
+    return value if refused is None else refused
 
 
 def _rejected_credential_wording(settings: DexConnectionSettings) -> tuple[str, str]:

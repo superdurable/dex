@@ -86,6 +86,7 @@ from dex_agents_cli_core.dex_connection import (
     DexConnection,
     DexConnectionSettings,
     DexConnectionSettingsError,
+    DexRefusalDetailsFilter,
     describe_dex_refusal_without_details,
     describe_rejected_dex_credential,
     resolve_dex_connection_settings,
@@ -576,6 +577,7 @@ def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -
         root.handlers[:] = [logging.NullHandler()]
         return None
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.addFilter(DexRefusalDetailsFilter())
     root.handlers[:] = [handler]
     return log_path
 
