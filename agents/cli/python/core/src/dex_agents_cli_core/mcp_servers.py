@@ -10,16 +10,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
+from typing import TypeVar
 
 from dex_agents import (
+    AgentToolCall,
     AgentTurnContext,
     DeferredToolCall,
     DeferredToolExecution,
     MediaStore,
+    ToolEffect,
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
@@ -50,6 +54,12 @@ _CLIENT_NAME = "dex-agents-cli"
 _VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PRINTABLE_ASCII = re.compile(r"[ -~]*")
 _LOGGER = logging.getLogger(__name__)
+_REDACTED = "[redacted]"
+# Shorter texts are no credible secrets, and replacing them would garble messages.
+_MINIMUM_SECRET_LENGTH = 8
+_SECRET_SEPARATOR = re.compile(r"[\s=:,;]+")
+_SINGLE_ATTEMPT_EFFECTS = frozenset({ToolEffect.NON_IDEMPOTENT_WRITE, ToolEffect.UNCLASSIFIED})
+_OutcomeT = TypeVar("_OutcomeT")
 
 
 class McpServerSettingsError(Exception):
@@ -115,12 +125,58 @@ def resolve_mcp_servers(
         McpServerSettingsError: If a referenced variable is not set, is empty,
             or holds anything but printable ASCII (U+0020 to U+007E).
     """
+    servers, _ = _expand_mcp_servers(config, environment)
+    return servers
+
+
+def mcp_server_secret_texts(
+    config: EffectiveConfig, environment: Mapping[str, str]
+) -> frozenset[str]:
+    """Return the texts that ``McpServersToolSource`` replaces with ``[redacted]``.
+
+    They are the expanded header values, their parts between whitespace,
+    ``=``, ``:``, ``,``, or ``;``, and
+    the values that ``${NAME}`` references substituted, each of at least 8
+    characters. Pass them as ``secret_texts``, so a value that a server echoes
+    in an error never reaches a log, an error message, or the session.
+
+    Example:
+        >>> secrets = mcp_server_secret_texts(config, os.environ)
+
+    .. versionadded:: 0.6.4
+
+    Args:
+        config: A file's effective configuration.
+        environment: The variables the references read, such as ``os.environ``.
+
+    Returns:
+        The texts to redact.
+
+    Raises:
+        McpServerSettingsError: As ``resolve_mcp_servers`` does.
+    """
+    servers, substituted = _expand_mcp_servers(config, environment)
+    texts = set(substituted)
+    for server in servers:
+        for value in (server.headers or {}).values():
+            texts.add(value)
+            texts.update(_SECRET_SEPARATOR.split(value))
+    return frozenset(text for text in texts if len(text) >= _MINIMUM_SECRET_LENGTH)
+
+
+def _expand_mcp_servers(
+    config: EffectiveConfig, environment: Mapping[str, str]
+) -> tuple[tuple[McpStreamableHttpServerConfig, ...], list[str]]:
     servers: list[McpStreamableHttpServerConfig] = []
+    substituted: list[str] = []
     for name in sorted(config.mcp_servers):
         server = config.mcp_servers[name]
         expanded = {
             header: _expand_header_value(
-                f"mcp_servers.{name}.headers.{header}", server.headers[header], environment
+                f"mcp_servers.{name}.headers.{header}",
+                server.headers[header],
+                environment,
+                substituted,
             )
             for header in sorted(server.headers)
         }
@@ -132,10 +188,12 @@ def resolve_mcp_servers(
                 trusts_tool_annotations=server.trust_tool_annotations,
             )
         )
-    return tuple(servers)
+    return tuple(servers), substituted
 
 
-def _expand_header_value(setting: str, value: str, environment: Mapping[str, str]) -> str:
+def _expand_header_value(
+    setting: str, value: str, environment: Mapping[str, str], substituted: list[str]
+) -> str:
     def expand(reference: re.Match[str]) -> str:
         variable = reference[1]
         variable_value = (
@@ -153,6 +211,7 @@ def _expand_header_value(setting: str, value: str, environment: Mapping[str, str
                 f"{setting} needs the environment variable {variable}, "
                 "whose value is not printable ASCII.",
             )
+        substituted.append(variable_value)
         return variable_value
 
     return _VARIABLE_REFERENCE.sub(expand, value)
@@ -169,9 +228,20 @@ class McpServersToolSource:
     even without servers, so it refuses the stored calls another Worker
     requested.
 
+    The header values hold secrets. The source replaces each of its
+    ``secret_texts`` and expanded header values with ``[redacted]`` in the
+    errors and tool output it returns and in its log records. Install
+    ``secret_redacting_log_filter`` on the log handlers, so the warnings of
+    ``McpToolSource`` and the MCP client are redacted too. A Worker whose
+    configuration does not trust a server's annotations runs a stored call of
+    that server only when it had approval and runs at most once.
+
     Example:
         >>> source = McpServersToolSource(
-        ...     resolve_mcp_servers(config, os.environ), resolver, report=print
+        ...     resolve_mcp_servers(config, os.environ),
+        ...     resolver,
+        ...     report=print,
+        ...     secret_texts=mcp_server_secret_texts(config, os.environ),
         ... )
         >>> await source.list_file_enabled_tools()
 
@@ -187,6 +257,7 @@ class McpServersToolSource:
         report_at_startup: Callable[[str], None] | None = None,
         unavailable_line: str = "MCP server tools are unavailable for now; each turn tries again.",
         media_store: MediaStore | None = None,
+        secret_texts: Iterable[str] = (),
     ) -> None:
         """Describe the servers without connecting to them.
 
@@ -201,8 +272,13 @@ class McpServersToolSource:
             unavailable_line: The line ``report`` prints when no server answers.
             media_store: The store for the images that tool results carry.
                 ``None``, the default, keeps images as JSON in the output text.
+            secret_texts: More texts to redact, such as the values that
+                ``mcp_server_secret_texts`` returns. Texts shorter than 8
+                characters are kept.
         """
         self._resolver = resolver
+        self._servers = {server.name: server for server in servers}
+        self._secret_redactor = _SecretRedactor([*secret_texts, *_header_secret_texts(servers)])
         self._report = report
         self._report_at_startup = report_at_startup or report
         self._unavailable_line = unavailable_line
@@ -218,6 +294,11 @@ class McpServersToolSource:
     def source_name(self) -> str:
         """Return ``mcp_servers``."""
         return MCP_SERVERS_TOOL_SOURCE_NAME
+
+    @property
+    def secret_redacting_log_filter(self) -> logging.Filter:
+        """Return a log filter that redacts the secret texts of every record it sees."""
+        return _SecretRedactingLogFilter(self._secret_redactor)
 
     @property
     def is_available(self) -> bool:
@@ -256,7 +337,10 @@ class McpServersToolSource:
         try:
             tools = await self._mcp.list_tools(refresh=refresh)
         except McpToolListingError as error:
-            _LOGGER.warning("remote MCP servers could not be listed: %s", error)
+            _LOGGER.warning(
+                "remote MCP servers could not be listed: %s",
+                self._secret_redactor.redact_text(str(error)),
+            )
             if self._is_available and report is not None:
                 report(self._unavailable_line)
             self._is_available = False
@@ -316,8 +400,13 @@ class McpServersToolSource:
 
         Raises:
             ToolExecutionError: If the call had no approval but this Worker's
-                ``approval.always`` names it, if its server is not configured
-                on this Worker, or if the tool failed.
+                ``approval.always`` names it, if this Worker does not trust its
+                server's annotations and the call had no approval or may be
+                retried, if its server is not configured on this Worker, or if
+                the tool failed. Every error has its secret texts redacted.
+
+        .. versionchanged:: 0.6.4
+           Checks the call against this Worker's trust of the server's annotations.
         """
         record = call.tool_call
         turn = current_turn_config() or self._resolver.resolve(recorded_turn_settings(call))
@@ -326,12 +415,128 @@ class McpServersToolSource:
                 f"tool {record.tool_name} now needs approval, and this call had none; "
                 "it did not run"
             )
-        return await self._mcp.execute_deferred_tool_call(call)
+        server = self._servers.get(self._server_name_of(record) or "")
+        if (
+            server is not None
+            and not server.trusts_tool_annotations
+            and (not record.requires_approval or record.effect not in _SINGLE_ATTEMPT_EFFECTS)
+        ):
+            raise ToolExecutionError(
+                f"tool {record.tool_name} did not run: this Worker does not trust the "
+                f"annotations of MCP server {server.name}, so its calls need approval and "
+                "run at most once"
+            )
+        try:
+            outcome = await self._mcp.execute_deferred_tool_call(call)
+        except BaseException as error:
+            self._secret_redactor.redact_exception(error)
+            raise
+        return self._redacted_outcome(outcome)
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
-        """Poll one MCP task through ``McpToolSource``."""
-        return await self._mcp.poll_tool_task(poll)
+        """Poll one MCP task through ``McpToolSource``, with its secret texts redacted."""
+        try:
+            outcome = await self._mcp.poll_tool_task(poll)
+        except BaseException as error:
+            self._secret_redactor.redact_exception(error)
+            raise
+        return self._redacted_outcome(outcome)
 
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
-        """Cancel one abandoned MCP task through ``McpToolSource``."""
-        await self._mcp.cancel_tool_task(cancellation)
+        """Cancel one abandoned MCP task through ``McpToolSource``, with its errors redacted."""
+        try:
+            await self._mcp.cancel_tool_task(cancellation)
+        except BaseException as error:
+            self._secret_redactor.redact_exception(error)
+            raise
+
+    def _redacted_outcome(self, outcome: _OutcomeT) -> _OutcomeT:
+        if isinstance(outcome, ToolExecutionResult):
+            redacted: _OutcomeT = replace(
+                outcome, output=self._secret_redactor.redact_text(outcome.output)
+            )
+            return redacted
+        return outcome
+
+    def _server_name_of(self, record: AgentToolCall) -> str | None:
+        """Return the server of a stored call, from its reference or this Worker's listing."""
+        try:
+            reference = json.loads(record.tool_source_reference or "null")
+        except json.JSONDecodeError:
+            reference = None
+        if isinstance(reference, dict) and isinstance(reference.get("mcp_server"), str):
+            return str(reference["mcp_server"])
+        listed = next(
+            (tool for tool in self._mcp.cached_tools() if tool.name == record.tool_name), None
+        )
+        return None if listed is None else listed.server_name
+
+
+def _header_secret_texts(servers: Iterable[McpStreamableHttpServerConfig]) -> list[str]:
+    texts: list[str] = []
+    for server in servers:
+        for value in (server.headers or {}).values():
+            texts.append(value)
+            texts.extend(_SECRET_SEPARATOR.split(value))
+    return texts
+
+
+class _SecretRedactor:
+    """Replace each secret text, longest first, with ``[redacted]``."""
+
+    def __init__(self, secret_texts: Iterable[str]) -> None:
+        unique = {text for text in secret_texts if len(text) >= _MINIMUM_SECRET_LENGTH}
+        self._secret_texts = sorted(unique, key=len, reverse=True)
+
+    def redact_text(self, text: str) -> str:
+        for secret in self._secret_texts:
+            text = text.replace(secret, _REDACTED)
+        return text
+
+    def redact_exception(self, error: BaseException) -> None:
+        """Redact the args, string attributes, and notes of an exception and its chain."""
+        seen: set[int] = set()
+        pending: list[BaseException] = [error]
+        while pending:
+            current = pending.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            self._redact_one_exception(current)
+            pending.extend(
+                linked for linked in (current.__cause__, current.__context__) if linked is not None
+            )
+
+    def _redact_one_exception(self, error: BaseException) -> None:
+        if not self._secret_texts:
+            return
+        error.args = tuple(
+            self.redact_text(argument) if isinstance(argument, str) else argument
+            for argument in error.args
+        )
+        for name, value in list(vars(error).items()):
+            if isinstance(value, str):
+                setattr(error, name, self.redact_text(value))
+        notes = getattr(error, "__notes__", None)
+        if isinstance(notes, list):
+            error.__notes__ = [
+                self.redact_text(note) if isinstance(note, str) else note for note in notes
+            ]
+
+
+class _SecretRedactingLogFilter(logging.Filter):
+    """Redact the secret texts of a log record's message and exception; always keep it."""
+
+    def __init__(self, redactor: _SecretRedactor) -> None:
+        super().__init__()
+        self._redactor = redactor
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = self._redactor.redact_text(record.getMessage())
+        record.args = None
+        if record.exc_info and record.exc_info[1] is not None:
+            self._redactor.redact_exception(record.exc_info[1])
+            record.exc_text = None
+        if record.stack_info:
+            record.stack_info = self._redactor.redact_text(record.stack_info)
+        return True

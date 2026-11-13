@@ -453,12 +453,17 @@ refuses a stored call of a server this Worker does not configure.
   prints it and exits with code 2. The Worker host does the same.
 - Each call adds the turn's `approval.always`. The tool Step checks it again
   on the Worker that runs it and refuses a call that had no approval but now
-  needs one.
+  needs one. For a server whose annotations that Worker does not trust, it
+  also refuses, unsent, a call without approval or with a retried effect.
+- The source replaces each header value, each part of it between whitespace,
+  `=`, `:`, `,`, or `;`, and each value of `mcp_server_secret_texts`, of at
+  least 8 characters, with `[redacted]` in errors, tool output, and the log
+  file, so a server that echoes a header leaks nothing.
 - A listing that no server answers offers no remote tools and prints one
   line, `MCP server tools are unavailable for now; each turn tries again.
-  See <log file> for the error.`, until a server answers again. The error goes to the log file. The
-  command lists every server once at startup, so a harness whose tool set is
-  fixed at build gets the tools that answered then.
+  See <log file> for the error.`, until a server answers again. The error
+  goes to the log file. The command lists every server once at startup, so a
+  harness whose tool set is fixed at build gets the tools that answered then.
 
 ## Local tools
 

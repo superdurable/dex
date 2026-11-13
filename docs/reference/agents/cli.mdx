@@ -956,7 +956,17 @@ mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_A
 
 A value outside printable ASCII stops the command the same way. Only the
 Worker expands the values. The command never prints, logs, or stores them. The
-session, the log file, and the terminal UI see the header text as written.
+session, the log file, and the terminal UI see the header text as written. A
+server may echo a header value, such as in an HTTP 401 body or a tool error.
+The command then replaces each header value, each part of it between spaces,
+**=**, **:**, **,**, or **;**, and each variable value with **[redacted]** in
+the log file, the terminal, tool output, and errors. Values shorter than 8
+characters stay as they are.
+
+Each Worker checks a call again before it runs it. For a server whose
+annotations this Worker does not trust, a call that ran without approval, or
+that may be retried, records **failed** and is not sent, even when another
+Worker with **trust_tool_annotations: true** made it.
 
 A server that cannot be listed offers no tools. The command prints one line and
 lists the servers again in every model call, so the tools return when the
@@ -1087,10 +1097,6 @@ graph and its Actions.
   SIGKILL or crashes, the **dexcli dev** it started keeps running. Later
   commands reuse it and do not stop it; stop it with **kill**. See
   [The local Dex server](#dex-server).
-- **A remote MCP server's error text reaches the log file.** When a server
-  in **mcp_servers** refuses a request, the log file keeps the response body
-  it sent. A server that echoes request headers in its errors would write the
-  header values there. See [Remote MCP servers](#mcp-servers).
 - **The local server check does not authenticate.** On a shared machine, set
   **dex.server** and **connectors.mcp** to URLs you trust. See
   [The local Dex server](#dex-server).

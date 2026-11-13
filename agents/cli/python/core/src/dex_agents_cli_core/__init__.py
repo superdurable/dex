@@ -59,6 +59,7 @@ from dex_agents_cli_core.mcp_servers import (
     MCP_SERVERS_TOOL_SOURCE_NAME,
     McpServerSettingsError,
     McpServersToolSource,
+    mcp_server_secret_texts,
     resolve_mcp_servers,
 )
 from dex_agents_cli_core.tool_policy import (
@@ -107,6 +108,7 @@ __all__ = [
     "is_session_summary_indexed",
     "is_shell_command_allowed",
     "is_shell_command_approval_required",
+    "mcp_server_secret_texts",
     "namespace_session_flow_type",
     "parse_config_yaml",
     "resolve_config",

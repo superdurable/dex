@@ -222,7 +222,13 @@ A value outside printable ASCII stops it the same way. A header value may
 also be literal text, but a literal secret then sits in the file: use a
 `${NAME}` reference for every secret. Only the Worker expands the values. The command never prints, logs, or stores them:
 the effective configuration, the session, and the log file keep the text as
-written.
+written. When a server echoes a header value, such as in an HTTP 401 body or a
+tool error, the command replaces each header value, each of its parts between
+spaces, `=`, `:`, `,`, or `;`, and each variable value of at least 8
+characters with `[redacted]` in the log file, the terminal, tool output, and
+errors. A Worker that runs a stored call checks it against its own
+configuration: for a server whose annotations it does not trust, the call must
+have had approval and a single-attempt effect, or it fails unsent.
 
 A server that cannot be listed offers no tools until it answers again; the
 log file has the error. Session settings cannot change `mcp_servers`.

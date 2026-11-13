@@ -464,7 +464,12 @@ The source lists the servers in every model call and once at startup, so a
 harness with `isToolSetFixedAtBuild` gets their tools. When no server answers,
 the terminal shows one line, and the error goes to the log file. Each call adds
 the turn's `approval.always` and is checked again in its tool Step against
-the `approval.always` of the Worker that runs it. Harnesses that offer
+the `approval.always` of the Worker that runs it. That Worker also refuses,
+unsent, a call that lacks the approval or single attempt its own
+`trust_tool_annotations: false` requires. The source replaces each header
+value, its parts, and each value of `mcpServerHeaderVariableValues` with
+`[redacted]` in its log lines, errors, and tool output, so a server that
+echoes a header leaks nothing. Harnesses that offer
 `context.toolSources` need no change; Pi wraps the source as it wraps the
 connectors source, so every write waits for approval.
 

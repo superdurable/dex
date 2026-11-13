@@ -20,11 +20,14 @@ export interface FakeRemoteMcpRun {
 
 /**
  * A stateless Streamable HTTP MCP server in the test process that answers only requests carrying
- * `Authorization: Bearer <token>`, like a remote MCP server that needs an API key.
+ * `Authorization: Bearer <token>`, like a remote MCP server that needs an API key. Like a careless server, it echoes
+ * the `Authorization` header it got in its HTTP 401 and 500 bodies.
  *
  * - `search_assets`: read-only.
  * - `publish_asset`: a write without hints.
  * - `tag_asset`: an idempotent write.
+ * - `report_failure`: fails with a tool error whose text holds the bearer token.
+ * - `crash_report`: answered with HTTP 500 and a body that echoes the `Authorization` header.
  */
 export class FakeRemoteMcpServer {
   /** Every tool run, in order. */
@@ -53,13 +56,19 @@ export class FakeRemoteMcpServer {
         if (request.headers["mcp-session-id"] !== undefined) {
           this.hasSeenSessionId = true;
         }
-        if (request.headers.authorization !== `Bearer ${this.expectedToken}`) {
+        const authorization = request.headers.authorization ?? "";
+        if (authorization !== `Bearer ${this.expectedToken}`) {
           this.rejectedRequests += 1;
-          response.writeHead(401, { "content-type": "text/plain" }).end("missing or wrong bearer token");
+          response.writeHead(401, { "content-type": "text/plain" }).end(`missing or wrong bearer token: ${authorization}`);
           return;
         }
         this.authorizedRequests += 1;
         const body = await readJsonBody(request);
+        if (isToolCallOf(body, "crash_report")) {
+          this.runs.push({ toolName: "crash_report", arguments: {} });
+          response.writeHead(500, { "content-type": "text/plain" }).end(`internal error for Authorization: ${authorization}`);
+          return;
+        }
         const server = this.createMcpServer();
         const transport = new StreamableHTTPServerTransport({});
         response.on("close", () => {
@@ -140,8 +149,27 @@ export class FakeRemoteMcpServer {
         return { content: [{ type: "text", text: `tagged ${toolArguments.name} ${toolArguments.tag}` }] };
       },
     );
+    server.registerTool(
+      "report_failure",
+      { description: "Fail with an upstream error.", inputSchema: { name: z.string() } },
+      (toolArguments) => {
+        this.runs.push({ toolName: "report_failure", arguments: toolArguments });
+        return {
+          isError: true,
+          content: [{ type: "text", text: `upstream refused ${toolArguments.name} for Bearer ${this.expectedToken}` }],
+        };
+      },
+    );
+    server.registerTool("crash_report", { description: "Crash the server.", inputSchema: {} }, () => ({
+      content: [{ type: "text", text: "never reached" }],
+    }));
     return server;
   }
+}
+
+function isToolCallOf(body: unknown, toolName: string): boolean {
+  const message = body as { readonly method?: unknown; readonly params?: { readonly name?: unknown } } | undefined;
+  return message?.method === "tools/call" && message.params?.name === toolName;
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {

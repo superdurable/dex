@@ -102,6 +102,7 @@ export { LocalToolSource, localToolNames } from "./local-tools/local-tool-source
 export {
   McpServerSettingsError,
   McpServersToolSource,
+  mcpServerHeaderVariableValues,
   mcpServersToolSourceName,
   resolveMcpServers,
   type McpServersToolSourceOptions,

@@ -13,8 +13,10 @@ import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 import { promisify } from "node:util";
 
+import { ToolExecutionError, type AgentEventWriter, type DeferredToolExecution } from "@superdurable/dex-agents";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
+import { McpServersToolSource, TurnConfigResolver, resolveConfig, resolveMcpServers } from "../../src/index.js";
 import { CliProcess, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeRemoteMcpServer } from "../fixtures/fake-remote-mcp-server.js";
 
@@ -91,7 +93,8 @@ describe("remote MCP servers from mcp_servers", () => {
     const cli = start(home);
     const sessionId = await cli.waitForSession();
     cli.writeLine("tools");
-    await cli.stdout.waitFor(/tools: .*studio__publish_asset,studio__search_assets/);
+    await cli.stdout.waitFor(/tools: .*studio__search_assets/);
+    assert.match(cli.stdout.all, /tools: .*studio__publish_asset/);
     // Without trust_tool_annotations, even the read-only tool waits for approval.
     cli.writeLine('call studio__search_assets {"query":"logo"}');
     await cli.stdout.waitFor("Approve studio__search_assets?");
@@ -156,9 +159,84 @@ describe("remote MCP servers from mcp_servers", () => {
     assert.doesNotMatch(cli.stderr.all, /Starting dexcli dev/);
   });
 
+  test("a server that echoes the header in a 401 body, a tool error, or a 500 body never leaks it", async () => {
+    const home = newHome([]);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine('call studio__report_failure {"name":"logo"}');
+    await cli.stdout.waitFor("Approve studio__report_failure?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor(/upstream refused logo for \[redacted\]/, 20_000);
+    cli.writeLine("call studio__crash_report {}");
+    await cli.stdout.waitFor("Approve studio__crash_report?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor(/internal error for Authorization: \[redacted\]|outcome is unknown|outcome_unknown/i, 20_000);
+    const history = await sessionHistory(home, sessionId);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(remote.runsOf("crash_report").length > 0, true);
+    assert.match(history, /\[redacted\]/);
+    for (const [where, text] of [
+      ["stdout", cli.stdout.all],
+      ["stderr", cli.stderr.all],
+      ["log file", logFileOf(home)],
+      ["session history", history],
+    ] as const) {
+      assert.ok(!text.includes(apiKeySentinel), `the API key reached the ${where}`);
+    }
+  });
+
+  test("a Worker that does not trust a server's annotations refuses a stored unapproved read, and runs an approved unclassified call", async () => {
+    const effective = resolveConfig(
+      { mcp_servers: { studio: { url: remoteUrl, headers: { Authorization: "Bearer ${STUDIO_API_KEY}" } } } },
+      "builtin",
+      "scripted/default",
+    );
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
+    const source = new McpServersToolSource(resolveMcpServers(effective, { STUDIO_API_KEY: apiKeySentinel }), turns, () => undefined, {
+      writeLogLine: () => undefined,
+    });
+    const reference = JSON.stringify({ mcp_server: "studio", mcp_tool: "search_assets" });
+    const execution = (effect: "read" | "unclassified", requiresApproval: boolean): DeferredToolExecution =>
+      ({
+        flowId: "flow-1",
+        toolCall: {
+          toolCallId: `call-${effect}`,
+          turnId: "turn-1",
+          toolName: "studio__search_assets",
+          arguments: JSON.stringify({ query: `stored ${effect}` }),
+          effect,
+          requiresApproval,
+          status: "approved",
+          output: null,
+          error: null,
+          rejectionMessage: null,
+          deferralOrder: 0,
+          toolSourceReference: reference,
+        },
+        idempotencyKey: `flow-1/turn-1/call-${effect}`,
+        attempt: 1,
+        events: { turnId: "turn-1", attempt: 1, write: () => Promise.resolve() } as unknown as AgentEventWriter,
+        cancellationSignal: new AbortController().signal,
+        deadline: undefined,
+        heartbeat: () => Promise.resolve(),
+      }) as unknown as DeferredToolExecution;
+    const runsBefore = remote.runsOf("search_assets").length;
+    await assert.rejects(source.executeDeferredToolCall(execution("read", false)), (error: unknown) => {
+      assert.ok(error instanceof ToolExecutionError);
+      assert.match(error.message, /did not run: this Worker does not trust the annotations of MCP server studio/);
+      return true;
+    });
+    await assert.rejects(source.executeDeferredToolCall(execution("read", true)), ToolExecutionError);
+    assert.equal(remote.runsOf("search_assets").length, runsBefore);
+    const outcome = await source.executeDeferredToolCall(execution("unclassified", true));
+    assert.equal((outcome as { readonly output?: string }).output, "assets for stored unclassified");
+  });
+
   test("a server that rejects the header offers no tools and says so once", async () => {
     const home = newHome([]);
-    const cli = start(home, { STUDIO_API_KEY: "wrong-key" });
+    const wrongKey = "wrong-remote-mcp-key-sentinel-3";
+    const cli = start(home, { STUDIO_API_KEY: wrongKey });
     await cli.waitForSession();
     await cli.stderr.waitFor("MCP server tools are unavailable for now; each turn tries again.");
     cli.writeLine("tools");
@@ -167,7 +245,7 @@ describe("remote MCP servers from mcp_servers", () => {
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.equal(cli.stderr.all.split("MCP server tools are unavailable for now").length - 1, 1);
-    assert.match(logFileOf(home), /could not list the tools of MCP server studio/);
-    assert.ok(!(cli.stdout.all + cli.stderr.all + logFileOf(home)).includes("wrong-key"));
+    assert.match(logFileOf(home), /missing or wrong bearer token: \[redacted\]/);
+    assert.ok(!(cli.stdout.all + cli.stderr.all + logFileOf(home)).includes(wrongKey));
   });
 });

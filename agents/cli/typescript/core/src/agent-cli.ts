@@ -84,7 +84,12 @@ import {
   type DexServerConnection,
 } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
-import { McpServerSettingsError, McpServersToolSource, resolveMcpServers } from "./mcp-servers-tool-source.js";
+import {
+  McpServerSettingsError,
+  McpServersToolSource,
+  mcpServerHeaderVariableValues,
+  resolveMcpServers,
+} from "./mcp-servers-tool-source.js";
 import { waitForQueuedOutput } from "./queued-output.js";
 import { collectSessionsForList } from "./session-list-pages.js";
 import {
@@ -1089,9 +1094,11 @@ export class AgentCliCommand {
     turns: TurnConfigResolver,
     mediaStore: MediaStore,
   ): Promise<McpServersToolSource> {
-    const servers = resolveMcpServers(effective, this.environment.mcpServerHeaderVariables ?? {});
+    const variables = this.environment.mcpServerHeaderVariables ?? {};
+    const servers = resolveMcpServers(effective, variables);
     const source = new McpServersToolSource(servers, turns, this.log, {
       mediaStore,
+      redactedValues: mcpServerHeaderVariableValues(effective, variables),
       writeLogLine: (line) => this.writeLogLine(line),
       unavailableHint: `See ${this.logFilePath()} for the error.`,
     });

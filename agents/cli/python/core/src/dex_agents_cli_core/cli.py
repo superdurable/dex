@@ -129,6 +129,7 @@ from dex_agents_cli_core.local_tools.shell import ShellProcessGroups
 from dex_agents_cli_core.mcp_servers import (
     McpServerSettingsError,
     McpServersToolSource,
+    mcp_server_secret_texts,
     resolve_mcp_servers,
 )
 from dex_agents_cli_core.session_lease import (
@@ -872,6 +873,7 @@ class _RunInputs:
     resolver: TurnConfigResolver
     connection: DexConnectionSettings
     mcp_servers: tuple[McpStreamableHttpServerConfig, ...] = ()
+    mcp_server_secret_texts: frozenset[str] = frozenset()
 
 
 def _resolve_connection(
@@ -929,9 +931,12 @@ def _prepare_run(
     )
     try:
         mcp_servers = resolve_mcp_servers(config, os.environ)
+        secret_texts = mcp_server_secret_texts(config, os.environ)
     except McpServerSettingsError as error:
         raise CommandError(error.message) from error
-    return _RunInputs(config, media_store, workspace, resolver, connection, mcp_servers)
+    return _RunInputs(
+        config, media_store, workspace, resolver, connection, mcp_servers, secret_texts
+    )
 
 
 async def _run_plain_chat(
@@ -1374,8 +1379,12 @@ async def _connect_mcp_servers(
         report_at_startup=reports.report,
         unavailable_line=unavailable_line,
         media_store=inputs.media_store,
+        secret_texts=inputs.mcp_server_secret_texts,
     )
     if inputs.mcp_servers:
+        # Every record of this process may quote a server's error, which may echo a header.
+        for handler in logging.getLogger().handlers:
+            handler.addFilter(source.secret_redacting_log_filter)
         await source.list_file_enabled_tools()
     return source
 

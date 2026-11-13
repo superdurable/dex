@@ -9,6 +9,7 @@
 import {
   ToolExecutionError,
   type AgentToolCall,
+  type ToolEffect,
   type AgentTurnContext,
   type DeferredToolCall,
   type DeferredToolExecution,
@@ -21,6 +22,7 @@ import {
   type ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
 import {
+  McpToolCallInterruptedError,
   McpToolListingError,
   McpToolSource,
   type McpStreamableHttpServerConfig,
@@ -41,6 +43,11 @@ export const mcpServersToolSourceName = "mcp_servers";
 const variableReferencePattern = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const printableAsciiPattern = /^[ -~]*$/;
 const refusedReferenceKey = "refused_tool";
+// Shorter values are no credible secret, and replacing them would garble ordinary text.
+const minimumRedactedLength = 8;
+const redactedText = "[redacted]";
+const secretSeparatorPattern = /[\s=:,;]+/;
+const singleAttemptEffects: ReadonlySet<ToolEffect> = new Set(["non_idempotent_write", "unclassified"]);
 
 /**
  * An `mcp_servers` header names an environment variable that cannot be used: it is not set, is empty, or holds a
@@ -123,7 +130,7 @@ function expandHeaderValue(
   environment: Readonly<Record<string, string | undefined>>,
 ): string {
   return value.replace(variableReferencePattern, (_reference, variable: string) => {
-    const variableValue = dexSecretVariableNames.includes(variable) ? "" : (environment[variable] ?? "");
+    const variableValue = readHeaderVariable(environment, variable);
     if (variableValue === "") {
       throw new McpServerSettingsError(
         setting,
@@ -138,6 +145,35 @@ function expandHeaderValue(
     }
     return variableValue;
   });
+}
+
+/** Returns a variable's own string value, so built-in object properties such as `toString` never count as set. */
+function readHeaderVariable(environment: Readonly<Record<string, string | undefined>>, variable: string): string {
+  if (dexSecretVariableNames.includes(variable) || !Object.hasOwn(environment, variable)) {
+    return "";
+  }
+  const value = environment[variable];
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * Returns the value of every environment variable that an `mcp_servers` header references, for
+ * {@link McpServersToolSourceOptions.redactedValues}. Call it after {@link resolveMcpServers} succeeded.
+ *
+ * @param config - The effective configuration.
+ * @param environment - The environment the references read.
+ * @returns The values, possibly with repeats.
+ * @since 0.6.4
+ */
+export function mcpServerHeaderVariableValues(
+  config: EffectiveConfig,
+  environment: Readonly<Record<string, string | undefined>>,
+): string[] {
+  return Object.values(config.mcp_servers ?? {}).flatMap((server) =>
+    Object.values(server.headers).flatMap((value) =>
+      [...value.matchAll(variableReferencePattern)].map((reference) => readHeaderVariable(environment, reference[1]!)),
+    ),
+  );
 }
 
 /**
@@ -158,6 +194,12 @@ export interface McpServersToolSourceOptions {
   readonly writeLogLine?: (line: string) => void;
   /** A sentence that ends each terminal line about unavailable servers, such as where the log file is. */
   readonly unavailableHint?: string;
+  /**
+   * More secret values to replace with `[redacted]`, such as {@link mcpServerHeaderVariableValues}. The source always
+   * replaces each header value and each of its parts between spaces, `=`, `:`, `,`, or `;`. Values shorter than 8
+   * characters stay.
+   */
+  readonly redactedValues?: readonly string[];
 }
 
 /**
@@ -171,7 +213,11 @@ export interface McpServersToolSourceOptions {
  * again. The CLI core registers the source even without servers, so it refuses a stored call that another Worker
  * requested, without running it.
  *
- * Its header values may hold secrets: it never prints, logs, or stores them.
+ * Its header values may hold secrets: it never prints, logs, or stores them. A server may echo them, such as in
+ * an HTTP 401 body or a tool error, so the source replaces each one with `[redacted]` in every line it logs, every
+ * error a call throws, and every tool output. The Worker that runs a stored call checks it against its own
+ * configuration too: for a server whose annotations it does not trust, the call must have had approval and a
+ * single-attempt effect.
  *
  * @example
  * ```ts
@@ -190,6 +236,8 @@ export class McpServersToolSource implements ToolSource {
   private readonly unavailableHint: string | undefined;
   private isUnavailable = false;
   private warningCount = 0;
+  private readonly secretValues: readonly string[];
+  private readonly serversByName: ReadonlyMap<string, McpStreamableHttpServerConfig>;
 
   /**
    * Creates the source without connecting to the servers.
@@ -206,6 +254,8 @@ export class McpServersToolSource implements ToolSource {
   ) {
     this.logFileWriter = options.writeLogLine;
     this.unavailableHint = options.unavailableHint;
+    this.secretValues = secretValuesOf(servers, options.redactedValues ?? []);
+    this.serversByName = new Map(servers.map((server) => [server.name, server]));
     this.mcp = new McpToolSource(servers, {
       sourceName: mcpServersToolSourceName,
       resourceAndPromptToolsEnabled: false,
@@ -301,7 +351,8 @@ export class McpServersToolSource implements ToolSource {
    * @param approvalToolName - The name `approval.always` matches; defaults to the call's tool name.
    * @returns The tool's outcome.
    * @throws {ToolExecutionError} When the call was refused when it was built, now needs approval it did not have,
-   * names a server this Worker does not configure, or failed.
+   * lacks the approval or single attempt that this Worker requires for a server whose annotations it does not
+   * trust, names a server this Worker does not configure, or failed. Every error has its secrets replaced.
    */
   public async executeDeferredToolCall(
     call: DeferredToolExecution,
@@ -311,6 +362,7 @@ export class McpServersToolSource implements ToolSource {
     if (isRefusedCall(call.toolCall)) {
       throw new ToolExecutionError(`tool ${toolName} is not offered by any MCP server of mcp_servers; it did not run`);
     }
+    this.requireLocalAnnotationPolicy(call.toolCall);
     if (!call.toolCall.requiresApproval) {
       let alwaysApproved: readonly string[];
       try {
@@ -326,7 +378,26 @@ export class McpServersToolSource implements ToolSource {
         throw new ToolExecutionError(`tool ${approvalToolName} now needs approval, and this call had none; it did not run`);
       }
     }
-    return this.mcp.executeDeferredToolCall(call);
+    try {
+      return this.redactOutcome(await this.mcp.executeDeferredToolCall(call));
+    } catch (error: unknown) {
+      throw this.redactError(error);
+    }
+  }
+
+  /** Refuses a call that another Worker built under a broader policy than this Worker's configuration allows. */
+  private requireLocalAnnotationPolicy(toolCall: AgentToolCall): void {
+    const serverName = readMcpServerName(toolCall.toolSourceReference);
+    const server = serverName === undefined ? undefined : this.serversByName.get(serverName);
+    if (server === undefined || server.trustsToolAnnotations !== false) {
+      return;
+    }
+    if (!toolCall.requiresApproval || !singleAttemptEffects.has(toolCall.effect)) {
+      throw new ToolExecutionError(
+        `tool ${toolCall.toolName} did not run: this Worker does not trust the annotations of MCP server ` +
+          `${server.name}, so its calls need approval and run at most once`,
+      );
+    }
   }
 
   /**
@@ -334,8 +405,12 @@ export class McpServersToolSource implements ToolSource {
    * @param poll - The call's record.
    * @returns The poll outcome.
    */
-  public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
-    return this.mcp.pollToolTask(poll);
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    try {
+      return this.redactOutcome(await this.mcp.pollToolTask(poll));
+    } catch (error: unknown) {
+      throw this.redactError(error);
+    }
   }
 
   /**
@@ -343,8 +418,46 @@ export class McpServersToolSource implements ToolSource {
    * @param cancellation - The call's record.
    * @returns A Promise that resolves once the server took the cancellation.
    */
-  public cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
-    return this.mcp.cancelToolTask(cancellation);
+  public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    try {
+      await this.mcp.cancelToolTask(cancellation);
+    } catch (error: unknown) {
+      throw this.redactError(error);
+    }
+  }
+
+  /** Replaces every secret value in a text with `[redacted]`. */
+  private redact(text: string): string {
+    let redacted = text;
+    for (const secret of this.secretValues) {
+      redacted = redacted.split(secret).join(redactedText);
+    }
+    return redacted;
+  }
+
+  /** Replaces the secrets of an outcome's output text. */
+  private redactOutcome<T>(outcome: T): T {
+    const output = (outcome as { readonly output?: unknown }).output;
+    return typeof output === "string" ? { ...outcome, output: this.redact(output) } : outcome;
+  }
+
+  /** Replaces the secrets in an error and its causes in place, so their types and fields stay. */
+  private redactError(error: unknown): unknown {
+    const seen = new Set<unknown>();
+    let current: unknown = error;
+    while (current instanceof Error && !seen.has(current)) {
+      seen.add(current);
+      const fields = current as unknown as Record<string, unknown>;
+      current.message = this.redact(current.message);
+      if (current.stack !== undefined) {
+        current.stack = this.redact(current.stack);
+      }
+      if (current instanceof McpToolCallInterruptedError || current instanceof McpToolListingError) {
+        fields["detail"] = this.redact(current.detail);
+      }
+      current = current.cause;
+    }
+    return error;
   }
 
   private withHint(line: string): string {
@@ -352,8 +465,9 @@ export class McpServersToolSource implements ToolSource {
   }
 
   /** Writes to the log file; a failing writer sends the line to `console.warn` instead. */
-  private writeWarning(line: string): void {
+  private writeWarning(rawLine: string): void {
     this.warningCount += 1;
+    const line = this.redact(rawLine);
     if (this.logFileWriter === undefined) {
       console.warn(line);
       return;
@@ -363,6 +477,36 @@ export class McpServersToolSource implements ToolSource {
     } catch (error: unknown) {
       console.warn(`${line} (the log line could not be written: ${describeError(error)})`);
     }
+  }
+}
+
+/** Returns each header value and its parts, at least 8 characters long, longest first. */
+function secretValuesOf(servers: readonly McpStreamableHttpServerConfig[], extraValues: readonly string[]): string[] {
+  const values = new Set<string>(extraValues);
+  for (const server of servers) {
+    for (const value of Object.values(server.headers ?? {})) {
+      values.add(value);
+      for (const part of value.split(secretSeparatorPattern)) {
+        values.add(part);
+      }
+    }
+  }
+  return [...values]
+    .filter((value) => value.length >= minimumRedactedLength)
+    .sort((left, right) => right.length - left.length);
+}
+
+/** Returns the server of `McpToolSource`'s stored reference, `{"mcp_server": ..., "mcp_tool": ...}`. */
+function readMcpServerName(toolSourceReference: string | undefined): string | undefined {
+  if (toolSourceReference === undefined) {
+    return undefined;
+  }
+  try {
+    const reference: unknown = JSON.parse(toolSourceReference);
+    const server = (reference as { readonly mcp_server?: unknown } | null)?.mcp_server;
+    return typeof server === "string" ? server : undefined;
+  } catch {
+    return undefined;
   }
 }
 

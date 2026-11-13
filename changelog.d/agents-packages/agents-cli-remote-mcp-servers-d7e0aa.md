@@ -12,7 +12,12 @@ section: Added
   names the variable, never its value. `McpServersToolSource`, source name
   `mcp_servers` (`MCP_SERVERS_TOOL_SOURCE_NAME`, `mcpServersToolSourceName`),
   wraps `McpToolSource`, applies each turn's `approval.always`, and checks it
-  again in the tool Step. The new configuration error code is
+  again in the tool Step. There it also refuses, unsent, a call that lacks the
+  approval or single attempt that the Worker's own `trust_tool_annotations:
+  false` requires, and it replaces every header and variable value of at least
+  8 characters with `[redacted]` in its log lines, errors, and tool output.
+  `mcp_server_secret_texts` (`mcpServerHeaderVariableValues`) returns the
+  secret texts to pass it. The new configuration error code is
   `insecure_mcp_server_url`. The rules and cases are in
   `agents/conformance/cli_config.json`.
 - `@superdurable/dex-agents-pi-cli` and `dex-agents-deepagents-cli`: writes of

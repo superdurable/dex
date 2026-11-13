@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
+import json
+import logging
 import os
 import subprocess
 import sys
@@ -20,8 +23,24 @@ from pathlib import Path
 
 import pytest
 
-from dex_agents.testing import InvocationLog, find_free_ports
-from dex_agents_cli_core import session_flow_type
+from dex_agents import (
+    AgentEventWriter,
+    AgentToolCall,
+    DeferredToolExecution,
+    ToolCallStatus,
+    ToolEffect,
+    ToolExecutionError,
+    ToolExecutionResult,
+)
+from dex_agents.testing import InvocationLog, find_free_ports, resolve_dexcli_path
+from dex_agents_cli_core import (
+    McpServersToolSource,
+    TurnConfigResolver,
+    mcp_server_secret_texts,
+    resolve_config,
+    resolve_mcp_servers,
+    session_flow_type,
+)
 from tests.conftest import (
     PACKAGE_DIR,
     CliHome,
@@ -122,13 +141,15 @@ async def test_remote_mcp_tools_run_with_the_header_from_the_environment_and_the
     session_id = await read_session_id(child)
     await expect(child, "> ")
     child.sendline("tools")
-    await expect(
-        child,
-        "tools: ask_user,lib__publish_asset,lib__search_assets,raw__publish_asset,"
-        "raw__search_assets,studio__publish_asset,studio__search_assets",
+    tool_names = ",".join(
+        f"{server}__{tool}"
+        for server in ("lib", "raw", "studio")
+        for tool in ("crash_with_echo", "publish_asset", "report_upstream_failure", "search_assets")
     )
+    await expect(child, f"tools: ask_user,{tool_names}")
     child.sendline("cached")
-    await expect(child, "cached: lib__publish_asset,lib__search_assets,raw__publish_asset")
+    await expect(child, "cached: lib__")
+    await expect(child, "lib__search_assets")
     # A trusted read-only tool runs at once.
     child.sendline('call lib__search_assets {"query": "cats"}')
     await expect(child, "done: lib__search_assets=found 2 assets for cats")
@@ -187,8 +208,195 @@ async def test_a_rejected_token_leaves_the_remote_tools_out_with_one_line(
     assert await wait_for_exit(child) == 0
     assert remote_mcp.rejected_requests() > 0
     assert child.logfile_read.getvalue().count("MCP server tools are unavailable") == 1
+    # The 401 body echoes the header, and the log keeps the listing error.
+    log_text = (cli_home.home / ".dex" / "agents" / "scripted.log").read_text()
+    assert "could not be listed" in log_text
+    assert "sk-wrong-token" not in log_text
+    assert "sk-wrong-token" not in child.logfile_read.getvalue()
+
+
+async def test_a_server_that_echoes_the_header_in_its_errors_never_leaks_it(
+    cli_home: CliHome, remote_mcp: FakeRemoteMcp, tmp_path: Path
+) -> None:
+    cli_home.extra_environment["STUDIO_TOKEN"] = SENTINEL_TOKEN
+    cli_home.write_config(
+        config_yaml(
+            {
+                "connectors": {"enabled": []},
+                "mcp_servers": {"raw": _server(remote_mcp.url, is_trusted=False)},
+                "local_tools": NO_LOCAL_TOOLS,
+            }
+        )
+    )
+    child = cli_home.spawn()
+    child.logfile_read = io.StringIO()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline('call raw__report_upstream_failure {"asset": "a1"}')
+    await expect(child, "[approval] raw__report_upstream_failure")
+    child.sendline("y")
+    await expect(child, "done: raw__report_upstream_failure=")
+    await expect(child, "> ")
+    child.sendline('call raw__crash_with_echo {"asset": "a2"}')
+    await expect(child, "[approval] raw__crash_with_echo")
+    child.sendline("y")
+    await expect(child, "done: raw__crash_with_echo=")
+    await expect(child, "> ")
+    workspace = cli_home.home / "dex-agent-workspace"
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        snapshot = await sessions.get_agent_snapshot(session_id)
+    history = await read_flow_history_text(cli_home.address, session_id)
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert remote_mcp.runs("report_upstream_failure") == 1
+    assert "[redacted]" in repr(snapshot)
     log_file = cli_home.home / ".dex" / "agents" / "scripted.log"
-    assert "sk-wrong-token" not in log_file.read_text()
+    for where, text in (
+        ("terminal", child.logfile_read.getvalue()),
+        ("session snapshot", repr(snapshot)),
+        ("Flow history", history),
+        ("log file", log_file.read_text()),
+    ):
+        assert SENTINEL_TOKEN not in text, where
+
+
+async def read_flow_history_text(address: str, session_id: str) -> str:
+    """Return the session's whole Flow history as dexcli prints it in JSON."""
+    process = await asyncio.create_subprocess_exec(
+        str(resolve_dexcli_path()),
+        "flow",
+        "history",
+        session_id,
+        "--server",
+        address,
+        "--output",
+        "json",
+        stdout=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await process.communicate()
+    assert process.returncode == 0
+    return stdout.decode()
+
+
+async def _no_heartbeat() -> None:
+    return None
+
+
+def _stored_call(
+    tool_name: str, *, effect: ToolEffect, requires_approval: bool
+) -> DeferredToolExecution:
+    server_name, _, mcp_tool_name = tool_name.partition("__")
+    return DeferredToolExecution(
+        flow_id="session-1",
+        tool_call=AgentToolCall(
+            tool_call_id="call-1",
+            turn_id="turn-1",
+            tool_name=tool_name,
+            arguments=json.dumps({"query": "cats", "asset": "a1"}),
+            effect=effect,
+            requires_approval=requires_approval,
+            status=ToolCallStatus.APPROVED,
+            tool_source_reference=json.dumps(
+                {"mcp_server": server_name, "mcp_tool": mcp_tool_name}
+            ),
+        ),
+        idempotency_key="session-1/turn-1/call-1",
+        attempt=1,
+        events=AgentEventWriter(lambda event: None, "turn-1", 1),
+        heartbeat=_no_heartbeat,
+    )
+
+
+def _untrusted_source(url: str) -> McpServersToolSource:
+    config = resolve_config(
+        {"mcp_servers": {"raw": _server(url, is_trusted=False)}}, "builtin", "scripted-model"
+    )
+    environment = {"STUDIO_TOKEN": SENTINEL_TOKEN}
+    return McpServersToolSource(
+        resolve_mcp_servers(config, environment),
+        TurnConfigResolver(config, None, lambda warnings: None),
+        secret_texts=mcp_server_secret_texts(config, environment),
+    )
+
+
+@pytest.mark.parametrize(
+    ("effect", "requires_approval"),
+    [
+        (ToolEffect.READ, False),
+        (ToolEffect.READ, True),
+        (ToolEffect.IDEMPOTENT_WRITE, True),
+        (ToolEffect.UNCLASSIFIED, False),
+    ],
+)
+async def test_a_worker_that_does_not_trust_the_server_refuses_a_call_another_worker_trusted(
+    remote_mcp: FakeRemoteMcp, effect: ToolEffect, requires_approval: bool
+) -> None:
+    # Unit level: a call that a trusting Worker stored, run by this untrusting Worker.
+    source = _untrusted_source(remote_mcp.url)
+    call = _stored_call("raw__search_assets", effect=effect, requires_approval=requires_approval)
+    with pytest.raises(ToolExecutionError, match="does not trust the annotations"):
+        await source.execute_deferred_tool_call(call)
+    assert remote_mcp.runs("search_assets") == 0
+
+
+def _exception_chain(error: BaseException) -> list[BaseException]:
+    chain = [error]
+    while (linked := chain[-1].__cause__ or chain[-1].__context__) is not None:
+        chain.append(linked)
+    return chain
+
+
+async def test_an_untrusting_worker_runs_an_approved_single_attempt_call_with_secrets_redacted(
+    remote_mcp: FakeRemoteMcp,
+) -> None:
+    source = _untrusted_source(remote_mcp.url)
+    approved = _stored_call(
+        "raw__search_assets", effect=ToolEffect.UNCLASSIFIED, requires_approval=True
+    )
+    outcome = await source.execute_deferred_tool_call(approved)
+    assert isinstance(outcome, ToolExecutionResult)
+    assert "found 2 assets for cats" in outcome.output
+    failing = _stored_call(
+        "raw__report_upstream_failure", effect=ToolEffect.UNCLASSIFIED, requires_approval=True
+    )
+    with pytest.raises(ToolExecutionError) as failed:
+        await source.execute_deferred_tool_call(failing)
+    assert SENTINEL_TOKEN not in str(failed.value)
+    assert "[redacted]" in str(failed.value)
+    crashing = _stored_call(
+        "raw__crash_with_echo", effect=ToolEffect.UNCLASSIFIED, requires_approval=True
+    )
+    with pytest.raises(Exception) as crashed:
+        await source.execute_deferred_tool_call(crashing)
+    chain = _exception_chain(crashed.value)
+    assert all(SENTINEL_TOKEN not in str(error) for error in chain)
+
+
+def test_the_log_filter_redacts_the_message_and_the_exception_chain() -> None:
+    source = _untrusted_source("http://127.0.0.1:9/mcp")
+    records: list[str] = []
+
+    class _Collecting(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(self.format(record))
+
+    handler = _Collecting()
+    handler.addFilter(source.secret_redacting_log_filter)
+    logger = logging.getLogger("tests.mcp_servers_redaction")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        cause = RuntimeError(f"HTTP 401: unauthorized: Authorization: Bearer {SENTINEL_TOKEN}")
+        try:
+            raise ToolExecutionError("listing failed") from cause
+        except ToolExecutionError:
+            logger.exception("server said %s", f"Bearer {SENTINEL_TOKEN}")
+    finally:
+        logger.removeHandler(handler)
+    assert len(records) == 1
+    assert SENTINEL_TOKEN not in records[0]
+    assert records[0].count("[redacted]") == 2
 
 
 def test_an_unset_header_variable_stops_the_command_with_exit_code_2(cli_home: CliHome) -> None:

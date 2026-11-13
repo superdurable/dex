@@ -7587,6 +7587,117 @@
           "setting": "mcp_servers.studio.headers.Authorization",
           "message": "mcp_servers.studio.headers.Authorization needs the environment variable DEX_API_KEY, which is not set or is empty."
         }
+      },
+      {
+        "name": "object-property-name-tostring-is-not-set",
+        "description": "A variable named toString is read from the environment only; a language's built-in object properties never count as set.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${toString}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "PATH": "/usr/bin"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable toString, which is not set or is empty."
+        }
+      },
+      {
+        "name": "object-property-name-constructor-is-not-set",
+        "description": "A variable named constructor is read from the environment only; a language's built-in object properties never count as set.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${constructor}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "PATH": "/usr/bin"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable constructor, which is not set or is empty."
+        }
+      },
+      {
+        "name": "object-property-name-proto-is-not-set",
+        "description": "A variable named __proto__ is read from the environment only; a language's built-in object properties never count as set.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${__proto__}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "PATH": "/usr/bin"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable __proto__, which is not set or is empty."
+        }
+      },
+      {
+        "name": "object-property-name-hasownproperty-is-not-set",
+        "description": "A variable named hasOwnProperty is read from the environment only; a language's built-in object properties never count as set.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${hasOwnProperty}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "PATH": "/usr/bin"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable hasOwnProperty, which is not set or is empty."
+        }
+      },
+      {
+        "name": "variable-named-like-an-object-property",
+        "description": "A variable named like a built-in object property expands when the environment sets it.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "X-Name": "${constructor}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "constructor": "set-by-the-environment"
+        },
+        "servers": [
+          {
+            "name": "studio",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "X-Name": "set-by-the-environment"
+            },
+            "trust_tool_annotations": false
+          }
+        ]
       }
     ]
   }
