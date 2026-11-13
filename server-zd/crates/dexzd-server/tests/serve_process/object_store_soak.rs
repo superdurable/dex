@@ -27,7 +27,7 @@ use tokio::time::Instant;
 
 use crate::robustness::processes::replay_field;
 use crate::robustness::workload::{LoadShape, Workload};
-use cluster::SoakCluster;
+use cluster::{KILLED_LEASE_EXPIRY_WAIT, SoakCluster};
 use layout::check_versioned_layout;
 use target::{SoakTarget, count_by_area, list_all};
 use vault::Vault;
@@ -37,6 +37,9 @@ const FAULT_INTERVAL_VARIABLE: &str = "DEX_SOAK_FAULT_INTERVAL";
 const SEED_VARIABLE: &str = "DEX_SOAK_SEED";
 const LOG_DIRECTORY_VARIABLE: &str = "DEX_SOAK_LOG_DIR";
 const KEEP_OBJECTS_VARIABLE: &str = "DEX_SOAK_KEEP_OBJECTS";
+const SNAPSHOT_INTERVAL_VARIABLE: &str = "DEX_SOAK_SNAPSHOT_INTERVAL";
+/// Short enough that every cold restart restores a recent snapshot.
+const DEFAULT_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(60);
 const DEFAULT_DURATION: Duration = Duration::from_secs(2 * 60 * 60);
 /// Faults come at most this far apart by default, and a sixth of a short soak apart.
 const LONGEST_DEFAULT_FAULT_INTERVAL: Duration = Duration::from_secs(4 * 60);
@@ -54,13 +57,14 @@ const LOAD_SHAPE: LoadShape = LoadShape {
     chain_starters: 3,
     timer_starters: 1,
     call_timeout: Duration::from_secs(5),
-    increment_resend_budget: Some(Duration::from_secs(120)),
+    increment_resend_budget: Some(Duration::from_secs(10 * 60)),
     pause_between_calls: Duration::from_millis(500),
 };
-const STARTUP_BUDGET: Duration = Duration::from_secs(120);
+/// Covers a snapshot restore and a replay of a long log backlog from a real bucket.
+const STARTUP_BUDGET: Duration = Duration::from_secs(5 * 60);
 const TAKEOVER_BUDGET: Duration = Duration::from_secs(90);
 /// Covers a snapshot restore and log catch-up from a real bucket.
-const STANDBY_BUDGET: Duration = Duration::from_secs(180);
+const STANDBY_BUDGET: Duration = Duration::from_secs(5 * 60);
 const READ_BACK_BUDGET: Duration = Duration::from_secs(90);
 const HARD_DELETE_DRAIN_BUDGET: Duration = Duration::from_secs(180);
 const HARD_DELETE_PREFIX: &str = "hard-delete/";
@@ -79,14 +83,18 @@ enum SoakFault {
     RestartActive,
     /// SIGTERM both, wipe both local directories, and restore from object storage.
     ColdRestartBoth,
+    /// SIGKILL both, wait out their lease, wipe both local directories, and restore the latest
+    /// periodic snapshot, so recovery replays the log written since it.
+    CrashColdRestartBoth,
     /// Stop the oldest vault Flows and erase their hard-delete values.
     HardDeleteClosedRuns,
 }
 
-const FAULT_KINDS: [SoakFault; 4] = [
+const FAULT_KINDS: [SoakFault; 5] = [
     SoakFault::KillActive,
     SoakFault::RestartActive,
     SoakFault::ColdRestartBoth,
+    SoakFault::CrashColdRestartBoth,
     SoakFault::HardDeleteClosedRuns,
 ];
 
@@ -133,6 +141,7 @@ struct SoakSettings {
     seed: u64,
     log_directory: PathBuf,
     keeps_objects: bool,
+    snapshot_interval: Duration,
 }
 
 impl SoakSettings {
@@ -173,12 +182,21 @@ impl SoakSettings {
                 PathBuf::from,
             );
         std::fs::create_dir_all(&log_directory).expect("the soak log directory is created");
+        let snapshot_interval = std::env::var(SNAPSHOT_INTERVAL_VARIABLE)
+            .ok()
+            .filter(|text| !text.is_empty())
+            .map_or(DEFAULT_SNAPSHOT_INTERVAL, |text| {
+                parse_duration(&text).unwrap_or_else(|| {
+                    panic!("{SNAPSHOT_INTERVAL_VARIABLE} must be a duration, not {text:?}")
+                })
+            });
         Self {
             duration,
             fault_interval,
             seed,
             log_directory,
             keeps_objects: std::env::var(KEEP_OBJECTS_VARIABLE).is_ok_and(|text| text == "1"),
+            snapshot_interval,
         }
     }
 }
@@ -187,9 +205,10 @@ impl fmt::Display for SoakSettings {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "duration {:?}, a fault every {:?}, seed {} ({SEED_VARIABLE}), process logs in {}",
+            "duration {:?}, a fault every {:?}, a snapshot every {:?}, seed {} ({SEED_VARIABLE}), process logs in {}",
             self.duration,
             self.fault_interval,
+            self.snapshot_interval,
             self.seed,
             self.log_directory.display()
         )
@@ -202,6 +221,78 @@ struct Recovery {
     from: String,
     to: String,
     serving_again_after: Duration,
+    /// The log replay of the process that serves again, when it logged one.
+    replay: Option<LogReplay>,
+}
+
+/// What the recovery of one process logged about its log replay.
+struct LogReplay {
+    /// The applied seq that replay started after: the restored snapshot's, or a hot standby's.
+    last_applied_seq: u64,
+    batches: u64,
+    /// From the lease to serving, by the process's own log timestamps.
+    recovery_duration: Option<Duration>,
+}
+
+impl LogReplay {
+    /// Parses the first recovery in `log`; returns `None` when it logged no log replay.
+    fn parse(log: &str) -> Option<Self> {
+        let replay_line = log
+            .lines()
+            .find(|line| line.contains("replayed the log stream"))?;
+        let field = |name: &str| {
+            let prefix = format!("{name}=");
+            replay_line
+                .split_whitespace()
+                .find_map(|token| token.strip_prefix(prefix.as_str()))
+                .and_then(|value| value.parse().ok())
+        };
+        let line_seconds = |message: &str| {
+            log.lines()
+                .find(|line| line.contains(message))
+                .and_then(seconds_of_day)
+        };
+        let recovery_duration = line_seconds("engine node recovering")
+            .zip(line_seconds("engine node serving"))
+            .map(|(recovering, serving)| {
+                // A recovery that crosses midnight UTC.
+                let seconds = if serving < recovering {
+                    serving + 86_400.0 - recovering
+                } else {
+                    serving - recovering
+                };
+                Duration::from_secs_f64(seconds)
+            });
+        Some(Self {
+            last_applied_seq: field("last_applied_seq")?,
+            batches: field("batches")?,
+            recovery_duration,
+        })
+    }
+}
+
+impl fmt::Display for LogReplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "replayed {} batches after seq {}",
+            self.batches, self.last_applied_seq
+        )?;
+        match self.recovery_duration {
+            Some(duration) => write!(formatter, " in a {duration:.1?} recovery"),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Returns the UTC seconds of the day of a log line that starts with an RFC 3339 timestamp.
+fn seconds_of_day(line: &str) -> Option<f64> {
+    let time = line.split_whitespace().next()?.split_once('T')?.1;
+    let mut parts = time.trim_end_matches('Z').split(':');
+    let hours: f64 = parts.next()?.parse().ok()?;
+    let minutes: f64 = parts.next()?.parse().ok()?;
+    let seconds: f64 = parts.next()?.parse().ok()?;
+    Some(hours * 3_600.0 + minutes * 60.0 + seconds)
 }
 
 /// Everything the soak reports at the end.
@@ -259,6 +350,7 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
         &target,
         &workload,
         &SLOT_NAMES,
+        settings.snapshot_interval,
     )
     .await;
     let inspection = target.physical_store().await;
@@ -402,8 +494,15 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
     );
     for recovery in &ledger.recoveries {
         eprintln!(
-            "  {:?}: {} served again after {:?}, from {}",
-            recovery.fault, recovery.to, recovery.serving_again_after, recovery.from
+            "  {:?}: {} served again after {:.1?}, from {}{}",
+            recovery.fault,
+            recovery.to,
+            recovery.serving_again_after,
+            recovery.from,
+            recovery
+                .replay
+                .as_ref()
+                .map_or_else(String::new, |replay| format!("; {replay}"))
         );
     }
     eprintln!(
@@ -469,11 +568,12 @@ async fn inject_fault(
                 from,
                 to: cluster.slot_name(serving).to_owned(),
                 serving_again_after: stopped_at.elapsed(),
+                replay: LogReplay::parse(&cluster.process_log(serving)),
             });
             cluster.spawn(active);
             cluster.wait_for_hot_standby(active, STANDBY_BUDGET).await;
         }
-        SoakFault::ColdRestartBoth => {
+        SoakFault::ColdRestartBoth | SoakFault::CrashColdRestartBoth => {
             let snapshot_manifests =
                 list_all(inspection, SNAPSHOT_PREFIX)
                     .await
@@ -483,9 +583,19 @@ async fn inject_fault(
                             .filter(|object| object.key.contains("/manifest/"))
                             .count()
                     });
-            cluster.terminate(standby).await;
-            let stopped_at = Instant::now();
-            cluster.terminate(active).await;
+            let stopped_at = if fault == SoakFault::CrashColdRestartBoth {
+                cluster.kill(standby).await;
+                cluster.kill(active).await;
+                let stopped_at = Instant::now();
+                // A process started before the lease expires follows the log as a hot standby.
+                tokio::time::sleep(KILLED_LEASE_EXPIRY_WAIT).await;
+                stopped_at
+            } else {
+                cluster.terminate(standby).await;
+                let stopped_at = Instant::now();
+                cluster.terminate(active).await;
+                stopped_at
+            };
             cluster.wipe(active);
             cluster.wipe(standby);
             cluster.spawn(active);
@@ -497,11 +607,19 @@ async fn inject_fault(
                 cluster.process_log(serving)
             );
             ledger.snapshot_restores.push(restored_seq);
+            let replay = LogReplay::parse(&cluster.process_log(serving));
+            if let Some(replay) = &replay {
+                eprintln!(
+                    "soak +{}: fault #{number} {fault:?}: {replay}",
+                    elapsed(started_at)
+                );
+            }
             ledger.recoveries.push(Recovery {
                 fault,
                 from,
                 to: cluster.slot_name(serving).to_owned(),
                 serving_again_after: stopped_at.elapsed(),
+                replay,
             });
             cluster.spawn(standby);
             cluster.wait_for_hot_standby(standby, STANDBY_BUDGET).await;

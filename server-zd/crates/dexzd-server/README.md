@@ -61,6 +61,8 @@ fault, in shuffled rounds of every kind:
 - SIGTERM of the active, which releases its lease, then the same restart;
 - a cold restart of both processes on wiped local directories, which must restore a snapshot
   when one exists;
+- a SIGKILL of both processes, then the same cold restart once their lease expired, so the
+  restarted process restores the latest periodic snapshot and replays the log written since it;
 - stopping the oldest vault Flows and erasing their hard-delete values.
 
 After each fault the counters and vault Flows must read back every acknowledged write. At the
@@ -87,6 +89,7 @@ the soak prints.
 | `DEX_SOAK_DURATION` | How long the load runs, such as `2h` (default), `30m`, or `1h30m` |
 | `DEX_SOAK_FAULT_INTERVAL` | Time between faults; defaults to a sixth of the duration, from 30 seconds to 4 minutes |
 | `DEX_SOAK_SEED` | The fault schedule's seed; defaults to the start time, and the soak prints it |
+| `DEX_SOAK_SNAPSHOT_INTERVAL` | `snapshot.interval` of both processes; defaults to `60s`. A longer interval, such as the server default of `10m`, leaves a longer log to replay after a crash |
 | `DEX_COS_*`, `DEX_OSS_*` | The bucket variables of the manual tests above, for real targets |
 
 From `server-zd/`, a two-hour soak on Tencent COS:
@@ -100,6 +103,13 @@ DEX_COS_ACCESS_KEY_ID=<SecretId> \
 DEX_COS_SECRET_ACCESS_KEY=<SecretKey> \
 cargo test -p dexzd-server --test serve_process object_store_soak -- --ignored --nocapture
 ```
+
+The summary lists the log replay of each recovery: the applied seq it started after, the
+batches it replayed, and how long the recovery took. A serving process takes its first snapshot
+one interval after it starts, so the log to replay after a crash grows with the interval, and
+across faults when the interval is longer than the time between them. For a backlog of several
+thousand batches on a real bucket, add for example `DEX_SOAK_SNAPSHOT_INTERVAL=5m` to the
+command above.
 
 A five-minute smoke run on the emulator:
 

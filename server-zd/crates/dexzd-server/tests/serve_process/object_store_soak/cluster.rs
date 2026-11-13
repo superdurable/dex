@@ -33,7 +33,8 @@ use crate::standby_failover::readiness_router::{ReadinessRouter, RouterBackend, 
 const NODE_ID: &str = "soak-node";
 /// Long enough to ride out object storage latency spikes of a real bucket.
 const LEASE_DURATION: &str = "10s";
-const SNAPSHOT_INTERVAL: &str = "60s";
+/// Outlasts a killed process's lease and the one-second takeover grace.
+pub(crate) const KILLED_LEASE_EXPIRY_WAIT: Duration = Duration::from_secs(12);
 /// Longer than any standby lag, so a hot standby never misses a deleted log batch.
 const LOG_DELETION_DELAY: &str = "10m";
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(1);
@@ -88,6 +89,7 @@ impl SoakCluster {
         target: &SoakTarget,
         workload: &Workload,
         slot_names: &[&str],
+        snapshot_interval: Duration,
     ) -> Self {
         let mut slots = Vec::new();
         for name in slot_names {
@@ -96,9 +98,10 @@ impl SoakCluster {
             let config_path = directory.join(format!("{name}.yaml"));
             let local_directory = directory.join(format!("{name}-store"));
             let contents = format!(
-                "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {LEASE_DURATION}\n  failIfHeld: false\nsnapshot:\n  interval: {SNAPSHOT_INTERVAL}\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: hot\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
+                "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {LEASE_DURATION}\n  failIfHeld: false\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: hot\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
                 object_store = target.object_store_yaml(),
                 local = local_directory.display(),
+                snapshot_interval = snapshot_interval.as_secs(),
             );
             std::fs::write(&config_path, contents).expect("the soak configuration is written");
             slots.push(SoakSlot {
