@@ -391,14 +391,7 @@ export class McpServersToolSource implements ToolSource {
    * than this Worker's configuration allows.
    */
   private requireLocalAnnotationPolicy(toolCall: AgentToolCall): void {
-    const serverName = readMcpServerName(toolCall.toolSourceReference);
-    const server = serverName === undefined ? undefined : this.serversByName.get(serverName);
-    if (server === undefined) {
-      // Without a known server, McpToolSource would pick one from its listing, past this check.
-      throw new ToolExecutionError(
-        `tool ${toolCall.toolName} did not run: its stored call names no MCP server that this Worker configures`,
-      );
-    }
+    const server = this.requireReferencedServer(toolCall);
     if (server.trustsToolAnnotations !== false) {
       return;
     }
@@ -411,11 +404,32 @@ export class McpServersToolSource implements ToolSource {
   }
 
   /**
+   * Returns the configured server of a complete stored reference. McpToolSource resolves an incomplete one from its
+   * listing by tool name, which could reach another server than the one checked.
+   */
+  private requireReferencedServer(toolCall: {
+    readonly toolName: string;
+    readonly toolSourceReference?: string | null | undefined;
+  }): McpStreamableHttpServerConfig {
+    const reference = readCompleteMcpReference(toolCall.toolSourceReference);
+    const server = reference === undefined ? undefined : this.serversByName.get(reference.serverName);
+    if (server === undefined) {
+      throw new ToolExecutionError(
+        `tool ${toolCall.toolName} did not run: its stored call names no MCP server that this Worker configures`,
+      );
+    }
+    return server;
+  }
+
+  /**
    * Polls a task that {@link executeDeferredToolCall} started.
    * @param poll - The call's record.
    * @returns The poll outcome.
+   * @throws {ToolExecutionError} When the call's stored reference names no server this Worker configures, or the
+   * poll failed. Every error has its secrets replaced.
    */
   public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    this.requireReferencedServer(poll.toolCall);
     try {
       return this.redactOutcome(await this.mcp.pollToolTask(poll));
     } catch (error: unknown) {
@@ -424,11 +438,15 @@ export class McpServersToolSource implements ToolSource {
   }
 
   /**
-   * Cancels an abandoned task.
+   * Cancels an abandoned task. A call whose stored reference names no server this Worker configures sends nothing.
    * @param cancellation - The call's record.
    * @returns A Promise that resolves once the server took the cancellation.
    */
   public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    const reference = readCompleteMcpReference(cancellation.toolCall.toolSourceReference);
+    if (reference === undefined || !this.serversByName.has(reference.serverName)) {
+      return;
+    }
     try {
       await this.mcp.cancelToolTask(cancellation);
     } catch (error: unknown) {
@@ -506,18 +524,30 @@ function secretValuesOf(servers: readonly McpStreamableHttpServerConfig[], extra
     .sort((left, right) => right.length - left.length);
 }
 
-/** Returns the server of `McpToolSource`'s stored reference, `{"mcp_server": ..., "mcp_tool": ...}`. */
-function readMcpServerName(toolSourceReference: string | undefined): string | undefined {
-  if (toolSourceReference === undefined) {
+/**
+ * Returns `McpToolSource`'s stored reference, `{"mcp_server": ..., "mcp_tool": ...}`, when both are non-empty
+ * strings, as `McpToolSource` routes it.
+ */
+function readCompleteMcpReference(
+  toolSourceReference: string | undefined | null,
+): { readonly serverName: string; readonly mcpToolName: string } | undefined {
+  if (toolSourceReference === undefined || toolSourceReference === null) {
     return undefined;
   }
+  let reference: unknown;
   try {
-    const reference: unknown = JSON.parse(toolSourceReference);
-    const server = (reference as { readonly mcp_server?: unknown } | null)?.mcp_server;
-    return typeof server === "string" ? server : undefined;
+    reference = JSON.parse(toolSourceReference);
   } catch {
     return undefined;
   }
+  if (typeof reference !== "object" || reference === null || Array.isArray(reference)) {
+    return undefined;
+  }
+  const { mcp_server: serverName, mcp_tool: mcpToolName } = reference as Record<string, unknown>;
+  if (typeof serverName !== "string" || serverName === "" || typeof mcpToolName !== "string" || mcpToolName === "") {
+    return undefined;
+  }
+  return { serverName, mcpToolName };
 }
 
 function isRefusedCall(toolCall: AgentToolCall): boolean {

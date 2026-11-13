@@ -252,6 +252,60 @@ describe("remote MCP servers from mcp_servers", () => {
     assert.equal((outcome as { readonly output?: string }).output, "assets for stored unclassified");
   });
 
+  test("a reference without mcp_tool never reaches an untrusted server by tool name, in execute, poll, or cancel", async () => {
+    const server = (isTrusted: boolean) => ({
+      url: remoteUrl,
+      headers: { Authorization: "Bearer ${STUDIO_API_KEY}" },
+      trust_tool_annotations: isTrusted,
+    });
+    const effective = resolveConfig(
+      { mcp_servers: { trusted: server(true), raw: server(false) } },
+      "builtin",
+      "scripted/default",
+    );
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
+    const source = new McpServersToolSource(resolveMcpServers(effective, { STUDIO_API_KEY: apiKeySentinel }), turns, () => undefined, {
+      writeLogLine: () => undefined,
+    });
+    await source.listTools();
+    const toolCall = {
+      toolCallId: "call-incomplete",
+      turnId: "turn-1",
+      toolName: "raw__search_assets",
+      arguments: JSON.stringify({ query: "incomplete reference" }),
+      effect: "read" as const,
+      requiresApproval: false,
+      status: "approved" as const,
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      taskId: "task-1",
+      toolSourceReference: JSON.stringify({ mcp_server: "trusted" }),
+    };
+    const writer = { turnId: "turn-1", attempt: 1, write: () => Promise.resolve() } as unknown as AgentEventWriter;
+    const execution = {
+      flowId: "flow-1",
+      toolCall,
+      idempotencyKey: "flow-1/turn-1/call-incomplete",
+      attempt: 1,
+      events: writer,
+      cancellationSignal: new AbortController().signal,
+      deadline: undefined,
+      heartbeat: () => Promise.resolve(),
+    } as unknown as DeferredToolExecution;
+    const runsBefore = remote.runsOf("search_assets").length;
+    const isRefused = (error: unknown): boolean => {
+      assert.ok(error instanceof ToolExecutionError);
+      assert.match(error.message, /names no MCP server that this Worker configures/);
+      return true;
+    };
+    await assert.rejects(source.executeDeferredToolCall(execution), isRefused);
+    await assert.rejects(source.pollToolTask(execution as unknown as Parameters<typeof source.pollToolTask>[0]), isRefused);
+    await source.cancelToolTask(execution as unknown as Parameters<typeof source.cancelToolTask>[0]);
+    assert.equal(remote.runsOf("search_assets").length, runsBefore);
+  });
+
   test("a server that rejects the header offers no tools and says so once", async () => {
     const home = newHome([]);
     const wrongKey = "wrong-remote-mcp-key-sentinel-3";

@@ -416,13 +416,7 @@ class McpServersToolSource:
                 f"tool {record.tool_name} now needs approval, and this call had none; "
                 "it did not run"
             )
-        server = self._servers.get(self._server_name_of(record) or "")
-        if server is None:
-            # Without a known server, McpToolSource would pick one from its listing.
-            raise ToolExecutionError(
-                f"tool {record.tool_name} did not run: its stored call names no MCP server "
-                "that this Worker configures"
-            )
+        server = self._require_referenced_server(record)
         if not server.trusts_tool_annotations and (
             not record.requires_approval or record.effect not in _SINGLE_ATTEMPT_EFFECTS
         ):
@@ -439,7 +433,13 @@ class McpServersToolSource:
         return self._redacted_outcome(outcome)
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
-        """Poll one MCP task through ``McpToolSource``, with its secret texts redacted."""
+        """Poll one MCP task through ``McpToolSource``, with its secret texts redacted.
+
+        Raises:
+            ToolExecutionError: If the call's stored reference names no server
+                this Worker configures, or the poll failed.
+        """
+        self._require_referenced_server(poll.tool_call)
         try:
             outcome = await self._mcp.poll_tool_task(poll)
         except BaseException as error:
@@ -448,7 +448,14 @@ class McpServersToolSource:
         return self._redacted_outcome(outcome)
 
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
-        """Cancel one abandoned MCP task through ``McpToolSource``, with its errors redacted."""
+        """Cancel one abandoned MCP task through ``McpToolSource``, with its errors redacted.
+
+        A call whose stored reference names no server this Worker configures
+        sends nothing.
+        """
+        reference = _complete_mcp_reference(cancellation.tool_call.tool_source_reference)
+        if reference is None or reference[0] not in self._servers:
+            return
         try:
             await self._mcp.cancel_tool_task(cancellation)
         except BaseException as error:
@@ -463,15 +470,39 @@ class McpServersToolSource:
             return redacted
         return outcome
 
-    def _server_name_of(self, record: AgentToolCall) -> str | None:
-        """Return the server that a stored call's reference names, or ``None``."""
-        try:
-            reference = json.loads(record.tool_source_reference or "null")
-        except json.JSONDecodeError:
-            return None
-        if isinstance(reference, dict) and isinstance(reference.get("mcp_server"), str):
-            return str(reference["mcp_server"])
+    def _require_referenced_server(self, record: AgentToolCall) -> McpStreamableHttpServerConfig:
+        """Return the configured server of a complete stored reference.
+
+        ``McpToolSource`` resolves an incomplete reference from its listing by
+        tool name, which could reach another server than the one checked.
+        """
+        reference = _complete_mcp_reference(record.tool_source_reference)
+        server = None if reference is None else self._servers.get(reference[0])
+        if server is None:
+            raise ToolExecutionError(
+                f"tool {record.tool_name} did not run: its stored call names no MCP server "
+                "that this Worker configures"
+            )
+        return server
+
+
+def _complete_mcp_reference(tool_source_reference: str | None) -> tuple[str, str] | None:
+    """Return ``(mcp_server, mcp_tool)`` when both are non-empty strings."""
+    if tool_source_reference is None:
         return None
+    try:
+        reference = json.loads(tool_source_reference)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(reference, dict):
+        return None
+    server_name = reference.get("mcp_server")
+    mcp_tool_name = reference.get("mcp_tool")
+    if not isinstance(server_name, str) or not isinstance(mcp_tool_name, str):
+        return None
+    if not server_name or not mcp_tool_name:
+        return None
+    return server_name, mcp_tool_name
 
 
 def _header_secret_texts(servers: Iterable[McpStreamableHttpServerConfig]) -> list[str]:

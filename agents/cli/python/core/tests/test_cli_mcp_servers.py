@@ -31,6 +31,8 @@ from dex_agents import (
     ToolEffect,
     ToolExecutionError,
     ToolExecutionResult,
+    ToolTaskCancellation,
+    ToolTaskPoll,
 )
 from dex_agents.testing import InvocationLog, find_free_ports, resolve_dexcli_path
 from dex_agents_cli_core import (
@@ -360,6 +362,57 @@ async def test_a_call_whose_reference_names_no_configured_server_is_refused_unse
     runs_before = remote_mcp.runs("search_assets")
     with pytest.raises(ToolExecutionError, match="names no MCP server that this Worker configures"):
         await source.execute_deferred_tool_call(call)
+    assert remote_mcp.runs("search_assets") == runs_before
+
+
+async def test_a_reference_without_mcp_tool_never_reaches_an_untrusted_server_by_tool_name(
+    remote_mcp: FakeRemoteMcp,
+) -> None:
+    # Unit level: the reference names the trusted server; the tool name is the untrusted one.
+    config = resolve_config(
+        {
+            "mcp_servers": {
+                "trusted": _server(remote_mcp.url, is_trusted=True),
+                "raw": _server(remote_mcp.url, is_trusted=False),
+            }
+        },
+        "builtin",
+        "scripted-model",
+    )
+    environment = {"STUDIO_TOKEN": SENTINEL_TOKEN}
+    source = McpServersToolSource(
+        resolve_mcp_servers(config, environment),
+        TurnConfigResolver(config, None, lambda warnings: None),
+        secret_texts=mcp_server_secret_texts(config, environment),
+    )
+    await source.list_file_enabled_tools()
+    call = _stored_call("raw__search_assets", effect=ToolEffect.READ, requires_approval=False)
+    record = replace(call.tool_call, tool_source_reference=json.dumps({"mcp_server": "trusted"}))
+    call = replace(call, tool_call=replace(record, task_id="task-1"))
+    runs_before = remote_mcp.runs("search_assets")
+    with pytest.raises(ToolExecutionError, match="names no MCP server that this Worker configures"):
+        await source.execute_deferred_tool_call(call)
+    with pytest.raises(ToolExecutionError, match="names no MCP server that this Worker configures"):
+        await source.poll_tool_task(
+            ToolTaskPoll(
+                flow_id="session-1",
+                tool_call=call.tool_call,
+                idempotency_key="session-1/turn-1/call-1",
+                attempt=1,
+                input_answers=(),
+                events=AgentEventWriter(lambda event: None, "turn-1", 1),
+                heartbeat=_no_heartbeat,
+            )
+        )
+    await source.cancel_tool_task(
+        ToolTaskCancellation(
+            flow_id="session-1",
+            tool_call=call.tool_call,
+            idempotency_key="session-1/turn-1/call-1",
+            attempt=1,
+            heartbeat=_no_heartbeat,
+        )
+    )
     assert remote_mcp.runs("search_assets") == runs_before
 
 
