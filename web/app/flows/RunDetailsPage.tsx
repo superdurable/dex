@@ -60,6 +60,7 @@ import { middleTruncate, RunFactsMenu, type RunFact } from './details/RunFactsMe
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { CopyButton } from '../components/CopyButton';
+import { rememberRecentRun } from '../components/frame/recentRuns';
 import { RunFailureLine, runFailureOf } from './details/RunFailureLine';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
@@ -225,6 +226,10 @@ export function RunDetailsPage({
   );
   const workingAs = useWorkingAs(workingAsDefinitions);
   const relations = useRunRelations(flowId);
+  useEffect(() => {
+    if (summary) rememberRecentRun({ flowId: summary.flowId, runId: summary.runId, flowType: summary.flowType, flowStatus: summary.flowStatus });
+  }, [summary]);
+  const now = useSecondClock(summary !== null && !terminalStatuses.has(summary.flowStatusCode));
   const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
   const history = runHistory.newest?.events ?? noHistoryEvents;
   const isViewingEarlierRunAttempt = summary !== null
@@ -610,7 +615,10 @@ export function RunDetailsPage({
   const flowStartEvent = runHistory.flowStartEvent;
   const prunedEventIdRange = runHistory.prunedEventIdRange;
   const latestEvent = history.at(-1);
-  const selectedRaw = selectedEvent ?? latestEvent ?? null;
+  const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
+  const failedEvent = runFailure ? history.find((event) => event.eventId === runFailure.eventId) ?? null : null;
+  // A failed run opens on the event that failed, the one a reader came for.
+  const selectedRaw = selectedEvent ?? failedEvent ?? latestEvent ?? null;
   const selected = selectedRaw ? hydratedEvents[selectedRaw.eventId] ?? selectedRaw : null;
   // Views outside Timeline read the newest window, with FlowStart for start details and routing.
   const historyWithFlowStart = useMemo(() => withFlowStart(history, flowStartEvent), [flowStartEvent, history]);
@@ -844,8 +852,8 @@ export function RunDetailsPage({
   const currentRunAttempt = positiveRunAttempt(summary?.runAttempt);
   const displayedRunAttempt = summary && isViewingEarlierRunAttempt ? historyRunAttempt(summary) : currentRunAttempt;
 
+  const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
-  const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
@@ -875,6 +883,11 @@ export function RunDetailsPage({
           </>
         )}
         {summary && <StatusBadge status={summary.flowStatus} />}
+        {summary && (
+          <span className="app-bar-duration" data-tick={now} title={`Started ${formatDate(summary.startTime, timezone)}`}>
+            {formatDuration(summary.startTime, summary.closeTime)}
+          </span>
+        )}
         <RunFactsMenu
           childFlows={relations?.children}
           childFlowsHref={childFlowsHref}
@@ -903,15 +916,16 @@ export function RunDetailsPage({
         )}
       </AppBarSlot>
       <AppBarSlot name="views">
-        <div aria-label="Run views" className="run-tabs" role="group">
+        <div aria-label="Run views" className="run-tabs" role="tablist">
           {tabs.map(({ id, label, Icon, isExperimental }) => (
             <button
               key={id}
-              aria-pressed={shownTab === id}
+              aria-selected={shownTab === id}
               className={shownTab === id ? 'active' : ''}
               data-tab={id}
+              data-tooltip={isExperimental ? `${label} · early view` : label}
               onClick={() => selectTab(id)}
-              title={isExperimental ? `${label}: an early view that may change` : label}
+              role="tab"
               type="button"
             >
               <Icon aria-hidden="true" size={15} strokeWidth={2} />
@@ -925,7 +939,7 @@ export function RunDetailsPage({
         {summary && !terminalStatuses.has(summary.flowStatusCode) && (
           <label
             className={`live-toggle${isLive ? ' is-on' : ''}`}
-            title={isLive ? 'Following the run. Click to pause.' : 'Paused. Click to follow the run.'}
+            title={isLive ? 'Following new events. Click to stop following.' : 'Not following new events. Click to follow and read the run again.'}
           >
             <input
               aria-label="Live"
@@ -934,11 +948,12 @@ export function RunDetailsPage({
               type="checkbox"
             />
             <span aria-hidden="true" className="live-toggle-dot" />
-            {isLive ? 'Live' : 'Paused'}
+            {isLive ? 'Live' : 'Live off'}
           </label>
         )}
         <OperateMenu
-          isRunning={summary !== null && !terminalStatuses.has(summary.flowStatusCode)}
+          isRunning={isRunOpen}
+          onTimeTravelFromFailure={failedEvent ? () => openTimeTravel(failedEvent) : undefined}
           onStop={() => setStopOpen(true)}
           onTimeTravel={() => openTimeTravel(selectedEvent ? selected : null)}
         />
@@ -1183,6 +1198,17 @@ function runStepDurabilityOf(flowStartEvent: FlowHistoryEvent | null | undefined
 /** Whether event IDs are missing between FlowStart and the next event of a page. */
 function hasGapAfterFlowStart(events: FlowHistoryEvent[]): boolean {
   return events[0]?.eventId === 1 && events.length > 1 && events[1].eventId > 2;
+}
+
+/** The current time, ticking each second only while isTicking, so an open run's duration counts up. */
+function useSecondClock(isTicking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isTicking) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isTicking]);
+  return now;
 }
 
 /** The tone of a Flow status, which tints the bar; matches StatusBadge's class names. */

@@ -867,3 +867,88 @@ body {
   background: var(--ui-surface);
   text-align: center;
 }
+
+/* --------------------------------------------------------- review round 2 */
+
+/* Views follow the run's name, so toggling Live never moves them. */
+.app-bar-views {
+  justify-content: flex-start;
+  padding-left: 8px;
+}
+
+.app-bar .live-toggle {
+  min-width: 84px;
+  justify-content: center;
+}
+
+.app-bar-page > .run-facts-menu {
+  flex: 0 0 auto;
+}
+
+.app-bar-duration {
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* An icon-only tab shows its name on hover and focus. */
+.app-bar.v1-page[data-compact-views='true'] .run-tabs button:not(.active):is(:hover, :focus-visible)::before {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 4px);
+  left: 50%;
+  padding: 4px 8px;
+  border-radius: 6px;
+  content: attr(data-tooltip);
+  color: var(--ui-surface);
+  background: var(--ui-ink);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.app-bar-jump-list {
+  display: grid;
+  max-height: min(420px, 60vh);
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.app-bar-jump-option {
+  align-items: center;
+}
+
+.app-bar-jump-option[aria-selected='true'] {
+  background: var(--ui-hover);
+}
+
+.app-bar-jump-option .app-bar-menu-words {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.app-bar-jump-option .app-bar-menu-words b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar-jump-heading,
+.app-bar-jump-note {
+  margin: 6px 10px 2px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.run-facts-popover {
+  min-width: 380px;
+}
+
+/* The bar is the page's top edge; content starts close under it. */
+.v1-page.run-page > .run-content {
+  padding-top: 0;
+}

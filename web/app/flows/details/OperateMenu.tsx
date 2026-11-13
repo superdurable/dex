@@ -23,10 +23,13 @@ export function OperateMenu({
   isRunning,
   onStop,
   onTimeTravel,
+  onTimeTravelFromFailure,
 }: {
   isRunning: boolean;
   onStop: () => void;
   onTimeTravel: () => void;
+  /** Set on a failed run: time travel prefilled at the failed event. */
+  onTimeTravelFromFailure?: () => void;
 }) {
   const { isOpen, setIsOpen, rootRef } = usePopover<HTMLDivElement>();
   const menuId = useId();
@@ -37,7 +40,11 @@ export function OperateMenu({
     id: 'time-travel', label: 'Time travel…', description: 'Run again from an earlier point', Icon: History,
     onSelect: onTimeTravel,
   };
-  const [primary, ...others] = isRunning ? [stop, timeTravel] : [timeTravel];
+  const fromFailure: OperateAction | null = onTimeTravelFromFailure ? {
+    id: 'time-travel', label: 'Time travel from failure…', description: 'Run again from the failed event',
+    Icon: History, onSelect: onTimeTravelFromFailure,
+  } : null;
+  const [primary, ...others] = isRunning ? [stop, timeTravel] : fromFailure ? [fromFailure, timeTravel] : [timeTravel];
   return (
     <div className="operate-menu" ref={rootRef}>
       <div aria-label="Operate" className="operate-split" role="group">
@@ -68,7 +75,7 @@ export function OperateMenu({
           {others.map((action) => (
             <button
               className="app-bar-menu-item"
-              key={action.id}
+              key={action.label}
               onClick={() => {
                 setIsOpen(false);
                 action.onSelect();

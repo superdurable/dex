@@ -12,7 +12,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { jumpTargetOf } from '../../components/frame/JumpTo';
+import { flowIdPrefixQuery, linkedRunPathOf } from '../../components/frame/JumpTo';
 import { OperateMenu } from './OperateMenu';
 import { runFailureOf } from './RunFailureLine';
 
@@ -65,10 +65,10 @@ describe('run failure line', () => {
 });
 
 describe('jump to', () => {
-  it('opens a bare Flow ID as its current run and a pasted run link as that run', () => {
-    expect(jumpTargetOf('  order-1  ')).toBe('/v1/flows/order-1');
-    expect(jumpTargetOf('http://127.0.0.1:8802/v1/flows/order-1/run-2?view=timeline')).toBe('/v1/flows/order-1/run-2');
-    expect(jumpTargetOf('/dex/v1/flows/SubFlow%3Aa')).toBe('/v1/flows/SubFlow%3Aa');
-    expect(jumpTargetOf('   ')).toBeNull();
+  it('opens a pasted run link as that run and searches anything else by Flow ID prefix', () => {
+    expect(linkedRunPathOf('http://127.0.0.1:8802/v1/flows/order-1/run-2?view=timeline')).toBe('/v1/flows/order-1/run-2');
+    expect(linkedRunPathOf('/dex/v1/flows/SubFlow%3Aa')).toBe('/v1/flows/SubFlow%3Aa');
+    expect(linkedRunPathOf('order-1')).toBeNull();
+    expect(flowIdPrefixQuery('order-"1')).toBe('WorkflowId STARTS_WITH "order-\\"1"');
   });
 });

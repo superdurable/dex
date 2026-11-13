@@ -257,20 +257,20 @@ Changed in 1.45.3: every page has one bar in place of the header and the page br
 - The bar starts with a trail. Its first link is the Dex mark, which opens the Flows page. When a host page opens Dex Web, the first link is that page instead; see [Embed Dex Web](/reference/web/embed-dex-web). A dot beside it shows whether Dex Web reaches the Dex Server, from **/readyz**.
 - The trail's page link names the page you are on. On a run page it is **Flows**, and it returns to your last Flows search. Its menu switches to **Work Queue**, **Designs**, and **Connectors** when they apply.
 - A page adds what it is, its views, and its actions to the bar.
-- The search button, or ⌘K and Ctrl+K, opens a run from a pasted Flow ID or run link.
+- The search button, or ⌘K and Ctrl+K, lists Flows whose ID starts with what you type, opens a pasted run link, and shows this browser's recent runs and the pages. Arrow keys and Enter choose a match.
 - The settings button holds **Theme**, **Timezone**, and **Docs**.
 
-The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query**. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns. Changed in 1.45.3: clicking anywhere on a row opens its run.
+The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query**. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns. Changed in 1.45.3: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**.
 
 Changed in 1.45.3: the Run page puts the run in the bar, so the selected tab starts right below it.
 
 - A child Flow's trail names its parent Flow, which links to the parent's current run. A run with child Flows shows their count, which opens them in the Flows search; **Run details** lists the first five.
-- The bar shows the run status and the Flow ID, with a copy button. A long Flow ID is shortened in the middle, so its end stays visible. Clicking the Flow ID opens **Run details**: **Started**, **Closed** for a closed run, **Duration**, **Run attempt** or **Run chain**, **Latest event**, **Flow type**, and copy buttons for the Flow ID and Run ID.
+- The bar shows the run status, its duration (counting up while it runs; hover for the start time), and the Flow ID with a copy button. A long Flow ID is shortened in the middle, so its end stays visible. Clicking the Flow ID opens **Run details**: **Started**, **Closed** for a closed run, **Duration**, **Run attempt** or **Run chain**, **Latest event**, **Flow type**, and copy buttons for the Flow ID and Run ID.
 - After time travel, the bar also shows the **Run attempt** selector. See [Run attempts](#run-attempts).
 - The run tabs follow. See [Run tabs](#run-tabs).
-- **Live** follows a running run; click it to pause, and it reads **Paused**. Resuming reads the run again. **Refresh** and **Copy link** are gone: resume **Live**, or use the address bar.
-- One action button follows the run's state. It is **Stop…** while the run runs, with **Time travel…** in its menu, and **Time travel…** once the run ended. Both open the same dialogs as before.
-- A run that failed states its error under the bar. Its button opens the failed Step event, or **FlowClosed** when no Step failed.
+- **Live** follows a running run's new events; click it to stop following, and it reads **Live off**. Turning it back on reads the run again. **Refresh** and **Copy link** are gone: resume **Live**, or use the address bar.
+- One action button follows the run's state. It is **Stop…** while the run runs, with **Time travel…** in its menu. On a failed run it is **Time travel from failure…**, which opens the dialog set to the failed event, with **Time travel…** in its menu. On another ended run it is **Time travel…**. Each opens the same dialogs as before.
+- A run that failed states its error under the bar, and opens with the failed Step event selected. The line's button selects it again, or **FlowClosed** when no Step failed.
 
 The **Events** bar above **Timeline** and **Execution graph** names the latest event, such as **Latest #120**, and the event range on screen. It pages through events with **Latest page**, **Newer page**, **Older page**, and **Oldest page**. Changed in 1.45.3: the page buttons show only when the history has more than one page. **Page size** sets 100 or 1000 events per page. The default is 1000, and the browser remembers each viewer's choice. **Execution graph** and **Timeline** show the same page. **Overview** and **Streams** always read the newest events. **Live** adds new events to the latest page only. An older page stays in place, and **Latest page** returns to the live page.
 

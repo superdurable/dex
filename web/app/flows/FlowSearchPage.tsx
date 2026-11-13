@@ -38,7 +38,7 @@ import { scopedStorageKey, webURL } from '@/lib/basePath';
 type QueryMode = 'basic' | 'advanced';
 type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration';
 
-const defaultColumns: ColumnId[] = [
+const allColumns: ColumnId[] = [
   'status',
   'flowId',
   'flowType',
@@ -47,6 +47,9 @@ const defaultColumns: ColumnId[] = [
   'close',
   'duration',
 ];
+
+// The Run ID stays one click away in Columns, so the default columns fit a laptop screen.
+const defaultColumns: ColumnId[] = allColumns.filter((column) => column !== 'runId');
 
 const columnLabels: Record<ColumnId, string> = {
   status: 'Status',
@@ -505,7 +508,7 @@ export function FlowSearchPage() {
               </button>
               {columnsOpen && (
                 <div className="column-popover">
-                  {defaultColumns.map((column) => (
+                  {allColumns.map((column) => (
                     <div key={column}>
                       <label>
                         <input

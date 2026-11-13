@@ -176,7 +176,13 @@ export function TimeTravelDialog({
         )}
         <label>
           Reason
-          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
+          <textarea
+            aria-required="true"
+            placeholder="Required: why this run goes back"
+            rows={3}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
         </label>
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions">

@@ -212,7 +212,7 @@ async function settle() {
 }
 
 function tabLabels(): string[] {
-  const group = screen.getByRole('group', { name: 'Run views' });
+  const group = screen.getByRole('tablist', { name: 'Run views' });
   return [...group.querySelectorAll('button')].map((button) => button.getAttribute('data-tab') ?? '');
 }
 
@@ -250,7 +250,7 @@ describe('Run page experimental tabs', () => {
     renderRun();
     await waitFor(() => expect(tabLabels()).toContain('design'));
     expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
-    const design = screen.getByRole('button', { name: /^Design/ });
+    const design = screen.getByRole('tab', { name: /^Design/ });
     expect(design.querySelector('.experimental-dot')?.getAttribute('aria-label')).toBe('Experimental');
   });
 
@@ -273,7 +273,7 @@ describe('Run page experimental tabs', () => {
     expect(requests).toContain('/api/flows/summary');
     expect(runDataRequests(requests)).toEqual([]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Execution graph' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Execution graph' }));
     await waitFor(() => expect(runDataRequests(requests)).toEqual(expect.arrayContaining([
       '/api/flows/history',
       '/api/flows/state',
@@ -304,7 +304,7 @@ describe('Run page experimental tabs', () => {
     const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?view=steps');
     await waitFor(() => expect(requests).toContain('/api/flows/wait'));
-    fireEvent.click(await screen.findByRole('button', { name: /^Design/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^Design/ }));
     await screen.findByTestId('design-graph');
     await settle();
     const opened = requests.length;
@@ -332,13 +332,13 @@ describe('Run page experimental tabs', () => {
   it('keeps the clicked tab in the URL and follows a later view change', async () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?runAttempt=1', '/v1/flows/run-flow/run-1?view=overview');
-    fireEvent.click(await screen.findByRole('button', { name: /^Design/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^Design/ }));
     await waitFor(() => expect(screen.getByLabelText('location').textContent)
       .toBe('/v1/flows/run-flow/run-1?runAttempt=1&view=design'));
     expect(window.localStorage.getItem('dex.run.selected-tab')).toBe('design');
 
     fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Overview' }).getAttribute('aria-pressed')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true'));
     expect(screen.queryByTestId('design-graph')).toBeNull();
   });
 
@@ -355,7 +355,7 @@ describe('Run page experimental tabs', () => {
     stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
     renderRun();
     await screen.findByText('Running');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Timeline' }).getAttribute('aria-selected')).toBe('true'));
     // Only loaded history draws an event, so the Timeline really read it.
     await waitFor(() => expect(document.querySelector('[data-event-id="1"]')).not.toBeNull());
   });
@@ -365,7 +365,7 @@ describe('Run page experimental tabs', () => {
     stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
     renderRun();
     await screen.findByText('Running');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Timeline' }).getAttribute('aria-selected')).toBe('true'));
     // Only loaded history draws an event, so the Timeline really read it.
     await waitFor(() => expect(document.querySelector('[data-event-id="1"]')).not.toBeNull());
   });
@@ -408,7 +408,7 @@ describe('Run page experimental tabs', () => {
     fireEvent.change(sessionWorkingAs, { target: { value: permission } });
     expect(screen.getByTestId('session-view').getAttribute('data-permissions')).toBe(permission);
 
-    fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^Actions/ }));
     await screen.findByRole('region', { name: 'Actions' });
     expect((screen.getByRole('combobox', { name: 'Working as' }) as HTMLSelectElement).value).toBe(permission);
   });
