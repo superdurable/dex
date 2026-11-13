@@ -45,8 +45,8 @@ export interface WorkerHostExecuteRequest {
 
 /**
  * The launcher's own requests, sent as {@link WorkerHostExecuteRequest}s but never offered to the terminal UI:
- * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, and `release_session_lease {session_id}`
- * answers `{}`.
+ * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, plus `takeover_lines` to print once acquired,
+ * and `release_session_lease {session_id}` answers `{}`.
  */
 export const workerHostLeaseMethods = {
   acquire: "acquire_session_lease",
@@ -69,6 +69,8 @@ export interface WorkerHostReady {
   readonly sessionId: string;
   readonly flowType: string;
   readonly isResumed: boolean;
+  /** Whether the session started in another execution environment, whose Flow type the Worker polls. */
+  readonly isOtherEnvironmentSession: boolean;
   /** The workspace's real path. */
   readonly workspace: string;
   readonly capabilities: SessionFlowCapabilities;

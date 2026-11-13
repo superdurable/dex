@@ -15,14 +15,8 @@ import { readCliEnvironment } from "../cli-environment.js";
 import type { SessionFlowCapabilities } from "../terminal-ui/launch-document.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
 import { refusal } from "../terminal-ui/local-request-relay.js";
-import {
-  SessionLeaseRenewal,
-  acquireSessionLease,
-  defaultSessionLeaseTtlSeconds,
-  newSessionLeaseHolder,
-  releaseSessionLease,
-  type SessionLeaseHolder,
-} from "../session-terminal-lease.js";
+import { SessionWorkerStartError } from "../session-environment-fence.js";
+import { SessionLeaseRenewal, acquireSessionLease, defaultSessionLeaseTtlSeconds } from "../session-terminal-lease.js";
 import { readProcessIdentity } from "./process-identity.js";
 import { RecordedToolProcessGroups } from "./tool-process-groups.js";
 import { executeWorkerHostMethod } from "./worker-host-methods.js";
@@ -76,7 +70,6 @@ class WorkerHost {
   private requestStop: () => void = () => undefined;
   private readonly startReceived: Promise<WorkerHostStartRequest | undefined>;
   private resolveStart: (start: WorkerHostStartRequest | undefined) => void = () => undefined;
-  private readonly leaseHolder: SessionLeaseHolder;
   private readonly leaseTtlSeconds: number;
   private leaseRenewal: SessionLeaseRenewal | undefined;
   private readonly unansweredLeaseSessionIds = new Set<string>();
@@ -87,8 +80,6 @@ class WorkerHost {
     createCommand: WorkerHostCommandFactory,
   ) {
     const environment = readCliEnvironment(io.environment);
-    // A waiting terminal shows the launcher's pid: the command the user ran.
-    this.leaseHolder = newSessionLeaseHolder(this.launcherPid);
     this.leaseTtlSeconds = environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
     this.recordPath = workerHostRunRecordPath(environment.agentsDirectory, harness.name, process.pid);
     this.command = createCommand((line) => this.log(line));
@@ -134,6 +125,8 @@ class WorkerHost {
           resumeSessionId: start.resumeSessionId ?? undefined,
           isOpeningConnectorsPage: true,
           toolProcessGroups: this.toolGroups,
+          // A waiting terminal shows the launcher's pid: the command the user ran.
+          leaseHolderProcessId: this.launcherPid,
         },
       );
     } catch (error: unknown) {
@@ -145,6 +138,7 @@ class WorkerHost {
       sessionId: this.opened.sessionId,
       flowType: this.opened.flowType,
       isResumed: this.opened.isResumed,
+      isOtherEnvironmentSession: this.opened.takeover.isOtherEnvironmentSession,
       workspace: this.opened.workspace,
       capabilities: sessionFlowCapabilities(this.opened, this.harness),
     });
@@ -208,7 +202,7 @@ class WorkerHost {
       if (this.leaseRenewal?.currentSessionId === sessionId) {
         this.leaseRenewal.stop();
       }
-      await releaseSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder.holderId);
+      await opened.takeover.leave(sessionId);
       return { result: {} };
     }
     try {
@@ -217,13 +211,18 @@ class WorkerHost {
         return refusal("session_unavailable", unavailable);
       }
       this.unansweredLeaseSessionIds.add(sessionId);
-      const result = await acquireSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder, this.leaseTtlSeconds);
+      const result = await opened.takeover.attempt(sessionId);
       this.unansweredLeaseSessionIds.delete(sessionId);
-      if (result.isAcquired) {
-        this.renewedLeases(opened).renew(sessionId);
+      if (!result.isAcquired) {
+        return { result: { is_acquired: false, lease: result.lease } };
       }
-      return { result: { is_acquired: result.isAcquired, lease: result.lease } };
+      this.renewedLeases(opened).renew(sessionId);
+      const takeoverLines = await opened.takeover.completeTakeover(sessionId);
+      return { result: { is_acquired: true, lease: result.lease, takeover_lines: takeoverLines } };
     } catch (error: unknown) {
+      if (error instanceof SessionWorkerStartError) {
+        return refusal("session_unavailable", error.message);
+      }
       return refusal("lease_failed", describe(error));
     }
   }
@@ -247,9 +246,9 @@ class WorkerHost {
 
   private renewedLeases(opened: OpenedSessionWorker): SessionLeaseRenewal {
     this.leaseRenewal ??= new SessionLeaseRenewal(
-      this.leaseHolder.holderId,
+      opened.leaseHolder.holderId,
       this.leaseTtlSeconds,
-      (sessionId) => acquireSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder, this.leaseTtlSeconds),
+      (sessionId) => acquireSessionLease(opened.client, opened.flow, sessionId, opened.leaseHolder, this.leaseTtlSeconds),
       (sessionId, lease) => this.send({ type: "session_lease_lost", sessionId, lease }),
     );
     return this.leaseRenewal;
@@ -266,9 +265,7 @@ class WorkerHost {
     this.unansweredLeaseSessionIds.clear();
     const opened = this.opened;
     if (opened !== undefined) {
-      await Promise.all(
-        [...sessionIds].map((sessionId) => releaseSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder.holderId)),
-      );
+      await Promise.all([...sessionIds].map((sessionId) => opened.takeover.leave(sessionId)));
     }
   }
 

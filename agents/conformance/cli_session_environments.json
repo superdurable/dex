@@ -1,0 +1,206 @@
+{
+  "description": "Sessions that move between execution environments. Hand-written for the CLI cores. A session keeps the Flow type of the environment that started it. A command that resumes another environment's session of the same harness polls that Flow type instead of its own. Every lease holder ID names the holder's own environment: its session Flow type, holder_id.separator, and holder_id.random_hex_length random lowercase hex digits. A holder ID without the separator, or with nothing before it, was written by a release that predates this rule and names no environment. Before each model call, summary, tool call, tool task poll, and tool task cancellation, a Worker reads the session's stored lease and acts only as decision_cases say: a Worker that polls its own environment's Flow type acts unless the stored holder names another environment; a Worker that polls another environment's Flow type acts only when the stored holder ID is its own process's. Expiry plays no part in that decision. A refused tool call records failed with refused_tool_call; a refused model call or summary fails its attempt with refused_model_call. A command that takes a session over from another environment (the stored holder names another environment, or no lease is stored and the session's Flow type is not this environment's) prints takeover_line; when a turn was in progress, it refuses that turn's calls in its own process, cancels the turn, and prints cancelled_turn_line. Leaving another environment's session renews this holder's lease for 1 second instead of releasing it. Both lines go to standard error. --resume of a session whose Flow type is not the harness's base Flow type, '-', and 6 lowercase base36 characters exits with 2 and other_harness_error.",
+  "holder_id": {
+    "separator": "/",
+    "random_hex_length": 32,
+    "environment_cases": [
+      {
+        "name": "a holder ID that names its environment",
+        "holder_id": "DexAgentsBuiltinCliSession-ab12cd/0123456789abcdef0123456789abcdef",
+        "environment": "DexAgentsBuiltinCliSession-ab12cd"
+      },
+      {
+        "name": "a holder ID from before environments: 32 hex digits",
+        "holder_id": "0123456789abcdef0123456789abcdef",
+        "environment": null
+      },
+      {
+        "name": "nothing before the separator",
+        "holder_id": "/0123456789abcdef0123456789abcdef",
+        "environment": null
+      },
+      {
+        "name": "the last separator splits",
+        "holder_id": "a/b/0123456789abcdef0123456789abcdef",
+        "environment": "a/b"
+      }
+    ]
+  },
+  "decision_cases": [
+    {
+      "name": "a Worker of the session's own environment, no lease stored",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "holder_id": "DexAgentsBuiltinCliSession-ab12cd/11111111111111111111111111111111",
+      "stored_holder_id": null,
+      "acts": true
+    },
+    {
+      "name": "a Worker of the session's own environment, another process of it holds the session",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "holder_id": "DexAgentsBuiltinCliSession-ab12cd/11111111111111111111111111111111",
+      "stored_holder_id": "DexAgentsBuiltinCliSession-ab12cd/22222222222222222222222222222222",
+      "acts": true
+    },
+    {
+      "name": "a Worker of the session's own environment, a holder from before environments",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "holder_id": "DexAgentsBuiltinCliSession-ab12cd/11111111111111111111111111111111",
+      "stored_holder_id": "22222222222222222222222222222222",
+      "acts": true
+    },
+    {
+      "name": "a Worker of the session's own environment, another environment holds the session",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "holder_id": "DexAgentsBuiltinCliSession-ab12cd/11111111111111111111111111111111",
+      "stored_holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "acts": false
+    },
+    {
+      "name": "a Worker of another environment whose process holds the session",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-xy34zw",
+      "holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "stored_holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "acts": true
+    },
+    {
+      "name": "a Worker of another environment, another process of that environment holds the session",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-xy34zw",
+      "holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "stored_holder_id": "DexAgentsBuiltinCliSession-xy34zw/44444444444444444444444444444444",
+      "acts": false
+    },
+    {
+      "name": "a Worker of another environment, no lease stored",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-xy34zw",
+      "holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "stored_holder_id": null,
+      "acts": false
+    },
+    {
+      "name": "a Worker of another environment, the session's own environment holds it",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-xy34zw",
+      "holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "stored_holder_id": "DexAgentsBuiltinCliSession-ab12cd/22222222222222222222222222222222",
+      "acts": false
+    },
+    {
+      "name": "a Worker of another environment, a holder from before environments",
+      "session_flow_type": "DexAgentsBuiltinCliSession-ab12cd",
+      "home_flow_type": "DexAgentsBuiltinCliSession-xy34zw",
+      "holder_id": "DexAgentsBuiltinCliSession-xy34zw/33333333333333333333333333333333",
+      "stored_holder_id": "22222222222222222222222222222222",
+      "acts": false
+    }
+  ],
+  "harness_flow_type_cases": [
+    {
+      "name": "the harness's base Flow type and a suffix",
+      "harness_flow_type": "DexAgentsBuiltinCliSession",
+      "flow_type": "DexAgentsBuiltinCliSession-0a9z0b",
+      "is_harness_session": true
+    },
+    {
+      "name": "another harness",
+      "harness_flow_type": "DexAgentsBuiltinCliSession",
+      "flow_type": "DexAgentsPiCliSession-0a9z0b",
+      "is_harness_session": false
+    },
+    {
+      "name": "a longer base Flow type that starts the same",
+      "harness_flow_type": "DexAgentsBuiltinCliSession",
+      "flow_type": "DexAgentsBuiltinCliSessionX-0a9z0b",
+      "is_harness_session": false
+    },
+    {
+      "name": "an upper-case suffix",
+      "harness_flow_type": "DexAgentsBuiltinCliSession",
+      "flow_type": "DexAgentsBuiltinCliSession-0A9Z0B",
+      "is_harness_session": false
+    },
+    {
+      "name": "a suffix of 12 hex digits, as before 0.6.0",
+      "harness_flow_type": "DexAgentsBuiltinCliSession",
+      "flow_type": "DexAgentsBuiltinCliSession-0123456789ab",
+      "is_harness_session": false
+    }
+  ],
+  "templates": {
+    "takeover_line": "Session {session_id} was last open in execution environment {previous_environment}; its model and tool calls now run in this one ({this_environment}), in workspace {workspace}.",
+    "cancelled_turn_line": "Cancelled the turn that was in progress there; none of its model or tool calls run here.",
+    "session_elsewhere_reason": "session {session_id} is now open in another execution environment",
+    "turn_elsewhere_reason": "its turn started in another execution environment before this command took session {session_id} over",
+    "refused_tool_call": "tool {tool_name} did not run: {reason}",
+    "refused_model_call": "the model call did not run: {reason}",
+    "other_harness_error": "session {session_id} is a {flow_type} session, which {command_name} does not run; resume it with the command that started it"
+  },
+  "line_cases": [
+    {
+      "name": "the takeover line",
+      "template": "takeover_line",
+      "values": {
+        "session_id": "builtin-20261113-203123-3efeb4",
+        "previous_environment": "DexAgentsBuiltinCliSession-ab12cd",
+        "this_environment": "DexAgentsBuiltinCliSession-xy34zw",
+        "workspace": "/home/b/work"
+      },
+      "line": "Session builtin-20261113-203123-3efeb4 was last open in execution environment DexAgentsBuiltinCliSession-ab12cd; its model and tool calls now run in this one (DexAgentsBuiltinCliSession-xy34zw), in workspace /home/b/work."
+    },
+    {
+      "name": "the cancelled turn line",
+      "template": "cancelled_turn_line",
+      "values": {},
+      "line": "Cancelled the turn that was in progress there; none of its model or tool calls run here."
+    },
+    {
+      "name": "a refused tool call of a session held elsewhere",
+      "template": "refused_tool_call",
+      "values": {
+        "tool_name": "write_file",
+        "reason": "session builtin-20261113-203123-3efeb4 is now open in another execution environment"
+      },
+      "line": "tool write_file did not run: session builtin-20261113-203123-3efeb4 is now open in another execution environment"
+    },
+    {
+      "name": "a refused model call of the turn in progress at a takeover",
+      "template": "refused_model_call",
+      "values": {
+        "reason": "its turn started in another execution environment before this command took session builtin-20261113-203123-3efeb4 over"
+      },
+      "line": "the model call did not run: its turn started in another execution environment before this command took session builtin-20261113-203123-3efeb4 over"
+    },
+    {
+      "name": "the session elsewhere reason",
+      "template": "session_elsewhere_reason",
+      "values": {
+        "session_id": "builtin-20261113-203123-3efeb4"
+      },
+      "line": "session builtin-20261113-203123-3efeb4 is now open in another execution environment"
+    },
+    {
+      "name": "the turn elsewhere reason",
+      "template": "turn_elsewhere_reason",
+      "values": {
+        "session_id": "builtin-20261113-203123-3efeb4"
+      },
+      "line": "its turn started in another execution environment before this command took session builtin-20261113-203123-3efeb4 over"
+    },
+    {
+      "name": "another harness's session",
+      "template": "other_harness_error",
+      "values": {
+        "session_id": "pi-20261113-203123-3efeb4",
+        "flow_type": "DexAgentsPiCliSession-0a9z0b",
+        "command_name": "dex-agents-builtin"
+      },
+      "line": "session pi-20261113-203123-3efeb4 is a DexAgentsPiCliSession-0a9z0b session, which dex-agents-builtin does not run; resume it with the command that started it"
+    }
+  ]
+}

@@ -688,19 +688,19 @@ describe("terminal chat with connectors and session settings", () => {
     cliB.writeLine("/exit");
     assert.equal(await cliB.waitForExit(), 0);
 
-    const resumeInB = start(homeB, ["--resume", sessionA]);
-    assert.equal(await resumeInB.waitForExit(), 2);
-    assert.match(resumeInB.stderr.all, /with the configuration file and workspace, that started it/);
     const sessionsOfB = start(homeB, ["sessions"]);
     assert.equal(await sessionsOfB.waitForExit(), 0);
     assert.doesNotMatch(sessionsOfB.stdout.all, new RegExp(sessionA));
 
+    // Another workspace is another environment, which takes the session over; see session-environments.
     const typeBefore = homeA.sessionFlowType();
     homeA.writeConfig(`${config}workspace: other-workspace\n`);
     assert.notEqual(homeA.sessionFlowType(join(homeA.directory, ".dex", "agents", "other-workspace")), typeBefore);
     const resumeWithOtherWorkspace = start(homeA, ["--resume", sessionA]);
-    assert.equal(await resumeWithOtherWorkspace.waitForExit(), 2);
-    assert.match(resumeWithOtherWorkspace.stderr.all, /with the configuration file and workspace, that started it/);
+    await resumeWithOtherWorkspace.waitForSession();
+    assert.match(resumeWithOtherWorkspace.stderr.all, new RegExp(`was last open in execution environment ${typeBefore};`));
+    resumeWithOtherWorkspace.writeLine("/exit");
+    assert.equal(await resumeWithOtherWorkspace.waitForExit(), 0);
   });
 });
 

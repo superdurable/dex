@@ -198,15 +198,26 @@ export class TerminalUiChatLauncher {
       return [signal, listener] as const;
     });
     try {
+      let takeoverLines: readonly string[] = [];
       const outcome = await waitForSessionLease({
         sessionId,
-        attempt: () => host.acquireSessionLease(sessionId),
+        attempt: async () => {
+          const result = await host.acquireSessionLease(sessionId);
+          takeoverLines = result.takeoverLines;
+          return result;
+        },
         output: process.stderr,
         isAnimated: isAnimatedWaitingOutput(process.stderr, this.launch.environment.TERM),
         interruptSignal: interrupt.signal,
         isFinalFailure: isFinalLeaseFailure,
       });
-      return outcome === "acquired" ? undefined : exitCode;
+      if (outcome !== "acquired") {
+        return exitCode;
+      }
+      for (const line of takeoverLines) {
+        this.writeLine(line);
+      }
+      return undefined;
     } catch (error: unknown) {
       if (!isFinalLeaseFailure(error)) {
         throw error;
@@ -499,7 +510,12 @@ class TerminalUiHandoff {
   ) {
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
-      if (method !== "put_image" || ready.capabilities.images !== undefined) {
+      // A new session belongs to this environment, but the Worker host polls the other environment's Flow type.
+      const isOffered =
+        method === "put_image"
+          ? ready.capabilities.images !== undefined
+          : method !== "start_session" || !ready.isOtherEnvironmentSession;
+      if (isOffered) {
         methods.set(method, (params, key) => host.execute(method, params, key));
       }
     }

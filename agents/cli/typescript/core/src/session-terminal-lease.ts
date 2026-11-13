@@ -41,7 +41,14 @@ const leaseReleaseTimeoutMs = 2_000;
 
 type SessionFlow = AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 
-/** Who takes a lease: one random holder ID per process, with what a waiting terminal shows. */
+/** Separates the holder's execution environment from the random part of a holder ID. */
+export const holderIdEnvironmentSeparator = "/";
+
+/**
+ * Who takes a lease: one holder ID per process, with what a waiting terminal shows. The holder ID is the session
+ * Flow type of the process's own execution environment, {@link holderIdEnvironmentSeparator}, and 32 random
+ * lowercase hex digits, so every Worker can tell which environment holds a session.
+ */
 export interface SessionLeaseHolder {
   readonly holderId: string;
   readonly hostName: string;
@@ -55,9 +62,55 @@ export type SessionLeaseAttempt = () => Promise<SessionTerminalLeaseResult>;
 /**
  * Returns a new holder for this process.
  * @param processId - The process ID to show, the launcher's in the terminal UI path.
+ * @param environmentFlowType - The session Flow type of this process's own execution environment.
  */
-export function newSessionLeaseHolder(processId: number): SessionLeaseHolder {
-  return { holderId: randomBytes(16).toString("hex"), hostName: hostname(), processId };
+export function newSessionLeaseHolder(processId: number, environmentFlowType: string): SessionLeaseHolder {
+  return {
+    holderId: `${environmentFlowType}${holderIdEnvironmentSeparator}${randomBytes(16).toString("hex")}`,
+    hostName: hostname(),
+    processId,
+  };
+}
+
+/**
+ * Returns the session Flow type of the execution environment that a holder ID names.
+ * @param holderId - A stored lease's holder ID.
+ * @returns The environment's session Flow type, or `undefined` for a holder ID without one, as 0.6.3 wrote: such a
+ * holder ran in the session's own environment.
+ */
+export function leaseHolderEnvironment(holderId: string): string | undefined {
+  const separatorIndex = holderId.lastIndexOf(holderIdEnvironmentSeparator);
+  return separatorIndex <= 0 ? undefined : holderId.slice(0, separatorIndex);
+}
+
+/**
+ * Returns the execution environment that runs a session's model and tool calls: the stored lease holder's, else the
+ * session's own, which its Flow type names.
+ * @param sessionFlowType - The session's Flow type.
+ * @param stored - The stored lease, or `undefined` when none is stored.
+ */
+export function sessionOwnerEnvironment(sessionFlowType: string, stored: SessionTerminalLease | undefined): string {
+  return (stored === undefined ? undefined : leaseHolderEnvironment(stored.holderId)) ?? sessionFlowType;
+}
+
+/**
+ * Returns whether a Worker may run a session's model and tool calls.
+ *
+ * A Worker that polls its own environment's Flow type acts unless another environment holds the session, so the
+ * processes of one environment still share their sessions' calls. A Worker that polls another environment's Flow
+ * type acts only for the sessions its own process holds. Expiry plays no part, because two hosts' clocks differ.
+ * @param decision - The session's Flow type, this environment's, this process's holder ID, and the stored lease.
+ */
+export function isSessionCallAllowedHere(decision: {
+  readonly sessionFlowType: string;
+  readonly homeFlowType: string;
+  readonly holderId: string;
+  readonly stored: SessionTerminalLease | undefined;
+}): boolean {
+  if (decision.sessionFlowType === decision.homeFlowType) {
+    return sessionOwnerEnvironment(decision.sessionFlowType, decision.stored) === decision.homeFlowType;
+  }
+  return decision.stored?.holderId === decision.holderId;
 }
 
 /**
@@ -380,6 +433,66 @@ export async function releaseSessionLease(
     }
     await delay(50);
   }
+}
+
+/**
+ * Leaves another environment's session within 2 s: renews this holder's lease for 1 second instead of releasing it,
+ * ignoring every failure. The stored holder keeps naming this environment, so the session's own environment runs
+ * none of the calls approved here until a command takes the session over.
+ * @param client - The command's Client.
+ * @param flow - The session Flow.
+ * @param sessionId - The session.
+ * @param holder - This process's holder.
+ */
+export async function handBackSessionLease(
+  client: Client,
+  flow: SessionFlow,
+  sessionId: string,
+  holder: SessionLeaseHolder,
+): Promise<void> {
+  const deadline = Date.now() + leaseReleaseTimeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await withinTimeout(
+        client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+          holderId: holder.holderId,
+          hostName: holder.hostName,
+          processId: holder.processId,
+          ttlSeconds: 1,
+        }),
+        deadline - Date.now(),
+      );
+      return;
+    } catch (error: unknown) {
+      if (!(error instanceof RpcLockConflictError)) {
+        return;
+      }
+    }
+    await delay(50);
+  }
+}
+
+/**
+ * Reads a session's stored lease from Dex, which needs no Worker of the session's Flow type.
+ * @returns The stored lease, or `undefined` when no terminal holds the session.
+ */
+export async function readStoredSessionLease(
+  client: Client,
+  flow: SessionFlow,
+  sessionId: string,
+): Promise<SessionTerminalLease | undefined> {
+  const [stored] = await withinTimeout(client.getAttributes(sessionId, flow.sessionTerminalLease), leaseCallTimeoutMs);
+  return stored;
+}
+
+/**
+ * Returns whether a stored lease has expired by this host's clock.
+ * @param lease - The stored lease.
+ * @param now - This host's time.
+ */
+export function isLeaseExpiredHere(lease: SessionTerminalLease, now: Date): boolean {
+  const expiresAt = Date.parse(lease.expiresAt);
+  return Number.isNaN(expiresAt) || expiresAt <= now.getTime();
 }
 
 async function attemptQuietly(attempt: SessionLeaseAttempt): Promise<SessionTerminalLeaseResult | undefined> {

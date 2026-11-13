@@ -179,14 +179,16 @@ export class WorkerHostProcess {
   /**
    * Asks the Worker host for a session's lease once, which it then renews.
    * @param sessionId - The session.
-   * @returns The RPC's result.
+   * @returns The RPC's result, with the lines to print once a takeover from another execution environment is done.
    * @throws {Error} When the attempt failed and may be tried again.
    * @throws {SessionUnavailableError} When the session does not run with this command's Flow type.
    * @throws {WorkerHostStoppedError} When the Worker host is gone, so no later attempt can succeed.
    */
-  public async acquireSessionLease(
-    sessionId: string,
-  ): Promise<{ readonly isAcquired: boolean; readonly lease: SessionTerminalLease | null }> {
+  public async acquireSessionLease(sessionId: string): Promise<{
+    readonly isAcquired: boolean;
+    readonly lease: SessionTerminalLease | null;
+    readonly takeoverLines: readonly string[];
+  }> {
     const outcome = await this.execute(workerHostLeaseMethods.acquire, { session_id: sessionId }, "");
     if ("error" in outcome) {
       if (outcome.error.code === "host_stopped") {
@@ -196,8 +198,12 @@ export class WorkerHostProcess {
         ? new SessionUnavailableError(outcome.error.message)
         : new Error(outcome.error.message);
     }
-    const result = outcome.result as { is_acquired?: unknown; lease?: SessionTerminalLease | null };
-    return { isAcquired: result.is_acquired === true, lease: result.lease ?? null };
+    const result = outcome.result as {
+      is_acquired?: unknown;
+      lease?: SessionTerminalLease | null;
+      takeover_lines?: readonly string[];
+    };
+    return { isAcquired: result.is_acquired === true, lease: result.lease ?? null, takeoverLines: result.takeover_lines ?? [] };
   }
 
   /**

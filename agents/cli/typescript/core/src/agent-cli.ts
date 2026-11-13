@@ -85,6 +85,13 @@ import {
 } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
 import { waitForQueuedOutput } from "./queued-output.js";
+import {
+  SessionEnvironmentFence,
+  SessionTakeover,
+  SessionWorkerStartError,
+  isHarnessSessionFlowType,
+  otherHarnessSessionError,
+} from "./session-environment-fence.js";
 import { collectSessionsForList } from "./session-list-pages.js";
 import {
   SessionLeaseRenewal,
@@ -94,7 +101,6 @@ import {
   isAnimatedWaitingOutput,
   leaseLostLine,
   newSessionLeaseHolder,
-  releaseSessionLease,
   waitForSessionLease,
   type SessionLeaseHolder,
 } from "./session-terminal-lease.js";
@@ -290,8 +296,15 @@ export interface OpenedSessionWorker {
   readonly client: Client;
   /** The session Flow. */
   readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
-  /** The session Flow type of this execution environment. */
+  /**
+   * The session's Flow type, which the Worker polls: this execution environment's, or another environment's for a
+   * resumed session that started there.
+   */
   readonly flowType: string;
+  /** This process's lease holder, which names this execution environment. */
+  readonly leaseHolder: SessionLeaseHolder;
+  /** Takes, completes, and leaves the session's lease; it starts a deferred Worker. */
+  readonly takeover: SessionTakeover;
   /** The session. */
   readonly sessionId: string;
   /** Whether the session was resumed rather than started. */
@@ -308,18 +321,14 @@ export interface OpenedSessionWorker {
 
 /** The lease the plain chat holds, with what releases it. */
 interface HeldSessionLease {
-  readonly client: Client;
-  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  readonly takeover: SessionTakeover;
   readonly sessionId: string;
-  readonly holder: SessionLeaseHolder;
   readonly renewal: SessionLeaseRenewal;
 }
 
-/** The sessions whose lease call got no answer; releasing them by holder ID is harmless. */
+/** The sessions whose lease call got no answer; leaving them by holder ID is harmless. */
 interface UnansweredSessionLeases {
-  readonly client: Client;
-  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
-  readonly holderId: string;
+  readonly takeover: SessionTakeover;
   readonly sessionIds: Set<string>;
 }
 
@@ -559,24 +568,31 @@ export class AgentCliCommand {
       resumeSessionId,
       isOpeningConnectorsPage,
       toolProcessGroups: undefined,
+      leaseHolderProcessId: process.pid,
     });
     const sessionId = opened.sessionId;
     // From here Ctrl-C ends the wait for the lease, and then the chat handles it.
     this.startedDexcliDev.releaseInterrupt();
-    const holder = newSessionLeaseHolder(process.pid);
+    const holder = opened.leaseHolder;
+    const takeover = opened.takeover;
     const ttlSeconds = this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
     // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
     const unanswered = new Set<string>();
-    this.unansweredSessionLeases = { client: opened.client, flow: opened.flow, holderId: holder.holderId, sessionIds: unanswered };
-    const acquireFor = async (id: string): ReturnType<typeof acquireSessionLease> => {
+    this.unansweredSessionLeases = { takeover, sessionIds: unanswered };
+    const trackUnanswered = async (id: string, call: () => ReturnType<typeof acquireSessionLease>): ReturnType<typeof acquireSessionLease> => {
       unanswered.add(id);
-      const result = await acquireSessionLease(opened.client, opened.flow, id, holder, ttlSeconds);
+      const result = await call();
       unanswered.delete(id);
       return result;
     };
+    const acquireFor = (id: string): ReturnType<typeof acquireSessionLease> =>
+      trackUnanswered(id, () => acquireSessionLease(opened.client, opened.flow, id, holder, ttlSeconds));
     this.listenForTerminationSignals();
-    if ((await this.waitForPlainChatLease(sessionId, () => acquireFor(sessionId))) === "interrupted") {
+    if ((await this.waitForPlainChatLease(sessionId, () => trackUnanswered(sessionId, () => takeover.attempt(sessionId)))) === "interrupted") {
       return interruptedExitCode;
+    }
+    for (const line of await takeover.completeTakeover(sessionId)) {
+      this.log(line);
     }
     let lostLeaseLine: string | undefined;
     const chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
@@ -587,7 +603,7 @@ export class AgentCliCommand {
       lostLeaseLine = leaseLostLine(lostSessionId, describeLeaseHolder(lease));
       chat.stop();
     });
-    this.heldSessionLease = { client: opened.client, flow: opened.flow, sessionId, holder, renewal };
+    this.heldSessionLease = { takeover, sessionId, renewal };
     renewal.renew(sessionId);
     if (opened.isResumed) {
       this.io.stdout.write(`Resumed session ${sessionId}.\n`);
@@ -632,6 +648,7 @@ export class AgentCliCommand {
         output: this.io.stderr,
         isAnimated: isAnimatedWaitingOutput(this.io.stderr, this.io.environment.TERM),
         interruptSignal: interrupt.signal,
+        isFinalFailure: (error) => error instanceof SessionWorkerStartError,
       });
     } finally {
       process.off("SIGINT", onInterrupt);
@@ -646,12 +663,13 @@ export class AgentCliCommand {
     this.unansweredSessionLeases = undefined;
     held?.renewal.stop();
     const releases: Promise<void>[] = [];
+    // Another environment's session is handed back by expiry instead; see SessionTakeover.leave.
     if (held !== undefined) {
-      releases.push(releaseSessionLease(held.client, held.flow, held.sessionId, held.holder.holderId));
+      releases.push(held.takeover.leave(held.sessionId));
     }
     for (const sessionId of unanswered?.sessionIds ?? []) {
       if (unanswered !== undefined && sessionId !== held?.sessionId) {
-        releases.push(releaseSessionLease(unanswered.client, unanswered.flow, sessionId, unanswered.holderId));
+        releases.push(unanswered.takeover.leave(sessionId));
       }
     }
     if (releases.length > 0) {
@@ -781,14 +799,17 @@ export class AgentCliCommand {
    * Opens the Worker half of a chat: the media store, the connectors, the local tools, the session Flow, the Worker,
    * the session graph upload, and the new or resumed session. The plain chat and the Worker host both call it.
    *
+   * A resumed session that another execution environment started keeps its Flow type: the Worker polls that Flow
+   * type instead of this environment's, and starts only when {@link SessionTakeover.attempt} finds the session free.
+   *
    * @param effective - The effective configuration.
    * @param loaded - The loaded configuration file.
    * @param server - The Dex server.
    * @param connection - How to verify and authenticate to the Dex server.
-   * @param options - The session to resume, whether to open the Connectors page, and the tool process group
-   * registry of a Worker host.
+   * @param options - The session to resume, whether to open the Connectors page, the tool process group registry of
+   * a Worker host, and the process ID that the lease shows to a waiting terminal.
    * @returns The opened session; {@link close} releases it.
-   * @throws {UsageError} When the session to resume does not exist or belongs to another environment.
+   * @throws {UsageError} When the session to resume does not exist, is closed, or belongs to another harness.
    * @throws {DexConnectionSettingsError} When the CA file or the bearer token file is unusable.
    */
   public async openSessionWorker(
@@ -800,6 +821,7 @@ export class AgentCliCommand {
       readonly resumeSessionId: string | undefined;
       readonly isOpeningConnectorsPage: boolean;
       readonly toolProcessGroups: ToolProcessGroupRegistry | undefined;
+      readonly leaseHolderProcessId: number;
     },
   ): Promise<OpenedSessionWorker> {
     const connectionOptions = this.dexConnectionOptions(server, connection);
@@ -813,7 +835,16 @@ export class AgentCliCommand {
     );
     const workspace = this.prepareWorkspace(effective, loaded);
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);
-    const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
+    const homeFlowType = namespaceSessionFlowType(this.harness.flowType, identity);
+    this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
+    this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
+    const resumeSessionId = options.resumeSessionId;
+    const flowType =
+      resumeSessionId === undefined
+        ? homeFlowType
+        : await this.callDex(effective, server, connection, () =>
+            this.readResumedSessionFlowType(connectionOptions, connection, resumeSessionId),
+          );
     const mediaStore = this.mediaStore;
     // Both sources stay registered even when switched off, so they refuse calls another process requested.
     const connectorsSource = await this.connectConnectors(effective, server, turns, options.isOpeningConnectorsPage, mediaStore);
@@ -847,11 +878,12 @@ export class AgentCliCommand {
     turns.installOn(flow.runner);
     this.sessionFlow = flow;
     const registry = new Registry([flow]);
-    this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
-    this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
     // The Client exists before the Worker starts, because tool Steps read their turn's settings through it.
     const client = this.constructDexClient(registry, connectionOptions, connection);
     this.client = client;
+    const leaseHolder = newSessionLeaseHolder(options.leaseHolderProcessId, homeFlowType);
+    const fence = new SessionEnvironmentFence(client, flow, homeFlowType, leaseHolder.holderId);
+    fence.installOn(flow.runner);
     this.worker = new Worker(registry, this.blobCache, {
       ...connectionOptions,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
@@ -859,26 +891,49 @@ export class AgentCliCommand {
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
     this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
     const worker = this.worker;
-    await this.callDex(effective, server, connection, async () => {
-      await worker.start();
-      await worker.waitPullRegistered({ timeoutMs: 30_000 });
-    });
+    let workerStart: Promise<void> | undefined;
+    let isWorkerStarted = false;
+    const startWorker = (): Promise<void> => {
+      workerStart ??= this.callDex(effective, server, connection, async () => {
+        await worker.start();
+        await worker.waitPullRegistered({ timeoutMs: 30_000 });
+        isWorkerStarted = true;
+      });
+      return workerStart;
+    };
+    if (flowType === homeFlowType) {
+      await startWorker();
+    }
     await this.uploadSessionFlowDefinition(client, flowType);
     const startEnvironment = sessionStartEnvironment(identity);
-    const resumeSessionId = options.resumeSessionId;
-    const sessionId = await this.callDex(effective, server, connection, async () => {
-      if (resumeSessionId === undefined) {
+    const sessionId =
+      resumeSessionId ??
+      (await this.callDex(effective, server, connection, async () => {
         const newId = newSessionId(this.harness);
         await startAgentSession(client, flow, newId, { startEnvironment });
         return newId;
-      }
-      return this.checkResumedSession(client, flowType, resumeSessionId);
+      }));
+    const takeover = new SessionTakeover({
+      client,
+      flow,
+      fence,
+      holder: leaseHolder,
+      ttlSeconds: this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds,
+      homeFlowType,
+      workspace,
+      startWorker: () =>
+        startWorker().catch((error: unknown) => {
+          throw new SessionWorkerStartError(describe(error), { cause: error });
+        }),
+      isWorkerStarted: () => isWorkerStarted,
     });
     const connectorsUrl = effective.connectors.mcp === "auto" ? server.autoConnectorsMcpUrl : effective.connectors.mcp;
     return {
       client: this.client,
       flow,
       flowType,
+      leaseHolder,
+      takeover,
       sessionId,
       isResumed: resumeSessionId !== undefined,
       startEnvironment,
@@ -983,8 +1038,8 @@ export class AgentCliCommand {
 
   /**
    * Returns the execution environment this command's session Flow type hashes: the host, the user, the configuration
-   * file, and the workspace. So only Workers of the same execution environment take a session's Steps, and editing
-   * tool settings in the file keeps its sessions.
+   * file, and the workspace. So only Workers of the same execution environment take a session's Steps, unless a
+   * command of another environment took the session over, and editing tool settings in the file keeps its sessions.
    */
   private sessionEnvironmentIdentity(loaded: LoadedConfig, workspace: string): SessionEnvironmentIdentity {
     return {
@@ -995,25 +1050,35 @@ export class AgentCliCommand {
     };
   }
 
-  private async checkResumedSession(client: Client, flowType: string, resumeSessionId: string): Promise<string> {
+  /**
+   * Returns the Flow type of the session to resume, which may be another execution environment's, before the
+   * session Flow exists: a Client without Flows describes it.
+   * @throws {UsageError} When the session does not exist, is closed, or belongs to another harness.
+   */
+  private async readResumedSessionFlowType(
+    connectionOptions: DexConnectionOptions,
+    connection: DexConnectionSettings,
+    resumeSessionId: string,
+  ): Promise<string> {
+    const describingClient = this.constructDexClient(new Registry([]), connectionOptions, connection);
     let info;
     try {
-      info = await client.describeFlow(resumeSessionId);
+      info = await describingClient.describeFlow(resumeSessionId);
     } catch (error: unknown) {
       if (error instanceof FlowNotFoundError) {
         throw new UsageError(`session ${resumeSessionId} does not exist; list sessions with dex-agents-${this.harness.name} sessions`);
       }
       throw error;
+    } finally {
+      await describingClient.close().catch(() => undefined);
     }
-    if (info.flowType !== flowType) {
-      throw new UsageError(
-        `session ${resumeSessionId} is a ${info.flowType} session, but this user, configuration file, and workspace run ${flowType} sessions; resume it as the user, with the configuration file and workspace, that started it`,
-      );
+    if (!isHarnessSessionFlowType(this.harness.flowType, info.flowType)) {
+      throw new UsageError(otherHarnessSessionError(resumeSessionId, info.flowType, `dex-agents-${this.harness.name}`));
     }
     if (info.status !== "running") {
       throw new UsageError(`session ${resumeSessionId} is ${info.status}, so it cannot continue`);
     }
-    return resumeSessionId;
+    return info.flowType;
   }
 
   private async connectConnectors(
