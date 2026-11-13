@@ -195,7 +195,7 @@ html[data-theme='dark'] {
   color: var(--docs-heading);
 }
 
-.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-actions a, .docs-home-sdks a) {
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-sdks a) {
   color: var(--docs-heading);
   text-decoration: underline;
   text-decoration-color: var(--section-accent-soft);
@@ -204,7 +204,7 @@ html[data-theme='dark'] {
   transition: color 120ms ease, text-decoration-color 120ms ease;
 }
 
-.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-actions a, .docs-home-sdks a):hover {
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-sdks a):hover {
   color: var(--section-accent);
   text-decoration-color: var(--section-accent);
 }
@@ -447,7 +447,7 @@ html[data-theme='dark'] {
 
 /* ---------- Docs home ---------- */
 
-.theme-doc-markdown:has(.docs-home-actions) h1 {
+.theme-doc-markdown:has(.docs-home-cards) h1 {
   background: linear-gradient(100deg, var(--docs-heading) 45%, var(--sd-accent) 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -511,41 +511,7 @@ html[data-theme='dark'] .docs-section-entry__icon--logo {
   border-color: var(--section-accent);
 }
 
-/* The home page's two calls to action and the SDK shortcuts under them. */
-.docs-home-actions p {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin: 1.5rem 0 0;
-}
-
-.markdown .docs-home-actions a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.6rem;
-  padding: 0 1.1rem;
-  border: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
-  border-radius: 999px;
-  color: var(--docs-heading);
-  font-weight: 600;
-  text-decoration: none !important;
-}
-
-.markdown .docs-home-actions a:first-child {
-  border-color: var(--sd-accent);
-  background: var(--sd-accent);
-  color: var(--sd-on-accent);
-}
-
-.markdown .docs-home-actions a:hover {
-  text-decoration: none;
-  border-color: var(--sd-accent);
-}
-
-.markdown .docs-home-actions a:first-child:hover {
-  background: var(--sd-accent-hover);
-}
-
+/* The home page's SDK shortcuts. */
 .docs-home-sdks p {
   display: flex;
   flex-wrap: wrap;
@@ -799,11 +765,11 @@ html[data-theme='dark'] .exec-node {
 /* ---------- Coding agent box: one shell block per agent that installs Dex Skills and starts it on the page ---------- */
 .coding-agent-box {
   display: grid;
-  gap: 0.5rem;
-  margin: 1rem 0 1.5rem;
-  padding: 0.6rem 0.75rem 0.75rem;
+  gap: 0.4rem;
+  margin: 0.75rem 0 1.25rem;
+  padding: 0.45rem 0.6rem 0.6rem;
   border: 1px solid color-mix(in srgb, var(--sd-accent) 35%, var(--docs-hairline));
-  border-radius: 12px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--sd-accent) 6%, var(--docs-tint));
 }
 
@@ -813,39 +779,66 @@ html[data-theme='dark'] .exec-node {
 
 .coding-agent-box__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.35rem 0.6rem;
+  font-size: 0.85rem;
 }
 
 .coding-agent-box__icon {
   display: grid;
   flex: none;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 1.3rem;
+  height: 1.3rem;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--sd-accent);
   color: var(--sd-on-accent);
 }
 
 .coding-agent-box__title {
-  min-width: 0;
   color: var(--docs-heading);
-  font-size: 0.95rem;
   font-weight: 700;
 }
 
-.coding-agent-box__label {
-  margin: 0;
-  color: var(--docs-subtle);
-  font-size: 0.88rem;
+.coding-agent-box__hosts {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.1rem;
+  border: 1px solid var(--docs-hairline);
+  border-radius: 999px;
 }
 
-.coding-agent-box .coding-agent-box__tabs {
-  margin-bottom: 0;
+.coding-agent-box__host {
+  padding: 0.05rem 0.55rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--docs-subtle);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.coding-agent-box__host[aria-pressed='true'] {
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+  font-weight: 600;
+}
+
+.markdown .coding-agent-box__link {
+  margin-left: auto;
+  font-size: 0.8rem;
 }
 
 .coding-agent-box .theme-code-block {
   margin-bottom: 0;
+}
+
+/* Keep the header on one row on phones; the box's aria-label still names it. */
+@media (max-width: 480px) {
+  .coding-agent-box__title {
+    display: none;
+  }
 }
 
