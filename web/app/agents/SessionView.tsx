@@ -329,9 +329,11 @@ function StreamItem({
         <div className="ses-bubble">
           <span
             className="ses-who"
-            title={item.stepExecutionId ? `${SESSION_COPY.writtenBy} ${item.stepExecutionId}` : undefined}
+            title={item.stepExecutionId
+              ? `${SESSION_COPY.writtenBy} ${item.stepExecutionId}`
+              : isUser && message.senderName ? SESSION_COPY.senderNameUnverified : undefined}
           >
-            {isUser ? SESSION_COPY.user : SESSION_COPY.assistant}
+            {isUser ? message.senderName ?? SESSION_COPY.user : SESSION_COPY.assistant}
           </span>
           <p className="ses-text">{message.text === null ? null : messageTextParts(message.text)}</p>
         </div>

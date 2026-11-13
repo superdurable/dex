@@ -122,6 +122,59 @@ describe('SessionComposer', () => {
     });
   });
 
+  it('sends the name the reader entered, remembers it, and sends none when it is blank', async () => {
+    window.localStorage.clear();
+    const first = renderComposer(sessionWith({}));
+    const nameInput = screen.getByRole('textbox', { name: SESSION_COPY.senderNameLabel });
+    fireEvent.change(nameInput, { target: { value: '  Alice ' } });
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.send }));
+    await waitFor(() => expect(first.onActed).toHaveBeenCalled());
+    expect(postedBody()).toMatchObject({ text: 'Look up order 7', senderName: 'Alice' });
+    expect(window.localStorage.getItem('dex.agents.senderName')).toBe('  Alice ');
+    cleanup();
+
+    const second = renderComposer(sessionWith({}));
+    expect((screen.getByRole('textbox', { name: SESSION_COPY.senderNameLabel }) as HTMLInputElement).value).toBe('  Alice ');
+    fireEvent.change(screen.getByRole('textbox', { name: SESSION_COPY.senderNameLabel }), { target: { value: ' ' } });
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.send }));
+    await waitFor(() => expect(second.onActed).toHaveBeenCalled());
+    expect(postedBody(1)).not.toHaveProperty('senderName');
+    expect(window.localStorage.getItem('dex.agents.senderName')).toBeNull();
+  });
+
+  it('keeps working when the browser refuses storage', async () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+    try {
+      const { onActed } = renderComposer(sessionWith({}));
+      fireEvent.change(screen.getByRole('textbox', { name: SESSION_COPY.senderNameLabel }), { target: { value: 'Bob' } });
+      fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.send }));
+      await waitFor(() => expect(onActed).toHaveBeenCalled());
+      expect(postedBody()).toMatchObject({ senderName: 'Bob' });
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
+
+  it('steers with the name only when the session graph declares it', async () => {
+    window.localStorage.setItem('dex.agents.senderName', 'Alice');
+    const running = sessionWith({ status: 'running_model', activeTurnId: 'turn-2' });
+    const steerWithName: FlowV2Action = {
+      ...operate('steer_user_message'),
+      input: { kind: 'object', fields: [{ fieldName: 'sender_name', valueType: 'string', source: 'user', required: false, description: 'Sender name' }] },
+    };
+    const named = renderComposer(running, { composerSchema: { ...schema, steerUserMessage: steerWithName } });
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.steer }));
+    await waitFor(() => expect(named.invoke).toHaveBeenCalledWith(steerWithName, { text: 'Look up order 7', sender_name: 'Alice' }));
+    cleanup();
+
+    const older = renderComposer(running);
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.steer }));
+    await waitFor(() => expect(older.invoke).toHaveBeenCalledWith(schema.steerUserMessage, { text: 'Look up order 7' }));
+    window.localStorage.clear();
+  });
+
   it('queues or steers while a turn runs', async () => {
     const { invoke, onActed } = renderComposer(sessionWith({ status: 'running_model', activeTurnId: 'turn-2' }));
     expect(screen.getByRole('button', { name: SESSION_COPY.queue })).toBeTruthy();

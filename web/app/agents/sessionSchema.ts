@@ -105,6 +105,8 @@ export interface AgentMessageRecord {
   toolArguments: string | null;
   toolOutput: string | null;
   createdAt: string | null;
+  /** The name the sender declared, not verified; null when none. */
+  senderName?: string | null;
 }
 
 export interface AgentToolCallRecord {
@@ -197,6 +199,7 @@ export function decodeAgentMessage(value: unknown): AgentMessageRecord | null {
     toolArguments: text(value.tool_arguments),
     toolOutput: text(value.tool_output),
     createdAt: text(value.created_at),
+    senderName: text(value.sender_name),
   };
 }
 

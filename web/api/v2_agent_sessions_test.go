@@ -124,6 +124,43 @@ func TestAgentSessionMessageInvokesSendUserMessage(t *testing.T) {
 	}
 }
 
+func TestAgentSessionMessageCarriesTheSenderName(t *testing.T) {
+	client := &v2TestClient{}
+	client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return &dexpb.InvokeRPCResponse{Output: &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: true}}}, nil
+	}
+	mux := newAgentSessionTestMux(client)
+	for _, testCase := range []struct {
+		senderName string
+		payload    string
+	}{
+		{`"  Alice  "`, `{"plan_mode":false,"sender_name":"Alice","text":"hi"}`},
+		{`"   "`, `{"plan_mode":false,"text":"hi"}`},
+		{`null`, `{"plan_mode":false,"text":"hi"}`},
+	} {
+		client.rpcRequests = nil
+		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
+			`{"flowType":"SupportAgent","flowId":"session-1","workQueuePermissions":["agent.operate"],"text":"hi",`+
+				`"senderName":`+testCase.senderName+`}`)
+		if response.Code != http.StatusOK || len(client.rpcRequests) != 1 {
+			t.Fatalf("%s: status = %d body=%q", testCase.senderName, response.Code, response.Body.String())
+		}
+		if payload := string(client.rpcRequests[0].GetInput().GetObjValue().GetPayload()); payload != testCase.payload {
+			t.Fatalf("%s: RPC input = %s", testCase.senderName, payload)
+		}
+	}
+	for _, refused := range []string{`"A\nB"`, `"A\u0007"`, `"` + strings.Repeat("x", 65) + `"`} {
+		client.rpcRequests = nil
+		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
+			`{"flowType":"SupportAgent","flowId":"session-1","workQueuePermissions":["agent.operate"],"text":"hi",`+
+				`"senderName":`+refused+`}`)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "senderName") ||
+			len(client.rpcRequests) != 0 {
+			t.Fatalf("%s: status = %d body=%q", refused, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestAgentSessionSettingsInvokesUpdateSessionSettings(t *testing.T) {
 	client := &v2TestClient{}
 	mux := newAgentSessionTestMux(client)

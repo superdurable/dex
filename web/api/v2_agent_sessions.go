@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -24,6 +26,7 @@ const (
 	agentSessionSendUserMessageRPC      = "send_user_message"
 	agentSessionUpdateSettingsRPC       = "update_session_settings"
 	maximumAgentSessionSettingsBytes    = 16 * 1024
+	maximumAgentSessionSenderNameLength = 64
 	agentSessionNotDeclaredErrorMessage = "flowType is not a Dex Agents session Flow type"
 )
 
@@ -42,6 +45,8 @@ type v2AgentSessionMessageRequest struct {
 	FlowID               string   `json:"flowId"`
 	WorkQueuePermissions []string `json:"workQueuePermissions"`
 	Text                 string   `json:"text"`
+	// SenderName is the display name the sender declared, or nil. It is not authenticated.
+	SenderName *string `json:"senderName"`
 }
 
 type v2AgentSessionSettingsRequest struct {
@@ -135,13 +140,44 @@ func (h *v2Handler) sendAgentSessionMessage(response http.ResponseWriter, reques
 		WriteError(response, http.StatusBadRequest, "text is required", nil)
 		return
 	}
-	input, err := json.Marshal(map[string]interface{}{"text": body.Text, "plan_mode": false})
+	rpcInput := map[string]interface{}{"text": body.Text, "plan_mode": false}
+	if body.SenderName != nil {
+		senderName := strings.TrimSpace(*body.SenderName)
+		if senderName != "" && !isValidAgentSessionSenderName(senderName) {
+			WriteError(response, http.StatusBadRequest, fmt.Sprintf(
+				"senderName must have at most %d characters and no control characters or line breaks",
+				maximumAgentSessionSenderNameLength), nil)
+			return
+		}
+		if senderName != "" {
+			rpcInput["sender_name"] = senderName
+		}
+	}
+	input, err := json.Marshal(rpcInput)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	h.invokeAgentSessionRPC(response, request, body.FlowType, body.FlowID, body.WorkQueuePermissions,
 		agentSessionSendUserMessageRPC, input)
+}
+
+// isValidAgentSessionSenderName applies the agents cores' sender name rule, so the route
+// explains a refusal instead of returning the RPC's bare false.
+func isValidAgentSessionSenderName(senderName string) bool {
+	if !utf8.ValidString(senderName) {
+		return false
+	}
+	runes := []rune(senderName)
+	if len(runes) < 1 || len(runes) > maximumAgentSessionSenderNameLength {
+		return false
+	}
+	for _, character := range runes {
+		if unicode.In(character, unicode.Cc, unicode.Zl, unicode.Zp) {
+			return false
+		}
+	}
+	return !unicode.Is(unicode.Zs, runes[0]) && !unicode.Is(unicode.Zs, runes[len(runes)-1])
 }
 
 func (h *v2Handler) updateAgentSessionSettings(response http.ResponseWriter, request *http.Request) {
