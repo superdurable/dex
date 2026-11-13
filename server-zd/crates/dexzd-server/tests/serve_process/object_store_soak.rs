@@ -401,11 +401,12 @@ async fn object_store_soak() {
     let keeps_objects = settings.keeps_objects;
     let outcome = tokio::spawn(run_soak(Arc::clone(&target), settings, run_id)).await;
     let cleanup_failure = if keeps_objects {
-        match target.remaining_keys().await {
-            Ok(keys) => {
+        match target.remaining_objects().await {
+            Ok(objects) => {
                 eprintln!(
-                    "soak: {KEEP_OBJECTS_VARIABLE}=1, so {} objects stay under the prefix",
-                    keys.len()
+                    "soak: {KEEP_OBJECTS_VARIABLE}=1, so {} objects stay under the prefix, {} of them empty residues",
+                    objects.len(),
+                    objects.iter().filter(|object| object.size == 0).count()
                 );
                 None
             }
@@ -413,14 +414,18 @@ async fn object_store_soak() {
         }
     } else {
         match target.delete_everything().await {
-            Ok(remaining) if remaining.is_empty() => {
-                eprintln!("soak: no object remains under the prefix after cleanup");
+            Ok(report) if report.remaining.is_empty() => {
+                eprintln!(
+                    "soak: no object remains under the prefix after cleanup; {} empty residues deleted",
+                    report.empty_residues
+                );
                 None
             }
-            Ok(remaining) => Some(format!(
-                "{} objects remain under the prefix: {:?}",
-                remaining.len(),
-                &remaining[..remaining.len().min(20)]
+            Ok(report) => Some(format!(
+                "{} objects remain under the prefix after {} empty residues were deleted: {:?}",
+                report.remaining.len(),
+                report.empty_residues,
+                &report.remaining[..report.remaining.len().min(20)]
             )),
             Err(failure) => Some(failure),
         }
@@ -452,6 +457,7 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
     )
     .await;
     let inspection = target.physical_store().await;
+    let append_fault_sampler = target.start_append_fault_sampler();
     let started_at = Instant::now();
     cluster.spawn(FIRST);
     cluster.wait_for_serving(None, STARTUP_BUDGET).await;
@@ -607,6 +613,10 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
     );
     let registrations = worker.stop().await;
     let cluster_report = cluster.finish().await;
+    let append_faults = match append_fault_sampler {
+        Some(sampler) => Some(sampler.finish().await),
+        None => None,
+    };
     tokio::time::sleep(LISTING_SETTLE).await;
     let objects = list_all(&inspection, "")
         .await
@@ -680,6 +690,9 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
             .collect::<String>()
     );
     eprintln!("  metrics: {}", cluster_report.tally);
+    if let Some(append_faults) = &append_faults {
+        eprintln!("  s3local: {append_faults}");
+    }
     eprintln!("  objects by area at the end:");
     for (area, (count, bytes)) in count_by_area(&objects) {
         eprintln!("    {area}: {count} objects, {bytes} bytes");
