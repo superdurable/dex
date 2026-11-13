@@ -1170,7 +1170,7 @@ async fn every_layer_of_an_aliyun_oss_stack_reports_no_atomic_replacement() {
     assert!(!inner.supports_replace_if_etag_matches_on_every_key());
     let adapter = Arc::new(dexzd_object_store::AliyunOssObjectStore::new(
         inner,
-        dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+        std::time::Duration::from_secs(60),
         dexzd_metrics::NodeMetrics::unregistered(),
     ));
     let instrumented = dexzd_object_store::InstrumentedObjectStore::new(

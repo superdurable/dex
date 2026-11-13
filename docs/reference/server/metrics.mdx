@@ -103,8 +103,9 @@ at 0. Its **site** label is one of:
   the key's next write tries again.
 
 Alert on any increase. In every test so far, an OSS listing showed each write
-at once, so an increase means a listing lagged behind a write. Replacements
-stay correct while that lag is shorter than 10 minutes. See
+at once, so an increase means a listing lagged behind a write. Once every node
+runs 0.1.29 or later, replacements stay correct while that lag is shorter than
+10 minutes. See
 [Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
 
 ### Snapshots, recovery, and local disk {#catalog-recovery}

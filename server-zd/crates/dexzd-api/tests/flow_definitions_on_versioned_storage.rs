@@ -57,7 +57,7 @@ fn physical_store(injector: Option<Arc<dyn FaultInjector>>) -> Arc<InMemoryObjec
 fn flow_definitions(physical: &Arc<InMemoryObjectStore>) -> FlowDefinitions {
     let adapter: Arc<dyn ObjectStore> = Arc::new(AliyunOssObjectStore::new(
         Arc::clone(physical) as Arc<dyn ObjectStore>,
-        dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+        std::time::Duration::from_secs(60),
         dexzd_metrics::NodeMetrics::unregistered(),
     ));
     FlowDefinitions::new(

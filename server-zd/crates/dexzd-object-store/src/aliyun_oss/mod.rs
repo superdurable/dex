@@ -152,7 +152,8 @@ impl AliyunOssObjectStore {
     ///
     /// # Panics
     ///
-    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second.
+    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second or
+    /// does not fit in i64 microseconds.
     pub fn new(
         inner: Arc<dyn ObjectStore>,
         minimum_superseded_age_before_reclamation: Duration,
@@ -174,7 +175,8 @@ impl AliyunOssObjectStore {
     ///
     /// # Panics
     ///
-    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second.
+    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second or
+    /// does not fit in i64 microseconds.
     #[cfg(feature = "test-util")]
     pub fn with_seeded_version_ids_for_test(
         inner: Arc<dyn ObjectStore>,
@@ -203,6 +205,10 @@ impl AliyunOssObjectStore {
             minimum_superseded_age_before_reclamation >= Duration::from_secs(1),
             "the minimum superseded age must be at least one second, the store timestamp \
              granularity"
+        );
+        assert!(
+            i64::try_from(minimum_superseded_age_before_reclamation.as_micros()).is_ok(),
+            "the minimum superseded age must fit in i64 microseconds, the unit of store timestamps"
         );
         let listing_stale = metrics.object_store_versioned_listing_stale;
         Self {

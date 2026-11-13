@@ -290,8 +290,10 @@ bytes. So **UploadFlowDefinitions** accepts Flow types whose object keys are 24
 bytes shorter than on S3.
 
 The server deletes a replaced version once it has been replaced for at least 10
-minutes, at the next write of its key. That margin keeps replacements correct
-even if an OSS listing lags behind a write by up to 10 minutes. A node renews
+minutes, at the next write of its key. Once every node runs 0.1.29 or later,
+that margin keeps replacements correct while an OSS listing lags behind a write
+by less than 10 minutes. Nodes of an older release, during a rolling upgrade or
+after a rollback, still delete versions after 60 seconds. A node renews
 its lease every third of **lease.duration**, so with the default of 10 seconds
 each node keeps about 180 lease versions. The versions of a key's last 10
 minutes stay until its next write. **dexzd_object_store_versioned_listing_stale_total**

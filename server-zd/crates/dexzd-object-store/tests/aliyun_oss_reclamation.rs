@@ -107,6 +107,14 @@ async fn an_age_below_one_second_is_rejected() {
     );
 }
 
+#[tokio::test]
+#[should_panic(expected = "the minimum superseded age must fit in i64 microseconds")]
+async fn an_age_beyond_i64_microseconds_is_rejected() {
+    let physical = CreateOnlyStore::new();
+    let _store =
+        AliyunOssObjectStore::new(physical.inner(), Duration::MAX, NodeMetrics::unregistered());
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_listing_that_misses_the_created_version_is_counted_and_leaves_the_outcome_unknown() {
     let physical = CreateOnlyStore::new();

@@ -233,9 +233,15 @@ async fn record_missing_confirmed_version(
             return;
         }
     };
-    if newest_generation
-        .is_some_and(|newest| newest >= request.confirmed_generation.saturating_add(2))
-    {
+    // Without a generation two above the confirmed one, no newer writer can exist.
+    let may_be_reclaimed_by_newer_writer =
+        request
+            .confirmed_generation
+            .checked_add(2)
+            .is_some_and(|reclaiming_generation| {
+                newest_generation.is_some_and(|newest| newest >= reclaiming_generation)
+            });
+    if may_be_reclaimed_by_newer_writer {
         tracing::debug!(
             key = %request.logical_key,
             generation = request.confirmed_generation,
