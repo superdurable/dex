@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tool, type HookCallbackMatcher, type PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { LocalDirectoryMediaStore } from "@superdurable/dex-agents";
+import { LocalDirectoryMediaStore, ToolExecutionError } from "@superdurable/dex-agents";
 import type {
   AgentSessionFlow,
   AgentToolCall,
@@ -23,6 +23,7 @@ import type {
   ToolCallStepOptions,
   ToolExecutionResult,
   ToolPolicy,
+  ToolTaskCancellation,
   ToolTaskPoll,
   ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
@@ -34,6 +35,7 @@ import { z } from "zod";
 import {
   ClaudeCodeToolDenial,
   createClaudeAgentSessionFlow,
+  type ClaudeAgentRunner,
   currentDeferredToolExecution,
   type ClaudeAgentOptionsContext,
   type ClaudeAgentQueryOptions,
@@ -147,6 +149,8 @@ const testToolPolicies: Readonly<Record<string, ToolPolicy>> = {
   policy_note: { effect: "read", requiresApproval: true },
   screenshot: { effect: "read", requiresApproval: true },
   draw: { effect: "non_idempotent_write", requiresApproval: false },
+  report: { effect: "read", requiresApproval: false },
+  choose_account: { effect: "read", requiresApproval: false },
 };
 
 /**
@@ -175,7 +179,7 @@ export function createClaudeTestAgentFlow(
   cli?: ClaudeTestAgentCli,
   sessionOptions: ClaudeAgentSessionOptions = {},
   hasMediaStore = false,
-): AgentSessionFlow {
+): AgentSessionFlow<ClaudeAgentRunner> {
   mkdirSync(join(stateDirectory, "workspace"), { recursive: true });
   mkdirSync(join(stateDirectory, "claude-config"), { recursive: true });
   const environment =
@@ -213,7 +217,7 @@ export function createClaudeTestAgentFlow(
   const toolSources: ToolSource[] = [
     createLedgerToolSource(stateDirectory),
     new HidingToolSource(stateDirectory),
-    new UnsupportedOutcomeToolSource(),
+    new ReportToolSource(stateDirectory),
   ];
   if (mediaStore !== undefined) {
     customTools.push(createDrawTool(stateDirectory));
@@ -369,37 +373,91 @@ export class HidingToolSource implements ToolSource {
   }
 }
 
+const reportSourceReference = JSON.stringify({ kind: "report" });
+
 /**
- * A source whose calls return outcomes this adapter cannot carry: `ask_question` asks the user, and
- * `start_read_task` and `start_write_task` start a tool task.
+ * Lists `report`, whose call starts a tool task that `pollToolTask` polls, and `choose_account`, whose call asks
+ * the user which account to use. Both are reads without approval.
+ *
+ * A `report` call returns `ToolTaskStarted` with task ID `task-<tool call ID>`. Its arguments: `topic` names the
+ * result `report on <topic>`; `polls` is the poll that finishes the task, counted from 1; `fail` makes that poll
+ * throw `ToolExecutionError`; `hold` keeps the task pending. A `choose_account` call returns `account <answer>`
+ * once the user answered. The invocation log records `start <task>`, `poll <task> <n>`,
+ * `cancel-task <task> <status> <cancellationReason>`, and `choose-account <answer count>`.
  */
-export class UnsupportedOutcomeToolSource implements ToolSource {
-  public readonly sourceName = "unsupported-outcomes";
-  private readonly definitions: readonly SourceToolDefinition[] = ["ask_question", "start_read_task", "start_write_task"].map(
-    (name) => ({ name, description: `Test tool ${name}`, inputSchema: { type: "object", properties: {} } }),
-  );
+export class ReportToolSource implements ToolSource {
+  public readonly sourceName = "reports";
+  private readonly invocations: InvocationLog;
+
+  public constructor(stateDirectory: string) {
+    this.invocations = new InvocationLog(join(stateDirectory, fakeClaudeInvocationLogName));
+  }
 
   public async listTools(): Promise<readonly SourceToolDefinition[]> {
-    return this.definitions;
+    return [
+      { name: "report", description: "Write a report as a task", inputSchema: { type: "object", properties: {} } },
+      { name: "choose_account", description: "Ask which account to use", inputSchema: { type: "object", properties: {} } },
+    ];
   }
 
   public deferredToolCall(
-    _turn: AgentTurnContext,
+    turn: AgentTurnContext,
     call: { readonly toolCallId: string; readonly toolName: string; readonly arguments: string },
   ): DeferredToolCall {
-    const effect = call.toolName === "start_write_task" ? "non_idempotent_write" : "read";
-    return { ...call, policy: { effect, requiresApproval: false } };
+    return {
+      ...call,
+      policy: turn.resolveToolPolicy(call.toolName, "read"),
+      toolSourceReference: reportSourceReference,
+    };
   }
 
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
-    if (call.toolCall.toolName === "ask_question") {
-      return { kind: "tool_input_requested", question: "Which account?", continuation: null };
+    const record = call.toolCall;
+    if (record.toolSourceReference !== reportSourceReference) {
+      throw new Error(`${record.toolName} got another source's reference`);
     }
-    return { kind: "tool_task_started", taskId: `task-${call.toolCall.toolName}`, pollIntervalSeconds: 1 };
+    if (record.toolName === "choose_account") {
+      const answers = call.inputAnswers ?? [];
+      this.invocations.record(`choose-account ${answers.length}`);
+      const answer = answers.at(-1)?.answer;
+      return answer === undefined
+        ? { kind: "tool_input_requested", question: "Which account?", continuation: null }
+        : { output: `account ${answer}` };
+    }
+    if (call.supportsToolTasks !== true) {
+      throw new Error("the runner does not poll tool tasks");
+    }
+    const taskId = `task-${record.toolCallId}`;
+    this.invocations.record(`start ${taskId}`);
+    return { kind: "tool_task_started", taskId, pollIntervalSeconds: 1 };
   }
 
-  public async pollToolTask(): Promise<ToolTaskPollOutcome> {
-    throw new Error("the Claude agent adapter never polls a tool task");
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    const record = poll.toolCall;
+    if (record.toolSourceReference !== reportSourceReference) {
+      throw new Error("report got another source's reference");
+    }
+    const taskId = record.taskId ?? "";
+    const pollNumber = this.invocations.names().filter((name) => name.startsWith(`poll ${taskId} `)).length + 1;
+    this.invocations.record(`poll ${taskId} ${pollNumber}`);
+    const toolArguments = JSON.parse(record.arguments) as {
+      readonly topic?: string;
+      readonly polls?: number;
+      readonly fail?: boolean;
+      readonly hold?: boolean;
+    };
+    if (toolArguments.hold === true || pollNumber < (toolArguments.polls ?? 1)) {
+      return { kind: "tool_task_pending", pollIntervalSeconds: 1 };
+    }
+    if (toolArguments.fail === true) {
+      throw new ToolExecutionError(`the report on ${toolArguments.topic} failed`);
+    }
+    return { output: `report on ${toolArguments.topic}` };
+  }
+
+  public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    const record = cancellation.toolCall;
+    this.invocations.record(`cancel-task ${record.taskId} ${record.status} ${record.cancellationReason ?? "none"}`);
   }
 }
 

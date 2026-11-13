@@ -15,10 +15,8 @@ segment, turn, or attempt resumes the Claude session from them on any Worker. Cu
 run in their own Dex Steps; tools that run inside the CLI wait for approval but cannot be recorded.
 See the Claude Agent SDK row of the
 [agent framework adapters plan](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md). Its stored
-formats and its behavior match the Python adapter (`agents/python/claude-agent-sdk`), with two
-exceptions: a tool source call that asks the user a question records `failed`, and an approved tool
-that runs inside the CLI resumes with its recorded input. See "Tool sources and connector tools" and
-"Limits".
+formats and its behavior match the Python adapter (`agents/python/claude-agent-sdk`), with one
+exception: an approved tool that runs inside the CLI resumes with its recorded input. See "Limits".
 
 ## Installation
 
@@ -140,8 +138,8 @@ The session's RPCs, persistence, events, and Flow shape are the core's; see the
 
 | Export | Purpose |
 | --- | --- |
-| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs?, claudeCodeToolPermission?, mediaStore? }` and the core's session options without `toolPolicies` |
-| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs, claudeCodeToolPermission, mediaStore })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
+| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow, an `AgentSessionFlow<ClaudeAgentRunner>`, from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs?, claudeCodeToolPermission?, mediaStore? }` and the core's session options without `toolPolicies` |
+| `ClaudeAgentRunner` | The `AgentFrameworkRunner<DeferredToolOutcome>`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs, claudeCodeToolPermission, mediaStore })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options, and its `pollToolTask` and `cancelToolTask` reach the source's tool tasks |
 | `ClaudeCodeToolPermission`, `ClaudeCodeToolDenial` | A per-call decision for tools that run inside the CLI; see "Per-call decisions for Claude Code tools" |
 | `ClaudeAgentQueryOptions` | The SDK `Options` an application may set |
 | `ClaudeAgentOptionsFactory`, `ClaudeAgentOptionsContext` | Options per segment from `{ flowId, turnId, attempt }` |
@@ -285,10 +283,15 @@ const flow = createClaudeAgentSessionFlow(
   `declaredToolNames` repeat a custom tool, a Claude Code tool, or another source's tool. The same
   names listed at run time fail that `RunModel` attempt. An `allowedTools` entry for a source tool
   fails the attempt, because the call must defer.
-- The runner polls no tool tasks and asks no questions for a source. A source call that starts a task
-  records `failed` for a `read` call and `outcome_unknown` otherwise; one that asks a question records
-  `failed`. A source whose listing fails or takes longer than `toolSourceListingTimeoutMs`, 10 seconds
-  by default, offers no tools in that attempt.
+- A source call can start a tool task by returning `ToolTaskStarted`. The session polls it on a Timer
+  through the source's `pollToolTask` while no CLI runs, and the resumed CLI receives the task's
+  result. `McpToolSource` hands its Streamable HTTP tasks to the session this way. `cancel_turn`
+  records a running task's call `outcome_unknown` and cancels the task through the source's
+  `cancelToolTask`; a source without that method leaves the task running.
+- A source call can ask the user a question by returning `ToolInputRequested`. The session waits for
+  the answer, the source runs the call again with it, and the resumed CLI receives the result.
+- A source whose listing fails or takes longer than `toolSourceListingTimeoutMs`, 10 seconds by
+  default, offers no tools in that attempt.
 - A source tool that the turn already called but the current listing lacks is still served,
   replay-only, so the resumed CLI receives its recorded result. A new call of that tool is denied in
   the turn ("its tool source does not offer this tool now"), so it never starts a tool Step under a
@@ -603,9 +606,11 @@ without a SIGKILL, `uncertain` writes recorded `outcome_unknown`, a rejected bra
 that never reach the provider, two writes of one reply in the model's order, an application hook
 that denies on resume, an `allowedTools` entry for a source tool, an unexposed operation, refused
 name collisions, the operation's tool Step options, and a dynamic source whose listing empties or
-fails on resume: the recorded call still replays, and a new call of the vanished tool is denied. It
-also checks that a source call asking a question records `failed`, and one starting a tool task records
-`failed` for a read and `outcome_unknown` for a write. `test/integ/tool-call-gate.integration.test.ts`
+fails on resume: the recorded call still replays, and a new call of the vanished tool is denied.
+`test/integ/tool-tasks.integration.test.ts` polls a source's tool task until its result reaches the
+resumed CLI, records a task whose poll fails `failed`, cancels a task through the source on
+`cancel_turn` before a later turn answers, and answers a source's question before the resumed CLI
+receives the call's result. `test/integ/tool-call-gate.integration.test.ts`
 calls the custom tool server over an in-memory MCP transport with a tool name that differs from the
 permitted one, hands the gate deferrals that its PreToolUse hook never deferred or deferred under
 another ID or tool, and replays records under another tool, such as a custom or source record as

@@ -21,7 +21,6 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ToolExecutionError,
-  ToolOutcomeUnknownError,
   collectTurnImages,
   loadImages,
   type AgentFrameworkRunner,
@@ -36,7 +35,9 @@ import {
   type MediaStore,
   type ModelCallMetadata,
   type ToolCallStepOptions,
-  type ToolExecutionResult,
+  type ToolTaskCancellation,
+  type ToolTaskPoll,
+  type ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
 import type * as OpenTelemetryApi from "@opentelemetry/api";
 import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurable/dex-agents/builtin-loop";
@@ -51,7 +52,12 @@ import {
   type ClaudeCustomTool,
 } from "./claude-tool-call-gate.js";
 import { createClaudeToolServer } from "./claude-tool-server.js";
-import { ToolSourceRouter, withSourceReference } from "./claude-tool-sources.js";
+import {
+  ToolSourceRouter,
+  withSourceReference,
+  type RoutedSourceCall,
+  type SourceRoutedToolCall,
+} from "./claude-tool-sources.js";
 import {
   answeredToolUseIds,
   decodeRunState,
@@ -182,9 +188,18 @@ export interface ClaudeAgentRunnerOptions {
    * checkpoint. The source builds each call from the CLI's final input, after your hooks' `updatedInput`, so the
    * source decides the effect and the approval; a session `toolPolicies` entry for a connector tool changes only
    * its approval. The tool Step runs the call through the source's `executeDeferredToolCall`, with the timeout and
-   * retry policy of its `toolCallStepOptions`, and the resumed CLI receives the recorded result. The runner polls
-   * no tool tasks, so a call that starts one records `failed` for a `read` tool and `outcome_unknown` otherwise.
-   * A source call that asks the user a question records `failed`.
+   * retry policy of its `toolCallStepOptions`, and the resumed CLI receives the recorded result.
+   *
+   * A source call can start a tool task: its `executeDeferredToolCall` returns `ToolTaskStarted`, and the session
+   * polls the task on a Timer through the source's `pollToolTask` until the source returns its result, which the
+   * resumed CLI receives. `McpToolSource` hands its Streamable HTTP tasks to the session this way. `cancel_turn`
+   * records a running task's call `outcome_unknown` and cancels the task through the source's `cancelToolTask`; a
+   * source without that method leaves the task running. A source call that asks the user a question waits for the
+   * answer, and the source runs the call again with it.
+   *
+   * Changed in 0.6.6: the runner polls and cancels the sources' tool tasks, and a source call may ask the user a
+   * question. Before, a call that started a task recorded `failed` for a `read` tool and `outcome_unknown`
+   * otherwise, and a call that asked a question recorded `failed`.
    *
    * Each source needs a unique, stable `sourceName`: the runner stores it with every call, so the tool Step finds
    * the source on any Worker. Defaults to none.
@@ -327,6 +342,11 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  * before it calls again. A recorded call whose tool the source no longer lists still replays; a new call of that
  * tool is denied. See {@link ClaudeAgentRunnerOptions.toolSources}.
  *
+ * A source call can start a tool task. The session polls it through {@link pollToolTask} while no CLI runs, and the
+ * resumed CLI receives the task's result. `cancel_turn` abandons a running task and cancels it through
+ * {@link cancelToolTask}. Changed in 0.6.6: the runner polls and cancels the tool tasks of its sources, and
+ * {@link executeDeferredToolCall} returns the source's whole `DeferredToolOutcome`.
+ *
  * Your PreToolUse hooks do not run for a resumed call that already has a final record: the call passed them when
  * it was deferred, and a later `deny` would hide its recorded result. A resumed tool that runs inside the CLI,
  * such as `Bash`, receives its recorded input, the input that was approved, so a hook's rewrite still applies.
@@ -356,7 +376,7 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  * const flow = createAgentSessionFlow(runner, "SupportAgent");
  * ```
  */
-export class ClaudeAgentRunner implements AgentFrameworkRunner {
+export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
   /**
    * Stores user text and its images as the prompt of the next turn. Present only when the runner has a
    * {@link ClaudeAgentRunnerOptions.mediaStore}; without it the session refuses images.
@@ -546,30 +566,45 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    * argument carries only `signal`, `requestId`, and `_meta`. A tool that runs inside the CLI is only
    * marked approved here; the resumed turn runs it.
    *
+   * A source's outcome reaches the session unchanged. A `ToolTaskStarted` makes the session poll the task through
+   * {@link pollToolTask}, and a `ToolInputRequested` makes it wait for the user's answer and run the call again.
+   *
+   * Changed in 0.6.6: it returns `Promise<DeferredToolOutcome>` instead of `Promise<ToolExecutionResult>`, and a
+   * source's `ToolTaskStarted` or `ToolInputRequested` reaches the session. A subclass that overrides this method
+   * declares the same return type.
+   *
+   * @example
+   * ```ts
+   * class AuditedClaudeAgentRunner extends ClaudeAgentRunner {
+   *   public override async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+   *     audit.record(call.toolCall.toolName);
+   *     return super.executeDeferredToolCall(call);
+   *   }
+   * }
+   * ```
    * @param call - The approved record and its idempotency key.
-   * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} with
-   * `isFinishedByResumedTurn` for a tool that runs inside the CLI, whose `tool_call_finished` the resumed turn writes
-   * from the CLI's result. Non-text content of a custom tool is replaced by a short placeholder. With a media store, its
-   * MCP `image` content is uploaded and returned as `images` instead.
+   * @returns The source's outcome: a `ToolExecutionResult`, a `ToolTaskStarted`, or a `ToolInputRequested`; the
+   * custom tool's text output; or {@link approvedCliToolOutput} with `isFinishedByResumedTurn` for a tool that runs
+   * inside the CLI, whose `tool_call_finished` the resumed turn writes from the CLI's result. Non-text content of a
+   * custom tool is replaced by a short placeholder. With a media store, its MCP `image` content is uploaded and
+   * returned as `images` instead.
    * @throws {ToolExecutionError} When the arguments do not match the input schema, the custom tool
-   * returned `isError`, or the source threw it. The model sees the text. The runner also throws it when a source
-   * asks the user a question, which this adapter does not support, or starts a tool task for a `read` call.
-   * @throws {ToolOutcomeUnknownError} When the source cannot tell whether the call took effect, or a source starts
-   * a tool task for a write, which this runner cannot poll. The session records `outcome_unknown`.
+   * returned `isError`, or the source threw it. The model sees the text.
+   * @throws {ToolOutcomeUnknownError} When the source cannot tell whether the call took effect. The session records
+   * `outcome_unknown`.
    * @throws {RangeError} When a source built the call but no source of that name is configured on this Worker, so
    * the effect decides the outcome.
    * @throws Any error the handler or the source throws, which fails the Step attempt.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const record = call.toolCall;
     // Before the custom tool lookup: a source call must never record the CLI placeholder.
     const routed = this.toolSourceRouter.route(record);
     if (routed !== undefined) {
-      const outcome = await routed.source.executeDeferredToolCall({
+      return routed.source.executeDeferredToolCall({
         ...call,
         toolCall: withSourceReference(record, routed.reference),
       });
-      return requireToolExecutionResult(record, outcome);
     }
     const customTool = this.toolCatalog.customTool(record.toolName);
     if (customTool === undefined) {
@@ -602,6 +637,66 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
   }
 
   /**
+   * Polls a tool source's task once, through the source that built the call.
+   *
+   * A source call whose `executeDeferredToolCall` returns `ToolTaskStarted` records `waiting_for_task`. The
+   * session's `PollToolTask` Step then calls this method after each poll interval, on any Worker, while no CLI
+   * runs. The source that built the call gets it with its own reference. Once the source returns a result,
+   * `ResumeTurn` starts a `RunModel` whose CLI receives that result as the call's `tool_result`. Applications call
+   * this method only in tests.
+   *
+   * @example
+   * ```ts
+   * const runner = new ClaudeAgentRunner(buildOptions, { toolSources: [reportSource] });
+   * const outcome = await runner.pollToolTask(poll);
+   * if ("output" in outcome) {
+   *   console.log(outcome.output);
+   * }
+   * ```
+   * @param poll - The call's record and its idempotency key from `PollToolTask`.
+   * @returns The source's `pollToolTask` outcome: a `ToolExecutionResult` when the task finished, a
+   * `ToolTaskPending` while it runs, or a `ToolInputRequested` when it needs the user's answer.
+   * @throws {RangeError} When no tool source built the call, or the source that built it is not configured on this
+   * Worker. The task may still run, so `PollToolTask` retries and then records the call by its effect.
+   * @throws {ToolExecutionError} When the source reports that the task failed. The session records `failed`.
+   * @throws {ToolOutcomeUnknownError} When the source cannot tell whether the task took effect. The session records
+   * `outcome_unknown`.
+   * @throws Any other error the source throws, which fails the poll attempt.
+   * @since 0.6.6
+   */
+  public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    const routed = this.requireToolSource(poll.toolCall);
+    return routed.source.pollToolTask({ ...poll, toolCall: withSourceReference(poll.toolCall, routed.reference) });
+  }
+
+  /**
+   * Cancels a tool source's task that `cancel_turn` abandoned, through the source that built the call.
+   *
+   * The session records the call `outcome_unknown` with `cancellationReason` `turn_cancelled`, and then its
+   * `CancelToolTask` Step calls this method best-effort. The source gets the call with its own reference. A source
+   * without `cancelToolTask` leaves its task running. Applications call this method only in tests.
+   *
+   * @example
+   * ```ts
+   * const runner = new ClaudeAgentRunner(buildOptions, { toolSources: [reportSource] });
+   * await runner.cancelToolTask(cancellation);
+   * ```
+   * @param cancellation - The abandoned call's record from `CancelToolTask`.
+   * @returns A Promise that resolves once the source took the cancellation.
+   * @throws {RangeError} When no tool source built the call, or the source that built it is not configured on this
+   * Worker. `CancelToolTask` retries and then records the call `outcome_unknown`.
+   * @throws Any error the source throws.
+   * @since 0.6.6
+   */
+  public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
+    const routed = this.requireToolSource(cancellation.toolCall);
+    await routed.source.cancelToolTask?.({
+      ...cancellation,
+      toolCall: withSourceReference(cancellation.toolCall, routed.reference),
+    });
+  }
+
+  /**
    * Returns a tool source's timeout and retry policy for one call's tool Step.
    *
    * A source that defines `toolCallStepOptions` gives its calls their own options, as `ConnectorToolSource` does
@@ -627,6 +722,14 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       return undefined;
     }
     return routed.source.toolCallStepOptions?.(withSourceReference(toolCall, routed.reference));
+  }
+
+  private requireToolSource(toolCall: SourceRoutedToolCall): RoutedSourceCall {
+    const routed = this.toolSourceRouter.route(toolCall);
+    if (routed === undefined) {
+      throw new RangeError(`no tool source built the call of tool ${toolCall.toolName}`);
+    }
+    return routed;
   }
 
   private async loadRecordedToolImages(turn: AgentTurnContext): Promise<ReadonlyMap<string, Uint8Array>> {
@@ -999,21 +1102,6 @@ function parseCustomToolArguments(
     throw new ToolExecutionError(`invalid arguments for ${customTool.name}: ${parsed.error.message}`);
   }
   return parsed.data as Record<string, unknown>;
-}
-
-// The runner has no pollToolTask, so a task is recorded as the session records one without a poller.
-function requireToolExecutionResult(record: AgentToolCall, outcome: DeferredToolOutcome): ToolExecutionResult {
-  if (!("kind" in outcome)) {
-    return outcome;
-  }
-  if (outcome.kind === "tool_input_requested") {
-    throw new ToolExecutionError(`${record.toolName} asked a question, which a Claude agent tool source cannot ask`);
-  }
-  const message = `${record.toolName} started tool task ${outcome.taskId}, which the Claude agent adapter cannot poll`;
-  if (record.effect === "read") {
-    throw new ToolExecutionError(message);
-  }
-  throw new ToolOutcomeUnknownError(message);
 }
 
 function isMcpImageContent(block: unknown): block is { readonly type: "image"; readonly data: string } {

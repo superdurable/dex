@@ -19,8 +19,10 @@ import { DexServiceError, type Client } from "@superdurable/dex";
 import {
   readAgentSnapshot,
   sendAgentUserMessage,
+  type AgentFrameworkRunner,
   type AgentSessionFlow,
   type AgentSnapshot,
+  type DeferredToolOutcome,
 } from "@superdurable/dex-agents";
 
 // gRPC codes UNAVAILABLE and DEADLINE_EXCEEDED: the send may or may not have arrived.
@@ -32,7 +34,10 @@ export interface MessageSessions {
   deleteQueuedMessage(sessionId: string, messageId: string): Promise<boolean>;
 }
 
-export function messageSessions(client: Client, flow: AgentSessionFlow): MessageSessions {
+export function messageSessions(
+  client: Client,
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
+): MessageSessions {
   return {
     getAgentSnapshot: (sessionId) => readAgentSnapshot(client, flow, sessionId),
     sendUserMessage: (sessionId, text) => sendAgentUserMessage(client, flow, sessionId, { text }),

@@ -17,7 +17,6 @@
 // The Agent Quick Start agent on the Claude Agent SDK, before and after Dex.
 
 import { createSdkMcpServer, tool, type Options } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createClaudeAgentSessionFlow } from "@superdurable/dex-agents-claude-agent-sdk";
 import { z } from "zod";
 
@@ -56,7 +55,7 @@ export function buildDurableAgent(
   orderDesk: OrderDesk,
   model: string,
   cliEnvironment: Readonly<Record<string, string>>,
-): AgentSessionFlow {
+) {
   return createClaudeAgentSessionFlow(
     {
       options: { model, systemPrompt: orderSupportInstructions, tools: [], settingSources: [], env: { ...cliEnvironment } },

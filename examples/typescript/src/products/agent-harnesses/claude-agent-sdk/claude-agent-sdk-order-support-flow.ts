@@ -16,7 +16,6 @@
 
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Connection } from "@superdurable/connector-slack";
-import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createClaudeAgentSessionFlow } from "@superdurable/dex-agents-claude-agent-sdk";
 import { z } from "zod";
 
@@ -73,7 +72,7 @@ export function createClaudeAgentSdkOrderSupportFlow(
   model: string,
   cliEnvironment: Readonly<Record<string, string>>,
   slack: Connection | undefined,
-): AgentSessionFlow {
+) {
   const lookUpOrder = tool(
     "look_up_order",
     "Look up one order by its order ID and return its items and status.",
