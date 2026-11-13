@@ -7,7 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
-import { History } from 'lucide-react';
+import { CornerDownRight, History } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import type { FlowExecution } from '@/lib/types';
+import { runPath } from '../../routes';
 import { formatTimelineOffset } from '@/lib/timeline';
 import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import type { FlowHistoryEvent } from '@/lib/types';
@@ -21,6 +24,13 @@ export function eventListTone(event: FlowHistoryEvent): 'failed' | 'waiting' | '
   if (event.type.startsWith('StepWaitFor')) return 'waiting';
   if (event.type === 'FlowClosed') return 'closed';
   return 'normal';
+}
+
+function stepTypeOf(event: FlowHistoryEvent): string {
+  const context = event.payload.context;
+  if (!context || typeof context !== 'object') return '';
+  const stepType = (context as Record<string, unknown>).stepType;
+  return typeof stepType === 'string' ? stepType : '';
 }
 
 function executionIdOf(event: FlowHistoryEvent): string {
@@ -37,7 +47,13 @@ export function EventList({
   onSelectEvent,
   onTimeTravelFromEvent,
   runStartTime,
+  childFlows = [],
+  flowId = '',
 }: {
+  /** The run's Flow ID, which names its SubFlows as SubFlow:<Flow ID>-<Step type>-…. */
+  flowId?: string;
+  /** The run's child Flows; the row that names one links to it. */
+  childFlows?: readonly FlowExecution[];
   events: readonly FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent) => void;
@@ -45,15 +61,36 @@ export function EventList({
   runStartTime?: string | null;
 }) {
   const rows = useMemo(() => [...events].sort((left, right) => right.eventId - left.eventId), [events]);
+  const childByEventId = useMemo(() => {
+    const children = new Map<number, FlowExecution>();
+    if (childFlows.length === 0) return children;
+    const markedChildren = new Set<string>();
+    for (const event of [...events].sort((left, right) => left.eventId - right.eventId)) {
+      const payload = JSON.stringify(event.payload);
+      const stepType = stepTypeOf(event);
+      // A SubFlow's ID names the Step that started it; its first event of that Step carries the link.
+      const child = childFlows.find((flow) => !markedChildren.has(flow.flowId) && (payload.includes(flow.flowId)
+        || (stepType !== '' && flow.flowId.startsWith(`SubFlow:${flowId}-${stepType}-`))));
+      if (!child) continue;
+      markedChildren.add(child.flowId);
+      children.set(event.eventId, child);
+    }
+    return children;
+  }, [childFlows, events, flowId]);
   const listRef = useRef<HTMLDivElement>(null);
   const startMs = runStartTime ? Date.parse(runStartTime) : Number.NaN;
   const selectedIndex = selectedEvent ? rows.findIndex((event) => event.eventId === selectedEvent.eventId) : -1;
 
   useEffect(() => {
     if (!selectedEvent) return;
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-event-id="${selectedEvent.eventId}"]`)
-      ?.scrollIntoView?.({ block: 'nearest' });
+    // Scroll the list's own box only; scrollIntoView would also move the page.
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLElement>(`[data-event-id="${selectedEvent.eventId}"]`);
+    if (!list || !row) return;
+    const rowTop = row.offsetTop;
+    if (rowTop < list.scrollTop || rowTop + row.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = rowTop - (list.clientHeight - row.offsetHeight) / 2;
+    }
   }, [selectedEvent]);
 
   /** Handles one key of the list; returns whether it used the key. */
@@ -109,6 +146,7 @@ export function EventList({
         const subject = eventSubject(event);
         const executionId = executionIdOf(event);
         const isSelected = selectedEvent?.eventId === event.eventId;
+        const child = childByEventId.get(event.eventId);
         return (
           <div
             aria-selected={isSelected}
@@ -125,6 +163,17 @@ export function EventList({
             <span className="event-list-subject mono">
               {subject !== title ? subject : ''}
               {executionId && executionId !== subject ? <small> · {executionId}</small> : null}
+              {child && (
+                <Link
+                  className="event-list-child"
+                  onClick={(clickEvent) => clickEvent.stopPropagation()}
+                  title={child.flowId}
+                  to={runPath(child.flowId, child.runId)}
+                >
+                  <CornerDownRight aria-hidden="true" size={12} strokeWidth={2.25} />
+                  child · {child.flowStatus}
+                </Link>
+              )}
             </span>
             <span className="event-list-offset">{offset}</span>
             {onTimeTravelFromEvent && eventTimeTravelTarget(event) && (

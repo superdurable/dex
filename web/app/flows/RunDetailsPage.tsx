@@ -930,7 +930,8 @@ export function RunDetailsPage({
           <>
             <Link className="app-bar-parent" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
               <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
-              <span className="mono">{middleTruncate(relations.parentFlowId, 24)}</span>
+              <span className="app-bar-parent-id mono">{middleTruncate(relations.parentFlowId, 24)}</span>
+              <span className="app-bar-parent-word">Parent</span>
             </Link>
             <span aria-hidden="true" className="app-bar-separator">/</span>
           </>
@@ -1140,6 +1141,8 @@ export function RunDetailsPage({
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && hasTimelineEventList && (
             <EventList
+              childFlows={relations?.children}
+              flowId={flowId}
               events={displayedTimelineEvents}
               onSelectEvent={selectTimelineEvent}
               onTimeTravelFromEvent={openTimeTravel}

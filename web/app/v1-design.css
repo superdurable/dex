@@ -1397,8 +1397,8 @@ body:has(.v1-page) {
 
 .v1-page .timeline-row.selected .event-card {
   border: 0;
-  background: var(--ui-focus-surface);
-  box-shadow: inset 3px 0 0 var(--tone-accent);
+  background: var(--ui-chip);
+  box-shadow: inset 3px 0 0 var(--ui-ink-2);
   transform: none;
 }
 

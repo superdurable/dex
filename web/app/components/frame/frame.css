@@ -23,8 +23,8 @@ body {
   align-items: center;
   gap: 6px;
   min-height: var(--header-h);
-  /* Wide screens line the bar up with the page's 1500px content column. */
-  padding: 0 max(16px, calc((100% - 1500px) / 2)) 0 max(14px, calc((100% - 1500px) / 2));
+  /* Very wide screens cap the bar at 1760px, a little wider than the content, so the run and its views fit. */
+  padding: 0 max(16px, calc((100% - 1760px) / 2)) 0 max(14px, calc((100% - 1760px) / 2));
   background:
     linear-gradient(var(--bar-wash), var(--bar-wash)),
     color-mix(in srgb, var(--ui-surface) 90%, transparent);
@@ -1059,7 +1059,7 @@ body {
   }
 
   .run-facts-name {
-    max-width: 28ch;
+    max-width: 38ch;
   }
 }
 
@@ -1246,6 +1246,7 @@ body {
 
 /* One line per event, in its own scroll box, so a long run is scanned without growing the page. */
 .v1-page .event-list {
+  position: relative;
   max-height: calc(100vh - var(--header-h) - 24px);
   margin-top: 12px;
   padding: 6px;
@@ -1275,17 +1276,18 @@ body {
 }
 
 .v1-page .event-list-row:hover {
-  background: var(--ui-hover);
+  background: color-mix(in srgb, var(--ui-hover) 55%, transparent);
 }
 
 .v1-page .event-list-row.is-selected {
   background: var(--ui-chip);
-  box-shadow: inset 3px 0 0 var(--ui-ink-2);
+  box-shadow: inset 4px 0 0 var(--ui-ink), inset 0 0 0 1px var(--ui-hairline);
 }
 
 /* Selection is neutral; a failed row keeps its own colour in the selection bar. */
 .v1-page .event-list-row.is-selected.tone-failed {
-  box-shadow: inset 3px 0 0 var(--tone-fail);
+  background: var(--tone-fail-soft);
+  box-shadow: inset 4px 0 0 var(--tone-fail);
 }
 
 /* A time travel fork marks where the run was replayed, so it reads as a divider. */
@@ -1354,7 +1356,7 @@ body {
   opacity: 0;
 }
 
-.v1-page .event-list-row:hover .event-list-action {
+.v1-page .event-list-row:is(:hover, .is-selected) .event-list-action {
   opacity: 1;
 }
 
@@ -1395,4 +1397,63 @@ body {
   align-items: center;
   margin: 0;
   padding: 0;
+}
+
+/* On the desktop Timeline each row carries time travel, so the panel's copy would repeat it. */
+@media (min-width: 1280px) {
+  .v1-page .run-content--horizontal-timeline .selected-event-time-travel {
+    display: none;
+  }
+}
+
+/* When room is short, the parent link becomes a word with the full ID in its tooltip. */
+.app-bar-parent-word,
+.run-facts-name-short {
+  display: none;
+}
+
+@container app-bar (max-width: 1520px) {
+  .app-bar-parent .app-bar-parent-id {
+    display: none;
+  }
+
+  .app-bar-parent-word {
+    display: inline;
+  }
+}
+
+/* A SubFlow ID keeps its prefix and end while there is room, and only its end when there is not. */
+@container app-bar (max-width: 1360px) {
+  .run-facts-name-long {
+    display: none;
+  }
+
+  .run-facts-name-short {
+    display: inline;
+  }
+}
+
+.v1-page .event-list-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+  font-family: var(--ui-font, inherit);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Every measured level first drops the run's extras, so tab names outrank them. */
+.app-bar.v1-page[data-compact-views] .run-facts-type,
+.app-bar.v1-page[data-compact-views] .app-bar-copy,
+.app-bar.v1-page[data-compact-views] .app-bar-parent .app-bar-parent-id {
+  display: none;
+}
+
+.app-bar.v1-page[data-compact-views] .app-bar-parent-word {
+  display: inline;
 }

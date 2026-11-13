@@ -78,7 +78,14 @@ export function RunFactsMenu({
         title={flowId}
         type="button"
       >
-        <span className="run-facts-name mono">{shortFlowId(flowId, flowId.startsWith('SubFlow:') ? 24 : 30)}</span>
+        <span className="run-facts-name mono">
+          {flowId.startsWith('SubFlow:') ? (
+            <>
+              <span className="run-facts-name-long">{middleTruncate(flowId, 36)}</span>
+              <span className="run-facts-name-short">{shortFlowId(flowId, 24)}</span>
+            </>
+          ) : middleTruncate(flowId, 30)}
+        </span>
         {attemptLabel && <span className="run-facts-attempt">Attempt {attemptLabel}</span>}
         {flowType && <span className="run-facts-type">{flowType}</span>}
         {childFlows.length > 0 && (
