@@ -426,8 +426,12 @@ whose name is not a field or a Step or Flow method that Dex calls. The analyzer 
 follow objects into other modules.
 Decisions hidden in callbacks remain unsupported.
 
-TypeScript analysis loads the `typescript` package only from the source
-project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
+By default, TypeScript analysis loads the `typescript` package that the source
+project resolves (`node_modules`, a parent directory, a package self-reference,
+or `NODE_PATH`), and that package runs as code. For untrusted source, pass a
+trusted `typescript` package directory with `--typescript-compiler` or
+`DEX_TYPESCRIPT_COMPILER`. The analyzer then loads only that package, in a
+Node.js process without `NODE_*` environment variables. It reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,
 `forceCompleteIfChannelsEmpty`, and cancellation decisions, plus
 `ExecuteFailure.proceedTo` in `getStepOptions`. WaitFor

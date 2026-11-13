@@ -18,11 +18,14 @@ class TypeScriptAnalyzer {
   constructor(request) {
     this.path = request.path;
     this.source = request.source;
-    let compilerPath;
-    try {
-      compilerPath = createRequire(this.path).resolve("typescript");
-    } catch {
-      throw new Error("TypeScript analysis requires Node.js and the typescript package installed in the source project or in a node_modules directory listed in NODE_PATH");
+    // dexcli passes a trusted compiler entry; resolving from the source project could run its code.
+    let compilerPath = request.compilerEntryPath;
+    if (!compilerPath) {
+      try {
+        compilerPath = createRequire(this.path).resolve("typescript");
+      } catch {
+        throw new Error("TypeScript analysis requires Node.js and the typescript package installed in the source project or in a node_modules directory listed in NODE_PATH, or a trusted typescript package directory passed with --typescript-compiler or DEX_TYPESCRIPT_COMPILER");
+      }
     }
     this.ts = require(compilerPath);
     this.tree = this.ts.createSourceFile(this.path, this.source, this.ts.ScriptTarget.Latest, true);

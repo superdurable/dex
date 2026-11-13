@@ -36,7 +36,12 @@ type visualizeOptions struct {
 	openBrowser   bool
 	output        string
 	pythonPath    string
+	// typeScriptCompilerDirectory is the trusted typescript package directory from the flag; empty falls back to the environment.
+	typeScriptCompilerDirectory string
 }
+
+// typeScriptCompilerEnvironmentVariable names the trusted typescript package directory when the flag is absent.
+const typeScriptCompilerEnvironmentVariable = "DEX_TYPESCRIPT_COMPILER"
 
 func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags := newFlagSet("dexcli visualize", a.stderr)
@@ -48,6 +53,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags.BoolVar(&options.openBrowser, "open", true, "open Flow Rendering in the default browser")
 	flags.StringVar(&options.output, "out", "", "JSON output prefix, or - for stdout (requires --json)")
 	flags.StringVar(&options.pythonPath, "python", "", "Python 3.11+ interpreter path")
+	flags.StringVar(&options.typeScriptCompilerDirectory, "typescript-compiler", "", "trusted typescript package directory for TypeScript sources")
 	source, parseErr := parseVisualizeArgs(flags, args)
 	if parseErr != nil {
 		if errors.Is(parseErr, flag.ErrHelp) {
@@ -68,10 +74,11 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 		generatedAt = generationTime.Format(time.RFC3339)
 	}
 	graph, err := flowviz.Analyze(ctx, source, flowviz.AnalyzeOptions{
-		Language:      options.language,
-		PythonPath:    options.pythonPath,
-		SchemaVersion: options.schemaVersion,
-		Lint:          options.lint,
+		Language:                    options.language,
+		PythonPath:                  options.pythonPath,
+		SchemaVersion:               options.schemaVersion,
+		Lint:                        options.lint,
+		TypeScriptCompilerDirectory: a.resolveTypeScriptCompilerDirectory(options),
 	})
 	if err != nil {
 		return newOperationError("visualize", err)
@@ -95,6 +102,17 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 		return nil
 	}
 	return a.renderVisualization(ctx, graph.Valid, jsonData, options)
+}
+
+func (a *App) resolveTypeScriptCompilerDirectory(options visualizeOptions) string {
+	if options.typeScriptCompilerDirectory != "" {
+		return options.typeScriptCompilerDirectory
+	}
+	directory, isSet := a.lookupEnv(typeScriptCompilerEnvironmentVariable)
+	if !isSet {
+		return ""
+	}
+	return directory
 }
 
 func parseVisualizeArgs(flags *flag.FlagSet, args []string) (string, error) {
@@ -246,7 +264,9 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")
 	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout (requires --json)")
 	fmt.Fprintln(output, "  --python path                       Python 3.11+ interpreter")
+	fmt.Fprintln(output, "  --typescript-compiler dir           trusted typescript package directory; never loads the project's compiler")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Environment:")
 	fmt.Fprintln(output, "  SOURCE_DATE_EPOCH                   Unix seconds for the 2.0 generatedAt field (default now)")
+	fmt.Fprintln(output, "  DEX_TYPESCRIPT_COMPILER             trusted typescript package directory when --typescript-compiler is absent")
 }

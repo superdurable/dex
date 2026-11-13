@@ -11,6 +11,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -118,6 +119,45 @@ func hasDecisionEdge(graph *flowviz.Graph, stepID string, kind string, target st
 		}
 	}
 	return false
+}
+
+func TestVisualizeTypeScriptCompilerFlagOverridesEnvironment(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts")
+	compilerDirectory := filepath.Join(repositoryRoot, "web", "node_modules", "typescript")
+	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("NODE_PATH", "")
+	cases := map[string]struct {
+		flagDirectory        string
+		environmentDirectory string
+		errorDirectory       string
+	}{
+		"environment only":           {environmentDirectory: compilerDirectory},
+		"flag wins over environment": {flagDirectory: compilerDirectory, environmentDirectory: missingDirectory},
+		"invalid flag is reported":   {flagDirectory: missingDirectory, environmentDirectory: compilerDirectory, errorDirectory: missingDirectory},
+		"invalid environment value":  {environmentDirectory: missingDirectory, errorDirectory: missingDirectory},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
+			app.lookupEnv = generatedAtTestEnvironment(map[string]string{"DEX_TYPESCRIPT_COMPILER": testCase.environmentDirectory})
+			arguments := []string{"visualize", source, "--json", "--out", "-"}
+			if testCase.flagDirectory != "" {
+				arguments = append(arguments, "--typescript-compiler", testCase.flagDirectory)
+			}
+			err := app.Execute(context.Background(), arguments)
+			if testCase.errorDirectory != "" {
+				require.ErrorContains(t, err, "TypeScript compiler directory "+testCase.errorDirectory)
+				require.Empty(t, stdout.String())
+				return
+			}
+			require.NoError(t, err)
+			var graph flowviz.Graph
+			require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
 }
 
 func typeScriptExampleFlowSources(t *testing.T, repositoryRoot string) []string {
