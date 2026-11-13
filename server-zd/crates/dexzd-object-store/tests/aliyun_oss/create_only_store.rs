@@ -525,6 +525,8 @@ impl ObjectStore for FreezableStore {
         start_after: Option<&str>,
         max_keys: u32,
     ) -> ObjectStoreResult<ObjectListing> {
+        self.wait_while_frozen(ObjectStoreOperation::List, prefix)
+            .await;
         self.inner.list(prefix, start_after, max_keys).await
     }
 

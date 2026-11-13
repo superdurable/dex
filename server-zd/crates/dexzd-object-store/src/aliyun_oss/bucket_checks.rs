@@ -64,8 +64,9 @@ pub enum VersionDiscoveryCheckError {
 /// HEAD probing relies on reclamation that deletes versions from the oldest up, which
 /// [`VersionDiscovery::Listing`] does not do. So a listing store refuses a prefix that holds
 /// [`HEAD_PROBING_MARKER_OBJECT_KEY`]. A HEAD-probing store accepts a prefix with the marker. On
-/// a prefix without it, the store lists each mutable key prefix except startup probes, refuses
-/// any version it finds, and otherwise creates the marker. Call it at startup, before the store
+/// a prefix without it, the store lists each mutable key prefix except startup probes. It
+/// refuses a version it finds unless the marker appeared meanwhile, from another HEAD-probing
+/// node starting at the same time, and otherwise creates the marker. Call it at startup, before the store
 /// writes its first version. The check cannot see a listing node that is already running, so
 /// stop every node before changing the discovery of a prefix.
 ///
@@ -101,14 +102,25 @@ pub async fn check_version_discovery_marker(
                         .map(|prefix| (*prefix).to_owned()),
                 );
             for prefix in version_prefixes {
-                if let Some(version) = inner.list(&prefix, None, 1).await?.objects.first() {
-                    return Err(
-                        VersionDiscoveryCheckError::VersionsWithoutHeadProbingMarker {
-                            version_key: version.key.clone(),
-                            marker_key: marker_key.to_owned(),
-                        },
-                    );
+                let Some(version) = inner
+                    .list(&prefix, None, 1)
+                    .await?
+                    .objects
+                    .into_iter()
+                    .next()
+                else {
+                    continue;
+                };
+                // A HEAD-probing node starting at the same time may have marked the prefix first.
+                if inner.head(marker_key).await?.is_some() {
+                    return Ok(());
                 }
+                return Err(
+                    VersionDiscoveryCheckError::VersionsWithoutHeadProbingMarker {
+                        version_key: version.key,
+                        marker_key: marker_key.to_owned(),
+                    },
+                );
             }
             // Another node may have created the marker first.
             inner

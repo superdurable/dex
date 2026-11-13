@@ -9,6 +9,13 @@
 //! Timeouts and cleanup failures of the Aliyun OSS create-only bucket check, and the version
 //! discovery marker check.
 
+#[expect(
+    dead_code,
+    reason = "these tests use only the freezable view of the shared create-only store"
+)]
+#[path = "aliyun_oss/create_only_store.rs"]
+mod create_only_store;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -22,6 +29,8 @@ use dexzd_object_store::{
     VersionDiscovery, VersionDiscoveryCheckError, WriteCondition,
     check_aliyun_oss_create_only_writes, check_version_discovery_marker, startup_self_check,
 };
+
+use create_only_store::FreezableStore;
 
 /// Delays or fails the second probe write and, optionally, every delete.
 struct ProbeFaults {
@@ -219,4 +228,40 @@ async fn head_probing_accepts_plain_objects_and_leftover_startup_probes() {
     startup_self_check(&head_probing)
         .await
         .expect("the marker does not disturb versioned keys");
+}
+
+/// Node B sees no marker, then node A marks the prefix and writes a version before B lists. B
+/// must accept the prefix, because A is a HEAD-probing node that started at the same time.
+#[tokio::test(start_paused = true)]
+async fn head_probing_nodes_that_start_together_accept_each_others_versions() {
+    let store = create_only_store();
+    let node_b_view = FreezableStore::new(Arc::clone(&store) as Arc<dyn ObjectStore>);
+    let frozen = node_b_view.freeze_next(ObjectStoreOperation::List, "manifest.v/");
+    let checking_view = Arc::clone(&node_b_view);
+    let node_b_check = tokio::spawn(async move {
+        check_version_discovery_marker(checking_view.as_ref(), VersionDiscovery::HeadProbing).await
+    });
+    frozen.wait_until_reached().await;
+    check_version_discovery_marker(store.as_ref(), VersionDiscovery::HeadProbing)
+        .await
+        .expect("node A marks the empty prefix");
+    let node_a = AliyunOssObjectStore::with_version_discovery(
+        Arc::clone(&store) as Arc<dyn ObjectStore>,
+        Duration::from_secs(60),
+        NodeMetrics::unregistered(),
+        VersionDiscovery::HeadProbing,
+    );
+    node_a
+        .put(
+            MANIFEST_OBJECT_KEY,
+            Bytes::from_static(b"manifest"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create");
+    frozen.release();
+    node_b_check
+        .await
+        .expect("node B finishes")
+        .expect("node B accepts versions written after the marker");
 }
