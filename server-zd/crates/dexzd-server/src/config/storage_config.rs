@@ -320,6 +320,9 @@ pub(crate) const MIN_WRITE_BUFFER_BYTES: u64 = 64 * 1024;
 /// Largest memtable with tencentCOS, a fifth of the 5 GiB appendable object limit.
 pub(crate) const MAX_TENCENT_COS_WRITE_BUFFER_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// Most concurrent log batch writes with tencentCOS; recovery probes this many seqs past a listing.
+pub(crate) const MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT: u32 = 32;
+
 impl LocalStorageConfig {
     /// Returns `maxBackgroundJobs` when set. Otherwise returns half of `available_cpus`, from 2
     /// to 1024; an unknown CPU count (`None`) returns 2.

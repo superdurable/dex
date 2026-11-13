@@ -2746,11 +2746,11 @@ fn only_tencent_cos_reads_past_an_eventually_consistent_listing() {
     let mut aliyun_oss = valid_config();
     aliyun_oss.object_store.provider = ObjectStoreProvider::AliyunOss;
     let mut tencent_cos = tencent_cos_config();
-    tencent_cos.commit.max_in_flight = 7;
-    for (configuration, expected) in [
-        (tencent_cos, ListingConsistency::Eventual),
-        (valid_config(), ListingConsistency::Strong),
-        (aliyun_oss, ListingConsistency::Strong),
+    tencent_cos.commit.max_in_flight = 4;
+    for (configuration, expected, expected_tail_probe_misses) in [
+        (tencent_cos, ListingConsistency::Eventual, 32),
+        (valid_config(), ListingConsistency::Strong, 4),
+        (aliyun_oss, ListingConsistency::Strong, 4),
     ] {
         let components =
             ComponentConfigs::from_config(&configuration, false).expect("component config");
@@ -2758,12 +2758,33 @@ fn only_tencent_cos_reads_past_an_eventually_consistent_listing() {
         assert_eq!(engine_node.snapshots.listing_consistency, expected);
         let read_ahead = engine_node.recovery.log_read_ahead;
         assert_eq!(read_ahead.listing_consistency, expected);
-        assert_eq!(
-            read_ahead.tail_probe_misses,
-            usize::try_from(configuration.commit.max_in_flight).expect("small value"),
-            "recovery probes as many seqs as the writer had batch writes in flight"
-        );
+        // A writer before a restart or retuning may have used up to the tencentCOS limit.
+        assert_eq!(read_ahead.tail_probe_misses, expected_tail_probe_misses);
     }
+}
+
+#[test]
+fn tencent_cos_limits_commit_max_in_flight_to_thirty_two() {
+    let with_max_in_flight = |configuration: Config, max_in_flight| {
+        let mut configuration = configuration;
+        configuration.commit.max_in_flight = max_in_flight;
+        configuration.validate()
+    };
+    with_max_in_flight(tencent_cos_config(), 32)
+        .expect("32 is the largest tencentCOS commit.maxInFlight");
+    let error = with_max_in_flight(tencent_cos_config(), 33)
+        .expect_err("a larger tencentCOS commit.maxInFlight is rejected");
+    assert!(
+        matches!(&error, ConfigError::Invalid { field: "commit.maxInFlight", message }
+            if message.contains("listing")),
+        "{error:?}"
+    );
+    with_max_in_flight(valid_config(), 33).expect("s3 keeps its commit.maxInFlight range");
+    let mut aliyun_oss = valid_config();
+    aliyun_oss.object_store.provider = ObjectStoreProvider::AliyunOss;
+    aliyun_oss.object_store.endpoint = "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned();
+    aliyun_oss.object_store.region = "cn-hangzhou".to_owned();
+    with_max_in_flight(aliyun_oss, 33).expect("aliyunOSS keeps its commit.maxInFlight range");
 }
 
 #[test]

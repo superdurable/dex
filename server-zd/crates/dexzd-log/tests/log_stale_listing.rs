@@ -8,9 +8,11 @@
 
 //! Log reads and recovery over a listing that repeats an earlier listing, as on Tencent COS.
 
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_log::{
@@ -19,13 +21,16 @@ use dexzd_log::{
     StreamTailStep, encode_batch,
 };
 use dexzd_object_store::{
-    InMemoryObjectStore, ListingConsistency, ObjectStore, ObjectStoreOperation, S3Credentials,
-    S3ObjectStore, S3ObjectStoreConfig, WriteCondition,
+    ByteRange, InMemoryObjectStore, ListingConsistency, ObjectContent, ObjectListing,
+    ObjectMetadata, ObjectStore, ObjectStoreOperation, ObjectStoreResult, S3Credentials,
+    S3ObjectStore, S3ObjectStoreConfig, WriteCondition, WriteOutcome,
 };
 use s3local::{Durability, EtagMode, Store as S3LocalStore, StoreConfig};
 
 const LOG_PREFIX: &str = "log/node-a/";
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
+/// The server's tail probe window with tencentCOS, its limit of commit.maxInFlight.
+const TENCENT_COS_TAIL_PROBE_MISSES: usize = 32;
 
 struct FixedClock;
 
@@ -285,6 +290,153 @@ async fn recovery_probes_past_holes_shorter_than_the_tail_probe_window() {
     assert_eq!(result.epoch_start_seq, 2);
     assert_eq!(result.voided_batches, 2, "seqs 3 and 6 are voided");
     assert_eq!(result.next_seq, 7);
+    for seq in [4, 5] {
+        assert!(
+            store
+                .head(&stream.batch_key(seq))
+                .await
+                .expect("the head succeeds")
+                .is_some(),
+            "recovery fills the hole at seq {seq} with an EpochStart"
+        );
+    }
+}
+
+#[tokio::test]
+async fn recovery_finds_the_last_batch_of_an_old_writer_with_a_wider_window() {
+    let store = stale_listing_store();
+    write_batches(&store, 1, [1]).await;
+    list_stream_prefix(&store, 1000).await;
+    // The old writer had 32 writes in flight; only its last one landed, 31 seqs past seq 2.
+    let late_seq = 2 + TENCENT_COS_TAIL_PROBE_MISSES as u64;
+    write_batches(&store, 1, [late_seq]).await;
+    let stream = stream();
+
+    let (applied, result) = recover(
+        &store,
+        &stream,
+        2,
+        LogReadAheadConfig {
+            tail_probe_misses: TENCENT_COS_TAIL_PROBE_MISSES,
+            ..read_ahead(ListingConsistency::Eventual)
+        },
+    )
+    .await;
+    assert_eq!(applied, [1]);
+    assert_eq!(result.epoch_start_seq, 2);
+    assert_eq!(
+        result.voided_batches, 1,
+        "the old writer's last batch is voided"
+    );
+    assert_eq!(
+        result.next_seq,
+        late_seq + 1,
+        "a new writer with fewer writes in flight still continues after the old writer"
+    );
+}
+
+/// Writes a batch of the old writer when recovery first reads the head of a trigger key.
+struct LateWriteStore {
+    inner: InMemoryObjectStore,
+    late_write: Mutex<Option<(String, u64)>>,
+}
+
+#[async_trait]
+impl ObjectStore for LateWriteStore {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.inner.put(key, body, condition).await
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.inner.put_file(key, path, condition).await
+    }
+
+    async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.inner.get(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.inner.get_range(key, range).await
+    }
+
+    async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
+        let late_write = {
+            let mut late_write = self.late_write.lock().expect("late write lock");
+            match late_write.as_ref() {
+                Some((trigger_key, _)) if trigger_key == key => late_write.take(),
+                _ => None,
+            }
+        };
+        if let Some((_, seq)) = late_write {
+            write_batches(&self.inner, 1, [seq]).await;
+        }
+        self.inner.head(key).await
+    }
+
+    async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> ObjectStoreResult<ObjectListing> {
+        self.inner.list(prefix, start_after, max_keys).await
+    }
+}
+
+#[tokio::test]
+async fn recovery_finds_a_batch_that_lands_while_it_probes_the_tail() {
+    let stream = stream();
+    let store = LateWriteStore {
+        inner: stale_listing_store(),
+        late_write: Mutex::new(Some((stream.batch_key(3), 6))),
+    };
+    write_batches(&store, 1, [1]).await;
+    list_stream_prefix(&store, 1000).await;
+    write_batches(&store, 1, [3]).await;
+
+    let (applied, result) = recover(
+        &store,
+        &stream,
+        2,
+        LogReadAheadConfig {
+            tail_probe_misses: 4,
+            ..read_ahead(ListingConsistency::Eventual)
+        },
+    )
+    .await;
+    assert_eq!(applied, [1]);
+    assert_eq!(result.epoch_start_seq, 2);
+    assert_eq!(result.voided_batches, 2, "seqs 3 and 6 are voided");
+    assert_eq!(
+        result.next_seq, 7,
+        "the write that landed during the probe is found"
+    );
     for seq in [4, 5] {
         assert!(
             store

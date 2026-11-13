@@ -36,8 +36,9 @@ pub struct LogReadAheadConfig {
     pub listing_consistency: ListingConsistency,
     /// Defaults to 4, the default number of concurrent batch writes of the commit pipeline.
     /// Only with an eventually consistent listing: recovery reads the seqs after the last
-    /// listed batch until this many in a row are missing. Set it to at least the most
-    /// concurrent batch writes of the writer being recovered; values below 1 count as 1.
+    /// listed batch, in concurrent rounds of this many HEADs, until this many in a row are
+    /// missing. Set it to at least the most concurrent batch writes of any writer that wrote the
+    /// stream, not only of this one; values below 1 count as 1.
     pub tail_probe_misses: usize,
 }
 

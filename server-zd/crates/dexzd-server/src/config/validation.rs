@@ -13,7 +13,8 @@ use dexzd_keyspace::validate_node_identifier;
 
 use super::engine_config::MAX_APPLIER_LANES;
 use super::storage_config::{
-    MAX_BACKGROUND_JOBS, MAX_TENCENT_COS_WRITE_BUFFER_BYTES, MIN_WRITE_BUFFER_BYTES,
+    MAX_BACKGROUND_JOBS, MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT, MAX_TENCENT_COS_WRITE_BUFFER_BYTES,
+    MIN_WRITE_BUFFER_BYTES,
 };
 use super::{Config, ConfigError, CredentialSource, ObjectStoreProvider, SearchBackend};
 
@@ -287,6 +288,13 @@ impl Config {
             self.commit.max_in_flight > 0,
             "commit.maxInFlight",
             "must be positive",
+        )?;
+        ensure(
+            self.object_store.provider != ObjectStoreProvider::TencentCos
+                || self.commit.max_in_flight <= MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT,
+            "commit.maxInFlight",
+            "must be at most 32 with objectStore.provider tencentCOS, because a Tencent COS \
+             listing can miss the newest log batches and recovery probes only 32 seqs past it",
         )?;
         ensure(
             self.commit.seal_at_bytes > 0,

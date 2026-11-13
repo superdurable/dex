@@ -27,8 +27,8 @@ use dexzd_worker_dispatch::MatchingConfig;
 
 use crate::ServerError;
 use crate::config::{
-    Config, ObjectStoreConfig, ObjectStoreProvider, StandbyConfig, StandbyMode, StreamStoreBackend,
-    available_cpu_count,
+    Config, MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT, ObjectStoreConfig, ObjectStoreProvider,
+    StandbyConfig, StandbyMode, StreamStoreBackend, available_cpu_count,
 };
 
 /// OSS limits object keys to 1023 bytes, one less than S3.
@@ -127,16 +127,24 @@ impl ComponentConfigs {
             "history.supersededValueGracePeriod",
             config.history.superseded_value_grace_period,
         )?;
-        let max_in_flight_batches =
-            to_usize("commit.maxInFlight", u64::from(config.commit.max_in_flight))?;
         // COS may serve an earlier listing of a prefix for seconds.
-        let listing_consistency = match config.object_store.provider {
-            ObjectStoreProvider::TencentCos => ListingConsistency::Eventual,
+        let (listing_consistency, tail_probe_misses) = match config.object_store.provider {
+            // Every tencentCOS writer, old or new, has at most this many batch writes in flight.
+            ObjectStoreProvider::TencentCos => (
+                ListingConsistency::Eventual,
+                to_usize(
+                    "commit.maxInFlight",
+                    u64::from(MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT),
+                )?,
+            ),
             ObjectStoreProvider::S3
             | ObjectStoreProvider::Db9
             | ObjectStoreProvider::AliyunOss
             | ObjectStoreProvider::AzureBlob
-            | ObjectStoreProvider::GoogleCloudStorage => ListingConsistency::Strong,
+            | ObjectStoreProvider::GoogleCloudStorage => (
+                ListingConsistency::Strong,
+                LogReadAheadConfig::default().tail_probe_misses,
+            ),
         };
         let engine_node = EngineNodeConfig {
             node: NodeConfig {
@@ -186,7 +194,10 @@ impl ComponentConfigs {
                     .unwrap_or(cfg!(debug_assertions)),
                 batch_window: config.commit.batch_window,
                 seal_at_bytes: to_usize("commit.sealAtBytes", config.commit.seal_at_bytes)?,
-                max_in_flight_batches,
+                max_in_flight_batches: to_usize(
+                    "commit.maxInFlight",
+                    u64::from(config.commit.max_in_flight),
+                )?,
                 max_batch_records: to_usize(
                     "commit.maxBatchRecords",
                     u64::from(config.commit.max_batch_records),
@@ -225,8 +236,7 @@ impl ComponentConfigs {
                         config.recovery.read_ahead_bytes,
                     )?,
                     listing_consistency,
-                    // The recovered writer shares this configuration, so it had at most this many writes in flight.
-                    tail_probe_misses: max_in_flight_batches,
+                    tail_probe_misses,
                 },
                 compact_after_replay_bytes: config.local_storage.compact_after_replay_bytes,
                 retained_set_aside_store_count: to_usize(
