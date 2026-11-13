@@ -4,6 +4,15 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.5 (2026-11-13)
+
+### Fixed
+
+- `@superdurable/dex-agents`: `ConnectorStepContext` now exposes
+  `flowStartedAt` and `firstAttemptAt` from the tool Step's context. A
+  connector operation that reads either one, such as a Gmail send, no longer
+  fails inside an agent tool Step.
+
 ## 0.6.4 (2026-11-13)
 
 ### Added
