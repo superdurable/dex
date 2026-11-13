@@ -638,7 +638,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     const runContent = document.querySelector<HTMLElement>('.run-content');
     expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
     fireEvent.click(screen.getByRole('tab', { name: 'Execution graph' }));
-    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('340px');
+    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('600px');
 
     const graph = await screen.findByTestId('execution-graph');
     // FlowStart is added for start details; the page holds events #101 to #1100.

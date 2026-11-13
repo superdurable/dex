@@ -1234,6 +1234,14 @@ body {
 .v1-page .run-events-lane-toggle {
   margin-left: auto;
   padding: 0 10px;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+}
+
+.v1-page .run-events-lane-toggle[aria-pressed='true'] {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
 }
 
 /* One line per event, in its own scroll box, so a long run is scanned without growing the page. */
@@ -1271,8 +1279,25 @@ body {
 }
 
 .v1-page .event-list-row.is-selected {
-  background: var(--tone-accent-soft);
-  box-shadow: inset 3px 0 0 var(--tone-accent);
+  background: var(--ui-chip);
+  box-shadow: inset 3px 0 0 var(--ui-ink-2);
+}
+
+/* Selection is neutral; a failed row keeps its own colour in the selection bar. */
+.v1-page .event-list-row.is-selected.tone-failed {
+  box-shadow: inset 3px 0 0 var(--tone-fail);
+}
+
+/* A time travel fork marks where the run was replayed, so it reads as a divider. */
+.v1-page .event-list-row.tone-fork {
+  margin: 6px 0;
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+}
+
+.v1-page .event-list-row.tone-fork .event-list-dot {
+  background: var(--tone-wait);
+  opacity: 1;
 }
 
 .v1-page .event-list-dot {
@@ -1329,7 +1354,7 @@ body {
   opacity: 0;
 }
 
-.v1-page .event-list-row:is(:hover, .is-selected) .event-list-action {
+.v1-page .event-list-row:hover .event-list-action {
   opacity: 1;
 }
 
@@ -1356,4 +1381,18 @@ body {
   .run-facts-attempt {
     display: inline;
   }
+}
+
+/* Add filter lines up with the other controls of a one-row search. */
+.v1-page .query-card .filter-list > .text-button {
+  margin-top: 0;
+  align-self: center;
+}
+
+.v1-page .query-card:not(:has(.filter-row)) .filter-list,
+.v1-page .query-card.is-quick-status .filter-list {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
 }

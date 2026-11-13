@@ -15,8 +15,9 @@ import { eventTitle } from './EventDetails';
 import { eventSubject } from './HorizontalTimeline';
 
 /** The tone of an event's dot: failures, waits and closes stand out from ordinary progress. */
-export function eventListTone(event: FlowHistoryEvent): 'failed' | 'waiting' | 'closed' | 'normal' {
+export function eventListTone(event: FlowHistoryEvent): 'failed' | 'waiting' | 'closed' | 'fork' | 'normal' {
   if (event.type.endsWith('Failed')) return 'failed';
+  if (event.type === 'TimeTravelFork') return 'fork';
   if (event.type.startsWith('StepWaitFor')) return 'waiting';
   if (event.type === 'FlowClosed') return 'closed';
   return 'normal';
@@ -55,21 +56,39 @@ export function EventList({
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [selectedEvent]);
 
-  const moveWithKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[event.key];
+  /** Handles one key of the list; returns whether it used the key. */
+  const handleKey = (key: string): boolean => {
+    const step = ({ ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 } as Record<string, number>)[key];
     let next = -1;
     if (step !== undefined) next = Math.min(rows.length - 1, Math.max(0, (selectedIndex < 0 ? -1 : selectedIndex) + step));
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = rows.length - 1;
-    else if (event.key === 't' && selectedEvent && onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent)) {
-      event.preventDefault();
+    else if (key === 'Home') next = 0;
+    else if (key === 'End') next = rows.length - 1;
+    else if (key === 't' && selectedEvent && onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent)) {
       onTimeTravelFromEvent(selectedEvent);
-      return;
+      return true;
     }
-    if (next < 0 || !rows[next]) return;
-    event.preventDefault();
+    if (next < 0 || !rows[next]) return false;
     onSelectEvent(rows[next]);
+    return true;
   };
+  const handleKeyRef = useRef(handleKey);
+  handleKeyRef.current = handleKey;
+
+  const moveWithKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (handleKey(event.key)) event.preventDefault();
+  };
+
+  // J, K and T work from anywhere on the page, except while typing or in a dialog.
+  useEffect(() => {
+    const handlePageKey = (event: globalThis.KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || !['j', 'k', 't'].includes(event.key)) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], .event-list')) return;
+      if (handleKeyRef.current(event.key)) event.preventDefault();
+    };
+    document.addEventListener('keydown', handlePageKey);
+    return () => document.removeEventListener('keydown', handlePageKey);
+  }, []);
 
   return (
     <div

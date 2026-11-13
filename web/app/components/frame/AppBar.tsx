@@ -86,6 +86,9 @@ function useCompactViews(bar: HTMLElement | null) {
     };
     const resize = new ResizeObserver(update);
     resize.observe(bar);
+    // Actions change width with the run, such as a longer Operate label, without resizing the bar.
+    const actions = bar.querySelector<HTMLElement>('.app-bar-actions');
+    if (actions) resize.observe(actions);
     const mutation = new MutationObserver(update);
     mutation.observe(views, { childList: true, subtree: true });
     update();

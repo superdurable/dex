@@ -115,6 +115,7 @@ const runTabStorageKey = 'dex.run.selected-tab';
 const horizontalTimelineQuery = '(min-width: 761px)';
 /** On desktop the strip gains the event list under it, so events can be scanned as rows. */
 const timelineEventListQuery = '(min-width: 1280px)';
+const RUN_EVENT_PARAM = 'event';
 
 /** Follows a media query; without matchMedia, such as in tests, it reports no match. */
 function useMediaQuery(query: string): boolean {
@@ -142,7 +143,7 @@ type SidebarKind = 'graph' | 'timeline';
 
 /** Timeline rows are short, so its event panel defaults wider; each tab remembers its own width. */
 const sidebarLayouts: Record<SidebarKind, { storageKey: string; defaultWidth: number; maximumWidth: number }> = {
-  graph: { storageKey: 'dex.run.selected-event-width', defaultWidth: 340, maximumWidth: 720 },
+  graph: { storageKey: 'dex.run.selected-event-width', defaultWidth: 600, maximumWidth: 720 },
   timeline: { storageKey: 'dex.run.selected-event-width.timeline', defaultWidth: 780, maximumWidth: 1040 },
 };
 
@@ -711,6 +712,25 @@ export function RunDetailsPage({
     }
   }, [jumpInTimeline, selectTab, selectedEvent]);
 
+  // The selected event lives in the URL, so a link or a reload opens the same event.
+  const requestedEventId = Number(searchParams.get(RUN_EVENT_PARAM)) || 0;
+  const hasOpenedRequestedEvent = useRef(false);
+  useEffect(() => {
+    if (hasOpenedRequestedEvent.current || requestedEventId <= 0 || history.length === 0) return;
+    hasOpenedRequestedEvent.current = true;
+    if (shownTab === 'timeline' || shownTab === 'steps') void jumpToEvent(requestedEventId);
+  }, [history.length, jumpToEvent, requestedEventId, shownTab]);
+  useEffect(() => {
+    if (!selectedEvent || (!hasOpenedRequestedEvent.current && requestedEventId > 0)) return;
+    hasOpenedRequestedEvent.current = true;
+    setSearchParams((current) => {
+      if (current.get(RUN_EVENT_PARAM) === String(selectedEvent.eventId)) return current;
+      const next = new URLSearchParams(current);
+      next.set(RUN_EVENT_PARAM, String(selectedEvent.eventId));
+      return next;
+    }, { replace: true });
+  }, [requestedEventId, selectedEvent, setSearchParams]);
+
   const selectTimelineEvent = useCallback((event: FlowHistoryEvent) => {
     highlightEvent(null);
     setSelectedEvent(event);
@@ -890,9 +910,10 @@ export function RunDetailsPage({
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
     ...(summary.closeTime ? [{ label: 'Closed', value: formatDate(summary.closeTime, timezone), icon: 'closed' as const }] : []),
     { label: 'Duration', value: formatDuration(summary.startTime, summary.closeTime), icon: 'duration' },
-    currentRunAttempt > 0
-      ? { label: 'Run attempt', value: `${displayedRunAttempt} of ${currentRunAttempt}`, icon: 'attempt' }
-      : { label: 'Run chain', value: String(runChain.length), icon: 'attempt' },
+    // Past attempt 1 the popover's attempt picker says it, so the fact would repeat it.
+    ...(currentRunAttempt > 1 ? [] : [currentRunAttempt > 0
+      ? { label: 'Run attempt', value: `${displayedRunAttempt} of ${currentRunAttempt}`, icon: 'attempt' as const }
+      : { label: 'Run chain', value: String(runChain.length), icon: 'attempt' as const }]),
     { label: 'Latest event', value: latestEvent ? `#${latestEvent.eventId}` : 'None yet', icon: 'events' },
     { label: 'Flow type', value: summary.flowType, icon: 'type' },
   ] : [];
