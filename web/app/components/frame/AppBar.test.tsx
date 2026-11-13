@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '../../providers';
 import { ThemeProvider } from '../../theme';
 import { WebCatalogProvider } from '../../catalog/WebCatalogProvider';
-import { HOST_NAME_META_NAME, HOST_PAGE_META_NAME, HOST_URL_META_NAME } from '@/lib/hostLink';
+import { HOST_NAVIGATION_META_NAME } from '@/lib/hostNavigation';
 import { AppFrame } from './AppBar';
 import { AppBarSlot, AppBarSlotsProvider } from './AppBarSlots';
 
@@ -98,7 +98,7 @@ function rail() {
 
 /** The rail's section links, in order. */
 function railSections() {
-  return within(rail()).getAllByRole('link').filter((link) => !link.classList.contains('app-rail-host') && !link.classList.contains('app-rail-host-page'));
+  return within(rail()).getAllByRole('link').filter((link) => !link.classList.contains('app-rail-host'));
 }
 
 function addMeta(name: string, content: string, attributes: Record<string, string> = {}) {
@@ -127,25 +127,14 @@ describe('Dex Web rail', () => {
     expect(within(rail()).getByRole('link', { name: 'Dex home' }).getAttribute('href')).toBe('/v1/flows');
   });
 
-  it('starts at the host page, then lists the host pages, when the server names them', async () => {
-    stubDexWeb([0]);
-    addMeta(HOST_NAME_META_NAME, 'test');
-    addMeta(HOST_URL_META_NAME, '/servers/test');
-    addMeta(HOST_PAGE_META_NAME, 'Settings', { 'data-url': '/servers/test/settings' });
-    addMeta(HOST_PAGE_META_NAME, 'Bad', { 'data-url': 'javascript:alert(1)' });
+  it('draws no rail and no phone menu when the host draws the navigation', async () => {
+    stubDexWeb([1]);
+    addMeta(HOST_NAVIGATION_META_NAME, 'true');
     renderBar('/v1/flows');
-    expect(within(rail()).getByRole('link', { name: 'test' }).getAttribute('href')).toBe('/servers/test');
-    expect(within(rail()).getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/servers/test/settings');
-    expect(within(rail()).queryByRole('link', { name: 'Bad' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Dex home' })).toBeNull();
-  });
-
-  it('ignores a host URL that is not http(s) or a rooted path', async () => {
-    stubDexWeb([0]);
-    addMeta(HOST_NAME_META_NAME, 'test');
-    addMeta(HOST_URL_META_NAME, 'javascript:alert(1)');
-    renderBar('/v1/flows');
-    expect(screen.getByRole('link', { name: 'Dex home' })).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: 'Dex Web' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open navigation' })).toBeNull();
+    const trail = screen.getByRole('navigation', { name: 'Trail' });
+    expect(within(trail).getByRole('link', { name: 'Flows' })).toBeTruthy();
   });
 
   it('lists Flows, then the experimental Designs, Work Queue and Connectors under their heading', async () => {

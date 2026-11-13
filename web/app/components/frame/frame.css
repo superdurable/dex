@@ -1951,3 +1951,8 @@ body {
     margin-left: 0;
   }
 }
+
+/* The host draws the navigation around this Dex Web, so the page is one column. */
+.app-shell.has-host-navigation {
+  grid-template-columns: minmax(0, 1fr);
+}

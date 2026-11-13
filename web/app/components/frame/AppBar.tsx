@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
-import { readHostLink } from '@/lib/hostLink';
+import { readHasHostNavigation } from '@/lib/hostNavigation';
 import { AppBarSlotTarget } from './AppBarSlots';
 import { AppRail, useRailExpanded } from './AppRail';
 import { FLOWS_SECTION, sectionOf, useAppSections, type AppSection } from './appSections';
@@ -64,26 +64,32 @@ function useCompactViews(bar: HTMLElement | null) {
 export function AppFrame({ children }: { children: ReactNode }) {
   const { pathname, search } = useLocation();
   const { sections, flowsHref } = useAppSections(pathname, search);
-  const hostLink = useMemo(readHostLink, []);
+  const hasHostNavigation = useMemo(readHasHostNavigation, []);
   const reachability = useServerReachability(pathname);
   const [isRailExpanded, setIsRailExpanded] = useRailExpanded();
   const [isPhoneRailOpen, setIsPhoneRailOpen] = useState(false);
   // Following a link closes the phone menu.
   useEffect(() => setIsPhoneRailOpen(false), [pathname]);
   return (
-    <div className={`app-shell${isRailExpanded ? ' has-expanded-rail' : ''}`}>
-      <AppRail
-        flowsHref={flowsHref}
-        hostLink={hostLink}
-        isExpanded={isRailExpanded}
-        isPhoneOpen={isPhoneRailOpen}
-        onExpandedChange={setIsRailExpanded}
-        onPhoneClose={() => setIsPhoneRailOpen(false)}
-        reachability={reachability}
-        sections={sections}
-      />
+    // A host that draws the navigation around Dex Web is the one rail; Dex Web then draws none.
+    <div className={`app-shell${hasHostNavigation ? ' has-host-navigation' : isRailExpanded ? ' has-expanded-rail' : ''}`}>
+      {!hasHostNavigation && (
+        <AppRail
+          flowsHref={flowsHref}
+          isExpanded={isRailExpanded}
+          isPhoneOpen={isPhoneRailOpen}
+          onExpandedChange={setIsRailExpanded}
+          onPhoneClose={() => setIsPhoneRailOpen(false)}
+          reachability={reachability}
+          sections={sections}
+        />
+      )}
       <div className="app-column">
-        <AppBar flowsHref={flowsHref} onOpenPhoneRail={() => setIsPhoneRailOpen(true)} sections={sections} />
+        <AppBar
+          flowsHref={flowsHref}
+          onOpenPhoneRail={hasHostNavigation ? undefined : () => setIsPhoneRailOpen(true)}
+          sections={sections}
+        />
         <main className="app-main">{children}</main>
       </div>
     </div>
@@ -98,7 +104,8 @@ export function AppBar({
 }: {
   sections: readonly AppSection[];
   flowsHref: string;
-  onOpenPhoneRail: () => void;
+  /** Opens the rail on a phone; absent when the host draws the navigation. */
+  onOpenPhoneRail?: () => void;
 }) {
   const { pathname } = useLocation();
   const [bar, setBar] = useState<HTMLElement | null>(null);
@@ -107,9 +114,11 @@ export function AppBar({
   return (
     <header className="app-bar v1-page" ref={setBar}>
       <nav aria-label="Trail" className="app-bar-trail">
-        <button aria-label="Open navigation" className="app-bar-icon-button app-bar-rail-button" onClick={onOpenPhoneRail} type="button">
-          <Menu aria-hidden="true" size={18} strokeWidth={2} />
-        </button>
+        {onOpenPhoneRail && (
+          <button aria-label="Open navigation" className="app-bar-icon-button app-bar-rail-button" onClick={onOpenPhoneRail} type="button">
+            <Menu aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
+        )}
         <Link className="app-bar-section-link" to={current === FLOWS_SECTION ? flowsHref : current.path}>
           {current.label}
         </Link>

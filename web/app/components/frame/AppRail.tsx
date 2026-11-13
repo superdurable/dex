@@ -8,8 +8,7 @@
 
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowUpLeft, ChevronLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { HostLink } from '@/lib/hostLink';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { FLOWS_PATH } from '../../routes';
 import { DexMark } from '../DexMark';
 import { FLOWS_SECTION, sectionOf, type AppSection } from './appSections';
@@ -44,11 +43,10 @@ const reachabilityLabels: Record<Exclude<ServerReachability, 'checking'>, string
   unreachable: 'Dex Web cannot reach the Dex Server',
 };
 
-/** The left rail: the server, then every section; experimental sections sit below their own heading. */
+/** The left rail of a Dex Web on its own: home, then every section; experimental ones sit below their heading. */
 export function AppRail({
   sections,
   flowsHref,
-  hostLink,
   reachability,
   isExpanded,
   onExpandedChange,
@@ -57,7 +55,6 @@ export function AppRail({
 }: {
   sections: readonly AppSection[];
   flowsHref: string;
-  hostLink: HostLink | null;
   reachability: ServerReachability;
   isExpanded: boolean;
   onExpandedChange: (isExpanded: boolean) => void;
@@ -99,29 +96,13 @@ export function AppRail({
         className={`app-rail${isExpanded ? ' is-expanded' : ''}${isPhoneOpen ? ' is-phone-open' : ''}`}
       >
         <div className="app-rail-server">
-          {hostLink ? (
-            <a className="app-rail-item app-rail-host" href={hostLink.url} title={isExpanded ? undefined : hostLink.name}>
-              <span className="app-rail-icon app-rail-mark">
-                <ChevronLeft aria-hidden="true" size={18} strokeWidth={2.25} />
-                {reachDot}
-              </span>
-              <span className="app-rail-label app-rail-host-name">{hostLink.name}</span>
-            </a>
-          ) : (
-            <Link aria-label="Dex home" className="app-rail-item app-rail-host" title={isExpanded ? undefined : 'Dex home'} to={FLOWS_PATH}>
-              <span className="app-rail-icon app-rail-mark">
-                <DexMark size={22} />
-                {reachDot}
-              </span>
-              <span className="app-rail-label app-rail-host-name">Dex</span>
-            </Link>
-          )}
-          {hostLink?.pages.map((page) => (
-            <a className="app-rail-item app-rail-host-page" href={page.url} key={page.url} title={isExpanded ? undefined : page.name}>
-              <ArrowUpLeft aria-hidden="true" className="app-rail-icon" size={16} strokeWidth={2} />
-              <span className="app-rail-label">{page.name}</span>
-            </a>
-          ))}
+          <Link aria-label="Dex home" className="app-rail-item app-rail-host" title={isExpanded ? undefined : 'Dex home'} to={FLOWS_PATH}>
+            <span className="app-rail-icon app-rail-mark">
+              <DexMark size={22} />
+              {reachDot}
+            </span>
+            <span className="app-rail-label app-rail-host-name">Dex</span>
+          </Link>
         </div>
         <div className="app-rail-sections">
           {stable.map(sectionLink)}
