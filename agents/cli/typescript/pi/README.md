@@ -209,11 +209,11 @@ image first. Any other Pi tool that returns images is handled the same way.
 ## Sessions and other machines
 
 `dex.server` may point at a Dex server instead of `dexcli dev`; the CLI core
-handles the connection. A session belongs to the execution environment that
-started it: the CLI core names the session Flow type after the host, the user,
-the configuration file, and the workspace, and `--resume` works only in that
-environment. See
-[the CLI core README](../core/README.md#sessions-belong-to-one-execution-environment).
+handles the connection. The CLI core names the session Flow type after the
+host, the user, the configuration file, and the workspace that started the
+session. `--resume` from another machine or directory takes the session over:
+its model and tool calls then run there, in that command's workspace. See
+[the CLI core README](../core/README.md#sessions-and-execution-environments).
 This command builds its Flow with the CLI core's Flow type and checks tool
 permissions only through the CLI core's helpers, so it follows the CLI core's
 rules. Model replies are stored in pi-ai's format with the pi-ai version; a

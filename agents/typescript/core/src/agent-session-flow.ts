@@ -955,7 +955,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       context: Context,
       input: AcquireSessionTerminalLeaseRequest,
     ): RPCResult<SessionTerminalLeaseResult> {
-      // Dex does not replay handlers, and a CLI Flow type's Workers share one host clock.
+      // Dex does not replay handlers, and a CLI Flow type's Workers share one host clock unless another
+      // host took a session over.
       const acquisition = decideSessionTerminalLeaseAcquisition(
         persistence.sessionTerminalLease.get(context),
         input,

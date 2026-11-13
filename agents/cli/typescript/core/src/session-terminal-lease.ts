@@ -438,7 +438,8 @@ export async function releaseSessionLease(
 /**
  * Leaves another environment's session within 2 s: renews this holder's lease for 1 second instead of releasing it,
  * ignoring every failure. The stored holder keeps naming this environment, so the session's own environment runs
- * none of the calls approved here until a command takes the session over.
+ * none of the calls approved here until a command takes the session over. A lease this holder does not hold is left
+ * alone, so leaving never takes a free session.
  * @param client - The command's Client.
  * @param flow - The session Flow.
  * @param sessionId - The session.
@@ -451,6 +452,15 @@ export async function handBackSessionLease(
   holder: SessionLeaseHolder,
 ): Promise<void> {
   const deadline = Date.now() + leaseReleaseTimeoutMs;
+  try {
+    const [stored] = await withinTimeout(client.getAttributes(sessionId, flow.sessionTerminalLease), leaseReleaseTimeoutMs);
+    if (stored?.holderId !== holder.holderId) {
+      return;
+    }
+  } catch {
+    // An unanswered read leaves the lease to expire, which keeps naming this environment if it is this holder's.
+    return;
+  }
   while (Date.now() < deadline) {
     try {
       await withinTimeout(

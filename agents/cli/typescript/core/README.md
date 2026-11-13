@@ -82,7 +82,7 @@ the optional `@aws-sdk/client-s3` peer; without it, or with a store the core
 refuses, the command exits with 2. Connector tool result images go to the same
 store.
 
-### Sessions belong to one execution environment
+### Sessions and execution environments
 
 The CLI core registers the session Flow type `<flowType>-<suffix>`. The suffix
 is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
@@ -106,13 +106,13 @@ started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
 hashed values, and `user_name` is the user's name, left out when the system
 cannot tell it. They are not session settings and cannot change.
 
-A Worker takes only the Steps of its own Flow type, so an approved write or
-shell command always runs as the same user, with the same configuration file
-and workspace it was approved under. Tool settings, such as the shell allow
-list, are not part of the suffix, so changing them keeps `--resume` working.
-Changing the workspace, the file, or the user starts a new type: `--resume`
-of an older session then exits with 2 and says to resume it in its original
-environment, and `sessions` lists only the current environment's sessions.
+A Worker takes only the Steps of the Flow type it polls. Tool settings, such
+as the shell allow list, are not part of the suffix, so changing them keeps a
+session in its environment. Changing the workspace, the file, or the user
+makes another environment, with another type, and `sessions` lists only the
+current environment's sessions. `--resume` continues a session of any
+environment of the same harness; a session of another harness exits with 2.
+See [Taking a session over from another execution environment](#taking-a-session-over-from-another-execution-environment).
 `sessions` loads up to 250 sessions, sorts them by last activity, and says
 when more sessions exist. It prints one per line with tab-separated
 columns: the ID, the status, the start time, the time of the latest turn, the
@@ -135,6 +135,33 @@ records `failed` without running, when the tool's group or connector
 connection or operation is off there, or when a call that had no approval is
 no longer allowed without one: a shell command missing from its allow list,
 or a tool now in `approval.always`.
+
+### Taking a session over from another execution environment
+
+`--resume` of another environment's session builds the session Flow with that
+session's Flow type, and the Worker polls it instead of this environment's
+type. The session's Flow type never changes. `HarnessContext.flowType` is then
+the session's type. The Worker starts polling once no other terminal holds a
+live lease on the session, then takes the lease. Every lease holder ID names
+its holder's environment: `<environment Flow type>/<32 hex digits>`.
+
+Before each model call, summary, tool call, and tool task poll or
+cancellation, the CLI core reads the session's stored lease from Dex. A Worker
+that polls its own environment's type acts unless the stored holder names
+another environment. A Worker that polls another environment's type acts only
+when the stored holder is its own process. A refused tool call records
+`failed` without running; a refused model call fails its attempt. Expiry plays
+no part, so clock skew between hosts never moves a call.
+
+A takeover from another environment refuses the turn in progress in this
+process before it takes the lease, then cancels the turn. So no call approved
+in the other environment, or by its configuration file, runs here. Leaving
+another environment's session renews the lease for 1 second instead of
+releasing it: the stored holder keeps naming this environment, so the
+session's own environment refuses the calls approved here until a command
+takes the session over. In the terminal UI, such a session's launch document
+leaves out `start_session`. The lines and the decision table are in
+[`agents/conformance/cli_session_environments.json`](../../../conformance/cli_session_environments.json).
 
 ## The harness interface
 

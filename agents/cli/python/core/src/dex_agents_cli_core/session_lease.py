@@ -28,9 +28,10 @@ from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from typing import TextIO
 
-from dex import DexServiceError
+from dex import AsyncClient, DexServiceError
 
 from dex_agents import (
+    SESSION_TERMINAL_LEASE,
     AcquireSessionTerminalLeaseRequest,
     AgentSessionClient,
     SessionTerminalLease,
@@ -203,6 +204,7 @@ class HeldSessionLease:
         sessions: AgentSessionClient,
         holder: SessionLeaseHolder,
         *,
+        client: AsyncClient,
         is_other_environment_session: bool = False,
     ) -> None:
         """Hold leases through a session client.
@@ -210,10 +212,12 @@ class HeldSessionLease:
         Args:
             sessions: The session client.
             holder: This process's holder.
+            client: The Client of ``sessions``, which reads the stored lease.
             is_other_environment_session: Whether the sessions are another
                 execution environment's, which ``release`` hands back by expiry.
         """
         self._sessions = sessions
+        self._client = client
         self._holder = holder
         self._is_other_environment_session = is_other_environment_session
         self._session_id: str | None = None
@@ -270,13 +274,21 @@ class HeldSessionLease:
     async def _release_one(self, session_id: str) -> None:
         try:
             if self._is_other_environment_session:
-                await self._sessions.acquire_session_terminal_lease(
-                    session_id, self._holder.acquire_request(HAND_BACK_TTL_SECONDS)
-                )
+                await self._hand_back(session_id)
                 return
             await self._sessions.release_session_terminal_lease(session_id, self._holder.holder_id)
         except DexServiceError as error:
             _LOGGER.warning("cannot release the session lease: session=%s: %s", session_id, error)
+
+    async def _hand_back(self, session_id: str) -> None:
+        """Renew only this holder's lease, for ``HAND_BACK_TTL_SECONDS``: never take a free one."""
+        values = await self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE)
+        stored = values.get(SESSION_TERMINAL_LEASE)
+        if stored is None or stored.holder_id != self._holder.holder_id:
+            return
+        await self._sessions.acquire_session_terminal_lease(
+            session_id, self._holder.acquire_request(HAND_BACK_TTL_SECONDS)
+        )
 
     async def _call_acquire(self, session_id: str) -> SessionTerminalLeaseResult:
         return await asyncio.wait_for(

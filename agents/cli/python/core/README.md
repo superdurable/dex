@@ -66,11 +66,31 @@ Each new session records these values in its start input,
 `AgentSessionStartInput.start_environment`, so a run shows where it was
 started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
 hashed values, and `user_name` is the user's name, left out when the system
-cannot tell it. They are not session settings and cannot change. Two commands that differ in any of these never take each other's
-tool Steps, so an approved write runs only with the workspace, tools, and
-connections it was approved under. `sessions` lists, and `--resume` continues,
-only sessions of the same Flow type; resuming another one exits with code 2
-and says to use the user, configuration file, and workspace that started it.
+cannot tell it. They are not session settings and cannot change. `sessions`
+lists only sessions of this environment's Flow type. `--resume` continues a
+session of any environment of the same harness; a session of another harness
+exits with code 2.
+
+`--resume` of another environment's session builds the session Flow with that
+session's Flow type, and the Worker polls it instead of this environment's
+type; the session's Flow type never changes. The Worker starts polling once no
+other terminal holds a live lease on the session, then takes the lease. Every
+lease holder ID names its holder's environment:
+`<environment Flow type>/<32 hex digits>`. Before each model call, summary,
+tool call, and tool task poll or cancellation, the CLI core reads the
+session's stored lease from Dex. A Worker that polls its own environment's
+type acts unless the stored holder names another environment; a Worker that
+polls another environment's type acts only when the stored holder is its own
+process. A refused tool call records `failed` without running. Expiry plays no
+part, so clock skew between hosts never moves a call. A takeover from another
+environment refuses the turn in progress in this process before it takes the
+lease, then cancels the turn, so no call approved in the other environment
+runs here. Leaving another environment's session renews the lease for 1
+second instead of releasing it, so the session's own environment refuses the
+calls approved here until a command takes the session over. In the terminal
+UI, such a session's launch document leaves out `start_session`. The lines
+and the decision table are in
+[`agents/conformance/cli_session_environments.json`](../../../conformance/cli_session_environments.json).
 
 ### The terminal chat
 

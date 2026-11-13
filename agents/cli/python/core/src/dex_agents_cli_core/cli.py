@@ -1096,7 +1096,10 @@ class _SessionWorker:
         self._is_serving = False
         is_other_environment_session = flow.get_flow_type() != home_flow_type
         self.lease = HeldSessionLease(
-            self.sessions, holder, is_other_environment_session=is_other_environment_session
+            self.sessions,
+            holder,
+            client=client,
+            is_other_environment_session=is_other_environment_session,
         )
         self.takeover = SessionTakeover(
             client=client,

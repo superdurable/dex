@@ -209,7 +209,13 @@ class HarnessContext:
     """Everything a harness needs to build its session Flow.
 
     Attributes:
-        flow_type: The harness's Flow type.
+        flow_type: The harness's Flow type: its base Flow type with the
+            execution environment's suffix. Build the Flow with it.
+
+            .. versionchanged:: 0.6.4
+               For ``--resume`` of a session that another execution
+               environment started, it is that session's Flow type, with the
+               other environment's suffix.
         config: The configuration file's effective configuration, with any
             ``--model`` applied. It bounds every turn.
         workspace: The absolute workspace directory, which exists.

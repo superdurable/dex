@@ -628,20 +628,23 @@ and the TypeScript commands print tab-separated columns with a dash for it:
 builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
 ```
 
-A session belongs to the environment that started it. The command registers
-its sessions under a Flow type made from the harness's Flow type and a
-six-character suffix. The suffix is a hash of the host name, the user, the
-configuration file's real path, and the workspace's real path. Each new
+A session's Flow type names the environment that started it. The command
+registers its sessions under a Flow type made from the harness's Flow type
+and a six-character suffix. The suffix is a hash of the host name, the user,
+the configuration file's real path, and the workspace's real path. Each new
 session records these values in its start input, so its run in Dex Web shows
 where it started.
 
-- **sessions** lists, and **--resume** continues, only sessions of the current
-  environment. Resuming another environment's session exits with code 2 and
-  says to use the user, configuration file, and workspace that started it.
-- Changing the workspace, the configuration file, or the user starts a new
-  Flow type. Changing a tool setting, such as the shell allow list, does not.
-- A Worker takes only the Steps of its own Flow type. So an approved write
-  runs only with the workspace and configuration file it was approved under.
+- **sessions** lists the sessions of the current environment.
+- Changing the workspace, the configuration file, or the user makes another
+  environment, with another Flow type. Changing a tool setting, such as the
+  shell allow list, does not.
+- **--resume** continues a session of any environment of the same harness.
+  See [Take a session over from another environment](#other-environments).
+  Resuming a session of another harness exits with code 2.
+- A Worker takes only the Steps of the Flow type it polls. That is its own
+  environment's Flow type unless its command took a session over from
+  another environment.
 
 Two commands in the same environment share their sessions' Steps. A tool Step
 may run in another process than the one that built the call. So the Worker
@@ -696,9 +699,83 @@ Attribute. Sessions that an earlier release started take it the first time a
   **dexcli** 1.47.2 or later. The terminal UI hands the switch to the command,
   which waits with the same status line and opens the terminal UI again on the
   new session. An earlier **dexcli** switches in place, without the lease.
-- The lease marks which terminal shows a session. It does not keep a Worker
-  from running the session's Steps: two commands in the same environment still
-  share them.
+- The lease marks which terminal shows a session. Two commands in the same
+  environment still share the session's Steps. Since 0.6.4, the lease also
+  decides which environment runs the session's model and tool calls. See
+  [Take a session over from another environment](#other-environments).
+
+### Take a session over from another environment {#other-environments}
+
+Since 0.6.4. **--resume** continues a session that another host, user,
+configuration file, or workspace started. Find its ID in Dex Web, or with
+**sessions** in the environment that started it. The session keeps its Flow
+type. The command's Worker polls that Flow type instead of its own
+environment's.
+
+The command takes the session's terminal lease first, as
+[One terminal per session](#one-terminal-per-session) describes. Its Worker
+starts polling only once no other terminal holds the session. Then the
+command prints one line on standard error that names both environments and
+the workspace its tools use:
+
+```text
+Session builtin-20261113-203123-3efeb4 was last open in execution environment DexAgentsBuiltinCliSession-ab12cd; its model and tool calls now run in this one (DexAgentsBuiltinCliSession-xy34zw), in workspace /home/b/work.
+```
+
+- The session's model and tool calls run with this command's configuration
+  file, credentials, and workspace. Paths in the conversation may still name
+  the other workspace. Relative paths resolve in this one.
+- A turn in progress is cancelled. The command prints
+  **Cancelled the turn that was in progress there; none of its model or tool
+  calls run here.** No call of that turn runs in this environment, including
+  one approved in the other environment.
+- A command that leaves another environment's session renews the lease for 1
+  second instead of releasing it, so the stored holder still names this
+  environment. The session stays with this environment until a command takes
+  it over, also one in the environment that started it.
+- In the terminal UI, **/sessions** lists the sessions of the session's
+  environment, and **/new** is not offered. Run the command without
+  **--resume** to start a session in this environment.
+- Leaving and taking over work the same way in the environment that started
+  the session. Its next **--resume** prints the line again and cancels a turn
+  in progress.
+
+Each lease holder ID names its environment: the environment's session Flow
+type, **/**, and 32 random hex digits. Before every model call and tool call,
+the Worker reads the session's lease from Dex. A Worker that polls its own
+environment's Flow type runs the call unless another environment holds the
+session. A Worker that polls another environment's Flow type runs only the
+calls of the session its command holds. A refused tool call records
+**failed** and does not run. A refused model call fails its turn:
+
+```text
+tool write_file did not run: session builtin-20261113-203123-3efeb4 is now open in another execution environment
+```
+
+While one of its sessions is open elsewhere, an environment's Flow type has
+Workers in two environments. Dex may then hand a call of one environment's
+session to the other environment's Worker, which refuses it. Close the
+commands of the session's own environment while you work on one of its
+sessions elsewhere. The same refusal fails a turn that Dex Web starts in a
+session that another environment left: the session waits for a command to
+take it over.
+
+Edge cases:
+
+- Which Worker may run a call never depends on a clock. Lease expiry does:
+  the Worker that serves a lease request judges it by its own host's clock,
+  so clock skew between hosts shortens or lengthens the wait for an expired
+  lease.
+- A read or idempotent write tool call that started in the environment that
+  last held the session, failed, and is retried after the session moved back
+  to the environment that started it, may run in a command of that environment
+  that does not hold the session. A shell command or another write without an
+  idempotency hint gets one attempt and never runs twice.
+- A call that passed the lease check runs to the end, even when another
+  environment takes the session over during the call.
+- A command before 0.6.4 checks no lease, so it runs every call of its Flow
+  type. Upgrade the commands of an environment before you take one of its
+  sessions elsewhere.
 
 ## Workspace and local tools {#local-tools}
 
@@ -984,10 +1061,12 @@ graph and its Actions.
   running until the next terminal UI start of a command stops it. A process
   that left the shell command's process group is never stopped.
 
-- **Sessions stay in their environment.** A session resumes only with the host,
-  user, configuration file, and workspace that started it. Without a
-  **workspace** in the file, **dex-agents-pi** resumes a session only from the
-  directory it started in. See [Resume a session](#resume).
+- **A session taken over from another environment shares its Flow type.**
+  Commands still running in the environment that started it poll the same
+  Flow type. A call that Dex hands to the other environment's Worker is
+  refused and fails. Close those commands while you work on the session
+  elsewhere. See
+  [Take a session over from another environment](#other-environments).
 - **The local tools are not a sandbox.** An approved shell command runs with
   your permissions. See [Workspace and local tools](#local-tools).
 - **Pi's tools reach every file you can.** In **dex-agents-pi**, the file

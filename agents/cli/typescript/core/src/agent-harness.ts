@@ -106,8 +106,12 @@ export interface AgentHarness {
    * The CLI core registers `<flowType>-<suffix>`, from `namespaceSessionFlowType`, where the suffix hashes the
    * host name, the user, the configuration file's real path, and the workspace. A Worker then takes only the
    * Steps of sessions started in the same execution environment, so an approved write or shell command runs
-   * where it was approved. Processes in the same environment share their sessions' Steps. `--resume` and the
-   * `sessions` subcommand see only the sessions of the same environment.
+   * where it was approved. Processes in the same environment share their sessions' Steps. The `sessions`
+   * subcommand sees only the sessions of the same environment.
+   *
+   * Changed in 0.6.4: `--resume` also continues a session of this harness that another environment started. The
+   * Worker then polls that session's Flow type, and a lease check before each model and tool call keeps them in
+   * the environment that holds the session.
    */
   readonly flowType: string;
   /** The model when the file sets none, or `null` when the command must refuse to run without one. */
@@ -228,7 +232,12 @@ export interface AgentHarness {
  * @since 0.5.0
  */
 export interface HarnessContext {
-  /** The Flow type to build: {@link AgentHarness.flowType} with the execution environment hash. */
+  /**
+   * The Flow type to build: {@link AgentHarness.flowType} with the execution environment hash.
+   *
+   * Changed in 0.6.4: for `--resume` of a session that another execution environment started, it is that
+   * session's Flow type, with the other environment's hash.
+   */
   readonly flowType: string;
   /** The file's effective configuration, after command-line overrides. */
   readonly config: EffectiveConfig;
