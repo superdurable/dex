@@ -398,6 +398,11 @@ delete objects under the prefix, and to read the bucket's versioning status
 **objectStore.hardDeleteStore** without its own **provider** uses COS too.
 Give it the same endpoint and addressing settings.
 
+Run the nodes in the bucket's region. On COS, one lease renewal takes several
+requests in a row, so keep **lease.duration** at its default of 30 seconds or
+longer. A short lease, such as 10 seconds, can expire during a burst of slow
+requests from outside the region.
+
 COS ignores conditional PutObject headers. The server creates each object with
 one AppendObject request at position 0, which COS rejects when the key already
 holds an object. These are appendable objects. They have these limits:
