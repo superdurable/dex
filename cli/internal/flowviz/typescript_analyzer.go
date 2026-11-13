@@ -52,7 +52,12 @@ func analyzeTypeScript(ctx context.Context, sourcePath string, source []byte, sc
 	if err != nil {
 		return nil, fmt.Errorf("encode TypeScript analyzer input: %w", err)
 	}
-	command := exec.CommandContext(ctx, "node", "--input-type=commonjs", "-e", typeScriptAnalyzerSource)
+	scriptPath, removeScript, err := writeTypeScriptAnalyzerScript()
+	if err != nil {
+		return nil, err
+	}
+	defer removeScript()
+	command := exec.CommandContext(ctx, "node", typeScriptAnalyzerArguments(scriptPath)...)
 	if compiler != nil {
 		// NODE_OPTIONS can preload modules and NODE_PATH can redirect resolution.
 		command.Dir = compiler.packageDirectory
@@ -76,6 +81,31 @@ func analyzeTypeScript(ctx context.Context, sourcePath string, source []byte, sc
 		return nil, fmt.Errorf("decode TypeScript analyzer output: %w", err)
 	}
 	return result.definition(schemaVersion), nil
+}
+
+// writeTypeScriptAnalyzerScript writes the analyzer to a private temporary directory, because Linux caps one argument at 128 KiB.
+// It returns the script path and a function that removes the directory, or an error that names the failed step.
+func writeTypeScriptAnalyzerScript() (string, func(), error) {
+	directory, err := os.MkdirTemp("", "dexcli-typescript-analyzer-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create TypeScript analyzer directory: %w", err)
+	}
+	removeDirectory := func() {
+		if removeErr := os.RemoveAll(directory); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: remove TypeScript analyzer directory %s: %v\n", directory, removeErr)
+		}
+	}
+	scriptPath := filepath.Join(directory, "typescript_analyzer.cjs")
+	if err := os.WriteFile(scriptPath, []byte(typeScriptAnalyzerSource), 0o600); err != nil {
+		removeDirectory()
+		return "", nil, fmt.Errorf("write TypeScript analyzer script: %w", err)
+	}
+	return scriptPath, removeDirectory, nil
+}
+
+// typeScriptAnalyzerArguments returns the node arguments that run the analyzer script file.
+func typeScriptAnalyzerArguments(scriptPath string) []string {
+	return []string{scriptPath}
 }
 
 // resolveTrustedTypeScriptCompiler validates the typescript package directory and resolves its entry file.
