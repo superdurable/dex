@@ -23,7 +23,8 @@ Query; ``create_payout`` is a ``retry: safe`` Mutation without approval and
 needs approval above 50; ``post_note`` is a single-attempt Mutation and
 ``policy_note`` the same under a session policy that asks for approval and
 claims ``READ``. ``HidingToolSource`` lists ``hiding_note``, the same
-single-attempt Mutation, until a test hides it.
+single-attempt Mutation, until a test hides it. ``TaskToolSource`` lists
+``report``, a ``READ`` tool without approval that starts a tool task.
 
 An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
 ``"rewritten"``, raises a ``payout_checked`` amount to 500 when its memo is
@@ -84,10 +85,14 @@ from dex_agents import (
     RunModelLimit,
     ToolCallStepOptions,
     ToolEffect,
+    ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
+    ToolTaskCancellation,
+    ToolTaskPending,
     ToolTaskPoll,
     ToolTaskPollOutcome,
+    ToolTaskStarted,
 )
 from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents.connectors import ConnectorToolSource, connector_tool
@@ -139,6 +144,7 @@ TOOL_POLICIES = {
     "policy_note": ToolPolicy(ToolEffect.READ, requires_approval=True),
     "screenshot": ToolPolicy(ToolEffect.READ, requires_approval=True),
     "draw": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+    "report": ToolPolicy(ToolEffect.READ, requires_approval=False),
 }
 TEST_IMAGES = {
     image["name"]: image
@@ -191,7 +197,11 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         build_media_store(state_dir) if os.environ.get(MEDIA_STORE_ENVIRONMENT_VARIABLE) else None
     )
     custom_tools = build_custom_tools(state_dir)
-    tool_sources: list[Any] = [build_connector_source(state_dir), HidingToolSource(state_dir)]
+    tool_sources: list[Any] = [
+        build_connector_source(state_dir),
+        HidingToolSource(state_dir),
+        TaskToolSource(state_dir),
+    ]
     if media_store is not None:
         custom_tools.append(build_draw_tool(state_dir))
         tool_sources.append(ScreenshotToolSource(state_dir, media_store))
@@ -356,6 +366,74 @@ class HidingToolSource:
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         return await self._inner.poll_tool_task(poll)
+
+
+class TaskToolSource:
+    """Lists ``report``, whose call starts a task that ``poll_tool_task`` polls.
+
+    The call returns ``ToolTaskStarted`` with task ID ``task-<tool call ID>``.
+    Arguments: ``topic`` names the result ``report on <topic>``; ``polls`` is
+    the poll that finishes the task, counted from 1; ``fail`` makes that poll
+    raise ``ToolExecutionError``; ``hold`` keeps the task pending. The
+    invocation log records ``start <task>``, ``poll <task> <n>``, and
+    ``cancel-task <task> <status> <cancellation_reason>``.
+    """
+
+    source_name = "reports"
+
+    def __init__(self, state_dir: Path) -> None:
+        self._invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+
+    async def list_tools(self) -> Sequence[SourceToolDefinition]:
+        return [_ListedTool("report", "Write a report as a task")]
+
+    def deferred_tool_call(
+        self,
+        turn: AgentTurnContext,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: str,
+        listed_tool: SourceToolDefinition,
+    ) -> DeferredToolCall:
+        return DeferredToolCall(
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            policy=turn.resolve_tool_policy(tool_name, ToolEffect.READ),
+            tool_source_reference=json.dumps({"kind": "report"}),
+        )
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
+        if call.tool_call.tool_source_reference != json.dumps({"kind": "report"}):
+            raise RuntimeError("report got another source's reference")
+        if not call.supports_tool_tasks:
+            raise RuntimeError("the runner does not poll tool tasks")
+        task_id = f"task-{call.tool_call.tool_call_id}"
+        self._invocations.record(f"start {task_id}")
+        return ToolTaskStarted(task_id=task_id, poll_interval_seconds=1)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        record = poll.tool_call
+        if record.tool_source_reference != json.dumps({"kind": "report"}):
+            raise RuntimeError("report got another source's reference")
+        task_id = record.task_id or ""
+        earlier_polls = [
+            name for name in self._invocations.names() if name.startswith(f"poll {task_id} ")
+        ]
+        poll_number = len(earlier_polls) + 1
+        self._invocations.record(f"poll {task_id} {poll_number}")
+        arguments = json.loads(record.arguments)
+        if arguments.get("hold") or poll_number < int(arguments.get("polls", 1)):
+            return ToolTaskPending(poll_interval_seconds=1)
+        if arguments.get("fail"):
+            raise ToolExecutionError(f"the report on {arguments['topic']} failed")
+        return ToolExecutionResult(output=f"report on {arguments['topic']}")
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        record = cancellation.tool_call
+        reason = record.cancellation_reason.value if record.cancellation_reason else "none"
+        self._invocations.record(f"cancel-task {record.task_id} {record.status.value} {reason}")
 
 
 def _run_model_limit_from_environment() -> RunModelLimit | None:

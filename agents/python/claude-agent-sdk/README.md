@@ -286,10 +286,14 @@ flow = claude_agent_session_flow(
   `CLAUDE_CODE_BUILT_IN_TOOL_NAMES`, or another source's tool. The same names
   listed at run time fail that `RunModel` attempt. An `allowed_tools` entry for
   a source tool fails the attempt, because the call must defer.
-- The runner polls no tool tasks. A source call that starts one records
-  `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
-  listing fails or takes longer than `tool_source_listing_timeout` offers no
-  tools in that attempt.
+- A source call can start a tool task by returning `ToolTaskStarted`. The
+  session polls it on a Timer through the source's `poll_tool_task`, and the
+  resumed CLI receives the task's result. `McpToolSource` hands its Streamable
+  HTTP tasks to the session this way. `cancel_turn` records a running task's
+  call `outcome_unknown` and cancels the task through the source's
+  `cancel_tool_task`; a source without that method leaves the task running.
+- A source whose listing fails or takes longer than
+  `tool_source_listing_timeout` offers no tools in that attempt.
 - A source tool that the turn already called but the current listing lacks is
   still served, replay-only, so the resumed CLI receives its recorded result.
   A new call of that tool is denied in the turn ("its tool source does not
