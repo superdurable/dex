@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/cli/internal/flowviz"
+	"github.com/superdurable/dex/web"
+	"github.com/superdurable/dex/web/assets"
 )
 
 func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
@@ -56,8 +58,6 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 					continue
 				}
 				switch diagnostic.Code {
-				case "typescript_wait_for_unsupported":
-					require.Contains(t, string(contents), "waitFor(")
 				case "multiple_flows":
 					require.Greater(t, strings.Count(string(contents), "getSteps("), 1)
 				case "hidden_dex_decision":
@@ -70,6 +70,9 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 			}
 			require.Equal(t, hiddenDecisionSources[filepath.ToSlash(relative)], hasHiddenDecision)
 			require.Equal(t, !hasUnsupportedFeature, graph.Valid, graph.Diagnostics)
+			// NewFlowRenderingServer validates the graph as Dex Web does.
+			_, err = web.NewFlowRenderingServer(&web.Config{BindAddress: "127.0.0.1"}, first, assets.Files)
+			require.NoError(t, err)
 		})
 	}
 }

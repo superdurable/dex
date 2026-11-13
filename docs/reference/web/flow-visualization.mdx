@@ -117,7 +117,7 @@ Attribute relations include reads, writes, and locks. The Python analyzer follow
 
 Stream relations describe observable application output, not control flow. They are hidden by default in Designs and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. The graph leaves out heartbeat calls and checkpoint reads.
 
-Go reports **step_progress_outside_step** when an RPC or Flow timeout handler calls **Stream.Write** or creates a writer with **NewBufferedTextStream**. The check also follows same-package helpers and buffered writer aliases. The error names the handler, Stream, and helper location. Move the output to a Step. An RPC can publish a Channel message or return **NextSteps** to schedule that Step.
+Go reports **step_progress_outside_step** when an RPC or Flow timeout handler calls **Stream.Write** or creates a writer with **NewBufferedTextStream**. The check also follows same-package helpers and buffered writer aliases. The error names the handler, Stream, and helper location. Move the output to a Step. An RPC can publish a Channel message or return **NextSteps** to schedule that Step. Since dexcli 1.47.3, TypeScript reports the same diagnostic for **write** or **bufferedText** on a Stream in an RPC or **handleTimeout**, including through a same-file helper.
 
 ## Supported source profile
 
@@ -160,14 +160,21 @@ The TypeScript analyzer recognizes these source shapes:
 - Conditions from **if**, **switch**, conditional expressions, loops, and **try** blocks.
 - **ExecuteFailure.proceedTo** in **getStepOptions**, directly or through a helper method or function in the same file.
 - Attribute, Channel, and Stream definitions, and manifest-declared Connector factories.
+- Since dexcli 1.47.3, **waitFor** returns built directly with **Wait.until**, **Wait.allOf**, **Wait.anyOf**, **Wait.anyCombinationOf**, or **Wait.skipImmediately**, under the same conditions as Execute decisions. The graph uses the Go names for two Wait types: **skipWaitImmediately** and **anyComboOf**. A local constant bound to a Wait call also works.
+- Since dexcli 1.47.3, each Wait argument as one condition: **Timer.byDuration**, **SubFlow.run**, or a **forOne**, **forN**, **atLeast**, **atMost**, **range**, or Join branch condition on a Channel, ChannelMap, or Join declared in the file. Each **ConditionCombination.of** numbers its own conditions from 0, as Go numbers a **Combo**. A static millisecond duration gets a unit label, such as **2 seconds timer**.
+- Since dexcli 1.47.3, a **waitFor** that only throws. The graph shows it as a failure Wait, as for Go and Python.
+- Since dexcli 1.47.3, RPC handlers. Each returned **RPCResult** object literal is an **rpcResult** decision. Its **nextSteps** become transitions and its **cancelingSteps** become cancellations. A returned call to another method of the Flow class, such as another RPC, contributes that method's results. An RPC that returns nothing has no decision.
+- Since dexcli 1.47.3, **handleTimeout** decisions, read like Execute decisions.
+- Since dexcli 1.47.3, resource reads, writes, and publishes in Execute, **waitFor**, RPC, and **handleTimeout**. The analyzer also follows functions and methods of the same file that a handler calls, up to six levels deep, and records the helper in the edge metadata. A **bufferedText** writer bound to a local name counts as a Stream write. Unused resources produce the same **unused_resource** warning as in Go and Python.
 
-The TypeScript analyzer does not support these features yet:
+These TypeScript shapes are blocking diagnostics:
 
-- WaitFor methods. A Step with **waitFor** produces the blocking **typescript_wait_for_unsupported** diagnostic.
-- More than one Flow in one file. This produces **multiple_flows**.
-- RPC handlers and **handleTimeout**. Their decisions are not shown, so a Step that only an RPC schedules can report **unreachable_step**.
-- Resource reads, writes, locks, state loads, and Stream writes inside local handlers. The graph has no resource edges for local Steps and skips unused-resource warnings.
-- SubFlows, and the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
+- A **waitFor** return that is not a direct Wait call, such as a helper call, produces **hidden_dex_wait**.
+- A Wait argument that is a spread, a helper call, or another expression produces **dynamic_wait_condition**, and the graph shows that condition as unknown. The Go analyzer follows such helpers.
+- An RPC return that is not an object literal, a call to a Flow method, or nothing produces **hidden_dex_decision**. **nextSteps** or **cancelingSteps** that the handler does not build directly produce **dynamic_step_target**.
+- More than one Flow in one file produces **multiple_flows**, with one unknown node for each Flow class, as for Go and Python.
+
+The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. It leaves out a resource passed to a helper as an argument, Step option locks, and state loads. It also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
 An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive analysis across files are not supported.
 

@@ -1,0 +1,1018 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "typescript",
+    "path": "waits.ts"
+  },
+  "flow": {
+    "name": "ApprovalFlow",
+    "startStepId": "step:AwaitApproval",
+    "span": {
+      "startLine": 116,
+      "startColumn": 1,
+      "endLine": 156,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:rpc:approve",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:approve",
+      "phase": "rpc",
+      "span": {
+        "startLine": 133,
+        "startColumn": 3,
+        "endLine": 140,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:describe",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:describe",
+      "phase": "rpc",
+      "span": {
+        "startLine": 142,
+        "startColumn": 3,
+        "endLine": 145,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "decision:rpc:approve:137:14",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:approve",
+      "condition": "decision === \"skip\"",
+      "phase": "rpc",
+      "span": {
+        "startLine": 137,
+        "startColumn": 14,
+        "endLine": 137,
+        "endColumn": 120
+      },
+      "decision": {
+        "type": "rpcResult",
+        "cancellations": [
+          {
+            "stepId": "step:AwaitApproval",
+            "scope": "all"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:rpc:approve:139:12",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:approve",
+      "condition": "!(decision === \"skip\")",
+      "phase": "rpc",
+      "span": {
+        "startLine": 139,
+        "startColumn": 12,
+        "endLine": 139,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:describe:137:14",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "condition": "decision === \"skip\"",
+      "phase": "rpc",
+      "span": {
+        "startLine": 137,
+        "startColumn": 14,
+        "endLine": 137,
+        "endColumn": 120
+      },
+      "decision": {
+        "type": "rpcResult",
+        "cancellations": [
+          {
+            "stepId": "step:AwaitApproval",
+            "scope": "all"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:rpc:describe:139:12",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "condition": "!(decision === \"skip\")",
+      "phase": "rpc",
+      "span": {
+        "startLine": 139,
+        "startColumn": 12,
+        "endLine": 139,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:AwaitApproval:70:12",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitApproval",
+      "phase": "execute",
+      "span": {
+        "startLine": 70,
+        "startColumn": 12,
+        "endLine": 70,
+        "endColumn": 45
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:FailingWait:112:12",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:FailingWait",
+      "phase": "execute",
+      "span": {
+        "startLine": 112,
+        "startColumn": 12,
+        "endLine": 112,
+        "endColumn": 30
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:ReviewBounds:96:12",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:ReviewBounds",
+      "phase": "execute",
+      "span": {
+        "startLine": 96,
+        "startColumn": 12,
+        "endLine": 96,
+        "endColumn": 30
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:timeout_handler:ApprovalFlow:154:12",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "timeout_handler:ApprovalFlow",
+      "phase": "timeout",
+      "span": {
+        "startLine": 154,
+        "startColumn": 12,
+        "endLine": 154,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "resource:attribute:status",
+      "kind": "attribute",
+      "name": "Status",
+      "span": {
+        "startLine": 36,
+        "startColumn": 16,
+        "endLine": 36,
+        "endColumn": 52
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:channel:approvals",
+      "kind": "channel",
+      "name": "Approvals",
+      "span": {
+        "startLine": 34,
+        "startColumn": 19,
+        "endLine": 34,
+        "endColumn": 56
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:channel:buckets",
+      "kind": "channel",
+      "name": "Buckets",
+      "span": {
+        "startLine": 35,
+        "startColumn": 17,
+        "endLine": 35,
+        "endColumn": 55
+      },
+      "resource": {
+        "valueType": "string",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:stream:progress",
+      "kind": "stream",
+      "name": "Progress",
+      "span": {
+        "startLine": 37,
+        "startColumn": 18,
+        "endLine": 37,
+        "endColumn": 59
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "rpc:approve",
+      "kind": "rpc",
+      "name": "approve",
+      "span": {
+        "startLine": 133,
+        "startColumn": 3,
+        "endLine": 140,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "rpc:describe",
+      "kind": "rpc",
+      "name": "describe",
+      "span": {
+        "startLine": 142,
+        "startColumn": 3,
+        "endLine": 145,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "rpc:note",
+      "kind": "rpc",
+      "name": "note",
+      "span": {
+        "startLine": 147,
+        "startColumn": 3,
+        "endLine": 150,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "step:AwaitApproval",
+      "kind": "step",
+      "name": "AwaitApproval",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 126,
+        "startColumn": 31,
+        "endLine": 126,
+        "endColumn": 44
+      },
+      "metadata": {
+        "explanation": "Wait for an approval signal or a timer."
+      }
+    },
+    {
+      "id": "step:FailingWait",
+      "kind": "step",
+      "name": "FailingWait",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 126,
+        "startColumn": 70,
+        "endLine": 126,
+        "endColumn": 82
+      },
+      "metadata": {
+        "explanation": "Fail its waitFor so execute can recover."
+      }
+    },
+    {
+      "id": "step:ReviewBounds",
+      "kind": "step",
+      "name": "ReviewBounds",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 126,
+        "startColumn": 57,
+        "endLine": 126,
+        "endColumn": 68
+      },
+      "metadata": {
+        "explanation": "Wait for a bounded number of messages and a review SubFlow."
+      }
+    },
+    {
+      "id": "subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7",
+      "kind": "subflow",
+      "name": "reviewFlow",
+      "external": true,
+      "span": {
+        "startLine": 91,
+        "startColumn": 7,
+        "endLine": 91,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "timeout_handler:ApprovalFlow",
+      "kind": "timeout_handler",
+      "name": "handleTimeout",
+      "span": {
+        "startLine": 152,
+        "startColumn": 3,
+        "endLine": 155,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "wait-dispatch:AwaitApproval",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:AwaitApproval",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 52,
+        "startColumn": 3,
+        "endLine": 65,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "wait:AwaitApproval:54:14",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:AwaitApproval",
+      "condition": "buckets.size(context, \"priority\") \u003e 0",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 54,
+        "startColumn": 14,
+        "endLine": 54,
+        "endColumn": 36
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:AwaitApproval:57:14",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitApproval",
+      "condition": "!(buckets.size(context, \"priority\") \u003e 0) \u0026\u0026 input.useSignal",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 57,
+        "startColumn": 14,
+        "endLine": 57,
+        "endColumn": 91
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "Approvals.for 1",
+            "resourceId": "resource:channel:approvals",
+            "expression": "\"approval\"",
+            "span": {
+              "startLine": 57,
+              "startColumn": 25,
+              "endLine": 57,
+              "endColumn": 53
+            }
+          },
+          {
+            "index": 1,
+            "kind": "timer",
+            "label": "2 seconds timer",
+            "expression": "2_000",
+            "span": {
+              "startLine": 57,
+              "startColumn": 55,
+              "endLine": 57,
+              "endColumn": 90
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:AwaitApproval:60:9",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:AwaitApproval",
+      "condition": "!(buckets.size(context, \"priority\") \u003e 0) \u0026\u0026 !(input.useSignal) \u0026\u0026 input.minutes \u003e 10",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 60,
+        "startColumn": 9,
+        "endLine": 60,
+        "endColumn": 61
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "timer",
+            "label": "input.minutes * 60_000 timer",
+            "expression": "input.minutes * 60_000",
+            "span": {
+              "startLine": 60,
+              "startColumn": 20,
+              "endLine": 60,
+              "endColumn": 60
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:AwaitApproval:61:9",
+      "kind": "wait",
+      "name": "anyComboOf",
+      "parentId": "step:AwaitApproval",
+      "condition": "!(buckets.size(context, \"priority\") \u003e 0) \u0026\u0026 !(input.useSignal) \u0026\u0026 !(input.minutes \u003e 10)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 61,
+        "startColumn": 9,
+        "endLine": 64,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyComboOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "Approvals.for 2",
+            "resourceId": "resource:channel:approvals",
+            "expression": "2, \"pair\"",
+            "span": {
+              "startLine": 62,
+              "startColumn": 35,
+              "endLine": 62,
+              "endColumn": 60
+            }
+          },
+          {
+            "index": 1,
+            "kind": "timer",
+            "label": "5 minutes timer",
+            "expression": "reminderMs",
+            "span": {
+              "startLine": 62,
+              "startColumn": 62,
+              "endLine": 62,
+              "endColumn": 102
+            }
+          },
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "Buckets[\"priority\"].for 1…∞",
+            "resourceId": "resource:channel:buckets",
+            "expression": "\"priority\", 1, undefined, \"priority\"",
+            "span": {
+              "startLine": 63,
+              "startColumn": 35,
+              "endLine": 63,
+              "endColumn": 86
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:FailingWait:107:3",
+      "kind": "wait",
+      "name": "failure",
+      "parentId": "step:FailingWait",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 107,
+        "startColumn": 3,
+        "endLine": 109,
+        "endColumn": 4
+      },
+      "wait": {
+        "type": "failure",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:ReviewBounds:86:12",
+      "kind": "wait",
+      "name": "allOf",
+      "parentId": "step:ReviewBounds",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 86,
+        "startColumn": 12,
+        "endLine": 92,
+        "endColumn": 6
+      },
+      "wait": {
+        "type": "allOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "Approvals.at least 3",
+            "resourceId": "resource:channel:approvals",
+            "expression": "3",
+            "span": {
+              "startLine": 87,
+              "startColumn": 7,
+              "endLine": 87,
+              "endColumn": 27
+            }
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "Approvals.at most 4",
+            "resourceId": "resource:channel:approvals",
+            "expression": "4",
+            "span": {
+              "startLine": 88,
+              "startColumn": 7,
+              "endLine": 88,
+              "endColumn": 26
+            }
+          },
+          {
+            "index": 2,
+            "kind": "channel",
+            "label": "Approvals.for 2…5",
+            "resourceId": "resource:channel:approvals",
+            "expression": "2, 5",
+            "span": {
+              "startLine": 89,
+              "startColumn": 7,
+              "endLine": 89,
+              "endColumn": 28
+            }
+          },
+          {
+            "index": 3,
+            "kind": "channel",
+            "label": "Buckets[\"priority\"].for input",
+            "resourceId": "resource:channel:buckets",
+            "expression": "\"priority\", input",
+            "span": {
+              "startLine": 90,
+              "startColumn": 7,
+              "endLine": 90,
+              "endColumn": 38
+            }
+          },
+          {
+            "index": 4,
+            "kind": "subflow",
+            "label": "reviewFlow",
+            "subFlowId": "subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7",
+            "span": {
+              "startLine": 91,
+              "startColumn": 7,
+              "endLine": 91,
+              "endColumn": 37
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "cancel",
+      "from": "decision:rpc:approve:137:14",
+      "to": "step:AwaitApproval",
+      "label": "cancelingSteps",
+      "span": {
+        "startLine": 137,
+        "startColumn": 104,
+        "endLine": 137,
+        "endColumn": 117
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:rpc:approve:137:14",
+      "to": "step:FailingWait",
+      "label": "fan-out",
+      "span": {
+        "startLine": 137,
+        "startColumn": 46,
+        "endLine": 137,
+        "endColumn": 84
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "cancel",
+      "from": "decision:rpc:describe:137:14",
+      "to": "step:AwaitApproval",
+      "label": "cancelingSteps",
+      "span": {
+        "startLine": 137,
+        "startColumn": 104,
+        "endLine": 137,
+        "endColumn": 117
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:rpc:describe:137:14",
+      "to": "step:FailingWait",
+      "label": "fan-out",
+      "span": {
+        "startLine": 137,
+        "startColumn": 46,
+        "endLine": 137,
+        "endColumn": 84
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:AwaitApproval:70:12",
+      "to": "step:ReviewBounds",
+      "label": "goTo",
+      "span": {
+        "startLine": 70,
+        "startColumn": 12,
+        "endLine": 70,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:status",
+      "to": "rpc:approve",
+      "label": "get",
+      "span": {
+        "startLine": 139,
+        "startColumn": 22,
+        "endLine": 139,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:status",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 139,
+        "startColumn": 22,
+        "endLine": 139,
+        "endColumn": 41
+      },
+      "metadata": {
+        "function": "approve",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:channel:approvals",
+      "to": "step:AwaitApproval",
+      "label": "results",
+      "span": {
+        "startLine": 74,
+        "startColumn": 25,
+        "endLine": 74,
+        "endColumn": 51
+      },
+      "metadata": {
+        "function": "recordStatus",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "wait_condition",
+      "from": "resource:channel:approvals",
+      "to": "wait:AwaitApproval:57:14",
+      "label": "Approvals.for 1",
+      "span": {
+        "startLine": 57,
+        "startColumn": 25,
+        "endLine": 57,
+        "endColumn": 53
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "wait_condition",
+      "from": "resource:channel:approvals",
+      "to": "wait:AwaitApproval:61:9",
+      "label": "Approvals.for 2",
+      "span": {
+        "startLine": 62,
+        "startColumn": 35,
+        "endLine": 62,
+        "endColumn": 60
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "wait_condition",
+      "from": "resource:channel:approvals",
+      "to": "wait:ReviewBounds:86:12",
+      "label": "Approvals.at least 3",
+      "span": {
+        "startLine": 87,
+        "startColumn": 7,
+        "endLine": 87,
+        "endColumn": 27
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "wait_condition",
+      "from": "resource:channel:approvals",
+      "to": "wait:ReviewBounds:86:12",
+      "label": "Approvals.at most 4",
+      "span": {
+        "startLine": 88,
+        "startColumn": 7,
+        "endLine": 88,
+        "endColumn": 26
+      },
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "wait_condition",
+      "from": "resource:channel:approvals",
+      "to": "wait:ReviewBounds:86:12",
+      "label": "Approvals.for 2…5",
+      "span": {
+        "startLine": 89,
+        "startColumn": 7,
+        "endLine": 89,
+        "endColumn": 28
+      },
+      "metadata": {
+        "conditionIndex": 2
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_read",
+      "from": "resource:channel:buckets",
+      "to": "step:AwaitApproval",
+      "label": "size",
+      "span": {
+        "startLine": 53,
+        "startColumn": 9,
+        "endLine": 53,
+        "endColumn": 42
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "wait_condition",
+      "from": "resource:channel:buckets",
+      "to": "wait:AwaitApproval:61:9",
+      "label": "Buckets[\"priority\"].for 1…∞",
+      "span": {
+        "startLine": 63,
+        "startColumn": 35,
+        "endLine": 63,
+        "endColumn": 86
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "wait_condition",
+      "from": "resource:channel:buckets",
+      "to": "wait:ReviewBounds:86:12",
+      "label": "Buckets[\"priority\"].for input",
+      "span": {
+        "startLine": 90,
+        "startColumn": 7,
+        "endLine": 90,
+        "endColumn": 38
+      },
+      "metadata": {
+        "conditionIndex": 3
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_lock",
+      "from": "rpc:approve",
+      "to": "resource:attribute:status",
+      "label": "lock",
+      "span": {
+        "startLine": 133,
+        "startColumn": 78,
+        "endLine": 133,
+        "endColumn": 91
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "approve"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_publish",
+      "from": "rpc:approve",
+      "to": "resource:channel:approvals",
+      "label": "publish",
+      "span": {
+        "startLine": 135,
+        "startColumn": 5,
+        "endLine": 135,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_publish",
+      "from": "rpc:describe",
+      "to": "resource:channel:approvals",
+      "label": "publish",
+      "span": {
+        "startLine": 135,
+        "startColumn": 5,
+        "endLine": 135,
+        "endColumn": 41
+      },
+      "metadata": {
+        "function": "approve",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_publish",
+      "from": "rpc:note",
+      "to": "resource:channel:buckets",
+      "label": "publish",
+      "span": {
+        "startLine": 149,
+        "startColumn": 5,
+        "endLine": 149,
+        "endColumn": 44
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_write",
+      "from": "step:AwaitApproval",
+      "to": "resource:attribute:status",
+      "label": "set",
+      "span": {
+        "startLine": 74,
+        "startColumn": 5,
+        "endLine": 74,
+        "endColumn": 62
+      },
+      "metadata": {
+        "function": "recordStatus",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_write",
+      "from": "step:AwaitApproval",
+      "to": "resource:stream:progress",
+      "label": "write",
+      "span": {
+        "startLine": 68,
+        "startColumn": 5,
+        "endLine": 68,
+        "endColumn": 40
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "resource_write",
+      "from": "timeout_handler:ApprovalFlow",
+      "to": "resource:attribute:status",
+      "label": "set",
+      "span": {
+        "startLine": 153,
+        "startColumn": 5,
+        "endLine": 153,
+        "endColumn": 37
+      },
+      "metadata": {
+        "phase": "timeout"
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "subflow",
+      "from": "wait:ReviewBounds:86:12",
+      "to": "subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7",
+      "label": "start",
+      "span": {
+        "startLine": 91,
+        "startColumn": 7,
+        "endLine": 91,
+        "endColumn": 37
+      },
+      "metadata": {
+        "conditionIndex": 4
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "approval",
+      "label": "Approval",
+      "stepIds": [
+        "step:ReviewBounds",
+        "step:FailingWait",
+        "step:AwaitApproval"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
+}

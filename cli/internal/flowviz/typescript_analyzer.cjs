@@ -13,6 +13,15 @@ const { createRequire } = require("node:module");
 const terminalDecisions = new Set(["gracefulComplete", "forceComplete", "forceFail", "deadEnd", "forceCompleteIfChannelsEmpty"]);
 const cancelingDecisions = new Set(["withCancelingSteps", "withCancelingSiblingSteps"]);
 const codecValueTypes = {stringCodec:"string", booleanCodec:"boolean", int64Codec:"bigint", doubleCodec:"number", bytesCodec:"Uint8Array", voidCodec:"void"};
+// Wait factory names map to the Go analyzer's Wait types.
+const waitTypes = new Map([["skipImmediately","skipWaitImmediately"],["until","until"],["allOf","allOf"],["anyOf","anyOf"],["anyCombinationOf","anyComboOf"]]);
+const channelConditionMethods = new Set(["forOne","forN","atLeast","atMost","range","forAllBranches","forFirstBranch","forBranches","forRemainingBranches"]);
+const resourceEdgeKinds = new Map([
+  ...["get","size","getMapSize","getAllInstanceKeys","pendingMessages","findPendingMessage","results","branchResults","remainingBranchResults"].map(method => [method,"resource_read"]),
+  ...["set","delete","write"].map(method => [method,"resource_write"]),
+  ...["publish","endBranch","reportBranchResult"].map(method => [method,"resource_publish"]),
+]);
+const maximumHelperDepth = 6;
 
 class TypeScriptAnalyzer {
   constructor(request) {
@@ -69,6 +78,7 @@ class TypeScriptAnalyzer {
     const flows = [...this.classes.values()].filter(declaration => this.method(declaration,"getSteps"));
     if (flows.length !== 1) {
       this.error(flows.length ? "multiple_flows" : "flow_not_found", "source must define exactly one Flow");
+      for (const declaration of flows) this.graph.nodes.push({id:`unknown:flow:${declaration.name.text}`,kind:"unknown",name:declaration.name.text,span:this.span(declaration)});
       return this.result();
     }
     const flow = flows[0];
@@ -96,6 +106,7 @@ class TypeScriptAnalyzer {
       this.currentFrame = {};
     }
     this.analyzeRPCs(flow);
+    this.analyzeTimeoutHandler(flow);
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
     return this.result();
   }
@@ -241,11 +252,264 @@ class TypeScriptAnalyzer {
     this.annotations.push({stepId:nodeID,directives:this.directives(declaration),span:this.span(declaration)});
     const execute = this.method(declaration,"execute");
     if (!execute) this.error("step_handler_not_in_file",`Step ${stepName} execute must be defined in the source file`,declaration);
-    else this.analyzeDecisions(nodeID,execute);
+    else {
+      this.analyzeDecisions(nodeID,execute);
+      this.analyzeResourceAccess(nodeID,execute,"execute",declaration);
+    }
     const waitFor = this.method(declaration,"waitFor");
-    if (waitFor) this.error("typescript_wait_for_unsupported","TypeScript WaitFor analysis is not supported yet",waitFor);
+    if (waitFor) this.analyzeWaitFor(nodeID,stepName,waitFor,declaration);
     const options = this.method(declaration,"getStepOptions");
     if (options) this.analyzeExecuteFailure(nodeID,options);
+  }
+
+  analyzeTimeoutHandler(flow) {
+    const handler = this.method(flow,"handleTimeout");
+    if (!handler) return;
+    const nodeID = `timeout_handler:${flow.name.text}`;
+    this.graph.nodes.push({id:nodeID,kind:"timeout_handler",name:"handleTimeout",span:this.span(handler)});
+    if (!handler.body) return;
+    this.analyzeDecisions(nodeID,handler,"timeout");
+    this.analyzeResourceAccess(nodeID,handler,"timeout",flow);
+  }
+
+  analyzeWaitFor(ownerID,stepType,handler,declaration) {
+    const returns = [];
+    const hiddenWaits = [];
+    this.walkStatements(this.handlerStatements(handler),"",(expression,condition) => {
+      const found = this.waitOutcomes(expression,condition,hiddenWaits);
+      returns.push(...found);
+      return found.length > 0;
+    });
+    for (const hidden of hiddenWaits) this.addHiddenWait(ownerID,stepType,hidden);
+    if (!returns.length && !hiddenWaits.length) {
+      if (!this.onlyThrows(handler)) { this.addHiddenWait(ownerID,stepType,handler); return; }
+      const span = this.span(handler);
+      this.graph.nodes.push({id:`wait:${stepType}:${span.startLine}:${span.startColumn}`,kind:"wait",name:"failure",parentId:ownerID,phase:"wait_for",span,wait:{type:"failure",conditions:[]}});
+    }
+    if (returns.length > 1) this.graph.nodes.push({id:`wait-dispatch:${stepType}`,kind:"wait_dispatch",name:"WaitFor",parentId:ownerID,phase:"wait_for",span:this.span(handler)});
+    for (const {call,condition} of returns) {
+      const span = this.span(call);
+      const waitID = `wait:${stepType}:${span.startLine}:${span.startColumn}`;
+      const type = this.waitType(call);
+      this.graph.nodes.push({id:waitID,kind:"wait",name:type,parentId:ownerID,condition,phase:"wait_for",span,wait:{type,conditions:this.waitConditions(waitID,call)}});
+    }
+    this.analyzeResourceAccess(ownerID,handler,"wait_for",declaration);
+  }
+
+  waitOutcomes(expression,condition,hiddenWaits) {
+    expression = this.unwrap(expression);
+    if (!expression) return [];
+    if (this.ts.isConditionalExpression(expression)) {
+      const branch = expression.condition.getText(this.tree);
+      return [
+        ...this.waitOutcomes(expression.whenTrue,this.combine(condition,branch),hiddenWaits),
+        ...this.waitOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),hiddenWaits),
+      ];
+    }
+    const call = this.resolvedValue(expression,this.currentFrame).node;
+    if (call && this.ts.isCallExpression(call) && this.waitType(call)) return [{call,condition}];
+    hiddenWaits.push(expression);
+    return [];
+  }
+
+  addHiddenWait(ownerID,stepType,node) {
+    const span = this.span(node);
+    this.graph.nodes.push({id:`unknown:wait:${stepType}:${span.startLine}:${span.startColumn}`,kind:"unknown",name:"Dynamic WaitFor",parentId:ownerID,span});
+    this.error("hidden_dex_wait",`waitFor of Step ${stepType} must directly return a Wait factory call such as Wait.until, Wait.anyOf, or Wait.skipImmediately (${this.lineText(node)})`,node);
+  }
+
+  // A waitFor that only throws always fails, which the graph shows as a failure Wait.
+  onlyThrows(handler) {
+    let hasThrow = false;
+    let hasReturn = false;
+    const visit = node => {
+      if (node !== handler && this.ts.isFunctionLike(node)) return;
+      if (this.ts.isThrowStatement(node)) hasThrow = true;
+      if (this.ts.isReturnStatement(node)) hasReturn = true;
+      this.ts.forEachChild(node,visit);
+    };
+    visit(handler);
+    return hasThrow && !hasReturn;
+  }
+
+  waitType(call) {
+    const callee = this.unwrap(call.expression);
+    if (!callee || !this.ts.isPropertyAccessExpression(callee) || this.dexName(callee.expression) !== "Wait") return undefined;
+    return waitTypes.get(callee.name.text);
+  }
+
+  waitConditions(waitID,call) {
+    const conditions = [];
+    for (const [index,argument] of call.arguments.entries()) this.collectWaitCondition(waitID,argument,index,conditions);
+    return conditions;
+  }
+
+  // Each argument is one condition at its index; ConditionCombination.of numbers its own arguments, as Go's Combo does.
+  collectWaitCondition(waitID,argument,index,conditions) {
+    const call = this.ts.isSpreadElement(argument) ? undefined : this.resolvedValue(argument,this.currentFrame).node;
+    const callee = call && this.ts.isCallExpression(call) ? this.unwrap(call.expression) : undefined;
+    if (!callee || !this.ts.isPropertyAccessExpression(callee)) { this.addUnknownWaitCondition(argument,index,conditions); return; }
+    const owner = this.dexName(callee.expression);
+    const method = callee.name.text;
+    const span = this.span(call);
+    if (owner === "ConditionCombination" && method === "of") {
+      for (const [combinationIndex,combined] of call.arguments.entries()) this.collectWaitCondition(waitID,combined,combinationIndex,conditions);
+      return;
+    }
+    if (owner === "Timer" && method === "byDuration") {
+      const duration = call.arguments[0];
+      const expression = duration ? duration.getText(this.tree) : "duration";
+      conditions.push({index,kind:"timer",label:`${this.humanizeMilliseconds(duration) ?? expression} timer`,expression,span});
+      return;
+    }
+    if (owner === "SubFlow" && method === "run") {
+      const target = call.arguments[0] && this.resolvedValue(call.arguments[0],this.currentFrame).node;
+      const named = target && this.ts.isNewExpression(target) ? this.unwrap(target.expression) : target;
+      const name = named ? named.getText(this.tree) : "SubFlow";
+      const subFlowID = `subflow:${waitID}:${index}:${name}:${span.startLine}:${span.startColumn}`;
+      this.graph.nodes.push({id:subFlowID,kind:"subflow",name,external:true,span});
+      this.graph.edges.push({kind:"subflow",from:waitID,to:subFlowID,label:"start",span,metadata:{conditionIndex:index}});
+      conditions.push({index,kind:"subflow",label:name,subFlowId:subFlowID,span});
+      return;
+    }
+    const resourceID = channelConditionMethods.has(method) ? this.resourceFor(callee.expression) : undefined;
+    if (!resourceID?.startsWith("resource:channel:")) { this.addUnknownWaitCondition(argument,index,conditions); return; }
+    const {label,expression} = this.channelConditionLabel(resourceID,method,call.arguments);
+    conditions.push({index,kind:"channel",label,resourceId:resourceID,...(expression ? {expression} : {}),span});
+    this.graph.edges.push({kind:"wait_condition",from:resourceID,to:waitID,label,span,metadata:{conditionIndex:index}});
+  }
+
+  addUnknownWaitCondition(node,index,conditions) {
+    const text = node.getText(this.tree);
+    conditions.push({index,kind:"unknown",label:text,expression:text,span:this.span(node)});
+    this.error("dynamic_wait_condition",`Wait condition ${this.lineText(node)} must directly call Timer.byDuration, SubFlow.run, ConditionCombination.of, or a condition method such as forOne on a Channel, ChannelMap, or Join declared in this file`,node);
+  }
+
+  // Labels follow the Go analyzer; a map or Join condition names its instance or round first.
+  channelConditionLabel(resourceID,method,args) {
+    const resource = this.graph.nodes.find(node => node.id === resourceID);
+    const texts = args.map(argument => argument.getText(this.tree));
+    const isMap = !!resource.resource?.map && texts.length > 0;
+    const counts = isMap ? texts.slice(1) : texts;
+    const count = (position,fallback) => counts[position] === undefined || counts[position] === "undefined" ? fallback : counts[position];
+    const suffix = {
+      forAllBranches:() => "for all branches",
+      forFirstBranch:() => "for first branch",
+      forBranches:() => `for ${count(0,"N")} branches`,
+      forRemainingBranches:() => `for remaining branches after ${count(0,"N")}`,
+      forOne:() => "for 1",
+      forN:() => `for ${count(0,"N")}`,
+      atLeast:() => `at least ${count(0,"N")}`,
+      atMost:() => `at most ${count(0,"N")}`,
+      range:() => `for ${count(0,"0")}…${count(1,"∞")}`,
+    }[method]();
+    return {label:`${resource.name}${isMap ? `[${texts[0]}]` : ""}.${suffix}`,expression:texts.join(", ")};
+  }
+
+  humanizeMilliseconds(expression) {
+    const value = this.staticNumber(expression);
+    if (value === undefined || !Number.isSafeInteger(value) || value < 0) return undefined;
+    for (const [size,unit] of [[86_400_000,"day"],[3_600_000,"hour"],[60_000,"minute"],[1_000,"second"],[1,"millisecond"]]) {
+      if (value % size !== 0 || (value === 0 && size !== 1)) continue;
+      const amount = value / size;
+      return `${amount} ${unit}${amount === 1 ? "" : "s"}`;
+    }
+    return undefined;
+  }
+
+  staticNumber(expression) {
+    const node = expression && this.resolvedValue(expression,this.currentFrame).node;
+    if (!node) return undefined;
+    if (this.ts.isNumericLiteral(node)) return Number(node.text);
+    if (this.ts.isPrefixUnaryExpression(node) && node.operator === this.ts.SyntaxKind.MinusToken) {
+      const operand = this.staticNumber(node.operand);
+      return operand === undefined ? undefined : -operand;
+    }
+    if (!this.ts.isBinaryExpression(node)) return undefined;
+    const left = this.staticNumber(node.left);
+    const right = this.staticNumber(node.right);
+    if (left === undefined || right === undefined) return undefined;
+    const kinds = this.ts.SyntaxKind;
+    return {[kinds.PlusToken]:left + right,[kinds.MinusToken]:left - right,[kinds.AsteriskToken]:left * right,[kinds.SlashToken]:left / right}[node.operatorToken.kind];
+  }
+
+  // Records the resource reads, writes, and publishes of a handler and of the file's helpers it calls.
+  analyzeResourceAccess(ownerID,handler,phase,ownerClass) {
+    const accesses = [];
+    this.collectResourceAccesses(handler,ownerClass,"",new Set([handler]),accesses,0);
+    const seen = new Set();
+    for (const isHelperAccess of [false,true]) {
+      for (const access of accesses) {
+        if (!!access.helper !== isHelperAccess) continue;
+        this.diagnoseStreamOutsideStep(ownerID,phase,access);
+        const kind = this.resourceEdgeKind(access.method,phase);
+        const key = `${kind}:${access.resourceID}:${access.method}`;
+        if (!kind || kind === "wait_condition" || seen.has(key)) continue;
+        seen.add(key);
+        const metadata = {phase};
+        if (access.helper) Object.assign(metadata,{via:"helper",function:access.helper});
+        if (access.resourceID.startsWith("resource:stream:") && access.method === "write") Object.assign(metadata,{bestEffort:true,repeatable:true,role:"progress"});
+        const isRead = kind === "resource_read";
+        this.graph.edges.push({kind,from:isRead ? access.resourceID : ownerID,to:isRead ? ownerID : access.resourceID,label:access.method,span:this.span(access.call),metadata});
+      }
+    }
+  }
+
+  collectResourceAccesses(handler,ownerClass,helperName,visited,accesses,depth) {
+    const streamWriters = new Map();
+    this.walk(handler.body,node => {
+      if (!this.ts.isVariableDeclaration(node) || !this.ts.isIdentifier(node.name)) return;
+      const value = this.unwrap(node.initializer);
+      if (!value || !this.ts.isCallExpression(value) || !this.ts.isPropertyAccessExpression(value.expression) || value.expression.name.text !== "bufferedText") return;
+      const resourceID = this.resourceFor(value.expression.expression);
+      if (resourceID?.startsWith("resource:stream:")) streamWriters.set(node.name.text,resourceID);
+    });
+    this.walk(handler.body,node => {
+      if (!this.ts.isCallExpression(node)) return;
+      const callee = this.unwrap(node.expression);
+      if (callee && this.ts.isPropertyAccessExpression(callee)) {
+        const receiver = this.unwrap(callee.expression);
+        const writer = this.ts.isIdentifier(receiver) ? streamWriters.get(receiver.text) : undefined;
+        const resourceID = writer ? (callee.name.text === "write" ? writer : undefined) : this.accessedResource(receiver);
+        if (resourceID) { accesses.push({call:node,method:callee.name.text,resourceID,helper:helperName}); return; }
+      }
+      const helper = depth < maximumHelperDepth ? this.resourceHelper(callee,ownerClass) : undefined;
+      if (!helper || visited.has(helper.declaration)) return;
+      visited.add(helper.declaration);
+      // As in Go, an access names the helper that contains it.
+      this.collectResourceAccesses(helper.declaration,ownerClass,helper.name,visited,accesses,depth + 1);
+    });
+  }
+
+  accessedResource(receiver) {
+    if (!receiver) return undefined;
+    const isInstanceCall = this.ts.isCallExpression(receiver) && this.ts.isPropertyAccessExpression(receiver.expression) && receiver.expression.name.text === "instance";
+    const resourceID = this.resourceFor(isInstanceCall ? receiver.expression.expression : receiver);
+    return !isInstanceCall || resourceID?.startsWith("resource:attribute:") ? resourceID : undefined;
+  }
+
+  resourceHelper(callee,ownerClass) {
+    if (!callee) return undefined;
+    if (this.ts.isIdentifier(callee)) {
+      const declaration = this.functions.get(callee.text);
+      return declaration && this.bindingScope(callee) === this.tree ? {declaration,name:callee.text} : undefined;
+    }
+    if (!this.ts.isPropertyAccessExpression(callee) || !ownerClass || this.selfReferenceClass(this.unwrap(callee.expression)) !== ownerClass) return undefined;
+    const declaration = this.method(ownerClass,callee.name.text);
+    return declaration?.body ? {declaration,name:callee.name.text} : undefined;
+  }
+
+  resourceEdgeKind(method,phase) {
+    if (phase === "wait_for" && channelConditionMethods.has(method)) return "wait_condition";
+    return resourceEdgeKinds.get(method) || "";
+  }
+
+  diagnoseStreamOutsideStep(ownerID,phase,access) {
+    if ((phase !== "rpc" && phase !== "timeout") || !access.resourceID.startsWith("resource:stream:") || !["write","bufferedText"].includes(access.method)) return;
+    const stream = this.graph.nodes.find(node => node.id === access.resourceID);
+    const handlerLabel = phase === "rpc" ? `RPC ${ownerID.slice("rpc:".length)}` : "handleTimeout";
+    const location = `${this.lineText(access.call)}${access.helper ? ` in helper ${access.helper}` : ""}`;
+    this.error("step_progress_outside_step",`${handlerLabel} uses Stream "${stream.name}" (${access.method}: ${location}). Stream.write and bufferedText are only available in Step waitFor and execute. Move this Stream output to a Step; an RPC can publish a Channel message or return nextSteps to schedule it.`,access.call);
   }
 
   analyzeRPCs(flow) {
@@ -273,7 +537,11 @@ class TypeScriptAnalyzer {
     const nodeID = `rpc:${methodName}`;
     if (this.graph.nodes.some(node => node.id === nodeID)) return;
     this.graph.nodes.push({id:nodeID,kind:"rpc",name:methodName,span:this.span(method || anchor)});
-    const options = optionsExpression === undefined ? undefined : this.resolvedValue(optionsExpression,{}).node;
+    if (method?.body) {
+      this.analyzeDecisions(nodeID,method,"rpc");
+      this.analyzeResourceAccess(nodeID,method,"rpc",this.flowClass);
+    }
+    const options =optionsExpression === undefined ? undefined : this.resolvedValue(optionsExpression,{}).node;
     const optionsObject = options && this.ts.isObjectLiteralExpression(options) ? options : undefined;
     const property = name => optionsObject?.properties.find(candidate => (this.ts.isPropertyAssignment(candidate) || this.ts.isShorthandPropertyAssignment(candidate)) && candidate.name && this.propertyName(candidate.name) === name);
     const valueOf = candidate => this.ts.isShorthandPropertyAssignment(candidate) ? candidate.name : candidate.initializer;
@@ -531,22 +799,23 @@ class TypeScriptAnalyzer {
     return returns[0] || instance.declaration.name.text;
   }
 
-  analyzeDecisions(ownerID,handler) {
+  // Phase is execute, timeout, or rpc; only an RPC may return no decision.
+  analyzeDecisions(ownerID,handler,phase="execute") {
     const statements = this.handlerStatements(handler);
     const locals = this.localMovements(handler.body);
     const outcomes = [];
     const hiddenDecisions = [];
     this.walkStatements(statements,"",(expression,condition) => {
-      const found = this.decisionOutcomes(expression,condition,locals,hiddenDecisions);
+      const found = this.decisionOutcomes(expression,condition,locals,hiddenDecisions,phase);
       outcomes.push(...found);
       return found.length > 0;
     });
-    if (!outcomes.length && !hiddenDecisions.length) hiddenDecisions.push(handler);
-    for (const hidden of hiddenDecisions) this.addHiddenDecision(ownerID,hidden);
+    if (!outcomes.length && !hiddenDecisions.length && phase !== "rpc") hiddenDecisions.push(handler);
+    for (const hidden of hiddenDecisions) this.addHiddenDecision(ownerID,hidden,phase);
     if (!outcomes.length) return;
     if (outcomes.length > 1) {
       for (const outcome of outcomes) if (!outcome.condition) outcome.condition = "otherwise";
-      this.graph.nodes.push({id:`decision-dispatch:${ownerID}`,kind:"decision_dispatch",name:"Decision",parentId:ownerID,phase:"execute",span:this.span(handler)});
+      this.graph.nodes.push({id:`decision-dispatch:${ownerID}`,kind:"decision_dispatch",name:"Decision",parentId:ownerID,phase,span:this.span(handler)});
     }
     const decisionIDs = new Set();
     for (const outcome of outcomes) {
@@ -557,7 +826,7 @@ class TypeScriptAnalyzer {
       if (outcome.checkedChannels.length) details.checkedChannels = outcome.checkedChannels;
       const cancellations = outcome.transitions.filter(transition => transition.kind === "cancel").map(transition => ({stepId:this.resolveTarget(transition.target,transition.span,transition.targetNode),scope:transition.label === "withCancelingSiblingSteps" ? "siblings" : "all"}));
       if (cancellations.length) details.cancellations = cancellations;
-      this.graph.nodes.push({id:decisionID,kind:"decision",name:outcome.decisionType,parentId:ownerID,condition:outcome.condition,phase:"execute",span:outcome.span,decision:details});
+      this.graph.nodes.push({id:decisionID,kind:"decision",name:outcome.decisionType,parentId:ownerID,condition:outcome.condition,phase,span:outcome.span,decision:details});
       for (const transition of outcome.transitions) {
         if (transition.kind === "terminal") continue;
         const edge = {kind:transition.kind,from:decisionID,to:this.resolveTarget(transition.target,transition.span,transition.targetNode),label:transition.label,span:transition.span};
@@ -567,12 +836,16 @@ class TypeScriptAnalyzer {
     }
   }
 
-  addHiddenDecision(ownerID,node) {
+  addHiddenDecision(ownerID,node,phase) {
     const span = this.span(node);
     const nodeID = `unknown:${ownerID}:${span.startLine}:${span.startColumn}`;
     this.graph.nodes.push({id:nodeID,kind:"unknown",name:"Dynamic Dex decision",span});
     this.graph.edges.push({kind:"transition",from:ownerID,to:nodeID,label:"dynamic",span});
-    this.error("hidden_dex_decision","execute must directly return a Dex decision such as goTo or gracefulComplete",node);
+    const message = {
+      rpc:`RPC ${ownerID.slice("rpc:".length)} must directly return an RPCResult object literal, such as { output, nextSteps }, or return nothing (${this.lineText(node)})`,
+      timeout:`handleTimeout must directly return a Dex decision such as goTo or forceFail (${this.lineText(node)})`,
+    }[phase] || "execute must directly return a Dex decision such as goTo or gracefulComplete";
+    this.error("hidden_dex_decision",message,node);
   }
 
   walkStatements(statements,condition,visit) {
@@ -606,19 +879,87 @@ class TypeScriptAnalyzer {
     return hasOutcome;
   }
 
-  decisionOutcomes(expression,condition,locals,hiddenDecisions) {
+  decisionOutcomes(expression,condition,locals,hiddenDecisions,phase,visitedHelpers=new Set()) {
     expression = this.unwrap(expression);
     if (!expression) return [];
     if (this.ts.isConditionalExpression(expression)) {
       const branch = expression.condition.getText(this.tree);
       return [
-        ...this.decisionOutcomes(expression.whenTrue,this.combine(condition,branch),locals,hiddenDecisions),
-        ...this.decisionOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),locals,hiddenDecisions),
+        ...this.decisionOutcomes(expression.whenTrue,this.combine(condition,branch),locals,hiddenDecisions,phase,visitedHelpers),
+        ...this.decisionOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),locals,hiddenDecisions,phase,visitedHelpers),
       ];
     }
+    if (phase === "rpc") return this.rpcResultOutcomes(expression,condition,locals,hiddenDecisions,visitedHelpers);
     const decisionType = this.decisionType(expression);
     if (!decisionType) { hiddenDecisions.push(expression); return []; }
     return [{decisionType,condition,transitions:this.parseDecision(expression,locals),checkedChannels:this.checkedChannels(expression),span:this.span(expression)}];
+  }
+
+  // An RPC returns nothing or an RPCResult; a returned Flow method call contributes that method's results.
+  rpcResultOutcomes(expression,condition,locals,hiddenDecisions,visitedHelpers) {
+    if (this.isUndefinedValue(expression)) return [];
+    const result = this.resolvedValue(expression,this.currentFrame).node;
+    const helper = result && this.ts.isCallExpression(result) ? this.resourceHelper(this.unwrap(result.expression),this.flowClass) : undefined;
+    if (helper && !visitedHelpers.has(helper.declaration) && visitedHelpers.size < maximumHelperDepth) {
+      const helperVisits = new Set([...visitedHelpers,helper.declaration]);
+      const helperLocals = this.localMovements(helper.declaration.body);
+      const outcomes = [];
+      this.walkStatements(this.handlerStatements(helper.declaration),condition,(returned,returnCondition) => {
+        const found = this.decisionOutcomes(returned,returnCondition,helperLocals,hiddenDecisions,"rpc",helperVisits);
+        outcomes.push(...found);
+        return found.length > 0;
+      });
+      return outcomes;
+    }
+    if (!result || !this.ts.isObjectLiteralExpression(result)) { hiddenDecisions.push(expression); return []; }
+    const transitions = [];
+    for (const property of result.properties) {
+      if (!(this.ts.isPropertyAssignment(property) || this.ts.isShorthandPropertyAssignment(property)) || this.ts.isComputedPropertyName(property.name)) {
+        this.dynamicTarget("RPCResult must list output, nextSteps, and cancelingSteps as plain properties",property);
+        continue;
+      }
+      const value = this.ts.isShorthandPropertyAssignment(property) ? property.name : property.initializer;
+      const name = this.propertyName(property.name);
+      if (name === "nextSteps") transitions.push(...this.rpcNextSteps(value,locals));
+      else if (name === "cancelingSteps") transitions.push(...this.rpcCancelingSteps(value));
+    }
+    return [{decisionType:"rpcResult",condition,transitions,checkedChannels:[],span:this.span(expression)}];
+  }
+
+  rpcNextSteps(expression,locals) {
+    if (this.isUndefinedValue(expression)) return [];
+    const value = this.unwrap(expression);
+    if (this.ts.isIdentifier(value) && locals.has(value.text)) return locals.get(value.text);
+    const list = this.resolvedValue(expression,this.currentFrame).node;
+    if (!list || !this.ts.isArrayLiteralExpression(list)) {
+      this.dynamicTarget("RPCResult nextSteps must be an array of StepMovement.of calls built in the handler",expression);
+      return [];
+    }
+    return list.elements.flatMap(element => {
+      const movements = this.movementArgument(element,locals);
+      if (!movements.length) this.dynamicTarget("RPCResult nextSteps movements must be built directly in the handler",element);
+      return movements;
+    });
+  }
+
+  rpcCancelingSteps(expression) {
+    if (this.isUndefinedValue(expression)) return [];
+    const list = this.resolvedValue(expression,this.currentFrame).node;
+    if (!list || !this.ts.isArrayLiteralExpression(list)) {
+      this.dynamicTarget("RPCResult cancelingSteps must be an array literal of Step targets",expression);
+      return [];
+    }
+    const transitions = [];
+    for (const element of list.elements) {
+      if (this.ts.isSpreadElement(element)) { this.dynamicTarget("RPCResult cancelingSteps must list each Step target directly",element); continue; }
+      transitions.push({kind:"cancel",target:this.stepTarget(element),targetNode:element,label:"cancelingSteps",span:this.span(element)});
+    }
+    return transitions;
+  }
+
+  isUndefinedValue(expression) {
+    const value = this.unwrap(expression);
+    return !value || value.kind === this.ts.SyntaxKind.UndefinedKeyword || this.ts.isVoidExpression(value) || (this.ts.isIdentifier(value) && value.text === "undefined");
   }
 
   decisionType(expression) {
@@ -1270,6 +1611,7 @@ class TypeScriptAnalyzer {
     }
     if (this.ts.isReturnStatement(parent) || (this.ts.isArrowFunction(parent) && parent.body === use)) return {escape:"is returned"};
     if (this.ts.isAsExpression(parent) || this.ts.isTypeAssertionExpression(parent) || this.ts.isSatisfiesExpression(parent)) return {escape:"is cast"};
+    if (this.ts.isArrayLiteralExpression(parent) && this.isRPCCancelingTargets(parent)) return {};
     if (this.ts.isArrayLiteralExpression(parent) || this.ts.isSpreadElement(parent) || this.ts.isSpreadAssignment(parent)) return {escape:"is stored in an array or spread"};
     if (this.ts.isExportSpecifier(parent) || this.ts.isExportAssignment(parent)) return {escape:"is exported"};
     return {escape:"is used in an expression"};
@@ -1515,6 +1857,17 @@ class TypeScriptAnalyzer {
     if (this.ts.isBinaryExpression(parent) && parent.left === target) return parent.operatorToken.kind >= kinds.FirstAssignment && parent.operatorToken.kind <= kinds.LastAssignment;
     if (this.ts.isPrefixUnaryExpression(parent) || this.ts.isPostfixUnaryExpression(parent)) return [kinds.PlusPlusToken,kinds.MinusMinusToken].includes(parent.operator);
     return this.ts.isDeleteExpression(parent);
+  }
+
+  // Dex reads the cancelingSteps of an RPCResult that a Flow method returns as Step targets.
+  isRPCCancelingTargets(array) {
+    const property = array.parent;
+    if (!this.ts.isPropertyAssignment(property) || property.initializer !== array || this.propertyName(property.name) !== "cancelingSteps") return false;
+    let result = property.parent;
+    while (this.isTransparentWrapper(result.parent) || (this.ts.isConditionalExpression(result.parent) && result.parent.condition !== result)) result = result.parent;
+    if (!this.ts.isReturnStatement(result.parent)) return false;
+    const method = this.ts.findAncestor(result.parent,node => this.ts.isFunctionLike(node));
+    return !!method && this.ts.isMethodDeclaration(method) && method.parent === this.flowClass;
   }
 
   isTransparentWrapper(node) {

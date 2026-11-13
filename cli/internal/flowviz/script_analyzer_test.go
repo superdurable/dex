@@ -109,6 +109,129 @@ func TestTypeScriptJoinUndeterminedBuilderListIsDynamic(t *testing.T) {
 	}
 }
 
+func TestTypeScriptWaitsRPCsAndTimeoutGolden(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Empty(t, graph.Diagnostics)
+	graph.Source.Path = "waits.ts"
+	actual, err := MarshalJSON(graph)
+	require.NoError(t, err)
+	goldenPath := filepath.Join("testdata", "typescript", "waits.golden.json")
+	if os.Getenv("UPDATE_SCRIPT_GOLDENS") == "1" {
+		require.NoError(t, os.WriteFile(goldenPath, actual, 0o644))
+	}
+	expected, err := os.ReadFile(goldenPath)
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(actual))
+}
+
+func TestTypeScriptUnsupportedWaitsAndRPCsAreBlocking(t *testing.T) {
+	helpers := "\nfunction approvalWait(): Wait {\n  return Wait.until(approvals.forOne());\n}\n" +
+		"\nfunction atMostFour() {\n  return approvals.atMost(4);\n}\n" +
+		"\nfunction plannedSteps() {\n  return [StepMovement.of(FailingWait, \"planned\")];\n}\n"
+	cases := map[string]struct {
+		original    string
+		replacement string
+		codes       []string
+	}{
+		"Wait from a helper": {
+			`return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`,
+			"return approvalWait();",
+			[]string{"hidden_dex_wait"},
+		},
+		"spread condition":      {"approvals.atMost(4),", "...[approvals.atMost(4)],", []string{"dynamic_wait_condition"}},
+		"condition from helper": {"approvals.atMost(4),", "atMostFour(),", []string{"dynamic_wait_condition"}},
+		"opaque RPC result": {
+			"return { output: status.get(context) };",
+			"return Promise.resolve({ output: status.get(context) });",
+			// describe returns approve's results, so it reports the same return.
+			[]string{"hidden_dex_decision", "hidden_dex_decision"},
+		},
+		"nextSteps from helper": {
+			"nextSteps: [StepMovement.of(FailingWait, decision)]",
+			"nextSteps: plannedSteps()",
+			[]string{"dynamic_step_target"},
+		},
+		"spread RPC result": {
+			"return { output: status.get(context) };",
+			"const base = { output: status.get(context) };\n    return { ...base };",
+			[]string{"dynamic_step_target"},
+		},
+		"Stream write in an RPC": {
+			"approvals.publish(context, decision);",
+			"progress.write(context, decision);",
+			// approve writes directly, and describe reaches the write through approve.
+			[]string{"step_progress_outside_step", "step_progress_outside_step"},
+		},
+		"hidden timeout decision": {
+			`return forceFail("approval timed out");`,
+			"return this.timeoutDecision();\n  }\n\n  private timeoutDecision(): StepDecision {\n    return forceFail(\"approval timed out\");",
+			[]string{"hidden_dex_decision"},
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := strings.Replace(string(source), testCase.original, testCase.replacement, 1)
+			require.NotEqual(t, string(source), modified)
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified+helpers), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			errorCodes := make([]string, 0)
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Severity == "error" {
+					errorCodes = append(errorCodes, diagnostic.Code)
+				}
+			}
+			require.Equal(t, testCase.codes, errorCodes, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+func TestTypeScriptRPCCancelsRegisteredInstance(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+	source, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	modified := strings.Replace(string(source), "cancelingSteps: [AwaitApproval]", "cancelingSteps: [this.approval]", 1)
+	require.NotEqual(t, string(source), modified)
+	require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	cancellations := make([]Cancellation, 0)
+	for _, node := range graph.Nodes {
+		if node.ID == "decision:rpc:approve:137:14" {
+			cancellations = node.Decision.Cancellations
+		}
+	}
+	require.Equal(t, []Cancellation{{StepID: "step:AwaitApproval", Scope: "all"}}, cancellations)
+}
+
+func TestTypeScriptMultipleFlowsMarkEachFlow(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+	source, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	secondFlow := "\nexport class ReviewFlow implements Flow<number> {\n  getSteps() {\n    return StepList.startStep(new ReviewBounds());\n  }\n}\n"
+	require.NoError(t, os.WriteFile(sourcePath, append(source, secondFlow...), 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	require.Equal(t, []string{"multiple_flows"}, diagnosticCodes(graph))
+	flowNodes := make([]string, 0)
+	for _, node := range graph.Nodes {
+		if node.Kind == "unknown" {
+			require.NotNil(t, node.Span)
+			flowNodes = append(flowNodes, node.ID)
+		}
+	}
+	require.Equal(t, []string{"unknown:flow:ApprovalFlow", "unknown:flow:ReviewFlow"}, flowNodes)
+}
+
 func TestScriptStepAnnotationDiagnostics(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {
 		for _, replacement := range []string{"", "dex:explanation text:\"\"", "dex:explanation text:\"First.\"\nCOMMENT dex:explanation text:\"Second.\"", "dex:explanation text:\"First.\" extra:true"} {

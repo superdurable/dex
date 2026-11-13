@@ -436,10 +436,18 @@ usage error. `node` comes from `PATH`, so keep the analyzed tree's directories
 out of `PATH`. The analyzer reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,
 `forceCompleteIfChannelsEmpty`, and cancellation decisions, plus
-`ExecuteFailure.proceedTo` in `getStepOptions`. WaitFor
-(`typescript_wait_for_unsupported`), several Flows in one file
-(`multiple_flows`), RPC and timeout handlers, handler resource access, SubFlows,
-and Version 2.0 views are not analyzed yet. See the [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
+`ExecuteFailure.proceedTo` in `getStepOptions`. It also reads `waitFor`
+returns built directly from `Wait` factories with Timer, Channel, ChannelMap,
+Join, and SubFlow conditions; a `waitFor` that only throws; RPC `RPCResult`
+literals with their `nextSteps` and `cancelingSteps`; `handleTimeout`
+decisions; and resource reads, writes, and publishes in handlers and the
+same-file helpers they call. The graph uses the Go analyzer's node IDs and
+Wait types. A Wait from a helper reports `hidden_dex_wait`, any other
+condition reports `dynamic_wait_condition`, and an RPC result that is not an
+object literal reports `hidden_dex_decision`. Several Flows in one file report
+`multiple_flows` with one unknown node per Flow, as in Go and Python. Version
+2.0 Indexed Attributes, Summary, Display, and start-input schemas are not
+analyzed yet. See the [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
 recursive start-input schema. The analyzer follows JSON field names, ignored
