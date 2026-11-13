@@ -1007,7 +1007,9 @@ async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) ->
         with contextlib.suppress(asyncio.CancelledError):
             await _end_cancelled_chat(chatting)
     session_id, holder = lease.lost.result()
-    print(f"\n{build_lease_lost_line(session_id, format_lease_holder(holder))}", file=sys.stderr)
+    # The newline ends the prompt line, which is on standard output.
+    print(flush=True)
+    print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
     return False
 
 
