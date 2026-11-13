@@ -106,12 +106,14 @@ record the release yet. See `changelog.d/README.md`.
 
 ## Release Versions
 
-Choose the version of each SDK, cli, and web release by what it ships:
+Choose the version of each SDK, cli, web, and agents release by what it
+ships. Prefer patch releases:
 
-- A minor release adds or changes a public API, configuration, flag, wire
-  protocol, or persisted format, or makes a breaking change.
-- A patch release ships anything else: UI improvements, bug fixes,
-  performance work, and docs. Release Dex Web and cli improvements as patches.
+- A patch release ships improvements, fixes, UI and UX work, performance
+  work, and docs. It may also add optional fields, optional configuration, a
+  small command, or a small API that existing code does not need to change
+  for.
+- A minor release ships a large, important feature or a breaking change.
 - When the choice is unclear, ask the owner before releasing.
 
 A patch release folds into its minor's change log entry. List it on the
@@ -314,8 +316,8 @@ regenerated. Resolve them with the revert-and-confirm procedure in
 - When a release adds an API or changes its behavior, its doc comment says so
   in the language's idiom. Use the first release of that SDK that ships the
   change. When that number is not known yet, follow Release Versions:
-  the next minor after the newest Dex release tag for a new or changed
-  API, and the next patch for any other behavior change.
+  usually the next patch after the newest Dex release tag, and the next
+  minor only for a large feature or a breaking change.
   - Go and Rust: a sentence such as "Since 1.NN.0." or "Changed in 1.NN.0:
     <what changed>."
   - Python: `.. versionadded:: 1.NN.0` or `.. versionchanged:: 1.NN.0`,
