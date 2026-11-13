@@ -11,6 +11,13 @@ use prometheus_client::encoding::{DescriptorEncoder, EncodeMetric};
 use prometheus_client::metrics::counter::ConstCounter;
 use prometheus_client::metrics::gauge::ConstGauge;
 
+pub(crate) const PROCESS_FAMILY_NAMES: [&str; 4] = [
+    "process_resident_memory_bytes",
+    "process_cpu_seconds",
+    "process_start_time_seconds",
+    "process_open_fds",
+];
+
 #[derive(Debug)]
 pub(crate) struct ProcessCollector {
     ticks_per_second: f64,

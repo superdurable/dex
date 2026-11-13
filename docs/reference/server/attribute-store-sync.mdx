@@ -235,13 +235,17 @@ error.
 
 ## Monitoring {#attribute-store-monitoring}
 
-| Metric | Meaning |
-| --- | --- |
-| **dexzd_attribute_sync_backlog_entries** | Entries waiting to be written, as of the last scan |
-| **dexzd_attribute_sync_oldest_pending_age_seconds** | Age of the oldest pending entry's retry window, 0 when none |
-| **dexzd_attribute_sync_write_failures_total** with **failure_kind** | Failed write transactions. **failure_kind** is **retryable** or **non_retryable**. Non-retryable failures drop their entries. |
-| **dexzd_attribute_sync_dropped_entries_total** | Entries dropped after the retry policy was exhausted or the store rejected them |
-| **dexzd_attribute_sync_fenced_writes_total** | Writes rejected because a newer owner raised the fencing token |
+Since 0.1.29, a family is exported at the **metrics.level** in its Level
+column and at every higher level. See
+[Metrics levels](/reference/server/metrics#metrics-levels).
+
+| Metric | Meaning | Level |
+| --- | --- | --- |
+| **dexzd_attribute_sync_backlog_entries** | Entries waiting to be written, as of the last scan | **advanced** |
+| **dexzd_attribute_sync_oldest_pending_age_seconds** | Age of the oldest pending entry's retry window, 0 when none | **advanced** |
+| **dexzd_attribute_sync_write_failures_total** with **failure_kind** | Failed write transactions. **failure_kind** is **retryable** or **non_retryable**. Non-retryable failures drop their entries. | **advanced** |
+| **dexzd_attribute_sync_dropped_entries_total** | Entries dropped after the retry policy was exhausted or the store rejected them | **advanced** |
+| **dexzd_attribute_sync_fenced_writes_total** | Writes rejected because a newer owner raised the fencing token | **verbose** |
 
 ~~~text
 # Dropped Attribute Sync entries

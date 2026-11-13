@@ -193,7 +193,9 @@ with a 10-second lease. See
 [Write timeout](/reference/server/attribute-store-sync#attribute-store-write-timeout).
 
 Alert when no standby is ready to take over, when a standby failed or keeps
-restarting, and when its lag grows:
+restarting, and when its lag grows. Since 0.1.29, these families are exported
+at the default **advanced** metrics level and above; see
+[Metrics levels](/reference/server/metrics#metrics-levels).
 
 ~~~text
 # No hot standby

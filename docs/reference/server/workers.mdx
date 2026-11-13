@@ -343,4 +343,6 @@ queued task that matching had lost" and report it as a bug.
 **dexzd_matching_heads_incomplete_scans_total** counts checks that did not
 finish. **dexzd_step_task_queue_incomplete_seeks_total** counts searches for the
 next queued task that passed too many deleted entries. Dex retries each one
-after a backoff. A steady increase means compaction is falling behind.
+after a backoff. A steady increase means compaction is falling behind. Since
+0.1.29, these three counters need the **verbose** metrics level; see
+[Metrics levels](/reference/server/metrics#metrics-levels).

@@ -81,7 +81,9 @@ impl OutboxNode<'_> {
                 search.ack_interval, search.batch_size
             ));
         }
-        contents.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
+        contents.push_str(&format!(
+            "metrics:\n  listen: '{metrics_address}'\n  level: verbose\n"
+        ));
         fs::write(&path, contents).expect("the serve configuration is written");
         let mut process = ServeProcess::spawn(
             &path,
@@ -771,7 +773,9 @@ async fn run_purge_for_test(database_url: &str, is_postgres: bool) {
     let mut contents =
         fs::read_to_string(&config_path).expect("the serve configuration is readable");
     contents = contents.replace("search:\n", "search:\n  outboxAckInterval: 100ms\n");
-    contents.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
+    contents.push_str(&format!(
+        "metrics:\n  listen: '{metrics_address}'\n  level: verbose\n"
+    ));
     fs::write(&config_path, contents).expect("the serve configuration is written");
     let mut server = ServeProcess::spawn(&config_path, address, directory.path().join("purge.log"));
     let channel = server.wait_until_serving().await;

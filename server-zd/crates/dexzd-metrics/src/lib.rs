@@ -20,20 +20,20 @@ macro_rules! label_value {
 }
 
 mod api_requests;
+mod collectors;
 mod commit_latency;
 mod fixed_labels;
 mod histogram;
 mod lag_gauges;
+mod metrics_level;
 mod object_requests;
-#[cfg(target_os = "linux")]
-mod process;
 mod semantic;
 mod worker_stream;
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc};
+use collectors::{LOCAL_STORAGE_FAMILY_NAME, LocalStorageCollector};
 pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
     AttributeSyncFailureKind, AttributeSyncWriteFailures, HistoryReadKind, HistoryReadSource,
@@ -48,6 +48,10 @@ pub use lag_gauges::{
     HistoryUploadOldestSealedAge, SearchOutboxBacklog, SearchOutboxEntries,
     SearchOutboxMaxPartitionEntries, SearchOutboxOldestEntryAge, TimerLag,
 };
+use metrics_level::LeveledRegistry;
+pub use metrics_level::MetricsLevel;
+#[cfg(feature = "test-util")]
+pub use metrics_level::exported_family_names_for_test;
 pub use object_requests::{ObjectKind, ObjectOperation, ObjectRequests, classify_object_kind};
 use prometheus_client::encoding::{EncodeLabelSet, text::encode};
 use prometheus_client::metrics::counter::Counter;
@@ -79,8 +83,6 @@ pub struct NodeMetrics {
     pub api_requests: ApiRequests,
     /// Completed unary gRPC request latency.
     pub api_latency: ApiLatency,
-    /// Durably committed batches.
-    pub commit_batches: Counter,
     /// Durably committed commands.
     pub commit_records: Counter,
     /// Durably committed encoded batch bytes.
@@ -283,9 +285,15 @@ enum BuildVersion {
 label_value!(BuildVersion { Current => env!("CARGO_PKG_VERSION") });
 
 impl NodeMetrics {
-    /// Creates a registry and all handles for one process-local node.
-    pub fn registered(local_store_directory: PathBuf, partition_count: usize) -> (Registry, Self) {
-        let mut registry = Registry::default();
+    /// Creates all handles for one process-local node and a registry of the families `level`
+    /// exports.
+    pub fn registered(
+        local_store_directory: PathBuf,
+        partition_count: usize,
+        level: MetricsLevel,
+    ) -> (Registry, Self) {
+        let mut exported_registry = Registry::default();
+        let mut registry = LeveledRegistry::new(&mut exported_registry, level);
         let metrics = Self::with_partitions(partition_count);
         let build_info = Family::<BuildLabel, Gauge>::default();
         build_info
@@ -323,11 +331,6 @@ impl NodeMetrics {
             "dexzd_api_request_latency_seconds",
             "Completed unary public API request latency.",
             metrics.api_latency.clone(),
-        );
-        registry.register(
-            "dexzd_commit_batches",
-            "Durably committed batches.",
-            metrics.commit_batches.clone(),
         );
         registry.register(
             "dexzd_commit_records",
@@ -669,13 +672,19 @@ impl NodeMetrics {
             "Time from attempting an available lease to serving.",
             metrics.takeover_duration.clone(),
         );
-        registry.register_collector(Box::new(LocalStorageCollector {
-            directory: local_store_directory,
-            gauge: metrics.local_storage_bytes.clone(),
-        }));
+        registry.register_collector(
+            &[LOCAL_STORAGE_FAMILY_NAME],
+            Box::new(LocalStorageCollector {
+                directory: local_store_directory,
+                gauge: metrics.local_storage_bytes.clone(),
+            }),
+        );
         #[cfg(target_os = "linux")]
-        registry.register_collector(Box::new(process::ProcessCollector::new()));
-        (registry, metrics)
+        registry.register_collector(
+            &collectors::process::PROCESS_FAMILY_NAMES,
+            Box::new(collectors::process::ProcessCollector::new()),
+        );
+        (exported_registry, metrics)
     }
 
     /// Creates unregistered handles for tests and simulations.
@@ -697,7 +706,6 @@ impl NodeMetrics {
             lease_renewals: OutcomeCounters::default(),
             api_requests: ApiRequests::default(),
             api_latency: ApiLatency::default(),
-            commit_batches: Counter::default(),
             commit_records: Counter::default(),
             commit_bytes: Counter::default(),
             commit_latency: CommitLatency::default(),
@@ -795,137 +803,6 @@ impl NodeMetrics {
     pub fn record_object_error(&self, operation: ObjectOperation) {
         self.object_errors.record(operation);
     }
-}
-
-/// Effective configuration values that a node exposes as `dexzd_config_*` metrics.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct EffectiveConfigMetrics {
-    /// How long a closed Flow run stays available, from `retention.closedFlowDuration`.
-    pub closed_flow_retention: Duration,
-    /// Largest stored value, from `values.maxValueBytes`.
-    pub max_value_bytes: u64,
-    /// Largest state of one Flow run, from `limits.maxFlowStateBytes`.
-    pub max_flow_state_bytes: u64,
-    /// Step attempt drain budget at shutdown, from `lifecycle.attemptDrainTimeout`.
-    pub attempt_drain_timeout: Duration,
-    /// Durability of the embedded object store, or `None` when the node uses an external one.
-    pub embedded_store_durability: Option<EmbeddedStoreDurability>,
-}
-
-/// How the embedded object store of `dev` and `local` writes acknowledged data.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub enum EmbeddedStoreDurability {
-    /// Flushes each acknowledged write with fsync.
-    Strict,
-    /// Writes each acknowledged write to its files without fsync.
-    ProcessCrashSafe,
-    /// Holds writes in memory until a graceful stop.
-    Relaxed,
-}
-
-label_value!(EmbeddedStoreDurability { Strict => "strict", ProcessCrashSafe => "processCrashSafe", Relaxed => "relaxed" });
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct DurabilityModeLabel {
-    mode: EmbeddedStoreDurability,
-}
-
-impl EffectiveConfigMetrics {
-    /// Registers one constant series for each value in `registry`.
-    pub fn register(&self, registry: &mut Registry) {
-        registry.register(
-            "dexzd_config_closed_flow_retention_seconds",
-            "Effective retention.closedFlowDuration.",
-            seconds_gauge(self.closed_flow_retention),
-        );
-        registry.register(
-            "dexzd_config_max_value_bytes",
-            "Effective values.maxValueBytes.",
-            bytes_gauge(self.max_value_bytes),
-        );
-        registry.register(
-            "dexzd_config_max_flow_state_bytes",
-            "Effective limits.maxFlowStateBytes.",
-            bytes_gauge(self.max_flow_state_bytes),
-        );
-        registry.register(
-            "dexzd_config_attempt_drain_timeout_seconds",
-            "Effective lifecycle.attemptDrainTimeout.",
-            seconds_gauge(self.attempt_drain_timeout),
-        );
-        if let Some(durability) = self.embedded_store_durability {
-            let durability_mode = Family::<DurabilityModeLabel, Gauge>::default();
-            durability_mode
-                .get_or_create(&DurabilityModeLabel { mode: durability })
-                .set(1);
-            registry.register(
-                "dexzd_config_durability_mode_info",
-                "Effective dev.durabilityMode of the embedded object store.",
-                durability_mode,
-            );
-        }
-    }
-}
-
-fn seconds_gauge(duration: Duration) -> Gauge<f64, std::sync::atomic::AtomicU64> {
-    let gauge = Gauge::<f64, std::sync::atomic::AtomicU64>::default();
-    gauge.set(duration.as_secs_f64());
-    gauge
-}
-
-fn bytes_gauge(bytes: u64) -> Gauge {
-    let gauge = Gauge::default();
-    gauge.set(i64::try_from(bytes).unwrap_or(i64::MAX));
-    gauge
-}
-
-#[derive(Debug)]
-struct LocalStorageCollector {
-    directory: PathBuf,
-    gauge: Gauge,
-}
-
-impl prometheus_client::collector::Collector for LocalStorageCollector {
-    fn encode(
-        &self,
-        mut encoder: prometheus_client::encoding::DescriptorEncoder,
-    ) -> Result<(), std::fmt::Error> {
-        match local_storage_bytes(&self.directory) {
-            Ok(bytes) => {
-                self.gauge.set(i64::try_from(bytes).unwrap_or(i64::MAX));
-            }
-            Err(error) => tracing::warn!(%error, "could not sample local storage bytes"),
-        }
-        let metric_encoder = encoder.encode_descriptor(
-            "dexzd_local_storage_bytes",
-            "Local SST and WAL bytes.",
-            None,
-            prometheus_client::metrics::MetricType::Gauge,
-        )?;
-        prometheus_client::encoding::EncodeMetric::encode(&self.gauge, metric_encoder)
-    }
-}
-
-fn local_storage_bytes(directory: &std::path::Path) -> std::io::Result<u64> {
-    let mut size = 0_u64;
-    let mut pending = vec![directory.to_path_buf()];
-    while let Some(path) = pending.pop() {
-        for entry in std::fs::read_dir(path)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                pending.push(entry.path());
-            } else if matches!(
-                entry
-                    .path()
-                    .extension()
-                    .and_then(|extension| extension.to_str()),
-                Some("sst" | "log")
-            ) {
-                size = size.saturating_add(entry.metadata()?.len());
-            }
-        }
-    }
-    Ok(size)
 }
 
 /// Encodes one process-local registry in OpenMetrics text format.

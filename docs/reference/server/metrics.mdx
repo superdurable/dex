@@ -1,7 +1,7 @@
 ---
 title: Metrics and alerts
 sidebar_label: Metrics and alerts
-description: "Set metrics.listen to serve plain HTTP GET /metrics on its own listener, separate from api.listen. It is empty by default, which turns the endpoint off. The endpoint has no authentication, so never expose it publicly. In Kubernetes, bind it to 0.0.0.0:9090 and restrict access with a NetworkPolicy."
+description: "Set metrics.listen to serve plain HTTP GET /metrics on its own listener, separate from api.listen. It is empty by default, which turns the endpoint off. metrics.level selects which metric families it exports. The endpoint has no authentication, so never expose it publicly."
 ---
 
 # Metrics and alerts
@@ -16,43 +16,239 @@ while the node recovers or waits for its lease. Every label value comes from a
 fixed set.
 No series has a Flow, Flow type, partition, tenant, or key label.
 
-| What to watch | Metric family and labels |
-| --- | --- |
-| API requests and errors | **dexzd_api_requests_total** with **rpc_class** and **code** |
-| API latency | **dexzd_api_request_latency_seconds** with **rpc_class**; unary calls only |
-| Step failures | **dexzd_step_attempt_failures_total** with **durability** and **failure_kind**, which includes **started_attempt_interrupted**; **dexzd_step_retries_exhausted_total** with **durability** |
-| Returned attempts | **dexzd_step_attempts_returned_total** with **reason** |
-| Unsupported types | **dexzd_matching_unsupported_type_entries**; **dexzd_matching_unsupported_type_evictions_total** |
-| Worker stream protocol errors | **dexzd_worker_stream_protocol_errors_total** with **error** |
-| Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
-| Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
-| Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
-| Dropped Step Stream writes | **dexzd_step_stream_writes_dropped_total** with **reason** |
-| Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
-| Commit latency | **dexzd_commit_latency_seconds** |
-| Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
-| Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
-| Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode** and **store_source**; **dexzd_takeover_duration_seconds** |
-| Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
-| Timers | **dexzd_timer_lag_seconds** |
-| Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
-| Local disk | **dexzd_local_storage_bytes** |
-| Effective configuration | **dexzd_config_closed_flow_retention_seconds**; **dexzd_config_max_value_bytes**; **dexzd_config_max_flow_state_bytes**; **dexzd_config_attempt_drain_timeout_seconds**; **dexzd_config_durability_mode_info** with **mode**, for **dev** and **local** only |
-| History offload | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_upload_concurrency_limit**; **dexzd_history_upload_in_flight_bytes**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
-| Attribute Store sync | See [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring) |
-| External search projection | See [Monitoring](/reference/server/search#search-projection-monitoring) |
+## Metrics levels {#metrics-levels}
 
-**rpc_class** is one of **flow_write**, **flow_read**, **search**,
-**worker_poll**, and **worker_respond**. **code** is the gRPC status code in
-snake case, such as **ok** or **unavailable**. **role** is one of **starting**,
-**standby**, **recovering**, **serving**, and **draining**. **state** is one of
-**inactive**, **bootstrapping**, **following**, **behind**, **restarting**, and
-**failed**. Only a standby in **following** is hot. The active process and a
-cold standby report **inactive**. **standby_mode** is **hot** or **cold**.
-**store_source** is **hot_standby** when the node serves the store that its hot
-standby kept current. It is **restored** when the node opened its own store or
-restored a snapshot, for example because the standby store was missing or
-stale. **dexzd_takeover_duration_seconds** covers only hot takeovers, labeled by
+Since 0.1.29, **metrics.level** selects the metric families that the endpoint
+exports. It defaults to **advanced**. Each level exports every family of the
+levels below it.
+
+~~~yaml
+metrics:
+  listen: 0.0.0.0:9090
+  level: advanced
+~~~
+
+| Level | Exports | Use it for |
+| --- | --- | --- |
+| **basic** | Golden signals: serving, errors, latency, saturation, and the health of commits and object storage | SLOs and page-worthy alerts with the fewest series |
+| **advanced** (default) | Adds capacity, cost, and the lag and failure signals of hot standby, external search, Attribute Store sync, and history offload | Operating a deployment |
+| **verbose** | Adds internal mechanisms, invariant detectors that also log, throughput detail, and the Linux process metrics | Investigating a problem |
+
+A family has the same labels and histogram buckets at every level that exports
+it, so one dashboard or alert works at each of those levels. The level changes
+only what a scrape returns. The node records every metric at every level.
+**basic** also skips the local disk walk behind **dexzd_local_storage_bytes**,
+and only **verbose** reads the Linux process metrics from **/proc**.
+
+For scale, one node that ran a few Flows exported 68 series at **basic**, 153
+at **advanced**, and 205 at **verbose**, plus 4 process series on Linux. The
+partition count does not change these numbers.
+
+Changed in 0.1.29: before this release, the endpoint exported every family.
+The default **advanced** level now leaves out the **verbose** families listed
+in the [catalog](#catalog), including the Linux **process_** metrics. Set
+**metrics.level** to **verbose** to export them again.
+
+Changed in 0.1.29: **dexzd_commit_batches_total** was removed. It always
+equaled **dexzd_commit_latency_seconds_count**. Use that series instead.
+
+## Catalog {#catalog}
+
+Counters end in **_total**. A histogram exports **_bucket**, **_sum**, and
+**_count** series; its buckets are listed in
+[Histogram buckets](#histogram-buckets). The Level column names the lowest
+level that exports the family. The [Labels](#labels) section lists each
+label's values.
+
+### Node and lease {#catalog-node}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_build_info** | gauge, always 1 | **version** | **basic** |
+| **dexzd_behavior_version** | gauge | none | **advanced** |
+| **dexzd_node_role** | gauge, 1 for the current role | **role** | **basic** |
+| **dexzd_lease_epoch** | gauge, 0 when the node holds no lease | none | **advanced** |
+| **dexzd_lease_renewals_total** | counter | **outcome** | **basic** |
+
+### API {#catalog-api}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_api_requests_total** | counter | **rpc_class**, **code** | **basic** |
+| **dexzd_api_request_latency_seconds** | histogram | **rpc_class**, unary classes only | **basic** |
+
+### Commit and object storage {#catalog-commit}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_commit_latency_seconds** | histogram, batch seal to durable acknowledgement | none | **basic** |
+| **dexzd_commit_records_total** | counter, committed commands | none | **advanced** |
+| **dexzd_commit_bytes_total** | counter, committed encoded batch bytes | none | **advanced** |
+| **dexzd_object_store_request_errors_total** | counter, failed requests after retries | **operation** | **basic** |
+| **dexzd_object_store_requests_total** | counter, including failed requests | **operation**, **object_kind** | **advanced** |
+| **dexzd_object_store_put_bytes_total** | counter, uploaded bytes | none | **advanced** |
+
+### Snapshots, recovery, and local disk {#catalog-recovery}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_snapshots_total** | counter | **outcome** | **advanced** |
+| **dexzd_snapshot_last_duration_seconds** | gauge | none | **advanced** |
+| **dexzd_snapshot_last_bytes** | gauge | none | **verbose** |
+| **dexzd_recovery_last_duration_seconds** | gauge | none | **advanced** |
+| **dexzd_recovery_last_replayed_bytes** | gauge, uncompressed command bytes | none | **verbose** |
+| **dexzd_startup_read_retries_total** | counter, transient startup reads retried | none | **verbose** |
+| **dexzd_local_storage_bytes** | gauge, local SST and WAL bytes | none | **advanced** |
+
+### Timers, matching, and Workers {#catalog-matching}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_timer_lag_seconds** | gauge, age of the oldest due timer that has not fired | none | **basic** |
+| **dexzd_matching_worker_streams** | gauge, open Worker streams | none | **basic** |
+| **dexzd_step_task_queue_oldest_age_seconds** | gauge | none | **basic** |
+| **dexzd_matching_unserved_task_queues** | gauge | **reason** | **basic** |
+| **dexzd_step_task_queue_entries** | gauge | none | **advanced** |
+| **dexzd_matching_queued_tasks** | gauge, in-memory waiters only | none | **advanced** |
+| **dexzd_matching_unsupported_type_evictions_total** | counter | none | **advanced** |
+| **dexzd_step_attempts_returned_total** | counter | **reason** | **advanced** |
+| **dexzd_step_schedule_to_start_latency_seconds** | histogram | none | **advanced** |
+| **dexzd_step_stream_writes_dropped_total** | counter | **reason** | **advanced** |
+| **dexzd_matching_unsupported_type_entries** | gauge | none | **verbose** |
+| **dexzd_matching_heads_restored_refs_total** | counter, nonzero means a bug | none | **verbose** |
+| **dexzd_matching_heads_incomplete_scans_total** | counter | none | **verbose** |
+| **dexzd_step_task_queue_incomplete_seeks_total** | counter | none | **verbose** |
+| **dexzd_worker_stream_protocol_errors_total** | counter | **error** | **verbose** |
+| **dexzd_worker_stream_events_total** | counter | **event** | **verbose** |
+
+[Workers](/reference/server/workers) explains the task queue and Heads
+gauges and counters.
+
+### Steps and Flows {#catalog-flows}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_step_attempt_failures_total** | counter | **durability**, **failure_kind** | **basic** |
+| **dexzd_flow_closes_total** | counter | **close_status** | **basic** |
+| **dexzd_step_retries_exhausted_total** | counter | **durability** | **advanced** |
+| **dexzd_flow_end_to_end_latency_seconds** | histogram | none | **advanced** |
+
+### Attribute Store sync {#catalog-attribute-store-sync}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_attribute_sync_backlog_entries** | gauge | none | **advanced** |
+| **dexzd_attribute_sync_oldest_pending_age_seconds** | gauge | none | **advanced** |
+| **dexzd_attribute_sync_write_failures_total** | counter | **failure_kind** | **advanced** |
+| **dexzd_attribute_sync_dropped_entries_total** | counter | none | **advanced** |
+| **dexzd_attribute_sync_fenced_writes_total** | counter | none | **verbose** |
+
+See [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring)
+for what each one means.
+
+### External search projection {#catalog-search}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_search_outbox_oldest_entry_age_seconds** | gauge | none | **advanced** |
+| **dexzd_search_outbox_entries** | gauge | none | **advanced** |
+| **dexzd_search_outbox_batches_total** | counter | **outcome** | **advanced** |
+| **dexzd_search_initial_load_pending_partitions** | gauge | none | **advanced** |
+| **dexzd_search_skipped_documents_total** | counter | none | **advanced** |
+| **dexzd_search_outbox_max_partition_entries** | gauge | none | **verbose** |
+| **dexzd_search_outbox_projected_entries_total** | counter | none | **verbose** |
+| **dexzd_search_outbox_projected_runs_total** | counter | none | **verbose** |
+| **dexzd_search_outbox_ack_proposals_total** | counter | **outcome** | **verbose** |
+| **dexzd_search_initial_load_documents_total** | counter | none | **verbose** |
+| **dexzd_search_initial_loads_total** | counter | none | **verbose** |
+| **dexzd_search_projection_mode_skipped_partitions_total** | counter | none | **verbose** |
+
+See [Monitoring](/reference/server/search#search-projection-monitoring) for
+what each one means.
+
+### History offload {#catalog-history}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_history_upload_backlog_segments** | gauge | none | **advanced** |
+| **dexzd_history_upload_backlog_bytes** | gauge | none | **advanced** |
+| **dexzd_history_upload_oldest_sealed_age_seconds** | gauge | none | **advanced** |
+| **dexzd_history_uploads_total** | counter | **outcome** | **advanced** |
+| **dexzd_history_upload_checksum_mismatches_total** | counter | none | **advanced** |
+| **dexzd_history_upload_rescan_errors_total** | counter | none | **advanced** |
+| **dexzd_history_upload_concurrency_limit** | gauge | none | **verbose** |
+| **dexzd_history_upload_in_flight_bytes** | gauge | none | **verbose** |
+| **dexzd_history_upload_bytes_total** | counter | none | **verbose** |
+| **dexzd_history_reads_total** | counter | **kind**, **source** | **verbose** |
+| **dexzd_history_value_revivals_total** | counter | none | **verbose** |
+| **dexzd_history_expired_objects_deleted_total** | counter | none | **verbose** |
+| **dexzd_history_orphan_objects_deleted_total** | counter | none | **verbose** |
+
+### Hot standby and takeover {#catalog-standby}
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **dexzd_hot_standby_state** | gauge, 1 for the current state | **state** | **advanced** |
+| **dexzd_hot_standby_lag_seconds** | gauge, 0 when caught up | none | **advanced** |
+| **dexzd_hot_standby_error** | gauge, 1 while the standby reports a recent restart error | none | **advanced** |
+| **dexzd_takeovers_total** | counter | **standby_mode**, **store_source** | **advanced** |
+| **dexzd_hot_standby_lag_batches** | gauge | none | **verbose** |
+| **dexzd_takeover_duration_seconds** | histogram, hot takeovers only | **store_source** | **verbose** |
+
+### Process {#catalog-process}
+
+Only Linux exports these families. They come from **/proc/self**.
+
+| Metric | Type | Labels | Level |
+| --- | --- | --- | --- |
+| **process_resident_memory_bytes** | gauge | none | **verbose** |
+| **process_cpu_seconds_total** | counter | none | **verbose** |
+| **process_start_time_seconds** | gauge, seconds since the Unix epoch | none | **verbose** |
+| **process_open_fds** | gauge | none | **verbose** |
+
+## Histogram buckets {#histogram-buckets}
+
+| Histogram | Bucket upper bounds, in seconds |
+| --- | --- |
+| **dexzd_api_request_latency_seconds** | 0.005, 0.025, 0.1, 0.5, 2.5, +Inf |
+| **dexzd_commit_latency_seconds** | 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, +Inf |
+| **dexzd_step_schedule_to_start_latency_seconds** | 0.005, 0.025, 0.1, 0.5, 2.5, 10, +Inf |
+| **dexzd_flow_end_to_end_latency_seconds** | 1, 10, 60, 600, 3600, 21600, 86400, +Inf |
+| **dexzd_takeover_duration_seconds** | 0.25, 0.5, 1, 2.5, 5, 15, +Inf |
+
+## Labels {#labels}
+
+Most labeled families export every label combination from startup.
+**dexzd_api_requests_total**, **dexzd_object_store_requests_total**, and
+**dexzd_step_attempt_failures_total** export a combination once it first
+counts.
+
+| Label | Values |
+| --- | --- |
+| **outcome** | **ok**, **error**; for **dexzd_history_uploads_total**, see below |
+| **rpc_class** | **flow_write**, **flow_read**, **search**, **worker_poll**, **worker_respond** |
+| **code** | The gRPC status code in snake case, such as **ok** or **unavailable** |
+| **role** | **starting**, **standby**, **recovering**, **serving**, **draining** |
+| **operation** | **put**, **get**, **list**, **delete** |
+| **object_kind** | **log**, **snapshot**, **manifest**, **lease**, **history**, **other** |
+| **durability** | **sync**, **async** |
+| **failure_kind** | For Step failures: **worker_error**, **method_timeout**, **heartbeat_timeout**, **dispatch_error**, **invalid_response**, **unsupported_feature**, **value_too_large**, **request_too_large**, **retry_deadline**, **started_attempt_interrupted**. For Attribute Store sync: **retryable**, **non_retryable** |
+| **close_status** | **completed**, **failed**, **terminated**, **canceled** |
+| **event** | **delivered**, **closed** |
+| **reason** | For unserved queues: **no_worker**, **no_supporting_worker**. For returned attempts: see below. For dropped Step Stream writes: see [Streams](/reference/server/configuration#streams) |
+| **error** | See below |
+| **state** | **inactive**, **bootstrapping**, **following**, **behind**, **restarting**, **failed** |
+| **standby_mode** | **hot**, **cold** |
+| **store_source** | **hot_standby**, **restored** |
+| **kind**, **source** | **page** or **blob**; **local**, **cache**, or **object_store** |
+
+**rpc_class** labels the latency histogram only for the unary classes, so
+**worker_poll** has no latency series. Only a standby in **following** is hot.
+The active process and a cold standby report **inactive**. **store_source** is
+**hot_standby** when the node serves the store that its hot standby kept
+current. It is **restored** when the node opened its own store or restored a
+snapshot, for example because the standby store was missing or stale.
+**dexzd_takeover_duration_seconds** covers only hot takeovers, labeled by
 **store_source**.
 
 **dexzd_step_attempts_returned_total** counts attempts that went back to
@@ -88,35 +284,7 @@ Workers poll over one persistent stream, so there is no count of empty polls.
 frames. When Dex hands out a returned attempt again, it counts again. Long-poll
 waits count toward **flow_read** latency.
 
-Since 0.1.29, the **dexzd_config_** gauges report the values the running node
-uses. They include defaults for keys the configuration leaves unset, and the
-**dev** profile's own defaults. Each gauge keeps its value until the process
-exits. A byte limit above 9223372036854775807, the largest gauge value, reports
-as 9223372036854775807. The startup log line keeps the exact value.
-
-| Metric | Type | Configuration key |
-| --- | --- | --- |
-| **dexzd_config_closed_flow_retention_seconds** | gauge, seconds | **retention.closedFlowDuration** |
-| **dexzd_config_max_value_bytes** | gauge, bytes | **values.maxValueBytes** |
-| **dexzd_config_max_flow_state_bytes** | gauge, bytes | **limits.maxFlowStateBytes** |
-| **dexzd_config_attempt_drain_timeout_seconds** | gauge, seconds | **lifecycle.attemptDrainTimeout** |
-| **dexzd_config_durability_mode_info** | gauge, always 1 | **dev.durabilityMode**, in the **mode** label |
-
-**mode** is **strict**, **processCrashSafe**, or **relaxed**, the YAML
-spelling of **dev.durabilityMode**, also when **--durability** set it. Only
-**dev** and **local** report **dexzd_config_durability_mode_info**, because
-durability applies only to their embedded object store. **serve** leaves it
-out. See
-[Effective configuration](/reference/server/configuration#effective-configuration)
-for the matching startup log line.
-
-~~~text
-# A server that keeps closed Flow runs for less than 30 days
-dexzd_config_closed_flow_retention_seconds < 2592000
-
-# A single-node server that does not run in strict mode
-dexzd_config_durability_mode_info{mode!="strict"} == 1
-~~~
+## History offload metrics {#history-offload-metrics}
 
 Changed in 0.1.23: **dexzd_history_offload_mode_skipped_partitions_total** was
 removed with the **history.offloadEnabled** switch. Each Flow run now chooses
@@ -174,6 +342,10 @@ holder does this when a Worker result, client write, or RPC result references a
 value after offload deleted it locally. The reads behind these restores count
 as LoadBlobs reads in **dexzd_history_reads_total**.
 
+## Alerts {#alerts}
+
+Each of these alerts works at the **basic** level and above.
+
 ~~~text
 # Failed API calls by class and code
 sum by (rpc_class, code) (rate(dexzd_api_requests_total{code!="ok"}[5m]))
@@ -185,6 +357,8 @@ dexzd_node_role{role="serving"} == 0
 increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
 ~~~
 
-For the full catalog, with types, histogram buckets, and Linux process metrics,
-see the
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.26/server-zd/README.md#metrics).
+The alerts on the [High availability](/reference/server/high-availability#hot-standby-lease-and-alerts),
+[Search](/reference/server/search#search-projection-monitoring), and
+[Attribute Store sync](/reference/server/attribute-store-sync#attribute-store-monitoring)
+pages need the default **advanced** level unless their comment names another
+level.
