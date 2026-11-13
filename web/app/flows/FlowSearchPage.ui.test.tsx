@@ -209,6 +209,8 @@ describe('Flow search storage', () => {
 
 describe('Flows grouped by Flow type', () => {
   it('groups the runs by Flow type until the viewer turns it off', async () => {
+    // A choice saved under the old key, before grouping was the default, no longer applies.
+    localStorage.setItem('dex-web-group-by-type', 'false');
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [flow('checkout-1'), flow('checkout-2')], nextPageToken: '' }))));
     render(
       <MemoryRouter>
@@ -225,6 +227,6 @@ describe('Flows grouped by Flow type', () => {
 
     fireEvent.click(toggle);
     expect(document.querySelector('.flow-group-row')).toBeNull();
-    expect(localStorage.getItem('dex-web-group-by-type')).toBe('false');
+    expect(localStorage.getItem('dex-web.flows.group-by-type')).toBe('false');
   });
 });

@@ -149,7 +149,8 @@ export function selectVisibleIndexedAttributeKeys(flows: FlowExecution[]): strin
   return [...visibleIndexedAttributeKeys].sort();
 }
 
-const groupByTypeStorageKey = 'dex-web-group-by-type';
+// A new key, so a choice made while grouping was off by default does not carry over.
+const groupByTypeStorageKey = 'dex-web.flows.group-by-type';
 
 function storedIsGroupedByType(): boolean {
   try {
