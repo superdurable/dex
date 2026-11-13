@@ -61,6 +61,7 @@ impl ObjectStoreInspector {
             store: if is_aliyun_oss {
                 Arc::new(AliyunOssObjectStore::new(
                     store,
+                    dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
                     dexzd_metrics::NodeMetrics::unregistered(),
                 ))
             } else {

@@ -8,7 +8,6 @@
 
 //! Background deletion of superseded versions after a confirmed write; tombstones stay.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,21 +17,28 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+use crate::aliyun_oss::reclamation_schedule::{
+    DueReclamationPass, ObservedStoreTime, ReclamationSchedule,
+};
 use crate::aliyun_oss::version_keys::{version_generation, version_object_key, version_prefix};
 use crate::aliyun_oss::version_reads::{read_listed_header, record_stale_version_listing};
 use crate::{ObjectStore, ObjectStoreOperation, STARTUP_PROBE_OBJECT_KEY_PREFIX};
 
-/// How long a version must have been superseded before reclamation deletes it.
+/// How long a version must have been superseded before reclamation deletes it, in production.
 ///
 /// The age is measured between last-write times that the store records, so host clock skew
-/// does not shorten it. It makes it unlikely that a writer confirms its version only after the
+/// does not shorten it. A follow-up pass adds monotonic local time, which skew cannot change. It
+/// makes it unlikely that a writer confirms its version only after the
 /// next generation was reclaimed, which leaves its outcome unknown.
 ///
 /// It also keeps replacements safe while listings lag behind writes by less than this age.
 pub const MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION: Duration = Duration::from_secs(60 * 60);
 
-/// A key gets at most one pass per interval, because each pass lists every retained version.
-const MINIMUM_INTERVAL_BETWEEN_PASSES_OF_ONE_KEY: Duration = Duration::from_secs(5 * 60);
+/// Each key gets at most this many passes per minimum age, because a pass lists every kept version.
+const MAXIMUM_PASSES_PER_MINIMUM_AGE: u32 = 12;
+
+/// Keys the schedule tracks; beyond it, the key with the latest deadline is forgotten.
+const MAXIMUM_SCHEDULED_KEYS: usize = 4096;
 
 /// Pending requests beyond this are dropped; a later confirmed write reclaims the same versions.
 const RECLAMATION_QUEUE_CAPACITY: usize = 256;
@@ -50,6 +56,7 @@ struct ReclamationRequest {
 /// Owns the background task that reclaims superseded versions.
 ///
 /// Dropping the reclaimer aborts the task and any reclamation in progress.
+/// Scheduled passes are lost with it; a later write of each key reclaims its versions.
 pub(super) struct VersionReclaimer {
     requests: mpsc::Sender<ReclamationRequest>,
     task: JoinHandle<()>,
@@ -58,15 +65,23 @@ pub(super) struct VersionReclaimer {
 impl VersionReclaimer {
     /// Starts the reclamation task on the current Tokio runtime.
     ///
+    /// It deletes a version only after it was superseded for `minimum_superseded_age`.
+    ///
     /// # Panics
     ///
     /// Panics when called outside a Tokio runtime.
     pub(super) fn start(
         inner: Arc<dyn ObjectStore>,
+        minimum_superseded_age: Duration,
         listing_stale: VersionedListingStaleCounters,
     ) -> Self {
         let (requests, receiver) = mpsc::channel(RECLAMATION_QUEUE_CAPACITY);
-        let task = tokio::spawn(run_reclamation(inner, receiver, listing_stale));
+        let task = tokio::spawn(run_reclamation(
+            inner,
+            receiver,
+            minimum_superseded_age,
+            listing_stale,
+        ));
         Self { requests, task }
     }
 
@@ -110,60 +125,85 @@ impl Drop for VersionReclaimer {
 async fn run_reclamation(
     inner: Arc<dyn ObjectStore>,
     mut receiver: mpsc::Receiver<ReclamationRequest>,
+    minimum_superseded_age: Duration,
     listing_stale: VersionedListingStaleCounters,
 ) {
-    let mut throttle = ReclamationPassThrottle::default();
-    while let Some(request) = receiver.recv().await {
-        if !throttle.should_start_pass(&request.logical_key, Instant::now()) {
-            tracing::debug!(
-                key = %request.logical_key,
-                generation = request.confirmed_generation,
-                "the key had a recent reclamation pass; a later write reclaims these versions"
-            );
-            continue;
+    let mut schedule = ReclamationSchedule::new(
+        minimum_superseded_age / MAXIMUM_PASSES_PER_MINIMUM_AGE,
+        MAXIMUM_SCHEDULED_KEYS,
+    );
+    loop {
+        let next_deadline = schedule.next_deadline();
+        tokio::select! {
+            request = receiver.recv() => {
+                let Some(request) = request else {
+                    return;
+                };
+                schedule.record_confirmed_write(
+                    &request.logical_key,
+                    request.confirmed_generation,
+                    Instant::now(),
+                );
+            }
+            () = sleep_until_deadline(next_deadline) => {}
         }
-        reclaim_superseded_versions(inner.as_ref(), &listing_stale, &request).await;
+        while let Some(pass) = schedule.take_due_pass(Instant::now()) {
+            let follow_up = reclaim_superseded_versions(
+                inner.as_ref(),
+                minimum_superseded_age,
+                &listing_stale,
+                &pass,
+                Instant::now(),
+            )
+            .await;
+            if let Some(follow_up) = follow_up {
+                schedule.record_follow_up(pass, follow_up.reference, follow_up.reclaimable_at);
+            }
+        }
     }
 }
 
-/// Allows one reclamation pass per key per interval; a dropped request only keeps versions longer.
-#[derive(Debug, Default)]
-struct ReclamationPassThrottle {
-    pass_started_at: BTreeMap<String, Instant>,
-}
-
-impl ReclamationPassThrottle {
-    /// Returns whether `logical_key` may start a pass at `now`, and records the pass when it may.
-    fn should_start_pass(&mut self, logical_key: &str, now: Instant) -> bool {
-        // Entries older than the interval no longer throttle, so dropping them bounds the map.
-        self.pass_started_at.retain(|_, started_at| {
-            now.duration_since(*started_at) < MINIMUM_INTERVAL_BETWEEN_PASSES_OF_ONE_KEY
-        });
-        if self.pass_started_at.contains_key(logical_key) {
-            return false;
-        }
-        self.pass_started_at.insert(logical_key.to_owned(), now);
-        true
+/// Waits until `deadline`, or forever without one.
+async fn sleep_until_deadline(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
     }
 }
 
-/// Deletes the versions of one key that `request` makes obsolete; failures only keep them.
+/// A later pass that can delete versions an earlier pass kept because they were too young.
+#[derive(Debug, Clone, Copy)]
+struct ReclamationFollowUp {
+    /// The store time that the earlier pass observed.
+    reference: ObservedStoreTime,
+    /// When the oldest kept version has been superseded for the minimum age.
+    reclaimable_at: Instant,
+}
+
+/// Deletes the versions of one key that `pass` makes obsolete; failures only keep them.
+/// A follow-up measures age from the earlier pass's store time plus local elapsed time.
+///
+/// Returns the follow-up that can delete the oldest version this pass kept as too young, or
+/// `None` when no kept version can age into deletion or the pass stopped early.
 async fn reclaim_superseded_versions(
     inner: &dyn ObjectStore,
+    minimum_superseded_age: Duration,
     listing_stale: &VersionedListingStaleCounters,
-    request: &ReclamationRequest,
-) {
-    let logical_key = request.logical_key.as_str();
-    let confirmed_generation = request.confirmed_generation;
+    pass: &DueReclamationPass,
+    started_at: Instant,
+) -> Option<ReclamationFollowUp> {
+    let logical_key = pass.logical_key.as_str();
+    let confirmed_generation = pass.confirmed_generation;
     let prefix = version_prefix(logical_key);
-    let minimum_age_micros = i64::try_from(MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION.as_micros())
+    let minimum_age_micros = i64::try_from(minimum_superseded_age.as_micros())
         .expect("the minimum superseded age fits in i64 microseconds");
     // Listing after the next generation starts at the confirmed version itself.
     let mut start_after = confirmed_generation
         .checked_add(1)
         .map(|newer_generation| version_object_key(logical_key, newer_generation));
-    let mut confirmed_written_at = None;
+    let mut reference = None;
     let mut newer_written_at = None;
+    let mut oldest_young_successor_written_at: Option<i64> = None;
     loop {
         let listing = match inner
             .list(&prefix, start_after.as_deref(), RECLAMATION_PAGE_KEYS)
@@ -172,16 +212,20 @@ async fn reclaim_superseded_versions(
             Ok(listing) => listing,
             Err(error) => {
                 tracing::warn!(key = %logical_key, %error, "listing versions for reclamation failed");
-                return;
+                return None;
             }
         };
         let mut reclaimable_keys = Vec::new();
         for object in listing.objects {
             let Some(generation) = version_generation(&object.key, &prefix) else {
                 tracing::warn!(key = %object.key, "reclamation found a malformed version key");
-                return;
+                return None;
             };
-            let Some(reference_written_at) = confirmed_written_at else {
+            let Some(ObservedStoreTime {
+                written_at_unix_micros: reference_written_at,
+                ..
+            }) = reference
+            else {
                 // The confirmed version is gone only after a newer writer reclaimed it.
                 if generation != confirmed_generation {
                     record_stale_version_listing(
@@ -191,12 +235,16 @@ async fn reclaim_superseded_versions(
                         confirmed_generation,
                         Some(generation),
                     );
-                    return;
+                    return None;
                 }
-                let Some(written_at) = object.last_modified_unix_micros else {
-                    return;
-                };
-                confirmed_written_at = Some(written_at);
+                let written_at = object.last_modified_unix_micros?;
+                let reference_written_at = pass.reference.map_or(written_at, |earlier| {
+                    earlier.lower_bound_at(started_at).max(written_at)
+                });
+                reference = Some(ObservedStoreTime {
+                    written_at_unix_micros: reference_written_at,
+                    observed_at: started_at,
+                });
                 newer_written_at = Some(written_at);
                 continue;
             };
@@ -210,6 +258,12 @@ async fn reclaim_superseded_versions(
                 written_at <= reference_written_at.saturating_sub(minimum_age_micros)
             });
             if !is_superseded_long_enough {
+                if let Some(written_at) = successor_written_at {
+                    oldest_young_successor_written_at = Some(
+                        oldest_young_successor_written_at
+                            .map_or(written_at, |oldest| oldest.min(written_at)),
+                    );
+                }
                 continue;
             }
             match read_listed_header(inner, ObjectStoreOperation::Delete, logical_key, &object)
@@ -226,7 +280,7 @@ async fn reclaim_superseded_versions(
                 }
             }
         }
-        if confirmed_written_at.is_none() {
+        let Some(observed_reference) = reference else {
             // Only an empty first page leaves the reference unset here.
             record_stale_version_listing(
                 listing_stale,
@@ -235,8 +289,8 @@ async fn reclaim_superseded_versions(
                 confirmed_generation,
                 None,
             );
-            return;
-        }
+            return None;
+        };
         if !reclaimable_keys.is_empty()
             && let Err(error) = inner.delete_many(&reclaimable_keys).await
         {
@@ -244,7 +298,28 @@ async fn reclaim_superseded_versions(
         }
         match listing.next_start_after {
             Some(next) => start_after = Some(next),
-            None => return,
+            None => {
+                return oldest_young_successor_written_at.map(|successor_written_at| {
+                    follow_up_for(observed_reference, successor_written_at, minimum_age_micros)
+                });
+            }
         }
+    }
+}
+
+/// Returns the follow-up at which a version whose successor was written at
+/// `successor_written_at` has been superseded for the minimum age.
+fn follow_up_for(
+    reference: ObservedStoreTime,
+    successor_written_at: i64,
+    minimum_age_micros: i64,
+) -> ReclamationFollowUp {
+    let wait_micros = successor_written_at
+        .saturating_add(minimum_age_micros)
+        .saturating_sub(reference.written_at_unix_micros);
+    let wait = Duration::from_micros(u64::try_from(wait_micros).unwrap_or(0));
+    ReclamationFollowUp {
+        reference,
+        reclaimable_at: reference.observed_at + wait,
     }
 }

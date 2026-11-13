@@ -348,7 +348,9 @@ on 4 seeds from `168908544` (`0x0a115700`). Their config sets `object_store_sema
 `CreateOnlyWithVersionedMutableKeys`. The shared store then rejects `ReplaceIfEtagMatches`, as
 Aliyun OSS does, and `AliyunOssObjectStore` replaces the manifest, the registry, and the node
 leases through versions. Each physical call waits 1 to 4 ms, so the creates and confirmations of
-different processes interleave. Version IDs come from the seed, so a seed reproduces. Both tests
+different processes interleave. Version IDs come from the seed, so a seed reproduces. The adapter
+reclaims a version 60 seconds after it was superseded, instead of the production hour, so these
+runs reclaim versions while faults happen. Both tests
 require lease contention, old-epoch overlaps, and fenced or self-stopped processes. The other
 tests keep the default semantics, so their trajectories and pins do not change.
 

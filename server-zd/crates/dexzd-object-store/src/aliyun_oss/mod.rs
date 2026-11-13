@@ -9,6 +9,7 @@
 //! Linearizable ETag replacement of mutable keys on stores with only create-only writes.
 
 mod bucket_checks;
+mod reclamation_schedule;
 mod startup_probes;
 mod version_body;
 mod version_keys;
@@ -19,6 +20,7 @@ mod version_writes;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -103,10 +105,15 @@ impl VersionIdSource for SeededVersionIdSourceForTest {
 /// use bytes::Bytes;
 /// use dexzd_metrics::NodeMetrics;
 /// use dexzd_object_store::{
-///     AliyunOssObjectStore, MANIFEST_OBJECT_KEY, ObjectStore, WriteCondition, WriteOutcome,
+///     AliyunOssObjectStore, MANIFEST_OBJECT_KEY, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+///     ObjectStore, WriteCondition, WriteOutcome,
 /// };
 ///
-/// let store = AliyunOssObjectStore::new(inner, NodeMetrics::unregistered());
+/// let store = AliyunOssObjectStore::new(
+///     inner,
+///     MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+///     NodeMetrics::unregistered(),
+/// );
 /// let created = store
 ///     .put(MANIFEST_OBJECT_KEY, Bytes::from_static(b"v1"), WriteCondition::CreateOnly)
 ///     .await
@@ -139,13 +146,25 @@ impl AliyunOssObjectStore {
     /// The store never sends [`WriteCondition::ReplaceIfEtagMatches`] to `inner`. It starts its
     /// version reclamation task, which stops when the store is dropped.
     ///
-    /// `metrics` counts listings that miss a version this store just created.
+    /// Reclamation deletes a version only after it was superseded for
+    /// `minimum_superseded_age_before_reclamation`; production passes
+    /// [`MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION`]. `metrics` counts listings that miss a
+    /// version this store just created.
     ///
     /// # Panics
     ///
-    /// Panics when called outside a Tokio runtime.
-    pub fn new(inner: Arc<dyn ObjectStore>, metrics: NodeMetrics) -> Self {
-        Self::with_version_id_source(inner, Box::new(RandomVersionIdSource), metrics)
+    /// Panics when called outside a Tokio runtime, or when the minimum age is zero.
+    pub fn new(
+        inner: Arc<dyn ObjectStore>,
+        minimum_superseded_age_before_reclamation: Duration,
+        metrics: NodeMetrics,
+    ) -> Self {
+        Self::with_version_id_source(
+            inner,
+            Box::new(RandomVersionIdSource),
+            minimum_superseded_age_before_reclamation,
+            metrics,
+        )
     }
 
     /// Wraps `inner` like [`Self::new`], deriving version IDs from `seed` instead of a random
@@ -156,11 +175,12 @@ impl AliyunOssObjectStore {
     ///
     /// # Panics
     ///
-    /// Panics when called outside a Tokio runtime.
+    /// Panics when called outside a Tokio runtime, or when the minimum age is zero.
     #[cfg(feature = "test-util")]
     pub fn with_seeded_version_ids_for_test(
         inner: Arc<dyn ObjectStore>,
         seed: u64,
+        minimum_superseded_age_before_reclamation: Duration,
         metrics: NodeMetrics,
     ) -> Self {
         Self::with_version_id_source(
@@ -169,6 +189,7 @@ impl AliyunOssObjectStore {
                 seed,
                 issued_ids: std::sync::atomic::AtomicU64::new(0),
             }),
+            minimum_superseded_age_before_reclamation,
             metrics,
         )
     }
@@ -176,11 +197,20 @@ impl AliyunOssObjectStore {
     fn with_version_id_source(
         inner: Arc<dyn ObjectStore>,
         version_ids: Box<dyn VersionIdSource>,
+        minimum_superseded_age_before_reclamation: Duration,
         metrics: NodeMetrics,
     ) -> Self {
+        assert!(
+            !minimum_superseded_age_before_reclamation.is_zero(),
+            "reclaiming a version as soon as it is superseded is unsafe"
+        );
         let listing_stale = metrics.object_store_versioned_listing_stale;
         Self {
-            reclaimer: VersionReclaimer::start(Arc::clone(&inner), listing_stale.clone()),
+            reclaimer: VersionReclaimer::start(
+                Arc::clone(&inner),
+                minimum_superseded_age_before_reclamation,
+                listing_stale.clone(),
+            ),
             inner,
             version_ids,
             listing_stale,

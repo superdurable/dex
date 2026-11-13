@@ -20,7 +20,7 @@ use dexzd_object_store::{
     WriteOutcome,
 };
 
-use crate::create_only_store::{CreateOnlyStore, etag_generation};
+use crate::create_only_store::{CreateOnlyStore, TEST_MINIMUM_SUPERSEDED_AGE, etag_generation};
 
 const READER_COUNT: usize = 2;
 const READS_PER_READER: usize = 30;
@@ -136,7 +136,11 @@ pub(crate) async fn run_replacement_workload(
     });
     let mut tasks = Vec::new();
     for writer in 0..writers {
-        let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+        let store = AliyunOssObjectStore::new(
+            physical.inner(),
+            TEST_MINIMUM_SUPERSEDED_AGE,
+            NodeMetrics::unregistered(),
+        );
         let recorder = Arc::clone(&recorder);
         let task = tokio::spawn(async move {
             for attempt in 0..attempts {
@@ -177,7 +181,11 @@ pub(crate) async fn run_replacement_workload(
         tasks.push(task);
     }
     for _ in 0..READER_COUNT {
-        let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+        let store = AliyunOssObjectStore::new(
+            physical.inner(),
+            TEST_MINIMUM_SUPERSEDED_AGE,
+            NodeMetrics::unregistered(),
+        );
         let recorder = Arc::clone(&recorder);
         let task = tokio::spawn(async move {
             for _ in 0..READS_PER_READER {
@@ -191,7 +199,11 @@ pub(crate) async fn run_replacement_workload(
     for task in tasks {
         task.await.expect("a workload task finishes");
     }
-    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+    let store = AliyunOssObjectStore::new(
+        physical.inner(),
+        TEST_MINIMUM_SUPERSEDED_AGE,
+        NodeMetrics::unregistered(),
+    );
     recorder
         .read(&store, key)
         .await
