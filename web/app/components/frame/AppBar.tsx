@@ -60,8 +60,8 @@ function useFlowsHref(pathname: string, search: string): string {
   return `${FLOWS_PATH}${lastSearch}`;
 }
 
-// 'page' drops the run's extras (Flow type, copy, the parent's ID) before any tab loses its name.
-const COMPACT_VIEW_LEVELS = ['page', 'tail', 'all'] as const;
+// The trail gives way before any tab loses its name: first its extras, then the IDs' length.
+const COMPACT_VIEW_LEVELS = ['trail', 'id', 'tail', 'all'] as const;
 
 /** Picks the least compact views level whose tabs fit; measured, since names vary per page. */
 function useCompactViews(bar: HTMLElement | null) {

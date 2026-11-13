@@ -174,15 +174,6 @@ body {
   white-space: nowrap;
 }
 
-.run-facts-type {
-  overflow: hidden;
-  max-width: 22ch;
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-sm);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .app-bar .status-badge {
   flex: none;
@@ -493,16 +484,6 @@ body {
   .app-bar .app-bar-copy {
     display: none;
   }
-
-  .run-facts-type {
-  overflow: hidden;
-  max-width: 22ch;
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-sm);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .app-bar .status-badge {
     padding: 5px;
@@ -1047,42 +1028,42 @@ body {
   }
 }
 
-@container app-bar (max-width: 1520px) {
-  .app-bar .app-bar-copy,
-  .app-bar .app-bar-page > .run-attempt-select,
-  .run-facts-children-word {
-    display: none;
-  }
+/* Measured levels: 'trail' and later drop the duration, shrink the status to its icon and fold the attempt into the Flow ID. */
+.app-bar.v1-page[data-compact-views] .app-bar-duration,
+.app-bar.v1-page[data-compact-views] .app-bar-page > .run-attempt-select,
+.app-bar.v1-page[data-compact-views] .run-facts-children-word {
+  display: none;
+}
 
-  .run-facts-attempt {
-    display: inline;
-  }
+.app-bar.v1-page[data-compact-views] .run-facts-attempt {
+  display: inline;
+}
 
-  .run-facts-name {
-    max-width: 38ch;
-  }
+.app-bar.v1-page[data-compact-views] .app-bar-page > .status-badge {
+  padding: 5px;
+  font-size: 0;
+}
+
+/* 'id' and later swap the Flow ID and the parent's ID for shorter middle-cut copies. */
+.app-bar .id-short {
+  display: none;
+}
+
+.app-bar.v1-page:is([data-compact-views='id'], [data-compact-views='tail'], [data-compact-views='all']) .id-long {
+  display: none;
+}
+
+.app-bar.v1-page:is([data-compact-views='id'], [data-compact-views='tail'], [data-compact-views='all']) .id-short {
+  display: inline;
 }
 
 @container app-bar (max-width: 1360px) {
-  .run-facts-name {
-    max-width: 25ch;
-  }
-
   .app-bar.v1-page .run-tabs button {
     gap: 5px;
     padding: 0 8px;
   }
-
-  .run-facts-children-count {
-    display: none;
-  }
 }
 
-@container app-bar (max-width: 1440px) {
-  .run-facts-type {
-    display: none;
-  }
-}
 
 /* Page buttons are icons with names for screen readers and tooltips, so the pager stays one short row. */
 .run-events-pager--icons .pager-button {
@@ -1264,7 +1245,7 @@ body {
 
 .v1-page .event-list-row {
   display: grid;
-  grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) auto 26px;
+  grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) auto auto 26px;
   align-items: center;
   gap: 10px;
   height: 32px;
@@ -1379,12 +1360,6 @@ body {
   margin: 4px 0 10px;
 }
 
-@container app-bar (max-width: 1520px) {
-  .run-facts-attempt {
-    display: inline;
-  }
-}
-
 /* Add filter lines up with the other controls of a one-row search. */
 .v1-page .query-card .filter-list > .text-button {
   margin-top: 0;
@@ -1406,33 +1381,6 @@ body {
   }
 }
 
-/* When room is short, the parent link becomes a word with the full ID in its tooltip. */
-.app-bar-parent-word,
-.run-facts-name-short {
-  display: none;
-}
-
-@container app-bar (max-width: 1520px) {
-  .app-bar-parent .app-bar-parent-id {
-    display: none;
-  }
-
-  .app-bar-parent-word {
-    display: inline;
-  }
-}
-
-/* A SubFlow ID keeps its prefix and end while there is room, and only its end when there is not. */
-@container app-bar (max-width: 1360px) {
-  .run-facts-name-long {
-    display: none;
-  }
-
-  .run-facts-name-short {
-    display: inline;
-  }
-}
-
 .v1-page .event-list-child {
   display: inline-flex;
   align-items: center;
@@ -1447,13 +1395,14 @@ body {
   text-decoration: none;
 }
 
-/* Every measured level first drops the run's extras, so tab names outrank them. */
-.app-bar.v1-page[data-compact-views] .run-facts-type,
-.app-bar.v1-page[data-compact-views] .app-bar-copy,
-.app-bar.v1-page[data-compact-views] .app-bar-parent .app-bar-parent-id {
-  display: none;
-}
-
-.app-bar.v1-page[data-compact-views] .app-bar-parent-word {
-  display: inline;
+/* At laptop widths the event toolbar stays one line; the page size keeps its name for screen readers. */
+@media (max-width: 1500px) {
+  .run-primary > .run-events-tile .run-events-page-size-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }

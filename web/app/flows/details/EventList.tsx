@@ -163,6 +163,8 @@ export function EventList({
             <span className="event-list-subject mono">
               {subject !== title ? subject : ''}
               {executionId && executionId !== subject ? <small> · {executionId}</small> : null}
+            </span>
+            <span className="event-list-child-cell">
               {child && (
                 <Link
                   className="event-list-child"

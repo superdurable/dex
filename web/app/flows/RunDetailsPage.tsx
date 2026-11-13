@@ -60,7 +60,6 @@ import { OperateMenu } from './details/OperateMenu';
 import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './details/RunFactsMenu';
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
-import { CopyButton } from '../components/CopyButton';
 import { rememberRecentRun } from '../components/frame/recentRuns';
 import { RunFailureLine, runFailureOf, RunStateLine, runStateOf } from './details/RunFailureLine';
 import { StreamPanel } from './details/StreamPanel';
@@ -930,8 +929,8 @@ export function RunDetailsPage({
           <>
             <Link className="app-bar-parent" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
               <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
-              <span className="app-bar-parent-id mono">{middleTruncate(relations.parentFlowId, 24)}</span>
-              <span className="app-bar-parent-word">Parent</span>
+              <span className="id-long mono">{middleTruncate(relations.parentFlowId, 24)}</span>
+              <span className="id-short mono">{middleTruncate(relations.parentFlowId, 12)}</span>
             </Link>
             <span aria-hidden="true" className="app-bar-separator">/</span>
           </>
@@ -947,7 +946,6 @@ export function RunDetailsPage({
           childFlowsHref={childFlowsHref}
           facts={runFacts}
           flowId={flowId}
-          flowType={summary?.flowType}
           hasMoreChildFlows={relations?.hasMoreChildren}
           runId={runId}
           attemptLabel={summary && currentRunAttempt > 1 ? `${displayedRunAttempt} of ${currentRunAttempt}` : undefined}
@@ -960,7 +958,6 @@ export function RunDetailsPage({
             />
           ) : undefined}
         />
-        <CopyButton className="app-bar-copy" label="Copy Flow ID" value={flowId} />
         {summary && currentRunAttempt > 1 && (
           <RunAttemptSelect
             currentRunAttempt={currentRunAttempt}

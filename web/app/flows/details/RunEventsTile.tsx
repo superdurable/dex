@@ -64,7 +64,7 @@ export function RunEventsTile({
         {paging && hasOtherPages(paging) && <RunEventsPager paging={paging} />}
         {pageSize !== undefined && onPageSizeChange && !fitsSmallestPage(latestEventId, paging) && (
           <label className="run-events-page-size">
-            Page size
+            <span className="run-events-page-size-word">Page size</span>
             <select
               onChange={(event) => onPageSizeChange(Number(event.target.value) as HistoryPageSize)}
               value={pageSize}

@@ -14,7 +14,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { flowIdPrefixQuery, linkedRunPathOf } from '../../components/frame/JumpTo';
 import { OperateMenu } from './OperateMenu';
-import { shortFlowId } from './RunFactsMenu';
 import { runFailureOf, runStateOf } from './RunFailureLine';
 
 afterEach(cleanup);
@@ -62,13 +61,6 @@ describe('run failure line', () => {
     expect(runFailureOf([event(3, 'FlowClosed', { errorMessage: 'timed out' })])).toEqual({ message: 'timed out', eventId: 3 });
     expect(runFailureOf([event(3, 'FlowClosed', {})])).toBeNull();
     expect(runFailureOf([event(3, 'StepExecuteFailed')])).toBeNull();
-  });
-});
-
-describe('bar Flow ID', () => {
-  it('keeps the end of a SubFlow ID and the middle-cut shape of any other', () => {
-    expect(shortFlowId('SubFlow:order-1001-completed-CreateShipment-1-0', 24)).toBe('…eted-CreateShipment-1-0');
-    expect(shortFlowId('order-1001-completed', 24)).toBe('order-1001-completed');
   });
 });
 

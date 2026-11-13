@@ -22,12 +22,6 @@ export interface RunFact {
   icon: 'started' | 'closed' | 'duration' | 'attempt' | 'events' | 'type';
 }
 
-/** Shortens a Flow ID for the bar: a SubFlow keeps its distinguishing end, others shorten in the middle. */
-export function shortFlowId(flowId: string, maxLength: number): string {
-  if (!flowId.startsWith('SubFlow:') || flowId.length <= maxLength) return middleTruncate(flowId, maxLength);
-  return `…${flowId.slice(-(maxLength - 1))}`;
-}
-
 /** Shortens a long ID in the middle, so the distinguishing tail stays visible. */
 export function middleTruncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
@@ -42,7 +36,6 @@ export function RunFactsMenu({
   flowId,
   runId,
   facts,
-  flowType,
   childFlows = [],
   hasMoreChildFlows = false,
   childFlowsHref,
@@ -54,8 +47,6 @@ export function RunFactsMenu({
   /** The attempt picker, repeated in the popover for when the bar hides it. */
   attemptControl?: ReactNode;
   flowId: string;
-  /** Shown muted after the Flow ID, so the run reads as "which Flow, of what kind". */
-  flowType?: string;
   /** True when the run has more child Flows than childFlows lists. */
   hasMoreChildFlows?: boolean;
   runId: string;
@@ -79,15 +70,10 @@ export function RunFactsMenu({
         type="button"
       >
         <span className="run-facts-name mono">
-          {flowId.startsWith('SubFlow:') ? (
-            <>
-              <span className="run-facts-name-long">{middleTruncate(flowId, 36)}</span>
-              <span className="run-facts-name-short">{shortFlowId(flowId, 24)}</span>
-            </>
-          ) : middleTruncate(flowId, 30)}
+          <span className="id-long">{middleTruncate(flowId, 36)}</span>
+          <span className="id-short">{middleTruncate(flowId, 16)}</span>
         </span>
         {attemptLabel && <span className="run-facts-attempt">Attempt {attemptLabel}</span>}
-        {flowType && <span className="run-facts-type">{flowType}</span>}
         {childFlows.length > 0 && (
           <span className="run-facts-children-count">
             <CornerDownRight aria-hidden="true" size={12} strokeWidth={2.25} />
