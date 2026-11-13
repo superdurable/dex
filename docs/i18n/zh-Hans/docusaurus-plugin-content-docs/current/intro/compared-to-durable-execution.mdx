@@ -48,12 +48,6 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 | 重试 | Activity 默认重试，workflow 代码不重试。 | 每个 Step 方法默认重试，退避方式相同。 |
 | 失败处理 | 在 workflow 代码里捕获 Activity 的错误。 | Step 上的失败策略把流程交给一个恢复 Step。见[失败处理](/design-patterns/failure-handling)。 |
 
-### 确定性要求转移到了幂等键上 {#determinism-moved-it-did-not-vanish}
-
-Dex 去掉了重放规则，但没有去掉所有规则。Step 可能运行不止一次，所以每个外部效果只能依赖 Dex 传给这个 Step 的内容；见[幂等键](/concepts/step#idempotency-keys)。Temporal 对 Activity 也有同样的要求，所以这项责任并不新。[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)以它为前提。
-
-时钟和随机值可以用在 Step 的决定和保存的数据里。不要把它们用在幂等键里，也不要用在重新运行时必须完全一致的效果里。
-
 ### 同一个流程的两种写法 {#the-same-process-in-both-models}
 
 一个提醒循环每隔一段时间发送一次提醒，直到对方选择退出。在 Temporal 里，循环是由引擎重放的普通代码。下面这段代码只是示意，不来自 Dex 示例：
@@ -241,26 +235,15 @@ impl Step for ReminderStep {
 
 Temporal 版本从上往下读。退出是一个设置变量的 Signal handler，重放会重建这个变量。Dex 版本给等待状态起了名字。Timer 和 Channel 是同一个 Wait，由决定选择接下来做什么。
 
-## 并发、消息和服务器 {#capabilities}
+## 并发和服务器 {#capabilities}
 
 ### 并发的默认行为 {#concurrency-defaults}
 
 Temporal Workflow 在单线程上运行。Signal 和 Update handler 仍然可能在每个 `await` 处和主函数交错执行。对于先读、再等待、再写入的 handler，Temporal 建议使用 workflow mutex。
 
-Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。由你选择哪些 Attribute 需要[锁](/concepts/primitives/attribute#locking)。没有锁时，两个先读后写的写入方可能互相覆盖。Dex 目前没有针对这种情况的检查。
+Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。由你选择哪些 Attribute 需要[锁](/concepts/primitives/attribute#locking)。没有锁时，两个先读后写的写入方可能互相覆盖。
 
 这个差距比"单线程对多线程"听起来小，但它是真实存在的。Temporal 默认只有一个写入方。Dex 默认并行运行 Step，要求你声明锁。
-
-### 消息和请求 {#messages-and-requests}
-
-| | Temporal | Dex |
-| --- | --- | --- |
-| 异步消息 | Signal。客户端不等待 Worker。 | Channel 发布。没有 Worker 在线时也会保存。 |
-| 重复的消息 | 重试的客户端调用按 request ID 去重。其他重复，Temporal 建议在 Signal 里带幂等键。 | 响应丢失后再次发送的发布会保存两次。按 request ID 去重计划在 [issue 1519](https://github.com/superdurable/dex/issues/1519) 中实现。 |
-| 同步请求 | Update。等待 Worker 接受它。在一次运行内按 Update ID 去重。 | RPC。需要 10 秒内有 Worker 接手。重试的 RPC 会再次运行。 |
-| 读取 | Query。不向历史添加任何内容。 | 只读 RPC。 |
-
-[最多发送一次命令](/concepts/client#inbound-commands)给出了 Dex 里丢弃重复命令的模式。[限制](/intro/limits#requests-that-can-repeat)列出了所有可能重复的请求。
 
 ### 运行服务器 {#run-the-server}
 
@@ -285,7 +268,7 @@ Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也�
 | Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) | 两者都是持久化的。 |
 | Signal | [Channel](/concepts/primitives/channel) 消息 | 两者都能在没有 Worker 在线时被接收。 |
 | Query | 只读 [RPC](/concepts/primitives/rpc) | |
-| Update | 写入 Attribute 或发布到 Channel 的 [RPC](/concepts/primitives/rpc) | 两者都需要 Worker。见[消息和请求](#messages-and-requests)。 |
+| Update | 写入 Attribute 或发布到 Channel 的 [RPC](/concepts/primitives/rpc) | 两者都需要 Worker。 |
 | Workflow 变量 | [Attribute](/concepts/primitives/attribute) | Dex 保存它们。Temporal 通过重放重建它们。 |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
 | Task Queue | Flow 类型的队列 | 要使用单独的 Worker 池，给这项工作一个自己的 Flow 类型。 |

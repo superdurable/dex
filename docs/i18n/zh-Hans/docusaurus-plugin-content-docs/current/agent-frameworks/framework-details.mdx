@@ -109,7 +109,7 @@ Pi 是一个用于 Agent 的 TypeScript 工具包。它的 **pi-ai** 包调用�
 
 你的 Agent 已经在用 pi-ai 模型和 Pi tool 时使用它。保留模型和 tool，由 Dex 负责 Session 和 Agent Loop。
 
-把 Agent 从 **pi-durable**（Pi 的一个持久化 harness）迁移到 Dex 时，也使用它。Dex 替代的是 pi-durable，而不是 Pi。你的 pi-ai 模型和大部分 Pi tool 可以直接沿用。harness 的入口代码需要改写：`Harness.open`、根对话、`submit` 和 `wait` 变成 Session Flow、Worker 和 Client 调用。pi-durable API 的兼容层在 [issue 1571](https://github.com/superdurable/dex/issues/1571) 中跟踪。
+把 Agent 从 **pi-durable**（Pi 的一个持久化 harness）迁移到 Dex 时，也使用它。Dex 替代的是 pi-durable，而不是 Pi。你的 pi-ai 模型和大部分 Pi tool 可以直接沿用。harness 的入口代码需要改写：`Harness.open`、根对话、`submit` 和 `wait` 变成 Session Flow、Worker 和 Client 调用。
 
 **Session 如何运行**
 

@@ -49,8 +49,8 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 客户端重试请求时：
 
 - `StartFlow`：复用第一次启动的 request ID；第一次启动和重试都设置返回已有运行的选项；保持默认的 ID 复用策略。这样，只要 server 的日志把重试排在 Dex 清除已关闭的运行之前，证明就覆盖这次重试。先到达 server 并不够。见[启动选项](/concepts/flow#start-options)。
-- `PublishToChannel`：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。通过 RPC request ID 只发布一次的做法已在计划中，见 [issue 1519](https://github.com/superdurable/dex/issues/1519)。
-- `StopFlow`：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。传入 run ID 的做法已在计划中，见 [issue 1520](https://github.com/superdurable/dex/issues/1520)。
+- `PublishToChannel`：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。
+- `StopFlow`：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。重试时要传入 run ID。
 
 ## 证明依赖的假设 {#what-the-proof-assumes}
 

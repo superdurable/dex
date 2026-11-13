@@ -86,12 +86,9 @@ When a client retries a request:
   orders it before Dex purges the closed run. Reaching the server first is not
   enough. See [Start options](/concepts/flow#start-options).
 - `PublishToChannel`: a request sent again after a lost response is a second
-  request, and it can publish the message twice. Publishing once through RPC
-  request IDs is planned in
-  [issue 1519](https://github.com/superdurable/dex/issues/1519).
+  request, and it can publish the message twice.
 - `StopFlow`: a retry without a run ID can stop a newer run of the same Flow
-  ID. Passing a run ID is planned in
-  [issue 1520](https://github.com/superdurable/dex/issues/1520).
+  ID. Pass the run ID.
 
 ## What the proof assumes {#what-the-proof-assumes}
 

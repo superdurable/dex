@@ -48,12 +48,6 @@ The table shows what each design means for the core capabilities. The first rows
 | Retries | Activities retry by default. Workflow code does not. | Every Step method retries by default, with the same backoff. |
 | Failure handling | Catch an Activity error in workflow code. | A failure policy on the Step routes to a recovery Step. See [Failure Handling](/design-patterns/failure-handling). |
 
-### Determinism moves to the idempotency key {#determinism-moved-it-did-not-vanish}
-
-Dex removes the replay rule. It does not remove every rule. A Step can run more than once, so each external effect depends only on what Dex passes the Step; see [Idempotency keys](/concepts/step#idempotency-keys). Temporal asks the same of Activities, so this duty is not new. The [failure transparency proof](/correctness-and-expressiveness/failure-transparency-proof) assumes it.
-
-Clock and random values are fine in a Step's decisions and in saved data. They stay out of idempotency keys and out of any effect that must be identical on a rerun.
-
 ### The same process in both models {#the-same-process-in-both-models}
 
 A reminder loop sends a reminder at each interval until the person opts out. In Temporal, the loop is ordinary code that the engine replays. This sketch is illustrative, not from the Dex examples:
@@ -241,26 +235,15 @@ The reminder passes no idempotency key, because a second reminder does no harm. 
 
 The Temporal version reads top to bottom. The opt-out is a Signal handler that sets a variable, and replay rebuilds the variable. The Dex version names the waiting state. The Timer and the Channel are one Wait, and the decision chooses what comes next.
 
-## Concurrency, messages, and the server {#capabilities}
+## Concurrency and the server {#capabilities}
 
 ### Concurrency defaults {#concurrency-defaults}
 
 A Temporal Workflow runs on a single thread. Signal and Update handlers can still interleave with the main function at each `await`. Temporal recommends a workflow mutex for handlers that read, wait, and then write.
 
-Dex runs the Steps of one Flow in parallel on different Workers. An RPC can run alongside them. They share the Flow's Attributes. You choose which Attributes need a [lock](/concepts/primitives/attribute#locking). Without a lock, two writers that read and then write can overwrite each other. Dex has no lint for this today.
+Dex runs the Steps of one Flow in parallel on different Workers. An RPC can run alongside them. They share the Flow's Attributes. You choose which Attributes need a [lock](/concepts/primitives/attribute#locking). Without a lock, two writers that read and then write can overwrite each other.
 
 The gap is smaller than "one thread versus many" suggests, but it is real. Temporal gives one writer by default. Dex gives parallel Steps by default and asks you to declare locks.
-
-### Messages and requests {#messages-and-requests}
-
-| | Temporal | Dex |
-| --- | --- | --- |
-| Asynchronous message | Signal. The client does not wait for a Worker. | Channel publish. Stored with no Worker online. |
-| A repeated message | A retried client call is deduplicated by request ID. For other repeats, Temporal recommends an idempotency key in the Signal. | A publish sent again after a lost response is stored twice. Request-ID deduplication is planned in [issue 1519](https://github.com/superdurable/dex/issues/1519). |
-| Synchronous request | Update. Waits for the Worker to accept it. Deduplicated by Update ID within a run. | RPC. Needs a Worker within 10 seconds. A retried RPC runs again. |
-| Read | Query. Adds nothing to the history. | Read-only RPC. |
-
-[Send a command at most once](/concepts/client#inbound-commands) gives the Dex pattern that drops a repeated command. [Limits](/intro/limits#requests-that-can-repeat) lists every request that can repeat.
 
 ### Run the server {#run-the-server}
 
@@ -285,7 +268,7 @@ When the active Dex node fails over, every in-flight Step attempt runs again. Se
 | Timer, `sleep` | [Timer](/concepts/primitives/timer) in a Step's `WaitFor` | Both durable. |
 | Signal | [Channel](/concepts/primitives/channel) message | Both are accepted with no Worker online. |
 | Query | Read-only [RPC](/concepts/primitives/rpc) | |
-| Update | [RPC](/concepts/primitives/rpc) that writes Attributes or publishes to a Channel | Both need a Worker. See [Messages and requests](#messages-and-requests). |
+| Update | [RPC](/concepts/primitives/rpc) that writes Attributes or publishes to a Channel | Both need a Worker. |
 | Workflow variables | [Attributes](/concepts/primitives/attribute) | Dex saves them. Temporal rebuilds them by replay. |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
 | Task Queue | The Flow type's queue | To use a separate Worker pool, give the work its own Flow type. |

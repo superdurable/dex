@@ -109,7 +109,7 @@ Pi is a TypeScript toolkit for agents. Its **pi-ai** package calls models from m
 
 Use it when your agent already uses pi-ai models and Pi tools. Keep the models and the tools, and let Dex own the session and the loop.
 
-Use it also when you move an agent from **pi-durable**, a durable harness for Pi, to Dex. Dex replaces pi-durable, not Pi. Your pi-ai models and most of your Pi tools carry over. The harness entry code changes: `Harness.open`, the root conversation, `submit`, and `wait` become a session Flow, a Worker, and Client calls. A compatibility layer for the pi-durable API is tracked in [issue 1571](https://github.com/superdurable/dex/issues/1571).
+Use it also when you move an agent from **pi-durable**, a durable harness for Pi, to Dex. Dex replaces pi-durable, not Pi. Your pi-ai models and most of your Pi tools carry over. The harness entry code changes: `Harness.open`, the root conversation, `submit`, and `wait` become a session Flow, a Worker, and Client calls.
 
 **How a session runs**
 

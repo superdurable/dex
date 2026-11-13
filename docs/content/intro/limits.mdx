@@ -86,11 +86,7 @@ to. See [Install and configure server-zd](/reference/server/configuration).
   retry can run the handler twice. See [RPC](/concepts/primitives/rpc#guarantees).
 - **A repeated Channel publish delivers twice.** A `PublishToChannel`
   request sent again after a lost response stores the message a second time.
-  Publishing once through request IDs is planned in
-  [issue 1519](https://github.com/superdurable/dex/issues/1519).
 - **A retried StopFlow without a run ID can stop a newer run.** Pass the run ID.
-  Doing this for you is planned in
-  [issue 1520](https://github.com/superdurable/dex/issues/1520).
 
 [Send a command at most once](/concepts/client#inbound-commands) gives the pattern that drops a repeated command.
 
