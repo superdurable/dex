@@ -10,6 +10,10 @@ Describe each deal as data. One Flow then runs any deal, for any sellable item.
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Entity store](/design-patterns/entity-store).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 The process represents one buyer's deal for one item. The item can be a dataset, a physical product, a subscription, a service, or another sellable good. It must:
@@ -31,13 +35,11 @@ Failures to handle:
 - A condition message can be malformed, target an unknown or stopped Flow, or arrive for a condition that the definition does not expose.
 - Each keyed wait must receive exactly one message. Otherwise the Step fails instead of merging ambiguous input.
 - Payment, refund, sample delivery, or item delivery can time out or return an error. Dex retries the failed Step without rerunning earlier completed actions.
-- An action can succeed remotely while its response is lost. Production adapters should use the Flow ID and Step execution identity as an idempotency key.
+- A provider can complete a payment, refund, or delivery whose response is lost. A repeat must not charge, refund, or deliver twice.
 - State data can omit a decision key. The transition then follows its explicit fallback state.
 - A definition can loop forever if no external decision ever ends the loop. Dex keeps running such a Flow. Use validation or a timeout in your product to stop unwanted loops.
 
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow is a small interpreter. The definition chooses the business path, and the four Step types in the graph above run it.
 
@@ -51,6 +53,8 @@ It uses these patterns:
 The examples in every SDK use one action list per state. The Go example adds separate pre-actions and post-actions, a PostgreSQL definition catalog, search endpoints, and a browser UI.
 
 The Go example maps its six Keyword Attributes to `keyword1` through `keyword6`, in the order it declares them. Every Flow type in the namespace shares these slots. Its raw searches therefore always filter on `FlowType` first.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 

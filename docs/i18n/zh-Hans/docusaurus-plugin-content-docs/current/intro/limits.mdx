@@ -18,22 +18,20 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 - **公共 API 认证默认关闭。** 在你配置 authenticator 之前，任何能连到 server 的 client 都可以调用它。
 - **Step 重试在 4 小时后停止。** 之后 Flow 失败，除非这个 Step 有自己的重试策略或失败路由。
 
-[在生产环境运行 Dex](/components/production#defaults-to-change-before-production) 说明每一项怎么改。
+[在生产环境运行 Dex](/components/production#before-you-launch) 说明每一项怎么改。
 
 ## 容量和可用性 {#capacity-and-availability}
 
-- **一个集群的上限是一个 active 节点。** Dex 把一个集群的 Flow 和任务队列分成多个分区，每个分区是这部分状态里固定的一片。目前一个节点拥有全部分区。所以更大的负载需要更大的节点，或者单独的集群。见[超出一个节点的容量](#grow-past-one-node)和[性能](/intro/performance)。
+- **一个集群的上限是一个 active 节点。** Dex 把一个集群的 Flow 和任务队列分成多个分区，每个分区是这部分状态里固定的一片。一个节点拥有全部分区。所以更大的负载需要更大的节点，或者单独的集群。见[超出一个节点的容量](#grow-past-one-node)和[性能](/intro/performance)。
 - **故障转移最多需要 lease 时长加 1 秒。** lease 默认是 10 秒。单副本部署应该用 60 秒，所以崩溃后最多要等大约一分钟。正常关闭会立即交接。见 [Lease](/reference/server/high-availability#lease)（英文）。
 - **对象存储卡住会让节点停止。** 如果一次日志写入在 10 秒内没有被对象存储接受，active 节点会停止，lease 到期后由 standby 接管。见[依赖出故障时](/components/server#dependency-failures)。
 - **故障转移会重新运行进行中的 Step。** 恢复时，Worker 已经领取的每次尝试都会失败，每次都消耗一次重试。见[故障转移和部署](/concepts/failover-and-deploys)。
-- **分区数在第一次启动时固定。** 第一次启动会记录 `cluster.partitionCount`，**serve** 的默认值是 1024，之后用不同分区数启动会失败。大多数集群保留默认值；分区越少，每次内置 SearchFlows 调用扫描得越少，所以如果在意搜索速度，要在第一次生产启动前选好分区数。见 [Partition count](/reference/server/configuration#single-node-partition-count)（英文）。
+- **分区数在第一次启动时固定。** 见 [Partition count](/reference/server/configuration#single-node-partition-count)（英文）。
 - **有些升级需要停止集群。** 有些 server 版本要求在新版本启动前，停止所有 server 进程，包括 standby。升级只能向前。升级页面列出了每个这样的版本，所以升级前先读它。见 [Upgrades and compatibility](/reference/server/upgrades)（英文）。
-- **Beta 阶段保持兼容，但没有固定的支持期。** 已发布的 API、配置、wire format 和存储的数据保持兼容，破坏性变更会附带迁移路径。对旧版本不承诺支持期限。见[发布状态](#release-status)。
-- **兼容性由协议范围决定，而不是版本号。** Dex Server 的版本是 0.1.x，SDK 的版本是 1.x。Worker 或 Client 的协议范围与 server 的有重叠时，它们就能一起工作。见 [Upgrades and compatibility](/reference/server/upgrades)（英文）。
 
 ## 超出一个节点的容量 {#grow-past-one-node}
 
-一个集群只有一个 active 节点，所以它的容量就是一个节点的容量。目前有两种做法：
+一个集群只有一个 active 节点，所以它的容量就是一个节点的容量。有两种做法：
 
 - **用更大的节点。** 在 benchmark 中，16 vCPU 节点的吞吐是 2 vCPU 节点的好几倍。见[性能](/intro/performance)。
 - **运行多个独立的集群。** 每个集群使用自己的对象存储前缀，因为一个前缀只存放一个集群。按 Flow type，或者按租户这样的业务 key，把 Flow 分到不同集群。让每个服务的 Client 和 Worker 指向拥有它的 Flow 的那个集群。
@@ -42,9 +40,10 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 
 ## 可能重复的请求 {#requests-that-can-repeat}
 
-- **Step 至少运行一次。** 见[幂等键](/concepts/step#idempotency-keys)。
+和任何持久化执行引擎一样，被中断的 Step 会再次运行；见[幂等键](/concepts/step#idempotency-keys)。下面这些请求也可能重复：
+
 - **ASYNC Step 可能基于新的快照重新运行。** 如果 server 节点在保存 ASYNC Step 的开始之前出故障，这次尝试会再运行一次，读到的 Attribute 值可能不同。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
-- **重试的 RPC 会再次运行。** 每次 RPC 调用都是一个新请求，所以 client 重试可能让 handler 运行两次。见 [RPC](/concepts/primitives/rpc#guarantees)。
+- **再次调用 RPC 会再次运行它。** 每次 SDK 调用都会发送新的 request ID；见 [RPC 保证](/concepts/primitives/rpc#guarantees)。
 - **重复的 Channel 发布会投递两次。** 响应丢失后再次发送的 `PublishToChannel` 请求，会把这条消息再存一次。
 - **重试 StopFlow 时要传入 run ID。** 不带 run ID 的重试可能停掉一个更新的 run。
 
@@ -61,18 +60,17 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 
 | 部分 | 现状 |
 | --- | --- |
-| Dex | Beta。已发布的 API、配置、wire format 和存储的数据保持兼容。 |
+| Dex | Beta。已发布的 API、配置、wire format 和存储的数据保持兼容。不对旧版本承诺支持期限。 |
 | Dex Server（server-zd） | 版本 0.1.x。升级只能向前，有些升级需要停止集群。 |
 | SDK | 版本 1.x，支持 Go、Python、Java、TypeScript 和 Rust。 |
 | Dex Cloud | 由 Super Durable 替你运行 Dex Server。[在 Dex Cloud 上运行](/components/dex-cloud)说明它运维哪些部分，以及哪些由你运行。 |
 | 兼容性 | 由协议范围决定，而不是版本号。Worker 或 Client 的范围与 server 的有重叠时，它们就能一起工作。 |
 
-[Upgrades and compatibility](/reference/server/upgrades)（英文）给出协议范围。[容量和可用性](#capacity-and-availability)介绍需要停止集群的升级。
+[Upgrades and compatibility](/reference/server/upgrades)（英文）给出协议范围。
 
-- **破坏性变更附带迁移路径。** 破坏性变更首先需要一个明确的决定。
-- **有些选项暂不可用。** Flow 启动延迟和 Flow 级别的重试策略会被拒绝。Attribute Store 是可选的数据库，用来接收选定 Attribute 的副本，目前只能是 PostgreSQL。Flow 状态本身始终保存在 Dex Server 里。[Unsupported features](/reference/server#unsupported-features)（英文）链接了每个未解决的 issue。
-- **五种 SDK，同一个模型。** Go、Python、Java、TypeScript 和 Rust 使用相同的 Flow 模型。
-- **dexcli dev 运行固定版本的 server。** 每个 dexcli 发布包都带有与它一起测试过的 **dex-server-zd** 版本，**dexcli dev** 运行的就是这个版本。[本地运行](/components/run-locally)说明怎样安装和更新它。
+- **破坏性变更附带迁移路径。**
+- **有些选项不受支持。** Flow 启动延迟和 Flow 级别的重试策略会被拒绝；可以在第一个 Step 里等待一个 Timer，并为每个 Step 设置重试策略。Attribute Store 是可选的数据库，用来接收选定 Attribute 的副本，只能是 PostgreSQL。Flow 状态始终保存在 Dex Server 里。见 [Unsupported features](/reference/server#unsupported-features)（英文）。
+- **dexcli dev 运行它自带的 dex-server-zd 版本。** 见[本地运行](/components/run-locally)。
 
 ## 许可证 {#license}
 
@@ -88,7 +86,7 @@ Dex Skills 使用 MIT License。文档和示例保留各自的许可证，更早
 
 ## 下一步 {#next}
 
-- [正确性与表达能力](/correctness-and-expressiveness)：用机器验证的证明说明崩溃能改变什么。
+- [正确性与表达能力](/correctness-and-expressiveness)：用经计算机检查的证明说明崩溃能改变什么。
 - [性能](/intro/performance)
 - [在生产环境运行 Dex](/components/production)
 - [故障转移和部署](/concepts/failover-and-deploys)

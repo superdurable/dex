@@ -8,6 +8,10 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 
 协调并发服务调用，接收执行中的状态更新，并通过外部事件或超时兜底完成流程。
 
+**展示：**[静态并行 Step](/design-patterns/parallel/static)、[响应式更新](/design-patterns/responsive-update)。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## 产品需求
 
 流程以一个数据值启动，并且必须：
@@ -25,7 +29,7 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 需要处理的故障：
 
 - 下游 API 可能不可用、超时或拒绝输入。Step 必须返回这个错误，让它的重试和失败策略来处理。
-- 下游调用可能已经成功，但响应丢失了。这时 Dex 可能重试 Step，所以生产环境中的 API 操作必须是幂等的。
+- API 可能已完成一次调用，但响应丢失。重复的请求不能把变更执行两次。
 - **Swap** RPC 或 **Ready** 发布可能指向不存在或已经完成的 Flow，并返回客户端错误。调用方应保留 Flow ID，并处理这个错误。
 - **Ready** 消息可能一直不来。这是预期内的结果。Timer 触发后，Flow 会继续走 `CallAPI4`。
 - 如果 **Swap** 恰好发生在 `CallAPI2` 和 `CallAPI3` 两次读取之间，两个 Step 会看到不同的值。两个分支不共享快照，各自读取运行时的当前值。
@@ -33,8 +37,6 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 示例调用的是本地 stub。生产环境中，要给每个 API 调用设置超时和幂等键，并配置适合该 API 的重试或恢复策略。
 
 ## Flow 设计
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 如上图所示，这个 Flow 分叉一次，有两种完成方式。
 
@@ -46,6 +48,8 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 - **结束分支**：`CallAPI2` 返回 `DeadEnd` 结束自己的分支，由等待的分支完成 Flow。
 
 每个下游 API 都有独立 Step。因此重试 API 3 不会重复 API 1 或 API 2，Step 执行图也能准确显示哪个调用正在等待、重试或已经完成。
+
+给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
 ## 核心实现
 
@@ -426,7 +430,7 @@ impl Step for CallApiThree {
 
 ## 演示
 
-启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Microservice orchestration。在下面这次运行中，Flow 以 **test initial data** 启动，**Swap** RPC 把它替换为 **updated in-flight data**，随后一条 **Ready** 消息结束等待。`CallAPI1`、`CallAPI2` 和 `CallAPI3` 均已完成；因为 **Ready** 在 24 小时 Timer 触发之前到达，所以 `CallAPI4` 没有执行。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。在下面这次运行中，Flow 以 **test initial data** 启动，**Swap** RPC 把它替换为 **updated in-flight data**，随后一条 **Ready** 消息结束等待。`CallAPI1`、`CallAPI2` 和 `CallAPI3` 均已完成；因为 **Ready** 在 24 小时 Timer 触发之前到达，所以 `CallAPI4` 没有执行。
 
 ![已完成的 Microservice orchestration Step 执行图](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
 

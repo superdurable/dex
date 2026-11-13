@@ -14,6 +14,17 @@ what each primitive is and when to use it:
 [Timer](/concepts/primitives/timer), and [SubFlow](/concepts/primitives/subflow).
 The SDK doc comments describe each API in its own language.
 
+## Flow runs {#flow-runs}
+
+### Flow close by a new start {#flow-close-by-new-start}
+
+A new start with the same Flow ID terminates the running Flow only when the new
+start uses an ID reuse policy that terminates the running Flow
+(**IDReuseTerminateIfRunning**). A SubFlow restart can terminate an earlier
+child too; see [SubFlowReusePolicy](#subflow-reuse-policy).
+[StartFlowOptions](/reference/python/start-flow-options#flow-id-request-id-and-already-started)
+lists every ID reuse policy.
+
 ## Attributes {#attributes}
 
 ### Initial values and later writes {#initial-attribute-values}
@@ -83,7 +94,9 @@ numbered key. Keep business names on Attributes, and share one pool of typed
 slots across every Flow type in the namespace. Two indexed fields in the same
 Flow need different slots. Reuse a slot across Flow types only with the same
 index type; its business meaning can differ. Dex system indexes keep their
-reserved names.
+reserved names. Slots are limited and cannot be freed, so keep a list of
+which slot each Flow type uses; see
+[PostgreSQL search](/reference/server/search#postgresql-search) for the limits.
 
 | Index type | Application index keys |
 | --- | --- |
@@ -438,6 +451,32 @@ Attribute in the request to null. Each Attribute must still have a stored
 hard-delete value. The erase leaves the Flow run closed and permanently deletes
 its stored objects. Other writes to a closed Flow run return NOT_FOUND.
 
+### AttributeMap partitioning examples {#attributemap-partitioning-examples}
+
+The [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+examples fix these layout rules in every SDK. They are part of the stored
+layout, so changing them requires a migration.
+
+#### Hash partition algorithm {#hash-partition-algorithm}
+
+The [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+example selects a partition in the same way in every SDK:
+
+1. Require a non-empty ASCII email address.
+2. Remove leading and trailing ASCII whitespace.
+3. Lowercase ASCII letters from A through Z.
+4. Calculate 32-bit FNV-1a over the canonical email bytes with wrapping overflow.
+5. Select **hash modulo 1000** and format the instance from **partition-000**
+   through **partition-999**.
+
+#### Chunk page tokens {#chunk-page-tokens}
+
+In the [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+example, the **current** token is always valid after the Flow starts. An empty
+**current** returns an empty page. Archive tokens must contain exactly 20
+decimal digits and identify a chunk boundary. A malformed token or a
+valid-looking token without a stored chunk returns an explicit error.
+
 ### Locks {#attribute-locks}
 
 Dex Server lets only one Step execution or RPC invocation hold an Attribute lock
@@ -632,6 +671,28 @@ get the lock fails with a lock conflict error instead of waiting.
 Keep per-instance locks for updates that touch only one instance. Use the
 shared singleton lock when all affected writers must preserve an invariant over
 the whole collection.
+
+#### Lock holding {#lock-holding}
+
+A method that declares several locks takes them all at once. It starts only
+when every lock is free and it is first in line for each one. It never holds
+one lock while it waits for another, so two locked methods cannot block each
+other in a cycle.
+
+A Step holds its lock for the whole method, including the external calls it
+makes. A retry keeps the lock while it waits in the queue, and an attempt that
+no Worker can run holds it until the Flow times out or stops. To release such a
+lock, start a Worker that has that Step type, or stop the Flow. Dex has no
+command that releases a single lock. The method timeout and the retry policy
+bound how long a running Step holds a lock.
+
+This adds up when a locked Step keeps failing. Its retries keep the lock, and
+the default retry policy keeps retrying for up to 4 hours. For that whole time,
+every other Step and RPC that declares the same lock waits or fails. Set a
+short total duration, such as a few minutes, in the locked method's
+**StepOptions** retry policy, or keep external calls out of it. The
+[StepOptions defaults](/reference/python/step-options#defaults) list the retry
+window.
 
 #### RPC lock conflicts {#rpc-lock-conflicts}
 

@@ -31,43 +31,15 @@ loop:
 
 普通的 sleep 就够了。循环不需要监听取消。Dex 取消这次尝试时，会取消 Step 传给外部调用的 context，所以下一次调用会立即失败，循环随之结束。
 
-## 间隔和 timeout
+## 规则 {#rules}
 
-每一轮都要落在 heartbeat 窗口内：
-
-```text
-interval + call timeout <= HeartbeatTimeout - 10s
-```
-
-示例使用一分钟的 `HeartbeatTimeout` 和 10 秒的调用 timeout，所以间隔最多 40 秒。默认值和最小值见 [Heartbeat](/reference/python/step-options#heartbeat)。
-
-根据等待场景选择间隔。用户正在等待时（例如等待刚启动的资源就绪），用几秒。构建这类长任务，用几十秒。
-
-## 限定等待时间 {#limits}
-
-`ExecuteMethodTimeout` 和 `TotalDuration` 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。`ExecuteRetry` 使用少量带退避的尝试，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)。
-
-`TotalDuration` 只在失败之后决定是否重试，所以最后一次尝试可能在它之后结束。有 Worker 可用时，总等待时间最多约为 `TotalDuration` 加一个 `ExecuteMethodTimeout`。
-
-Polling Step 可以使用任一种 durability。见 [Step options](/reference/python/step-options#durability)。
-
-## 等待超时之后
-
-`ExecuteMethodTimeout` 到期时，Dex 以 timeout 让该尝试失败。如果 `TotalDuration` 已经不够再重试一次，该 Step 失败。用 `ExecuteFailure` 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。
-
-失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。
-
-这些 timeout 只能限定固定时长。其他业务条件仍然在循环中检查，例如由其他系统持有、可能过期的 lease。
-
-## Checkpoint 和进度
-
-新的尝试从上一个 checkpoint 继续，用 `GetLastHeartbeatValue` 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以重试不会重复发送进度消息。
-
-只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从持久化状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
-
-## 锁
-
-由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中，这样 `ExecuteLockAttributes` 只会短暂持有。
+- <a id="interval-and-timeouts"></a>每一轮都要落在 heartbeat 窗口内；计算方法见 [Heartbeat](/reference/python/step-options#heartbeat)（英文）。用户正在等待时，间隔用几秒；构建这类长任务，用几十秒。
+- <a id="limits"></a>`ExecuteMethodTimeout` 和 `TotalDuration` 使用同一个最长等待时间。Dex 会强制执行这两个值，所以 Step 不需要自己计算截止时间。`ExecuteRetry` 使用少量带退避的尝试，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)（英文）。Polling Step 可以使用任一种 durability。
+- <a id="when-the-wait-expires"></a>等待超时后，Step 失败。用 `ExecuteFailure` 选项把这个失败路由到一个短 Step，由它记录业务失败；见 [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。失败记录不包含最后的状态；从 Stream 或日志中读取它。
+- 其他业务条件仍然在循环中检查，例如由其他系统持有、可能过期的 lease。这些 timeout 只能限定固定时长。
+- <a id="checkpoint-and-progress"></a>从上一个 checkpoint 继续，用 `GetLastHeartbeatValue` 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以重试不会重复发送进度消息。
+- 只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从持久化状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。
+- <a id="locks"></a>由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中，这样 `ExecuteLockAttributes` 只会短暂持有。
 
 ## 示例
 

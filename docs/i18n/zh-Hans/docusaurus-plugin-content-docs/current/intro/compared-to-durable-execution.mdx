@@ -60,7 +60,7 @@ Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也�
 - 服务器在你的进程之外记录每次运行的进度。崩溃之后，运行从这份记录继续。
 - 你自己进程里的 Worker 从服务器拉取任务。你的代码从不在服务器里运行。
 - Timer 是持久化的。等待 Timer 或消息的运行不占用 Worker。
-- 每个工作单元都有 retry 策略和超时。默认 backoff 相同：1 秒，每次翻倍，最多 100 秒，不限次数。
+- 每个工作单元都有 retry 策略和超时。默认 backoff 相同：1 秒，每次翻倍，最多 100 秒，不限次数。Dex 默认在 4 小时后停止重试一个 Step；见[限制](/intro/limits)。
 - 每次运行有一个业务 ID。同一个 ID 同时最多有一个打开的运行，复用策略决定下一次启动怎样处理。
 - 一个工作单元可能运行不止一次。调用其他系统的代码要传入幂等键。
 
@@ -271,8 +271,8 @@ Temporal 版本从上往下读。退出是一个设置变量的 Signal handler�
 | Sticky execution | 尽力而为的 sticky 路由 | Dex 先把任务交给上次服务这个 Flow 的 Worker。Worker 不保留历史缓存。 |
 | Search Attributes | 带索引的 Attribute | |
 | Workflow ID 复用策略和冲突策略 | ID 复用策略和启动 request ID | 见 [Flow 标识](/concepts/flow)。 |
-| 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都是协作式的。见[取消运行中的 Step](/concepts/primitives/rpc#cancel-running-steps)。 |
-| Reset | [Time Travel](/concepts/change-flow-code#time-travel) | Time Travel 保留 Run ID。 |
+| 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都是协作式的。见[取消运行中的 Step](/reference/server/runtime-data#cancel-running-steps)。 |
+| Reset | [Time Travel](/components/operate-and-debug#time-travel) | Time Travel 保留 Run ID。 |
 | Continue-As-New | 不需要对应机制 | Dex 会裁剪旧的历史事件。见[重放与保存的 Step 结果](#the-main-difference-an-explicit-step-graph-not-replayed-code)。 |
 | Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[重放与保存的 Step 结果](#the-main-difference-an-explicit-step-graph-not-replayed-code)。 |
 | Schedule | 在 Timer 上循环的 Flow | 见 [Cron 定时](/design-patterns/durable-timer/cron)。 |

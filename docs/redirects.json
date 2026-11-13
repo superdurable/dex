@@ -3682,5 +3682,13 @@
   {
     "from": "/zh-Hans/reference/server/0.1.24/workers/",
     "to": "/zh-Hans/reference/server/workers/"
+  },
+  {
+    "from": "/get-started",
+    "to": "/quick-start"
+  },
+  {
+    "from": "/zh-Hans/get-started",
+    "to": "/zh-Hans/quick-start"
   }
 ]

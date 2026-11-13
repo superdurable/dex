@@ -327,13 +327,13 @@ cancel_order wants to run with {"order_id":"1002","reason":"requested by the cus
 
 The session waits in `AwaitToolApproval`. Type **y**, and the agent cancels the order and replies. [Approvals](/agent-frameworks/approvals) shows how your app reads and answers the waiting call, and how a person approves it in Dex Web.
 
-A coding agent adds `--approve` to the command in place of typing **y**. The program then approves each waiting call and prints what it approved.
+:::note For coding agents
+Add `--approve` to the command in place of typing **y**. The program then approves each waiting call and prints what it approved. Without a terminal, the program does not ask: it prints that `cancel_order` waits for approval and exits, which stops it as Ctrl+C does in step 3. Resume with `--session-id SESSION_ID --approve`.
+:::
 
 ## 3. Stop the program while the agent waits {#stop-the-worker}
 
 Ask to cancel order 1002 again; each run without `--session-id` starts a new session. When the program asks you to approve, press Ctrl+C. The program, its Worker, and its Client stop, and the session keeps waiting in Dex.
-
-Without a terminal, as in a coding agent's shell, the program does not ask. It prints that `cancel_order` waits for approval and exits, which stops it the same way. The agent then resumes with `--session-id SESSION_ID --approve`.
 
 Run the step 1 command again from the same folder, with `--session-id SESSION_ID` in place of the message. A new Worker starts, and the program asks about the same `cancel_order` call. Type **y**. The order is cancelled once, and the model calls before the restart stay done.
 
@@ -341,7 +341,7 @@ Run the step 1 command again from the same folder, with `--session-id SESSION_ID
 
 ## 4. Stop it while a tool runs {#stop-while-a-tool-runs}
 
-A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
+This step stops the program while a tool call runs. The example can slow each tool call down, so you have time to stop it.
 
 1. Put `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20` in front of the step 1 command and ask about order 1001.
 2. Within 20 seconds, kill the program as a crash would. A crash is a kill signal; Ctrl+C lets a running call finish first.

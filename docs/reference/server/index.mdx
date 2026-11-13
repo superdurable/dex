@@ -57,14 +57,12 @@ server-zd fits with the other components.
 
 server-zd rejects these options with **INVALID_ARGUMENT**:
 
-- A Flow start delay: **flow_start_delay_seconds** greater than zero. Tracked
-  in [issue 995](https://github.com/superdurable/dex/issues/995).
-- A Flow-level retry policy: **retry_policy** in the Flow start options. Tracked
-  in [issue 996](https://github.com/superdurable/dex/issues/996). Step-level
-  retry is supported.
+- A Flow start delay: **flow_start_delay_seconds** greater than zero. Wait on
+  a Timer in the first Step instead.
+- A Flow-level retry policy: **retry_policy** in the Flow start options. Set a
+  retry policy on each Step instead.
 
-The only Attribute Store is PostgreSQL. Redis is tracked in
-[issue 616](https://github.com/superdurable/dex/issues/616).
+The only Attribute Store is PostgreSQL.
 
 ## Release notes
 

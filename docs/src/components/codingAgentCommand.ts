@@ -8,9 +8,10 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-/** Returns the host's Dex Skills install lines, then its launch command with the prompt quoted on one line. */
-export function codingAgentCommand(host: {install: string; launch: string}, prompt: string): string {
+/** Returns the host's launch command with the prompt quoted on one line, preceded by its Dex Skills install lines when `withInstall` is set. */
+export function codingAgentCommand(host: {install: string; launch: string}, prompt: string, withInstall = false): string {
   // The prompt goes inside double quotes in bash and zsh, where these characters would be interpreted.
   if (/["$`!\\]/.test(prompt)) throw new Error(`CodingAgentBox prompt has a character the shell would interpret: ${prompt}`);
-  return `${host.install}\n${host.launch} "${prompt.trim()}"`;
+  const launch = `${host.launch} "${prompt.trim()}"`;
+  return withInstall ? `${host.install}\n${launch}` : launch;
 }

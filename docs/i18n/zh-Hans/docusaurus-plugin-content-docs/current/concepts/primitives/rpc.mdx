@@ -10,7 +10,7 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 **RPC**（Remote Procedure Call）让 Flow 外的代码与正在运行的 Flow 交互。web handler、另一个服务或运维工具通过 [Client](/concepts/client) 调用它。
 
-**Client** 发起 RPC。**Dex Server** 将它发送给 **Worker**。**Worker** 执行后，将结果返回给 **Dex Server**，由它保存。**Dex Server** 再将输出返回给 **Client**。
+Client 调用 RPC。Dex Server 把它路由给 Worker，保存结果，并返回输出。
 
 <RpcRequestDiagram markdownDescription="Client 将 RPC 请求发送给 Dex Server，由 Dex Server 转发给 Application Worker。Worker 通过 Dex Server 将结果返回给 Client。" />
 
@@ -35,9 +35,9 @@ RPC handler 可以做四件事：
 
 Dex 像保存 Step 方法一样保存 RPC：它把 RPC 的 Attribute 写入和 Channel 发布与结果一起保存，而且只在 RPC 成功时保存。见 [Step 的保证](/concepts/step#guarantees)。
 
-RPC handler 读取的是 Flow 的一个快照。在这次读取之后、Dex 保存 RPC 的修改之前，Step 和其他 RPC 可能已经修改了 Flow。transactional RPC 也不改变这一点。RPC 的修改依赖它读到的内容时，在这个 RPC 以及所有写这个 Attribute 的 Step 和 RPC 上，都声明这个 Attribute 的 lock。Dex 会让它们依次执行。如果 handler 运行期间 Flow 关闭了，Dex 会拒绝这个 RPC 的修改。但 handler 对外部系统的调用已经发生了。
+RPC handler 读取的是 Flow 的一个快照。在这次读取之后、Dex 保存 RPC 的修改之前，Step 和其他 RPC 可能已经修改了 Flow。RPC 的修改依赖它读到的内容时，在这个 RPC 以及所有写这个 Attribute 的 Step 和 RPC 上，都声明这个 Attribute 的 lock。Dex 会让它们依次执行。如果 handler 运行期间 Flow 关闭了，Dex 会拒绝这个 RPC 的修改。但 handler 对外部系统的调用已经发生了。
 
-SDK 发出的每次 RPC 调用都是一个新请求。重试一次调用时，Dex 可能再次运行 handler，并再次保存它的修改。RPC handler 要能安全地重复执行。
+<a id="request-ids"></a>你的代码每次调用 RPC 都是一个新请求。再次调用 RPC（例如响应丢失之后），handler 会再运行一次，并再次保存它的修改，包括 Channel 发布。RPC handler 要能安全地重复执行；[最多发送一次命令](/concepts/client#inbound-commands)给出了做法。Dex Server 如何对重发的请求去重，见 [Request ID](/reference/server/configuration#limits)。
 
 <a id="rpc-timeout"></a>
 
@@ -191,27 +191,11 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 
 Java、Kotlin 和 TypeScript 还有额外的 RPC 规则，见 [RPC stubs and Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin) 和 [RPC codecs](/reference/typescript/rpc#rpc-codecs)。
 
-## 取消正在运行的 Step {#cancel-running-steps}
+## 更多 RPC 能力 {#more-rpc-capabilities}
 
-<a id="cancel-race"></a>
-<a id="cancel-honour"></a>
-
-RPC 的结果可以按 Step 类型取消所在 Flow 中的活跃 Step。外部请求让进行中的工作失去意义时用它，例如报告或模型调用运行时用户按下 Stop。Dex 在保存这个 RPC 的结果时执行取消。Step 代码必须检查取消并停下。示例见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)，与先完成的 Step 的竞争见 [Resolve the race from committed state](/reference/server/runtime-data#cancel-race)，各 SDK 如何传递取消见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)。
-
-## Lock 和 transactional RPC {#transactional-reads-and-writes}
-
-<a id="attribute-locks"></a>
-
-RPC 可以声明 [Attribute lock](/concepts/primitives/attribute#locking)。这样它会和声明了同一个 lock 的 Step 和 RPC 依次执行。见 [Locks](/reference/server/runtime-data#attribute-locks) 和 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
-
-Dex 保存 **transactional** RPC 的结果时，会多做一次检查。如果它删除的 Channel 消息已经不在队列中，RPC 失败，Dex 不保存它的任何修改。非 transactional RPC 会跳过缺失的删除，Dex 保存其余修改。持有 lock 的 RPC 总是 transactional。见 [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes)。
-
-<a id="load-collection-state"></a>
-<a id="运行时选择-map-instance"></a>
-
-## 加载集合
-
-RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才加载 AttributeMap 条目和待处理的 Channel 消息。这样不用这些大集合的 RPC 就不会带上它们。见 [Selective state loading](/reference/server/runtime-data#load-collection-state) 和 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances)。
+- <a id="cancel-running-steps"></a><a id="cancel-race"></a><a id="cancel-honour"></a>**取消正在运行的 Step。** RPC 的结果可以按 Step 类型取消所在 Flow 中的活跃 Step，例如报告运行时用户按下 Stop。Dex 在保存这个 RPC 的结果时执行取消。Step 代码必须检查取消并停下。见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)、[Resolve the race from committed state](/reference/server/runtime-data#cancel-race) 和 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
+- <a id="transactional-reads-and-writes"></a><a id="attribute-locks"></a>**Lock 和 transactional RPC。** RPC 可以声明 [Attribute lock](/concepts/primitives/attribute#locking)，然后和声明了同一个 lock 的 Step 和 RPC 依次执行。如果 **transactional** RPC 删除的 Channel 消息已经不在队列中，RPC 失败，Dex 不保存它的任何修改。非 transactional RPC 会跳过缺失的删除，Dex 保存其余修改。持有 lock 的 RPC 总是 transactional。见 [Locks](/reference/server/runtime-data#attribute-locks)、[RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts) 和 [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes)（英文）。
+- <a id="load-collection-state"></a><a id="加载集合"></a><a id="runtime-selected-map-instances"></a><a id="运行时选择-map-instance"></a>**加载集合。** RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才加载 AttributeMap 条目和待处理的 Channel 消息。见 [Selective state loading](/reference/server/runtime-data#load-collection-state) 和 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances)（英文）。
 
 ## 参考
 

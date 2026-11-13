@@ -24,7 +24,7 @@ Claude Agent SDK 把 Claude Code 作为 Agent 运行。它的 Agent Loop 在 Cla
 
 想要 Claude Code 的 Agent Loop、上下文管理和 tool 时，使用它。你的 Agent 已经在用 Claude Agent SDK 时，也使用它。
 
-如果想要每个 Step 一次模型调用、并行的 tool Step 或 Dex compaction，请使用 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)。
+如果想要每个 Step 一次模型调用、并行的 tool Step 或由 Dex 压缩上下文，请使用 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)。
 
 **Session 如何运行**
 
@@ -175,7 +175,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - 每个 segment 只有一次写操作调用离开 turn。包含两次写操作的回复要多花一个 segment 和一次模型调用。同一次回复中的写操作永远不会作为并行的 Step 运行。
 - 在 CLI 内部运行的 tool，例如 **Bash** 或 **Edit**，是 at least once 的。Segment 重新运行时它们也会再次运行。CLI 修改的文件不会被记录。
 - Segment 必须在 `RunModel` 的 method timeout 内完成，默认 15 分钟。可以用 Python 中的 `run_model_limit` 或 TypeScript 中的 `runModelLimit` 调高它。
-- Claude Code 自己压缩 transcript，Dex compaction 保持关闭。长 Session 的终点是 state 上限，而不是 context window：即单个 Session 的 active state，默认 64 MiB（[Session limits](/reference/agents/session-limits)（英文））。
+- Claude Code 自己压缩 transcript，由 Dex 压缩上下文的功能保持关闭。长 Session 的终点是 state 上限，而不是 context window：即单个 Session 的 active state，默认 64 MiB（[Session limits](/reference/agents/session-limits)（英文））。
 - 记录下来的 tool result 只保留文本。
 - Subagent 内的写操作调用会被拒绝。模型会被要求在主对话中调用它。
 

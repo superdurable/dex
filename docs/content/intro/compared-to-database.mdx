@@ -16,12 +16,6 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 Most backends keep their state in a database and build each process around it.
 Below, one order process is built that way, one design at a time, and then as a Dex Flow.
 
-**Coming from queues and a database?** Read these in order: this page,
-[Dex and Your Database](/components/your-database),
-[Step guarantees](/concepts/step#guarantees),
-[Failover and Deploys](/concepts/failover-and-deploys), and
-[Limits](/intro/limits).
-
 It is the order process from [Why Dex?](/intro/what-is-dex): charge, wait for the seller's approval with reminders, ship, and refund if shipping keeps failing.
 These are the parts each design needs for it:
 
@@ -37,24 +31,8 @@ These are the parts each design needs for it:
 
 ## What a database leaves to your code {#what-a-database-does-not-do}
 
-Databases and storage services such as PostgreSQL, MySQL, and S3 store data and return it when you ask.
-They are passive: they act only when your code calls them.
-
-A reliable backend needs more than storage.
-It runs on several machines, so that one failure does not stop it and it can handle more traffic.
-One API often calls several other APIs and services, so one database transaction cannot cover it.
-
-A typical backend API also:
-
-- Calls several APIs, in sequence or in parallel.
-- Schedules future work, such as reminders and business timeouts.
-- Waits for other systems, such as a human approval or an external event.
-- Handles failures with retries, rollback, and a dead-letter queue (DLQ) for manual repair. Each step may need a different policy.
-- Shows the inputs, errors, and in-progress work of each step.
-- Stays available, fast, and affordable as traffic grows.
-
-A database provides none of this.
-Teams write that code again for every service.
+Databases and storage services such as PostgreSQL, MySQL, and S3 store data and act only when your code calls them.
+Calling several services, scheduling future work, waiting for other systems, retrying failures, and showing the progress of each step stay with your code, and each service writes that code again.
 
 ## Start: two API calls in a row
 
@@ -137,7 +115,7 @@ The order is now saved, but new problems appear:
 
 ### Design 2: a message queue between steps
 
-Experienced teams usually move to message queues, one for each step: **charge-requests** and **ship-requests**.
+The usual next step is message queues, one for each step: **charge-requests** and **ship-requests**.
 An order starts as a message on **charge-requests**.
 The charge consumer handles it and publishes a message to **ship-requests**.
 
@@ -151,7 +129,7 @@ Queues solve the problems of Design 1, but they bring harder ones:
 - Retries with backoff and a DLQ are often missing.
   - For example, Kafka needs separate retry topics, and SQS needs a visibility timeout as a workaround.
   - You also have to build tools to inspect and recover messages in the DLQ.
-- The frontend may need to return as soon as the charge succeeds ("payment received, order processing"). It then has to poll the database, which is clumsy and wasteful.
+- The frontend may need to return as soon as the charge succeeds ("payment received, order processing"). It must then poll the database for the order status.
 
 The business also changes over time. The order process often needs to:
 
@@ -203,8 +181,9 @@ Each new requirement changes both designs:
   ],
 }} />
 
-The Ship Step's one-hour retry window and its route to Refund are set in its options; [Route a failure to a recovery Step](/intro/add-to-existing-code#route-a-failure-to-a-recovery-step) explains them. [Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.
+The Ship Step's one-hour retry window and its route to Refund are set in its options; [Route a failure to a recovery Step](/intro/add-to-existing-code#route-a-failure-to-a-recovery-step) explains them. [Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK, with the retry window shortened to 3 seconds for the demo. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.
 
 ## Next
 
-- [Dex vs. Temporal](/intro/compared-to-durable-execution): how Dex provides the capabilities of Temporal and other durable execution tools with a different design.
+- [Dex vs. Temporal](/intro/compared-to-durable-execution): how Dex differs from existing durable execution engines.
+- [Evaluate Dex](/evaluate): the pages to read next if you are coming from queues and a database, in order.

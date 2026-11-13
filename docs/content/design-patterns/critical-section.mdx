@@ -12,10 +12,6 @@ An example is several reviewers who edit the same contract. Each edit takes thre
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-## When a token beats an Attribute lock {#why-not-an-attribute-lock}
-
-An Attribute lock, such as `ExecuteLockAttributes`, covers one Step method. It does not cover a `WaitFor`, and it does not span several Steps. Use a lock when the protected work fits in one `Execute`. Use a token when the section spans Steps.
-
 ## How it works
 
 A dedicated Channel holds exactly one message. That message is the token.
@@ -41,6 +37,10 @@ ReleaseContractEditToken.execute -> ContractEditToken.publish("contract"); deadE
 
 Any waiting branch can get the token next, in no fixed order.
 
+## Token or Attribute lock {#why-not-an-attribute-lock}
+
+An Attribute lock, such as `ExecuteLockAttributes`, covers one Step method. It does not cover a `WaitFor`, and it does not span several Steps. Use a lock when the protected work fits in one `Execute`. Use a token when the section spans Steps.
+
 ## Every exit returns the token
 
 The token is an ordinary message. A branch that leaves the section without publishing it back blocks every other branch forever. List each way out of the section, and publish the token on each one.
@@ -50,7 +50,12 @@ The token is an ordinary message. A branch that leaves the section without publi
 - **WaitFor failure.** When a later Step of the section has its own `WaitFor`, set its `WaitForFailure` policy to proceed to its `Execute`. That `Execute` sees the failure and publishes the token.
 - **Early exit.** An `Execute` that leaves the section with a business decision publishes the token in the same `Execute`.
 - **Cancellation of the handoff.** Canceling the handoff Step is safe, because it does no protected work. If Dex cancels it after its wait consumed the token but before Dex saved its `Execute` result, Dex returns the token to the front of the Channel. Another branch enters.
-- **Cancellation inside the section.** Never cancel a Step that does protected work. A canceled Step publishes nothing, and its failure route does not run. The Step or RPC that cancels it cannot publish the token for it either. Dex decides which Steps to cancel only when it saves the result that cancels them. By then the canceled Step may already have published the token, and a second token would let two branches into the section at once. To stop a branch early, send it a stop request that its Steps check, such as an Attribute that an RPC sets. The Step that sees the request leaves through an early exit that publishes the token.
+- **Cancellation inside the section.** Never cancel a Step that does protected
+  work. A canceled Step does not publish the token; see
+  [Canceling a Step that publishes](/correctness-and-expressiveness/step-guarantees#cancellation-completion-order).
+  To stop a branch early, send it a stop request that its Steps check, such as
+  an Attribute that an RPC sets. The Step that sees the request leaves through
+  an early exit that publishes the token.
 - **Closing the Flow.** `ForceComplete`, `ForceFail`, a Flow timeout, and a Client `StopFlow` end every branch. No branch waits for the token any more.
 
 Dex saves a method's Channel publications together with its result, or not at all. A failed attempt publishes nothing, so a retry cannot create a second token.

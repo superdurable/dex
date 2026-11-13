@@ -333,7 +333,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 </SdkSnippet>
 </SdkTabs>
 
-默认的重试策略会把一个 Step 重试 4 小时，然后让 Flow 失败；失败路由会接住这个失败。要让人来决定，就把失败路由到一个等待人工处理的 Step，见 [人工恢复](/design-patterns/failure-handling/manual-recovery)。[Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery) 给出自动处理的路由。修复一次失败 run 的原因之后，[Time Travel](/concepts/change-flow-code#time-travel) 可以让它从更早的某个点重新运行。
+默认的重试策略会把一个 Step 重试 4 小时，然后让 Flow 失败；失败路由会接住这个失败。要让人来决定，就把失败路由到一个等待人工处理的 Step，见 [人工恢复](/design-patterns/failure-handling/manual-recovery)。[Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery) 给出自动处理的路由。修复一次失败 run 的原因之后，[Time Travel](/components/operate-and-debug#time-travel) 可以让它从更早的某个点重新运行。
 
 ## 安排幂等键 {#place-the-idempotency-keys}
 

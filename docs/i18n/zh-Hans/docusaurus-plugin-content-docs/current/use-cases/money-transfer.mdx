@@ -8,6 +8,10 @@ import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json'
 
 在两个账户之间转移资金，并确保下游操作失败时不会留下不完整的借记或贷记。
 
+**展示：**[Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## 产品需求
 
 转账请求包含源账户、目标账户、金额和备注。流程必须：
@@ -17,21 +21,16 @@ import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json'
 3. 只有在目标账户贷记成功后才完成。
 4. 当带副作用的 Step 在重试耗尽后仍然失败时，对转账进行补偿。
 
-这个 Flow 只在重试之间等待，从不等待审批、Channel 消息或 RPC。Go、Java、Python 和 TypeScript 示例会对每个带副作用的 Step 重试最多一小时，并对补偿重试最多 24 小时。Rust 示例只尝试三次，让集成测试能很快结束。
-
-Rust 示例简化了余额检查：金额为正数即通过。它把账务变动记录为事件。其他语言的示例会调用带有明确余额检查和撤销方法的内存依赖服务。
-
+这个 Flow 只在重试之间等待，从不等待审批、Channel 消息或 RPC。Go、Java、Python 和 TypeScript 示例会对每个带副作用的 Step 重试最多一小时，并对补偿重试最多 24 小时。
 故障分为三类：
 
 - 余额不足属于业务拒绝。因为资金尚未移动，Flow 会立即失败。
 - memo、借记和贷记调用可能发生瞬时故障。Dex 会按退避策略重试，Flow 停留在同一个 Step。
 - 操作在用完所有重试后仍可能失败。这时 Flow 进入补偿，撤销这次转账，并以失败结束。Dex 也会重试补偿，因为补偿没做完同样是故障。
 
-依赖服务调用必须是幂等的。远端系统可能已经完成调用，而 Dex 还没记录结果，这时 Worker 会再调用一次。
+银行可能已完成一次备忘、扣款或入账，但响应丢失。重复的请求不能让资金移动两次。
 
 ## Flow 设计
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 这个 Flow 是一个依次运行各 Step 的 saga：
 
@@ -43,6 +42,8 @@ Rust 示例简化了余额检查：金额为正数即通过。它把账务变动
 - **Saga 补偿**：**Compensate** 撤销已完成的操作，然后强制让 Flow 失败。这样调用方不会把已撤销的转账误当成成功。
 
 每个副作用都有自己的 Step。你可以看到每个操作的重试状态和历史。重试 **Credit** 也不会再次执行 **Debit**。
+
+给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
 ## 核心实现
 
@@ -405,9 +406,15 @@ fn transfer_retry() -> RetryPolicy {
 
 ## 演示
 
-启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Money transfer。下面的截图展示了一笔金额为 42 个单位的成功转账。Flow 先从 **checking-account** 扣除 42，再向 **savings-account** 增加 42，并按顺序完成余额检查、创建借记 memo、借记、创建贷记 memo 和贷记五个操作。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。下面的截图展示了一笔金额为 42 个单位的成功转账。Flow 先从 **checking-account** 扣除 42，再向 **savings-account** 增加 42，并按顺序完成余额检查、创建借记 memo、借记、创建贷记 memo 和贷记五个操作。
 
 ![已完成的 Money transfer Step 执行图](/img/use-cases/money-transfer-step-execution-graph.jpg)
+
+## Rust 示例 {#rust-example}
+
+Rust 示例每个 Step 只尝试三次，而不是重试一小时，让集成测试能很快结束。
+
+Rust 示例简化了余额检查：金额为正数即通过。它把账务变动记录为事件。其他语言的示例会调用带有明确余额检查和撤销方法的内存依赖服务。
 
 ## 下一步
 

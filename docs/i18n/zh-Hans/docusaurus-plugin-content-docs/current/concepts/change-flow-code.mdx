@@ -14,8 +14,8 @@ Flow 可能保持打开几天甚至几个月，所以新代码经常会遇到在
 
 ## 部署会改变什么 {#what-a-deploy-changes}
 
-- **Step 运行接手它的那个 Worker 的代码。** Dex 不会重放之前的 Step。今天在某个 Step 中等待的 Flow，条件满足时运行新的 `Execute`。
-- **滚动部署把每个调用交给具备它的 Worker。** 缺少某个 Step 类型或 RPC 的 Worker 会拒绝它，Dex 把调用交给另一个 Worker，这次 Step 尝试不会被用掉。
+- **Step 运行接手它的那个 Worker 的代码。** Dex 不会重放之前的 Step。已经在某个 Step 中等待的 Flow，条件满足时运行新的 `Execute`。
+- **滚动部署把每个调用交给具备它的 Worker。** 缺少某个 Step 类型或 RPC 的 Worker 会拒绝它，Dex 把调用交给另一个 Worker，这次 Step 尝试不会被用掉。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
 - **已经在等待的 Step 保持旧的条件。** 新的 `WaitFor` 代码只适用于部署之后才开始的 Step 执行。要改变旧 Step 等待的内容，向它的 Channel 发布消息，或者跳过它的 Timer。
 
 [故障转移和部署](/concepts/failover-and-deploys)列出部署和故障转移期间哪些会重新运行。
@@ -30,6 +30,18 @@ Dex 根据记录下来的状态决定 Flow 下一步做什么，而不会重新�
 
 当改动会改变某个决定、支付规则、重试策略、截止时间或其他客户能看到的含义时，用这种方式。只部署新代码是不够的，因为长时间运行的 Flow 之后可能会调用新部署的 Worker。
 
+### 示例：给 Charge 加一笔费用 {#versioning-example}
+
+[订单处理](/use-cases/order-processing) 中的订单 Flow 按订单金额扣款。一条新规则增加了一笔手续费。已经打开的订单必须保持旧的价格。
+
+1. **在启动时记录版本。** 新的启动 handler 在启动 Flow 时把一个 Attribute（例如 **pricing-version**）设为 2。更早启动的 Flow 没有这个值，表示版本 1。
+2. **根据保存的值分支。** **Charge** 读取 **pricing-version**。版本 1 只扣订单金额，版本 2 扣订单金额加手续费。已经在 **Ship** 中等待的 Flow 永远不会再运行 **Charge**，所以它不受影响。
+3. **为改变的契约添加 Step 类型。** 假设退款现在需要一个旧 Flow 从未保存过的新输入字段。添加一个新的 Step 类型，例如 `RefundWithFee`，并且只从版本 2 转到它。为版本 1 的 Flow 保留 **Refund**。
+4. **两者一起部署。** 一个 Worker 构建同时包含带分支的 **Charge**、**Refund** 和 `RefundWithFee`。在滚动部署期间，缺少 `RefundWithFee` 的旧 Worker 会把这个调用交给新 Worker。
+5. **退役旧路径。** 当没有未结束的 Flow 处于版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是建了索引的 Attribute，搜索时除了 Flow type，还可以按它过滤。
+
+保存的 Attribute 决定 Flow 走哪条路径，与哪个 Worker 构建处理它无关，所以 Step 代码不需要版本标记。
+
 ### 以增量方式演进数据和契约 {#evolve-data-and-contracts-additively}
 
 添加可选字段。读取 payload 的代码必须能处理旧 run 没有设置的字段，并忽略更新的组件发送的未知字段。为缺失的字段提供安全的默认值，并保持已有字段值原来的含义。对于不兼容的 payload 或输出契约，引入新的 Step 类型或 RPC 名称，而不是悄悄修改旧的。
@@ -41,8 +53,6 @@ Dex 根据记录下来的状态决定 Flow 下一步做什么，而不会重新�
 ### 保留旧定义，直到旧 Flow 结束 {#keep-old-definitions-until-old-flows-finish}
 
 只要还有未结束的 Flow 可能调用某个 Flow type、Step 类型或 RPC 实现，就保持它以原来的名字注册。把新定义和旧定义一起部署。新的 Flow 通过两种方式之一到达新定义：根据启动时保存的版本分支的决定转到新的 Step 类型，或者新代码启动一个新的 Flow type。在重试和任何经过批准的 Time Travel 恢复期间，都要让旧实现保持可用。
-
-在滚动部署期间，缺少所请求的 Step 或 RPC 的 Worker 可以把调用交给拥有它的另一个 Worker。这不会消耗 Step 尝试。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
 
 在删除旧定义之前，搜索旧的 Flow type，确认没有正在运行、等待、重试或可恢复的终止状态 Flow 还需要它。把搜索结果和变更记录放在一起。具体的查询取决于你的搜索字段。先按 Flow type 搜索：
 
@@ -70,29 +80,13 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
    3. 用新构建对同一个 Dex Server 启动一个 Worker。用 `skip-timer` 跳过 Timer，发送 Flow 正在等待的消息，然后等每个 Flow 结束。
    4. 检查每个 Flow 的结果和 Attribute，并确认新构建没有产生解码错误。
 
-这些检查需要手动完成，因为 Dex 目前还没有一个命令完成这些检查。
-
-### 示例：给 Charge 加一笔费用 {#versioning-example}
-
-[订单处理](/use-cases/order-processing) 中的订单 Flow 按订单金额扣款。一条新规则增加了一笔手续费。已经打开的订单必须保持旧的价格。
-
-1. **在启动时记录版本。** 新的启动 handler 在启动 Flow 时把一个 Attribute（例如 **pricing-version**）设为 2。更早启动的 Flow 没有这个值，表示版本 1。
-2. **根据保存的值分支。** **Charge** 读取 **pricing-version**。版本 1 只扣订单金额，版本 2 扣订单金额加手续费。当前正在 **Ship** 中等待的 Flow 永远不会再运行 **Charge**，所以它不受影响。
-3. **为改变的契约添加 Step 类型。** 假设退款现在需要一个旧 Flow 从未保存过的新输入字段。添加一个新的 Step 类型，例如 `RefundWithFee`，并且只从版本 2 转到它。为版本 1 的 Flow 保留 **Refund**。
-4. **两者一起部署。** 一个 Worker 构建同时包含带分支的 **Charge**、**Refund** 和 `RefundWithFee`。在滚动部署期间，缺少 `RefundWithFee` 的旧 Worker 会把这个调用交给新 Worker。
-5. **退役旧路径。** 当没有未结束的 Flow 处于版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是建了索引的 Attribute，搜索时除了 Flow type，还可以按它过滤。
-
-保存的 Attribute 决定 Flow 走哪条路径，与哪个 Worker 构建处理它无关，所以 Step 代码不需要版本标记。
-
 ## 用 Time Travel 恢复 Flow {#time-travel}
 
 Time Travel 把一个 Flow run 移回它历史中更早的某个点，从那里重新运行。在你为失败的 Step 部署修复之后使用它。这次 run 保留原来的 Run ID，并开始一次新的尝试。
 
 那个点之后的 Step 会再运行，它们的外部调用也会再执行。每个外部调用都需要一个[幂等键](/concepts/step#idempotency-keys)，这样重复调用才不会产生效果。
 
-Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute、它的 Channel 消息，以及当时正在等待或已就绪的 Step。在那个点之后从 run 外部进来的输入，默认会再应用一次：RPC 调用、Channel 发布和 Attribute 写入。这叫做 **write reapply**。如果这些输入不应该再算一次，用 `skip_writes_reapply`（`dexcli`：`-skip-writes-reapply`）关闭它。FlowService 中这个调用叫 `ResetFlow`；这些文档称它为 Time Travel。
-
-目标点必须在 Flow 最近的历史窗口内。默认情况下，窗口在 **serve** 上保留每个 run 最新的大约 50,000 个历史事件，在 **dev** 上保留 5,000 个。server 的配置键是 `history.windowEvents`，Flow 也可以在自己的 Flow 配置中设置窗口大小。Time Travel 到 run 的开头始终可用。可以从 Dex Web、`dexcli` 或 Client 发起 Time Travel。server 参考中的 [Time Travel](/reference/server/runtime-client#time-travel)（英文）介绍请求选项和限制。
+Time Travel 把 run 的状态恢复成那个点时的样子，并且默认会再应用一次那个点之后进入 run 的输入。[用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)介绍怎样运行它以及它的选项。
 
 ## 下一步 {#next}
 

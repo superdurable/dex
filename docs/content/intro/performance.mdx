@@ -10,18 +10,6 @@ description: Measured throughput and latency of one Dex Server node on AWS with 
 
 This page gives measured numbers for one Dex Server node and what it costs to run.
 
-## How the benchmark ran
-
-The numbers below were measured on 2026-11-09 in AWS us-west-2:
-
-- **Server:** one Dex Server node on a c7gd.large (2 vCPU) or a c7gd.4xlarge (16 vCPU). Its local store was on the instance's NVMe disk. Its log went to S3 Standard in the same Region.
-- **Load:** a separate c7g.8xlarge in the same Availability Zone ran the benchmark tool with a Go SDK Worker. Its CPU stayed below 38%.
-- **Versions:** Dex Server (server-zd) v0.1.23 for Steps, Flows, and Channel wakes; v0.1.25 for RPCs and reads.
-- **Runs:** each point had a 10-second warmup and a 45-second measurement on a new server. Most points ran three times, and the tables show the median. Flow starts ran once per point.
-- **Load model:** a fixed number of concurrent clients, each sending its next request when the last one returns. Latency grows with the client count once the server is busy.
-
-Every run and its settings are in the [benchmark results folder](https://github.com/superdurable/dex/tree/main/benchmark/results), and [Reproduce a result](#reproduce-a-result) shows how to repeat one.
-
 ## Peak throughput
 
 | Operation | c7gd.large | c7gd.4xlarge |
@@ -33,6 +21,17 @@ Every run and its settings are in the [benchmark results folder](https://github.
 | RPCs that lock and update one Attribute | 2,165 per second | 13.8k per second |
 | Reads of ten 16 KiB Attributes, without a Worker | 5,941 per second | 11.3k per second |
 | Channel messages that wake a waiting Step | 460 per second | 2,278 per second |
+
+## What the numbers mean
+
+- **A SYNC Step waits for S3.** A SYNC Step waits for two log commits: its attempt start and its result. Each commit is one S3 PUT, and one commit can carry the commands of many Flows. At the SYNC peaks, a commit took 41 to 98 milliseconds on average. Under load, a SYNC Step also waits for its batch, so it needs many concurrent Flows to reach peak throughput.
+- **What a Flow adds.** At the half-peak load on c7gd.large (96 concurrent clients), a SYNC Step took 105 milliseconds at p50. A Flow with five SYNC Steps in a row therefore spends about half a second waiting on Dex commits, plus the time of your own code. Agent sessions use SYNC Steps for model calls and tool calls, so each one adds a commit to a turn.
+- **At low load.** The benchmark did not measure SYNC Steps at low load. A lightly loaded SYNC Step still waits for its two commits, the start and the result, so a handler that waits for `Charge` sees about two object-storage writes in a row, plus your own code. Those writes averaged 41 to 98 milliseconds at the peaks; at low load, expect your object store's single-write latency. This is an estimate, not a measurement.
+- **An ASYNC Step moves on at once.** The Flow moves on before the commit, so a Step takes 1 to 2 milliseconds at low load. [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async) explains the trade-off.
+- **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. [What it costs to run](#what-it-costs-to-run) prices them.
+- **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
+- **Reads need no Worker.** An RPC runs on a Worker. A direct Attribute read goes only to Dex Server.
+- **These peaks are the ceiling of one cluster.** One active node serves a cluster. [Limits](/intro/limits#capacity-and-availability) covers that ceiling, failover, and upgrades.
 
 ## Latency below the peak
 
@@ -48,18 +47,7 @@ These rows ran at about half of peak throughput. Latency is in milliseconds. The
 | RPC that reads one Attribute | c7gd.4xlarge | 35.0k per second | 0.6 | 2.1 |
 | Channel wake | c7gd.4xlarge | 1,400 per second | 139 | 308 |
 
-The Channel wake throughput includes untimed setup before each publish. Only its latency, from the publish to the start of the woken Step, measures Dex.
-
-## What the numbers mean
-
-- **A SYNC Step waits for S3.** A SYNC Step waits for two log commits: its attempt start and its result. Each commit is one S3 PUT, and one commit can carry the commands of many Flows. At the SYNC peaks, a commit took 41 to 98 milliseconds on average. Under load, a SYNC Step also waits for its batch, so it needs many concurrent Flows to reach peak throughput.
-- **What a Flow adds.** At the half-peak load on c7gd.large (96 concurrent clients), a SYNC Step took 105 milliseconds at p50. A Flow with five SYNC Steps in a row therefore spends about half a second waiting on Dex commits, plus the time of your own code. Agent sessions use SYNC Steps for model calls and tool calls, so each one adds a commit to a turn.
-- **At low load.** The benchmark did not measure SYNC Steps at low load. A lightly loaded SYNC Step still waits for its two commits, the start and the result, so a handler that waits for `Charge` sees about two object-storage writes in a row, plus your own code. Those writes averaged 41 to 98 milliseconds at the peaks; at low load, expect your object store's single-write latency. This is an estimate, not a measurement.
-- **An ASYNC Step moves on at once.** The Flow moves on before the commit, so a Step takes 1 to 2 milliseconds at low load. [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async) explains the trade-off.
-- **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node. An idle node renews its lease with about 0.3 PUTs per second.
-- **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
-- **Reads need no Worker.** An RPC runs on a Worker. A direct Attribute read goes only to Dex Server.
-- **These peaks are the ceiling of one cluster.** One active node serves a cluster. [Limits](/intro/limits#capacity-and-availability) covers that ceiling, failover, and upgrades.
+The Channel wake throughput includes untimed setup before each publish. Only its latency, from the publish to the start of the woken Step, measures Dex. A wake commits the publish to object storage, then the end of the wait and the start of the woken Step, so it takes at least as long as a SYNC Step. Compare its latency, not wakes per second, with Steps.
 
 ## What it costs to run
 
@@ -71,14 +59,25 @@ Dex Server needs one instance, an optional standby instance, and object storage.
 | Busy node, low end of the measured range | 23 | about 60 million | about USD 300 |
 | Busy node at the highest measured rate, all month | 98 | about 254 million | about USD 1,270 |
 
-Most deployments sit between the first two rows, because a node is busy only part of the time.
+A node that is busy part of the time falls between the first two rows.
 
 A worked example for a light load: 1 million orders a month, each a Flow with five SYNC Steps, is 5 million Steps. A SYNC Step stores its start and its result, and each log commit is one PUT. At light load a batch rarely holds more than one commit, so the upper bound is about 2 PUTs per Step: 10 million PUTs, about USD 50 a month, plus about USD 4 for lease renewals. Under heavier load several commits share a batch, so the cost per Step falls. The monthly total is then:
 
 - instances: the active node, plus a standby if you run one, at your provider's hourly price;
 - PUTs: the estimate above, or the table's rows for a node that stays busy;
-- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. Closed runs are deleted after [retention](/components/production#defaults-to-change-before-production), so storage follows the number of runs in that window.
+- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. Closed runs are deleted after [retention](/components/production#before-you-launch), so storage follows the number of runs in that window.
 
+## How the benchmark ran
+
+The numbers on this page were measured on 2026-11-09 in AWS us-west-2:
+
+- **Server:** one Dex Server node on a c7gd.large (2 vCPU) or a c7gd.4xlarge (16 vCPU). Its local store was on the instance's NVMe disk. Its log went to S3 Standard in the same Region.
+- **Load:** a separate c7g.8xlarge in the same Availability Zone ran the benchmark tool with a Go SDK Worker. Its CPU stayed below 38%.
+- **Versions:** Dex Server (server-zd) v0.1.23 for Steps, Flows, and Channel wakes; v0.1.25 for RPCs and reads.
+- **Runs:** each point had a 10-second warmup and a 45-second measurement on a new server. Most points ran three times, and the tables show the median. Flow starts ran once per point.
+- **Load model:** a fixed number of concurrent clients, each sending its next request when the last one returns. Latency grows with the client count once the server is busy.
+
+Every run and its settings are in the [benchmark results folder](https://github.com/superdurable/dex/tree/main/benchmark/results).
 
 ## Reproduce a result {#reproduce-a-result}
 
@@ -112,10 +111,6 @@ benchmark/aws/teardown.sh
 
 <a id="release-status"></a>
 <a id="license"></a>
-
-## Release status and license
-
-[Limits](/intro/limits#release-status) gives the release status of Dex and its [license](/intro/limits#license).
 
 ## Next
 

@@ -14,6 +14,10 @@ A **Step** is one unit of background work in a [Flow](/concepts/flow). It
 can wait durably for something to happen, then do its work, then choose what
 runs next. Dex runs Steps on your Workers and records each result.
 
+Key guarantee: Dex saves a finished Step's result and does not run it again.
+An interrupted Step can run again, so make its external calls idempotent; see
+[Guarantees](#guarantees).
+
 A native struct or class implements the Step. Its type is the `StepType`.
 One Step type can run many times in a Flow, even in parallel. Each run is a
 `StepExecution`, identified by a `StepExecutionID` such as
@@ -248,30 +252,25 @@ A decision can also cancel other active Steps. See the
 
 In short: finished work is saved, unfinished work can repeat.
 
-Four rules matter most. The first two are all you need for a first Flow.
+Five rules apply. The first two are enough for a first Flow.
 [Advanced Step Guarantees](/correctness-and-expressiveness/step-guarantees) explains the
-details behind the other two.
+details behind the others.
 
 - **A finished Step stays finished.** Dex saves its result together with
   the move to the next Step. This holds for SYNC Steps, the default; an ASYNC
   result lost in a server failover reruns, as
   [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async) explains.
 - **A Step that was cut off can run again.** A crash, a timeout, or a retry
-  can repeat a method that already called an external system. So a Step runs
-  at least once, not exactly once. The next section says how to make that
-  safe.
-- **A retry sees the state of its first attempt.** A method's **state
-  snapshot** is the Flow state that Dex passes to it: every ordinary Attribute,
-  the size of every Channel, and the AttributeMap values and pending Channel
-  messages that its `StepOptions` select. Dex takes it when it hands attempt 1
-  to a Worker. A retry of `Execute` reuses that snapshot, so it does not see
-  Attribute writes made since then. To wait for such a write, have the writer publish a
-  Channel message, and wait for it in the next Step's `WaitFor`. Hard-delete
-  Attributes are the exception: Dex reads them again on every attempt. See
-  [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
+  can repeat a method that already called an external system. As in other
+  durable execution engines, a Step runs at least once. The next section says
+  how to make that safe.
+- **A retry sees the state of its first attempt.** A retry of `Execute` does
+  not see Attribute writes made after Dex handed attempt 1 to a Worker; see
+  [State snapshot](/correctness-and-expressiveness/step-guarantees#state-snapshot).
 - **A method's writes are saved with its result.** Its Attribute writes and Channel publications take effect only when the method succeeds. When Dex cannot tell whether a method ran, it runs it again or reports the outcome as unknown.
 - **Parallel writers can overwrite each other.** Two Steps or RPCs that read
-  and then write the same Attribute need a lock on it. See [What Dex saves](/correctness-and-expressiveness/step-guarantees#what-dex-saves).
+  and then write the same Attribute need a lock on it. See
+  [Attribute locks](/concepts/primitives/attribute#locking).
 
 ### Idempotency keys {#idempotency-keys}
 
@@ -285,7 +284,7 @@ drop a repeat. Build the key from values that stay the same on every attempt:
 - the Flow ID and the `StepExecutionID`, such as `order-1042/Charge-2`,
   when the Step runs more than once in the Flow.
 
-The attempt number, the time, and a random value change on each retry, so leave them out of the key. Other pages link here instead of repeating this rule.
+The attempt number, the time, and a random value change on each retry, so leave them out of the key.
 
 ## StepOptions {#stepoptions}
 
@@ -310,20 +309,9 @@ A Step returns `StepOptions` to control how its methods run. `WaitFor` and
 
 A `StepDecision` can override the options for one Step execution.
 
-Each method uses the server defaults until StepOptions set its own. The defaults are the same for every SDK:
-
-| Setting | Default |
-| --- | --- |
-| Method timeout, for one attempt | 2 hours |
-| Heartbeat timeout | 1 minute |
-| Retry attempts | No limit within the total duration |
-| Retry total duration | 4 hours from the first hand-out to a Worker |
-| Retry backoff | 1 second, doubling up to 100 seconds |
-| Durability | SYNC |
-| Failure policy | Fail the Flow |
-
-[Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration)
-in the SDK reference explains how these limits interact.
+Each method uses the server defaults until StepOptions set its own. The
+defaults are the same in every SDK; see
+[StepOptions defaults](/reference/python/step-options#defaults).
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

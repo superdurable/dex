@@ -26,7 +26,7 @@ cd dex
 
 下面的代码就是 [为什么是 Dex？](/intro/what-is-dex) 里的 Flow，包括它的 Step、approve 和 describe 两个 RPC，以及它的 Attribute。
 
-把 mock 的支付和发货 API 传给 Flow 的 constructor。不要事后用 setter 设置，也不要从全局变量读取。
+把 mock 的支付和发货 API 传给 Flow 的 constructor，这样从 Worker 注册 Flow 的那一刻起，每个 Step 都能用到它们。用 setter 或全局变量会留下一段 Step 在没有它们的情况下运行的窗口。见[把服务传给 Flow](/components/application#pass-services-to-the-flow)。
 
 每个 Step 都带上用订单 ID 构造的幂等键，订单 ID 也就是 Flow ID。原因见 [幂等键](/concepts/step#idempotency-keys)。
 
@@ -1391,7 +1391,7 @@ curl -s "http://127.0.0.1:8080/products/order-processing/approve?flowId=FLOW_ID"
 curl -s 'http://127.0.0.1:8080/products/order-processing/start?testFailAtShipping=true'
 ```
 
-像上面一样批准它。Ship Step 失败后会重试 3 秒。之后 Flow 进入 Refund Step，给买家退款并完成 Flow。读取它的状态：
+像上面一样批准它。Ship Step 失败后会重试 3 秒；示例把生产环境中一小时的重试窗口缩短了，让演示很快结束。之后 Flow 进入 Refund Step，给买家退款并完成 Flow。读取它的状态：
 
 ```bash
 curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID"

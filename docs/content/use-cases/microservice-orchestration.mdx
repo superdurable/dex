@@ -10,6 +10,10 @@ Coordinate concurrent service calls, accept an in-flight state update, and finis
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Static Parallel Steps](/design-patterns/parallel/static), [Responsive Update](/design-patterns/responsive-update).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 The process starts with a data value and must:
@@ -27,7 +31,7 @@ Another service normally sends **Ready** when its asynchronous work is done.
 Failures to handle:
 
 - A downstream API can be unavailable, time out, or reject its input. The Step must return that error, so that its retry and failure policy can handle it.
-- A downstream call can succeed and its response can still be lost. Dex may then retry the Step, so production API operations must be idempotent.
+- An API can complete a call whose response is lost. A repeat must not apply the change twice.
 - A **Swap** RPC or **Ready** publish can target an unknown or completed Flow and return a client error. Callers should keep the Flow ID and handle that error.
 - The Timer can fire before **Ready** arrives. This is an expected outcome, and the Flow continues through `CallAPI4`.
 - If **Swap** runs between the reads of `CallAPI2` and `CallAPI3`, the two Steps see different values. The branches do not share a snapshot. Each reads the value that is current when it runs.
@@ -35,8 +39,6 @@ Failures to handle:
 The examples call local stubs. In production, give each API call a timeout, an idempotency key, and a retry or recovery policy that fits that API.
 
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow splits once and can finish in two ways, as the graph above shows.
 
@@ -48,6 +50,8 @@ It combines these design patterns:
 - **Branch end**: `CallAPI2` returns `DeadEnd` to end its branch. The waiting branch completes the Flow.
 
 Each downstream API has its own Step. A retry of API 3 therefore does not repeat API 1 or API 2, and the Step execution graph shows exactly which call is waiting, retrying, or complete.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 
@@ -428,7 +432,7 @@ impl Step for CallApiThree {
 
 ## Demo
 
-Run Dex and any language example server, then start Microservice orchestration from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). For the run below, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. `CallAPI1`, `CallAPI2`, and `CallAPI3` completed; `CallAPI4` did not run, because **Ready** arrived before the 24-hour Timer fired.
+[Run any example](/use-cases#run-any-example) starts the samples app. For the run below, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. `CallAPI1`, `CallAPI2`, and `CallAPI3` completed; `CallAPI4` did not run, because **Ready** arrived before the 24-hour Timer fired.
 
 ![Completed Microservice orchestration Step execution graph](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
 

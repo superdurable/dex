@@ -7,7 +7,9 @@ sidebar_label: Dex Server
 
 server-zd 是 Dex Server。它保存每个 Flow 的状态，并把 Step 和 RPC 交给 Worker。它唯一的运行时依赖是对象存储，例如 Amazon S3 或兼容 S3 的存储。
 
-## 工作方式
+## 工作方式 {#how-it-works}
+
+<a id="工作方式"></a>
 
 server-zd 先把每次写入提交到对象存储，再确认这次写入。它在本地保存一份 store 作为缓存。重启之后，节点从对象存储重建这份缓存。
 
@@ -31,7 +33,7 @@ server-zd 先把每次写入提交到对象存储，再确认这次写入。它�
 | PostgreSQL Attribute Store | 否 | 把选定的 Attribute 复制到你自己的表里。见 [在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。 |
 | metrics 监听端口 | 否 | Prometheus 指标。见英文的 [Metrics](/reference/server/metrics)。 |
 
-db9 是一个独立的数据库产品，使用 PostgreSQL 的通信协议。Dex Server 可以把命令日志、lease、快照和值存在 db9 里，而不是 S3。目前普通的 PostgreSQL 还不是受支持的生产存储，虽然 db9 provider 的测试也会在 PostgreSQL 16 上运行。这个数据库必须提供持久的事务、行锁和强一致读，所以只读副本不行。见英文的 [db9 provider](/reference/server/object-storage#db9)。
+Dex Server 可以把状态保存在 db9（一个兼容 PostgreSQL 的数据库）中，代替对象存储：命令日志、lease、快照和值。普通 PostgreSQL 不是受支持的生产存储，虽然 db9 provider 的测试也会在 PostgreSQL 16 上运行。这个数据库必须提供持久的事务、行锁和强一致读，所以只读副本不行。见英文的 [db9 provider](/reference/server/object-storage#db9)。
 
 ## 依赖出故障时 {#dependency-failures}
 
@@ -61,4 +63,4 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 
 ## 下一步
 
-[在生产环境运行 Dex](/components/production)：在生产环境运行 Dex 的检查清单，从 server 拓扑和容量到备份、升级和监控，每一项都链接到对应的页面。
+[在生产环境运行 Dex](/components/production)：上线前的检查清单。

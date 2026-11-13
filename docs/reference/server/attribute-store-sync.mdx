@@ -233,6 +233,17 @@ sync normally. **dexzd_attribute_sync_dropped_entries_total** counts dropped
 entries. It also counts entries that the store rejected with a non-retryable
 error.
 
+### Repair a dropped entry {#repair-dropped-entry}
+
+A dropped entry leaves the row's value uncertain. To repair it:
+
+1. Alert on any increase of **dexzd_attribute_sync_dropped_entries_total**.
+2. Find the affected Flow runs in the server log. Each warning names the run
+   and the store.
+3. Compare each row with the Flow's Attributes.
+4. Write the Attributes again. A later write of the same Attributes syncs
+   normally.
+
 ## Monitoring {#attribute-store-monitoring}
 
 Since 0.1.29, a family is exported at the **metrics.level** in its Level

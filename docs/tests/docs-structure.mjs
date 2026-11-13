@@ -12,9 +12,9 @@
 // 2. Every sidebar group header opens the group's overview page. That page is not listed again
 //    under the header, and no item is labeled Overview.
 // 3. A page's closing list of links is one section named Next (下一步 in Chinese), and it comes last.
-// 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
+// 4. The home page links straight to the page that does each job: no ordered reading lists.
 // 5. A group's overview page has the group's name as its title, so the header and the page agree.
-// 6. Every sidebar page that is not a group overview, the home page, Get Started, or the Glossary ends with Next.
+// 6. Every sidebar page that is not a group overview, the home page, or the Glossary ends with Next.
 // 7. Rules 2 and 5 also hold in each Developer reference component's sidebar. Its index page comes first, and the
 //    shared sidebar hides it because the Developer Reference header already opens it.
 
@@ -98,7 +98,7 @@ for (const root of contentRoots.filter((item) => item !== 'reference')) {
 }
 
 // Ordered lists whose items start with a link are reading lists.
-const routerPages = ['index.mdx', 'intro/get-started.mdx'];
+const routerPages = ['index.mdx'];
 for (const root of contentRoots.filter((item) => item !== 'reference')) {
   for (const page of routerPages) {
     const file = join(docsRoot, root, page);
@@ -246,7 +246,7 @@ for (const name of readdirSync(join(docsRoot, 'reference/sidebars')).filter((fil
 
 
 // Every page in the reading sequence ends with Next, so the order comes from one place.
-const routerDocs = new Set(['index', 'intro/get-started', 'glossary']);
+const routerDocs = new Set(['index', 'glossary']);
 const sequenceDocs = [];
 function collectSequence(items) {
   for (const item of items) {
@@ -428,4 +428,4 @@ if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page and Get Started have no reading lists, each overview page carries the name of its group, and SDK, server image, and Dex Web pins match the current lines.');
+console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page has no reading lists, each overview page carries the name of its group, and SDK, server image, and Dex Web pins match the current lines.');

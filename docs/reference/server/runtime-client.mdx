@@ -445,10 +445,17 @@ uploads count as **flow_write**, and lists and gets as **flow_read**.
 ## Time travel {#time-travel}
 
 Time travel creates a new attempt of a Flow run from a point in its history.
-The FlowService call is **ResetFlow**. The Flow run keeps its Run ID. The point must be inside the
+The FlowService call is **ResetFlow**; the docs call it Time Travel. The Flow
+run keeps its Run ID. It restores the run's state at the target point: its
+Attributes, its Channel messages, and the Steps that were waiting or ready. The point must be inside the
 [recent history window](/reference/server/configuration#history-window);
 otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
+
+By default, the window keeps about the newest 50,000 history events of each
+run on **serve**, and 5,000 on **dev**. The server key is
+**history.windowEvents**, and a Flow can set its own size in its Flow
+configuration.
 
 Write reapply is on by default. It applies again the RPC calls, Channel
 publications, and Attribute writes that reached the run after the target point.
@@ -456,6 +463,6 @@ While it is on, **ResetFlow** keeps those writes in memory, to apply them again.
 those writes. A long Flow run with large values can exceed the replay budget
 even when the target state is small. The request then fails with
 **RESOURCE_EXHAUSTED** and changes nothing. Set **skip_writes_reapply** to
-**true** if those writes should not be applied again. Or raise
+**true** (`dexcli flow time-travel -skip-writes-reapply`) if those writes should not be applied again. Or raise
 [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
 and restart the node before you retry.
