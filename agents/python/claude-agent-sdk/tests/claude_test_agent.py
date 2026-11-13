@@ -24,7 +24,9 @@ needs approval above 50; ``post_note`` is a single-attempt Mutation and
 ``policy_note`` the same under a session policy that asks for approval and
 claims ``READ``. ``HidingToolSource`` lists ``hiding_note``, the same
 single-attempt Mutation, until a test hides it. ``TaskToolSource`` lists
-``report``, a ``READ`` tool without approval that starts a tool task.
+``report``, a ``READ`` tool without approval that starts a tool task, and
+``UncancellableTaskToolSource`` lists the same tool as ``uncancellable_report``
+without ``cancel_tool_task``.
 
 An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
 ``"rewritten"``, raises a ``payout_checked`` amount to 500 when its memo is
@@ -145,6 +147,7 @@ TOOL_POLICIES = {
     "screenshot": ToolPolicy(ToolEffect.READ, requires_approval=True),
     "draw": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "report": ToolPolicy(ToolEffect.READ, requires_approval=False),
+    "uncancellable_report": ToolPolicy(ToolEffect.READ, requires_approval=False),
 }
 TEST_IMAGES = {
     image["name"]: image
@@ -201,6 +204,7 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         build_connector_source(state_dir),
         HidingToolSource(state_dir),
         TaskToolSource(state_dir),
+        UncancellableTaskToolSource(state_dir),
     ]
     if media_store is not None:
         custom_tools.append(build_draw_tool(state_dir))
@@ -368,24 +372,27 @@ class HidingToolSource:
         return await self._inner.poll_tool_task(poll)
 
 
-class TaskToolSource:
-    """Lists ``report``, whose call starts a task that ``poll_tool_task`` polls.
+class UncancellableTaskToolSource:
+    """Lists ``uncancellable_report``, whose call starts a task that ``poll_tool_task`` polls.
 
     The call returns ``ToolTaskStarted`` with task ID ``task-<tool call ID>``.
     Arguments: ``topic`` names the result ``report on <topic>``; ``polls`` is
     the poll that finishes the task, counted from 1; ``fail`` makes that poll
     raise ``ToolExecutionError``; ``hold`` keeps the task pending. The
     invocation log records ``start <task>``, ``poll <task> <n>``, and
-    ``cancel-task <task> <status> <cancellation_reason>``.
+    ``cancel-task <task> <status> <cancellation_reason>`` for a source with
+    ``cancel_tool_task``. This one has none, so ``cancel_turn`` leaves its task
+    running.
     """
 
-    source_name = "reports"
+    source_name = "uncancellable-reports"
+    tool_name = "uncancellable_report"
 
     def __init__(self, state_dir: Path) -> None:
         self._invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
 
     async def list_tools(self) -> Sequence[SourceToolDefinition]:
-        return [_ListedTool("report", "Write a report as a task")]
+        return [_ListedTool(self.tool_name, "Write a report as a task")]
 
     def deferred_tool_call(
         self,
@@ -429,6 +436,13 @@ class TaskToolSource:
         if arguments.get("fail"):
             raise ToolExecutionError(f"the report on {arguments['topic']} failed")
         return ToolExecutionResult(output=f"report on {arguments['topic']}")
+
+
+class TaskToolSource(UncancellableTaskToolSource):
+    """Lists ``report``, the same task tool, and cancels its tasks."""
+
+    source_name = "reports"
+    tool_name = "report"
 
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
         record = cancellation.tool_call

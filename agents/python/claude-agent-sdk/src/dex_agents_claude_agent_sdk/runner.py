@@ -218,7 +218,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     HTTP tasks to the session this way. ``cancel_turn`` abandons a running
     task and cancels it through ``cancel_tool_task``.
 
-    .. versionchanged:: 0.6.5
+    .. versionchanged:: 0.6.6
         The runner polls and cancels tool tasks of its sources.
 
     With a ``media_store``, the runner takes images. A user message's images
@@ -315,7 +315,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
                 .. versionadded:: 0.4.0
 
-                .. versionchanged:: 0.6.5
+                .. versionchanged:: 0.6.6
                     The runner polls and cancels the sources' tool tasks.
             tool_source_listing_timeout: How long one ``RunModel`` attempt
                 waits for each source's ``list_tools``. A source that fails or
@@ -611,7 +611,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         on any Worker, until the source returns a result. The resumed Claude
         session receives that result as the call's ``tool_result``.
 
-        .. versionadded:: 0.6.5
+        .. versionadded:: 0.6.6
 
         Args:
             poll: The call's record and its idempotency key from ``PollToolTask``.
@@ -645,13 +645,13 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
         """Cancel a tool source's task that ``cancel_turn`` abandoned.
 
-        The session records the call ``OUTCOME_UNKNOWN`` with
-        ``cancellation_reason`` ``TURN_CANCELLED`` and then calls this method
-        best-effort. The source that built the call gets it with its own
-        reference. A source without ``cancel_tool_task`` leaves its task
-        running.
+        The session's ``CancelToolTask`` Step calls this method best-effort
+        with the call's record, whose ``cancellation_reason`` is
+        ``TURN_CANCELLED``, and then records the call ``OUTCOME_UNKNOWN``.
+        The source that built the call gets it with its own reference. A
+        source without ``cancel_tool_task`` leaves its task running.
 
-        .. versionadded:: 0.6.5
+        .. versionadded:: 0.6.6
 
         Args:
             cancellation: The abandoned call's record from ``CancelToolTask``.
