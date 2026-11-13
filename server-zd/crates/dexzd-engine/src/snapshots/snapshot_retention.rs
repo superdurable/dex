@@ -67,7 +67,7 @@ pub(crate) struct SnapshotCatalog {
     unchecked_unlisted_manifest_keys: BTreeSet<String>,
 }
 
-/// How many more manifest GETs and HEADs one eventual retention run may send.
+/// How many more queued manifest GETs and HEADs one eventual retention run may send.
 struct ManifestReadBudget {
     remaining_reads: usize,
 }
