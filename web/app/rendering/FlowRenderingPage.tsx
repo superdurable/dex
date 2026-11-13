@@ -13,7 +13,6 @@ import type { FlowDefinitionCatalog, FlowDefinitionEntry, FlowDefinitionSummary 
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { DesignCanvasErrorBoundary, DesignUnavailable } from '../design/DesignCanvasErrorBoundary';
 import { flowDefinitionShapeProblem } from '../design/definitionLimits';
-import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { drawableDefinitions, fetchFlowTypeDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { useTimezonePreference } from '../providers';
 import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
@@ -95,7 +94,7 @@ export function FlowRenderingPage() {
     <div className="page-shell flow-rendering-page v1-page">
       <section className="flow-rendering-header">
         <div>
-          <h1>Designs <ExperimentalBadge className="page-title-badge" /></h1>
+          <h1>Designs <span aria-label="Experimental" className="experimental-dot" role="img" title="Early page; may change" /></h1>
           <p>Explore statically possible Step paths generated from Go, Python, or TypeScript source.</p>
         </div>
         {catalog?.configured && catalog.definitions.length > 0 && (

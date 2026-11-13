@@ -21,8 +21,22 @@ export function usePopover<T extends HTMLElement>() {
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setIsOpen(false);
     };
+    const items = () => [...(rootRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
+    // A menu takes focus on its first item, so arrow keys work at once.
+    window.requestAnimationFrame(() => items()[0]?.focus());
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false);
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+        return;
+      }
+      const menuItems = items();
+      const index = menuItems.indexOf(document.activeElement as HTMLElement);
+      if (index < 0 && !['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+      const moves: Record<string, number> = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: menuItems.length - 1 };
+      const next = moves[event.key];
+      if (next === undefined || menuItems.length === 0) return;
+      event.preventDefault();
+      menuItems[(next + menuItems.length) % menuItems.length].focus();
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);

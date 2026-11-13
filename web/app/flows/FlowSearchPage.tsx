@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { rememberFlowsSearch } from '../components/frame/lastFlowsSearch';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
@@ -124,6 +125,7 @@ export function selectVisibleIndexedAttributeKeys(flows: FlowExecution[]): strin
 
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<QueryMode>('basic');
   const modeTabs = useRef<Partial<Record<QueryMode, HTMLButtonElement | null>>>({});
   const [filters, setFilters] = useState<BasicFilter[]>([]);
@@ -175,6 +177,7 @@ export function FlowSearchPage() {
       if (requestedPage) url.searchParams.set('page', String(requestedPage + 1));
       else url.searchParams.delete('page');
       window.history.replaceState(null, '', url);
+      rememberFlowsSearch(url.search);
       if (requestedQuery.trim()) {
         setRecent((current) => {
           const next = [requestedQuery, ...current.filter((item) => item !== requestedQuery)].slice(0, 10);
@@ -542,7 +545,15 @@ export function FlowSearchPage() {
             </thead>
             <tbody>
               {!loading && flows.map((flow) => (
-                <tr key={`${flow.flowId}-${flow.runId}`}>
+                <tr
+                  className="flow-row"
+                  key={`${flow.flowId}-${flow.runId}`}
+                  onClick={(event) => {
+                    // The Flow ID link handles its own click; the rest of the row opens the run too.
+                    if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) return;
+                    navigate(`/v1/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`);
+                  }}
+                >
                   {columns.map((column) => (
                     <td className={`column-${column}`} key={column}>
                       {renderCell(column, flow, timezone)}

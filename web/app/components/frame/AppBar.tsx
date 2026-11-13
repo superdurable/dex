@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
-import { scopedStorageKey, webURL } from '@/lib/basePath';
+import { webURL } from '@/lib/basePath';
+import { readLastFlowsSearch, rememberFlowsSearch } from './lastFlowsSearch';
 import { readHostLink } from '@/lib/hostLink';
 import type { FlowDefinitionTypeList } from '@/lib/types';
 import { isWorkQueueApplicable } from '../../catalog/applicability';
@@ -49,29 +50,51 @@ function useFlowDefinitionTypes(pathname: string): FlowDefinitionTypeList | null
   return flowTypes;
 }
 
-const LAST_FLOWS_SEARCH_KEY = 'dex-web.last-flows-search';
-
-function readLastFlowsSearch(): string {
-  try {
-    return window.sessionStorage.getItem(scopedStorageKey(LAST_FLOWS_SEARCH_KEY)) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-/** Remembers the Flows search, so the trail's Flows link returns to it. */
+/** The Flows link returns to the last Flows search, which the Flows page records as it searches. */
 function useFlowsHref(pathname: string, search: string): string {
   const [lastSearch, setLastSearch] = useState(readLastFlowsSearch);
   useEffect(() => {
-    if (pathname !== FLOWS_PATH) return;
-    setLastSearch(search);
-    try {
-      window.sessionStorage.setItem(scopedStorageKey(LAST_FLOWS_SEARCH_KEY), search);
-    } catch {
-      // Without storage the link still opens the Flows page.
-    }
+    if (pathname === FLOWS_PATH && search) rememberFlowsSearch(search);
+    setLastSearch(readLastFlowsSearch());
   }, [pathname, search]);
   return `${FLOWS_PATH}${lastSearch}`;
+}
+
+/**
+ * Marks the bar compact when the page's views do not fit with their names, and lifts it once they would.
+ * It measures instead of using a fixed width, because names and IDs vary per page.
+ */
+function useCompactViews(bar: HTMLElement | null) {
+  useEffect(() => {
+    const views = bar?.querySelector<HTMLElement>('.app-bar-views');
+    // Without ResizeObserver, as in some test environments, the views keep their names.
+    if (!bar || !views || typeof ResizeObserver === 'undefined') return undefined;
+    let widthWithNames = 0;
+    const update = () => {
+      const tabs = views.firstElementChild as HTMLElement | null;
+      if (!tabs) return;
+      const isCompact = bar.dataset.compactViews === 'true';
+      if (!isCompact) {
+        widthWithNames = tabs.scrollWidth;
+        if (tabs.scrollWidth > views.clientWidth + 1) bar.dataset.compactViews = 'true';
+      } else if (views.clientWidth >= widthWithNames + 8) {
+        delete bar.dataset.compactViews;
+      }
+    };
+    const resize = new ResizeObserver(update);
+    resize.observe(bar);
+    resize.observe(views);
+    const mutation = new MutationObserver(() => {
+      delete bar.dataset.compactViews;
+      update();
+    });
+    mutation.observe(views, { childList: true, subtree: true });
+    update();
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  }, [bar]);
 }
 
 /**
@@ -85,6 +108,8 @@ export function AppBar() {
   const flowsHref = useFlowsHref(pathname, search);
   const hostLink = useMemo(readHostLink, []);
   const reachability = useServerReachability(pathname);
+  const [bar, setBar] = useState<HTMLElement | null>(null);
+  useCompactViews(bar);
   const hasFlowDefinitions = hasLoadedFlowDefinitions(flowTypes);
   const hasWorkQueue = isWorkQueueApplicable(flowTypes, canUseV2);
   const sections: AppSection[] = [
@@ -94,7 +119,7 @@ export function AppBar() {
     ...(hasConnectorSetup ? [CONNECTORS_SECTION] : []),
   ];
   return (
-    <header className="app-bar v1-page">
+    <header className="app-bar v1-page" ref={setBar}>
       <nav aria-label="Trail" className="app-bar-trail">
         {hostLink ? (
           <a className="app-bar-root app-bar-root--host" href={hostLink.url}>

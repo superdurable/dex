@@ -456,9 +456,9 @@ body {
 
 /* ----------------------------------------------------- giving way, in order */
 
-/* Narrow bars keep each inactive tab's name for screen readers only. */
-@container app-bar (max-width: 1360px) {
-  .app-bar.v1-page .run-tabs button:not(.active) .run-tab-label {
+/* When the views do not fit with names, inactive tabs keep their name for screen readers only. */
+@container app-bar (min-width: 0px) {
+  .app-bar.v1-page[data-compact-views='true'] .run-tabs button:not(.active) .run-tab-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -696,10 +696,7 @@ body {
   border-top-right-radius: 0;
 }
 
-.v2-shell.v2-run > .v2-empty {
-  padding: 32px 24px;
-  font-size: var(--ui-text-md);
-}
+
 
 .htl-legend-fold {
   margin: -4px 0 6px;
@@ -733,4 +730,140 @@ body {
   .app-bar-trail:has(.app-bar-page:not(:empty)) > .app-bar-separator {
     display: none;
   }
+}
+
+/* Parent and child Flows sit in the trail, so a subflow always leads back up. */
+.app-bar-parent {
+  max-width: 24ch;
+  overflow: hidden;
+  padding: 4px 6px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar-parent:hover,
+.app-bar-children:hover {
+  color: var(--ui-ink);
+  background: var(--ui-hover);
+}
+
+.app-bar-children {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  font-size: var(--ui-text-xs);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.run-facts-children {
+  display: grid;
+  gap: 4px;
+  padding-top: 10px;
+  box-shadow: 0 -1px 0 var(--ui-hairline);
+  font-size: var(--ui-text-sm);
+}
+
+.run-facts-children > span {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.run-facts-children a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  text-decoration: none;
+}
+
+.run-facts-children a:hover {
+  background: var(--ui-hover);
+}
+
+.run-facts-children a .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-facts-children a small {
+  margin-left: auto;
+  color: var(--ui-ink-3);
+}
+
+/* Attempts inform; the run status stays the focal colour. */
+.app-bar .run-attempt-select {
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+}
+
+/* A confirm button looks like the action it takes. */
+.v1-page .modal-actions .button.danger:enabled {
+  color: var(--tone-fail-on);
+  background: var(--tone-fail);
+}
+
+.v1-page .modal-actions .button.danger:hover:enabled {
+  background: color-mix(in srgb, var(--tone-fail) 88%, black);
+}
+
+.v1-page .modal-actions .button:disabled {
+  opacity: 0.45;
+}
+
+.live-toggle:not(.is-on) {
+  color: var(--ui-ink-3);
+}
+
+@container app-bar (max-width: 1100px) {
+  .app-bar-parent {
+    display: none;
+  }
+}
+
+/* A whole Flows row opens its run; long IDs shorten so every column fits a laptop screen. */
+.v1-page .flow-table .flow-row {
+  cursor: pointer;
+}
+
+.v1-page .flow-table td.column-runId {
+  max-width: 150px;
+  text-overflow: ellipsis;
+}
+
+.v1-page .flow-table td.column-flowId {
+  max-width: 280px;
+  text-overflow: ellipsis;
+}
+
+.v1-page .flow-table :is(th, td) {
+  padding-inline: 12px;
+}
+
+/* Every workspace shares the page plane, and an empty one says what to do. */
+.app-main,
+.app-main .v2-shell {
+  background: var(--ui-page);
+}
+
+.v2-shell.v2-run > .v2-empty {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 28px 32px;
+  border-radius: var(--ui-radius-section);
+  color: var(--ui-ink-2);
+  background: var(--ui-surface);
+  text-align: center;
 }

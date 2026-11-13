@@ -34,6 +34,7 @@ import type {
 } from '@/lib/types';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import {
+  CornerDownRight,
   LayoutDashboard,
   Rows3,
   PencilRuler,
@@ -55,7 +56,8 @@ import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
 import { OperateMenu } from './details/OperateMenu';
-import { RunFactsMenu, type RunFact } from './details/RunFactsMenu';
+import { middleTruncate, RunFactsMenu, type RunFact } from './details/RunFactsMenu';
+import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { CopyButton } from '../components/CopyButton';
 import { RunFailureLine, runFailureOf } from './details/RunFailureLine';
@@ -70,7 +72,7 @@ import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostic
 import { useFlowTypeDefinitions, useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
-import { RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
+import { FLOWS_PATH, RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
 import { webURL } from '@/lib/basePath';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
@@ -222,6 +224,7 @@ export function RunDetailsPage({
     [catalogEntry],
   );
   const workingAs = useWorkingAs(workingAsDefinitions);
+  const relations = useRunRelations(flowId);
   const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
   const history = runHistory.newest?.events ?? noHistoryEvents;
   const isViewingEarlierRunAttempt = summary !== null
@@ -841,6 +844,7 @@ export function RunDetailsPage({
   const currentRunAttempt = positiveRunAttempt(summary?.runAttempt);
   const displayedRunAttempt = summary && isViewingEarlierRunAttempt ? historyRunAttempt(summary) : currentRunAttempt;
 
+  const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
@@ -862,9 +866,34 @@ export function RunDetailsPage({
       <h1 className="sr-only">Flow {flowId}, run {runId}</h1>
       <AppBarSlot name="page">
         <span aria-hidden="true" className="app-bar-separator">/</span>
+        {relations?.parentFlowId && (
+          <>
+            <Link className="app-bar-parent" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
+              <span className="mono">{middleTruncate(relations.parentFlowId, 22)}</span>
+            </Link>
+            <span aria-hidden="true" className="app-bar-separator">/</span>
+          </>
+        )}
         {summary && <StatusBadge status={summary.flowStatus} />}
-        <RunFactsMenu facts={runFacts} flowId={flowId} runId={runId} />
+        <RunFactsMenu
+          childFlows={relations?.children}
+          childFlowsHref={childFlowsHref}
+          facts={runFacts}
+          flowId={flowId}
+          runId={runId}
+        />
         <CopyButton className="app-bar-copy" label="Copy Flow ID" value={flowId} />
+        {relations && relations.children.length > 0 && (
+          <Link
+            aria-label={`${relations.children.length}${relations.hasMoreChildren ? '+' : ''} child Flows`}
+            className="app-bar-children"
+            title="Child Flows of this run"
+            to={childFlowsHref}
+          >
+            <CornerDownRight aria-hidden="true" size={13} strokeWidth={2.25} />
+            {relations.children.length}{relations.hasMoreChildren ? '+' : ''}
+          </Link>
+        )}
         {summary && currentRunAttempt > 1 && (
           <RunAttemptSelect
             currentRunAttempt={currentRunAttempt}
@@ -899,12 +928,13 @@ export function RunDetailsPage({
             title={isLive ? 'Following the run. Click to pause.' : 'Paused. Click to follow the run.'}
           >
             <input
+              aria-label="Live"
               checked={autoRefresh}
               onChange={(event) => resumeOrPauseLive(event.target.checked)}
               type="checkbox"
             />
             <span aria-hidden="true" className="live-toggle-dot" />
-            Live
+            {isLive ? 'Live' : 'Paused'}
           </label>
         )}
         <OperateMenu

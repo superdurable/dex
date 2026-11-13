@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
+import { useModalFocus } from '../../components/useModalFocus';
 
 export type StateWriteKind = 'attribute' | 'channel';
 
@@ -92,6 +93,7 @@ export function StateWriteDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const modalRef = useModalFocus<HTMLDivElement>(kind !== null, onClose);
   if (!kind) return null;
   const copy = copyByKind[kind];
   const canSubmit = !submitting && name.trim() !== '';
@@ -129,7 +131,7 @@ export function StateWriteDialog({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal" ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{copy.title}</h2>
           <button className="icon-button" aria-label="Close" onClick={onClose}>×</button>
