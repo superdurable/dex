@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.47 {#v1-47}
 
-Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2).
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3).
 
 ### Added
 
@@ -42,6 +42,18 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
   directories out of **PATH**. An empty flag value or an empty variable is a
   usage error, never a fallback to the source project's compiler.
   [Reference](/reference/web/flow-visualization#typescript-compiler). Since 1.47.2.
+- **dexcli visualize** reads TypeScript **waitFor** methods, RPC handlers,
+  and **handleTimeout** in the same graph shape as Go. A Wait built directly
+  from **Wait** factories shows its Timer, Channel, ChannelMap, Join, and
+  SubFlow conditions, and a **waitFor** that only throws shows a failure
+  Wait. An RPC's **RPCResult** shows its **nextSteps** and **cancelingSteps**.
+  The graph also records resource reads, writes, and publishes in each
+  handler and in the same-file helpers it calls, and warns about unused
+  resources. A Wait, RPC result, or resource access that the analyzer cannot
+  prove, a Stream write in an RPC or timeout handler, and several Flows in
+  one file are blocking diagnostics. Such a source no longer reports
+  **typescript_wait_for_unsupported**.
+  [Reference](/reference/web/flow-visualization#supported-source-profile). Since 1.47.3.
 
 ### Changed
 
