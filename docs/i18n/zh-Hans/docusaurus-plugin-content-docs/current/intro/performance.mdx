@@ -69,7 +69,7 @@ Dex Server 需要一台实例、一台可选的 standby 实例，以及对象存
 
 ## benchmark 怎样运行 {#how-the-benchmark-ran}
 
-下面的数据于 2026-11-09 在 AWS us-west-2 测得：
+本页数据于 2026-11-09 在 AWS us-west-2 测得：
 
 - **Server：** 一个 Dex Server 节点，运行在 c7gd.large（2 vCPU）或 c7gd.4xlarge（16 vCPU）上。本地存储在实例的 NVMe 磁盘上。日志写入同一 Region 的 S3 Standard。
 - **负载：** 同一可用区里另一台 c7g.8xlarge 运行 benchmark 工具和一个 Go SDK Worker。它的 CPU 一直低于 38%。
@@ -79,9 +79,35 @@ Dex Server 需要一台实例、一台可选的 standby 实例，以及对象存
 
 每次运行及其设置都在 [benchmark 结果目录](https://github.com/superdurable/dex/tree/main/benchmark/results)里。
 
-<a id="reproduce-a-result"></a>
+## 复现结果 {#reproduce-a-result}
 
-[benchmark 目录](https://github.com/superdurable/dex/tree/main/benchmark)说明怎样在你自己的 AWS 账号上重跑一个已记录的测试点。
+[benchmark/aws](https://github.com/superdurable/dex/tree/main/benchmark/aws) 里的脚本可以在你自己的 AWS 账号上重跑一个已记录的测试点。你需要：
+
+- AWS CLI v2 和 `openssl`，以及一个能管理 EC2、S3 和 IAM 的 profile；
+- 该 Region 中的一个 EC2 密钥对；
+- `dexbench` 和 `dex-server-zd` 的 Linux arm64 构建，在 Ubuntu 24.04 arm64 上构建，与主机一致。
+
+在同一个可用区里启动共享资源、一台 server 和一台负载主机：
+
+```bash
+export DEXBENCH_RUN_ID=<run id> DEXBENCH_AWS_PROFILE=<profile> DEXBENCH_AWS_REGION=us-west-2
+export DEXBENCH_AZ=us-west-2b DEXBENCH_KEY_NAME=<key pair>
+benchmark/aws/launch.sh infra
+DEXBENCH_SERVER_INSTANCE_TYPE=c7gd.large benchmark/aws/launch.sh server
+DEXBENCH_MARKET=on-demand DEXBENCH_LOAD_INSTANCE_TYPE=c7g.8xlarge benchmark/aws/launch.sh load
+```
+
+然后从一组已记录的结果里重跑一个测试点。脚本从这次运行的 `config.env` 和 `points.txt` 读取设置；省略场景和 client 数，就会重跑所有测试点：
+
+```bash
+benchmark/aws/reproduce.sh benchmark/results/<run> sequential-steps 512
+```
+
+完成后删除所有资源。这些实例也会在两个半小时后自行关机。
+
+```bash
+benchmark/aws/teardown.sh
+```
 
 <a id="release-status"></a>
 <a id="license"></a>

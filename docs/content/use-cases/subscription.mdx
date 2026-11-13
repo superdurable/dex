@@ -30,7 +30,7 @@ The Flow waits on Timers for the trial and each billing period. It waits on Chan
 
 Decide how your product handles these failures:
 
-- Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
+- A provider can complete a charge or an email whose response is lost. A repeat must not charge or send twice.
 - A price update must contain exactly one amount. If the message is invalid, the update Step fails. It does not guess an amount.
 - A cancellation can arrive just as a billing Timer fires. Your payment provider and cancellation policy must handle that case, including any refund or entitlement decision.
 - After the Flow is canceled or completes, publishing a message cannot reopen it. The client should treat the subscription as ended and start a new one if needed.
@@ -48,6 +48,8 @@ Decide how your product handles these failures:
 **Trial** waits for the trial Timer, then moves to the billing loop. Each `ChargeCurrentBill` execution increments the billing-period Attribute and waits for the period's Timer. When the Timer fires, it charges the period. After the last period, it completes the whole Flow instead. **Cancel** and `UpdateChargeAmount` run alongside this path. Each waits for one Channel message at a time.
 
 The billing schedule is a Step that moves back to itself after each period. No process has to stay in memory between charges. The customer, plan, and billing counter live in Attributes, so every branch reads the current values instead of a copy in Worker memory. **Cancel** and the last `ChargeCurrentBill` force-complete the Flow, which also ends the waits in the other branches.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 
@@ -325,10 +327,6 @@ impl Flow for SubscriptionFlow {
     style={{ display: 'block', margin: '0 auto', maxWidth: '100%', width: '100%' }}
   />
 </a>
-
-## Rust example {#rust-example}
-
-The Rust example has the same state, billing loop, and control branches, with one difference. Clients update or cancel through RPCs, and each RPC publishes to an internal Channel. In the other SDK examples, clients publish to the Channels directly.
 
 ## Next
 

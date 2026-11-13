@@ -31,7 +31,7 @@ Failures fall into three groups:
 - Memo, debit, and credit calls can fail temporarily. Dex retries them with backoff, and the Flow stays at the same Step.
 - An operation can still fail after all its retries. The Flow then moves to compensation, reverses the transfer, and finishes as failed. Dex retries compensation too, because an incomplete compensation is also a failure.
 
-Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
+A bank can complete a memo, debit, or credit whose response is lost. A repeat must not move money twice.
 
 ## Flow design
 
@@ -45,6 +45,8 @@ It uses these design patterns:
 - **Saga compensation**: **Compensate** reverses the completed operations, then force-fails the Flow. A caller therefore never mistakes a reversed transfer for a success.
 
 Each side effect has its own Step. You can see the retry state and history of each operation. A retry of **Credit** also does not repeat **Debit**.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 

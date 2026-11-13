@@ -49,7 +49,7 @@ Session 把对话保存在 Attribute 中。Session 等待下一条用户消息�
 
 长期 memory，例如用户的偏好或过往订单，请保存在你自己掌控的存储中。它可以是你的数据库，也可以是你为每个用户保留的一个 Flow。给 Agent 一个读取它的 tool，以及一个使用合适 [policy](/agent-frameworks/tool-calls#tool-policies-and-approvals) 写入它的 tool。
 
-已停止的 Session 在保留期内仍然可读，之后 Dex 会删除它。默认值见 [History and retention](/reference/agents/session-limits#history)（英文）。
+已停止的 Session 默认在 7 天内仍可读取，之后 server 可能删除它。怎样修改见 [Retention](/reference/server/configuration#retention)（英文）。
 
 ## 只发送一次消息 {#send-a-message-once}
 

@@ -7,7 +7,7 @@ description: A checklist for running Dex in production, with a link to the page 
 
 # Run Dex in Production
 
-Check each item before launch. In Dex Cloud, Super Durable runs the server; the Worker, code-change, and database items still apply. Each item links to the page with the details.
+Check each item before launch. In Dex Cloud, Super Durable runs the server; the Worker, Step retry, code-change, and database items still apply. Each item links to the page with the details.
 
 <a id="smallest-deployment"></a>
 <a id="defaults-to-change-before-production"></a>
@@ -22,7 +22,7 @@ The [minimal configuration](#minimal-configuration) below covers authentication,
 | Authentication and TLS | Public API authentication is off by default, so any client that reaches the server can call it. Configure an authenticator before you expose the port. The API port serves plaintext gRPC: put TLS in front of it, or keep it on a private network. | [Authentication](/reference/server/authentication), [TLS](/reference/server/authentication#tls) |
 | Topology | One active node serves the cluster. Add a hot standby if you need fast failover. | [Self-Host Dex](/components/self-host), [Lease, hot standby, and step down](/reference/server/high-availability) |
 | Storage and backup | One object storage bucket and prefix holds all server state for the cluster. db9 can replace it; stock PostgreSQL is not supported. The bucket prefix is the only source of truth: version or replicate it, and practice a restore. | [Object storage and backup](/reference/server/object-storage), [Backup and restore](/reference/server/object-storage#backup-and-restore) |
-| Retention | Closed runs, with their Step history, are deleted after 7 days by default. A deleted run frees its Flow ID. Set `retention.closedFlowDuration` to cover your longest client retry window, and copy data you must keep longer to [your own database](/components/your-database). | [Retention reference](/reference/server/configuration#retention) |
+| Retention | Closed runs, with their Step history, are deleted after 7 days by default. A deleted run frees its Flow ID. Set `retention.closedFlowDuration` to cover your longest client retry window, and copy data you must keep longer to [your own database](/components/your-database). Each run keeps the value it started with; a new value applies to runs started after the restart. | [Retention reference](/reference/server/configuration#retention) |
 | Monitoring | Serve metrics on their own listener. Alert on a node that is not serving and on failed lease renewals. | [Metrics and alerts](/reference/server/metrics) |
 | Workers | Workers connect out. Size their task slots, and stop them gracefully in a deploy. | [Workers and the task queue](/reference/server/workers) |
 | Step retries | Step retries stop after 4 hours by default, and then the Flow fails. Set a retry policy or a failure route. | [StepOptions](/concepts/step#stepoptions) |
@@ -69,9 +69,8 @@ Replace `BUCKET` and `PREFIX` with your bucket and key prefix. The token file li
 Give each Worker and Client its token through the SDK's `credential` option;
 a file credential rereads the token file, so you can rotate tokens without a
 restart. [Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)
-lists the option in each SDK. The API port serves plaintext gRPC: put TLS in
-front of it, or keep it on a private network. [TLS](/reference/server/authentication#tls)
-lists the matching SDK option.
+lists the option in each SDK, and [TLS](/reference/server/authentication#tls)
+lists the SDK option for a TLS connection.
 
 ## Next
 

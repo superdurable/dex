@@ -21,7 +21,7 @@ SubFlow 主要有两种用途：
 
 Dex Server 根据父 Flow ID、Step execution 和 condition 序号计算 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
 
-启动 SubFlow 的 Step 类型和重新启动的父 Flow ID 都会影响 SubFlow ID；见[启动 SubFlow 的 Step 类型](/reference/server/runtime-data#subflow-step-types)和[之后的父 run](/reference/server/runtime-data#subflow-parent-lifecycle)（英文）。
+启动 SubFlow 的 Step 类型里不能有短横线（-），同一父 Flow ID 之后的 run 可能复用之前那次 run 的子 Flow；见[启动 SubFlow 的 Step 类型](/reference/server/runtime-data#subflow-step-types)和[之后的父 run](/reference/server/runtime-data#subflow-parent-lifecycle)（英文）。
 
 ## 启动并等待 SubFlow
 

@@ -31,7 +31,7 @@ Another service normally sends **Ready** when its asynchronous work is done.
 Failures to handle:
 
 - A downstream API can be unavailable, time out, or reject its input. The Step must return that error, so that its retry and failure policy can handle it.
-- Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
+- An API can complete a call whose response is lost. A repeat must not apply the change twice.
 - A **Swap** RPC or **Ready** publish can target an unknown or completed Flow and return a client error. Callers should keep the Flow ID and handle that error.
 - The Timer can fire before **Ready** arrives. This is an expected outcome, and the Flow continues through `CallAPI4`.
 - If **Swap** runs between the reads of `CallAPI2` and `CallAPI3`, the two Steps see different values. The branches do not share a snapshot. Each reads the value that is current when it runs.
@@ -50,6 +50,8 @@ It combines these design patterns:
 - **Branch end**: `CallAPI2` returns `DeadEnd` to end its branch. The waiting branch completes the Flow.
 
 Each downstream API has its own Step. A retry of API 3 therefore does not repeat API 1 or API 2, and the Step execution graph shows exactly which call is waiting, retrying, or complete.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 

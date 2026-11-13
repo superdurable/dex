@@ -49,15 +49,13 @@ A session keeps one conversation: its messages, its tool calls, and their result
 
 Keep long-term memory, such as a user's preferences or past orders, in a store that you own. That store can be your database or a Flow that you keep for each user. Give the agent a tool that reads it, and a tool that writes it with the right [policy](/agent-frameworks/tool-calls#tool-policies-and-approvals).
 
-A stopped session stays readable for the retention period, and then Dex deletes it. [History and retention](/reference/agents/session-limits#history) has the defaults.
+A stopped session stays readable for 7 days by default; then the server may delete it. [Retention](/reference/server/configuration#retention) shows how to change it.
 
 ## Send a message once {#send-a-message-once}
 
 `send_user_message` is an RPC. When its response is lost and your code sends again, Dex runs the RPC again, so the same message can be queued twice. [RPC guarantees](/concepts/primitives/rpc#guarantees) explains why, and [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy) explains when it happens.
 
-This helper sends a message once. Each tab shows the whole module. It retries a send that may not have arrived, checks the
-session before each retry, and deletes an extra queued copy. It tells messages
-apart by their text, so call it once for each message a user sends.
+This helper sends a message once. Each tab shows the whole module. It retries a send that may not have arrived, checks the session before each retry, and deletes an extra queued copy. It tells messages apart by their text, so call it once for each message a user sends.
 
 <SdkTabs
   examples={{

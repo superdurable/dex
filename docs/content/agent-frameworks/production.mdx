@@ -16,7 +16,7 @@ Agent sessions run on the same Dex Server as every other Flow. Check each item b
 | Authentication | Public API authentication is off by default. Turn it on before the server is reachable from other machines. | [Authentication](/reference/server/authentication) |
 | Credentials | Keep model API keys and tool credentials in the Worker's environment or a secret store, never in session input or messages. | [Credentials](/reference/agents/credentials) |
 | Dex Server | Dex Server runs in Dex Cloud or on your own infrastructure with object storage. One active node serves a cluster. | [Where to run Dex Server](/components#where-to-run), [Run Dex in Production](/components/production) |
-| Retention | A closed session stays readable for 7 days by default, then the server may delete it. Keep transcripts you need longer in your own store. | [Retention](/reference/server/configuration#retention) |
+| Retention | A stopped session stays readable for 7 days by default; then the server may delete it. Each run keeps the value it started with; a new value applies to runs started after the restart. Keep transcripts you need longer in your own store. | [Retention](/reference/server/configuration#retention) |
 | Unknown outcomes | A write that a crash interrupted records `outcome_unknown` and does not run again. Decide who reconciles it. | [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) |
 | Upgrades | A deploy takes effect at the next model or tool call. For releases marked incompatible, stop all older Workers gracefully before starting new ones. A hard stop turns a running single-attempt tool into `outcome_unknown`. | [Upgrades](/reference/agents/upgrades#in-flight-calls) |
 | Calls during a deploy | `send_user_message` and `resolve_interrupt` are RPCs. They need a running Worker, and a retried `send_user_message` can queue a message twice. | [RPCs during a deploy](#rpcs-during-a-deploy) |
@@ -54,11 +54,14 @@ if no Worker takes it within 10 seconds, the call fails with **Unavailable**.
 During a deploy that stops every Worker, these calls fail until a new Worker
 connects. The session itself loses nothing.
 
-- **Retry on Unavailable.** Retry with backoff until a Worker is back. A failed
-  call with **Unavailable** changed nothing.
+- **Retry on Unavailable.** Retry with backoff until a Worker is back. An RPC
+  that no Worker took changed nothing, but a call whose response was lost can
+  also end in **Unavailable**, so retry `send_user_message` as the next item
+  shows.
 - **resolve_interrupt is safe to retry.** An approval that already went through
   returns **False** the second time, and nothing runs again.
-- **send_user_message can send twice.** Dex runs a repeated RPC again. If the
+- **send_user_message can send twice.** Each SDK call sends a new request ID,
+  so calling it again from your code runs it again. If the
   response is lost, a retry can queue the same message twice. Before you resend,
   read the session with `get_agent_snapshot` and look for the message in
   **messages** and `queued_messages`. If it is queued twice, remove the copy

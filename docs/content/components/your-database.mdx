@@ -80,10 +80,8 @@ point leaves a Flow that retries its Step.
 Keep retention longer than the client retry window. See
 [Retention and start deduplication](/reference/server/configuration#retention-and-start-deduplication).
 
-RPC calls are deduplicated by request ID only within one SDK call; your code
-calling an RPC again runs it again. See
-[RPC guarantees](/concepts/primitives/rpc#guarantees) and
-`limits.maxRequestIdsPerRun` in [Limits](/reference/server/configuration#limits).
+Calling an RPC again from your code runs it again. See
+[RPC guarantees](/concepts/primitives/rpc#guarantees).
 
 ## Dex copies Attributes to your database {#attribute-store-sync}
 
@@ -106,7 +104,7 @@ The copy is one way and eventually consistent:
 ### When Dex drops a sync entry {#dropped-entries}
 
 While PostgreSQL is unavailable, Flows keep running and Dex retries the
-writes. Writes can be dropped after an hour of retries; alert on
+writes. Writes can be dropped after the retry window, one hour by default; alert on
 `dexzd_attribute_sync_dropped_entries_total`.
 [Repair a dropped entry](/reference/server/attribute-store-sync#repair-dropped-entry)
 shows how to find and fix the affected rows.

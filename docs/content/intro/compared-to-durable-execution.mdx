@@ -60,7 +60,7 @@ Dex runs the Steps of one Flow in parallel on different Workers. An RPC can run 
 - A server records each run's progress outside your process. After a crash, the run continues from that record.
 - Workers in your own process pull tasks from the server. Your code never runs inside the server.
 - Timers are durable. A run that waits on a Timer or a message holds no Worker.
-- Each unit of work has a retry policy and timeouts. The default backoff is the same: 1 second, doubling up to 100 seconds, with no attempt limit.
+- Each unit of work has a retry policy and timeouts. The default backoff is the same: 1 second, doubling up to 100 seconds, with no attempt limit. Dex also stops retrying a Step after 4 hours by default; see [Limits](/intro/limits).
 - A run has a business ID. At most one run with that ID is open at a time, and a reuse policy decides what happens to the next start.
 - A unit of work can run more than once. Code that calls another system passes an idempotency key.
 

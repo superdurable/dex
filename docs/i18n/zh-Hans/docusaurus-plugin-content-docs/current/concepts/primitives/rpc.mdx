@@ -37,7 +37,7 @@ Dex 像保存 Step 方法一样保存 RPC：它把 RPC 的 Attribute 写入和 C
 
 RPC handler 读取的是 Flow 的一个快照。在这次读取之后、Dex 保存 RPC 的修改之前，Step 和其他 RPC 可能已经修改了 Flow。RPC 的修改依赖它读到的内容时，在这个 RPC 以及所有写这个 Attribute 的 Step 和 RPC 上，都声明这个 Attribute 的 lock。Dex 会让它们依次执行。如果 handler 运行期间 Flow 关闭了，Dex 会拒绝这个 RPC 的修改。但 handler 对外部系统的调用已经发生了。
 
-<a id="request-ids"></a>Dex Server 按 request ID 对 RPC 去重，每个 run 保留最新的一批 request ID，数量有[上限](/reference/server/configuration#limits)。每次 SDK 调用都会生成新的 request ID。所以同一次 SDK 调用内部的重试会被去重，但你的代码再次调用这个 RPC，handler 就会再运行一次，并再次保存它的修改，包括 Channel 发布。RPC handler 要能安全地重复执行；[最多发送一次命令](/concepts/client#inbound-commands)给出了做法。
+<a id="request-ids"></a>你的代码每次调用 RPC 都是一个新请求。再次调用 RPC（例如响应丢失之后），handler 会再运行一次，并再次保存它的修改，包括 Channel 发布。RPC handler 要能安全地重复执行；[最多发送一次命令](/concepts/client#inbound-commands)给出了做法。Dex Server 如何对重发的请求去重，见 [Request ID](/reference/server/configuration#limits)。
 
 <a id="rpc-timeout"></a>
 

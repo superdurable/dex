@@ -7,10 +7,11 @@ slug: /correctness-and-expressiveness
 
 # Correctness and Expressiveness
 
-Two computer-checked proofs together cover every well-formed program of a
-small concurrent language. On Dex, such a program produces the events of a run
-without failures, except that external effects can repeat, and a repeat can
-come late.
+Dex has two computer-checked proofs. Under the conditions they assume, a
+crash, a takeover, or a retry can change only one thing you observe: an
+external effect can repeat, and the repeat can arrive late. Otherwise the run
+produces the same events as a run without failures. The proofs cover every
+well-formed program of a small concurrent language.
 [What this means for your code](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)
 says how to make repeats safe.
 
@@ -24,7 +25,7 @@ lists every condition.
 The [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)
 shows that any program in a small concurrent language, with threads, locks,
 timers, and cancellation, can be written as a Dex Flow that behaves the same.
-A computer checks every step of the proof. The
+The proof is written in the Lean proof assistant, which checks every step. The
 [paper](/papers/dex-expressiveness.pdf) has the full argument.
 
 The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns)

@@ -22,7 +22,14 @@ Each server you create in Dex Cloud has its own endpoint and API key. Your Worke
 
 ## What runs where {#what-runs-where}
 
-The credentials your code uses for your own APIs stay in your Workers. [Where to run Dex Server](/components#where-to-run) compares Dex Cloud with a self-hosted server.
+| | Who runs it |
+| --- | --- |
+| Dex Server: storage, upgrades, capacity, and monitoring | Super Durable |
+| Flow state: Flow inputs, Attributes, and Step results | Stored by Dex Server, in storage that Super Durable operates |
+| Your Workers and your Flow code | You, wherever you deploy them |
+| The credentials your code uses for your own APIs | You. They stay in your Workers. |
+
+[Where to run Dex Server](/components#where-to-run) compares Dex Cloud with a self-hosted server.
 
 ## Next
 

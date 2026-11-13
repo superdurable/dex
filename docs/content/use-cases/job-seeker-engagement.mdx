@@ -34,7 +34,7 @@ Failures and other outcomes to handle:
 - The deadline passes without an acceptance. This is an expected **timeout** result, not an infrastructure failure.
 - A decline is requested after the status has changed, or an acceptance is requested after completion. The RPC rejects the invalid transition without scheduling a notification Step.
 - Email and recruiting-system calls can fail temporarily. Their adapters should return the error so that Dex retries the Step that made the call.
-- Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
+- An email or recruiting-system call can complete while its response is lost. A repeat must not send twice.
 - Reminder opt-out stops only future reminders. The status and overall acceptance deadline remain active.
 
 ## Flow design
@@ -53,6 +53,8 @@ It combines these design patterns:
 - **Completion by one branch**: `ProcessTimeout` completes the Flow with **done** or **timeout**. The other branches finish or end as dead ends.
 
 The reminder and deadline branches use separate Channels. Opting out of reminders therefore cannot accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes, so every branch and RPC reads the same values.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 

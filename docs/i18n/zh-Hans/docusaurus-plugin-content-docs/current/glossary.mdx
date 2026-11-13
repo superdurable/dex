@@ -39,7 +39,7 @@ Flow 上一个持久化、有类型的变量。可以为它建索引，用于搜
 
 #### [Channel](/concepts/primitives/channel)
 
-单个 Flow run 内部的持久化 FIFO 队列。Step 等待它；Step 和 RPC 向它发布消息。
+单个 Flow run 内部的持久化 FIFO 队列。Step 等待它。Step、RPC 和 FlowService 的 `PublishToChannel` 请求向它发布消息。
 
 #### [ChannelMap](/concepts/primitives/channel#channelmap)
 

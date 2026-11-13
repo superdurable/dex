@@ -229,7 +229,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 共有五条规则。写第一个 Flow 时，前两条就够了。[Step 的进阶保证](/correctness-and-expressiveness/step-guarantees)解释其余几条背后的细节。
 
-- **已经完成的 Step 不会再运行。** Dex 把它的结果和转到下一个 Step 的动作一起保存。
+- **已经完成的 Step 不会再运行。** Dex 把它的结果和转到下一个 Step 的动作一起保存。默认的 SYNC Step 是这样；ASYNC Step 的结果如果在 server failover 中丢失，会再运行一次，见[SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
 - **被中断的 Step 可能再运行一次。** 崩溃、超时或重试，可能让一个已经调用过外部系统的方法再运行一次。和其他持久化执行引擎一样，Step 至少运行一次。下一节说明怎样让这件事安全。
 - **重试看到的是第一次尝试的状态。** `Execute` 的重试看不到 Dex 把第一次尝试交给 Worker 之后写入的 Attribute；见[状态快照](/correctness-and-expressiveness/step-guarantees#state-snapshot)。
 - **方法的写入和结果一起保存。** 方法成功时，它的 Attribute 写入和 Channel 消息才生效。Dex 无法判断方法是否运行过时，会再运行一次，或者报告结果未知。
@@ -237,7 +237,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 ### 幂等键 {#idempotency-keys}
 
-每个会改变外部状态的调用（例如付款或发邮件）都要带上幂等键。执行这个效果的服务用这个键丢弃重复请求。用每次尝试都不变的值来构造键：
+重复会造成损害的外部调用（例如付款或订单邮件）都要带上幂等键。无害的重复（例如提醒）可以不带键。执行这个效果的服务用这个键丢弃重复请求。用每次尝试都不变的值来构造键：
 
 - Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
 - 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。

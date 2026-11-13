@@ -16,7 +16,7 @@ Agent Session 和其他所有 Flow 运行在同一个 Dex Server 上。把 Sessi
 | 认证 | Public API 认证默认关闭。在 server 能被其他机器访问之前打开它。 | [Authentication](/reference/server/authentication)（英文） |
 | Credential | 把模型 API key 和 tool credential 放在 Worker 的环境或 secret store 中，永远不要放进 Session input 或 message。 | [Credentials](/reference/agents/credentials)（英文） |
 | Dex Server | Dex Server 运行在 Dex Cloud 上，或者运行在你自己带对象存储的基础设施上。一个集群由一个活动节点提供服务。 | [在哪里运行 Dex Server](/components#where-to-run)、[在生产环境运行 Dex](/components/production) |
-| 保留期 | 已关闭的 Session 默认在 7 天内仍可读取，之后 server 可能删除它。需要保存更久的对话记录，请放在你自己的存储中。 | [Retention](/reference/server/configuration#retention)（英文） |
+| 保留期 | 已停止的 Session 默认在 7 天内仍可读取，之后 server 可能删除它。每个 run 保留它启动时的值；新值只作用于重启之后启动的 run。需要保存更久的对话记录，请放在你自己的存储中。 | [Retention](/reference/server/configuration#retention)（英文） |
 | 未知结果 | 被崩溃打断的写操作会记录为 `outcome_unknown`，并且不会再次运行。决定由谁来核对它。 | [核对 outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) |
 | 升级 | 部署在下一次模型调用或 Tool Call 时生效。对标记为不兼容的版本，启动新 Worker 之前，先优雅地停掉所有旧 Worker。强制停止会让正在运行的单次尝试 tool 变成 `outcome_unknown`。 | [Upgrades](/reference/agents/upgrades#in-flight-calls)（英文） |
 | 部署期间的调用 | `send_user_message` 和 `resolve_interrupt` 是 RPC。它们需要正在运行的 Worker，而重试的 `send_user_message` 可能把同一条消息排队两次。 | [部署期间的 RPC](#rpcs-during-a-deploy) |
@@ -44,9 +44,9 @@ Agent Session 和其他所有 Flow 运行在同一个 Dex Server 上。把 Sessi
 
 应用通过 RPC 与 Session 通信，例如 `send_user_message` 和 `resolve_interrupt`。RPC 在 Worker 上运行。它从不在队列中等待：如果 10 秒内没有 Worker 接手，调用就会以 **Unavailable** 失败。在停掉所有 Worker 的部署期间，这些调用会一直失败，直到新的 Worker 连上。Session 本身不会丢失任何东西。
 
-- **遇到 Unavailable 时重试。** 用 backoff 重试，直到 Worker 恢复。以 **Unavailable** 失败的调用什么都没有改变。
+- **遇到 Unavailable 时重试。** 用 backoff 重试，直到 Worker 恢复。没有 Worker 接手的 RPC 什么都没有改变，但响应丢失的调用也可能以 **Unavailable** 结束，所以请按下一项的方式重试 `send_user_message`。
 - **resolve_interrupt 可以安全重试。** 已经生效的审批第二次会返回 **False**，什么都不会再次运行。
-- **send_user_message 可能发送两次。** Dex 会再次运行重复的 RPC。如果响应丢失，重试可能把同一条消息排队两次。重新发送之前，用 `get_agent_snapshot` 读取 Session，在 **messages** 和 `queued_messages` 中查找这条消息。如果它排队了两次，用 `delete_queued_message` 删除多出的副本。
+- **send_user_message 可能发送两次。** 每次 SDK 调用都会发送新的 request ID，所以从你的代码再次调用它，它就会再次运行。如果响应丢失，重试可能把同一条消息排队两次。重新发送之前，用 `get_agent_snapshot` 读取 Session，在 **messages** 和 `queued_messages` 中查找这条消息。如果它排队了两次，用 `delete_queued_message` 删除多出的副本。
 
 [只发送一次消息](/agent-frameworks/sessions#send-a-message-once)给出了每个 SDK 的辅助函数。
 

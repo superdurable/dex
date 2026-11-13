@@ -329,24 +329,8 @@ self.progress
 
 A collection that keeps growing should be split across bounded AttributeMap
 instances. [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
-describes two patterns. They compare as follows:
-
-| Dimension | Sequentially Chunked | Hash-Partitioned |
-|---|---|---|
-| Grouping | Increasing sequence; one chunk per 100 records | FNV-1a of canonical key modulo 1,000 |
-| Primary goal | Efficient append and ordered pagination | Direct lookup and upsert by stable business key |
-| Typical data | Subscriber history, agent messages, audit events | Customer profiles, account metadata, configuration directories |
-| One read | One sequential chunk | One hash bucket |
-| One write | Rewrite the active chunk; also archive it at rollover | Rewrite the target bucket |
-| Ordering | Preserves insertion order naturally | No natural global order |
-| Lookup by key | Usually scans chunks or needs another index | Calculates one partition directly |
-| Updating old data | Poor fit; archived chunks should stay immutable | Good fit for upsert within the target bucket |
-| Write concurrency | All appends contend on the active chunk | Different partitions use independent locks |
-| Growth | Creates new chunks without rehashing | Fixed partition count; each bucket grows with total data |
-| Distribution | Naturally balanced by record count | Usually balanced, but hot keys can create hot partitions |
-| Changing parameters | New data can use a versioned chunk strategy | A partition-count change requires rehash and migration |
-| Full enumeration | Read chunks in sequence | Read up to 1,000 partitions |
-| Best fit | Append-only data with time or sequence order | Structured values with a stable lookup key |
+compares the two patterns: sequential chunks for append-only, ordered data, and
+hash partitions for lookup by a stable key.
 
 <a id="initial-attribute-values"></a>
 <a id="read-from-outside-a-flow"></a>
@@ -380,10 +364,10 @@ then write. Dex does not detect an unlocked read-then-write. Test it by running
 both writers concurrently and checking the final value.
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
-not declare it can still write the Attribute. Keep locked RPCs short, because an RPC can take a free lock ahead of waiting
-Steps. See [Lock order](/reference/server/runtime-data#lock-order).
+not declare it can still write the Attribute.
 
-Keep locked methods short. Make slow external calls in a Step that holds no
+Keep locked Steps and RPCs short; an RPC can take a free lock ahead of waiting
+Steps (see [Lock order](/reference/server/runtime-data#lock-order)). Make slow external calls in a Step that holds no
 lock, and set a short total duration, such as a few minutes, in the locked
 method's `StepOptions` retry policy. A failing locked Step holds its lock
 through every retry; see

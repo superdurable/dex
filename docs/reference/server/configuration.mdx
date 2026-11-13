@@ -800,6 +800,13 @@ A request that a limit rejects fails at once; it does not wait for capacity.
 The request ID limit never rejects a request; instead, the server forgets the
 oldest request IDs.
 
+Dex Server deduplicates an RPC that reuses a request ID it still keeps: the
+newest 1,000 request IDs per run, set by **limits.maxRequestIdsPerRun**. A
+retry with an older request ID runs as a new request. SDKs send a new request
+ID on each call and reuse one only when they resend a request that never ran,
+such as after an authentication refresh. Calling an RPC again from your code
+therefore runs it again.
+
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |

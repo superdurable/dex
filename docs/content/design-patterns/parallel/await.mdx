@@ -340,24 +340,19 @@ When the other branches keep running instead, their results arrive later. In a l
 ## How the Join works {#how-the-join-works}
 
 The **Join** synchronizes parallel branches inside one Flow. It is built on a
-ChannelMap, and all five SDKs provide it. The round key comes from the Step
-execution that forked the round, so the application keeps no counter and no
-key. Results count only toward their own round. The join Step's wait is an
+ChannelMap, and all five SDKs provide it. Results count only toward their own
+round. The join Step's wait is an
 ordinary condition, so it combines with a Timer.
 
 When the work runs in child Flows, a **SubFlow** wait with `AllOf` is the
 native join.
 
-The Join counts the results that branches report. It does not watch the
-branch Steps. These limits follow:
-
-- A branch that is canceled from outside, for example by an RPC, never
-  reports. A join that waits for every branch then waits forever.
-- A join Step can be canceled after its wait consumed results but before its
-  `Execute` result is saved. Whether those results return to the round
-  depends on the server version. See
-  [canceled Steps and consumed messages](/reference/server/runtime-data#canceled-step-messages).
-  When they are lost, a new join for the same round never fires.
+The Join counts the results that branches report, rather than watching the
+branch Steps. A join Step can be canceled after its wait consumed results but
+before its `Execute` result is saved. Whether those results return to the round
+depends on the server version. See
+[canceled Steps and consumed messages](/reference/server/runtime-data#canceled-step-messages).
+When they are lost, a new join for the same round never fires.
 
 ## Next
 

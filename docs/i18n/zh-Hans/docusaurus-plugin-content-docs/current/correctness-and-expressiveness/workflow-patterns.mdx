@@ -9,21 +9,13 @@ slug: /correctness-and-expressiveness/workflow-patterns
 
 # Workflow Patterns 评估
 
+<a id="summary"></a>
+
+Dex 团队的自我评估：43 个 control-flow 模式中，33 个直接支持，10 个间接支持，每个模式都至少有间接支持。
+
 Workflow Patterns 是一组业务流程中反复出现的行为。它们由 Workflow Patterns Initiative 定义，由 Wil van der Aalst 和 Arthur ter Hofstede 主导。研究者用它们比较 BPMN、BPEL、YAWL 等 workflow 语言和引擎。每个模式都有 ID、名称和精确定义。定义见 [control-flow patterns](http://www.workflowpatterns.com/patterns/control/)。
 
 本页按 43 个 control-flow 模式（WCP-1 到 WCP-43）为 Dex 评级。data、resource 和 exception-handling 模式不在本页评估范围内。
-
-## 汇总 {#summary}
-
-- 33 个模式直接支持（**+**）。
-- 10 个模式间接支持（**+/-**）。
-- 每个模式都至少有间接支持，没有不支持（**-**）的模式。
-
-## 与已发表评估的比较 {#comparison-with-a-published-evaluation}
-
-一项[已发表的评估](https://doi.org/10.1016/j.infsof.2009.02.002)按同样的 43 个 control-flow 模式评估了六个 workflow 和 BPM 系统。作者是 Wohed、Russell、ter Hofstede、Andersson 和 van der Aalst，他们独立于 Dex。论文发表于 Information and Software Technology 51(8)，2009（[PDF](https://www.vdaalst.com/publications/p536.pdf)）。在其 Table 20 中，每个系统直接支持 11 到 20 个模式，部分支持最多 6 个，有 19 到 32 个模式不支持。
-
-本页对 Dex 的评级由 Dex 团队自行评估。没有独立作者为 Dex 评级。
 
 ## 评级标准 {#rating-scheme}
 
@@ -41,6 +33,8 @@ Dex 构件是编程模型的一部分：原语、Step decision、等待条件，
 有 10 个模式是 **+/-**。WCP-15、WCP-33、WCP-36 和 WCP-38 需要的汇合无法用按轮计数表达：在其他实例运行时添加实例、按分支排队的触发，或者可达性判断。
 WCP-17 和 WCP-40 依赖 Attribute lock，而锁只覆盖一个 `Execute`。
 WCP-18、WCP-20、WCP-23 和 WCP-39 不是汇合，评级原因见各自的那一行。[Join 的工作方式](/design-patterns/parallel/await#how-the-join-works)介绍 Join 及其限制。
+
+从外部取消一个分支会让它的 join 一直等待。这不会降低评级：在 Petri net 和 YAWL 中，取消同步区域内的任务同样会让 AND-join 死锁，除非取消区域包含这个 join。
 
 ## 结果 {#results}
 
@@ -91,6 +85,12 @@ WCP-18、WCP-20、WCP-23 和 WCP-39 不是汇合，评级原因见各自的那�
 | [WCP-41 Thread Merge](#wcp-41) | + | **Join** 汇合同一 Step 类型的多个线程；合并 Step 等待 `ForAllBranches` |
 | [WCP-42 Thread Split](#wcp-42) | + | `GoToMany` 启动同一 Step 类型的多个执行 |
 | [WCP-43 Explicit Termination](#wcp-43) | + | `ForceComplete` 立即关闭 Flow，并取消其他 Step |
+
+## 与已发表评估的比较 {#comparison-with-a-published-evaluation}
+
+一项[已发表的评估](https://doi.org/10.1016/j.infsof.2009.02.002)按同样的 43 个 control-flow 模式评估了六个 workflow 和 BPM 系统。作者是 Wohed、Russell、ter Hofstede、Andersson 和 van der Aalst，他们独立于 Dex。论文发表于 Information and Software Technology 51(8)，2009（[PDF](https://www.vdaalst.com/publications/p536.pdf)）。在其 Table 20 中，每个系统直接支持 11 到 20 个模式，部分支持最多 6 个，有 19 到 32 个模式不支持。
+
+本页对 Dex 的评级由 Dex 团队自行评估。没有独立作者为 Dex 评级。
 
 ## 评级如何验证 {#how-the-ratings-were-checked}
 

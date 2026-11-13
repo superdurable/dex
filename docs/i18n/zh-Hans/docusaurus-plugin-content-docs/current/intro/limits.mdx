@@ -40,8 +40,10 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 
 ## 可能重复的请求 {#requests-that-can-repeat}
 
+和任何持久化执行引擎一样，被中断的 Step 会再次运行；见[幂等键](/concepts/step#idempotency-keys)。下面这些请求也可能重复：
+
 - **ASYNC Step 可能基于新的快照重新运行。** 如果 server 节点在保存 ASYNC Step 的开始之前出故障，这次尝试会再运行一次，读到的 Attribute 值可能不同。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
-- **再次调用 RPC 会再次运行它。** Dex Server 按 request ID 丢弃同一次 SDK 调用内的重试，但每次调用都会得到新的 request ID。见 [RPC](/concepts/primitives/rpc#guarantees)。
+- **再次调用 RPC 会再次运行它。** 每次 SDK 调用都会发送新的 request ID；见 [RPC 保证](/concepts/primitives/rpc#guarantees)。
 - **重复的 Channel 发布会投递两次。** 响应丢失后再次发送的 `PublishToChannel` 请求，会把这条消息再存一次。
 - **重试 StopFlow 时要传入 run ID。** 不带 run ID 的重试可能停掉一个更新的 run。
 
@@ -64,9 +66,9 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 | Dex Cloud | 由 Super Durable 替你运行 Dex Server。[在 Dex Cloud 上运行](/components/dex-cloud)说明它运维哪些部分，以及哪些由你运行。 |
 | 兼容性 | 由协议范围决定，而不是版本号。Worker 或 Client 的范围与 server 的有重叠时，它们就能一起工作。 |
 
-[Upgrades and compatibility](/reference/server/upgrades)（英文）给出协议范围。[容量和可用性](#capacity-and-availability)介绍需要停止集群的升级。
+[Upgrades and compatibility](/reference/server/upgrades)（英文）给出协议范围。
 
-- **破坏性变更附带迁移路径。** 破坏性变更首先需要一个明确的决定。
+- **破坏性变更附带迁移路径。**
 - **有些选项不受支持。** Flow 启动延迟和 Flow 级别的重试策略会被拒绝；可以在第一个 Step 里等待一个 Timer，并为每个 Step 设置重试策略。Attribute Store 是可选的数据库，用来接收选定 Attribute 的副本，只能是 PostgreSQL。Flow 状态始终保存在 Dex Server 里。见 [Unsupported features](/reference/server#unsupported-features)（英文）。
 - **dexcli dev 运行它自带的 dex-server-zd 版本。** 见[本地运行](/components/run-locally)。
 
@@ -84,7 +86,7 @@ Dex Skills 使用 MIT License。文档和示例保留各自的许可证，更早
 
 ## 下一步 {#next}
 
-- [正确性与表达能力](/correctness-and-expressiveness)：用机器验证的证明说明崩溃能改变什么。
+- [正确性与表达能力](/correctness-and-expressiveness)：用经计算机检查的证明说明崩溃能改变什么。
 - [性能](/intro/performance)
 - [在生产环境运行 Dex](/components/production)
 - [故障转移和部署](/concepts/failover-and-deploys)

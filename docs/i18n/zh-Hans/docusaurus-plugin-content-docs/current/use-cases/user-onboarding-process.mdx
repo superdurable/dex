@@ -32,7 +32,7 @@ import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-proc
 - 任务完成操作可能乱序到达。这时 RPC 会返回该任务不在等待中，也不会发布 Channel 消息。
 - Step method 或 RPC 可能在返回前失败。这时 Dex 不会保存该 method 的任何 Attribute 写入或 Channel 消息。重试会从该 method 运行前已保存的状态开始。
 - 发送邮件可能临时失败。邮件适配器应返回错误，让 Dex 重试该 Step。
-- 用[幂等键](/concepts/step#idempotency-keys)让每个外部调用都能安全地重复。
+- 邮件服务可能已发出一封邮件，但响应丢失。重复的请求不能再发一次。
 
 Go、Java、Python、TypeScript 和 Rust 示例都实现了完整路径：邮箱验证、任务 1、任务 2 和完成。每个示例都有覆盖这条路径的集成测试。
 
@@ -51,6 +51,8 @@ Go、Java、Python、TypeScript 和 Rust 示例都实现了完整路径：邮箱
 - **用 Attribute 记录阶段**：每个 Step 在 `WaitFor` 方法里设置 **Status** Attribute。Dex 在 Step 开始等待时保存这个值，所以 RPC 和运维人员看到的就是 Flow 实际在等待的阶段。
 
 邮箱验证、任务 1 和任务 2 各有自己的 Channel。这样一次用户操作只会唤醒等待它的那一个 Step。RPC 也能拒绝在错误阶段到达的操作。
+
+给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
 ## 核心实现
 

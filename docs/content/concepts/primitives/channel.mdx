@@ -23,7 +23,7 @@ that you overwrite and read many times. Use a [Stream](/concepts/primitives/stre
 live progress that a user can afford to lose.
 
 To wait for parallel branches to finish, use a **Join**; see
-[Waiting](/concepts/step#waiting).
+[Await Parallel Steps](/design-patterns/parallel/await).
 
 ## Guarantees
 
@@ -289,10 +289,8 @@ Flow. This keeps validation, authorization, and related state changes inside the
 Flow. An RPC runs on a Worker, so a Worker of the Flow type must be connected; see
 [RPC guarantees](/concepts/primitives/rpc#guarantees).
 
-To store a message with no Worker online, see
-[Deliver an event when no Worker runs](/concepts/client#inbound-commands).
-A repeated publish stores the message twice, so make the consuming Step safe
-for a duplicate; see [Send a command at most once](/concepts/client#inbound-commands).
+To store a message with no Worker online, or to drop a repeated command, see
+[Send a command at most once](/concepts/client#inbound-commands).
 
 ## Manage pending messages {#manage-pending-messages}
 

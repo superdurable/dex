@@ -69,7 +69,7 @@ A worked example for a light load: 1 million orders a month, each a Flow with fi
 
 ## How the benchmark ran
 
-The numbers below were measured on 2026-11-09 in AWS us-west-2:
+The numbers on this page were measured on 2026-11-09 in AWS us-west-2:
 
 - **Server:** one Dex Server node on a c7gd.large (2 vCPU) or a c7gd.4xlarge (16 vCPU). Its local store was on the instance's NVMe disk. Its log went to S3 Standard in the same Region.
 - **Load:** a separate c7g.8xlarge in the same Availability Zone ran the benchmark tool with a Go SDK Worker. Its CPU stayed below 38%.
@@ -79,9 +79,35 @@ The numbers below were measured on 2026-11-09 in AWS us-west-2:
 
 Every run and its settings are in the [benchmark results folder](https://github.com/superdurable/dex/tree/main/benchmark/results).
 
-<a id="reproduce-a-result"></a>
+## Reproduce a result {#reproduce-a-result}
 
-The [benchmark folder](https://github.com/superdurable/dex/tree/main/benchmark) shows how to rerun a recorded point on your own AWS account.
+The scripts in [benchmark/aws](https://github.com/superdurable/dex/tree/main/benchmark/aws) rerun a recorded point on your own AWS account. You need:
+
+- the AWS CLI v2 and `openssl`, with a profile that can manage EC2, S3, and IAM;
+- an EC2 key pair in the Region;
+- Linux arm64 builds of `dexbench` and `dex-server-zd`, built on Ubuntu 24.04 arm64 to match the hosts.
+
+Launch the shared resources, a server, and a load host in one Availability Zone:
+
+```bash
+export DEXBENCH_RUN_ID=<run id> DEXBENCH_AWS_PROFILE=<profile> DEXBENCH_AWS_REGION=us-west-2
+export DEXBENCH_AZ=us-west-2b DEXBENCH_KEY_NAME=<key pair>
+benchmark/aws/launch.sh infra
+DEXBENCH_SERVER_INSTANCE_TYPE=c7gd.large benchmark/aws/launch.sh server
+DEXBENCH_MARKET=on-demand DEXBENCH_LOAD_INSTANCE_TYPE=c7g.8xlarge benchmark/aws/launch.sh load
+```
+
+Then rerun a point from a recorded result set. The script reads that run's settings from its `config.env` and `points.txt`; leave out the scenario and the client count to rerun every point:
+
+```bash
+benchmark/aws/reproduce.sh benchmark/results/<run> sequential-steps 512
+```
+
+Delete everything when you are done. The instances also shut themselves down after two and a half hours.
+
+```bash
+benchmark/aws/teardown.sh
+```
 
 <a id="release-status"></a>
 <a id="license"></a>

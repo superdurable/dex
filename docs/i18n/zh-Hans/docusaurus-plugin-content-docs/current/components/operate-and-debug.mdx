@@ -49,6 +49,8 @@ Time Travel 把一次 run 退回到它历史中较早的一个点，并从那里
 
 Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute、它的 Channel 消息，以及当时正在等待或已就绪的 Step。在那个点之后从 run 外部进来的输入，默认会再应用一次：RPC 调用、Channel 发布和 Attribute 写入。这叫做 **write reapply**。如果这些输入不应该再算一次，用 `skip_writes_reapply`（`dexcli`：`-skip-writes-reapply`）关闭它。
 
+在值较大的长 run 上，write reapply 可能超出 replay 预算；这时调用会失败，并且什么都不改变。如果那些输入不应该再算一次，用 `-skip-writes-reapply` 重试；要提高预算，见 [Time travel](/reference/server/runtime-client#time-travel)（英文）。
+
 目标点必须在 run 最近的历史窗口内。Time Travel 到 run 的开头始终可用。
 
 可以从 Dex Web、Client 或 `dexcli flow time-travel` 启动 Time Travel；[CLI 参考](/reference/cli)（英文）列出它的参数。server 参考中的 [Time travel](/reference/server/runtime-client#time-travel)（英文）介绍请求、历史窗口和限制。

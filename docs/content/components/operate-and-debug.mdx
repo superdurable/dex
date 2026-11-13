@@ -49,6 +49,8 @@ Every Step after that point runs again, with its external calls, so each call ne
 
 Time Travel restores the run's state at that point: its Attributes, its Channel messages, and the Steps that were waiting or ready. Input that came from outside the run after that point is then applied again by default: RPC calls, Channel publications, and Attribute writes. This is **write reapply**. Turn it off with `skip_writes_reapply` (`dexcli`: `-skip-writes-reapply`) when that input should not count again.
 
+On a long run with large values, write reapply can exceed the replay budget; the call then fails and changes nothing. Retry with `-skip-writes-reapply` if that input should not count again, or see [Time travel](/reference/server/runtime-client#time-travel) to raise the budget.
+
 The target point must be inside the run's recent history window. Time Travel to the beginning of the run is always available.
 
 Start Time Travel from Dex Web, a Client, or `dexcli flow time-travel`; the [CLI reference](/reference/cli) lists its flags. [Time travel](/reference/server/runtime-client#time-travel) in the server reference covers the request, the history window, and the limits.

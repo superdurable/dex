@@ -7,13 +7,13 @@ slug: /correctness-and-expressiveness
 
 # 正确性与表达能力
 
-两个经计算机检查的证明合起来，覆盖一门小型并发语言中每个格式良好的程序。这样的程序在 Dex 上产生的是一次无故障运行的事件，只是外部副作用可能重复，重复也可能来得很晚。[这对你的代码意味着什么](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)说明怎样让重复变得安全。
+Dex 有两个经计算机检查的证明。在证明假设的条件下，崩溃、接管或重试只能改变一件你能观察到的事：外部副作用可能重复，重复也可能来得很晚。除此之外，运行产生的事件与一次无故障运行相同。证明覆盖一门小型并发语言中每个格式良好的程序。[这对你的代码意味着什么](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)说明怎样让重复变得安全。
 
 证明针对的是 Dex 的模型，并且只在有限的范围内成立，例如只有一个 Flow、只用 **SYNC** 方法、重试永远不会用完。[证明的前提](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes)列出了每个条件。
 
 ## 表达能力 {#expressiveness}
 
-[表达能力证明](/correctness-and-expressiveness/expressiveness-proof)说明：一门带线程、锁、Timer 和取消的小型并发语言中，任何程序都能写成行为相同的 Dex Flow。证明的每一步都由计算机检查。完整论证见[论文](/papers/dex-expressiveness.pdf)。
+[表达能力证明](/correctness-and-expressiveness/expressiveness-proof)说明：一门带线程、锁、Timer 和取消的小型并发语言中，任何程序都能写成行为相同的 Dex Flow。证明用 Lean 证明助手写成，它检查每一步。完整论证见[论文](/papers/dex-expressiveness.pdf)。
 
 [Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns)按 43 个 control-flow Workflow Patterns 为 Dex 评级。研究者用这些模式比较各种 workflow 语言和引擎。每个评级都配有可运行的示例和集成测试。
 

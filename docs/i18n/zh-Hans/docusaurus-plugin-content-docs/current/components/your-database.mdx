@@ -51,7 +51,7 @@ handler 经常为同一个请求写入自己的一行，并启动一个 Flow。�
 
 把保留期设得比 Client 的重试窗口更长。见 [Retention and start deduplication](/reference/server/configuration#retention-and-start-deduplication)（英文）。
 
-RPC 调用只在同一次 SDK 调用内部按 request ID 去重；你的代码再次调用 RPC，它就会再运行一次。见 [RPC 的保证](/concepts/primitives/rpc#guarantees) 和 [Limits](/reference/server/configuration#limits)（英文）表中的 `limits.maxRequestIdsPerRun`。
+你的代码再次调用 RPC，它就会再运行一次。见 [RPC 的保证](/concepts/primitives/rpc#guarantees)。
 
 ## Dex 把 Attribute 复制到你的数据库 {#attribute-store-sync}
 
@@ -69,7 +69,7 @@ RPC 调用只在同一次 SDK 调用内部按 request ID 去重；你的代码�
 
 ### Dex 丢弃同步条目时 {#dropped-entries}
 
-PostgreSQL 不可用期间，Flow 继续运行，Dex 会重试这些写入。重试一小时后，写入可能被丢弃；请对 `dexzd_attribute_sync_dropped_entries_total` 设置告警。怎样找到并修复受影响的行，见 [Repair a dropped entry](/reference/server/attribute-store-sync#repair-dropped-entry)（英文）。
+PostgreSQL 不可用期间，Flow 继续运行，Dex 会重试这些写入。超过重试窗口（默认一小时）后，写入可能被丢弃；请对 `dexzd_attribute_sync_dropped_entries_total` 设置告警。怎样找到并修复受影响的行，见 [Repair a dropped entry](/reference/server/attribute-store-sync#repair-dropped-entry)（英文）。
 
 ## 订单示例 {#order-example}
 

@@ -30,8 +30,8 @@ instead of starting a second one. By default, the parent keeps waiting
 for a running child, uses the result of a completed child, and restarts a child
 that ended abnormally.
 
-The Step type that starts a SubFlow and a restarted parent Flow ID both affect
-the SubFlow ID; see
+A Step type that starts SubFlows must not contain a dash, and a later run of
+the same parent Flow ID can reuse the earlier run's children; see
 [Step types that start SubFlows](/reference/server/runtime-data#subflow-step-types)
 and [Later parent runs](/reference/server/runtime-data#subflow-parent-lifecycle).
 

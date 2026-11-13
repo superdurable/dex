@@ -7,6 +7,10 @@ description: "The Workflow Patterns are a catalog of recurring behaviors in busi
 
 # Workflow Patterns evaluation
 
+<a id="summary"></a>
+
+Dex team's self-assessment: 33 of the 43 control-flow patterns have direct support and 10 have indirect support; none is unsupported.
+
 The Workflow Patterns are a catalog of recurring behaviors in business
 processes. The Workflow Patterns Initiative defined them, led by Wil van der
 Aalst and Arthur ter Hofstede. Researchers use them to compare workflow
@@ -17,25 +21,6 @@ the definitions.
 
 This page rates Dex against the 43 control-flow patterns, WCP-1 to WCP-43. The
 data, resource, and exception-handling patterns are not evaluated here.
-
-## Summary {#summary}
-
-- 33 patterns have direct support (**+**).
-- 10 patterns have indirect support (**+/-**).
-- Every pattern has at least indirect support; none is unsupported (**-**).
-
-## Comparison with a published evaluation {#comparison-with-a-published-evaluation}
-
-A [published evaluation](https://doi.org/10.1016/j.infsof.2009.02.002) rated six workflow and BPM systems against the
-same 43 control-flow patterns. Its authors, Wohed, Russell, ter Hofstede,
-Andersson, and van der Aalst, are independent of Dex. It appeared in
-Information and Software Technology 51(8), 2009
-([PDF](https://www.vdaalst.com/publications/p536.pdf)). In its Table 20, each
-system directly supports 11 to 20 patterns, partly supports up to 6, and
-leaves 19 to 32 unsupported.
-
-The Dex ratings on this page are self-assessed by the Dex team. No independent
-author rated Dex.
 
 ## Rating scheme {#rating-scheme}
 
@@ -60,6 +45,8 @@ the standard way to do the job. The **Join** is such an API.
 Ten patterns are **+/-**. WCP-15, WCP-33, WCP-36, and WCP-38 need a join that a per-round count cannot express: instances added while others run, a trigger queue per branch, or a reachability check.
 WCP-17 and WCP-40 rest on an Attribute lock, which covers one `Execute` only.
 WCP-18, WCP-20, WCP-23, and WCP-39 are not joins; their rows give the reasons. [How the Join works](/design-patterns/parallel/await#how-the-join-works) describes the Join and its limits.
+
+Canceling a branch from outside leaves its join waiting. This does not lower a rating: in Petri nets and YAWL, canceling a task inside a synchronized region also deadlocks the AND-join unless the cancel region includes the join.
 
 ## Results {#results}
 
@@ -110,6 +97,19 @@ The table names the Dex construct behind each rating. [Pattern details](#pattern
 | [WCP-41 Thread Merge](#wcp-41) | + | **Join** over the threads of one Step type; the merge waits for `ForAllBranches` |
 | [WCP-42 Thread Split](#wcp-42) | + | `GoToMany` of one Step type |
 | [WCP-43 Explicit Termination](#wcp-43) | + | `ForceComplete` closes the Flow and cancels other Steps |
+
+## Comparison with a published evaluation {#comparison-with-a-published-evaluation}
+
+A [published evaluation](https://doi.org/10.1016/j.infsof.2009.02.002) rated six workflow and BPM systems against the
+same 43 control-flow patterns. Its authors, Wohed, Russell, ter Hofstede,
+Andersson, and van der Aalst, are independent of Dex. It appeared in
+Information and Software Technology 51(8), 2009
+([PDF](https://www.vdaalst.com/publications/p536.pdf)). In its Table 20, each
+system directly supports 11 to 20 patterns, partly supports up to 6, and
+leaves 19 to 32 unsupported.
+
+The Dex ratings on this page are self-assessed by the Dex team. No independent
+author rated Dex.
 
 ## How the ratings were checked {#how-the-ratings-were-checked}
 

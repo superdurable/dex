@@ -34,7 +34,7 @@ Failures and other outcomes to handle:
 - A task completion can arrive out of order. The RPC then reports that the task is not waiting, and it does not publish the Channel message.
 - A Step method or RPC can fail before it returns. Dex then saves none of that method's Attribute writes or Channel messages. A retry starts from the state that was saved before the method ran.
 - Sending an email can fail temporarily. The email adapter should return the error so that Dex retries the Step.
-- Make each external call safe to repeat with an [idempotency key](/concepts/step#idempotency-keys).
+- An email provider can send an email whose response is lost. A repeat must not send it twice.
 
 The Go, Java, Python, TypeScript, and Rust examples all implement the full path: verification, task 1, task 2, and completion. Each has an integration test for that path.
 
@@ -53,6 +53,8 @@ It combines these design patterns:
 - **Stage in an Attribute**: each Step sets the **Status** Attribute in its `WaitFor` method. Dex saves that value when the Step starts to wait. RPCs and operators therefore see the stage the Flow is actually waiting on.
 
 Verification, task 1, and task 2 each have their own Channel. A user action can then wake only the one Step that waits for it. An RPC can also reject an action that arrives at the wrong stage.
+
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 

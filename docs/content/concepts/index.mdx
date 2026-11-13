@@ -21,7 +21,7 @@ application drives Flows through a Client.
 ## What Dex guarantees {#guarantees}
 
 Dex saves each Step's result together with the move to the next Step, so a
-finished Step does not run again. A Step that was cut off can run again;
+finished Step does not run again (with the default SYNC durability). A Step that was cut off can run again;
 [Step guarantees](/concepts/step#guarantees) lists every guarantee and its
 limits.
 
@@ -66,7 +66,7 @@ events.
 - <a id="components"></a>[Run Dex](/components) covers the processes that run
   this model: your application hosts Flow code in Workers and calls Dex
   through Clients, [Dex Server](/components/server) stores Flow state, and
-  `dexcli` and Dex Web run and inspect Dex locally.
+  `dexcli` runs Dex locally, and Dex Web inspects and operates Flows.
 - <a id="change-flow-code"></a>[Change Flow code](/concepts/change-flow-code)
   shows how open Flows keep working after a deploy, and how
   [Time Travel](/components/operate-and-debug#time-travel) runs a Flow again from

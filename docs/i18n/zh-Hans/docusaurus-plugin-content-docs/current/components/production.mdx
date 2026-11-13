@@ -7,7 +7,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 
 # 在生产环境运行 Dex
 
-上线之前逐项检查。在 Dex Cloud 中，server 由 Super Durable 运行；Worker、代码变更和数据库这几项仍然适用。每一项都链接到有详细说明的页面。
+上线之前逐项检查。在 Dex Cloud 中，server 由 Super Durable 运行；Worker、Step 重试、代码变更和数据库这几项仍然适用。每一项都链接到有详细说明的页面。
 
 <a id="smallest-deployment"></a>
 <a id="defaults-to-change-before-production"></a>
@@ -22,7 +22,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 | 身份验证和 TLS | 公共 API 的身份验证默认关闭，所以任何能连到 server 的 Client 都能调用它。在开放端口之前配置一个 authenticator。API 端口提供明文 gRPC：在它前面加 TLS，或者使用私有网络。 | [Authentication](/reference/server/authentication)（英文），[TLS](/reference/server/authentication#tls)（英文）|
 | 拓扑 | 一个 active 节点服务整个集群。需要快速故障转移时，加一个 hot standby。 | [自托管 Dex](/components/self-host)，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）|
 | 存储和备份 | 集群使用一个对象存储 bucket 和 prefix，保存 server 的全部状态。可以用 db9 代替它；普通 PostgreSQL 不受支持。bucket prefix 是唯一的数据来源：为它开启版本控制或复制，并演练一次恢复。 | [Object storage and backup](/reference/server/object-storage)（英文），[Backup and restore](/reference/server/object-storage#backup-and-restore)（英文）|
-| 保留期 | 已关闭的 run 和它的 Step 历史默认在 7 天后删除。删除的 run 会释放它的 Flow ID。把 `retention.closedFlowDuration` 设得足够覆盖最长的 Client 重试窗口，并把需要保留更久的数据复制到[你自己的数据库](/components/your-database)。 | [Retention 参考](/reference/server/configuration#retention)（英文）|
+| 保留期 | 已关闭的 run 和它的 Step 历史默认在 7 天后删除。删除的 run 会释放它的 Flow ID。把 `retention.closedFlowDuration` 设得足够覆盖最长的 Client 重试窗口，并把需要保留更久的数据复制到[你自己的数据库](/components/your-database)。每个 run 保留它启动时的值；新值只作用于重启之后启动的 run。 | [Retention 参考](/reference/server/configuration#retention)（英文）|
 | 监控 | 在单独的监听端口上提供 metrics。节点停止服务和 lease 续约失败时告警。 | [Metrics and alerts](/reference/server/metrics)（英文）|
 | Worker | Worker 主动建立出站连接。设定它们的任务槽数量，部署时优雅地停止它们。 | [Workers and the task queue](/reference/server/workers)（英文）|
 | Step 重试 | Step 重试默认在 4 小时后停止，然后 Flow 失败。设置重试策略或失败路由。 | [StepOptions](/concepts/step#stepoptions) |
@@ -64,7 +64,7 @@ auth:
 
 把 `BUCKET` 和 `PREFIX` 换成你的 bucket 和 key prefix。token 文件列出 Worker 和 Client 发送的 bearer token 的 SHA-256 哈希；[Authentication](/reference/server/authentication)（英文）给出它的格式和 JWT 选项。`cluster.nodeId`、`objectStore.bucket` 和 `localStorage.directory` 是必填项，节点 ID 和分区数在首次启动后就不能再改。60 秒的 lease 适合单节点；有 hot standby 时，保留 10 秒的默认值。[Install and configure server-zd](/reference/server/configuration#minimal-production-configuration)（英文）解释每个 key。
 
-通过 SDK 的 `credential` 选项把 token 交给每个 Worker 和 Client；文件凭证会重新读取 token 文件，所以轮换 token 时不用重启。[Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)（英文）列出每个 SDK 中的这个选项。API 端口提供明文 gRPC：在它前面加 TLS，或者把它留在私有网络里。[TLS](/reference/server/authentication#tls)（英文）列出对应的 SDK 选项。
+通过 SDK 的 `credential` 选项把 token 交给每个 Worker 和 Client；文件凭证会重新读取 token 文件，所以轮换 token 时不用重启。[Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)（英文）列出每个 SDK 中的这个选项，[TLS](/reference/server/authentication#tls)（英文）列出 TLS 连接对应的 SDK 选项。
 
 ## 下一步 {#next}
 

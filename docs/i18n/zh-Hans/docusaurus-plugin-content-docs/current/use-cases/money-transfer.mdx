@@ -28,7 +28,7 @@ import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json'
 - memo、借记和贷记调用可能发生瞬时故障。Dex 会按退避策略重试，Flow 停留在同一个 Step。
 - 操作在用完所有重试后仍可能失败。这时 Flow 进入补偿，撤销这次转账，并以失败结束。Dex 也会重试补偿，因为补偿没做完同样是故障。
 
-用[幂等键](/concepts/step#idempotency-keys)让每个外部调用都能安全地重复。
+银行可能已完成一次备忘、扣款或入账，但响应丢失。重复的请求不能让资金移动两次。
 
 ## Flow 设计
 
@@ -42,6 +42,8 @@ import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json'
 - **Saga 补偿**：**Compensate** 撤销已完成的操作，然后强制让 Flow 失败。这样调用方不会把已撤销的转账误当成成功。
 
 每个副作用都有自己的 Step。你可以看到每个操作的重试状态和历史。重试 **Credit** 也不会再次执行 **Debit**。
+
+给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
 ## 核心实现
 

@@ -65,12 +65,13 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 
 ## Requests that can repeat
 
+As in any durable execution engine, an interrupted Step runs again; see [Idempotency keys](/concepts/step#idempotency-keys). These requests can also repeat:
+
 - **An ASYNC Step can rerun on a new snapshot.** If a server node fails before
   it saves an ASYNC Step's start, the attempt runs again and can read different
   Attribute values. See [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async).
-- **Calling an RPC again runs it again.** Dex Server drops retries within one
-  SDK call by request ID, but each call gets a new request ID. See
-  [RPC](/concepts/primitives/rpc#guarantees).
+- **Calling an RPC again runs it again.** Each SDK call sends a new request
+  ID; see [RPC guarantees](/concepts/primitives/rpc#guarantees).
 - **A repeated Channel publish delivers twice.** A `PublishToChannel`
   request sent again after a lost response stores the message a second time.
 - **A retried StopFlow without a run ID can stop a newer run.** Pass the run ID.
@@ -103,10 +104,8 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 | Compatibility | Decided by protocol ranges, not version numbers. A Worker or Client works with a server when their ranges overlap. |
 
 [Upgrades and compatibility](/reference/server/upgrades) gives the protocol ranges.
-[Capacity and availability](#capacity-and-availability)
-covers upgrades that stop the cluster.
 
-- **Breaking changes come with a migration path.** A breaking change needs an explicit decision first.
+- **Breaking changes come with a migration path.**
 - **Some options are unsupported.** A Flow start delay and a Flow-level retry policy are rejected; wait on a Timer in the first Step, and set retry policies per Step. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state always stays in Dex Server. See [Unsupported features](/reference/server#unsupported-features).
 - **dexcli dev runs the dex-server-zd release bundled with it.** See [Run Locally](/components/run-locally).
 
@@ -124,7 +123,7 @@ Dex Skills are under the MIT License. The docs and examples keep their own licen
 
 ## Next
 
-- [Correctness and Expressiveness](/correctness-and-expressiveness): a machine-checked proof of what a crash can change.
+- [Correctness and Expressiveness](/correctness-and-expressiveness): computer-checked proofs of what a crash can change.
 - [Performance](/intro/performance)
 - [Run Dex in Production](/components/production)
 - [Failover and Deploys](/concepts/failover-and-deploys)

@@ -32,7 +32,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 - 截止时间到了，仍未收到接受。这是预期的 **timeout** 结果，不是基础设施故障。
 - 状态改变后请求拒绝，或流程完成后请求接受。RPC 会拒绝无效状态转换，并且不会调度通知 Step。
 - 邮件和招聘系统调用可能临时失败。适配器应返回错误，让 Dex 重试发起该调用的 Step。
-- 用[幂等键](/concepts/step#idempotency-keys)让每个外部调用都能安全地重复。
+- 邮件或招聘系统的调用可能已完成，但响应丢失。重复的请求不能发送两次。
 - 退订只停止之后的提醒。当前状态和整体接受截止时间仍然有效。
 
 ## Flow 设计
@@ -51,6 +51,8 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 - **由一个分支完成 Flow**：`ProcessTimeout` 以 **done** 或 **timeout** 完成 Flow。其他分支各自结束，或进入 dead end。
 
 提醒分支和截止时间分支使用不同的 Channel，因此退订提醒不会接受、拒绝或结束这个机会。状态、备注和时间戳保存在 Attribute 中，所以每个分支和 RPC 读到的都是同一份值。
+
+给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
 ## 核心实现
 

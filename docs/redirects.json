@@ -3685,10 +3685,10 @@
   },
   {
     "from": "/get-started",
-    "to": "/"
+    "to": "/quick-start"
   },
   {
     "from": "/zh-Hans/get-started",
-    "to": "/zh-Hans/"
+    "to": "/zh-Hans/quick-start"
   }
 ]

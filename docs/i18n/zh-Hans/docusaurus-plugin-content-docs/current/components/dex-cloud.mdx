@@ -22,7 +22,14 @@ description: 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server�
 
 ## 各部分由谁运行 {#what-runs-where}
 
-你的代码调用你自己的 API 时使用的凭证留在你的 Worker 里。[Dex Server 运行在哪里](/components#where-to-run)对比了 Dex Cloud 和自托管 server。
+| | 由谁运行 |
+| --- | --- |
+| Dex Server：存储、升级、容量和监控 | Super Durable |
+| Flow 状态：Flow 输入、Attribute 和 Step 结果 | 由 Dex Server 存储，存储由 Super Durable 运维 |
+| 你的 Worker 和 Flow 代码 | 你自己，部署在你选择的地方 |
+| 你的代码调用你自己的 API 时使用的凭证 | 你自己。它们留在你的 Worker 里。 |
+
+[Dex Server 运行在哪里](/components#where-to-run)对比了 Dex Cloud 和自托管 server。
 
 ## 下一步 {#next}
 

@@ -28,7 +28,7 @@ Flow 用 Timer 等待试用期和每个计费周期结束，用 Channel 消息�
 
 你需要决定产品如何处理这些故障：
 
-- 用[幂等键](/concepts/step#idempotency-keys)让每个外部调用都能安全地重复。
+- 服务方可能已完成一次扣款或邮件发送，但响应丢失。重复的请求不能重复扣款或发送。
 - 金额更新必须恰好包含一个金额。消息无效时，更新 Step 会失败，不会自行猜一个金额。
 - 取消请求可能恰好在计费 Timer 触发时到达。支付提供方和取消策略必须能处理这种情况，包括退款和权益的处理。
 - Flow 被取消或完成之后，再发布消息也不能让它重新运行。客户端应把订阅视为已结束，需要时启动新的订阅。
@@ -46,6 +46,8 @@ Flow 用 Timer 等待试用期和每个计费周期结束，用 Channel 消息�
 **Trial** 等待试用期 Timer 触发，然后进入计费循环。每次 `ChargeCurrentBill` 执行都会先把计费周期 Attribute 加一，再等待本周期的 Timer。Timer 触发后，它扣除本期费用。最后一个周期结束后，它改为完成整个 Flow。**Cancel** 和 `UpdateChargeAmount` 与这条路径并行运行，每次各等待一条 Channel 消息。
 
 计费计划是一个每期结束后回到自身的 Step，两次扣费之间不需要任何进程常驻内存。客户、计划和计费计数器保存在 Attribute 中，所以每个分支读到的都是当前值，而不是 Worker 内存里的副本。**Cancel** 和最后一次 `ChargeCurrentBill` 会强制完成 Flow，其他分支中的等待也随之结束。
+
+给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
 ## 核心实现
 
@@ -323,10 +325,6 @@ impl Flow for SubscriptionFlow {
     style={{ display: 'block', margin: '0 auto', maxWidth: '100%', width: '100%' }}
   />
 </a>
-
-## Rust 示例 {#rust-example}
-
-Rust 示例的状态、计费循环和控制分支都相同，只有一点不同：客户端通过 RPC 更新金额或取消订阅，RPC 再把消息发布到内部 Channel。其他 SDK 示例由客户端直接向 Channel 发布。
 
 ## 下一步
 

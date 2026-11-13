@@ -80,8 +80,6 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
    3. 用新构建对同一个 Dex Server 启动一个 Worker。用 `skip-timer` 跳过 Timer，发送 Flow 正在等待的消息，然后等每个 Flow 结束。
    4. 检查每个 Flow 的结果和 Attribute，并确认新构建没有产生解码错误。
 
-按上面的步骤运行这些检查。
-
 ## 用 Time Travel 恢复 Flow {#time-travel}
 
 Time Travel 把一个 Flow run 移回它历史中更早的某个点，从那里重新运行。在你为失败的 Step 部署修复之后使用它。这次 run 保留原来的 Run ID，并开始一次新的尝试。

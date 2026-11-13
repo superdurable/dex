@@ -16,5 +16,7 @@ description: 判断 Dex 是否适合你的系统时要读的页面，每页回�
 - [Dex vs. Temporal](/intro/compared-to-durable-execution) 比较重放 workflow 代码和保存每个 Step 结果这两种设计，给出术语对照，最后介绍其他引擎。
 - [性能](/intro/performance) 给出单节点加 S3 的实测吞吐和延迟、运行成本，以及如何复现结果。
 - [限制](/intro/limits) 列出团队在生产中可能遇到的意外、发布状态和许可证。
+- [示例](/use-cases) 是完整的流程，例如订单、计费和转账，每个 SDK 都有代码。
 - [故障转移和部署](/concepts/failover-and-deploys) 说明 server 或 Worker 停止时会发生什么，以及在 Flow 未结束时怎样部署新代码。
-- [正确性与表达能力](/correctness-and-expressiveness) 给出机器验证的证明：崩溃能改变什么、不能改变什么，以及 Dex 能表达什么。
+- [正确性与表达能力](/correctness-and-expressiveness) 给出经计算机检查的证明：崩溃能改变什么、不能改变什么，以及 Dex 能表达什么。
+- [Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns) 按研究者用来比较 workflow 引擎的 43 个 control-flow 模式为 Dex 评级。
