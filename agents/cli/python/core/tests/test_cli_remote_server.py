@@ -12,14 +12,17 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pexpect
 import pytest
+from dex import AsyncClient
 
 from dex_agents.testing import find_free_ports
+from dex_agents_cli_core.cli import _upload_session_flow_definition
 from dex_agents_cli_core.dex_connection import (
     DexConnectionSettings,
     describe_rejected_dex_credential,
@@ -281,3 +284,29 @@ def test_a_refusal_never_shows_the_server_details(status: str) -> None:
     assert line is not None
     assert secret not in line
     assert f"({status})" in line
+
+
+class _RefusingUploadClient:
+    """A Client, by shape, whose upload a proxy refuses with the credential in the details."""
+
+    def __init__(self, status: str, secret: str) -> None:
+        self._status = status
+        self._secret = secret
+
+    async def upload_flow_definitions(self, documents: Any) -> Any:
+        failure = RuntimeError(f"upload failed: {self._secret}")
+        raise failure from _EchoingStatusError(self._status, f"token {self._secret} is bad")
+
+
+@pytest.mark.parametrize("status", ["UNAUTHENTICATED", "PERMISSION_DENIED"])
+async def test_a_refused_session_graph_upload_logs_no_server_details(
+    status: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "bearer-token-echoed-in-upload-4321"
+    with caplog.at_level(logging.WARNING):
+        await _upload_session_flow_definition(
+            cast(AsyncClient, _RefusingUploadClient(status, secret)), "DexAgentsTestSession-abc123"
+        )
+    (record,) = [record for record in caplog.records if "upload failed" in record.getMessage()]
+    assert secret not in record.getMessage()
+    assert f"({status})" in record.getMessage()

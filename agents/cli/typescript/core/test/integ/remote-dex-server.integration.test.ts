@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { sessionFlowDefinitionUploadFailureLine } from "../../src/agent-cli.js";
 import { describeRefusedDexCredential } from "../../src/dex-connection.js";
 import { assertNoDexSecret, secretSentinels } from "../fixtures/dex-secret-sentinels.js";
 import { AuthenticatedDexServer, acceptedApiKey, acceptedServerId } from "../fixtures/authenticated-dex-server.js";
@@ -253,4 +254,16 @@ describe("a refused credential", () => {
         "Check DEX_API_KEY, dex.auth.token_url, and dex.auth.server_id.",
     );
   });
+
+  for (const code of [16, 7]) {
+    test(`a session graph upload that gRPC status ${code} refused logs no server details`, () => {
+      const secret = "bearer-token-echoed-in-upload-4321";
+      const failure = new Error(`upload failed: ${secret}`, {
+        cause: Object.assign(new Error(`token ${secret}`), { code, details: `token ${secret} is bad` }),
+      });
+      const line = sessionFlowDefinitionUploadFailureLine("DexAgentsTestSession-abc123", failure);
+      assert.ok(!line.includes(secret), line);
+      assert.match(line, code === 16 ? /\(UNAUTHENTICATED\)/ : /\(PERMISSION_DENIED\)/);
+    });
+  }
 });

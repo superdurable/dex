@@ -24,6 +24,7 @@ import type {
 } from "./worker-host-protocol.js";
 import { removeWorkerHostRunRecord, workerHostRunRecordPath } from "./worker-host-run-record.js";
 import { WorkerHostWatchdog } from "./worker-host-watchdog.js";
+import { describeFailureWithoutDexDetails } from "../dex-connection.js";
 
 /** Builds the command object the Worker host opens its session with. */
 export type WorkerHostCommandFactory = (log: (line: string) => void) => AgentCliCommand;
@@ -214,5 +215,5 @@ function sessionFlowCapabilities(opened: OpenedSessionWorker, harness: AgentHarn
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeFailureWithoutDexDetails(error);
 }

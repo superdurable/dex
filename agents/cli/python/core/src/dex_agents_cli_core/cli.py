@@ -86,6 +86,7 @@ from dex_agents_cli_core.dex_connection import (
     DexConnection,
     DexConnectionSettings,
     DexConnectionSettingsError,
+    describe_dex_refusal_without_details,
     describe_rejected_dex_credential,
     resolve_dex_connection_settings,
 )
@@ -270,6 +271,12 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         return 2
     except (CommandFailure, DexServerError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:
+        refused = describe_dex_refusal_without_details(error)
+        if refused is None:
+            raise
+        print(f"{command_name(harness)}: {refused}", file=sys.stderr)
         return 1
     finally:
         server.stop_started_dexcli_dev()
@@ -1303,7 +1310,10 @@ async def _upload_session_flow_definition(client: AsyncClient, flow_type: str) -
 
 
 def _describe_upload_error(error: BaseException) -> str:
-    """Return the error's type and text, or its type alone when the text is empty."""
+    """Return the error's type and text, or its type alone; a Dex refusal leaves out its details."""
+    refused = describe_dex_refusal_without_details(error)
+    if refused is not None:
+        return f"{type(error).__name__}: {refused}"
     text = str(error)
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 

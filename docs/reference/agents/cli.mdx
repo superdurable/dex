@@ -323,8 +323,9 @@ refused it:
 - the server answered **UNAUTHENTICATED** or **PERMISSION_DENIED**: the line
   names the server, the credential, and the status code.
 
-Messages name settings and variables, never their values. They leave out the
-error text that the token endpoint or the server sent, which may repeat the
+Messages name settings and variables, never credential values. The token URL
+they show is a value of your own configuration, not a secret. They leave out
+the error text that the token endpoint or the server sent, which may repeat the
 credential.
 
 The command keeps **DEX_API_KEY**, **DEX_CREDENTIAL**, and

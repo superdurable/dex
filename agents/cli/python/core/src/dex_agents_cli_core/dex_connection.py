@@ -518,6 +518,29 @@ def describe_rejected_dex_credential(
     return None
 
 
+def describe_dex_refusal_without_details(failure: BaseException) -> str | None:
+    """Return a line for a failure that a Dex refusal caused, without the server's details.
+
+    Use it wherever a Dex call's failure is logged or printed without the
+    command's connection settings at hand. The details of an
+    ``UNAUTHENTICATED`` or ``PERMISSION_DENIED`` answer are untrusted and may
+    echo the credential, so the line names only the status code.
+
+    Args:
+        failure: The failure, whose cause chain is searched.
+
+    Returns:
+        The line, or ``None`` when no such refusal is in the cause chain.
+
+    .. versionadded:: 0.6.2
+    """
+    for error in _cause_chain(failure):
+        status = _grpc_status(error)
+        if status is not None:
+            return f"the Dex server refused the call ({status}); check dex.auth and its credential"
+    return None
+
+
 def _rejected_credential_wording(settings: DexConnectionSettings) -> tuple[str, str]:
     if settings.mode == "api_key":
         return "the access token for DEX_API_KEY", "Check DEX_API_KEY and dex.auth.server_id."

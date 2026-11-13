@@ -43,6 +43,8 @@ import { readCliEnvironment, removeDexSecretVariables, type CliEnvironment } fro
 import {
   DexConnectionSettingsError,
   createDexConnectionOptions,
+  DescribedDexFailure,
+  describeFailureWithoutDexDetails,
   describeRefusedDexCredential,
   describeRefusedTlsOptions,
   resolveDexConnectionSettings,
@@ -734,7 +736,7 @@ export class AgentCliCommand {
       const description =
         describeRefusedDexCredential(error, connection.auth, server.serverAddress) ??
         describeUnavailableDexServer(error, effective.dex.server, server.serverAddress);
-      throw description === undefined ? error : new Error(description, { cause: error });
+      throw description === undefined ? error : new DescribedDexFailure(description, { cause: error });
     }
   }
 
@@ -758,7 +760,7 @@ export class AgentCliCommand {
       const [result] = await Promise.race([client.uploadFlowDefinitions([document]), timeout]);
       line = `session Flow definition ${result?.outcome ?? "unspecified"}: flowType=${flowType} storedDigest=${result?.storedDigest ?? ""}`;
     } catch (error: unknown) {
-      line = `session Flow definition upload failed; Dex Web shows this session only with --flow-rendering-dir: flowType=${flowType} ${describe(error)}`;
+      line = sessionFlowDefinitionUploadFailureLine(flowType, error);
     } finally {
       clearTimeout(timer);
     }
@@ -1325,5 +1327,14 @@ function ignoreWriteErrorsOfClosedTerminal(stream: Writable): void {
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeFailureWithoutDexDetails(error);
+}
+
+/**
+ * Returns the log line of a failed session graph upload; a Dex refusal leaves out the server's details.
+ * @param flowType - The session Flow type.
+ * @param error - The failure.
+ */
+export function sessionFlowDefinitionUploadFailureLine(flowType: string, error: unknown): string {
+  return `session Flow definition upload failed; Dex Web shows this session only with --flow-rendering-dir: flowType=${flowType} ${describe(error)}`;
 }

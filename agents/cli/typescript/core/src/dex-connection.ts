@@ -397,6 +397,40 @@ export function describeRefusedDexCredential(
   return `the Dex server at ${serverAddress} rejected ${what} (UNAUTHENTICATED). ${credentialHint(auth)}`;
 }
 
+/**
+ * Returns a line for a failure that a Dex refusal caused, without the server's details.
+ *
+ * Use it wherever a Dex call's failure is logged or printed without the command's connection settings at hand. The
+ * details of an `UNAUTHENTICATED` or `PERMISSION_DENIED` answer are untrusted and may echo the credential, so the
+ * line names only the status code.
+ *
+ * @param failure - The failure, whose cause chain is searched.
+ * @returns The line, or `undefined` when no such refusal is in the cause chain.
+ */
+export function describeDexRefusalWithoutDetails(failure: unknown): string | undefined {
+  const status = grpcStatusOf(failure, [grpcUnauthenticatedCode, grpcPermissionDeniedCode]);
+  if (status === undefined) {
+    return undefined;
+  }
+  const name = status.code === grpcUnauthenticatedCode ? "UNAUTHENTICATED" : "PERMISSION_DENIED";
+  return `the Dex server refused the call (${name}); check dex.auth and its credential`;
+}
+
+/** A Dex call's failure that the command already turned into a line without remote details. */
+export class DescribedDexFailure extends Error {}
+
+/**
+ * Returns a failure's text for a log or the terminal: a {@link DescribedDexFailure}'s own line, a Dex refusal
+ * without the server's details, or the error's message.
+ * @param failure - The failure.
+ */
+export function describeFailureWithoutDexDetails(failure: unknown): string {
+  if (failure instanceof DescribedDexFailure) {
+    return failure.message;
+  }
+  return describeDexRefusalWithoutDetails(failure) ?? (failure instanceof Error ? failure.message : String(failure));
+}
+
 function describeCredential(auth: DexAuthSettings): string {
   switch (auth.mode) {
     case "api_key":

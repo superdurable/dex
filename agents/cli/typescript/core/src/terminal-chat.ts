@@ -30,6 +30,7 @@ import {
 } from "@superdurable/dex-agents";
 
 import { lineWaitAborted, type TerminalInput } from "./terminal-input.js";
+import { describeFailureWithoutDexDetails } from "./dex-connection.js";
 
 /** The command that attaches an image file to the next message: `/image <path>`. */
 const imageCommand = "/image";
@@ -473,5 +474,5 @@ function isStreamStoreDisabled(error: unknown): boolean {
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeFailureWithoutDexDetails(error);
 }
