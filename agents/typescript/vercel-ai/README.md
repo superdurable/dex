@@ -26,7 +26,7 @@ The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `ai` is a peer dependency too, and `zod` is a peer
 dependency of `ai`. Requirements: Node `^22.0.0 || ^24.0.0`,
-`@superdurable/dex` 1.45.0, and `ai` 7.0.159 or a later 7.x release.
+`@superdurable/dex` 1.45.1, and `ai` 7.0.159 or a later 7.x release.
 
 Develop the package inside this repository with `./ci.sh`. There
 `@superdurable/dex-agents` is a `file:../core` devDependency, and the

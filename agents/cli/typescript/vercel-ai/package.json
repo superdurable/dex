@@ -43,14 +43,14 @@
     "ai": "7.0.159"
   },
   "peerDependencies": {
-    "@superdurable/dex": "1.45.0",
+    "@superdurable/dex": "1.45.1",
     "@superdurable/dex-agents": "^0.1.0",
     "@superdurable/dex-agents-cli-core": "^0.1.0",
     "@superdurable/dex-agents-vercel-ai": "^0.1.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@superdurable/dex": "1.45.0",
+    "@superdurable/dex": "1.45.1",
     "@superdurable/dex-agents": "file:../../../typescript/core",
     "@superdurable/dex-agents-cli-core": "file:../core",
     "@superdurable/dex-agents-vercel-ai": "file:../../../typescript/vercel-ai",

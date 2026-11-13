@@ -34,7 +34,7 @@
     "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'"
   },
   "peerDependencies": {
-    "@superdurable/dex": "1.45.0",
+    "@superdurable/dex": "1.45.1",
     "@superdurable/dex-agents": "^0.1.0",
     "ai": "^7.0.159"
   },
@@ -42,7 +42,7 @@
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/sdk-trace-base": "2.12.0",
     "@superdurable/connectors-sdk": "0.9.0",
-    "@superdurable/dex": "1.45.0",
+    "@superdurable/dex": "1.45.1",
     "@superdurable/dex-agents": "file:../core",
     "@types/node": "22.20.5",
     "ai": "^7.0.159",
