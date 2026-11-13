@@ -225,7 +225,7 @@
     "mcp_servers": {
       "type": "object",
       "default": {},
-      "description": "Remote MCP servers whose tools the agent may call over the Streamable HTTP transport, by server name: 1 to 32 ASCII letters, digits, underscores, or hyphens, starting with a letter. The agent sees each tool as <server name>__<tool name>, and approval.always names it that way. Every call waits for approval unless trust_tool_annotations lets the server's hints mark the tool a read. Secrets never go in this file: a header value takes them from environment variables with ${NAME} references, which the Worker expands when the command starts. Session settings cannot change it: they ignore an mcp_servers key with a warning.",
+      "description": "Remote MCP servers whose tools the agent may call over the Streamable HTTP transport, by server name: 1 to 32 ASCII letters, digits, underscores, or hyphens, starting with a letter. The agent sees each tool as <server name>__<tool name>, and approval.always names it that way. Every call waits for approval unless trust_tool_annotations lets the server's hints mark the tool a read or an idempotent write. Secrets never go in this file: a header value takes them from environment variables with ${NAME} references, which the Worker expands when the command starts. Session settings cannot change it: they ignore an mcp_servers key with a warning.",
       "patternProperties": {
         "^[A-Za-z][A-Za-z0-9_-]{0,31}(?![\\s\\S])": {
           "$ref": "#/$defs/mcp_server"
@@ -515,7 +515,7 @@
         "trust_tool_annotations": {
           "type": "boolean",
           "default": false,
-          "description": "Whether the server's readOnlyHint and idempotentHint annotations, and the effects it declares by the Dex MCP conventions, pick each tool's effect. false: every call of the server's tools waits for approval and runs at most once. true: a tool the server marks read-only runs without approval, and reads and idempotent writes may be retried. Set it only for a server whose hints you trust."
+          "description": "Whether the server's readOnlyHint and idempotentHint annotations, and the effects it declares by the Dex MCP conventions, pick each tool's effect. false: every call of the server's tools waits for approval and runs at most once. true: a tool the server marks read-only or idempotent runs without approval, unless approval.always names it, and may be retried. Set it only for a server whose hints you trust."
         }
       }
     },

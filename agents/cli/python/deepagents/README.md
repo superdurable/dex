@@ -73,7 +73,8 @@ call runs in its own tool Step, after approval when its policy asks for it.
 
 - Deep Agents asks for no approval unless `interrupt_on` names a tool, and
   this command follows it: `approval.always` plays the role of
-  `interrupt_on`. Connector writes always wait for approval.
+  `interrupt_on`. Connector writes and remote MCP server (`mcp_servers`)
+  writes always wait for approval.
 - The file tools use Deep Agents' `LocalShellBackend` on the host's paths,
   rooted at the workspace, so a file tool and `execute` name a file the same
   way. Paths are absolute. A path that resolves outside the workspace fails

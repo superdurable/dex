@@ -84,6 +84,7 @@ import {
   type DexServerConnection,
 } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
+import { McpServerSettingsError, McpServersToolSource, resolveMcpServers } from "./mcp-servers-tool-source.js";
 import { waitForQueuedOutput } from "./queued-output.js";
 import { collectSessionsForList } from "./session-list-pages.js";
 import {
@@ -395,7 +396,10 @@ export class AgentCliCommand {
    * @param error - The error.
    */
   public exitCodeOf(error: unknown): number {
-    return error instanceof ConfigError || error instanceof UsageError || error instanceof DexConnectionSettingsError
+    return error instanceof ConfigError ||
+      error instanceof UsageError ||
+      error instanceof DexConnectionSettingsError ||
+      error instanceof McpServerSettingsError
       ? 2
       : 1;
   }
@@ -421,6 +425,8 @@ export class AgentCliCommand {
       workingDirectory: process.cwd(),
     });
     if (this.parsed.subcommand === "run") {
+      // Fails before dexcli dev starts; the Worker expands the headers again when it connects.
+      resolveMcpServers(effective, this.environment.mcpServerHeaderVariables ?? {});
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
     }
     const serverLines: string[] = [];
@@ -825,7 +831,8 @@ export class AgentCliCommand {
       this.log,
       options.toolProcessGroups,
     );
-    const toolSources: ToolSource[] = [connectorSource, this.localTools];
+    const mcpServersSource = await this.connectMcpServers(effective, turns, mediaStore);
+    const toolSources: ToolSource[] = [connectorSource, mcpServersSource, this.localTools];
     const context: HarnessContext = {
       flowType,
       config: effective,
@@ -1072,6 +1079,24 @@ export class AgentCliCommand {
     if (isToolSetFixed) {
       // Outside a model call the listing uses the file's configuration; a failure prints its one line.
       await source.listTools();
+    }
+    return source;
+  }
+
+  /** Returns the `mcp_servers` source, listed once when the configuration has servers. */
+  private async connectMcpServers(
+    effective: EffectiveConfig,
+    turns: TurnConfigResolver,
+    mediaStore: MediaStore,
+  ): Promise<McpServersToolSource> {
+    const servers = resolveMcpServers(effective, this.environment.mcpServerHeaderVariables ?? {});
+    const source = new McpServersToolSource(servers, turns, this.log, {
+      mediaStore,
+      writeLogLine: (line) => this.writeLogLine(line),
+      unavailableHint: `See ${this.logFilePath()} for the error.`,
+    });
+    if (servers.length > 0) {
+      await source.listAtStartup();
     }
     return source;
   }

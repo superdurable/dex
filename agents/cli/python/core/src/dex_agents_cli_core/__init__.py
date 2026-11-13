@@ -27,6 +27,7 @@ from dex_agents_cli_core.config import (
     ConnectorEntry,
     EffectiveConfig,
     MediaConfig,
+    RemoteMcpServerConfig,
     SessionsConfig,
     TurnConfigResolution,
     canonical_operation_name,
@@ -54,6 +55,12 @@ from dex_agents_cli_core.harness import (
     session_flow_type,
 )
 from dex_agents_cli_core.local_tools import LOCAL_TOOL_SOURCE_NAME, LocalToolSource
+from dex_agents_cli_core.mcp_servers import (
+    MCP_SERVERS_TOOL_SOURCE_NAME,
+    McpServerSettingsError,
+    McpServersToolSource,
+    resolve_mcp_servers,
+)
 from dex_agents_cli_core.tool_policy import (
     is_local_tool_group_enabled,
     is_shell_command_approval_required,
@@ -71,6 +78,7 @@ __all__ = [
     "CONNECTORS_TOOL_SOURCE_NAME",
     "CONNECTOR_TOOL_META_KEYS",
     "LOCAL_TOOL_SOURCE_NAME",
+    "MCP_SERVERS_TOOL_SOURCE_NAME",
     "SESSION_ACTION_PERMISSION",
     "AgentHarness",
     "ConfigError",
@@ -81,7 +89,10 @@ __all__ = [
     "HarnessContext",
     "LocalToolGroup",
     "LocalToolSource",
+    "McpServerSettingsError",
+    "McpServersToolSource",
     "MediaConfig",
+    "RemoteMcpServerConfig",
     "ResolvedTurn",
     "SessionEnvironmentIdentity",
     "SessionsConfig",
@@ -99,6 +110,7 @@ __all__ = [
     "namespace_session_flow_type",
     "parse_config_yaml",
     "resolve_config",
+    "resolve_mcp_servers",
     "resolve_turn_config",
     "resolve_turn_tool_policy",
     "run_agent_cli",

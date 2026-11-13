@@ -87,6 +87,13 @@ export interface CliEnvironment {
    */
   readonly sessionLeaseTtlSeconds?: number;
   /**
+   * The environment that `${NAME}` references in `mcp_servers` header values read. {@link readCliEnvironment} always
+   * sets it to the whole environment it reads. An environment built by hand may omit it, which means none is set.
+   *
+   * @since 0.6.4
+   */
+  readonly mcpServerHeaderVariables?: Readonly<Record<string, string | undefined>>;
+  /**
    * The variables that child processes, such as `dexcli dev`, inherit.
    *
    * Changed in 0.6.2: it lacks the Dex credential variables in {@link dexSecretVariableNames}.
@@ -211,6 +218,7 @@ export function readCliEnvironment(environment: NodeJS.ProcessEnv): CliEnvironme
     isBrowserOpeningEnabled: !["0", "false"].includes((environment.DEX_AGENTS_OPEN_BROWSER ?? "").trim().toLowerCase()),
     dexConnectionVariables: readDexConnectionVariables(environment),
     sessionLeaseTtlSeconds: readSessionLeaseTtlSeconds(environment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS),
+    mcpServerHeaderVariables: { ...environment },
     childProcessVariables: { ...withoutDexSecretVariables(environment), HOME: homeDirectory },
   };
 }

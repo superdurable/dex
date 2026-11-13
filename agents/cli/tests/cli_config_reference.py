@@ -571,6 +571,7 @@ def expand_path(path: str, base_directory: str, home: str) -> str:
     return posixpath.normpath(posixpath.join(base_directory, path))
 
 
+DEX_SECRET_VARIABLES = ("DEX_API_KEY", "DEX_CREDENTIAL", "DEX_CREDENTIAL_FILE")
 VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 PRINTABLE_ASCII = re.compile(r"[ -~]*")
 
@@ -601,7 +602,7 @@ def resolve_mcp_servers(
 
             def expand(reference: re.Match[str], setting: str = setting) -> str:
                 variable = reference[1]
-                value = environment.get(variable, "")
+                value = "" if variable in DEX_SECRET_VARIABLES else environment.get(variable, "")
                 if value == "":
                     raise McpServerSettingsError(
                         setting,

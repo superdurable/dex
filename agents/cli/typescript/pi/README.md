@@ -125,7 +125,8 @@ prints one warning. This holds whatever `local_tools.files` says.
 
 The agent keeps pi-coding-agent's own tools and their behavior. They replace
 the CLI core's `files` and `shell` groups. The CLI core's web fetch, browser,
-and connector tools stay on top, and the agent can ask you questions with
+and connector tools, and the tools of the remote MCP servers in
+`mcp_servers`, stay on top, and the agent can ask you questions with
 `ask_user`.
 
 | `local_tools` group | Pi tools | Effect | Approval |
@@ -136,7 +137,7 @@ and connector tools stay on top, and the agent can ask you questions with
 
 - Pi asks for no approval before a tool call, and this command follows it:
   name a tool in `approval.always` to make every call of it wait. Connector
-  writes always wait for approval.
+  writes, and writes of `mcp_servers` tools, always wait for approval.
 - Each call is one Dex tool Step, recorded in the session. Reads retry. A
   `write`, `edit`, or `bash` call never runs twice: a Worker that dies while
   one runs records `outcome_unknown`.
@@ -237,7 +238,8 @@ pi-ai's Anthropic provider calls `test/fixtures/mock-messages-api.ts`, a
 scripted Messages API on 127.0.0.1, through `pi.provider_base_urls`; a refusing
 proxy stops any other request. `test/fixtures/fake-connectors-mcp-server.ts`
 serves connector reads and writes, including tools named `read` and
-`connector_read`.
+`connector_read`. `test/fixtures/fake-remote-mcp-server.ts` is a stateless
+remote MCP server that answers only requests with the expected bearer token.
 
 The tests set `PI_OFFLINE=1`, so Pi never downloads `rg` or `fd` during a
 test. Before the tests, `ci.sh` runs Pi's `grep` and `find` once with

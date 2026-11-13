@@ -389,6 +389,7 @@ claude: {}
 | **dex.tls.ca_file**, **dex.tls.server_name** | None | Since 0.6.2. With an **https** **dex.server**: a PEM file of root CAs to trust as well, and the name the server certificate must match. |
 | **connectors.mcp** | **auto** | The Connectors MCP server. **auto** uses the one **dexcli dev** serves. Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. |
 | **connectors.enabled** | Every authorized connection | The connections, and their operations, that the agent may call. See [Connectors](#connectors). |
+| **mcp_servers** | Empty | Since 0.6.4. Remote MCP servers whose tools the agent may call, by name. See [Remote MCP servers](#mcp-servers). |
 | **approval.always** | Empty | Tool names, as the agent sees them, whose every call waits for approval. They add to the approvals the tools already require. |
 | **workspace** | **~/dex-agent-workspace**; for **dex-agents-pi**, the directory the command starts in | The only directory the file tools use, and the working directory of shell commands. **dex-agents-pi** uses it only as the working directory; see [Harnesses with their own tools](#harness-tools). |
 | **local_tools.files** | **true** | Read, write, list, and search files in the workspace. |
@@ -792,13 +793,16 @@ Each Deep Agents tool runs only while the turn switches its group on.
   offered. The command uses only these Claude Code tools, the browser tools,
   and the Connector tools. It loads no MCP servers and no claude.ai connectors
   from your Claude Code configuration or login, so external tools come only
-  from Connectors that Dex approves and records. Changed in 0.6.0. These tools run inside the Claude Code CLI, not in their own Steps,
+  from Connectors that Dex approves and records. Changed in 0.6.0. Since
+  0.6.4, the tools of the file's [remote MCP servers](#mcp-servers) are
+  offered too, also as Dex tool Steps. These tools run inside the Claude Code CLI, not in their own Steps,
   so a Worker that dies during a turn segment can run one of them twice. The
   browser and Connector tools still run in their own Steps.
 - **Pi.** The agent keeps Pi's own tools and behavior and adds the Connector,
   web fetch, browser, and **ask_user** tools. As in Pi, no tool call waits for
   approval unless **approval.always** names the tool. Connector writes always
-  wait for approval.
+  wait for approval. Since 0.6.4, so do the writes of
+  [remote MCP server](#mcp-servers) tools.
 - Each Pi tool call is its own tool Step. Reads retry. A **write**, **edit**,
   or **bash** call never runs twice: a Worker that dies during one records
   **outcome_unknown**. A **bash** command that exits with a non-zero code, or
@@ -896,6 +900,69 @@ only the Connector tools that the server listed at startup. Restart it when
 the server did not answer at startup, or after you authorize a connection while
 it runs. The TypeScript commands list the tools in every model call and need no
 restart.
+
+## Remote MCP servers {#mcp-servers}
+
+Since 0.6.4. **mcp_servers** adds the tools of MCP servers that are not Dex
+Connectors, such as a team's own tool server. Each key is the server's name.
+Each server speaks the Streamable HTTP transport. Stateless servers work:
+every request opens its own connection and protocol session.
+
+```yaml
+mcp_servers:
+  studio:
+    url: https://mcp.example.com/mcp
+    headers:
+      Authorization: "Bearer ${STUDIO_API_KEY}"
+  local-notes:
+    url: http://127.0.0.1:9000/mcp
+    trust_tool_annotations: true
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| The key | None | The server's name: 1 to 32 ASCII letters, digits, **_**, or **-**, starting with a letter. |
+| **url** | Required | The server's endpoint: **https**, or **http** on localhost, 127.0.0.0/8, or [::1]. It takes no user info and no fragment, and follows the URL rules of **dex.server**. |
+| **headers** | Empty | HTTP headers sent with every request to the server. A value is printable ASCII. |
+| **trust_tool_annotations** | **false** | Whether the server's **readOnlyHint** and **idempotentHint** annotations, and the effects it declares by the Dex MCP conventions, pick each tool's effect. |
+
+The agent sees each tool as **SERVER__TOOL**, such as
+**studio__search_assets**. **approval.always** names it the same way. Each call
+is a Dex tool Step with the session's idempotency key. With
+**trust_tool_annotations: false**, every call waits for approval and runs at
+most once. With **true**, a tool the server marks read-only or idempotent runs
+without approval, unless **approval.always** names it, and may be retried. Set
+it only for a server whose hints you trust. **dex-agents-pi** and
+**dex-agents-deepagents** still make every call that is not a read wait for
+approval.
+
+Secrets belong in environment variables. In a header value, each
+**$\{NAME\}** is replaced by the value of the environment variable **NAME** when
+the command starts. **NAME** has ASCII letters, digits, and **_**, and does
+not start with a digit. Any other **$** stays as written. The value is used
+exactly as set: it is not trimmed and not expanded again. A header whose name
+looks like a credential, such as **Authorization**, **X-Api-Key**, or
+**Cookie**, must contain at least one **$\{NAME\}**; otherwise the file fails with
+**literal_credential_header**. An **http** URL on another host fails with
+**insecure_mcp_server_url**.
+
+**DEX_API_KEY**, **DEX_CREDENTIAL**, and **DEX_CREDENTIAL_FILE** count as not
+set, so a Dex credential never reaches another server. A variable that is not
+set or is empty stops the command with exit code 2 and a message that names it,
+never its value:
+
+```text
+mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty.
+```
+
+A value outside printable ASCII stops the command the same way. Only the
+Worker expands the values. The command never prints, logs, or stores them. The
+session, the log file, and the terminal UI see the header text as written.
+
+A server that cannot be listed offers no tools. The command prints one line and
+lists the servers again in every model call, so the tools return when the
+server answers. The error goes to the log file. Session settings cannot change
+**mcp_servers**; they ignore the key with a warning.
 
 ## Images {#images}
 
@@ -1021,6 +1088,10 @@ graph and its Actions.
   SIGKILL or crashes, the **dexcli dev** it started keeps running. Later
   commands reuse it and do not stop it; stop it with **kill**. See
   [The local Dex server](#dex-server).
+- **A remote MCP server's error text reaches the log file.** When a server
+  in **mcp_servers** refuses a request, the log file keeps the response body
+  it sent. A server that echoes request headers in its errors would write the
+  header values there. See [Remote MCP servers](#mcp-servers).
 - **The local server check does not authenticate.** On a shared machine, set
   **dex.server** and **connectors.mcp** to URLs you trust. See
   [The local Dex server](#dex-server).

@@ -203,16 +203,18 @@ mcp_servers:
 The agent sees each tool as `<server name>__<tool name>`, such as
 `studio__search_assets`, and `approval.always` names it that way. With
 `trust_tool_annotations: false`, every call waits for approval and runs at
-most once. With `true`, a tool the server marks read-only runs at once, and
-reads and idempotent writes may be retried; set it only for a server whose
-hints you trust. `dex-agents-pi` also makes every call that is not a read
-wait for approval, as it does for connector tools.
+most once. With `true`, a tool the server marks read-only or idempotent runs
+without approval, unless `approval.always` names it, and may be retried; set
+it only for a server whose hints you trust. `dex-agents-pi` and
+`dex-agents-deepagents` still make every call that is not a read wait for
+approval, as they do for connector tools.
 
 Secrets belong in environment variables, never in the file. In a header
 value, each `${NAME}` is replaced by the value of the environment variable
 `NAME` when the command starts. `NAME` has ASCII letters, digits, and `_`, and
 does not start with a digit. Any other `$` stays as written. The value is used
-exactly as set, never trimmed or expanded again. A variable that is not set
+exactly as set, never trimmed or expanded again. `DEX_API_KEY`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE` count as not set,
+so a Dex credential never reaches another server. A variable that is not set
 or is empty stops the command with exit code 2 and a message that names it,
 such as
 `mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty.`

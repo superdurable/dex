@@ -7256,7 +7256,7 @@
     ]
   },
   "mcp_servers": {
-    "description": "How a CLI core turns a valid file's mcp_servers and its environment into the servers its Worker connects to. Each ${NAME} reference in a header value is replaced by the value of the environment variable NAME, exactly as set, without trimming; the result is never expanded again, and any other $ stays as written. A variable that is not set or is empty, or whose value has a character outside printable ASCII (U+0020 to U+007E), is an error that names the setting and the variable and never the value. The servers come in Unicode code point order of their names. The checks take the servers in that order, the headers of a server in Unicode code point order of their names, and the references of a value from left to right; the first failure is the error, and its message is exact. Only the Worker expands the values, when the command starts: the effective configuration, the session, and every log keep the text as written.",
+    "description": "How a CLI core turns a valid file's mcp_servers and its environment into the servers its Worker connects to. Each ${NAME} reference in a header value is replaced by the value of the environment variable NAME, exactly as set, without trimming; the result is never expanded again, and any other $ stays as written. The Dex credential variables DEX_API_KEY, DEX_CREDENTIAL, and DEX_CREDENTIAL_FILE count as not set, so a Dex credential never reaches another server. A variable that is not set or is empty, or whose value has a character outside printable ASCII (U+0020 to U+007E), is an error that names the setting and the variable and never the value. The servers come in Unicode code point order of their names. The checks take the servers in that order, the headers of a server in Unicode code point order of their names, and the references of a value from left to right; the first failure is the error, and its message is exact. Only the Worker expands the values, when the command starts: the effective configuration, the session, and every log keep the text as written.",
     "context": {
       "harness_section": "claude",
       "harness_default_model": "claude-opus-5-5"
@@ -7592,6 +7592,27 @@
         "error": {
           "setting": "mcp_servers.alpha.headers.Authorization",
           "message": "mcp_servers.alpha.headers.Authorization needs the environment variable ALPHA_TOKEN, which is not set or is empty."
+        }
+      },
+      {
+        "name": "dex-credential-variables-count-as-not-set",
+        "description": "DEX_API_KEY, DEX_CREDENTIAL, and DEX_CREDENTIAL_FILE are never read, even when set.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${DEX_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "DEX_API_KEY": "dex_key_1"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable DEX_API_KEY, which is not set or is empty."
         }
       }
     ]

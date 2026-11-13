@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { isIPv6 } from "node:net";
 
+import { isCredentialLikeName } from "@superdurable/dex-agents";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import { parseAllDocuments } from "yaml";
 
@@ -146,6 +147,23 @@ export interface DexTlsConfig {
 }
 
 /**
+ * One `mcp_servers` entry in effective form: a remote MCP server that the agent reaches over Streamable HTTP.
+ *
+ * `headers` keeps each value as the file writes it, with its `${NAME}` references unexpanded, so the value holds no
+ * secret and is safe to print. `resolveMcpServers` expands the references from the environment.
+ *
+ * @since 0.6.4
+ */
+export interface RemoteMcpServerConfig {
+  /** The server's Streamable HTTP endpoint: `https`, or `http` on a loopback host. */
+  readonly url: string;
+  /** HTTP header values by header name, as written; `{}` when the file sets none. */
+  readonly headers: Readonly<Record<string, string>>;
+  /** Whether the server's tool annotations pick each tool's effect; `false` unless the file sets it. */
+  readonly trust_tool_annotations: boolean;
+}
+
+/**
  * The effective configuration of a configuration file: every default filled in, connector entries parsed, and
  * the command's own harness section copied to `harness_options`.
  *
@@ -177,6 +195,14 @@ export interface EffectiveConfig {
     /** The enabled connections, or `null` for every authorized connection. */
     readonly enabled: readonly ConnectorEntry[] | null;
   };
+  /**
+   * The remote MCP servers by name, with header values as written. {@link resolveConfig} always sets it, `{}` when
+   * the file has none; it is optional so that code that builds an `EffectiveConfig` itself keeps compiling, and
+   * absent means `{}`. A turn's configuration always has the file's.
+   *
+   * @since 0.6.4
+   */
+  readonly mcp_servers?: Readonly<Record<string, RemoteMcpServerConfig>>;
   /** Tools whose every call waits for approval. */
   readonly approval: { readonly always: readonly string[] };
   /** The local tools' directory, as written in the file. */
@@ -215,6 +241,12 @@ export type TurnConfig = EffectiveConfig;
  * `auth_needs_server_url` rejects a `dex.auth` mode other than `none` with `dex.server: auto`, at `/dex/auth`.
  * `tls_needs_https_server` rejects `dex.tls` settings without an `https` `dex.server`, at `/dex/tls`.
  *
+ * `insecure_mcp_server_url` rejects an http `mcp_servers` URL whose host is not loopback, at
+ * `/mcp_servers/<name>/url`. `literal_credential_header` rejects an `mcp_servers` header whose name looks like a
+ * credential and whose value has no `${NAME}` reference, at `/mcp_servers/<name>/headers/<header>`.
+ *
+ * Changed in 0.6.4: adds `insecure_mcp_server_url` and `literal_credential_header`.
+ *
  * Changed in 0.6.2: adds `unsupported_reasoning_effort`.
  *
  * Changed in 0.6.2: adds `insecure_token_url`, `auth_needs_server_url`, and `tls_needs_https_server`.
@@ -226,6 +258,8 @@ export type ConfigErrorCode =
   | "schema"
   | "invalid_url"
   | "insecure_token_url"
+  | "insecure_mcp_server_url"
+  | "literal_credential_header"
   | "auth_needs_server_url"
   | "tls_needs_https_server"
   | "duplicate_tool"
@@ -310,8 +344,10 @@ export function parseConfigYaml(text: string): unknown {
 /**
  * Returns the effective configuration of a parsed configuration file.
  *
- * It checks, in this order, the schema, the URLs, the token URL's scheme, `dex.auth` and `dex.tls` against
- * `dex.server`, the connector entries in list order, and the model, and throws the first failure.
+ * It checks, in this order, the schema, the URLs, the token URL's scheme, the `mcp_servers` URLs' schemes, the
+ * `mcp_servers` credential headers, `dex.auth` and `dex.tls` against `dex.server`, the connector entries in list
+ * order, and the model, and throws the first failure. It never reads the environment: `mcp_servers` header values
+ * keep their `${NAME}` references.
  *
  * @example
  * ```ts
@@ -324,10 +360,13 @@ export function parseConfigYaml(text: string): unknown {
  * @param harnessDefaultWorkspace - The workspace when the file sets none; defaults to {@link defaultWorkspace}.
  * Since 0.6.0.
  * @returns The effective configuration.
- * @throws {ConfigError} `schema`, `invalid_url`, `insecure_token_url`, `auth_needs_server_url`,
- * `tls_needs_https_server`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
+ * @throws {ConfigError} `schema`, `invalid_url`, `insecure_token_url`, `insecure_mcp_server_url`,
+ * `literal_credential_header`, `auth_needs_server_url`, `tls_needs_https_server`, `duplicate_tool`,
+ * `duplicate_connection`, or `model_required`.
  *
  * Changed in 0.6.2: reads `dex.auth` and `dex.tls`, and checks them against `dex.server`.
+ *
+ * Changed in 0.6.4: reads `mcp_servers`.
  *
  * @since 0.5.0
  */
@@ -354,9 +393,16 @@ export function resolveConfig(
   if (mediaEndpoint !== null) {
     throwInvalidUrl(mediaEndpoint, "/media/endpoint");
   }
+  const fileMcpServers = file.mcp_servers ?? {};
+  const mcpServerNames = Object.keys(fileMcpServers).sort(compareCodePoints);
+  for (const name of mcpServerNames) {
+    throwInvalidUrl(fileMcpServers[name]?.url ?? "", jsonPointerOf(["mcp_servers", name, "url"]));
+  }
   if (tokenUrl !== undefined && !isSecureTokenUrl(tokenUrl)) {
     throw new ConfigError("insecure_token_url", "/dex/auth/token_url");
   }
+  throwInsecureMcpServerUrls(fileMcpServers, mcpServerNames);
+  throwLiteralCredentialHeaders(fileMcpServers, mcpServerNames);
   if (fileAuth.mode !== "none" && dexServer === defaultDexServer) {
     throw new ConfigError("auth_needs_server_url", "/dex/auth");
   }
@@ -382,6 +428,7 @@ export function resolveConfig(
       tls: { ca_file: fileTls.ca_file ?? null, server_name: fileTls.server_name ?? null },
     },
     connectors: { mcp: connectorsMcp, enabled: entries },
+    mcp_servers: effectiveMcpServers(fileMcpServers),
     approval: { always: [...(file.approval?.always ?? [])] },
     workspace: file.workspace ?? harnessDefaultWorkspace,
     local_tools: {
@@ -599,11 +646,19 @@ interface FileConfig {
   readonly system_prompt_file?: string;
   readonly dex?: { readonly server?: string; readonly auth?: FileDexAuth; readonly tls?: FileDexTls };
   readonly connectors?: { readonly mcp?: string; readonly enabled?: readonly RawConnectorEntry[] };
+  readonly mcp_servers?: Readonly<Record<string, FileMcpServer>>;
   readonly approval?: { readonly always?: readonly string[] };
   readonly workspace?: string;
   readonly local_tools?: SessionLocalTools;
   readonly media?: { readonly store?: string; readonly endpoint?: string };
   readonly sessions?: { readonly summary?: "auto" | "on" | "off" };
+}
+
+/** One `mcp_servers` entry after the schema accepted it. */
+interface FileMcpServer {
+  readonly url: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly trust_tool_annotations?: boolean;
 }
 
 /** `dex.auth` after the schema accepted it. */
@@ -683,6 +738,47 @@ function throwFirstSchemaError(validate: ValidateFunction, value: unknown): void
   const title: unknown = (outermost.parentSchema as { readonly title?: unknown } | undefined)?.title;
   const validForms = outermost.keyword === "anyOf" && typeof title === "string" ? title : undefined;
   throw new ConfigError("schema", outermost.instancePath, outermost.keyword, validForms);
+}
+
+function throwInsecureMcpServerUrls(
+  servers: Readonly<Record<string, FileMcpServer>>,
+  sortedNames: readonly string[],
+): void {
+  for (const name of sortedNames) {
+    if (!isSecureTokenUrl(servers[name]?.url ?? "")) {
+      throw new ConfigError("insecure_mcp_server_url", jsonPointerOf(["mcp_servers", name, "url"]));
+    }
+  }
+}
+
+/** Throws for a credential-like header without a `${NAME}` reference, so its secret never sits in the file. */
+function throwLiteralCredentialHeaders(
+  servers: Readonly<Record<string, FileMcpServer>>,
+  sortedNames: readonly string[],
+): void {
+  for (const name of sortedNames) {
+    const headers = servers[name]?.headers ?? {};
+    for (const header of Object.keys(headers).sort(compareCodePoints)) {
+      if (isCredentialLikeName(header) && !(headers[header] ?? "").includes("${")) {
+        throw new ConfigError("literal_credential_header", jsonPointerOf(["mcp_servers", name, "headers", header]));
+      }
+    }
+  }
+}
+
+function effectiveMcpServers(
+  servers: Readonly<Record<string, FileMcpServer>>,
+): Record<string, RemoteMcpServerConfig> {
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => [
+      name,
+      {
+        url: server.url,
+        headers: { ...(server.headers ?? {}) },
+        trust_tool_annotations: server.trust_tool_annotations ?? false,
+      },
+    ]),
+  );
 }
 
 /** Returns `dex.auth` in effective form: the mode and its own fields, `null` when omitted. */
