@@ -19,7 +19,7 @@ The two engines rebuild a run in different ways after a Worker stops.
 
 <RecoveryModelDiagram markdownDescription="A Worker stops mid-run. Temporal: the Event History holds every command and result; a new Worker replays the workflow function from the top to the last await, so workflow code must be deterministic. Dex: Step results and Attributes are saved with each decision; a new Worker runs only the next Step, and finished Steps never run again, so each external effect must be idempotent." />
 
-**Temporal.** A Workflow is one function. The server records an Event History, "a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution". When the run is not in a Worker's cache, a Worker runs the function again from the beginning to continue it. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history. A mismatch is a nondeterminism error. So workflow code must make the same calls in the same order for the same input. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
+**Temporal.** A Workflow is one function. The server records an Event History, "a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution". When the run is not in a Worker's cache, a Worker runs the function again from the beginning to continue it. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history. A mismatch is a nondeterminism error. Workflow code must therefore make the same calls in the same order for the same input. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
 
 **Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves the Step's result, its Attribute writes, and the decision together. To continue a run, a Worker runs only the next Step. It reads the saved Attributes. Nothing is replayed.
 
@@ -66,7 +66,7 @@ Dex runs the Steps of one Flow in parallel on different Workers. An RPC can run 
 
 ## The same process in both models {#the-same-process-in-both-models}
 
-A reminder loop sends a reminder at each interval until the person opts out. In Temporal, the loop is ordinary code that the engine replays. This sketch is illustrative, not from the Dex examples:
+A reminder loop sends a reminder at each interval until the person opts out. In Temporal, the loop is ordinary code that the engine replays. The following sketch is illustrative and is not part of the Dex examples.
 
 ```python
 @workflow.defn
@@ -247,7 +247,7 @@ impl Step for ReminderStep {
 </SdkSnippet>
 </SdkTabs>
 
-The reminder passes no idempotency key, because a second reminder does no harm. In Rust, `has_any_timer_fired` asks whether any Timer of the Wait fired.
+The reminder omits an idempotency key because a duplicate reminder is harmless. In Rust, `has_any_timer_fired` reports whether any Timer in the Wait has fired.
 
 The Temporal version reads top to bottom. The opt-out is a Signal handler that sets a variable, and replay rebuilds the variable. The Dex version names the waiting state. The Timer and the Channel are one Wait, and the decision chooses what comes next.
 
@@ -279,13 +279,13 @@ The Temporal version reads top to bottom. The opt-out is a Signal handler that s
 | Nexus | No direct equivalent | A service in another team starts a Flow or calls an RPC over the FlowService API. |
 | Temporal Web UI | [Dex Web](/components/web) | |
 
-If you know iWF, Dex grew out of it. A Dex Step is an iWF State, and `WaitFor` is `WaitUntil`.
+Dex evolved from iWF. An iWF State corresponds to a Dex Step, and `WaitUntil` corresponds to `WaitFor`.
 
 ## Other engines {#other-engines}
 
 <a id="replay-based-workflow-engines"></a>
 
-**Replay-based engines.** Cadence works like Temporal. The comparison above applies to it.
+**Replay-based engines.** Cadence uses the same replay model as Temporal, so the comparison above also applies to Cadence.
 
 ### Journal-based runtimes {#journal-based-durable-function-runtimes}
 
@@ -295,7 +295,7 @@ Restate is an example. A handler runs each side effect through the runtime conte
 | --- | --- |
 | Workflow, service handler | Flow |
 | Journaled action (`ctx.run`) | Step `Execute` |
-| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A closed Flow is deleted after retention. A virtual object lives on. |
+| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A closed Flow is deleted after its retention period, while a virtual object persists. |
 | Object state | Attributes |
 | Awakeable or durable promise | A Channel message that a Step waits for |
 | Durable sleep | Timer |
@@ -314,7 +314,7 @@ DBOS is an example. Workflows and steps are annotated functions in your applicat
 | Events | Attributes, read by RPC |
 | Queue | The Flow type's queue. Each Worker's task slots bound its work. |
 
-Dex runs its own server on object storage. It can copy Attribute values to your database with [Attribute Store sync](/components/your-database#attribute-store-sync).
+Dex runs its own server on object storage and can copy Attribute values to your database with [Attribute Store sync](/components/your-database#attribute-store-sync).
 
 ### When Restate or DBOS fits better {#when-restate-or-dbos-fits}
 
@@ -327,7 +327,7 @@ AWS Step Functions is an example: a state machine in a JSON definition language,
 
 ### Agent framework checkpoints {#agent-framework-checkpoints}
 
-LangGraph is an example. A checkpointer saves graph state after each node under a thread ID, and an interrupt pauses the graph for a person. A checkpointer saves state. Restarting a crashed run or waking it on a timer needs a hosted platform or your own code. Dex Server does both for every session.
+LangGraph is an example. A checkpointer saves graph state after each node under a thread ID, and an interrupt pauses the graph for human input. The checkpointer only saves state. Resuming a crashed run or waking it on a timer requires a hosted platform or custom code. Dex Server does both for every session.
 
 | Agent framework | Dex |
 | --- | --- |
@@ -339,9 +339,9 @@ With [Durable Agents](/agent-frameworks), you keep your framework. The adapter w
 
 ### Agent frameworks on a durable execution engine {#agent-frameworks-on-a-durable-execution-engine}
 
-The OpenAI Agents SDK on Temporal, Pydantic AI on Temporal, DBOS, or Prefect, and the LangGraph platform record each model call and wrapped tool call as a unit of the engine. A crash repeats only the running call. Dex adds two things:
+The OpenAI Agents SDK on Temporal, Pydantic AI on Temporal, DBOS, or Prefect, and the LangGraph platform record each model call and wrapped tool call as a unit of the engine. After a crash, only the in-progress call runs again. Dex adds two capabilities:
 
-- Each tool has an effect class. A read may run again. A non-idempotent write runs in one attempt by default. If it is cut off, the model gets `outcome_unknown`. See [Tool Calls](/agent-frameworks/tool-calls).
+- Each tool has an effect class. A read may run again. A non-idempotent write runs in one attempt by default. If it is interrupted, the model receives `outcome_unknown`. See [Tool Calls](/agent-frameworks/tool-calls).
 - The effect class also sets the default approval. An approval wait holds no Worker, for minutes or days. See [Approvals](/agent-frameworks/approvals).
 
 ## Next

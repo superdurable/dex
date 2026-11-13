@@ -66,7 +66,7 @@ Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也�
 
 ## 同一个流程的两种写法 {#the-same-process-in-both-models}
 
-一个提醒循环每隔一段时间发送一次提醒，直到对方选择退出。在 Temporal 里，循环是由引擎重放的普通代码。下面这段代码只是示意，不来自 Dex 示例：
+一个提醒循环每隔一段时间发送一次提醒，直到对方选择退出。在 Temporal 里，循环是由引擎重放的普通代码。以下代码仅作示意，不属于 Dex 示例。
 
 ```python
 @workflow.defn
@@ -247,7 +247,7 @@ impl Step for ReminderStep {
 </SdkSnippet>
 </SdkTabs>
 
-提醒不带幂等键，因为多发一次提醒没有坏处。在 Rust 里，`has_any_timer_fired` 询问这个 Wait 中是否有任意一个 Timer 已触发。
+提醒不带幂等键，因为重复发送提醒不会造成影响。在 Rust 中，`has_any_timer_fired` 返回这个 Wait 中是否有 Timer 已触发。
 
 Temporal 版本从上往下读。退出是一个设置变量的 Signal handler，重放会重建这个变量。Dex 版本给等待状态起了名字。Timer 和 Channel 是同一个 Wait，由决定选择接下来做什么。
 
@@ -279,13 +279,13 @@ Temporal 版本从上往下读。退出是一个设置变量的 Signal handler�
 | Nexus | 没有直接对应 | 其他团队的服务通过 FlowService API 启动 Flow 或调用 RPC。 |
 | Temporal Web UI | [Dex Web](/components/web) | |
 
-如果你了解 iWF：Dex 由它发展而来。Dex 的 Step 就是 iWF 的 State，`WaitFor` 就是 `WaitUntil`。
+Dex 由 iWF 演进而来。iWF 的 State 对应 Dex 的 Step，`WaitUntil` 对应 `WaitFor`。
 
 ## 其他引擎 {#other-engines}
 
 <a id="replay-based-workflow-engines"></a>
 
-**基于重放的引擎。** Cadence 的工作方式和 Temporal 相同。上面的对比同样适用于它。
+**基于重放的引擎。** Cadence 与 Temporal 采用相同的重放模型，因此上面的对比同样适用于 Cadence。
 
 ### 基于日志的运行时 {#journal-based-durable-function-runtimes}
 
@@ -295,7 +295,7 @@ Restate 是一个例子。handler 通过运行时 context 执行每个副作用�
 | --- | --- |
 | Workflow、service handler | Flow |
 | 记录在日志里的操作（`ctx.run`） | Step `Execute` |
-| Virtual object 和它的 key | 每个 key 一个长期运行的 Flow，key 就是 Flow ID。关闭的 Flow 在保留期后删除。virtual object 会一直存在。 |
+| Virtual object 和它的 key | 每个 key 一个长期运行的 Flow，key 就是 Flow ID。关闭的 Flow 在保留期后删除，而 virtual object 会持续存在。 |
 | Object 状态 | Attribute |
 | Awakeable 或 durable promise | Step 等待的 Channel 消息 |
 | Durable sleep | Timer |
@@ -314,7 +314,7 @@ DBOS 是一个例子。Workflow 和 step 是你应用里加了注解的函数。
 | Events | Attribute，通过 RPC 读取 |
 | Queue | Flow 类型的队列。每个 Worker 的任务槽限制它的工作量。 |
 
-Dex 在对象存储上运行自己的服务器。它可以用 [Attribute Store 同步](/components/your-database#attribute-store-sync)把 Attribute 值复制到你的数据库。
+Dex 在对象存储上运行自己的服务器，并可以用 [Attribute Store 同步](/components/your-database#attribute-store-sync)把 Attribute 值复制到你的数据库。
 
 ### Restate 或 DBOS 更合适的情况 {#when-restate-or-dbos-fits}
 
@@ -327,7 +327,7 @@ AWS Step Functions 是一个例子：用 JSON 定义语言写的状态机，每�
 
 ### Agent 框架的 checkpoint {#agent-framework-checkpoints}
 
-LangGraph 是一个例子。checkpointer 在每个节点之后按 thread ID 保存图的状态，interrupt 让图暂停，等人处理。checkpointer 只保存状态。重启崩溃的运行，或者在 timer 到期时唤醒它，需要托管平台或你自己的代码。Dex Server 为每个 session 做这两件事。
+LangGraph 是一个例子。checkpointer 在每个节点之后按 thread ID 保存图的状态，interrupt 让图暂停以等待人工输入。checkpointer 只保存状态。恢复崩溃的运行，或在 timer 到期时唤醒它，需要托管平台或自定义代码。Dex Server 为每个 session 做这两件事。
 
 | Agent 框架 | Dex |
 | --- | --- |
@@ -339,9 +339,9 @@ LangGraph 是一个例子。checkpointer 在每个节点之后按 thread ID 保�
 
 ### 运行在 durable execution 引擎上的 Agent 框架 {#agent-frameworks-on-a-durable-execution-engine}
 
-运行在 Temporal 上的 OpenAI Agents SDK，运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装后的工具调用记录为引擎的一个单元。崩溃只会重复正在运行的那次调用。Dex 增加了两点：
+运行在 Temporal 上的 OpenAI Agents SDK，运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装后的工具调用记录为引擎的一个单元。崩溃后，只有正在进行的那次调用会再次运行。Dex 增加了两项能力：
 
-- 每个工具有一个效果类别。读取可以再次运行。非幂等的写入默认只尝试一次。如果它被中断，模型会得到 `outcome_unknown`。见[工具调用](/agent-frameworks/tool-calls)。
+- 每个工具有一个效果类别。读取可以再次运行。非幂等的写入默认只尝试一次。如果它被中断，模型会收到 `outcome_unknown`。见[工具调用](/agent-frameworks/tool-calls)。
 - 效果类别也决定默认的审批方式。审批等待不占用 Worker，可以持续几分钟或几天。见[审批](/agent-frameworks/approvals)。
 
 ## 下一步 {#next}
