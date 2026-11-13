@@ -289,6 +289,8 @@ type StageProps = {
   wholeMaxZoom?: number
   /** Opens on, fits, and zooms out to the whole drawing, however small. */
   opensWholeDrawing?: boolean
+  /** False keeps the zoom fixed under the wheel and pinch, so a page scrolls past the drawing. The zoom buttons still work. */
+  zoomsOnGesture?: boolean
 }
 
 function Inner({
@@ -317,6 +319,7 @@ function Inner({
   targetNeighbours,
   wholeMaxZoom = FIT_MAX_ZOOM,
   opensWholeDrawing = false,
+  zoomsOnGesture = true,
   scene: latestScene,
   nowNodeId: latestNowNodeId = null,
 }: StageProps): JSX.Element {
@@ -638,10 +641,10 @@ function Inner({
         nodesConnectable={false}
         elementsSelectable={interactive}
         panOnDrag={interactive}
-        zoomOnScroll={interactive}
-        zoomOnPinch={interactive}
+        zoomOnScroll={interactive && zoomsOnGesture}
+        zoomOnPinch={interactive && zoomsOnGesture}
         zoomOnDoubleClick={false}
-        preventScrolling={interactive}
+        preventScrolling={interactive && zoomsOnGesture}
         proOptions={{ hideAttribution: true }}
         onMove={handleMove}
         onMoveEnd={(event) => {

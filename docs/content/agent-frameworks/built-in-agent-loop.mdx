@@ -189,7 +189,7 @@ When the model input nears the configured context window, a `CompactContext` Ste
 
 A message sent while a turn runs waits in the durable `QueuedUserMessages` queue. The UI shows it with **Steer** and **Delete** controls while it is pending.
 
-**Steer** applies a message at the turn's next safe Step boundary. It never stops a model call or a tool call that has started. Tool calls that have not started, and approvals, questions, and durable waits that are still waiting, record a structured cancellation result. The turn then ends, and a new turn starts with every steered message. **Stop** calls `cancel_turn`, which ends the turn the same way without a new one.
+**Steer** applies a message at the turn's next safe Step boundary. It never stops a model call or a tool call that has started. Tool calls that have not started, and approvals, questions, and durable waits that are still waiting, record a structured cancellation result. The turn then ends, and a new turn starts with every steered message. **Stop** calls `cancel_turn`, which ends the turn without a new one. It also stops a running model call and drops its answer; a tool call that has started still finishes.
 
 ## Questions and durable waits {#questions-and-durable-waits}
 

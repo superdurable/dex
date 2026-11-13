@@ -123,7 +123,7 @@ class ClaudeSdkHarness:
     applies. ``suggested_models`` lists Claude models for the terminal UI's
     ``/model``.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The ``reasoning_effort`` session setting and the suggested models.
     """
 
@@ -210,7 +210,7 @@ class ClaudeCodeLocalTools:
            The options load no MCP servers or claude.ai connectors from the
            user's Claude Code configuration or login.
 
-        .. versionchanged:: 0.7.0
+        .. versionchanged:: 0.6.2
            The options carry the turn's ``reasoning_effort`` as ``effort``.
 
         Args:

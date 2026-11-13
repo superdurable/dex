@@ -491,6 +491,26 @@ html[data-theme='dark'] .docs-section-entry__icon--logo {
   border: 1px solid var(--docs-hairline);
 }
 
+/* Home page entry cards: three in a row on a laptop, icon above a title and a few words. */
+.docs-home-sections.docs-home-cards {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: 1rem;
+}
+
+.docs-home-cards .docs-section-entry {
+  flex-direction: column;
+  gap: 0.8rem;
+  margin: 0;
+  padding: 1.15rem 1.2rem 1.25rem;
+  border: 1px solid var(--docs-hairline);
+  border-radius: 16px;
+}
+
+.docs-home-cards .docs-section-entry:hover,
+.docs-home-cards .docs-section-entry:focus-visible {
+  border-color: var(--section-accent);
+}
+
 /* The home page's two calls to action and the SDK shortcuts under them. */
 .docs-home-actions p {
   display: flex;
@@ -550,25 +570,6 @@ html[data-theme='dark'] .docs-section-entry__icon--logo {
   border-color: var(--sd-accent);
   color: var(--sd-accent);
   text-decoration: none;
-}
-
-/* Compact link rows under the home page's card groups. */
-.docs-home-links {
-  margin: 2rem 0 1rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
-}
-
-.docs-home-links p {
-  margin: 0 0 0.75rem;
-  color: var(--docs-subtle);
-  font-size: 0.92rem;
-  line-height: 1.8;
-}
-
-.docs-home-links strong {
-  color: var(--docs-heading);
-  margin-right: 0.25rem;
 }
 
 .docs-section-entry__meta {
@@ -795,12 +796,12 @@ html[data-theme='dark'] .exec-node {
   }
 }
 
-/* ---------- Coding agent box: a short card at the top of task guides; it opens to install and the full prompt ---------- */
+/* ---------- Coding agent box: one shell block per agent that installs Dex Skills and starts it on the page ---------- */
 .coding-agent-box {
   display: grid;
   gap: 0.5rem;
   margin: 1rem 0 1.5rem;
-  padding: 0.6rem 0.75rem 0.35rem;
+  padding: 0.6rem 0.75rem 0.75rem;
   border: 1px solid color-mix(in srgb, var(--sd-accent) 35%, var(--docs-hairline));
   border-radius: 12px;
   background: color-mix(in srgb, var(--sd-accent) 6%, var(--docs-tint));
@@ -834,29 +835,6 @@ html[data-theme='dark'] .exec-node {
   font-weight: 700;
 }
 
-.coding-agent-box__copy {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 0.35rem;
-  margin-left: auto;
-  padding: 0.3rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--sd-accent) 45%, transparent);
-  border-radius: 8px;
-  background: var(--docs-tint);
-  color: var(--docs-heading);
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.coding-agent-box__copy:hover,
-.coding-agent-box__copy:focus-visible {
-  background: var(--sd-accent);
-  color: var(--sd-on-accent);
-}
-
 .coding-agent-box__label {
   margin: 0;
   color: var(--docs-subtle);
@@ -871,43 +849,3 @@ html[data-theme='dark'] .exec-node {
   margin-bottom: 0;
 }
 
-/* Closed: the prompt shows its first lines and fades out. */
-.coding-agent-box:not(.coding-agent-box--open) .coding-agent-box__prompt {
-  max-height: 7.8rem;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
-  mask-image: linear-gradient(to bottom, #000 55%, transparent);
-}
-
-.coding-agent-box:not(.coding-agent-box--open) .coding-agent-box__prompt button {
-  display: none;
-}
-
-.coding-agent-box__toggle {
-  display: inline-flex;
-  justify-self: start;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem 0.1rem;
-  border: 0;
-  background: none;
-  color: var(--sd-accent);
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.coding-agent-box__chevron {
-  transition: transform 160ms ease;
-}
-
-.coding-agent-box--open .coding-agent-box__chevron {
-  transform: rotate(180deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .coding-agent-box__chevron {
-    transition: none;
-  }
-}

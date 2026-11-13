@@ -54,7 +54,7 @@ class PydanticAiHarness:
     ``suggested_models`` lists OpenAI and Anthropic models for the terminal
     UI's ``/model``.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The ``reasoning_effort`` session setting and the suggested models.
     """
 
@@ -106,7 +106,7 @@ class TurnModel(WrapperModel):
     Outside a turn, such as in a compaction summary call, it calls the file's model.
     Its ``settings`` add the turn's ``reasoning_effort`` as ``thinking``.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The turn's ``reasoning_effort`` reaches every model call as ``thinking``.
     """
 

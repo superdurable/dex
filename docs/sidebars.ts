@@ -20,38 +20,39 @@ const sidebars: SidebarsConfig = {
       label: 'Get Started',
       customProps: {section: 'intro'},
       link: {type: 'doc', id: 'intro/get-started'},
+      // Build with AI is the coding-agent path; the full skill pages are in Developer Reference > Dex Skills.
       items: [
         'quick-start/index',
         'intro/add-to-existing-code',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Build with AI',
-      customProps: {section: 'agent-skills'},
-      // Dex Connector Contributor is linked from the overview, not listed here.
-      link: {type: 'doc', id: 'build-with-ai/dex-developer-skill'},
-      items: [
-        'build-with-ai/dex-developer-skill/dex-app-builder',
-        'build-with-ai/dex-developer-skill/dex-sdk',
+        'components/testing',
+        'build-with-ai/dex-developer-skill',
       ],
     },
     {
       type: 'category',
       label: 'Durable Agents',
       customProps: {section: 'agent-frameworks'},
-      // Each framework is a tab on these pages. The built-in loop comes last because most agents use a framework.
+      // The deep pages are in Developer Reference > Agents in Depth, linked from How Durable Agents Work.
       link: {type: 'doc', id: 'agent-frameworks'},
       items: [
         'agent-frameworks/quick-start',
         'agent-frameworks/add-to-your-agent',
-        'agent-frameworks/sessions',
-        'agent-frameworks/tool-calls',
-        'agent-frameworks/approvals',
-        'agent-frameworks/connectors-as-tools',
         'agent-frameworks/framework-support',
-        'agent-frameworks/built-in-agent-loop',
+        'agent-frameworks/how-it-works',
         'agent-frameworks/production',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Run Dex',
+      customProps: {section: 'components'},
+      link: {type: 'doc', id: 'components/index'},
+      items: [
+        'components/dex-cloud',
+        'components/self-host',
+        'components/production',
+        'components/operate-and-debug',
+        'concepts/change-flow-code',
       ],
     },
     {
@@ -62,7 +63,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'concepts/flow/index',
         'concepts/step/index',
-        'concepts/step/advanced-guarantees',
         {
           type: 'category',
           label: 'Primitives',
@@ -78,6 +78,7 @@ const sidebars: SidebarsConfig = {
         },
         'concepts/client',
         'concepts/connector',
+        'components/your-database',
       ],
     },
     {
@@ -190,25 +191,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Run Dex',
-      customProps: {section: 'components'},
-      link: {type: 'doc', id: 'components/index'},
-      items: [
-        'components/choose-how-to-run',
-        'components/run-locally',
-        'components/application',
-        'components/testing',
-        'components/your-database',
-        'components/server',
-        'components/production',
-        'concepts/failover-and-deploys',
-        'concepts/change-flow-code',
-        'components/cli',
-        'components/web',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Evaluate Dex',
       customProps: {section: 'correctness'},
       link: {type: 'doc', id: 'intro/evaluate'},
@@ -223,6 +205,7 @@ const sidebars: SidebarsConfig = {
           label: 'Correctness and Expressiveness',
           link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
           items: [
+            'concepts/step/advanced-guarantees',
             'correctness-and-expressiveness/expressiveness-proof',
             'correctness-and-expressiveness/failure-transparency-proof',
             'correctness-and-expressiveness/workflow-patterns',
@@ -243,6 +226,42 @@ const sidebars: SidebarsConfig = {
           href: `/reference/${component}/`,
           customProps: {referenceComponent: component},
         })),
+        {
+          type: 'category',
+          label: 'Running Dex in Depth',
+          link: {type: 'doc', id: 'reference/running-dex-in-depth'},
+          items: [
+            'components/run-locally',
+            'components/application',
+            'components/server',
+            'components/cli',
+            'components/web',
+            'concepts/failover-and-deploys',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Agents in Depth',
+          link: {type: 'doc', id: 'reference/agents-in-depth'},
+          items: [
+            'agent-frameworks/sessions',
+            'agent-frameworks/tool-calls',
+            'agent-frameworks/approvals',
+            'agent-frameworks/connectors-as-tools',
+            'agent-frameworks/built-in-agent-loop',
+            'agent-frameworks/framework-details',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Dex Skills in Depth',
+          link: {type: 'doc', id: 'reference/dex-skills'},
+          items: [
+            'build-with-ai/dex-developer-skill/dex-app-builder',
+            'build-with-ai/dex-developer-skill/dex-sdk',
+            'build-with-ai/dex-developer-skill/dex-connector-contributor',
+          ],
+        },
       ],
     },
     {type: 'doc', id: 'glossary', customProps: {section: 'glossary'}},

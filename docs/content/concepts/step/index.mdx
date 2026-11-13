@@ -249,13 +249,13 @@ A decision can also cancel other active Steps. See the
 In short: finished work is saved, unfinished work can repeat.
 
 Four rules matter most. The first two are all you need for a first Flow.
-[Advanced Step Guarantees](/concepts/step/advanced-guarantees) explains the
+[Advanced Step Guarantees](/correctness-and-expressiveness/step-guarantees) explains the
 details behind the other two.
 
 - **A finished Step stays finished.** Dex saves its result together with
   the move to the next Step. This holds for SYNC Steps, the default; an ASYNC
   result lost in a server failover reruns, as
-  [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains.
+  [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async) explains.
 - **A Step that was cut off can run again.** A crash, a timeout, or a retry
   can repeat a method that already called an external system. So a Step runs
   at least once, not exactly once. The next section says how to make that
@@ -269,8 +269,9 @@ details behind the other two.
   Channel message, and wait for it in the next Step's `WaitFor`. Hard-delete
   Attributes are the exception: Dex reads them again on every attempt. See
   [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
+- **A method's writes are saved with its result.** Its Attribute writes and Channel publications take effect only when the method succeeds. When Dex cannot tell whether a method ran, it runs it again or reports the outcome as unknown.
 - **Parallel writers can overwrite each other.** Two Steps or RPCs that read
-  and then write the same Attribute need a lock on it. See [What Dex saves](/concepts/step/advanced-guarantees#what-dex-saves).
+  and then write the same Attribute need a lock on it. See [What Dex saves](/correctness-and-expressiveness/step-guarantees#what-dex-saves).
 
 ### Idempotency keys {#idempotency-keys}
 
@@ -302,7 +303,7 @@ A Step returns `StepOptions` to control how its methods run. `WaitFor` and
 - **Durability** chooses when Dex stores the result. **SYNC**, the default,
   stores it before the next work starts. **ASYNC** is faster, but a server
   failure can make the method run again. See
-  [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async).
+  [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async).
 - **Heartbeat** lets a long method report progress and save a checkpoint.
 - **State loading** and **Attribute locks** choose which state the method
   loads and which Attributes it locks.
@@ -324,18 +325,7 @@ Each method uses the server defaults until StepOptions set its own. The defaults
 [Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration)
 in the SDK reference explains how these limits interact.
 
-## Advanced guarantees {#advanced-guarantees}
-
-A method's Attribute writes and Channel publications are saved together with
-its result, and only when it succeeds. When a method's outcome is uncertain, Dex
-runs it again or reports an unknown outcome. A SYNC Step saves its result before
-the Flow moves on; an ASYNC result can be lost in a server failover and run
-again. [Advanced Step Guarantees](/concepts/step/advanced-guarantees) gives the
-exact rules: [what Dex saves](/concepts/step/advanced-guarantees#what-dex-saves),
-[failure and redelivery](/concepts/step/advanced-guarantees#failure-and-redelivery-summary),
-[SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async), and
-[cancellation, completion, and order](/concepts/step/advanced-guarantees#cancellation-completion-order).
-
+<a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>
 <a id="failure-and-redelivery-summary"></a>
@@ -368,4 +358,6 @@ The SDK reference covers:
 
 ## Next
 
-[Advanced Step Guarantees](/concepts/step/advanced-guarantees): What Dex saves for each Step method, when a method runs again or ends with an unknown outcome, how SYNC and ASYNC durability differ, and how cancellation, completion, and Step order work.
+[Primitives](/concepts/primitives): Attributes, RPCs, Channels, Streams, Timers, and SubFlows, the building blocks a Step reads, writes, and waits on.
+
+For the exact rules behind these guarantees, see [Advanced Step Guarantees](/correctness-and-expressiveness/step-guarantees).

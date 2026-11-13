@@ -122,7 +122,7 @@ class AgentHarness(Protocol):
     tuple or list of strings, a duplicate, an empty model ID, or an effort
     that is not a lowercase name raises ``TypeError`` or ``ValueError``.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The optional ``supported_reasoning_efforts`` and ``suggested_models``
        class attributes.
 

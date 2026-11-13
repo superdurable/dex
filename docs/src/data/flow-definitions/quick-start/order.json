@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "2.0",
+  "generatedAt": "2026-11-12T22:35:31Z",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/quick-start/quick_start/order_flow.py"
+  },
+  "flow": {
+    "name": "OrderFlow",
+    "startStepId": "step:Charge",
+    "span": {
+      "startLine": 62,
+      "startColumn": 1,
+      "endLine": 68,
+      "endColumn": 71
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:Charge:43:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Charge",
+      "phase": "execute",
+      "span": {
+        "startLine": 43,
+        "startColumn": 16,
+        "endLine": 43,
+        "endColumn": 34
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Ship:59:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Ship",
+      "phase": "execute",
+      "span": {
+        "startLine": 59,
+        "startColumn": 16,
+        "endLine": 59,
+        "endColumn": 53
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "step:Charge",
+      "kind": "step",
+      "name": "Charge",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 68,
+        "startColumn": 36,
+        "endLine": 68,
+        "endColumn": 47
+      },
+      "metadata": {
+        "explanation": "Charge the order through the payment API."
+      }
+    },
+    {
+      "id": "step:Ship",
+      "kind": "step",
+      "name": "Ship",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 68,
+        "startColumn": 61,
+        "endLine": 68,
+        "endColumn": 70
+      },
+      "metadata": {
+        "explanation": "Wait on a 60-second Timer, then ship the order."
+      }
+    },
+    {
+      "id": "wait:Ship:53:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:Ship",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 53,
+        "startColumn": 16,
+        "endLine": 55,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "SHIP_DELAY timer",
+            "expression": "SHIP_DELAY",
+            "span": {
+              "startLine": 54,
+              "startColumn": 13,
+              "endLine": 54,
+              "endColumn": 73
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:Charge:43:16",
+      "to": "step:Ship",
+      "label": "go_to",
+      "span": {
+        "startLine": 43,
+        "startColumn": 16,
+        "endLine": 43,
+        "endColumn": 34
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "shipping",
+      "label": "Shipping",
+      "stepIds": [
+        "step:Ship"
+      ]
+    },
+    {
+      "id": "payment",
+      "label": "Payment",
+      "stepIds": [
+        "step:Charge"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
+}

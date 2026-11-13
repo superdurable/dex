@@ -46,7 +46,7 @@ export const defaultInstructions =
  * call option of every model call in the turn. The terminal UI's `/model` suggests `openai/gpt-5.2`,
  * `openai/gpt-5-mini`, `anthropic/claude-opus-5-5`, and `anthropic/claude-sonnet-5-5`.
  *
- * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts

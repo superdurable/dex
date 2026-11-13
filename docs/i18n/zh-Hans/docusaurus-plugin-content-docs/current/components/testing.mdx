@@ -12,19 +12,7 @@ description: 用 dexcli dev 启动的真实 Dex Server 测试 Flow。测试运�
 
 **dexcli dev** 几秒内就能启动一个 server，所以每次测试运行都可以启动自己的 server。
 
-<CodingAgentBox>
-
-```text
-为 <FlowType> Flow 加一个集成测试。
-
-1. 阅读 https://docs.superdurable.io/zh-Hans/components/testing.md，把它当作唯一依据。
-2. 在 dexcli dev 启动的 server 上运行测试，使用测试自己的 Worker，每个 Flow 使用唯一的 Flow ID。
-3. 覆盖正常路径和一条失败路径。按 ID 跳过 Timer，用轮询等待，不要用 sleep。
-
-规则：不要 mock Dex。不要编造 API。
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/components/testing.md 为这个仓库里的一个 Dex Flow 添加集成测试。" />
 
 ## 为测试启动 server {#start-a-server-for-the-tests}
 
@@ -407,6 +395,7 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 
 ## 下一步 {#next}
 
+- [使用 AI 构建](/build-with-ai/dex-developer-skill)：安装 Dex Skills，让 coding agent 编写和测试代码。
 - [快速开始](/quick-start)：这些测试运行的 Flow。
 - [本地运行](/components/run-locally)：**dexcli dev** 的选项。
 - [Step 的保证](/concepts/step#guarantees)：测试应该检查的行为，例如 Step 再运行一次。

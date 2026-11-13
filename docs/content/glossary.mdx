@@ -161,7 +161,7 @@ The Flow state that one Step method attempt reads: the Attributes as they were w
 
 The unit of durable control flow. It has an optional WaitFor and an Execute.
 
-#### [Step durability](/concepts/step/advanced-guarantees#sync-and-async)
+#### [Step durability](/correctness-and-expressiveness/step-guarantees#sync-and-async)
 
 When Dex stores a Step's progress. **SYNC**, the default, stores each attempt start and result before the Flow moves on. **ASYNC** moves on first, so a server failure can run the attempt again.
 
@@ -197,7 +197,7 @@ A durable sleep condition. When it fires, the waiting Step resumes.
 
 An RPC whose changes Dex saves only if every Channel message it deletes is still pending. An RPC that holds a lock is always transactional.
 
-#### [Turn segment](/agent-frameworks/framework-support#how-each-framework-runs-a-turn)
+#### [Turn segment](/agent-frameworks/framework-details#how-each-framework-runs-a-turn)
 
 In the Claude Agent SDK harness, the part of a turn that one CLI run handles, in one `RunModel` Step. A write tool call ends a segment.
 

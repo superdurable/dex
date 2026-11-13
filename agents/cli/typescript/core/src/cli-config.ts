@@ -215,7 +215,7 @@ export type TurnConfig = EffectiveConfig;
  * `auth_needs_server_url` rejects a `dex.auth` mode other than `none` with `dex.server: auto`, at `/dex/auth`.
  * `tls_needs_https_server` rejects `dex.tls` settings without an `https` `dex.server`, at `/dex/tls`.
  *
- * Changed in 0.7.0: adds `unsupported_reasoning_effort`.
+ * Changed in 0.6.2: adds `unsupported_reasoning_effort`.
  *
  * Changed in 0.6.2: adds `insecure_token_url`, `auth_needs_server_url`, and `tls_needs_https_server`.
  *
@@ -416,7 +416,7 @@ export function isSessionSummaryIndexed(config: EffectiveConfig): boolean {
  * One turn's resolution by {@link resolveTurn}: its configuration, the ignored settings keys, and its reasoning
  * effort.
  *
- * @since 0.7.0
+ * @since 0.6.2
  */
 export interface TurnResolution {
   /** The turn's configuration: the file's effective configuration with the session's settings applied. */
@@ -441,7 +441,7 @@ export interface TurnResolution {
  * `reasoningEffort` does. Settings that fail are rejected as a whole. Warnings are sorted by key in Unicode code
  * point order.
  *
- * Changed in 0.7.0: takes the harness command's reasoning efforts and returns the turn's `reasoningEffort`.
+ * Changed in 0.6.2: takes the harness command's reasoning efforts and returns the turn's `reasoningEffort`.
  *
  * @example
  * ```ts
@@ -454,7 +454,7 @@ export interface TurnResolution {
  * @param effective - The file's effective configuration.
  * @param sessionSettings - The session's settings, or `null` for a session without settings.
  * @param supportedReasoningEfforts - The values `reasoning_effort` may take, the harness command's
- * `AgentHarness.supportedReasoningEfforts`. Defaults to none, which rejects every `reasoning_effort`. Since 0.7.0.
+ * `AgentHarness.supportedReasoningEfforts`. Defaults to none, which rejects every `reasoning_effort`. Since 0.6.2.
  * @returns The turn's configuration, the warnings, and the reasoning effort.
  * @throws {ConfigError} `schema`, `duplicate_tool`, `duplicate_connection`, `widens_connectors`,
  * `widens_local_tools`, or `unsupported_reasoning_effort`.

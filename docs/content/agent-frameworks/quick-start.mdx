@@ -7,25 +7,9 @@ description: Run your framework's agent as a durable Dex session from a download
 
 # Agent Quick Start
 
-Run your framework's agent as a durable Dex session, then stop it in the middle of a conversation and watch it carry on. It takes about 10 minutes.
+Run your framework's agent as a durable Dex session, then stop it in the middle of a conversation and watch it carry on.
 
-<CodingAgentBox>
-
-```text
-Run the Dex Agent Quick Start in this folder.
-
-1. Read https://docs.superdurable.io/agent-frameworks/quick-start.md and treat
-   it as the source of truth.
-2. Ask which framework and language I want.
-3. Start dexcli dev and run the example agent.
-4. Approve the cancel_order call, stop the program while it waits, restart it,
-   and show me that the session carried on.
-
-Rules: stay inside this Quick Start. Do not invent APIs. Ask me before
-installing anything else.
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/agent-frameworks/quick-start.md to run the Dex Agent Quick Start in this folder. Ask me which framework to use first, and before installing anything else." />
 
 <a id="before-you-start"></a>
 <a id="what-you-will-build"></a>
@@ -380,15 +364,15 @@ pkill -9 -f quick-start-main.js
 </SdkTabs>
 
 3. Run the program again with `--session-id` and no message. The agent answers with the order.
-4. Check how the tool call ran:
+4. Check how the tool call ran. The command needs `jq`:
 
 ```bash
 dexcli flow history --all SESSION_ID | jq '.events[]
-  | select(.payload.context.stepType == "CallTool")
-  | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
+  | select(.payload.context.stepType == "CallTool" or .payload.context.stepType == "RunModel")
+  | .payload.context | {stepType, finalAttempt, failure: .lastFailureInfo.details.detail}'
 ```
 
-`finalAttempt` is **2**. The first attempt failed when the Worker disconnected, and because `look_up_order` is a read, Dex ran it again on the new Worker. The model call before it ran once.
+The `CallTool` Step shows `finalAttempt` **2**. The first attempt failed when the Worker disconnected, and because `look_up_order` is a read, Dex ran it again on the new Worker. The model call before it ran once. With the Claude Agent SDK, reads run inside `RunModel`, so there is no `CallTool` Step: the last `RunModel` Step shows `finalAttempt` **2**, because the whole segment ran again, model call included.
 
 Now do the same with a write: ask to cancel order 1002 with the delay set, approve it, kill the program within 20 seconds, and run it again with `--session-id`. Dex records `cancel_order` as `outcome_unknown` and runs it no second time, because it is a non-idempotent write. The agent tells the user that the outcome is unknown, and your application checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
 
@@ -404,7 +388,7 @@ The example writes the agent as your framework alone would, then wraps it in a D
 ## Next
 
 - [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent) moves this agent into your own app, with the complete files and a web app.
-- [Sessions](/agent-frameworks/sessions) explains what survived the restart, and how your framework's turn maps onto Steps.
+- [How Durable Agents Work](/agent-frameworks/how-it-works) explains what survived the restart, in your framework's terms.
 - [Tool Calls](/agent-frameworks/tool-calls) explains why `cancel_order` runs at most once, and the one narrow case where a write can run twice.
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop) builds an agent without a framework.
 - [Order Support Agent](/use-cases/order-support-agent) is the full example, with its HTTP routes.

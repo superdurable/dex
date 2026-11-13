@@ -32,6 +32,8 @@ from quick_start.shop_api import ShopApi
 SHIP_DELAY_TIMER = "ship-delay"
 
 
+# dex:group group-id:payment group-label:"Payment"
+# dex:explanation text:"Charge the order through the payment API."
 class Charge(Step[str]):
     def __init__(self, shop: ShopApi) -> None:
         self.shop = shop
@@ -41,6 +43,8 @@ class Charge(Step[str]):
         return go_to(Ship, input)
 
 
+# dex:group group-id:shipping group-label:"Shipping"
+# dex:explanation text:"Wait on a 60-second Timer, then ship the order."
 class Ship(Step[str]):
     def __init__(self, shop: ShopApi) -> None:
         self.shop = shop

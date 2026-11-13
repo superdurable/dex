@@ -116,10 +116,10 @@ export class PiModelClients {
    * With a reasoning effort, the client sets it as `ModelRequest.settings.reasoningEffort` of every call, which
    * pi-ai sends as the thinking level. Without one, each call keeps its settings, so the model's default applies.
    *
-   * Changed in 0.7.0: takes the turn's reasoning effort.
+   * Changed in 0.6.2: takes the turn's reasoning effort.
    *
    * @param model - The `<provider>/<model>` model ID.
-   * @param reasoningEffort - The turn's reasoning effort, such as `high`, or `undefined` for none. Since 0.7.0.
+   * @param reasoningEffort - The turn's reasoning effort, such as `high`, or `undefined` for none. Since 0.6.2.
    * @returns The client.
    * @throws {Error} When the ID is malformed, pi-ai does not know the model, or the provider's API key is missing.
    */

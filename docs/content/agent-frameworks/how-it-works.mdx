@@ -1,0 +1,62 @@
+---
+title: How Durable Agents Work
+sidebar_label: How Durable Agents Work
+slug: /agent-frameworks/how-it-works
+description: The terms you know from agent frameworks, such as thread, LLM call, tool call, and human in the loop, mapped to the Dex session Flow and its Steps.
+---
+
+import AgentTermMapDiagram from '@site/src/components/diagrams/AgentTermMapDiagram';
+
+# How Durable Agents Work
+
+Your framework still runs the agent: its prompts, tools, and model choice stay the same. Dex runs each conversation as one session Flow, and each model call and tool call in it as a Step. Dex records every Step's result, so a crash, a deploy, or a long wait repeats nothing that finished.
+
+<AgentTermMapDiagram markdownDescription="Your app's Client sends a message (send_user_message) into the session Flow, which is the conversation thread. Inside it, the agent loop runs as Steps that Dex records: an LLM call is RunModel, a tool call is CallTool for a read or an idempotent write and CallSingleAttemptTool for any other write, human in the loop is AwaitToolApproval, and ResumeTurn returns the tool results to the model. The chat history lives in the session's Attributes, and live output goes to the AgentEvents Stream. The Steps call your models and tools." />
+
+## Your framework's terms in Dex {#term-map}
+
+| In your framework | In Dex | What changes for you |
+| --- | --- | --- |
+| Agent | Your agent, wrapped by a Dex adapter into a session Flow | Prompts, tools, and model choice stay as they are. |
+| Thread, conversation, session | A **session**: one Flow run. The Flow ID is the session ID. | The session survives crashes and deploys. After it stops, it stays readable for the retention period. |
+| Run the agent | The `send_user_message` RPC from a Client (`sendUserMessage` in TypeScript) | Dex records the message before the turn starts. A message sent during a turn waits in a queue. |
+| Turn | A **turn**: the Steps from one user message to the reply | **Steer** (`steer_user_message`) ends a turn at the next safe Step boundary. `cancel_turn` also stops a running model call and drops its answer. Neither stops a tool call that has started. |
+| LLM call | A `RunModel` Step | Dex records the response. A retry calls the model again. |
+| Tool call, function call | A `CallTool` Step for a read or an idempotent write, a `CallSingleAttemptTool` Step for any other write | A write in its own Step runs at most once. When a crash leaves its result unknown, the model sees `outcome_unknown`. |
+| Parallel tool calls | Tool Steps that run in parallel, then a `ResumeTurn` Step | `ResumeTurn` waits for every result and gives them to the model. |
+| Human in the loop, tool confirmation | An `AwaitToolApproval` Step, answered with the `resolve_interrupt` RPC (`resolveInterrupt` in TypeScript) or in Dex Web | The wait can last days and holds no Worker. |
+| Checkpointer, durable execution plugin | Recorded Step results. The adapter keeps the framework's own state between Steps. | A crash repeats only the Step that was running. The agent code needs no determinism rules. |
+| Chat history, short-term memory | The session's Attributes | Long-term memory across sessions stays in a store you own, behind a tool. |
+| Streaming callbacks | The AgentEvents Stream | It is best effort. `get_agent_snapshot` (`getAgentSnapshot` in TypeScript) reads the recorded conversation. |
+| MCP servers, tool integrations | Tool sources. Official Connectors come in through `ConnectorToolSource`. | Each Connector call gets its credentials and an idempotency key. |
+
+Some tools run inside `RunModel` or at the model provider, and they can run again when that Step retries. Examples are reads and CLI tools such as **Bash** in the Claude Agent SDK, hosted tools, and tools that Mastra runs itself. A LangGraph graph can also make several model calls in one `RunModel`. [Framework Support](/agent-frameworks/framework-support) lists the differences.
+
+## Sessions {#sessions}
+
+A session holds one conversation: its messages, its tool calls, and their results. It waits for the next message without using a Worker. Each Step is saved before the session moves on, which adds about a tenth of a second per Step. A new session starts empty.
+
+[Sessions in depth](/agent-frameworks/sessions) covers latency, cost, and memory.
+
+## Tool calls {#tool-calls}
+
+Each tool gets a policy. Its effect class says what a repeat would do: a **read** and an `idempotent_write` can run again, and any other write runs at most once. Every attempt of a call gets the same idempotency key. Pass it to the service the tool writes to.
+
+[Tool Calls in depth](/agent-frameworks/tool-calls) covers each outcome and how to reconcile an unknown one.
+
+## Approvals {#approvals}
+
+A tool call that needs approval waits in `AwaitToolApproval` until a person answers. By default, a write that is not idempotent waits for approval. A person approves or rejects the call from your application or in Dex Web, and the model sees a rejection.
+
+[Approvals in depth](/agent-frameworks/approvals) covers the RPC, Dex Web, and approval deadlines.
+
+## Connectors as tools {#connectors}
+
+An agent can call official Connector operations as tools. The Connector's manifest sets each operation's effect class, and the application picks the operations to offer. Each call runs in its own tool Step with the Connector's credentials.
+
+[Connectors as Tools in depth](/agent-frameworks/connectors-as-tools) covers the wiring for each framework.
+
+## Next
+
+- [Run Agents in Production](/agent-frameworks/production): the checklist before you run sessions for real users.
+- [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): the harness with questions, plans, and durable waits.
