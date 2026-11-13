@@ -176,9 +176,10 @@ implementation follows this section where it differs from the sections above.
   while it runs, **Time travel from #N** at the failed event on a failed run,
   and **Time travel** otherwise. The menu holds the other action with its full
   name.
-- **The trail names relations.** A child Flow's trail links to its parent's
-  current run. A run with child Flows shows their count in the Flow ID button.
-  Overview lists both under **Related Flows**.
+- **Relations sit under the bar.** The run line names a child Flow's parent
+  ("Child of …", linking to its current run) and a run's child Flows, and holds
+  the attempt picker. Overview lists the relations under **Related Flows**, and
+  the event row where a child Flow started links to it.
 - **A state line under the bar.** A failed run states its error, and every
   other run states its newest event and Step type. Its button selects that
   event.
@@ -193,12 +194,10 @@ implementation follows this section where it differs from the sections above.
 - **Jump box.** ⌘K or Ctrl+K suggests Flows by ID prefix, opens a pasted run
   link, and lists recent runs and pages.
 - **Reachability.** The dot reads `/readyz` every 30 seconds.
-- **Giving way.** The bar measures itself and gives way in this order: the
-  duration, the status text and the attempt picker (the attempt then shows in
-  the Flow ID button and its picker moves into Run details); then shorter
-  middle-cut copies of the Flow ID and the parent's ID; then the names of
-  later tabs, which keep tooltips. Timeline and Execution graph keep their
-  names longest.
+- **One bar for every run.** The bar shows status, duration and the Flow ID
+  on every run, and every tab keeps its name from 1280px up. At laptop widths
+  the tab text is a step smaller and the ⌘K hint hides. Below 1280px later tabs
+  show only their icons, with tooltips.
 - **Flows page.** All, Running, Failed and Completed search by status in one
   click, and a status-only search keeps the search card one row.
 - **Known trade-off.** Without Refresh, a closed run that another client time
