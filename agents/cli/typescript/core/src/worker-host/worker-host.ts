@@ -79,6 +79,7 @@ class WorkerHost {
   private readonly leaseHolder: SessionLeaseHolder;
   private readonly leaseTtlSeconds: number;
   private leaseRenewal: SessionLeaseRenewal | undefined;
+  private readonly unansweredLeaseSessionIds = new Set<string>();
 
   public constructor(
     private readonly harness: AgentHarness,
@@ -215,7 +216,9 @@ class WorkerHost {
       if (unavailable !== undefined) {
         return refusal("session_unavailable", unavailable);
       }
+      this.unansweredLeaseSessionIds.add(sessionId);
       const result = await acquireSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder, this.leaseTtlSeconds);
+      this.unansweredLeaseSessionIds.delete(sessionId);
       if (result.isAcquired) {
         this.renewedLeases(opened).renew(sessionId);
       }
@@ -252,12 +255,20 @@ class WorkerHost {
     return this.leaseRenewal;
   }
 
-  /** Releases the renewed lease, if any, while the Worker still serves the RPC. */
+  /** Releases the renewed lease, and any a call without an answer may have taken, while the Worker still serves. */
   private async releaseRenewedLease(): Promise<void> {
-    const sessionId = this.leaseRenewal?.currentSessionId;
+    const sessionIds = new Set(this.unansweredLeaseSessionIds);
+    const current = this.leaseRenewal?.currentSessionId;
+    if (current !== undefined) {
+      sessionIds.add(current);
+    }
     this.leaseRenewal?.stop();
-    if (sessionId !== undefined && this.opened !== undefined) {
-      await releaseSessionLease(this.opened.client, this.opened.flow, sessionId, this.leaseHolder.holderId);
+    this.unansweredLeaseSessionIds.clear();
+    const opened = this.opened;
+    if (opened !== undefined) {
+      await Promise.all(
+        [...sessionIds].map((sessionId) => releaseSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder.holderId)),
+      );
     }
   }
 

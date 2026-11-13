@@ -118,7 +118,9 @@ class HeldSessionLease:
     """The lease one process holds on the session it shows, renewed in the background.
 
     It holds at most one session's lease. ``lost`` completes with the other
-    holder's lease when a renewal finds that another terminal took it.
+    holder's lease when a renewal finds that another terminal took it. A try
+    that did not answer, such as one Ctrl-C cancelled, may still have taken
+    the lease, so ``release`` releases that session too.
     """
 
     def __init__(self, sessions: AgentSessionClient, holder: SessionLeaseHolder) -> None:
@@ -131,6 +133,7 @@ class HeldSessionLease:
         self._sessions = sessions
         self._holder = holder
         self._session_id: str | None = None
+        self._unanswered_session_ids: set[str] = set()
         self._renewing: asyncio.Task[None] | None = None
         self.lost: asyncio.Future[tuple[str, SessionTerminalLease]] = (
             asyncio.get_running_loop().create_future()
@@ -148,7 +151,9 @@ class HeldSessionLease:
             DexServiceError: If the call fails.
             TimeoutError: If the call takes longer than ``LEASE_CALL_TIMEOUT_SECONDS``.
         """
+        self._unanswered_session_ids.add(session_id)
         result = await self._call_acquire(session_id)
+        self._unanswered_session_ids.discard(session_id)
         if result.is_acquired:
             self._stop_renewing()
             self._session_id = session_id
@@ -156,20 +161,32 @@ class HeldSessionLease:
         return result
 
     async def release(self) -> None:
-        """Release the held lease, if any, within ``LEASE_RELEASE_TIMEOUT_SECONDS``.
+        """Release the held lease, and any a try without an answer may have taken.
 
-        A failed release is only logged: the lease expires anyway.
+        It takes at most ``LEASE_RELEASE_TIMEOUT_SECONDS``. A failed release is
+        only logged: the lease expires anyway. Releasing a lease this holder
+        never got changes nothing.
         """
         self._stop_renewing()
-        session_id, self._session_id = self._session_id, None
-        if session_id is None:
+        session_ids = {*self._unanswered_session_ids}
+        if self._session_id is not None:
+            session_ids.add(self._session_id)
+        self._session_id = None
+        self._unanswered_session_ids.clear()
+        if not session_ids:
             return
         try:
             await asyncio.wait_for(
-                self._sessions.release_session_terminal_lease(session_id, self._holder.holder_id),
+                asyncio.gather(*(self._release_one(session_id) for session_id in session_ids)),
                 LEASE_RELEASE_TIMEOUT_SECONDS,
             )
-        except (DexServiceError, TimeoutError) as error:
+        except TimeoutError:
+            _LOGGER.warning("cannot release the session lease in time: sessions=%s", session_ids)
+
+    async def _release_one(self, session_id: str) -> None:
+        try:
+            await self._sessions.release_session_terminal_lease(session_id, self._holder.holder_id)
+        except DexServiceError as error:
             _LOGGER.warning("cannot release the session lease: session=%s: %s", session_id, error)
 
     async def _call_acquire(self, session_id: str) -> SessionTerminalLeaseResult:

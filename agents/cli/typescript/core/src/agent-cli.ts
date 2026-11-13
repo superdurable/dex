@@ -254,17 +254,21 @@ async function runAgentCliCommand(harness: AgentHarness, io: AgentCliIo): Promis
   const command = new AgentCliCommand(harness, io, parsed, log);
   ignoreWriteErrorsOfClosedTerminal(io.stdout);
   ignoreWriteErrorsOfClosedTerminal(io.stderr);
+  let exitCode: number;
   try {
-    return await command.run();
+    exitCode = await command.run();
   } catch (error: unknown) {
     if (error instanceof InitCancelledError) {
-      return error.exitCode;
+      exitCode = error.exitCode;
+    } else {
+      log(`dex-agents-${harness.name}: ${(await command.describeLostDexServer()) ?? describe(error)}`);
+      exitCode = command.exitCodeOf(error);
     }
-    log(`dex-agents-${harness.name}: ${(await command.describeLostDexServer()) ?? describe(error)}`);
-    return command.exitCodeOf(error);
   } finally {
     await command.close();
   }
+  // A chat that ended while a signal's cleanup ran exits as the signal does.
+  return command.signalExitCode ?? exitCode;
 }
 
 interface ParsedArguments {
@@ -311,6 +315,14 @@ interface HeldSessionLease {
   readonly renewal: SessionLeaseRenewal;
 }
 
+/** The sessions whose lease call got no answer; releasing them by holder ID is harmless. */
+interface UnansweredSessionLeases {
+  readonly client: Client;
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  readonly holderId: string;
+  readonly sessionIds: Set<string>;
+}
+
 /** Ctrl-C or the end of input during the `init` questions, after which nothing was written. */
 class InitCancelledError extends Error {
   public constructor(public readonly exitCode: number) {
@@ -341,6 +353,9 @@ export class AgentCliCommand {
   private libraryConsole: LibraryConsoleRedirection | undefined;
   /** The plain chat's held session lease, which {@link close} releases before the Worker stops. */
   private heldSessionLease: HeldSessionLease | undefined;
+  private unansweredSessionLeases: UnansweredSessionLeases | undefined;
+  private closing: Promise<void> | undefined;
+  private terminationSignal: "SIGTERM" | "SIGHUP" | undefined;
   private readonly terminationListeners = new Map<NodeJS.Signals, () => void>();
 
   public constructor(
@@ -443,8 +458,30 @@ export class AgentCliCommand {
     }
   }
 
-  public async close(): Promise<void> {
-    this.removeTerminationListeners();
+  /**
+   * Releases the lease, closes the Worker and the Client, and stops a started `dexcli dev`, once; a second call
+   * waits for the first.
+   */
+  public close(): Promise<void> {
+    this.closing ??= this.closeOnce();
+    return this.closing;
+  }
+
+  /** Returns 128 plus the number of the SIGTERM or SIGHUP that ends the command, or `undefined`. */
+  public get signalExitCode(): number | undefined {
+    return this.terminationSignal === undefined ? undefined : 128 + constants.signals[this.terminationSignal];
+  }
+
+  private async closeOnce(): Promise<void> {
+    try {
+      await this.closeResources();
+    } finally {
+      // Kept until here, so a second signal during the cleanup takes the force path, not Node's default.
+      this.removeTerminationListeners();
+    }
+  }
+
+  private async closeResources(): Promise<void> {
     await this.releaseHeldSessionLease();
     this.input?.close();
     await this.client?.close().catch(() => undefined);
@@ -528,8 +565,15 @@ export class AgentCliCommand {
     this.startedDexcliDev.releaseInterrupt();
     const holder = newSessionLeaseHolder(process.pid);
     const ttlSeconds = this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
-    const acquireFor = (id: string): ReturnType<typeof acquireSessionLease> =>
-      acquireSessionLease(opened.client, opened.flow, id, holder, ttlSeconds);
+    // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
+    const unanswered = new Set<string>();
+    this.unansweredSessionLeases = { client: opened.client, flow: opened.flow, holderId: holder.holderId, sessionIds: unanswered };
+    const acquireFor = async (id: string): ReturnType<typeof acquireSessionLease> => {
+      unanswered.add(id);
+      const result = await acquireSessionLease(opened.client, opened.flow, id, holder, ttlSeconds);
+      unanswered.delete(id);
+      return result;
+    };
     this.listenForTerminationSignals();
     if ((await this.waitForPlainChatLease(sessionId, () => acquireFor(sessionId))) === "interrupted") {
       return interruptedExitCode;
@@ -597,12 +641,23 @@ export class AgentCliCommand {
   /** Releases the plain chat's lease before the Worker and Client stop; expiry is the fallback. */
   private async releaseHeldSessionLease(): Promise<void> {
     const held = this.heldSessionLease;
+    const unanswered = this.unansweredSessionLeases;
     this.heldSessionLease = undefined;
-    if (held === undefined) {
-      return;
+    this.unansweredSessionLeases = undefined;
+    held?.renewal.stop();
+    const releases: Promise<void>[] = [];
+    if (held !== undefined) {
+      releases.push(releaseSessionLease(held.client, held.flow, held.sessionId, held.holder.holderId));
     }
-    held.renewal.stop();
-    await releaseSessionLease(held.client, held.flow, held.sessionId, held.holder.holderId);
+    for (const sessionId of unanswered?.sessionIds ?? []) {
+      if (unanswered !== undefined && sessionId !== held?.sessionId) {
+        releases.push(releaseSessionLease(unanswered.client, unanswered.flow, sessionId, unanswered.holderId));
+      }
+    }
+    if (releases.length > 0) {
+      this.writeLogLine(`releasing the session lease: sessions=${releases.length}`);
+    }
+    await Promise.all(releases);
   }
 
   /**
@@ -612,13 +667,14 @@ export class AgentCliCommand {
   private listenForTerminationSignals(): void {
     // This sequence replaces the started server's own, which would stop it before the release.
     this.startedDexcliDev.releaseSignals();
-    let isExiting = false;
     for (const signal of ["SIGTERM", "SIGHUP"] as const) {
       const listener = (): void => {
-        if (isExiting) {
+        if (this.terminationSignal !== undefined) {
+          // A second signal means: stop waiting, as the started server's own stop does.
+          this.startedDexcliDev.killAndExit(128 + constants.signals[this.terminationSignal]);
           return;
         }
-        isExiting = true;
+        this.terminationSignal = signal;
         void this.exitOnTerminationSignal(signal);
       };
       this.terminationListeners.set(signal, listener);
@@ -631,6 +687,7 @@ export class AgentCliCommand {
     for (const stream of [process.stdin, process.stdout, process.stderr]) {
       stream.on("error", () => undefined);
     }
+    this.writeLogLine(`ending the command on ${signal}`);
     try {
       await this.close();
       await waitForQueuedOutput([this.io.stdout, this.io.stderr]);

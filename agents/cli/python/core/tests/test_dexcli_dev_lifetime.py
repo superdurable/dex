@@ -153,6 +153,8 @@ async def test_a_termination_signal_stops_the_dexcli_dev_the_command_started(
 async def test_a_termination_signal_releases_the_session_lease_before_the_server_stops(
     private_ports_home: CliHome, signal_number: signal.Signals
 ) -> None:
+    # An hour-long lease, so only an explicit release lets the later command in.
+    private_ports_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = "3600"
     child = private_ports_home.spawn("--plain")
     await asyncio.to_thread(child.expect, r"\r\nSession (\S+)\r?\n")
     session_id = str(child.match.group(1))
@@ -161,7 +163,7 @@ async def test_a_termination_signal_releases_the_session_lease_before_the_server
     await expect(child, _STOPPED_LINE)
     assert await wait_for_exit(child) == 128 + signal_number
 
-    # A lease left behind would make this command wait for its 15-second expiry.
+    # A lease left behind would make this command wait for an hour.
     completed = await asyncio.to_thread(
         private_ports_home.run, "--resume", session_id, stdin="/exit\n"
     )

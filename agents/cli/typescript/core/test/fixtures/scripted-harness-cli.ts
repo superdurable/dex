@@ -9,6 +9,10 @@
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
 import { existsSync, writeFileSync, writeSync } from "node:fs";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+
+import { Client } from "@superdurable/dex";
 
 import { processAgentCliIo, runAgentCli, type AgentHarness } from "../../src/index.js";
 import {
@@ -81,6 +85,31 @@ if (launcherCanaryFile !== undefined && process.argv[2] !== "__worker-host") {
     writeFileSync(`${launcherCanaryFile}.written`, "");
   }, 100);
   timer.unref();
+}
+
+// Holds a lease RPC at a gate: a release before it leaves, an acquire after it answered.
+const leaseGateDirectory = process.env.DEX_AGENTS_CLI_TEST_LEASE_GATE_DIR;
+if (leaseGateDirectory !== undefined) {
+  const invokeRPC = Client.prototype.invokeRPC;
+  const passGate = async (name: string): Promise<void> => {
+    writeFileSync(join(leaseGateDirectory, `${name}.reached`), "");
+    while (!existsSync(join(leaseGateDirectory, `${name}.go`))) {
+      await delay(20);
+    }
+  };
+  Client.prototype.invokeRPC = async function gatedInvokeRPC(this: Client, ...callArguments: unknown[]): Promise<unknown> {
+    const input = callArguments[2];
+    const isLeaseInput = typeof input === "object" && input !== null && "holderId" in input;
+    const isAcquire = isLeaseInput && "ttlSeconds" in input;
+    if (isLeaseInput && !isAcquire) {
+      await passGate("release");
+    }
+    const output: unknown = await (invokeRPC as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
+    if (isAcquire) {
+      await passGate("acquire");
+    }
+    return output;
+  } as typeof invokeRPC;
 }
 
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;

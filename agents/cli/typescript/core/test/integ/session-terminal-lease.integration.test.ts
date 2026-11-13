@@ -7,7 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { PrivateDexEngine, pollUntil } from "@superdurable/dex-agents/testing";
@@ -34,6 +36,8 @@ import {
 const quietConfig = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
 /** A short TTL, so the tests that wait for an expiry take seconds. */
 const shortTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3" };
+/** An hour-long lease, so only an explicit release frees a session within a test. */
+const longLease = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3600" };
 
 describe("one terminal per session", () => {
   let engine: PrivateDexEngine;
@@ -220,6 +224,28 @@ describe("one terminal per session", () => {
     await second.terminal.waitFor(tookOverLine(sessionId));
     assert.equal(await second.waitForExit(), 0, second.terminal.all);
     assert.equal(fake.launchCount, 1);
+  });
+
+  test("Ctrl-C after the first lease call took the lease but before its answer arrived releases it", async () => {
+    const home = newHome();
+    const first = start(home);
+    const sessionId = await first.waitForSession();
+    first.writeLine("/exit");
+    assert.equal(await first.waitForExit(), 0);
+    const gate = join(home.directory, "lease-gate");
+    mkdirSync(gate);
+    writeFileSync(join(gate, "release.go"), "");
+    const second = start(home, ["--resume", sessionId], { ...longLease, DEX_AGENTS_CLI_TEST_LEASE_GATE_DIR: gate });
+    await pollUntil(() => existsSync(join(gate, "acquire.reached")) || undefined, {
+      timeoutMs: 30_000,
+      description: "the first lease call to take the lease",
+    });
+    assert.equal((await readLease(home, sessionId))?.processId, second.pid);
+
+    second.interrupt();
+    assert.equal(await second.waitForExit(), 130);
+    assert.doesNotMatch(second.stderr.all, /at .*\.js:\d+/);
+    assert.equal(await readLease(home, sessionId), undefined, "the interrupted command released what it took");
   });
 
   test("a Worker host that dies while the launcher waits for the lease ends the command with one line", async () => {

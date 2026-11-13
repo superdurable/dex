@@ -203,6 +203,11 @@ export class CliProcess {
     this.child.stdin?.write(`${line}\n`);
   }
 
+  /** Ends stdin, as Ctrl-D at a terminal does. */
+  public endInput(): void {
+    this.child.stdin?.end();
+  }
+
   /** Sends SIGINT, as Ctrl-C does. */
   public interrupt(): void {
     this.child.kill("SIGINT");

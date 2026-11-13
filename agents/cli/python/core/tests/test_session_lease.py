@@ -21,7 +21,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pexpect
+from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob_cache
 
+from dex_agents import SESSION_TERMINAL_LEASE
+from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_core.session_lease import (
     DEFAULT_COLUMNS,
     FRAME_INTERVAL_SECONDS,
@@ -36,6 +39,8 @@ from dex_agents_cli_core.session_lease import (
 )
 from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
 from tests.fake_terminal_ui import FakeTerminalUi, chat_transcript, worker_host_pid
+from tests.scripted_cli import LEASE_GATE_ENVIRONMENT_VARIABLE
+from tests.scripted_harness import SCRIPTED_FLOW_TYPE, build_session_flow_without_tools
 from tests.test_terminal_ui_handoff import pause, start_chat
 
 AGENTS_DIR = Path(__file__).resolve().parents[4]
@@ -329,24 +334,57 @@ async def test_a_session_switch_in_the_terminal_ui_waits_for_the_session_and_rel
     assert await wait_for_exit(reopened) == 0
 
 
-async def test_ctrl_c_during_a_slow_first_lease_call_exits_130_without_a_traceback(
-    cli_home: CliHome,
+async def is_lease_free(cli_home: CliHome, tmp_path: Path, session_id: str) -> bool:
+    """Return whether the session has no terminal lease; the read needs no Worker."""
+    workspace = cli_home.home / "dex-agent-workspace"
+    flow = build_session_flow_without_tools(
+        session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    )
+    cache_dir = tmp_path / "reader-cache"
+    cache_dir.mkdir(exist_ok=True)
+    blob_cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 * 1024 * 1024))
+    client = AsyncClient(
+        Registry([flow], allow_async_handlers=True),
+        blob_cache,
+        ClientOptions(server_address=cli_home.address),
+    )
+    try:
+        values = await client.get_attributes(session_id, SESSION_TERMINAL_LEASE)
+    finally:
+        await client.close()
+        blob_cache.close()
+    return values.get(SESSION_TERMINAL_LEASE) is None
+
+
+async def test_ctrl_c_after_the_first_lease_call_took_the_lease_releases_it_and_exits_130(
+    cli_home: CliHome, tmp_path: Path
 ) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
     first, session_id = await open_first_chat(cli_home)
-    # A paused holder's Worker takes the lease call and never answers it.
-    os.kill(first.pid, signal.SIGSTOP)
-    try:
-        second = cli_home.spawn("--plain", "--resume", session_id)
-        await expect(second, "Using the running dexcli dev")
-        await asyncio.sleep(3)
-        second.sendintr()
-        assert await wait_for_exit(second, timeout=20) == 130
-        assert "Traceback" not in str(second.before)
-    finally:
-        os.kill(first.pid, signal.SIGCONT)
     first.sendeof()
     assert await wait_for_exit(first) == 0
+    gate = tmp_path / "lease-gate"
+    gate.mkdir()
+    (gate / "release.go").touch()
+    # An hour-long lease, so only an explicit release frees the session.
+    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = "3600"
+    cli_home.extra_environment[LEASE_GATE_ENVIRONMENT_VARIABLE] = str(gate)
+    second = cli_home.spawn("--plain", "--resume", session_id)
+    await wait_for_marker(gate / "acquire.reached")
+    assert not await is_lease_free(cli_home, tmp_path, session_id)
+
+    second.sendintr()
+    assert await wait_for_exit(second, timeout=20) == 130
+    assert "Traceback" not in str(second.before)
+    assert await is_lease_free(cli_home, tmp_path, session_id)
+
+
+async def wait_for_marker(path: Path) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 60
+    while not path.exists():
+        assert loop.time() < deadline, f"{path} never appeared"
+        await asyncio.sleep(0.05)
 
 
 async def test_a_worker_host_that_dies_while_the_launcher_waits_ends_the_command(
