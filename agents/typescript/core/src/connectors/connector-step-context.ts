@@ -114,7 +114,8 @@ export interface ConnectorStepHeartbeats {
  * agent session's tool Step keeps one text checkpoint per attempt and repeats it on every background heartbeat.
  * This context stores each heartbeat value as that text checkpoint, as JSON with sorted keys, and parses it on the
  * next attempt, so a marker survives the session's own heartbeats and a retry can read it. It exposes only the
- * members the fence uses, plus the identities a Call needs; the agent core's conformance tests pin that list.
+ * members the fence uses, plus the identities and times released connectors read; the agent core's conformance
+ * tests pin that list.
  *
  * `ConnectorToolSource` builds one per tool Step attempt. Applications do not construct it.
  * @since 0.4.0
@@ -140,6 +141,22 @@ export class ConnectorStepContext {
   /** The Flow run ID. */
   public get runId(): string {
     return this.context.runId;
+  }
+
+  /**
+   * When the current Flow run started, the same on every Step and attempt of the run.
+   * @since 0.6.5
+   */
+  public get flowStartedAt(): Date {
+    return this.context.flowStartedAt;
+  }
+
+  /**
+   * When the tool Step's first attempt became pending, the same on every attempt.
+   * @since 0.6.5
+   */
+  public get firstAttemptAt(): Date {
+    return this.context.firstAttemptAt;
   }
 
   /** The tool Step's execution ID, the same on every attempt. */

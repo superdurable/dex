@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import type { AsyncContext } from "@superdurable/dex";
-import { createCall, deriveCallID, type Call } from "@superdurable/connectors-sdk";
+import { createCall, deriveCallID, newQueryBranch, type Call, type QueryAttempt } from "@superdurable/connectors-sdk";
 import { Fence } from "@superdurable/connectors-sdk/singledispatch";
 
 import {
@@ -32,6 +32,7 @@ import {
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
 import { isProvenNotSent, lowerCamelToSnake, mayHaveDispatched } from "../../src/connectors/connector-tool-source.js";
+import type { DeferredToolExecution } from "../../src/agent-framework-runner.js";
 import {
   buildConnectorToolApprovalDisplay,
   isCredentialLikeName,
@@ -390,7 +391,7 @@ describe("connector tool approval", () => {
 });
 
 describe("the Step context the single-dispatch fence uses", () => {
-  test("it exposes only what the fence reads, plus the Call identities", () => {
+  test("it exposes only what the fence reads, plus the identities and times connectors read", () => {
     const members = Object.getOwnPropertyNames(ConnectorStepContext.prototype)
       .filter((name) => name !== "constructor")
       .sort();
@@ -398,13 +399,42 @@ describe("the Step context the single-dispatch fence uses", () => {
       "attempt",
       "cancellationSignal",
       "deadline",
+      "firstAttemptAt",
       "flowId",
+      "flowStartedAt",
       "getLastHeartbeatValue",
       "hasLastHeartbeatValue",
       "recordHeartbeat",
       "runId",
       "stepExecutionId",
     ]);
+  });
+
+  test("an operation reads the Flow start and first attempt times through ConnectorToolSource", async () => {
+    const source = new ConnectorToolSource([
+      connectorTool(new StepTimesBalanceOperation(), ledgerConnection, {
+        manifest,
+        inputValidator: GetBalanceInputSchema,
+        name: "get_balance",
+      }),
+    ]);
+    const flowStartedAt = new Date("2026-11-13T08:00:00Z");
+    const firstAttemptAt = new Date("2026-11-13T08:00:05Z");
+    const live = {
+      flowId: "session-1",
+      runId: "run-1",
+      flowStartedAt,
+      stepExecutionId: "CallTool-3",
+      firstAttemptAt,
+      attempt: 1,
+      deadline: new Date(Date.now() + 60_000),
+      cancellationSignal: new AbortController().signal,
+    } as unknown as AsyncContext;
+    const result = await source.executeDeferredToolCall(stepTimesExecution(live));
+    assert.deepEqual(JSON.parse(result.output), {
+      accountId: "acct-1",
+      amount: firstAttemptAt.getTime() - flowStartedAt.getTime(),
+    });
   });
 
   test("every fence method keeps its marker through the session checkpoint", async () => {
@@ -617,4 +647,55 @@ function fencedCallWithContext(attempt: number, previous: string | undefined, ch
     operationId: "postNote",
   });
   return { call, context };
+}
+
+/** getBalance that reports the Step times it reads, as released connectors read them. */
+class StepTimesBalanceOperation extends GetBalanceOperation {
+  public constructor() {
+    super(provider);
+  }
+
+  public override async invoke(
+    call: Call,
+    input: { readonly accountId: string },
+  ): Promise<QueryAttempt<{ accountId: string; amount: number }>> {
+    const amount = call.context.firstAttemptAt.getTime() - call.context.flowStartedAt.getTime();
+    return newQueryBranch("found", { accountId: input.accountId, amount });
+  }
+}
+
+function stepTimesExecution(context: AsyncContext): DeferredToolExecution {
+  return {
+    flowId: "session-1",
+    toolCall: {
+      toolCallId: "call-1",
+      turnId: "turn-1",
+      toolName: "get_balance",
+      arguments: '{"accountId": "acct-1"}',
+      effect: "read",
+      requiresApproval: false,
+      status: "approved",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      toolSourceReference: JSON.stringify({ tool: "get_balance" }),
+    },
+    idempotencyKey: "session-1/turn-1/call-1",
+    attempt: 1,
+    events: {
+      turnId: "turn-1",
+      attempt: 1,
+      writeEvent: () => undefined,
+      writeTextDelta: () => undefined,
+      writeReasoningDelta: () => undefined,
+      writeToolCallStarted: () => undefined,
+      writeToolCallFinished: () => undefined,
+    },
+    cancellationSignal: context.cancellationSignal,
+    deadline: context.deadline,
+    heartbeat: () => Promise.resolve(),
+    supportsToolTasks: false,
+    context,
+  } as unknown as DeferredToolExecution;
 }
