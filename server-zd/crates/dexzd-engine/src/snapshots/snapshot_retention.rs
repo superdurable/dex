@@ -31,7 +31,7 @@ const CANDIDATES_PER_RUN: usize = 64;
 /// After this, an eventually consistent refresh starts no new page and resumes in the next run.
 const EVENTUAL_LISTING_DURATION_PER_RUN: Duration = Duration::from_secs(10);
 
-/// Manifest GETs and HEADs of one eventually consistent run; later runs read the rest first.
+/// Queued manifest GETs and HEADs of one eventually consistent run; later runs read the rest first.
 const EVENTUAL_MANIFEST_READS_PER_RUN: usize = 256;
 
 /// Keeps the newest snapshots of this node across every lineage and deletes the rest.
@@ -188,10 +188,9 @@ impl SnapshotRetention {
 
     /// Deletes listed objects that stayed unprotected for the deletion delay on the monotonic clock.
     ///
-    /// A run sends at most [`EVENTUAL_MANIFEST_READS_PER_RUN`] manifest GETs and HEADs. A run
-    /// that leaves a read for a later run starts no timer and deletes nothing, so every object
-    /// stays until the manifests that may list it are read. Returns the kept snapshots, oldest
-    /// first.
+    /// Queued manifest reads are bounded per run; deletion waits until every queue drains.
+    ///
+    /// Returns the kept snapshots, oldest first.
     async fn run_eventual_once<'catalog>(
         &self,
         catalog: &'catalog mut SnapshotCatalog,
@@ -220,8 +219,8 @@ impl SnapshotRetention {
         let mut budget = ManifestReadBudget {
             remaining_reads: EVENTUAL_MANIFEST_READS_PER_RUN,
         };
-        let has_read_protected = self.read_protected_manifests(catalog, &mut budget).await?;
-        if !has_read_protected || !self.read_queued_manifests(catalog, &mut budget).await? {
+        self.read_protected_manifests(catalog).await?;
+        if !self.read_queued_manifests(catalog, &mut budget).await? {
             tracing::debug!(
                 unread_manifests = catalog.unread_listed_manifest_keys.len(),
                 unchecked_manifests = catalog.unchecked_unlisted_manifest_keys.len(),
@@ -576,12 +575,11 @@ impl SnapshotRetention {
 
     /// Reads pointed manifests and unresolved manifest writes that the catalog lacks, as listings can hide them.
     ///
-    /// Returns whether every such read fit in `budget`.
+    /// These reads bypass the read budget: they are few, and counting them could starve queued reads.
     async fn read_protected_manifests(
         &self,
         catalog: &mut SnapshotCatalog,
-        budget: &mut ManifestReadBudget,
-    ) -> Result<bool, SnapshotError> {
+    ) -> Result<(), SnapshotError> {
         let node_prefix = format!("snapshot/{}/", self.node_id);
         let pointed_keys: Vec<String> = catalog
             .protection
@@ -590,17 +588,11 @@ impl SnapshotRetention {
             .cloned()
             .collect();
         for key in pointed_keys {
-            if !budget.try_spend_read() {
-                return Ok(false);
-            }
             if let Some(manifest) = self.read_manifest(&key).await? {
                 catalog.manifests.insert(key, manifest);
             }
         }
         for key in catalog.protection.unresolved_manifest_keys() {
-            if !budget.try_spend_read() {
-                return Ok(false);
-            }
             // A write with a failed upload can land after the failure was reported.
             match self.read_manifest(&key).await? {
                 Some(manifest) => {
@@ -614,7 +606,7 @@ impl SnapshotRetention {
                 ),
             }
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Returns the validated manifest at `key`, or `None` when it does not exist.

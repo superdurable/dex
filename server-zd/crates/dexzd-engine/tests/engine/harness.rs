@@ -624,13 +624,26 @@ impl TestCluster {
         applier: Arc<CountingApplier>,
         recording_hooks: Arc<RecordingCommandAndEffectHooks>,
     ) -> Result<TestNode, EngineStartError> {
+        let object_store = self.object_store.clone();
+        self.start_on_object_store(config, applier, recording_hooks, object_store)
+            .await
+    }
+
+    /// Starts a node whose engine uses `object_store`, such as a wrapper of the cluster's store.
+    pub(crate) async fn start_on_object_store(
+        &mut self,
+        config: &EngineNodeConfig,
+        applier: Arc<CountingApplier>,
+        recording_hooks: Arc<RecordingCommandAndEffectHooks>,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<TestNode, EngineStartError> {
         let factory_runtime = recording_hooks.clone();
         let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
         let node = EngineNode::start(
             config,
             EngineNodeDependencies {
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
-                object_store: self.object_store.clone(),
+                object_store,
                 clock: self.clock.clone(),
                 applier: applier.clone(),
                 id_source: Arc::new(SystemEngineIdSource),

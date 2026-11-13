@@ -9,13 +9,20 @@
 //! Snapshot retention of a node whose object storage lists eventually, as Tencent COS does.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use dexzd_engine::{EngineNodeConfig, LocalStoreConfig};
-use dexzd_object_store::{ListingConsistency, ObjectStore};
+use dexzd_object_store::{
+    ByteRange, InMemoryObjectStore, ListingConsistency, ObjectContent, ObjectListing,
+    ObjectMetadata, ObjectStore, ObjectStoreResult, WriteCondition, WriteOutcome,
+};
 use tokio::time::Instant;
 
-use crate::harness::TestCluster;
+use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster, TestNode};
 
 const DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
 /// Virtual time between two reads of the snapshot objects while retention waits.
@@ -32,6 +39,112 @@ fn eventual_config(cluster: &TestCluster) -> EngineNodeConfig {
     config.snapshots.retry_delay = Duration::from_secs(24 * 60 * 60);
     config.snapshots.log_threshold_bytes = u64::MAX;
     config
+}
+
+/// Records the paused-clock instant of the first delete that the engine issues for each key.
+struct DeleteTimingStore {
+    inner: Arc<InMemoryObjectStore>,
+    first_delete_at: Mutex<BTreeMap<String, Instant>>,
+}
+
+impl DeleteTimingStore {
+    fn record_delete(&self, key: &str) {
+        self.first_delete_at
+            .lock()
+            .expect("delete time lock")
+            .entry(key.to_owned())
+            .or_insert_with(Instant::now);
+    }
+
+    fn first_delete_at(&self, key: &str) -> Option<Instant> {
+        self.first_delete_at
+            .lock()
+            .expect("delete time lock")
+            .get(key)
+            .copied()
+    }
+}
+
+#[async_trait]
+impl ObjectStore for DeleteTimingStore {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.inner.put(key, body, condition).await
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.inner.put_file(key, path, condition).await
+    }
+
+    async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.inner.get(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.inner.get_range(key, range).await
+    }
+
+    async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
+        self.inner.head(key).await
+    }
+
+    async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
+        self.record_delete(key);
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
+        for key in keys {
+            self.record_delete(key);
+        }
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> ObjectStoreResult<ObjectListing> {
+        self.inner.list(prefix, start_after, max_keys).await
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
+}
+
+async fn start_timed_node(
+    cluster: &mut TestCluster,
+    config: &EngineNodeConfig,
+    delete_timing_store: &Arc<DeleteTimingStore>,
+) -> TestNode {
+    cluster
+        .start_on_object_store(
+            config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
+            delete_timing_store.clone(),
+        )
+        .await
+        .expect("node starts")
 }
 
 async fn snapshot_objects(cluster: &TestCluster) -> BTreeSet<String> {
@@ -129,13 +242,17 @@ async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_
     let started = Instant::now();
     let mut cluster = TestCluster::new();
     let config = eventual_config(&cluster);
-    let first = cluster.start_with(&config).await.expect("node starts");
+    let delete_timing_store = Arc::new(DeleteTimingStore {
+        inner: cluster.object_store.clone(),
+        first_delete_at: Mutex::new(BTreeMap::new()),
+    });
+    let first = start_timed_node(&mut cluster, &config, &delete_timing_store).await;
     first.commit_prompt("eventual-flow", 1).await;
     first.node.take_snapshot().await.expect("snapshot succeeds");
     first.node.shutdown().await.expect("lease released");
     let former_objects = snapshot_objects(&cluster).await;
 
-    let second = cluster.start_with(&config).await.expect("node restores");
+    let second = start_timed_node(&mut cluster, &config, &delete_timing_store).await;
     second.commit_prompt("eventual-flow", 1).await;
     let former_pointer_replaced_after = Instant::now();
     second
@@ -226,30 +343,17 @@ async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_
         let objects = read_snapshot_objects(&cluster, tracked_keys.iter()).await;
         let read_at = Instant::now();
         schedule.assert_on_schedule("after reading the snapshot objects");
-        for group in &groups {
-            let candidate_since = group.protected_until_at_least;
-            for key in &group.keys {
-                if objects.contains(key) {
-                    assert!(
-                        !first_missing_at.contains_key(key),
-                        "{key} came back after it was gone"
-                    );
-                    continue;
-                }
-                first_missing_at
-                    .entry(key.clone())
-                    .or_insert_with(|| read_at - started);
+        for key in &tracked_keys {
+            if objects.contains(key) {
                 assert!(
-                    read_at >= candidate_since + DELETION_DELAY,
-                    "{} object {key} went early: {:?} after the failure was reported, {:?} \
-                     after the failing snapshot started, {:?} after its protection could end \
-                     at the earliest",
-                    group.name,
-                    read_at.saturating_duration_since(failure_reported),
-                    read_at.saturating_duration_since(failing_snapshot_started),
-                    read_at.saturating_duration_since(candidate_since),
+                    !first_missing_at.contains_key(key),
+                    "{key} came back after it was gone"
                 );
+                continue;
             }
+            first_missing_at
+                .entry(key.clone())
+                .or_insert_with(|| read_at - started);
         }
     }
 
@@ -259,6 +363,25 @@ async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_
             !objects.contains(key),
             "{key} stayed past twice the delay; first missing at {first_missing_at:?}"
         );
+    }
+    // The issued delete, not a later poll, shows when an object went.
+    for group in &groups {
+        let candidate_since = group.protected_until_at_least;
+        for key in &group.keys {
+            let deleted_at = delete_timing_store
+                .first_delete_at(key)
+                .unwrap_or_else(|| panic!("{} object {key} has no issued delete", group.name));
+            assert!(
+                deleted_at >= candidate_since + DELETION_DELAY,
+                "{} object {key} went early: {:?} after the failure was reported, {:?} after \
+                 the failing snapshot started, {:?} after its protection could end at the \
+                 earliest",
+                group.name,
+                deleted_at.saturating_duration_since(failure_reported),
+                deleted_at.saturating_duration_since(failing_snapshot_started),
+                deleted_at.saturating_duration_since(candidate_since),
+            );
+        }
     }
     let pointed_key = pointed_manifest_key(&cluster).await;
     assert!(objects.contains(&pointed_key), "{objects:?}");

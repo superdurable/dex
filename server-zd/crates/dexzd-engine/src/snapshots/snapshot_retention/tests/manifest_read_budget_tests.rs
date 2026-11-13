@@ -36,6 +36,8 @@ const DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
 const FAR_FUTURE_UNIX_MICROS: i64 = i64::MAX / 2;
 /// Unprotected manifests a former process left; reading them all takes three runs.
 const FORMER_MANIFEST_COUNT: u64 = 2 * EVENTUAL_MANIFEST_READS_PER_RUN as u64 + 88;
+/// Missing manifest writes that every run rereads; more than one read budget.
+const UNRESOLVED_WRITE_COUNT: u64 = 2 * EVENTUAL_MANIFEST_READS_PER_RUN as u64;
 
 /// Counts the GETs and HEADs that reach the inner store, and fails one chosen GET once.
 struct ReadCountingStore {
@@ -239,7 +241,7 @@ async fn eventual_retention_bounds_manifest_reads_and_deletes_only_after_reading
     };
     let mut catalog = SnapshotCatalog::default();
 
-    // The pointed manifest and the former ones need 601 reads, so the third run reads the last.
+    // The former manifests need 600 queued reads, so the third run reads the last.
     for run_number in 1..=2 {
         let reads = run_counting_reads(
             &retention,
@@ -249,9 +251,11 @@ async fn eventual_retention_bounds_manifest_reads_and_deletes_only_after_reading
             &fence,
         )
         .await;
+        let pointed_reads = usize::from(run_number == 1);
         assert_eq!(
-            reads, EVENTUAL_MANIFEST_READS_PER_RUN,
-            "run {run_number} reads one budget of manifests"
+            reads,
+            EVENTUAL_MANIFEST_READS_PER_RUN + pointed_reads,
+            "run {run_number} reads one budget of queued manifests and the unread pointed one"
         );
         tokio::time::advance(2 * DELETION_DELAY).await;
     }
@@ -269,7 +273,7 @@ async fn eventual_retention_bounds_manifest_reads_and_deletes_only_after_reading
     .await;
     assert_eq!(
         reads,
-        FORMER_MANIFEST_COUNT as usize + 1 - 2 * EVENTUAL_MANIFEST_READS_PER_RUN,
+        FORMER_MANIFEST_COUNT as usize - 2 * EVENTUAL_MANIFEST_READS_PER_RUN,
         "the third run reads the rest and checks no file candidate yet"
     );
     for (key, file) in &former_objects {
@@ -306,6 +310,79 @@ async fn eventual_retention_bounds_manifest_reads_and_deletes_only_after_reading
     assert!(exists(&inner, &newest_former_key).await);
     assert!(exists(&inner, &pointed_key).await);
     assert!(exists(&inner, &pointed_file).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn queued_manifest_reads_drain_while_many_manifest_writes_stay_unresolved() {
+    let inner = Arc::new(InMemoryObjectStore::new());
+    let lineage = Uuid::now_v7();
+    let (pointed_key, _) = publish_with_file(&inner, lineage, 1).await;
+    let former_lineage = Uuid::now_v7();
+    let mut former_keys = Vec::new();
+    for snapshot_number in 1..=FORMER_MANIFEST_COUNT {
+        former_keys.push(
+            publish_with_file(&inner, former_lineage, snapshot_number)
+                .await
+                .0,
+        );
+    }
+    let counting_store = Arc::new(ReadCountingStore::new(inner.clone()));
+    let fence = test_fence(inner.clone()).await;
+    let retention = SnapshotRetention {
+        object_store: counting_store.clone(),
+        node_id: "node-a".to_owned(),
+        retained_count: 1,
+        deletion_delay: DELETION_DELAY,
+        listing_consistency: ListingConsistency::Eventual,
+    };
+    let mut catalog = SnapshotCatalog::default();
+    let unresolved_lineage = Uuid::now_v7();
+    for snapshot_number in 1..=UNRESOLVED_WRITE_COUNT {
+        let manifest = SnapshotManifest {
+            node_id: "node-a".to_owned(),
+            lineage_id: unresolved_lineage.as_bytes().to_vec(),
+            snapshot_number,
+            ..Default::default()
+        };
+        catalog.record_failed_manifest_upload(
+            format!("snapshot/node-a/{unresolved_lineage}/manifest/{snapshot_number:020}"),
+            &manifest,
+            tokio::time::Instant::now(),
+        );
+    }
+
+    // Each run rereads every missing unresolved write, yet queued reads still advance by a budget.
+    for run_number in 1..=3 {
+        run_counting_reads(
+            &retention,
+            &counting_store,
+            &mut catalog,
+            &pointed_key,
+            &fence,
+        )
+        .await;
+        let queued_reads = catalog.unread_listed_manifest_keys.len()
+            + catalog.unchecked_unlisted_manifest_keys.len();
+        let expected_queued_reads = (FORMER_MANIFEST_COUNT as usize)
+            .saturating_sub(run_number * EVENTUAL_MANIFEST_READS_PER_RUN);
+        assert_eq!(
+            queued_reads, expected_queued_reads,
+            "run {run_number} drains one budget of queued reads"
+        );
+        tokio::time::advance(DELETION_DELAY / 4).await;
+    }
+    assert_eq!(
+        catalog.protection.unresolved_manifest_keys().len(),
+        UNRESOLVED_WRITE_COUNT as usize,
+        "no unresolved write expired during the test"
+    );
+    for key in &former_keys {
+        assert!(catalog.manifests.contains_key(key), "{key} was read");
+        assert!(
+            exists(&inner, key).await,
+            "{key} became a candidate just now"
+        );
+    }
 }
 
 #[tokio::test(start_paused = true)]

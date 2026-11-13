@@ -530,11 +530,15 @@ that ever had versioning, and COS replication needs versioning. To back up:
 
 1. Stop every node that uses the prefix, or make sure that no server writes to
    it.
-2. Wait a few seconds, so that COS stops returning cached listings.
+2. Wait at least one minute.
 3. Download every object under the prefix.
-4. Verify the download. List the prefix twice, a few seconds apart, and compare
-   both listings with the downloaded objects. Download what is missing and
-   verify again. Rely on the backup only when both listings match it.
+4. Verify the download. List the prefix twice, at least one minute apart.
+   Compare both listings with the downloaded objects. Download what is missing
+   and verify again.
+
+COS listings are eventually consistent, and COS documents no bound on how long
+a listing can lag. The waits and the second listing reduce the chance of a
+missed object. They cannot rule it out.
 
 The copy holds the newest version of the cluster manifest, the snapshot that
 it points to, and the log after that snapshot. To restore it, upload every
