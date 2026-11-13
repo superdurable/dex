@@ -25,7 +25,7 @@ npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex
 The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `@mastra/core` is a peer dependency too.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.0, and
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.1, and
 `@mastra/core` `^1.81.0` (the tests run 1.81.0).
 
 Develop the package inside this repository with `./ci.sh`. There

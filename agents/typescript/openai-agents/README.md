@@ -27,7 +27,7 @@ npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdura
 The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `@openai/agents` is a peer dependency too.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.0, and
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.1, and
 `@openai/agents` `^0.21.0` (tested with 0.21.0).
 
 Develop the package inside this repository with `./ci.sh`. There
