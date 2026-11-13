@@ -11,20 +11,23 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use dexzd_metrics::{VersionedListingStaleCounters, VersionedListingStaleSite};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::task::JoinHandle;
 
 use crate::aliyun_oss::version_keys::{version_generation, version_object_key, version_prefix};
-use crate::aliyun_oss::version_reads::read_listed_header;
+use crate::aliyun_oss::version_reads::{read_listed_header, record_stale_version_listing};
 use crate::{ObjectStore, ObjectStoreOperation, STARTUP_PROBE_OBJECT_KEY_PREFIX};
 
-/// How long a version must have been superseded before reclamation deletes it.
+/// How long a version must have been superseded before reclamation deletes it, in production.
 ///
 /// The age is measured between last-write times that the store records, so host clock skew
 /// does not shorten it. It makes it unlikely that a writer confirms its version only after the
 /// next generation was reclaimed, which leaves its outcome unknown.
-pub const MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION: Duration = Duration::from_secs(60);
+///
+/// It also keeps replacements safe while listings lag behind writes by less than this age.
+pub const MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION: Duration = Duration::from_secs(10 * 60);
 
 /// Pending requests beyond this are dropped; a later confirmed write reclaims the same versions.
 const RECLAMATION_QUEUE_CAPACITY: usize = 256;
@@ -39,6 +42,13 @@ struct ReclamationRequest {
     confirmed_generation: u64,
 }
 
+/// What a reclamation pass needs besides its request.
+struct ReclamationContext {
+    inner: Arc<dyn ObjectStore>,
+    minimum_superseded_age: Duration,
+    listing_stale: VersionedListingStaleCounters,
+}
+
 /// Owns the background task that reclaims superseded versions.
 ///
 /// Dropping the reclaimer aborts the task and any reclamation in progress.
@@ -50,12 +60,23 @@ pub(super) struct VersionReclaimer {
 impl VersionReclaimer {
     /// Starts the reclamation task on the current Tokio runtime.
     ///
+    /// It deletes a version only after it was superseded for `minimum_superseded_age`.
+    ///
     /// # Panics
     ///
     /// Panics when called outside a Tokio runtime.
-    pub(super) fn start(inner: Arc<dyn ObjectStore>) -> Self {
+    pub(super) fn start(
+        inner: Arc<dyn ObjectStore>,
+        minimum_superseded_age: Duration,
+        listing_stale: VersionedListingStaleCounters,
+    ) -> Self {
         let (requests, receiver) = mpsc::channel(RECLAMATION_QUEUE_CAPACITY);
-        let task = tokio::spawn(run_reclamation(inner, receiver));
+        let context = ReclamationContext {
+            inner,
+            minimum_superseded_age,
+            listing_stale,
+        };
+        let task = tokio::spawn(run_reclamation(context, receiver));
         Self { requests, task }
     }
 
@@ -97,20 +118,21 @@ impl Drop for VersionReclaimer {
 }
 
 async fn run_reclamation(
-    inner: Arc<dyn ObjectStore>,
+    context: ReclamationContext,
     mut receiver: mpsc::Receiver<ReclamationRequest>,
 ) {
     while let Some(request) = receiver.recv().await {
-        reclaim_superseded_versions(inner.as_ref(), &request).await;
+        reclaim_superseded_versions(&context, &request).await;
     }
 }
 
 /// Deletes the versions of one key that `request` makes obsolete; failures only keep them.
-async fn reclaim_superseded_versions(inner: &dyn ObjectStore, request: &ReclamationRequest) {
+async fn reclaim_superseded_versions(context: &ReclamationContext, request: &ReclamationRequest) {
+    let inner = context.inner.as_ref();
     let logical_key = request.logical_key.as_str();
     let confirmed_generation = request.confirmed_generation;
     let prefix = version_prefix(logical_key);
-    let minimum_age_micros = i64::try_from(MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION.as_micros())
+    let minimum_age_micros = i64::try_from(context.minimum_superseded_age.as_micros())
         .expect("the minimum superseded age fits in i64 microseconds");
     // Listing after the next generation starts at the confirmed version itself.
     let mut start_after = confirmed_generation
@@ -138,6 +160,7 @@ async fn reclaim_superseded_versions(inner: &dyn ObjectStore, request: &Reclamat
             let Some(reference_written_at) = confirmed_written_at else {
                 // The confirmed version is gone only after a newer writer reclaimed it.
                 if generation != confirmed_generation {
+                    record_missing_confirmed_version(context, request, Some(generation)).await;
                     return;
                 }
                 let Some(written_at) = object.last_modified_unix_micros else {
@@ -173,6 +196,11 @@ async fn reclaim_superseded_versions(inner: &dyn ObjectStore, request: &Reclamat
                 }
             }
         }
+        if confirmed_written_at.is_none() {
+            // Only an empty first page leaves the reference unset here.
+            record_missing_confirmed_version(context, request, None).await;
+            return;
+        }
         if !reclaimable_keys.is_empty()
             && let Err(error) = inner.delete_many(&reclaimable_keys).await
         {
@@ -183,4 +211,44 @@ async fn reclaim_superseded_versions(inner: &dyn ObjectStore, request: &Reclamat
             None => return,
         }
     }
+}
+
+/// Counts a listing that missed the confirmed version of `request`, listing `listed_generation`
+/// first, unless a newer writer may have reclaimed that version.
+///
+/// Only a version two or more generations newer can have reclaimed it.
+async fn record_missing_confirmed_version(
+    context: &ReclamationContext,
+    request: &ReclamationRequest,
+    listed_generation: Option<u64>,
+) {
+    let prefix = version_prefix(&request.logical_key);
+    let newest_generation = match context.inner.list(&prefix, None, 1).await {
+        Ok(listing) => listing
+            .objects
+            .first()
+            .and_then(|newest| version_generation(&newest.key, &prefix)),
+        Err(error) => {
+            tracing::warn!(key = %request.logical_key, %error, "listing the newest version for reclamation failed");
+            return;
+        }
+    };
+    if newest_generation
+        .is_some_and(|newest| newest >= request.confirmed_generation.saturating_add(2))
+    {
+        tracing::debug!(
+            key = %request.logical_key,
+            generation = request.confirmed_generation,
+            ?newest_generation,
+            "a newer writer may have reclaimed the confirmed version"
+        );
+        return;
+    }
+    record_stale_version_listing(
+        &context.listing_stale,
+        VersionedListingStaleSite::Reclamation,
+        &request.logical_key,
+        request.confirmed_generation,
+        listed_generation,
+    );
 }

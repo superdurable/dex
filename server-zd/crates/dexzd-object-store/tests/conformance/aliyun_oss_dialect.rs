@@ -1168,7 +1168,11 @@ async fn every_layer_of_an_aliyun_oss_stack_reports_no_atomic_replacement() {
     let emulator = AliyunOssEmulator::start(EtagMode::Md5).await;
     let inner = Arc::new(emulator.object_store().await);
     assert!(!inner.supports_replace_if_etag_matches_on_every_key());
-    let adapter = Arc::new(dexzd_object_store::AliyunOssObjectStore::new(inner));
+    let adapter = Arc::new(dexzd_object_store::AliyunOssObjectStore::new(
+        inner,
+        dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+        dexzd_metrics::NodeMetrics::unregistered(),
+    ));
     let instrumented = dexzd_object_store::InstrumentedObjectStore::new(
         adapter,
         dexzd_metrics::NodeMetrics::unregistered(),

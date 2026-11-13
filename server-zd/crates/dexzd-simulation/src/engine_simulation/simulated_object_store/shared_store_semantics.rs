@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_clock::WallClock;
+use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, FaultAction, FaultInjector, InMemoryObjectStore,
     InMemoryObjectStoreOptions, ObjectStore, ObjectStoreOperation,
@@ -26,6 +27,8 @@ use crate::engine_simulation::simulated_object_store::NoInjectedFaults;
 const PHYSICAL_DELAY_SEED_SALT: u64 = 0x0a11_0055_de1a_0000;
 /// Separates the version ID draws of a seed from its other draws.
 const VERSION_ID_SEED_SALT: u64 = 0x0a11_0055_1d50_0000;
+/// Short enough that a simulated run of a few minutes reclaims versions under faults.
+const SIMULATED_MINIMUM_SUPERSEDED_AGE: Duration = Duration::from_secs(60);
 
 /// Delays every physical call by a few milliseconds, so versioned writes of processes
 /// interleave between their create and its confirmation.
@@ -74,5 +77,7 @@ fn versioned_shared_store(seed: u64, clock: Arc<dyn WallClock>) -> Arc<dyn Objec
     Arc::new(AliyunOssObjectStore::with_seeded_version_ids_for_test(
         Arc::new(physical),
         seed ^ VERSION_ID_SEED_SALT,
+        SIMULATED_MINIMUM_SUPERSEDED_AGE,
+        NodeMetrics::unregistered(),
     ))
 }

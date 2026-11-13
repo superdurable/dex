@@ -9,6 +9,7 @@
 //! Reads of mutable object keys: list the newest version, then read that same object.
 
 use bytes::Bytes;
+use dexzd_metrics::{VersionedListingStaleCounters, VersionedListingStaleSite};
 
 use crate::aliyun_oss::version_body::{
     VERSION_HEADER_LENGTH, VERSION_HEADER_RANGE, VersionEtag, VersionHeader,
@@ -252,6 +253,24 @@ pub(super) fn inner_error(
         error.kind,
         format!("version object {:?}: {}", error.key, error.detail),
     )
+}
+
+/// Counts and logs a listing that did not show `expected_generation`, which this process created.
+pub(super) fn record_stale_version_listing(
+    listing_stale: &VersionedListingStaleCounters,
+    site: VersionedListingStaleSite,
+    logical_key: &str,
+    expected_generation: u64,
+    listed_generation: Option<u64>,
+) {
+    listing_stale.record(site);
+    tracing::warn!(
+        ?site,
+        key = %logical_key,
+        expected_generation,
+        ?listed_generation,
+        "a version listing did not show the version this process created; listings may be stale"
+    );
 }
 
 /// Returns whether `content` came from `listed`; unique version bodies make physical ETags unique.

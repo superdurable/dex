@@ -1,0 +1,4 @@
+---
+section: Changed
+---
+- With **objectStore.provider: aliyunOSS**, the server keeps each replaced version of the manifest, the registry, node leases, and Flow definitions for at least 10 minutes instead of 60 seconds before it deletes it. Replacements stay correct even if an OSS listing lags behind a write by up to 10 minutes. Each node keeps about 180 lease versions at the default **lease.duration**, with the same number of requests per renewal as before. The new **dexzd_object_store_versioned_listing_stale_total** counter, with a **site** label, counts listings that missed a version the node had just written; alert on any increase. [Reference](/reference/server/object-storage#aliyun-oss).

@@ -52,6 +52,10 @@ const FAMILY_LEVELS: &[(&str, MetricsLevel)] = &[
     ("dexzd_object_store_requests", MetricsLevel::Advanced),
     ("dexzd_object_store_request_errors", MetricsLevel::Basic),
     ("dexzd_object_store_put_bytes", MetricsLevel::Advanced),
+    (
+        "dexzd_object_store_versioned_listing_stale",
+        MetricsLevel::Advanced,
+    ),
     ("dexzd_snapshots", MetricsLevel::Advanced),
     (
         "dexzd_snapshot_last_duration_seconds",
