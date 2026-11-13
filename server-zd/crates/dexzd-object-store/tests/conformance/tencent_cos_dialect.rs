@@ -15,9 +15,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_object_store::{
     MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES, ObjectStore, ObjectStoreErrorKind, S3Credentials,
-    S3ObjectStore, S3ObjectStoreConfig, TencentCosBucketCheckError, WriteCondition, WriteOutcome,
-    check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
-    check_tencent_cos_holds_no_data_of_another_provider,
+    S3ObjectStore, S3ObjectStoreConfig, TENCENT_COS_STALE_LISTING_BOUND,
+    TencentCosBucketCheckError, WriteCondition, WriteOutcome, check_tencent_cos_bucket_versioning,
+    check_tencent_cos_create_only_writes, check_tencent_cos_holds_no_data_of_another_provider,
 };
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 use tempfile::TempDir;
@@ -74,7 +74,16 @@ impl TencentCosEmulator {
     }
 
     pub(super) async fn object_store(&self) -> S3ObjectStore {
+        self.object_store_with_stale_listing_retry_window(TENCENT_COS_STALE_LISTING_BOUND)
+            .await
+    }
+
+    pub(super) async fn object_store_with_stale_listing_retry_window(
+        &self,
+        stale_listing_retry_window: Duration,
+    ) -> S3ObjectStore {
         let mut config = S3ObjectStoreConfig::new("us-east-1", BUCKET);
+        config.stale_listing_retry_window = stale_listing_retry_window;
         config.endpoint = Some(format!("http://{}", self.address()));
         config.key_prefix = KEY_PREFIX.to_owned();
         config.credentials = S3Credentials::Static {

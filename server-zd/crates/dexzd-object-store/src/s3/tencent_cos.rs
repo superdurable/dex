@@ -38,6 +38,17 @@ use signed_request::{EMPTY_PAYLOAD_SHA256_HEX, SignedRequest, SignedRequestSende
 /// Largest appendable object Tencent COS stores: 5 GiB.
 pub const MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
+/// Longest time a Tencent COS listing may repeat an earlier listing of its prefix: 5 seconds.
+///
+/// Measured listing caches last 1 to 3 seconds.
+pub const TENCENT_COS_STALE_LISTING_BOUND: Duration = Duration::from_secs(5);
+
+/// First wait before a replayed listing page is requested again.
+const STALE_PAGE_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+
+/// Longest wait between requests of a replayed listing page.
+const STALE_PAGE_MAX_BACKOFF: Duration = Duration::from_secs(1);
+
 /// Slowest upload rate an append may take before it times out, beyond the request timeout.
 const MIN_APPEND_UPLOAD_BYTES_PER_SECOND: u64 = 1024 * 1024;
 
@@ -227,10 +238,12 @@ impl TencentCosAppendClient {
     }
 }
 
-/// Lists up to `max_keys` non-empty objects after `start_after`; a page without newer keys ends it.
+/// Lists up to `max_keys` non-empty objects after `start_after`; an untruncated page without newer keys ends it.
 ///
 /// Returns the objects in ascending key order and, when more may follow, the key of the last
-/// returned object, which is always after `start_after`.
+/// returned object, which is always after `start_after`. A truncated page without newer keys is
+/// a replay of the listing cache: it is requested again with backoff, and once that lasts
+/// `stale_listing_retry_window` the listing fails with [`ObjectStoreErrorKind::Transient`].
 pub(super) async fn list_non_empty_objects(
     store: &S3ObjectStore,
     prefix: &str,
@@ -240,6 +253,7 @@ pub(super) async fn list_non_empty_objects(
     let max_objects = max_keys as usize;
     let mut objects: Vec<ObjectMetadata> = Vec::new();
     let mut cursor = start_after.map(str::to_owned);
+    let mut stale_page_wait: Option<StalePageWait> = None;
     loop {
         let wanted = max_keys - u32::try_from(objects.len()).expect("fewer than max_keys objects");
         let page = store.list_page(prefix, cursor.as_deref(), wanted).await?;
@@ -254,12 +268,20 @@ pub(super) async fn list_non_empty_objects(
             })
             .collect();
         let Some(last_new_key) = new_objects.iter().map(|object| object.key.clone()).max() else {
-            // A stale page may replay older keys and ignore max-keys; ending keeps cursors advancing.
-            return Ok(ObjectListing {
-                objects,
-                next_start_after: None,
-            });
+            // A stale page may replay older keys and ignore max-keys; only an untruncated one ends.
+            if !is_truncated {
+                return Ok(ObjectListing {
+                    objects,
+                    next_start_after: None,
+                });
+            }
+            stale_page_wait
+                .get_or_insert_with(|| StalePageWait::new(store.stale_listing_retry_window))
+                .wait_before_next_request(prefix, cursor.as_deref())
+                .await?;
+            continue;
         };
+        stale_page_wait = None;
         objects.extend(new_objects.into_iter().filter(|object| object.size > 0));
         if objects.len() >= max_objects {
             let has_more = is_truncated || objects.len() > max_objects;
@@ -278,6 +300,47 @@ pub(super) async fn list_non_empty_objects(
             });
         }
         cursor = Some(last_new_key);
+    }
+}
+
+/// Backoff of one streak of replayed listing pages that end before the cursor.
+struct StalePageWait {
+    deadline: tokio::time::Instant,
+    next_backoff: Duration,
+}
+
+impl StalePageWait {
+    fn new(window: Duration) -> Self {
+        Self {
+            deadline: tokio::time::Instant::now() + window,
+            next_backoff: STALE_PAGE_INITIAL_BACKOFF,
+        }
+    }
+
+    /// Sleeps before the replayed page is requested again.
+    ///
+    /// Returns [`ObjectStoreErrorKind::Transient`] once the streak has lasted its window.
+    async fn wait_before_next_request(
+        &mut self,
+        prefix: &str,
+        cursor: Option<&str>,
+    ) -> ObjectStoreResult<()> {
+        let now = tokio::time::Instant::now();
+        if now >= self.deadline {
+            return Err(ObjectStoreError::new(
+                ObjectStoreOperation::List,
+                prefix,
+                ObjectStoreErrorKind::Transient,
+                format!(
+                    "the Tencent COS listing cache kept replaying a truncated page without keys \
+                     after {cursor:?}"
+                ),
+            ));
+        }
+        let delay = self.next_backoff.min(self.deadline - now);
+        self.next_backoff = (self.next_backoff * 2).min(STALE_PAGE_MAX_BACKOFF);
+        tokio::time::sleep(delay).await;
+        Ok(())
     }
 }
 

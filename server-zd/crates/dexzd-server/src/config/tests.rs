@@ -2901,6 +2901,44 @@ fn only_tencent_cos_reads_past_an_eventually_consistent_listing() {
 }
 
 #[test]
+fn hard_delete_purges_follow_the_listing_consistency_of_the_hard_delete_store() {
+    let with_hard_delete_store = |configuration: Config, provider| {
+        let mut configuration = configuration;
+        configuration.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+            provider,
+            bucket: "hard-delete".to_owned(),
+            endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_owned(),
+            region: "ap-guangzhou".to_owned(),
+            ..ObjectStoreLocationConfig::default()
+        });
+        configuration
+    };
+    for (configuration, expected) in [
+        (tencent_cos_config(), ListingConsistency::Eventual),
+        (valid_config(), ListingConsistency::Strong),
+        (
+            with_hard_delete_store(valid_config(), Some(ObjectStoreProvider::TencentCos)),
+            ListingConsistency::Eventual,
+        ),
+        (
+            with_hard_delete_store(tencent_cos_config(), Some(ObjectStoreProvider::S3)),
+            ListingConsistency::Strong,
+        ),
+        (
+            with_hard_delete_store(tencent_cos_config(), None),
+            ListingConsistency::Eventual,
+        ),
+    ] {
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        assert_eq!(
+            components.hard_delete_prefix_listing.listing_consistency,
+            expected
+        );
+    }
+}
+
+#[test]
 fn tencent_cos_limits_commit_max_in_flight_to_thirty_two() {
     let with_max_in_flight = |configuration: Config, max_in_flight| {
         let mut configuration = configuration;

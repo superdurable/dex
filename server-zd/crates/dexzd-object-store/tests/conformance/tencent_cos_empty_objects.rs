@@ -15,14 +15,14 @@ use bytes::Bytes;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, ByteRange, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, ObjectStore,
-    ObjectStoreErrorKind, S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig,
-    VersionDiscovery, WriteCondition, WriteOutcome,
+    ObjectStoreError, ObjectStoreErrorKind, S3ApiDialect, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, VersionDiscovery, WriteCondition, WriteOutcome,
 };
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 use tempfile::TempDir;
 
 use super::tencent_cos_dialect::{BUCKET, KEY_PREFIX, TencentCosEmulator};
-use super::{clear_s3local_faults, set_s3local_fault};
+use super::{clear_s3local_faults, s3local_request_log, set_s3local_fault};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
 const LEASE_KEY: &str = "lease/node-a";
@@ -201,8 +201,26 @@ async fn tencent_cos_reads_an_append_in_flight_as_absent_and_commits_one_winner(
 const STALE_LISTING: &str =
     r#"{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":600000}}"#;
 
+/// A listing cache shorter than [`TENCENT_COS_STALE_LISTING_BOUND`].
+const SHORT_STALE_LISTING: &str =
+    r#"{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":1500}}"#;
+
+/// A short retry window, so tests reach the Transient error quickly.
+const SHORT_RETRY_WINDOW: Duration = Duration::from_millis(500);
+
 /// Pages `prefix` as callers do and checks that every cursor strictly advances.
 async fn list_all_pages(store: &dyn ObjectStore, prefix: &str, max_keys: u32) -> Vec<String> {
+    try_list_all_pages(store, prefix, max_keys)
+        .await
+        .expect("the listing succeeds")
+}
+
+/// Pages `prefix` as callers do and returns the first listing error.
+async fn try_list_all_pages(
+    store: &dyn ObjectStore,
+    prefix: &str,
+    max_keys: u32,
+) -> Result<Vec<String>, ObjectStoreError> {
     let mut keys = Vec::new();
     let mut start_after: Option<String> = None;
     for _ in 0..16 {
@@ -211,8 +229,7 @@ async fn list_all_pages(store: &dyn ObjectStore, prefix: &str, max_keys: u32) ->
             store.list(prefix, start_after.as_deref(), max_keys),
         )
         .await
-        .expect("the listing returns")
-        .expect("the listing succeeds");
+        .expect("the listing returns")?;
         assert!(listing.objects.len() <= max_keys as usize, "{listing:?}");
         for object in &listing.objects {
             assert!(object.size > 0, "{listing:?}");
@@ -229,7 +246,7 @@ async fn list_all_pages(store: &dyn ObjectStore, prefix: &str, max_keys: u32) ->
             keys.push(object.key.clone());
         }
         let Some(next) = listing.next_start_after else {
-            return keys;
+            return Ok(keys);
         };
         assert!(
             start_after
@@ -242,11 +259,44 @@ async fn list_all_pages(store: &dyn ObjectStore, prefix: &str, max_keys: u32) ->
     panic!("the listing of {prefix} did not end; collected {keys:?}");
 }
 
-/// A stale page that replays a residue ends the listing instead of repeating its cursor.
+/// Returns how many ListObjectsV2 requests the emulator has served.
+async fn list_request_count(emulator: &TencentCosEmulator) -> usize {
+    s3local_request_log(emulator.address())
+        .await
+        .matches("\"operation\":\"ListObjectsV2\"")
+        .count()
+}
+
+/// Lists `prefix` once and checks that it fails as Transient within a bounded number of requests.
+async fn assert_stale_listing_fails_transient(
+    emulator: &TencentCosEmulator,
+    store: &dyn ObjectStore,
+    prefix: &str,
+    start_after: Option<&str>,
+    max_keys: u32,
+) {
+    let requests_before = list_request_count(emulator).await;
+    let started = tokio::time::Instant::now();
+    let error = tokio::time::timeout(STEP_TIMEOUT, store.list(prefix, start_after, max_keys))
+        .await
+        .expect("the listing returns")
+        .expect_err("a truncated page that keeps ending at its cursor fails the listing");
+    assert_eq!(error.kind, ObjectStoreErrorKind::Transient, "{error}");
+    assert!(started.elapsed() >= SHORT_RETRY_WINDOW, "{error}");
+    let requests = list_request_count(emulator).await - requests_before;
+    assert!(
+        (3..=8).contains(&requests),
+        "the replayed page is requested again with backoff, not in a busy loop: {requests} requests"
+    );
+}
+
+/// A stale truncated page that replays a residue at the cursor fails instead of ending early.
 #[tokio::test]
-async fn tencent_cos_listing_ends_when_a_stale_page_replays_only_empty_objects() {
+async fn tencent_cos_listing_fails_transient_when_a_stale_page_replays_only_empty_objects() {
     let emulator = TencentCosEmulator::start().await;
-    let store = emulator.object_store().await;
+    let store = emulator
+        .object_store_with_stale_listing_retry_window(SHORT_RETRY_WINDOW)
+        .await;
     leave_residue(&emulator, &store, "stale/r0").await;
     leave_residue(&emulator, &store, "stale/r1").await;
     for key in ["stale/x", "stale/y"] {
@@ -257,23 +307,13 @@ async fn tencent_cos_listing_ends_when_a_stale_page_replays_only_empty_objects()
     }
     set_s3local_fault(emulator.address(), STALE_LISTING).await;
     // The first one-key page, holding only stale/r0, is replayed to every later listing.
-    let first = tokio::time::timeout(STEP_TIMEOUT, store.list("stale/", None, 1))
-        .await
-        .expect("the listing returns")
-        .expect("the listing succeeds");
-    assert!(first.objects.is_empty(), "{first:?}");
-    assert_eq!(first.next_start_after, None, "the replay ends the listing");
-    let from_residue = store
-        .list("stale/", Some("stale/r0"), 1)
-        .await
-        .expect("the listing succeeds");
-    assert!(from_residue.objects.is_empty(), "{from_residue:?}");
-    assert_eq!(from_residue.next_start_after, None);
+    assert_stale_listing_fails_transient(&emulator, &store, "stale/", None, 1).await;
+    assert_stale_listing_fails_transient(&emulator, &store, "stale/", Some("stale/r0"), 1).await;
     for max_keys in [1, 2, 1000] {
-        assert_eq!(
-            list_all_pages(&store, "stale/", max_keys).await,
-            Vec::<String>::new()
-        );
+        let error = try_list_all_pages(&store, "stale/", max_keys)
+            .await
+            .expect_err("a stale listing never ends before stale/x");
+        assert_eq!(error.kind, ObjectStoreErrorKind::Transient, "{error}");
     }
     set_s3local_fault(emulator.address(), "").await;
     for max_keys in [1, 2, 1000] {
@@ -285,11 +325,48 @@ async fn tencent_cos_listing_ends_when_a_stale_page_replays_only_empty_objects()
     emulator.shutdown().await;
 }
 
+/// A replayed page holding a residue and fewer than max-keys objects never hides later keys.
+#[tokio::test]
+async fn tencent_cos_listing_never_ends_at_a_replayed_page_with_a_residue() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator
+        .object_store_with_stale_listing_retry_window(SHORT_RETRY_WINDOW)
+        .await;
+    store
+        .put(
+            "lineage/a",
+            Bytes::from_static(b"a"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("a create succeeds");
+    leave_residue(&emulator, &store, "lineage/b").await;
+    store
+        .put(
+            "lineage/c",
+            Bytes::from_static(b"c"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("a create succeeds");
+    set_s3local_fault(emulator.address(), STALE_LISTING).await;
+    // Caches the truncated page [lineage/a, lineage/b]; lineage/c is on a later page.
+    assert_stale_listing_fails_transient(&emulator, &store, "lineage/", None, 2).await;
+    set_s3local_fault(emulator.address(), "").await;
+    assert_eq!(
+        list_all_pages(&store, "lineage/", 2).await,
+        ["lineage/a", "lineage/c"]
+    );
+    emulator.shutdown().await;
+}
+
 /// A replayed page returns only keys after `start_after` and at most `max_keys` of them.
 #[tokio::test]
 async fn tencent_cos_listing_filters_a_replayed_page_to_keys_after_start_after() {
     let emulator = TencentCosEmulator::start().await;
-    let store = emulator.object_store().await;
+    let store = emulator
+        .object_store_with_stale_listing_retry_window(SHORT_RETRY_WINDOW)
+        .await;
     for key in ["page/a", "page/b", "page/c"] {
         store
             .put(key, Bytes::from_static(b"v"), WriteCondition::CreateOnly)
@@ -305,18 +382,16 @@ async fn tencent_cos_listing_filters_a_replayed_page_to_keys_after_start_after()
     let after_a = store.list("page/", Some("page/a"), 1).await.expect("list");
     assert_eq!(listed_keys(&after_a), ["page/b"]);
     assert_eq!(after_a.next_start_after.as_deref(), Some("page/b"));
-    let after_b = store.list("page/", Some("page/b"), 1).await.expect("list");
-    assert!(after_b.objects.is_empty(), "{after_b:?}");
-    assert_eq!(after_b.next_start_after, None);
     let first_key = store.list("page/", None, 1).await.expect("list");
     assert_eq!(listed_keys(&first_key), ["page/a"]);
     assert_eq!(first_key.next_start_after.as_deref(), Some("page/a"));
-    // The stale cache hides page/c until it expires, as Tencent COS listings may.
+    // The stale cache hides page/c, so a listing past page/b fails until the cache expires.
+    assert_stale_listing_fails_transient(&emulator, &store, "page/", Some("page/b"), 1).await;
     for max_keys in [1, 2, 1000] {
-        assert_eq!(
-            list_all_pages(&store, "page/", max_keys).await,
-            ["page/a", "page/b"]
-        );
+        let error = try_list_all_pages(&store, "page/", max_keys)
+            .await
+            .expect_err("a stale listing never ends before page/c");
+        assert_eq!(error.kind, ObjectStoreErrorKind::Transient, "{error}");
     }
     set_s3local_fault(emulator.address(), "").await;
     for max_keys in [1, 2, 1000] {
@@ -325,6 +400,68 @@ async fn tencent_cos_listing_filters_a_replayed_page_to_keys_after_start_after()
             ["page/a", "page/b", "page/c"]
         );
     }
+    emulator.shutdown().await;
+}
+
+/// An untruncated replayed page still ends the listing, as an eventually consistent one may.
+#[tokio::test]
+async fn tencent_cos_listing_ends_at_an_untruncated_replayed_page() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator
+        .object_store_with_stale_listing_retry_window(SHORT_RETRY_WINDOW)
+        .await;
+    for key in ["whole/a", "whole/b"] {
+        store
+            .put(key, Bytes::from_static(b"v"), WriteCondition::CreateOnly)
+            .await
+            .expect("a create succeeds");
+    }
+    set_s3local_fault(emulator.address(), STALE_LISTING).await;
+    let primed = store.list("whole/", None, 1000).await.expect("list");
+    assert_eq!(listed_keys(&primed), ["whole/a", "whole/b"]);
+    assert_eq!(primed.next_start_after, None);
+    store
+        .put(
+            "whole/c",
+            Bytes::from_static(b"v"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("a create succeeds");
+    let requests_before = list_request_count(&emulator).await;
+    let after_b = store
+        .list("whole/", Some("whole/b"), 1000)
+        .await
+        .expect("an untruncated replay ends the listing");
+    assert!(after_b.objects.is_empty(), "{after_b:?}");
+    assert_eq!(after_b.next_start_after, None);
+    assert_eq!(list_request_count(&emulator).await - requests_before, 1);
+    assert_eq!(
+        list_all_pages(&store, "whole/", 1000).await,
+        ["whole/a", "whole/b"]
+    );
+    emulator.shutdown().await;
+}
+
+/// A listing cache that expires within the retry window delays a listing but never fails it.
+#[tokio::test]
+async fn tencent_cos_listing_waits_out_a_listing_cache_shorter_than_its_bound() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator.object_store().await;
+    for key in ["short/a", "short/b", "short/c"] {
+        store
+            .put(key, Bytes::from_static(b"v"), WriteCondition::CreateOnly)
+            .await
+            .expect("a create succeeds");
+    }
+    set_s3local_fault(emulator.address(), SHORT_STALE_LISTING).await;
+    // Caches the truncated page [short/a, short/b] for 1.5 seconds.
+    let primed = store.list("short/", None, 2).await.expect("list");
+    assert_eq!(listed_keys(&primed), ["short/a", "short/b"]);
+    assert_eq!(
+        list_all_pages(&store, "short/", 2).await,
+        ["short/a", "short/b", "short/c"]
+    );
     emulator.shutdown().await;
 }
 

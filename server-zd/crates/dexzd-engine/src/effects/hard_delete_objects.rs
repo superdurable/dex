@@ -10,6 +10,7 @@
 //! deletion after a committed overwrite, and cleanup of uploads whose command never committed.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_apply::FlowStateReader;
@@ -18,7 +19,9 @@ use dexzd_keyspace::{
     ColumnFamily, FlowHash, PartitionHasher, PartitionId, RunId, RunTable, TenantId,
     run_table_prefix,
 };
-use dexzd_object_store::{ObjectStore, WriteCondition, WriteOutcome};
+use dexzd_object_store::{
+    ListingConsistency, ObjectStore, TENCENT_COS_STALE_LISTING_BOUND, WriteCondition, WriteOutcome,
+};
 use dexzd_protocol::dex::{AttributeWrite, Value, value};
 use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectRecord, HardDeleteObjectReference, OutboxRecord, PendingHardDeleteUpload,
@@ -193,6 +196,32 @@ impl HardDeleteUploads {
     }
 }
 
+/// How a run purge confirms that the hard-delete object store holds no object of the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HardDeletePrefixListing {
+    /// Whether a listing of the hard-delete object store shows every object written before it
+    /// started. Defaults to [`ListingConsistency::Strong`], where one empty listing of the run's
+    /// prefix ends a purge's deletion.
+    ///
+    /// With [`ListingConsistency::Eventual`], a purge first deletes the objects that committed
+    /// state references by key. Only two empty listings of the run's prefix, started at least
+    /// [`Self::empty_listing_confirmation_delay`] apart, end its deletion.
+    pub listing_consistency: ListingConsistency,
+    /// Defaults to [`TENCENT_COS_STALE_LISTING_BOUND`], 5 seconds. With an eventual listing,
+    /// how long a purge waits after an empty listing of the run's prefix before it lists again.
+    /// It must exceed how long a listing may repeat an earlier listing of its prefix.
+    pub empty_listing_confirmation_delay: Duration,
+}
+
+impl Default for HardDeletePrefixListing {
+    fn default() -> Self {
+        Self {
+            listing_consistency: ListingConsistency::Strong,
+            empty_listing_confirmation_delay: TENCENT_COS_STALE_LISTING_BOUND,
+        }
+    }
+}
+
 /// Hard-delete object storage operations shared by the effect runner and the client API path.
 #[derive(Clone)]
 pub struct HardDeleteObjects {
@@ -201,17 +230,21 @@ pub struct HardDeleteObjects {
     clock: Arc<dyn WallClock>,
     hasher: PartitionHasher,
     id_source: Arc<dyn EngineIdSource>,
+    prefix_listing: HardDeletePrefixListing,
 }
 
 impl HardDeleteObjects {
     /// Creates the operations over the hard-delete object store, which may be another bucket
     /// or prefix than the log.
+    ///
+    /// `prefix_listing` describes listings of that store, which a run purge relies on.
     pub fn new(
         store: Arc<dyn ObjectStore>,
         ledger: Arc<dyn HardDeleteUploadLedger>,
         clock: Arc<dyn WallClock>,
         hasher: PartitionHasher,
         id_source: Arc<dyn EngineIdSource>,
+        prefix_listing: HardDeletePrefixListing,
     ) -> Self {
         Self {
             store,
@@ -219,7 +252,13 @@ impl HardDeleteObjects {
             clock,
             hasher,
             id_source,
+            prefix_listing,
         }
+    }
+
+    /// Returns how a run purge confirms that the run's prefix holds no object.
+    pub(crate) fn prefix_listing(&self) -> HardDeletePrefixListing {
+        self.prefix_listing
     }
 
     /// Returns the owner of `flow`'s run `run_id`.
@@ -353,28 +392,29 @@ impl HardDeleteObjects {
         self.delete_keys(&keys).await
     }
 
-    /// Deletes every object under the run's prefix, including orphans of lost local state.
-    pub(crate) async fn delete_run_prefix(
+    /// Deletes the objects that one listing of the run's prefix shows, including orphans of lost
+    /// local state.
+    ///
+    /// Returns the deleted keys; none when the listing was empty.
+    pub(crate) async fn delete_listed_run_objects(
         &self,
         owner: HardDeleteObjectOwner,
-    ) -> Result<(), EffectError> {
+    ) -> Result<Vec<String>, EffectError> {
         let prefix = owner.object_key_prefix();
-        loop {
-            // Deleted keys disappear from the listing, so every page starts from the prefix.
-            let listing = self
-                .store
-                .list(&prefix, None, DELETE_BATCH_KEYS as u32)
-                .await?;
-            if listing.objects.is_empty() {
-                return Ok(());
-            }
-            let keys: Vec<String> = listing
-                .objects
-                .into_iter()
-                .map(|object| object.key)
-                .collect();
+        // Deleted keys disappear from the listing, so every page starts from the prefix.
+        let listing = self
+            .store
+            .list(&prefix, None, DELETE_BATCH_KEYS as u32)
+            .await?;
+        let keys: Vec<String> = listing
+            .objects
+            .into_iter()
+            .map(|object| object.key)
+            .collect();
+        if !keys.is_empty() {
             self.store.delete_many(&keys).await?;
         }
+        Ok(keys)
     }
 
     /// Returns the uploads recorded in the ledger.

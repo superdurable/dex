@@ -12,7 +12,7 @@ use std::time::Duration;
 
 #[cfg(doc)]
 use super::MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES;
-use super::{DEFAULT_PART_SIZE, S3ApiDialect, S3Credentials};
+use super::{DEFAULT_PART_SIZE, S3ApiDialect, S3Credentials, TENCENT_COS_STALE_LISTING_BOUND};
 #[cfg(doc)]
 use crate::{ObjectStore, WriteCondition, WriteOutcome};
 
@@ -67,6 +67,12 @@ pub struct S3ObjectStoreConfig {
     /// keeps it after an interrupted append. So every write of an empty body fails with a
     /// permanent error before any request.
     pub api_dialect: S3ApiDialect,
+    /// How long the [`S3ApiDialect::TencentCos`] dialect requests a truncated listing page again
+    /// while the listing cache replays a page with no key after the cursor.
+    /// Defaults to [`TENCENT_COS_STALE_LISTING_BOUND`], 5 seconds. After it,
+    /// [`ObjectStore::list`] fails with [`crate::ObjectStoreErrorKind::Transient`] instead of
+    /// ending the listing early. Progress past the cursor starts a new wait. Other dialects ignore it.
+    pub stale_listing_retry_window: Duration,
 }
 
 impl S3ObjectStoreConfig {
@@ -83,6 +89,7 @@ impl S3ObjectStoreConfig {
             multipart_threshold: DEFAULT_PART_SIZE,
             multipart_part_size: DEFAULT_PART_SIZE,
             api_dialect: S3ApiDialect::AmazonS3,
+            stale_listing_retry_window: TENCENT_COS_STALE_LISTING_BOUND,
         }
     }
 }

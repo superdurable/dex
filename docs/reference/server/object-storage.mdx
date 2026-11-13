@@ -448,6 +448,14 @@ retention also check single objects where a listing may lag.
 **ListFlowDefinitions** lists the bucket, so it can miss a definition uploaded
 in the last few seconds.
 
+A listing that gets the same truncated page again requests it again for up to
+5 seconds. Then it fails as a retryable error rather than end early, and
+**ListFlowDefinitions** returns **UNAVAILABLE**. A run purge deletes the run's
+hard-delete objects by key. It then lists the run's hard-delete prefix twice,
+at least 5 seconds apart, and purges the run only when both listings are empty.
+So a purge takes a few seconds longer when the hard-delete store uses
+**tencentCOS**.
+
 Data cannot move between **tencentCOS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute
 index registry that another provider wrote, startup fails with a message that

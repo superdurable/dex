@@ -47,9 +47,9 @@ use optional_read::OptionalReadError;
 pub use store_config::S3ObjectStoreConfig;
 use tencent_cos::{AppendSource, TencentCosAppendClient};
 pub use tencent_cos::{
-    MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES, TencentCosBucketCheckError,
-    check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
-    check_tencent_cos_holds_no_data_of_another_provider,
+    MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES, TENCENT_COS_STALE_LISTING_BOUND,
+    TencentCosBucketCheckError, check_tencent_cos_bucket_versioning,
+    check_tencent_cos_create_only_writes, check_tencent_cos_holds_no_data_of_another_provider,
 };
 
 const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
@@ -68,6 +68,7 @@ pub struct S3ObjectStore {
     api_dialect: S3ApiDialect,
     /// Sends create-only writes in the Tencent COS dialect, and is `None` in the others.
     tencent_cos_append_client: Option<TencentCosAppendClient>,
+    stale_listing_retry_window: Duration,
 }
 
 impl S3ObjectStore {
@@ -148,6 +149,7 @@ impl S3ObjectStore {
             request_timeout: config.request_timeout,
             api_dialect: config.api_dialect,
             tencent_cos_append_client,
+            stale_listing_retry_window: config.stale_listing_retry_window,
         };
         if !store.key_prefix.is_empty() {
             store

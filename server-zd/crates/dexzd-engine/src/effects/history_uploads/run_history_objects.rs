@@ -8,6 +8,7 @@
 
 //! Deletes a purging run's history segment objects before its RunPurge (plan section 5.12).
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use dexzd_history_segment::{history_run_object_key_prefix, history_segment_object_key};
@@ -83,6 +84,9 @@ fn history_catalog_keys(
 }
 
 /// Lists the run's history prefix and deletes what it finds until a listing is empty.
+///
+/// A listing that shows a key this sweep already deleted repeats an earlier listing, so the
+/// sweep waits with backoff before it lists again.
 async fn sweep_run_prefix(
     context: &EffectContext,
     flow: &FlowAddress,
@@ -91,6 +95,8 @@ async fn sweep_run_prefix(
     let prefix = history_run_object_key_prefix(flow.tenant_id, run.flow_hash, run.run_id);
     let max_keys = u32::try_from(DELETE_BATCH_KEYS).expect("the batch size fits in u32");
     let mut backoff = context.retry_backoff();
+    let mut replay_backoff = context.retry_backoff();
+    let mut deleted_keys = BTreeSet::new();
     loop {
         let listed = until_stopped(
             context,
@@ -113,7 +119,13 @@ async fn sweep_run_prefix(
             .into_iter()
             .map(|object| object.key)
             .collect();
+        if keys.iter().any(|key| deleted_keys.contains(key))
+            && !replay_backoff.wait(&context.shutdown).await
+        {
+            return Err(EffectError::Stopped);
+        }
         delete_keys(context, run, &keys).await?;
+        deleted_keys.extend(keys);
     }
 }
 
@@ -165,7 +177,7 @@ pub(super) async fn wait_after_failure(
 }
 
 /// Sleeps for `delay`; returns false when the node stopped first.
-pub(super) async fn sleep_until_stopped(context: &EffectContext, delay: Duration) -> bool {
+pub(crate) async fn sleep_until_stopped(context: &EffectContext, delay: Duration) -> bool {
     // Biased for reproducible simulation; shutdown fires once.
     tokio::select! {
         biased;

@@ -13,9 +13,9 @@ use dexzd_api::{CredentialAuthenticatorConfig, FlowDefinitionsConfig, FlowServic
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
-    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HistoryReadsConfig,
-    HistoryUploadLimits, HotStandbyConfig, LocalStoreConfig, RecoveryConfig, SnapshotConfig,
-    default_run_settings,
+    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HardDeletePrefixListing,
+    HistoryReadsConfig, HistoryUploadLimits, HotStandbyConfig, LocalStoreConfig, RecoveryConfig,
+    SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
 use dexzd_object_store::{ListingConsistency, VERSION_OBJECT_KEY_SUFFIX_BYTES};
@@ -62,6 +62,8 @@ pub(crate) struct ComponentConfigs {
     pub(crate) standby: StandbyConfig,
     /// Set in `hot` standby mode; `None` waits for the lease as a cold standby.
     pub(crate) hot_standby: Option<HotStandbyConfig>,
+    /// Follows the effective provider of the hard-delete store.
+    pub(crate) hard_delete_prefix_listing: HardDeletePrefixListing,
 }
 
 impl ComponentConfigs {
@@ -414,6 +416,12 @@ impl ComponentConfigs {
                 behind_lag_threshold: config.standby.behind_lag_threshold,
                 ..HotStandbyConfig::default()
             }),
+            hard_delete_prefix_listing: HardDeletePrefixListing {
+                listing_consistency: listing_consistency_of(hard_delete_provider(
+                    &config.object_store,
+                )),
+                ..HardDeletePrefixListing::default()
+            },
         })
     }
 
@@ -471,6 +479,28 @@ fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
         ObjectStoreProvider::TencentCos => {
             prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + TENCENT_COS_KEY_LIMIT_SHORTFALL_BYTES
         }
+    }
+}
+
+/// Returns the provider of the hard-delete store: its own, or the primary store's.
+fn hard_delete_provider(config: &ObjectStoreConfig) -> ObjectStoreProvider {
+    config
+        .hard_delete_store
+        .as_ref()
+        .map_or(config.provider, |location| {
+            location.effective_provider(config.provider)
+        })
+}
+
+/// Returns whether listings of `provider` show every object written before they started.
+fn listing_consistency_of(provider: ObjectStoreProvider) -> ListingConsistency {
+    match provider {
+        ObjectStoreProvider::TencentCos => ListingConsistency::Eventual,
+        ObjectStoreProvider::S3
+        | ObjectStoreProvider::Db9
+        | ObjectStoreProvider::AliyunOss
+        | ObjectStoreProvider::AzureBlob
+        | ObjectStoreProvider::GoogleCloudStorage => ListingConsistency::Strong,
     }
 }
 

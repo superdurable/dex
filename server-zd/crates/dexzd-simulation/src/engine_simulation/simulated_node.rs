@@ -318,6 +318,8 @@ impl NodeProcess {
                 factory_clock.clone(),
                 partition_hasher.clone(),
                 services.id_source.clone(),
+                // Strong keeps the pinned trajectories of every listing mode.
+                dexzd_engine::HardDeletePrefixListing::default(),
             );
             let (effect_runner, effect_tasks) = EffectRunner::new(
                 &effects_config(settings),

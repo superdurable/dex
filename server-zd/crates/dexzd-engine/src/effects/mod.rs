@@ -60,8 +60,8 @@ pub use flow_effect_operations::{
 };
 pub use hard_delete_objects::{
     HARD_DELETE_OBJECT_KEY_PREFIX, HardDeleteObjectOwner, HardDeleteObjects,
-    HardDeleteUploadLedger, HardDeleteUploads, NodeMetaUploadLedger, decode_hard_delete_value,
-    encode_hard_delete_value, hard_delete_placeholder_value,
+    HardDeletePrefixListing, HardDeleteUploadLedger, HardDeleteUploads, NodeMetaUploadLedger,
+    decode_hard_delete_value, encode_hard_delete_value, hard_delete_placeholder_value,
 };
 pub use history_uploads::HistoryUploadLimits;
 pub use method_request::MethodRequest;

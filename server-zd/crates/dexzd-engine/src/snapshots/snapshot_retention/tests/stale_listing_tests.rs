@@ -14,7 +14,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_object_store::{
-    InMemoryObjectStore, ListingConsistency, ObjectStore, ObjectStoreOperation, WriteCondition,
+    FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions,
+    ListingConsistency, ObjectStore, ObjectStoreErrorKind, ObjectStoreOperation, WriteCondition,
 };
 use dexzd_protocol::dexzd::v1::{SnapshotFile, SnapshotManifest};
 use prost::Message;
@@ -33,7 +34,11 @@ struct HiddenManifest {
 
 /// Uploads a file, caches listings that show it without a manifest, then publishes the manifest.
 async fn hidden_manifest() -> HiddenManifest {
-    let object_store = Arc::new(InMemoryObjectStore::with_stale_listings());
+    hidden_manifest_in(Arc::new(InMemoryObjectStore::with_stale_listings())).await
+}
+
+/// Builds [`hidden_manifest`] in `object_store`, which must serve stale listings.
+async fn hidden_manifest_in(object_store: Arc<InMemoryObjectStore>) -> HiddenManifest {
     let lineage = Uuid::now_v7();
     let file_key = format!("snapshot/node-a/{lineage}/files/file");
     object_store
@@ -194,5 +199,77 @@ async fn a_strong_listing_reads_no_manifest_that_listings_lack() {
     assert!(
         !catalog.manifests.contains_key(&hidden.manifest_key),
         "a strong listing that lacks a manifest still drops it"
+    );
+}
+
+/// Fails listings of every manifest prefix as Transient once armed, as a replayed COS page does.
+#[derive(Default)]
+struct ManifestListingFailure {
+    is_armed: std::sync::atomic::AtomicBool,
+}
+
+impl FaultInjector for ManifestListingFailure {
+    fn action(&self, operation: ObjectStoreOperation, key: &str) -> FaultAction {
+        let is_manifest_listing =
+            operation == ObjectStoreOperation::List && key.ends_with("/manifest/");
+        if is_manifest_listing && self.is_armed.load(std::sync::atomic::Ordering::SeqCst) {
+            FaultAction::FailBeforeEffect
+        } else {
+            FaultAction::Proceed
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_lineage_whose_manifest_listing_fails_keeps_every_file() {
+    let failure = Arc::new(ManifestListingFailure::default());
+    let hidden = hidden_manifest_in(Arc::new(
+        InMemoryObjectStore::with_options_and_stale_listings(
+            InMemoryObjectStoreOptions {
+                injector: Some(Arc::clone(&failure) as _),
+                ..InMemoryObjectStoreOptions::default()
+            },
+            Duration::MAX,
+        ),
+    ))
+    .await;
+    failure
+        .is_armed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let fence = test_fence(hidden.object_store.clone()).await;
+    let retention = retention(hidden.object_store.clone());
+    let mut catalog = SnapshotCatalog::default();
+    let mut failures = 0;
+    for _ in 0..3 {
+        if let Err(error) = retention
+            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
+            .await
+        {
+            assert!(
+                matches!(&error, crate::snapshots::SnapshotError::ObjectStore(store_error)
+                    if store_error.kind == ObjectStoreErrorKind::Transient),
+                "{error}"
+            );
+            failures += 1;
+        }
+    }
+    assert!(
+        failures > 0,
+        "an orphan candidate lists its lineage's manifests"
+    );
+    assert!(
+        hidden
+            .object_store
+            .get(&hidden.file_key)
+            .await
+            .expect("read file")
+            .is_some(),
+        "a failed manifest listing must not delete a file that a later manifest may use"
+    );
+    assert_eq!(
+        hidden
+            .object_store
+            .call_count(ObjectStoreOperation::Delete, &hidden.file_key),
+        0
     );
 }
