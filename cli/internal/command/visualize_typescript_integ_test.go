@@ -127,28 +127,51 @@ func TestVisualizeTypeScriptCompilerFlagOverridesEnvironment(t *testing.T) {
 	compilerDirectory := filepath.Join(repositoryRoot, "web", "node_modules", "typescript")
 	missingDirectory := filepath.Join(t.TempDir(), "missing")
 	t.Setenv("NODE_PATH", "")
+	emptyFlag := ""
 	cases := map[string]struct {
-		flagDirectory        string
-		environmentDirectory string
-		errorDirectory       string
+		flagDirectory *string
+		environment   map[string]string
+		errorMessage  string
+		exitCode      int
 	}{
-		"environment only":           {environmentDirectory: compilerDirectory},
-		"flag wins over environment": {flagDirectory: compilerDirectory, environmentDirectory: missingDirectory},
-		"invalid flag is reported":   {flagDirectory: missingDirectory, environmentDirectory: compilerDirectory, errorDirectory: missingDirectory},
-		"invalid environment value":  {environmentDirectory: missingDirectory, errorDirectory: missingDirectory},
+		"environment only":           {environment: map[string]string{"DEX_TYPESCRIPT_COMPILER": compilerDirectory}},
+		"flag wins over environment": {flagDirectory: &compilerDirectory, environment: map[string]string{"DEX_TYPESCRIPT_COMPILER": missingDirectory}},
+		"invalid flag is reported": {
+			flagDirectory: &missingDirectory,
+			environment:   map[string]string{"DEX_TYPESCRIPT_COMPILER": compilerDirectory},
+			errorMessage:  "TypeScript compiler directory " + missingDirectory,
+			exitCode:      1,
+		},
+		"invalid environment value": {
+			environment:  map[string]string{"DEX_TYPESCRIPT_COMPILER": missingDirectory},
+			errorMessage: "TypeScript compiler directory " + missingDirectory,
+			exitCode:     1,
+		},
+		"empty flag fails closed": {
+			flagDirectory: &emptyFlag,
+			environment:   map[string]string{"DEX_TYPESCRIPT_COMPILER": compilerDirectory},
+			errorMessage:  "--typescript-compiler requires a typescript package directory",
+			exitCode:      2,
+		},
+		"empty environment value fails closed": {
+			environment:  map[string]string{"DEX_TYPESCRIPT_COMPILER": ""},
+			errorMessage: "DEX_TYPESCRIPT_COMPILER is set but empty",
+			exitCode:     2,
+		},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			var stdout bytes.Buffer
 			app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
-			app.lookupEnv = generatedAtTestEnvironment(map[string]string{"DEX_TYPESCRIPT_COMPILER": testCase.environmentDirectory})
+			app.lookupEnv = generatedAtTestEnvironment(testCase.environment)
 			arguments := []string{"visualize", source, "--json", "--out", "-"}
-			if testCase.flagDirectory != "" {
-				arguments = append(arguments, "--typescript-compiler", testCase.flagDirectory)
+			if testCase.flagDirectory != nil {
+				arguments = append(arguments, "--typescript-compiler="+*testCase.flagDirectory)
 			}
 			err := app.Execute(context.Background(), arguments)
-			if testCase.errorDirectory != "" {
-				require.ErrorContains(t, err, "TypeScript compiler directory "+testCase.errorDirectory)
+			if testCase.errorMessage != "" {
+				require.ErrorContains(t, err, testCase.errorMessage)
+				require.Equal(t, testCase.exitCode, ExitCode(err))
 				require.Empty(t, stdout.String())
 				return
 			}

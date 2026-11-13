@@ -181,7 +181,7 @@ Version 2.0 recognizes operation-specific Connector factories such as **openai.N
 
 ### Trusted TypeScript compiler {#typescript-compiler}
 
-Since dexcli 1.47.2, **--typescript-compiler** names a trusted **typescript** package directory. The **DEX_TYPESCRIPT_COMPILER** environment variable names the same directory. The flag wins when both are set. Go and Python sources ignore both.
+Since dexcli 1.47.2, **--typescript-compiler** names a trusted **typescript** package directory. The **DEX_TYPESCRIPT_COMPILER** environment variable names the same directory. The flag wins when both are set. An empty flag value, or an empty **DEX_TYPESCRIPT_COMPILER** that is set, is a usage error, and the command exits with status 2. It never falls back to the source project's compiler. Only an unset flag and an unset variable keep that default. Go and Python sources do not use the directory.
 
 Set a trusted compiler whenever you visualize TypeScript source that you do not trust, such as a branch from someone else. Without one, the analyzer loads and runs the **typescript** package that the source project resolves. That package can come from the source tree: a **node_modules/typescript** directory in the source directory or any parent directory, or a **package.json** named **typescript** that points at its own file. Node.js resolves all of them before **NODE_PATH**. Such a package runs with your permissions and can forge the Flow Definition Graph.
 
@@ -190,9 +190,11 @@ Pass the package directory itself, the one that holds the package's **package.js
 - Its **package.json** names the **typescript** package.
 - Its **main** entry is a file inside the directory, after symbolic links are resolved.
 
-Any other directory stops the command with an error that names it. A **node_modules** directory gets an error that names the **typescript** directory to pass instead.
+Any other directory stops the command before analysis with an error that names it. A **node_modules** directory gets an error that names the **typescript** directory to pass instead.
 
 With a trusted compiler, the analyzer loads only that entry file. It never resolves **typescript** from the source project, its parent directories, a **package.json** named **typescript**, or **NODE_PATH**. dexcli starts Node.js in the compiler directory and removes every environment variable that starts with **NODE_**, such as **NODE_OPTIONS** and **NODE_PATH**. So a **--require** or **--import** option in **NODE_OPTIONS** loads nothing. The analyzer still reads the **dex-connector.json** manifest of each imported Connector package as JSON data. It never runs code from the source tree.
+
+dexcli finds the **node** executable through your **PATH**, so that executable must be trusted too. Keep every directory of the analyzed tree out of **PATH**, such as its **bin** or **node_modules/.bin** directory. A **node** wrapper found there runs before the trusted compiler, even when the compiler directory is valid.
 
 ### Actions in Python and TypeScript
 

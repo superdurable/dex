@@ -431,7 +431,9 @@ project resolves (`node_modules`, a parent directory, a package self-reference,
 or `NODE_PATH`), and that package runs as code. For untrusted source, pass a
 trusted `typescript` package directory with `--typescript-compiler` or
 `DEX_TYPESCRIPT_COMPILER`. The analyzer then loads only that package, in a
-Node.js process without `NODE_*` environment variables. It reads Step registration, direct
+Node.js process without `NODE_*` environment variables. An empty value is a
+usage error. `node` comes from `PATH`, so keep the analyzed tree's directories
+out of `PATH`. The analyzer reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,
 `forceCompleteIfChannelsEmpty`, and cancellation decisions, plus
 `ExecuteFailure.proceedTo` in `getStepOptions`. WaitFor

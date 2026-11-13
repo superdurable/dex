@@ -65,6 +65,10 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	if err := validateVisualizeOptions(options); err != nil {
 		return newUsageError("visualize", err)
 	}
+	typeScriptCompilerDirectory, err := a.resolveTypeScriptCompilerDirectory(flags, options)
+	if err != nil {
+		return newUsageError("visualize", err)
+	}
 	generatedAt := ""
 	if options.schemaVersion == flowviz.SchemaVersionV2 {
 		generationTime, err := resolveFlowDefinitionGeneratedAt(a.lookupEnv, time.Now())
@@ -78,7 +82,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 		PythonPath:                  options.pythonPath,
 		SchemaVersion:               options.schemaVersion,
 		Lint:                        options.lint,
-		TypeScriptCompilerDirectory: a.resolveTypeScriptCompilerDirectory(options),
+		TypeScriptCompilerDirectory: typeScriptCompilerDirectory,
 	})
 	if err != nil {
 		return newOperationError("visualize", err)
@@ -104,15 +108,29 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	return a.renderVisualization(ctx, graph.Valid, jsonData, options)
 }
 
-func (a *App) resolveTypeScriptCompilerDirectory(options visualizeOptions) string {
-	if options.typeScriptCompilerDirectory != "" {
-		return options.typeScriptCompilerDirectory
+// resolveTypeScriptCompilerDirectory returns the flag value, else the environment value, else "" when neither is set.
+// It returns an error for an explicitly empty value, which must never fall back to the source project's compiler.
+func (a *App) resolveTypeScriptCompilerDirectory(flags *flag.FlagSet, options visualizeOptions) (string, error) {
+	isFlagSet := false
+	flags.Visit(func(setFlag *flag.Flag) {
+		if setFlag.Name == "typescript-compiler" {
+			isFlagSet = true
+		}
+	})
+	if isFlagSet {
+		if strings.TrimSpace(options.typeScriptCompilerDirectory) == "" {
+			return "", fmt.Errorf("--typescript-compiler requires a typescript package directory; omit the flag to use the source project's compiler")
+		}
+		return options.typeScriptCompilerDirectory, nil
 	}
 	directory, isSet := a.lookupEnv(typeScriptCompilerEnvironmentVariable)
 	if !isSet {
-		return ""
+		return "", nil
 	}
-	return directory
+	if strings.TrimSpace(directory) == "" {
+		return "", fmt.Errorf("%s is set but empty; set it to a typescript package directory or unset it", typeScriptCompilerEnvironmentVariable)
+	}
+	return directory, nil
 }
 
 func parseVisualizeArgs(flags *flag.FlagSet, args []string) (string, error) {
