@@ -58,6 +58,7 @@ from dex_agents import (
     DEFAULT_REJECTION_TOOL_RESULT,
     DEFAULT_RETAINED_MESSAGE_LIMIT,
     INVALID_TOOL_TASK_POLL_INTERVAL,
+    MAX_SENDER_NAME_LENGTH,
     MAX_SESSION_SETTINGS_BYTES,
     MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
     MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
@@ -141,6 +142,7 @@ from dex_agents import (
     build_session_title,
     build_turn_failure_note,
     describe_tool_call_outcome,
+    is_valid_sender_name,
     message_sequence_key,
     plan_execution_key,
     session_settings_size,
@@ -1651,6 +1653,7 @@ def build_names() -> dict[str, Any]:
             ],
         },
         "session_titles": build_session_title_cases(),
+        "sender_names": build_sender_name_cases(),
         "mcp_resource_and_prompt_tool_names": [
             tool.name for tool in build_resource_and_prompt_tools(MCP_SERVER_NAMES)
         ],
@@ -1697,6 +1700,54 @@ def build_session_title_cases() -> dict[str, Any]:
         "examples": [
             {"name": name, "message": message, "title": build_session_title(message)}
             for name, message in examples
+        ],
+    }
+
+
+def build_sender_name_cases() -> dict[str, Any]:
+    """Return sender names, as code points, with the verdict each core's rule must give.
+
+    Code points, not strings, so a lone surrogate survives JSON in every language.
+    """
+    examples = [
+        ("plain", "Alice"),
+        ("non-ascii", "\u00c5sa \u674e\u96f7"),
+        ("astral-at-limit", "\U0001f600" * MAX_SENDER_NAME_LENGTH),
+        ("inner-space", "Mary Ann"),
+        ("empty", ""),
+        ("over-limit", "x" * (MAX_SENDER_NAME_LENGTH + 1)),
+        ("astral-over-limit", "\U0001f600" * (MAX_SENDER_NAME_LENGTH + 1)),
+        ("leading-space", " Alice"),
+        ("trailing-space", "Alice "),
+        ("leading-no-break-space", "\u00a0Alice"),
+        ("line-feed", "A\nB"),
+        ("tab", "A\tB"),
+        ("bell", "\u0007"),
+        ("next-line", "A\u0085B"),
+        ("line-separator", "A\u2028B"),
+        ("paragraph-separator", "A\u2029B"),
+        ("right-to-left-override", "\u202eAdmin\u202c"),
+        ("zero-width-space-only", "\u200b"),
+        ("zero-width-space-inside", "Al\u200bice"),
+        ("zero-width-joiner", "\U0001f468\u200d\U0001f469"),
+        ("byte-order-mark", "\ufeffAlice"),
+        ("soft-hyphen", "Al\u00adice"),
+        ("lone-high-surrogate", "\ud800"),
+        ("lone-low-surrogate", "A\udc00"),
+    ]
+    return {
+        "format": (
+            "1 to max_code_points Unicode code points; no code point of general category "
+            "Cc, Cf, Cs, Zl, or Zp; the first and last code points are not Zs"
+        ),
+        "max_code_points": MAX_SENDER_NAME_LENGTH,
+        "examples": [
+            {
+                "name": name,
+                "code_points": [ord(character) for character in sender_name],
+                "is_valid": is_valid_sender_name(sender_name),
+            }
+            for name, sender_name in examples
         ],
     }
 

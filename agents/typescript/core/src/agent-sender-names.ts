@@ -13,7 +13,8 @@
  */
 export const maxSenderNameLength = 64;
 
-const refusedSenderNameCharacter = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+// Format characters (Cf) can reverse or hide a label, and a lone surrogate (Cs) does not round-trip.
+const refusedSenderNameCharacter = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
 const spaceSeparator = /^\p{Zs}$/u;
 
 /**
@@ -29,7 +30,8 @@ const spaceSeparator = /^\p{Zs}$/u;
  * ```
  * @param senderName - The name to check.
  * @returns `true` when the name has 1 to {@link maxSenderNameLength} code points, contains no control character
- * (Unicode category `Cc`) and no line or paragraph separator (`Zl`, `Zp`), and neither starts nor ends with a space
+ * (Unicode category `Cc`), no format character such as a bidirectional override or a zero-width character (`Cf`), no
+ * lone surrogate (`Cs`), and no line or paragraph separator (`Zl`, `Zp`), and neither starts nor ends with a space
  * separator (`Zs`); `false` otherwise.
  * @since 0.6.2
  */

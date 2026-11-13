@@ -17,7 +17,8 @@ import unicodedata
 #: .. versionadded:: 0.6.2
 MAX_SENDER_NAME_LENGTH = 64
 
-_REFUSED_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
+# Format characters (Cf) can reverse or hide a label, and a lone surrogate (Cs) does not round-trip.
+_REFUSED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
 
 def is_valid_sender_name(sender_name: str) -> bool:
@@ -40,9 +41,11 @@ def is_valid_sender_name(sender_name: str) -> bool:
 
     Returns:
         ``True`` when the name has 1 to ``MAX_SENDER_NAME_LENGTH`` code
-        points, contains no control character (Unicode category ``Cc``) and
-        no line or paragraph separator (``Zl``, ``Zp``), and neither starts
-        nor ends with a space separator (``Zs``); ``False`` otherwise.
+        points, contains no control character (Unicode category ``Cc``), no
+        format character such as a bidirectional override or a zero-width
+        character (``Cf``), no lone surrogate (``Cs``), and no line or
+        paragraph separator (``Zl``, ``Zp``), and neither starts nor ends
+        with a space separator (``Zs``); ``False`` otherwise.
     """
     if not 1 <= len(sender_name) <= MAX_SENDER_NAME_LENGTH:
         return False

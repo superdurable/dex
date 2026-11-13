@@ -334,6 +334,7 @@ function StreamItem({
               : isUser && message.senderName ? SESSION_COPY.senderNameUnverified : undefined}
           >
             {isUser ? message.senderName ?? SESSION_COPY.user : SESSION_COPY.assistant}
+            {isUser && message.senderName && <span className="ses-who-note"> · {SESSION_COPY.senderNameUnverifiedShort}</span>}
           </span>
           <p className="ses-text">{message.text === null ? null : messageTextParts(message.text)}</p>
         </div>

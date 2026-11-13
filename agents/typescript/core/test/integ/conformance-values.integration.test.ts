@@ -43,7 +43,7 @@ import {
   planningTurnInstruction,
   planningTurnToolRejection,
 } from "../../src/agent-plans.js";
-import { buildSenderNamedText, isValidSenderName } from "../../src/agent-sender-names.js";
+import { buildSenderNamedText, isValidSenderName, maxSenderNameLength } from "../../src/agent-sender-names.js";
 import {
   decodeAgentImageReference,
   decodeAgentInterrupt,
@@ -178,6 +178,10 @@ interface NamesManifest {
   readonly final_tool_call_statuses: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly mcp_resource_and_prompt_tool_names: readonly string[];
+  readonly sender_names: {
+    readonly max_code_points: number;
+    readonly examples: readonly { readonly name: string; readonly code_points: readonly number[]; readonly is_valid: boolean }[];
+  };
   readonly session_titles: {
     readonly max_code_points: number;
     readonly examples: readonly { readonly name: string; readonly message: string; readonly title: string | null }[];
@@ -639,13 +643,14 @@ describe("the conformance suite's text table", () => {
     assert.deepEqual(constants, texts.constants);
   });
 
-  test("the sender name rule counts code points and refuses breaks", () => {
-    assert.equal(isValidSenderName("Alice"), true);
-    assert.equal(isValidSenderName("\u{1F600}".repeat(64)), true);
-    assert.equal(isValidSenderName("\uFEFFAlice"), true);
-    assert.equal(isValidSenderName("\u{1F600}".repeat(65)), false);
-    for (const name of ["", " Alice", "Alice ", "A\nB", "A\u2028B", "\u0007", "x".repeat(65)]) {
-      assert.equal(isValidSenderName(name), false, JSON.stringify(name));
+  test("the sender name rule matches the TypeScript core", () => {
+    assert.equal(maxSenderNameLength, names.sender_names.max_code_points);
+    for (const example of names.sender_names.examples) {
+      // fromCharCode keeps a lone surrogate, which fromCodePoint does too; both are spelled out for clarity.
+      const senderName = example.code_points
+        .map((codePoint) => (codePoint > 0xffff ? String.fromCodePoint(codePoint) : String.fromCharCode(codePoint)))
+        .join("");
+      assert.equal(isValidSenderName(senderName), example.is_valid, example.name);
     }
   });
 

@@ -33,6 +33,12 @@ export function writeStoredSenderName(name: string): void {
   }
 }
 
+/** Cuts a typed name to MAX_SENDER_NAME_LENGTH code points; an input's maxLength counts UTF-16 units instead. */
+export function limitSenderNameLength(name: string): string {
+  const codePoints = [...name];
+  return codePoints.length <= MAX_SENDER_NAME_LENGTH ? name : codePoints.slice(0, MAX_SENDER_NAME_LENGTH).join('');
+}
+
 /** The trimmed name to send with a message, or null to send none. */
 export function senderNameToSend(name: string): string | null {
   const trimmed = name.trim();

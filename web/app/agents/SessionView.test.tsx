@@ -110,8 +110,9 @@ describe('SessionView', () => {
     });
     render(<SessionView flowId="session-1" flowType="CodingAgent" reloadKey={0} schema={schema} workQueuePermissions={[]} />);
 
-    const named = screen.getByText('Alice');
+    const named = screen.getByText('Alice', { exact: false, selector: '.ses-who' });
     expect(named.getAttribute('title')).toBe(SESSION_COPY.senderNameUnverified);
+    expect(named.textContent).toBe(`Alice · ${SESSION_COPY.senderNameUnverifiedShort}`);
     expect(screen.getAllByText(SESSION_COPY.user)).toHaveLength(1);
   });
 

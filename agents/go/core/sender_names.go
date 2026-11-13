@@ -27,9 +27,10 @@ const MaxSenderNameLength = 64
 //	dexagents.IsValidSenderName(" Alice") // false
 //
 // It returns true when the name is valid UTF-8 with 1 to MaxSenderNameLength code points,
-// contains no control character (Unicode category Cc) and no line or paragraph separator
-// (Zl, Zp), and neither starts nor ends with a space separator (Zs); it returns false
-// otherwise.
+// contains no control character (Unicode category Cc), no format character such as a
+// bidirectional override or a zero-width character (Cf), no surrogate (Cs), and no line or
+// paragraph separator (Zl, Zp), and neither starts nor ends with a space separator (Zs); it
+// returns false otherwise.
 func IsValidSenderName(senderName string) bool {
 	if !utf8.ValidString(senderName) {
 		return false
@@ -39,7 +40,8 @@ func IsValidSenderName(senderName string) bool {
 		return false
 	}
 	for _, character := range runes {
-		if unicode.In(character, unicode.Cc, unicode.Zl, unicode.Zp) {
+		// Format characters can reverse or hide a label.
+		if unicode.In(character, unicode.Cc, unicode.Cf, unicode.Cs, unicode.Zl, unicode.Zp) {
 			return false
 		}
 	}

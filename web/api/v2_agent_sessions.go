@@ -145,7 +145,7 @@ func (h *v2Handler) sendAgentSessionMessage(response http.ResponseWriter, reques
 		senderName := strings.TrimSpace(*body.SenderName)
 		if senderName != "" && !isValidAgentSessionSenderName(senderName) {
 			WriteError(response, http.StatusBadRequest, fmt.Sprintf(
-				"senderName must have at most %d characters and no control characters or line breaks",
+				"senderName must have at most %d characters and no control, format, or line break characters",
 				maximumAgentSessionSenderNameLength), nil)
 			return
 		}
@@ -173,7 +173,7 @@ func isValidAgentSessionSenderName(senderName string) bool {
 		return false
 	}
 	for _, character := range runes {
-		if unicode.In(character, unicode.Cc, unicode.Zl, unicode.Zp) {
+		if unicode.In(character, unicode.Cc, unicode.Cf, unicode.Cs, unicode.Zl, unicode.Zp) {
 			return false
 		}
 	}

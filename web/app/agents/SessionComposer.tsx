@@ -11,7 +11,7 @@ import { ListPlus, SendHorizontal, ShieldCheck, Square } from 'lucide-react';
 import { SESSION_COPY } from './copy';
 import type { SessionActionInvoker } from './InterruptControls';
 import { actionBlockedReason, type SessionActionOutcome, type SessionControlContext } from './sessionActions';
-import { MAX_SENDER_NAME_LENGTH, readStoredSenderName, senderNameToSend, writeStoredSenderName } from './senderName';
+import { limitSenderNameLength, readStoredSenderName, senderNameToSend, writeStoredSenderName } from './senderName';
 import { sendSessionMessage, sessionRouteBlockedReason, type SessionRouteContext } from './sessionRequests';
 import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
 import type { LoadedAgentSession } from './useAgentSession';
@@ -136,13 +136,13 @@ export function SessionComposer({
             <span>{SESSION_COPY.senderNameLabel}</span>
             <input
               autoComplete="nickname"
-              maxLength={MAX_SENDER_NAME_LENGTH}
               placeholder={SESSION_COPY.senderNamePlaceholder}
               type="text"
               value={senderName}
               onChange={(event) => {
-                setSenderName(event.target.value);
-                writeStoredSenderName(event.target.value);
+                const limited = limitSenderNameLength(event.target.value);
+                setSenderName(limited);
+                writeStoredSenderName(limited);
               }}
             />
           </label>

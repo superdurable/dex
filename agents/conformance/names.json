@@ -561,6 +561,434 @@
       }
     ]
   },
+  "sender_names": {
+    "format": "1 to max_code_points Unicode code points; no code point of general category Cc, Cf, Cs, Zl, or Zp; the first and last code points are not Zs",
+    "max_code_points": 64,
+    "examples": [
+      {
+        "name": "plain",
+        "code_points": [
+          65,
+          108,
+          105,
+          99,
+          101
+        ],
+        "is_valid": true
+      },
+      {
+        "name": "non-ascii",
+        "code_points": [
+          197,
+          115,
+          97,
+          32,
+          26446,
+          38647
+        ],
+        "is_valid": true
+      },
+      {
+        "name": "astral-at-limit",
+        "code_points": [
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512
+        ],
+        "is_valid": true
+      },
+      {
+        "name": "inner-space",
+        "code_points": [
+          77,
+          97,
+          114,
+          121,
+          32,
+          65,
+          110,
+          110
+        ],
+        "is_valid": true
+      },
+      {
+        "name": "empty",
+        "code_points": [],
+        "is_valid": false
+      },
+      {
+        "name": "over-limit",
+        "code_points": [
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120,
+          120
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "astral-over-limit",
+        "code_points": [
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512,
+          128512
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "leading-space",
+        "code_points": [
+          32,
+          65,
+          108,
+          105,
+          99,
+          101
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "trailing-space",
+        "code_points": [
+          65,
+          108,
+          105,
+          99,
+          101,
+          32
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "leading-no-break-space",
+        "code_points": [
+          160,
+          65,
+          108,
+          105,
+          99,
+          101
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "line-feed",
+        "code_points": [
+          65,
+          10,
+          66
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "tab",
+        "code_points": [
+          65,
+          9,
+          66
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "bell",
+        "code_points": [
+          7
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "next-line",
+        "code_points": [
+          65,
+          133,
+          66
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "line-separator",
+        "code_points": [
+          65,
+          8232,
+          66
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "paragraph-separator",
+        "code_points": [
+          65,
+          8233,
+          66
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "right-to-left-override",
+        "code_points": [
+          8238,
+          65,
+          100,
+          109,
+          105,
+          110,
+          8236
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "zero-width-space-only",
+        "code_points": [
+          8203
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "zero-width-space-inside",
+        "code_points": [
+          65,
+          108,
+          8203,
+          105,
+          99,
+          101
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "zero-width-joiner",
+        "code_points": [
+          128104,
+          8205,
+          128105
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "byte-order-mark",
+        "code_points": [
+          65279,
+          65,
+          108,
+          105,
+          99,
+          101
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "soft-hyphen",
+        "code_points": [
+          65,
+          108,
+          173,
+          105,
+          99,
+          101
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "lone-high-surrogate",
+        "code_points": [
+          55296
+        ],
+        "is_valid": false
+      },
+      {
+        "name": "lone-low-surrogate",
+        "code_points": [
+          65,
+          56320
+        ],
+        "is_valid": false
+      }
+    ]
+  },
   "mcp_resource_and_prompt_tool_names": [
     "mcp_list_resources_and_prompts",
     "mcp_read_resource",

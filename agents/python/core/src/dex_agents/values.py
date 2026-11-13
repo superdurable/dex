@@ -880,8 +880,9 @@ class AgentUserMessage:
             message as ``"<sender_name>: <text>"``, and UIs show the name next
             to the message. The sender chooses it: it is not authenticated.
             A valid name has 1 to ``MAX_SENDER_NAME_LENGTH`` Unicode code
-            points, contains no control character or line break, and neither
-            starts nor ends with a space; the RPCs refuse any other name.
+            points, contains no control, format, or surrogate character and no
+            line break, and neither starts nor ends with a space; the RPCs
+            refuse any other name.
             Encoding omits it when it is ``None``. A Worker before 0.6.2
             ignores it.
 

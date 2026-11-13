@@ -149,7 +149,7 @@ func TestAgentSessionMessageCarriesTheSenderName(t *testing.T) {
 			t.Fatalf("%s: RPC input = %s", testCase.senderName, payload)
 		}
 	}
-	for _, refused := range []string{`"A\nB"`, `"A\u0007"`, `"` + strings.Repeat("x", 65) + `"`} {
+	for _, refused := range []string{`"A\nB"`, `"A\u0007"`, `"\u202eAdmin\u202c"`, `"\u200b"`, `"` + strings.Repeat("x", 65) + `"`} {
 		client.rpcRequests = nil
 		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
 			`{"flowType":"SupportAgent","flowId":"session-1","workQueuePermissions":["agent.operate"],"text":"hi",`+

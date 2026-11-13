@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from pathlib import Path
 
 from dex_agents import (
+    MAX_SENDER_NAME_LENGTH,
     AgentMessage,
     AgentUserMessage,
     MessageRole,
@@ -23,16 +25,16 @@ from dex_agents import (
 )
 from tests.conftest import ScriptedAgentHarness
 
-REFUSED_SENDER_NAMES = ["", " Alice", "Alice ", "A\nB", "A\u2028B", "\u0007", "x" * 65]
+REFUSED_SENDER_NAMES = ["", " Alice", "A\nB", "\u202eAdmin\u202c", "\u200b", "\ud800", "x" * 65]
 
 
-def test_sender_name_rule_counts_code_points_and_refuses_breaks() -> None:
-    assert is_valid_sender_name("Alice")
-    assert is_valid_sender_name("\U0001f600" * 64)
-    assert is_valid_sender_name("\ufeffAlice")
-    assert not is_valid_sender_name("\U0001f600" * 65)
-    for name in REFUSED_SENDER_NAMES:
-        assert not is_valid_sender_name(name), name
+def test_sender_name_rule_matches_the_conformance_suite() -> None:
+    names = json.loads((Path(__file__).parents[3] / "conformance" / "names.json").read_text())
+    rule = names["sender_names"]
+    assert rule["max_code_points"] == MAX_SENDER_NAME_LENGTH
+    for example in rule["examples"]:
+        sender_name = "".join(chr(code_point) for code_point in example["code_points"])
+        assert is_valid_sender_name(sender_name) is example["is_valid"], example["name"]
 
 
 async def test_a_named_message_reaches_the_model_with_its_name_and_is_stored_with_it(

@@ -294,7 +294,7 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     await sessions.waitForCompletedTurns(sessionId, 1);
     const invoke = (input: { text: string; senderName: string }) =>
       environment.client.invokeRPC(sessions.flow.sendUserMessage, sessionId, input);
-    for (const senderName of ["", " Alice", "Alice ", "A\nB", "A\u2028B", "\u0007", "x".repeat(65)]) {
+    for (const senderName of ["", " Alice", "A\nB", "\u202eAdmin\u202c", "\u200b", "\ud800", "x".repeat(65)]) {
       assert.equal(await invoke({ text: "hello", senderName }), false, JSON.stringify(senderName));
     }
     assert.equal(

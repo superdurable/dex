@@ -62,6 +62,7 @@ export const SESSION_COPY = {
   senderNamePlaceholder: 'Optional',
   senderNameTitle: 'Shown with your messages to the agent and to everyone in the session. It is not verified.',
   senderNameUnverified: 'Name the sender entered; not verified',
+  senderNameUnverifiedShort: 'unverified',
   steerPlaceholder: 'Tell the agent what to do instead',
   composerIdlePlaceholder: 'Message the agent',
   composerRunningPlaceholder: 'Queue a message for the next turn, or steer this one',

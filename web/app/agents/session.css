@@ -379,6 +379,11 @@ html[data-theme='dark'] :is(.ses, .atc, .agc) {
   color: var(--as-accent);
 }
 
+.ses-msg[data-role='user'] .ses-who-note {
+  color: var(--as-ink-3);
+  font-weight: 500;
+}
+
 /* ---------- the composer: elevated, never ruled off ---------- */
 .ses-controls {
   position: sticky;

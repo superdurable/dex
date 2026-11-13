@@ -142,6 +142,17 @@ describe('SessionComposer', () => {
     expect(window.localStorage.getItem('dex.agents.senderName')).toBeNull();
   });
 
+  it('limits the name by code points, as the agents cores count them', () => {
+    window.localStorage.clear();
+    renderComposer(sessionWith({}));
+    const nameInput = screen.getByRole('textbox', { name: SESSION_COPY.senderNameLabel }) as HTMLInputElement;
+    expect(nameInput.maxLength).toBe(-1);
+    fireEvent.change(nameInput, { target: { value: '\u{1F600}'.repeat(70) } });
+    expect([...nameInput.value]).toHaveLength(64);
+    expect(nameInput.value).toBe('\u{1F600}'.repeat(64));
+    window.localStorage.clear();
+  });
+
   it('keeps working when the browser refuses storage', async () => {
     const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
     const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });

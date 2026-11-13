@@ -12,22 +12,40 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
 )
 
-func TestSenderNameRuleCountsCodePointsAndRefusesBreaks(t *testing.T) {
+func TestSenderNameRuleMatchesTheConformanceSuite(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsValidSenderName("Alice"))
-	require.True(t, IsValidSenderName(strings.Repeat("\U0001F600", 64)))
-	require.True(t, IsValidSenderName("\ufeffAlice"))
-	require.False(t, IsValidSenderName(strings.Repeat("\U0001F600", 65)))
-	for _, name := range []string{"", " Alice", "Alice ", "A\nB", "A\u2028B", "\u0007", strings.Repeat("x", 65), "\xff"} {
-		require.False(t, IsValidSenderName(name), "%q", name)
+	text, err := os.ReadFile(filepath.Join("..", "..", "conformance", "names.json"))
+	require.NoError(t, err)
+	var names struct {
+		SenderNames struct {
+			MaxCodePoints int `json:"max_code_points"`
+			Examples      []struct {
+				Name       string `json:"name"`
+				CodePoints []rune `json:"code_points"`
+				IsValid    bool   `json:"is_valid"`
+			} `json:"examples"`
+		} `json:"sender_names"`
 	}
+	require.NoError(t, json.Unmarshal(text, &names))
+	require.Equal(t, MaxSenderNameLength, names.SenderNames.MaxCodePoints)
+	for _, example := range names.SenderNames.Examples {
+		if slices.ContainsFunc(example.CodePoints, utf16.IsSurrogate) {
+			// A Go string cannot hold a surrogate: its UTF-8 bytes are invalid, which the rule refuses.
+			require.False(t, example.IsValid, example.Name)
+			continue
+		}
+		require.Equal(t, example.IsValid, IsValidSenderName(string(example.CodePoints)), example.Name)
+	}
+	require.False(t, IsValidSenderName("\xed\xa0\x80"), "the UTF-8 bytes of U+D800")
+	require.False(t, IsValidSenderName("\xff"))
 }
 
 // Conformance user messages and steer requests round-trip with their sender names.
