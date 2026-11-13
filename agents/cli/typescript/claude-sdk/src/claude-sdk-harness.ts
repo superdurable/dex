@@ -116,7 +116,7 @@ const maximumSymbolicLinkHops = 40;
  * that level. The terminal UI's `/model` suggests `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, and
  * `claude-fable-5-2`.
  *
- * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts
@@ -200,7 +200,7 @@ export class ClaudeCodeLocalTools {
    * Changed in 0.6.0: the options load no MCP servers or claude.ai connectors from the user's Claude Code
    * configuration or login.
    *
-   * Changed in 0.7.0: the options carry the turn's reasoning effort as `effort`, when its session settings set one.
+   * Changed in 0.6.2: the options carry the turn's reasoning effort as `effort`, when its session settings set one.
    *
    * @returns Options with the Claude Code tools the turn switches on and the tools of calls the turn already
    * recorded, the workspace as `cwd`, no settings files, and no MCP servers or claude.ai connectors from the

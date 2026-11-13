@@ -54,7 +54,7 @@ class ResolvedTurn(EffectiveConfig):
             reasoning effort to the SDK, so the model's own default applies.
             ``to_json`` leaves it out, as it does ``instructions``.
 
-            .. versionadded:: 0.7.0
+            .. versionadded:: 0.6.2
     """
 
     instructions: str | None = None
@@ -78,7 +78,7 @@ class TurnConfigResolver:
     ) -> None:
         """Bound every turn by the file's configuration.
 
-        .. versionchanged:: 0.7.0
+        .. versionchanged:: 0.6.2
            The ``supported_reasoning_efforts`` argument.
 
         Args:

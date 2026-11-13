@@ -45,7 +45,7 @@ export const defaultInstructions =
  * `/model` suggests `openai/gpt-5.2`, `openai/gpt-5-mini`, `anthropic/claude-opus-5-5`, and
  * `anthropic/claude-sonnet-5-5`.
  *
- * Changed in 0.7.0: suggests models.
+ * Changed in 0.6.2: suggests models.
  *
  * @example
  * ```ts

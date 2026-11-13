@@ -63,7 +63,7 @@ export class TurnConfigResolver {
    * @param reportWarnings - Called once per distinct settings with the JSON Pointers of their ignored keys.
    * @param readTurnSessionSettings - Reads a session's turn settings, for tool Steps.
    * @param supportedReasoningEfforts - The harness's `AgentHarness.supportedReasoningEfforts`, which a turn's
-   * `reasoning_effort` must be one of. Defaults to none, which fails every turn that sets one. Since 0.7.0.
+   * `reasoning_effort` must be one of. Defaults to none, which fails every turn that sets one. Since 0.6.2.
    */
   public constructor(
     private readonly effective: EffectiveConfig,

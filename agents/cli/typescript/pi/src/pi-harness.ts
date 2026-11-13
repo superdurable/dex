@@ -92,7 +92,7 @@ export interface PiSection {
  * Changed in 0.6.0: Pi's own tool behavior and approval default, connector prefixes, and the launch directory as the
  * default workspace.
  *
- * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts

@@ -66,7 +66,7 @@ class BuiltinHarness:
     .. versionchanged:: 0.6.0
        Plan mode is on, and the agent has the ``write_todos`` built-in tool.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The ``reasoning_effort`` session setting and the suggested models.
     """
 

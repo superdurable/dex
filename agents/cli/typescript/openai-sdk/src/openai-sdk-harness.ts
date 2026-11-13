@@ -57,7 +57,7 @@ type ReasoningEffort = NonNullable<NonNullable<ModelSettings["reasoning"]>["effo
  * `modelSettings.reasoning.effort` of every model call in the turn. The terminal UI's `/model` suggests `gpt-5.2`,
  * `gpt-5-mini`, and `gpt-5-nano`.
  *
- * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts
@@ -137,7 +137,7 @@ export class TurnModelProvider implements ModelProvider {
   /**
    * Returns the running turn's model.
    *
-   * Changed in 0.7.0: when the turn has a reasoning effort, the model sets it as `modelSettings.reasoning.effort`
+   * Changed in 0.6.2: when the turn has a reasoning effort, the model sets it as `modelSettings.reasoning.effort`
    * of every request, over the agent's own reasoning settings.
    *
    * @returns The SDK's OpenAI model for the turn's model name, without an `openai/` prefix, with the turn's

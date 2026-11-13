@@ -70,7 +70,7 @@ class OpenAISdkHarness:
     the model's default applies. ``suggested_models`` lists OpenAI models
     for the terminal UI's ``/model``.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The ``reasoning_effort`` session setting and the suggested models.
     """
 
@@ -122,7 +122,7 @@ class TurnModelProvider(ModelProvider):
 
     Session settings may change both between turns.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The model carries the turn's ``reasoning_effort``.
     """
 
