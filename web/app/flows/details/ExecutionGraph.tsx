@@ -536,6 +536,7 @@ export function ExecutionGraph({
         style={{ height: Math.max(650, bounds.height * initialZoom) }}
       >
         <ReactFlow
+          proOptions={{ hideAttribution: true }}
           nodes={nodes}
           edges={edges}
           nodeTypes={graphNodeTypes}

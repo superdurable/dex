@@ -39,11 +39,8 @@ export function RunFactsMenu({
   childFlows = [],
   hasMoreChildFlows = false,
   childFlowsHref,
-  attemptLabel,
   attemptControl,
 }: {
-  /** Shown in the button when the bar hides the attempt picker, such as "2 of 2". */
-  attemptLabel?: string;
   /** The attempt picker, repeated in the popover for when the bar hides it. */
   attemptControl?: ReactNode;
   flowId: string;
@@ -70,17 +67,8 @@ export function RunFactsMenu({
         type="button"
       >
         <span className="run-facts-name mono">
-          <span className="id-long">{middleTruncate(flowId, 36)}</span>
-          <span className="id-short">{middleTruncate(flowId, 16)}</span>
+          {middleTruncate(flowId, 24)}
         </span>
-        {attemptLabel && <span className="run-facts-attempt">Attempt {attemptLabel}</span>}
-        {childFlows.length > 0 && (
-          <span className="run-facts-children-count">
-            <CornerDownRight aria-hidden="true" size={12} strokeWidth={2.25} />
-            {childFlows.length}{hasMoreChildFlows ? '+' : ''}
-            <span className="run-facts-children-word"> {childFlows.length === 1 && !hasMoreChildFlows ? 'child' : 'children'}</span>
-          </span>
-        )}
         <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
       </button>
       {isOpen && (

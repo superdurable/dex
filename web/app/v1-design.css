@@ -2213,7 +2213,7 @@ html:has(.v1-page .stream-scroll--entries) {
 /* ------------------------------------------------------------ flow search */
 
 .v1-page.page-shell {
-  width: min(1500px, calc(100% - 40px));
+  width: min(1760px, calc(100% - 40px));
   margin: 0 auto;
   padding: 24px 0 60px;
 }

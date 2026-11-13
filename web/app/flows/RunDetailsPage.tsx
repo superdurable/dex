@@ -34,6 +34,7 @@ import type {
 } from '@/lib/types';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import {
+  CornerDownRight,
   CornerLeftUp,
   LayoutDashboard,
   Rows3,
@@ -61,7 +62,7 @@ import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './deta
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { rememberRecentRun } from '../components/frame/recentRuns';
-import { RunFailureLine, runFailureOf, RunStateLine, runStateOf } from './details/RunFailureLine';
+import { RunFailureBody, runFailureOf, RunLineJump, RunStateBody, runStateOf } from './details/RunFailureLine';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline } from './details/HorizontalTimeline';
@@ -904,6 +905,7 @@ export function RunDetailsPage({
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
+  const isRunStateShown = runState !== null && (shownTab === 'timeline' || shownTab === 'steps' || shownTab === 'overview');
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
@@ -917,6 +919,41 @@ export function RunDetailsPage({
     { label: 'Flow type', value: summary.flowType, icon: 'type' },
   ] : [];
 
+  // The run's relations and attempt sit in the line under the bar, so the bar is the same on every run.
+  const hasRunContext = Boolean(relations?.parentFlowId) || (relations?.children.length ?? 0) > 0
+    || (summary !== null && currentRunAttempt > 1);
+  const runContext = hasRunContext ? (
+    <span className="run-context">
+      {relations?.parentFlowId && (
+        <Link className="run-context-item" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
+          <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
+          Child of <span className="mono">{middleTruncate(relations.parentFlowId, 32)}</span>
+        </Link>
+      )}
+      {relations && relations.children.length > 0 && (
+        <Link
+          className="run-context-item"
+          title="Child Flows of this run"
+          to={relations.children.length === 1 && !relations.hasMoreChildren
+            ? currentRunPath(relations.children[0].flowId, relations.children[0].runId)
+            : childFlowsHref}
+        >
+          <CornerDownRight aria-hidden="true" size={13} strokeWidth={2.25} />
+          {relations.children.length === 1 && !relations.hasMoreChildren
+            ? `1 child · ${relations.children[0].flowStatus}`
+            : `${relations.children.length}${relations.hasMoreChildren ? '+' : ''} children`}
+        </Link>
+      )}
+      {summary && currentRunAttempt > 1 && (
+        <RunAttemptSelect
+          currentRunAttempt={currentRunAttempt}
+          displayedRunAttempt={displayedRunAttempt}
+          onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+        />
+      )}
+    </span>
+  ) : null;
+
   if (loading && !summary) return <LoadingIndicator label="Loading flow run…" />;
   const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
@@ -925,16 +962,6 @@ export function RunDetailsPage({
       <h1 className="sr-only">Flow {flowId}, run {runId}</h1>
       <AppBarSlot name="page">
         <span aria-hidden="true" className="app-bar-separator">/</span>
-        {relations?.parentFlowId && (
-          <>
-            <Link className="app-bar-parent" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
-              <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
-              <span className="id-long mono">{middleTruncate(relations.parentFlowId, 24)}</span>
-              <span className="id-short mono">{middleTruncate(relations.parentFlowId, 12)}</span>
-            </Link>
-            <span aria-hidden="true" className="app-bar-separator">/</span>
-          </>
-        )}
         {summary && <StatusBadge status={summary.flowStatus} />}
         {summary && (
           <span className="app-bar-duration" data-tick={now} title={`Started ${formatDate(summary.startTime, timezone)}`}>
@@ -948,7 +975,6 @@ export function RunDetailsPage({
           flowId={flowId}
           hasMoreChildFlows={relations?.hasMoreChildren}
           runId={runId}
-          attemptLabel={summary && currentRunAttempt > 1 ? `${displayedRunAttempt} of ${currentRunAttempt}` : undefined}
           attemptControl={summary && currentRunAttempt > 1 ? (
             <RunAttemptSelect
               currentRunAttempt={currentRunAttempt}
@@ -958,13 +984,6 @@ export function RunDetailsPage({
             />
           ) : undefined}
         />
-        {summary && currentRunAttempt > 1 && (
-          <RunAttemptSelect
-            currentRunAttempt={currentRunAttempt}
-            displayedRunAttempt={displayedRunAttempt}
-            onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
-          />
-        )}
       </AppBarSlot>
       <AppBarSlot name="views">
         <div aria-label="Run views" className="run-tabs" role="tablist">
@@ -1011,11 +1030,21 @@ export function RunDetailsPage({
         />
       </AppBarSlot>
 
-      {runFailure && (
-        <RunFailureLine failure={runFailure} onJumpToEvent={(eventId) => void jumpToEvent(eventId)} />
-      )}
-      {runState && (shownTab === 'timeline' || shownTab === 'steps' || shownTab === 'overview') && (
-        <RunStateLine onJumpToEvent={(eventId) => void jumpToEvent(eventId)} state={runState} />
+      {/* One line with fixed slots, so the attempt picker in it never remounts as the run loads. */}
+      {(runFailure || isRunStateShown || runContext) && (
+        <div
+          className={runFailure ? 'run-failure-line' : isRunStateShown ? `run-state-line${runState?.isOpen ? ' is-open' : ''}` : 'run-state-line run-context-line'}
+          role={runFailure ? 'alert' : undefined}
+        >
+          {runFailure ? <RunFailureBody failure={runFailure} /> : isRunStateShown && runState ? <RunStateBody state={runState} /> : null}
+          {runContext}
+          {(runFailure || (isRunStateShown && runState)) && (
+            <RunLineJump
+              eventId={runFailure ? runFailure.eventId : runState?.eventId ?? 0}
+              onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+            />
+          )}
+        </div>
       )}
       {isViewingEarlierRunAttempt && (
         <div className="warning-banner run-error">

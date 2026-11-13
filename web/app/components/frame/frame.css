@@ -798,8 +798,7 @@ body {
   }
 }
 
-/* Parent and child Flows sit in the trail, so a subflow always leads back up. */
-.app-bar-parent {
+/* Parent and child Flows sit in the trail {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -814,23 +813,7 @@ body {
   white-space: nowrap;
 }
 
-.app-bar-parent:hover {
-  color: var(--ui-ink);
-  background: var(--ui-hover);
-}
 
-.run-facts-children-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  color: var(--ui-ink-2);
-  background: var(--ui-chip);
-  font-size: var(--ui-text-xs);
-  font-weight: 650;
-  text-decoration: none;
-}
 
 .run-facts-children {
   display: grid;
@@ -896,9 +879,6 @@ body {
 }
 
 @container app-bar (max-width: 1100px) {
-  .app-bar-parent {
-    display: none;
-  }
 }
 
 /* A whole Flows row opens its run; long IDs shorten so every column fits a laptop screen. */
@@ -963,7 +943,6 @@ body {
   flex: 0 1 auto;
 }
 
-.run-facts-children-count,
 .run-facts-button > svg {
   flex: none;
 }
@@ -1028,34 +1007,6 @@ body {
   }
 }
 
-/* Measured levels: 'trail' and later drop the duration, shrink the status to its icon and fold the attempt into the Flow ID. */
-.app-bar.v1-page[data-compact-views] .app-bar-duration,
-.app-bar.v1-page[data-compact-views] .app-bar-page > .run-attempt-select,
-.app-bar.v1-page[data-compact-views] .run-facts-children-word {
-  display: none;
-}
-
-.app-bar.v1-page[data-compact-views] .run-facts-attempt {
-  display: inline;
-}
-
-.app-bar.v1-page[data-compact-views] .app-bar-page > .status-badge {
-  padding: 5px;
-  font-size: 0;
-}
-
-/* 'id' and later swap the Flow ID and the parent's ID for shorter middle-cut copies. */
-.app-bar .id-short {
-  display: none;
-}
-
-.app-bar.v1-page:is([data-compact-views='id'], [data-compact-views='tail'], [data-compact-views='all']) .id-long {
-  display: none;
-}
-
-.app-bar.v1-page:is([data-compact-views='id'], [data-compact-views='tail'], [data-compact-views='all']) .id-short {
-  display: inline;
-}
 
 @container app-bar (max-width: 1360px) {
   .app-bar.v1-page .run-tabs button {
@@ -1345,20 +1296,7 @@ body {
   background: var(--ui-chip);
 }
 
-.run-facts-attempt {
-  display: none;
-  padding: 1px 7px;
-  border-radius: 999px;
-  color: var(--tone-wait-ink);
-  background: var(--tone-wait-soft);
-  font-size: var(--ui-text-xs);
-  font-weight: 650;
-  white-space: nowrap;
-}
 
-.run-facts-attempt-control {
-  margin: 4px 0 10px;
-}
 
 /* Add filter lines up with the other controls of a one-row search. */
 .v1-page .query-card .filter-list > .text-button {
@@ -1404,5 +1342,84 @@ body {
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+}
+
+/* The run's relations and attempt, on the line under the bar. */
+.run-context {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.run-context-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.run-context-item:hover {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.run-context .run-attempt-select {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 650;
+}
+
+.run-context-line {
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+}
+
+.run-facts-attempt-control {
+  margin: 4px 0 10px;
+}
+
+/* At laptop widths the bar trims its own chrome so every tab keeps its name. */
+.operate-label-narrow {
+  display: none;
+}
+
+@container app-bar (max-width: 1360px) {
+  .app-bar.v1-page .run-tabs button {
+    font-size: var(--ui-text-sm);
+  }
+
+  .app-bar-jump-button kbd {
+    display: none;
+  }
+
+  .operate-label-wide {
+    display: none;
+  }
+
+  .operate-label-narrow {
+    display: inline;
+  }
+
+  .app-bar .live-toggle {
+    min-width: 0;
+    padding: 0 9px;
+  }
+
+  .app-bar-icon-button.app-bar-jump-button {
+    padding: 0 4px;
   }
 }

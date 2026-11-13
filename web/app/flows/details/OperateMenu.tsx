@@ -14,6 +14,8 @@ interface OperateAction {
   id: 'stop' | 'time-travel';
   /** The short name on the main button; its description is the button's tooltip. */
   label: string;
+  /** A shorter name for laptop widths, when it differs. */
+  narrowLabel?: string;
   menuLabel: string;
   description: string;
   Icon: LucideIcon;
@@ -46,7 +48,7 @@ export function OperateMenu({
     onSelect: onTimeTravel,
   };
   const fromFailure: OperateAction | null = onTimeTravelFromFailure ? {
-    id: 'time-travel', label: failedEventId === undefined ? 'Time travel' : `Time travel from #${failedEventId}`, menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
+    id: 'time-travel', label: failedEventId === undefined ? 'Time travel' : `Time travel from #${failedEventId}`, narrowLabel: 'Time travel', menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
     Icon: History, onSelect: onTimeTravelFromFailure,
   } : null;
   const [primary, ...others] = isRunning ? [stop, timeTravel] : fromFailure ? [fromFailure, timeTravel] : [timeTravel];
@@ -61,7 +63,14 @@ export function OperateMenu({
           type="button"
         >
           <primary.Icon aria-hidden="true" size={14} strokeWidth={2.25} />
-          <span className="operate-primary-label">{primary.label}</span>
+          <span className="operate-primary-label">
+            {primary.narrowLabel ? (
+              <>
+                <span className="operate-label-wide">{primary.label}</span>
+                <span className="operate-label-narrow">{primary.narrowLabel}</span>
+              </>
+            ) : primary.label}
+          </span>
         </button>
         {others.length > 0 && (
           <button

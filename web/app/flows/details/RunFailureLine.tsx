@@ -27,23 +27,23 @@ export function runFailureOf(events: readonly FlowHistoryEvent[]): RunFailure | 
   return { message, eventId: failedStep?.eventId ?? closed.eventId };
 }
 
-/** One line under the bar that says why the run failed and opens the failing event. */
-export function RunFailureLine({
-  failure,
-  onJumpToEvent,
-}: {
-  failure: RunFailure;
-  onJumpToEvent: (eventId: number) => void;
-}) {
+/** Why a failed run failed, for the run line. */
+export function RunFailureBody({ failure }: { failure: RunFailure }) {
   return (
-    <div className="run-failure-line" role="alert">
+    <>
       <CircleX aria-hidden="true" size={16} strokeWidth={2.25} />
       <span className="run-failure-message">{failure.message}</span>
-      <button className="run-failure-jump" onClick={() => onJumpToEvent(failure.eventId)} type="button">
-        Event #{failure.eventId}
-        <ArrowRight aria-hidden="true" size={14} strokeWidth={2.25} />
-      </button>
-    </div>
+    </>
+  );
+}
+
+/** The run line's button that selects the event it names. */
+export function RunLineJump({ eventId, onJumpToEvent }: { eventId: number; onJumpToEvent: (eventId: number) => void }) {
+  return (
+    <button className="run-failure-jump" onClick={() => onJumpToEvent(eventId)} type="button">
+      Event #{eventId}
+      <ArrowRight aria-hidden="true" size={14} strokeWidth={2.25} />
+    </button>
   );
 }
 
@@ -76,21 +76,17 @@ function contextOf(event: FlowHistoryEvent): Record<string, unknown> {
   return context && typeof context === 'object' ? context as Record<string, unknown> : {};
 }
 
-/** The same line for runs that did not fail: the newest event of an open run, or how it closed. */
-export function RunStateLine({ state, onJumpToEvent }: { state: RunState; onJumpToEvent: (eventId: number) => void }) {
+/** What a run that did not fail is doing, or how it ended, for the run line. */
+export function RunStateBody({ state }: { state: RunState }) {
   const Icon = state.isOpen ? Activity : CircleCheck;
   return (
-    <div className={`run-state-line${state.isOpen ? ' is-open' : ''}`}>
+    <>
       <Icon aria-hidden="true" size={16} strokeWidth={2.25} />
       <span className="run-state-label">{state.isOpen ? 'Now' : 'Ended'}</span>
       <span className="run-state-message">
         {state.title}
         {state.stepType && <span className="mono"> · {state.stepType}</span>}
       </span>
-      <button className="run-failure-jump" onClick={() => onJumpToEvent(state.eventId)} type="button">
-        Event #{state.eventId}
-        <ArrowRight aria-hidden="true" size={14} strokeWidth={2.25} />
-      </button>
-    </div>
+    </>
   );
 }
