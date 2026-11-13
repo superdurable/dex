@@ -482,6 +482,141 @@ edge resource_write step:AwaitApproval -> resource:attribute:status set
 edge resource_write step:AwaitApproval -> resource:stream:progress write
 edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
 edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:reviewFlow:92:7 start
+== review3-arrowHelper valid=false
+== review3-baseline valid=true
+node decision:step:Work:18:75 condition=""
+node wait:Work:17:34 condition=""
+edge resource_publish step:Work -> resource:channel:first publish
+warning unused_resource attribute Status has no direct access in the source file
+warning unused_resource channel Second has no direct access in the source file
+== review3-callbackDeferred valid=false
+== review3-constructorField valid=true
+node decision:step:Work:17:81 condition=""
+node wait:Work:16:34 condition=""
+edge resource_publish step:Work -> resource:channel:first publish
+warning unused_resource channel Second has no direct access in the source file
+== review3-contextDestructure valid=false
+== review3-contextInferred valid=false
+== review3-fieldConditionComputedLiteral valid=false
+== review3-fieldNamedHelper valid=false
+== review3-flowChain valid=true
+node decision:step:Work:17:86 condition=""
+node wait:Work:16:34 condition=""
+edge resource_publish step:Work -> resource:channel:first publish
+warning unused_resource channel Second has no direct access in the source file
+== review3-flowConstructorReassign valid=false
+== review3-flowGetter valid=false
+== review3-flowReflect valid=false
+== review3-flowSubclass valid=false
+== review3-functionHelper valid=false
+== review3-getter valid=false
+== review3-helperApply valid=false
+== review3-helperBind valid=false
+== review3-helperCall valid=false
+== review3-helperCallShadow valid=false
+== review3-helperContextInference valid=true
+node decision:step:Work:18:68 condition=""
+node wait:Work:17:34 condition=""
+edge resource_publish step:Work -> resource:channel:first publish
+warning unused_resource attribute Status has no direct access in the source file
+warning unused_resource channel Second has no direct access in the source file
+== review3-inferredCallback valid=false
+== review3-methodReplacement valid=false
+== review3-moduleConditionAlias valid=true
+node decision:step:Work:13:171 condition=""
+node wait:Work:13:96 condition=""
+edge wait_condition resource:channel:first -> wait:Work:13:96 First.for 1
+warning unused_resource channel Second has no direct access in the source file
+== review3-moduleObjectAlias valid=false
+== review3-namespaceContext valid=false
+== review3-paramProperty valid=true
+node decision:step:Work:17:81 condition=""
+node wait:Work:16:34 condition=""
+edge resource_publish step:Work -> resource:channel:first publish
+warning unused_resource channel Second has no direct access in the source file
+== review3-parameterAliasField valid=true
+node decision:step:Work:18:81 condition=""
+node wait:Work:17:34 condition=""
+edge resource_publish step:Work -> resource:channel:first publish
+warning unused_resource channel Second has no direct access in the source file
+== review3-propertyReflect valid=false
+== review3-proxyResource valid=false
+== review3-reassignedCtor valid=false
+== review3-reassignedMethod valid=false
+== review3-reassignedViaHelper valid=false
+== review3-reboundArrow valid=false
+== review3-reboundMethod valid=false
+== review3-resourceDefaultParameter valid=false
+== review3-resourceSubclass valid=false
+== review3-rpcCancelSameName valid=true
+node decision:rpc:describe:16:386 condition=""
+node decision:step:Work:15:59 condition=""
+node wait:Work:14:50 condition=""
+edge cancel decision:rpc:describe:16:386 -> step:Work cancelingSteps
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource stream Progress has no direct access in the source file
+== review3-rpcDuplicateProperty valid=false
+== review3-rpcHelperReturnCall valid=true
+node decision:rpc:describe:14:283:12:26 condition=""
+node decision:step:Work:13:167 condition=""
+node wait:Work:13:96 condition=""
+edge transition decision:rpc:describe:14:283:12:26 -> step:Work fan-out
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource channel Second has no direct access in the source file
+== review3-rpcHiddenExpressionHelper valid=true
+node decision:step:Work:13:167 condition=""
+node wait:Work:13:96 condition=""
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource channel Second has no direct access in the source file
+== review3-rpcListSameName valid=true
+node decision:rpc:describe:16:406 condition=""
+node decision:step:Work:15:59 condition=""
+node wait:Work:14:50 condition=""
+edge transition decision:rpc:describe:16:406 -> step:Work fan-out
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource stream Progress has no direct access in the source file
+== review3-rpcListShadowUndefined valid=true
+node decision:rpc:describe:16:406 condition=""
+node decision:step:Work:15:59 condition=""
+node wait:Work:14:50 condition=""
+edge transition decision:rpc:describe:16:406 -> step:Work fan-out
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource stream Progress has no direct access in the source file
+== review3-rpcListShorthand valid=true
+node decision:rpc:describe:16:406 condition=""
+node decision:step:Work:15:59 condition=""
+node wait:Work:14:50 condition=""
+edge transition decision:rpc:describe:16:406 -> step:Work fan-out
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource stream Progress has no direct access in the source file
+== review3-rpcShadowUndefined valid=false
+== review3-rpcVoidHelperCall valid=true
+node decision:step:Work:13:167 condition=""
+node wait:Work:13:96 condition=""
+warning unused_resource channel First has no direct access in the source file
+warning unused_resource channel Second has no direct access in the source file
+== review3-stepReflect valid=false
+== review3-streamPropertySameName valid=true
+node decision:step:Work:15:130 condition=""
+node wait:Work:14:50 condition=""
+edge resource_write step:Work -> resource:stream:this.progress write
+warning unused_resource channel First has no direct access in the source file
+== review3-unusedArrow valid=false
+== review3-unusedFunction valid=false
+== review3-unusedThisArrow valid=false
+== review3-waitMutatedMethod valid=false
+== review3-waitPropertySameName valid=true
+node decision:step:Work:15:59 condition=""
+node wait:Work:14:114 condition="context.waitCompleted"
+node wait:Work:14:127 condition="!(context.waitCompleted)"
+edge wait_condition resource:channel:first -> wait:Work:14:114 First.for 1
+warning unused_resource stream Progress has no direct access in the source file
+== review3-waitResultProperty valid=true
+node decision:step:Work:15:59 condition=""
+node wait:Work:14:117 condition="({result:true}).result"
+node wait:Work:14:132 condition="!(({result:true}).result)"
+edge wait_condition resource:channel:first -> wait:Work:14:117 First.for 1
+warning unused_resource stream Progress has no direct access in the source file
 == rpcHelperVoidPath valid=true
 node decision:rpc:approve:136:71 condition="!(decision === \"skip\")"
 node decision:rpc:describe:144:12:136:71 condition="!(decision === \"skip\")"

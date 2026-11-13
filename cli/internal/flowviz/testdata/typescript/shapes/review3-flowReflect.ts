@@ -1,0 +1,26 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+import {Attribute,Channel,StepList,StepMovement,Wait,rpc,stringCodec,gracefulComplete,type Context,type Flow,type Step,type StepDecision,type RPCResult} from "@superdurable/dex";
+const first = new Channel("First",stringCodec);
+const second = new Channel("Second",stringCodec);
+
+class Work implements Step<void>{
+ constructor(private readonly flow:ReviewFlow){}
+ getStepType(){return "Work";}
+ waitFor(context:Context){return Wait.skipImmediately();}
+ execute(context:Context):StepDecision{this.flow.channel.publish(context,"x");return gracefulComplete();}
+}
+export class ReviewFlow implements Flow<void>{
+ channel=first;constructor(){Object.defineProperty(this,"channel",{value:second});}
+ private readonly work=new Work(this);
+ getFlowType(){return "ReviewFlow";}
+ getSteps(){return StepList.startStep<void>(this.work);}
+ getPersistenceSchema(){return {channels:[first,second]};}
+}
+export const reviewFlow=new ReviewFlow();

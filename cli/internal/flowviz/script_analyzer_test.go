@@ -369,6 +369,60 @@ func TestTypeScriptReviewShapes(t *testing.T) {
 		"recursiveHelper":  {"dynamic_resource_access", "hidden_dex_decision"},
 		"destructured":     {"dynamic_class", "dynamic_resource_access", "dynamic_step_target", "unknown_step_target"},
 		"thisComputed":     {"dynamic_class", "dynamic_resource_access", "dynamic_step_target", "unknown_step_target"},
+		// Third review: each shape renders the correct graph or is blocked.
+		"review3-arrowHelper":                   {"dynamic_resource_access"},
+		"review3-baseline":                      nil,
+		"review3-callbackDeferred":              {"dynamic_resource_access"},
+		"review3-constructorField":              nil,
+		"review3-contextDestructure":            {"dynamic_resource_access"},
+		"review3-contextInferred":               {"dynamic_resource_access"},
+		"review3-fieldConditionComputedLiteral": {"dynamic_wait_condition"},
+		"review3-fieldNamedHelper":              {"dynamic_class"},
+		"review3-flowChain":                     nil,
+		"review3-flowConstructorReassign":       {"dynamic_resource_access"},
+		"review3-flowGetter":                    {"dynamic_resource_access"},
+		"review3-flowReflect":                   {"dynamic_class", "dynamic_step_target"},
+		"review3-flowSubclass":                  {"dynamic_step_target"},
+		"review3-functionHelper":                {"dynamic_class", "dynamic_resource_access"},
+		"review3-getter":                        {"dynamic_resource_access"},
+		"review3-helperApply":                   {"dynamic_resource_access"},
+		"review3-helperBind":                    {"dynamic_resource_access"},
+		"review3-helperCall":                    {"dynamic_resource_access"},
+		"review3-helperCallShadow":              {"dynamic_resource_access"},
+		"review3-helperContextInference":        nil,
+		"review3-inferredCallback":              {"dynamic_resource_access"},
+		"review3-methodReplacement":             {"dynamic_resource_access"},
+		"review3-moduleConditionAlias":          nil,
+		"review3-moduleObjectAlias":             {"dynamic_resource_access"},
+		"review3-namespaceContext":              {"dynamic_resource_access"},
+		"review3-parameterAliasField":           nil,
+		"review3-paramProperty":                 nil,
+		"review3-propertyReflect":               {"dynamic_resource_access"},
+		"review3-proxyResource":                 {"dynamic_resource_access"},
+		"review3-reassignedCtor":                {"dynamic_resource_access"},
+		"review3-reassignedMethod":              {"dynamic_resource_access"},
+		"review3-reassignedViaHelper":           {"dynamic_class", "dynamic_resource_access"},
+		"review3-reboundArrow":                  {"dynamic_resource_access"},
+		"review3-reboundMethod":                 {"dynamic_resource_access"},
+		"review3-resourceDefaultParameter":      {"dynamic_resource_access"},
+		"review3-resourceSubclass":              {"dynamic_resource_access"},
+		"review3-rpcCancelSameName":             nil,
+		"review3-rpcDuplicateProperty":          {"dynamic_step_target"},
+		"review3-rpcHelperReturnCall":           nil,
+		"review3-rpcHiddenExpressionHelper":     nil,
+		"review3-rpcListSameName":               nil,
+		"review3-rpcListShadowUndefined":        nil,
+		"review3-rpcListShorthand":              nil,
+		"review3-rpcShadowUndefined":            {"hidden_dex_decision"},
+		"review3-rpcVoidHelperCall":             nil,
+		"review3-stepReflect":                   {"dynamic_class", "dynamic_resource_access"},
+		"review3-streamPropertySameName":        nil,
+		"review3-unusedArrow":                   {"dynamic_resource_access"},
+		"review3-unusedFunction":                {"dynamic_resource_access"},
+		"review3-unusedThisArrow":               {"dynamic_resource_access"},
+		"review3-waitMutatedMethod":             {"dynamic_resource_access"},
+		"review3-waitPropertySameName":          nil,
+		"review3-waitResultProperty":            nil,
 	}
 	directory := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "shapes")
 	sources, err := filepath.Glob(filepath.Join(directory, "*.ts"))
@@ -415,6 +469,27 @@ func TestTypeScriptReviewShapes(t *testing.T) {
 	golden, err := os.ReadFile(goldenPath)
 	require.NoError(t, err)
 	require.Equal(t, string(golden), summary.String())
+}
+
+// The SDK stream integration Flow names a local writer like the Stream field it comes from.
+func TestTypeScriptSDKStreamFlowWriterIsSupported(t *testing.T) {
+	directory := filepath.Dir(scriptFixture(t, "typescript"))
+	source, err := os.ReadFile(filepath.Join("..", "..", "..", "sdk-typescript", "test", "integ", "stream_flow.ts"))
+	require.NoError(t, err)
+	packageSource := strings.ReplaceAll(string(source), `"../../src/index.js"`, `"@superdurable/dex"`)
+	require.NotEqual(t, string(source), packageSource)
+	sourcePath := filepath.Join(directory, "stream_flow.ts")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(packageSource), 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	hasStreamWrite := false
+	for _, edge := range graph.Edges {
+		if edge.Kind == "resource_write" && strings.HasPrefix(edge.To, "resource:stream:") && edge.Label == "write" {
+			hasStreamWrite = true
+		}
+	}
+	require.True(t, hasStreamWrite, "%+v", graph.Edges)
 }
 
 func checkGuardedRPCResult(t *testing.T, graph *Graph) {

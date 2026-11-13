@@ -449,18 +449,25 @@ blocks every other shape:
   method or file function. `nextSteps` and `cancelingSteps` are array literals
   in that object, or a block `const` array literal referenced only there.
   `handleTimeout` follows the Execute rules.
-- A resource reference is a module-level resource name or a `this` field chain
-  that leads to one. An access calls a method by name or string literal key on
-  it. A `bufferedText` writer is a `const` used only by calling its methods.
-  Helpers in the file are followed six calls deep unless they call themselves
-  or reassign or destructure a parameter.
+- A resource reference is a module-level resource name, including a
+  module-level alias, or a `this` field chain that leads to one. An access
+  calls a method by name or string literal key on it, directly in the handler
+  or helper body. A `bufferedText` writer is a `const` used only by calling its
+  methods. Method and function declarations called directly by name are
+  followed six calls deep unless they call themselves or reassign or
+  destructure a parameter.
 - Every `return` ends its path, and unreachable statements add nothing.
 
 Other shapes report `hidden_dex_wait`, `dynamic_wait_condition`,
 `hidden_dex_decision`, `dynamic_step_target`, or `dynamic_resource_access`.
-The last one also covers a resource method called with a Dex `Context` on a
-receiver that is not a resource reference; a provably different receiver, such
-as `new Map()`, is not checked. The graph uses the Go analyzer's node IDs and
+The last one covers resource access in nested functions, calls on local
+aliases, helpers used as values or through `call`, `apply`, or `bind`, writes
+to resource members, classes that extend resource classes, and a resource
+method called with a Dex `Context` on a receiver that is not a resource
+reference. Literals, functions, and new `Map`, `WeakMap`, `Set`, and similar
+builtins are not checked. The graph describes source written in these shapes in
+good faith; for untrusted source the guarantee is that the analyzer never runs
+it with `--typescript-compiler`. The graph uses the Go analyzer's node IDs and
 Wait types. Several Flows in one file report `multiple_flows` with one unknown
 node per Flow, as in Go and Python. Version 2.0 Indexed Attributes, Summary,
 Display, and start-input schemas are not analyzed yet. See the
