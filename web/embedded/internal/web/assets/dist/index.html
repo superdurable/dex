@@ -1,0 +1,40 @@
+<!--
+Copyright (c) 2026 Super Durable, Inc.
+
+Licensed under the Sustainable Use License 1.0.
+You may not use this file except in compliance with the License.
+See the LICENSE file in the repository root.
+
+SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+-->
+
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Inspect and operate Dex flows" />
+    <!-- The query makes browsers that cached an earlier icon at this path fetch the new one; bump it when the icon changes. -->
+    <link rel="icon" href="./favicon.svg?v=pipe-d-tile" type="image/svg+xml" />
+    <title>Dex · Super Durable</title>
+    <script>
+      /* Paint the stored theme before CSS so v2 does not flash the wrong ramps. */
+      (function () {
+        try {
+          var c = localStorage.getItem('dex-web.theme');
+          var dark =
+            c === 'dark' ||
+            (c === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-CfdFp2Dy.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CEbIhHiU.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
