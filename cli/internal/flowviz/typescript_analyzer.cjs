@@ -22,7 +22,7 @@ class TypeScriptAnalyzer {
     try {
       compilerPath = createRequire(this.path).resolve("typescript");
     } catch {
-      throw new Error("TypeScript analysis requires Node.js and the typescript package installed in the source project");
+      throw new Error("TypeScript analysis requires Node.js and the typescript package installed in the source project or in a node_modules directory listed in NODE_PATH");
     }
     this.ts = require(compilerPath);
     this.tree = this.ts.createSourceFile(this.path, this.source, this.ts.ScriptTarget.Latest, true);

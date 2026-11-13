@@ -58,11 +58,41 @@ the same bytes. In code, call **render_session_flow_graph** in Python or
 dex-web --flow-rendering-dir ./definitions
 ```
 
+The command fills the Flow type and the permission into the graph that ships
+with the package. It runs no application code, needs no Dex Server, and uses
+no network, so it also runs in a build environment without network access. It
+needs only the installed package and its runtime: Node.js 22 or later for the
+npm package, or Python for the Python package. Run the installed command from
+the application's dependencies:
+
+```bash
+# npm package
+npx --no-install dex-agents-session-graph --flow-type SupportAgent \
+  --permission support-agent.operate --out definitions/support-agent.json
+# Python package
+python -m dex_agents.session_graph --flow-type SupportAgent \
+  --permission support-agent.operate --out definitions/support-agent.json
+```
+
+It prints the graph to standard output when **--out** is omitted. An invalid
+permission or a blank Flow type exits with status 2.
+
 On a development machine, **dexcli dev --flow-rendering-dir ./definitions**
 does the same. Render the files in the build or deployment step that ships the
-Workers, and mount the directory into Dex Web. Dex Web reads the directory
-when it starts, so restart it after a file changes. Render the files again
-after you upgrade the agents packages.
+Workers, and mount the directory into Dex Web. Dex Web reads the directory on
+every definition request, so a changed file shows on the next page load.
+Render the files again after you upgrade the agents packages.
+
+## Rendered file or uploaded graph {#definition-authority}
+
+A Flow type can have both a rendered file in the directory and a graph that
+Workers upload. Dex Web then shows the directory file, even when that file is
+invalid. The uploaded graph's generation time does not matter. See
+[Definition sources](/reference/web/flow-visualization#definition-sources).
+Among uploads, the Dex Server keeps one graph for each Flow type and replaces
+it only with a later generation time or **force**. See
+[Flow definitions](/reference/server/runtime-client#flow-definitions). Use one
+source for each agent. Remove the directory file to show the uploaded graph.
 
 ## What Dex Web shows {#what-dex-web-shows}
 

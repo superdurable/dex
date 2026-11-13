@@ -652,6 +652,16 @@ func TestTypeScriptAnalyzerResolvesCompilerFromSourceProject(t *testing.T) {
 	require.Len(t, graph.Diagnostics, 1)
 	require.Equal(t, "typescript_analyzer_failed", graph.Diagnostics[0].Code)
 	require.Contains(t, graph.Diagnostics[0].Message, "typescript package installed in the source project")
+	require.Contains(t, graph.Diagnostics[0].Message, "NODE_PATH")
+}
+
+func TestTypeScriptAnalyzerLoadsCompilerFromNodePathOutsideSourceProject(t *testing.T) {
+	sourcePath := scriptFixture(t, "typescript")
+	require.NoDirExists(t, filepath.Join(filepath.Dir(sourcePath), "node_modules", "typescript"))
+	t.Chdir(t.TempDir())
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 }
 
 func TestScriptConnectorNamespaceImports(t *testing.T) {
