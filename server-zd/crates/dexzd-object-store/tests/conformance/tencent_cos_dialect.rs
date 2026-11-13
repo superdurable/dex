@@ -10,6 +10,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_object_store::{
@@ -99,6 +100,27 @@ impl TencentCosEmulator {
             )
             .expect("the object is readable")
             .record
+    }
+
+    /// Waits until `key` holds the empty object of an append in flight, read past the client.
+    pub(super) async fn wait_for_append_placeholder(&self, key: &str) {
+        let full_key = format!("{KEY_PREFIX}/{key}");
+        let has_placeholder = || match self.store.head_object(
+            BUCKET,
+            &full_key,
+            &s3local::ObjectReadRequest::default(),
+        ) {
+            Ok(selection) => selection.record.size == 0,
+            Err(s3local::StoreError::NoSuchKey { .. }) => false,
+            Err(error) => panic!("the emulator reads {key}: {error}"),
+        };
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !has_placeholder() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the append creates its placeholder");
     }
 
     pub(super) async fn shutdown(self) {

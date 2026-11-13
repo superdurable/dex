@@ -24,8 +24,8 @@ use url::Url;
 
 use super::{S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
 use crate::{
-    ObjectListing, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
-    WriteOutcome,
+    ObjectListing, ObjectMetadata, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation,
+    ObjectStoreResult, WriteOutcome,
 };
 use append_body::AppendBody;
 use append_response::{AppendResponse, read_append_response, read_error_document};
@@ -227,51 +227,57 @@ impl TencentCosAppendClient {
     }
 }
 
-/// Lists up to `max_keys` non-empty objects; a repeated stale page ends the call early.
+/// Lists up to `max_keys` non-empty objects after `start_after`; a page without newer keys ends it.
+///
+/// Returns the objects in ascending key order and, when more may follow, the key of the last
+/// returned object, which is always after `start_after`.
 pub(super) async fn list_non_empty_objects(
     store: &S3ObjectStore,
     prefix: &str,
     start_after: Option<&str>,
     max_keys: u32,
 ) -> ObjectStoreResult<ObjectListing> {
-    let mut objects = Vec::new();
-    let mut page_start_after = start_after.map(str::to_owned);
-    let mut is_continuation = false;
+    let max_objects = max_keys as usize;
+    let mut objects: Vec<ObjectMetadata> = Vec::new();
+    let mut cursor = start_after.map(str::to_owned);
     loop {
-        let wanted = max_keys - u32::try_from(objects.len()).expect("at most 1000 objects");
-        let page = store
-            .list_page(prefix, page_start_after.as_deref(), wanted)
-            .await?;
-        let is_after_start = |key: &str| {
-            !is_continuation || page_start_after.as_deref().is_none_or(|after| key > after)
-        };
-        let has_progressed = page
+        let wanted = max_keys - u32::try_from(objects.len()).expect("fewer than max_keys objects");
+        let page = store.list_page(prefix, cursor.as_deref(), wanted).await?;
+        let is_truncated = page.next_start_after.is_some();
+        let new_objects: Vec<ObjectMetadata> = page
             .objects
-            .iter()
-            .any(|object| is_after_start(&object.key));
-        if is_continuation && !has_progressed {
+            .into_iter()
+            .filter(|object| {
+                cursor
+                    .as_deref()
+                    .is_none_or(|after| object.key.as_str() > after)
+            })
+            .collect();
+        let Some(last_new_key) = new_objects.iter().map(|object| object.key.clone()).max() else {
+            // A stale page may replay older keys and ignore max-keys; ending keeps cursors advancing.
             return Ok(ObjectListing {
                 objects,
-                next_start_after: page_start_after,
+                next_start_after: None,
+            });
+        };
+        objects.extend(new_objects.into_iter().filter(|object| object.size > 0));
+        if objects.len() >= max_objects {
+            let has_more = is_truncated || objects.len() > max_objects;
+            objects.truncate(max_objects);
+            let next_start_after =
+                has_more.then(|| objects.last().expect("max_keys is at least 1").key.clone());
+            return Ok(ObjectListing {
+                objects,
+                next_start_after,
             });
         }
-        objects.extend(
-            page.objects
-                .into_iter()
-                .filter(|object| object.size > 0 && is_after_start(&object.key)),
-        );
-        match page.next_start_after {
-            Some(next) if objects.len() < max_keys as usize => {
-                page_start_after = Some(next);
-                is_continuation = true;
-            }
-            next_start_after => {
-                return Ok(ObjectListing {
-                    objects,
-                    next_start_after,
-                });
-            }
+        if !is_truncated {
+            return Ok(ObjectListing {
+                objects,
+                next_start_after: None,
+            });
         }
+        cursor = Some(last_new_key);
     }
 }
 

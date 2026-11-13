@@ -1471,6 +1471,31 @@ async fn set_s3local_fault(address: std::net::SocketAddr, rule: &str) {
     );
 }
 
+/// Deletes every s3local fault, which also releases appends waiting as placeholders.
+async fn clear_s3local_faults(address: std::net::SocketAddr) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(address)
+        .await
+        .expect("the admin endpoint is reachable");
+    let request = format!(
+        "DELETE /_s3local/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("the fault deletion is sent");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .expect("the fault deletion is answered");
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+}
+
 async fn s3local_request_log(address: std::net::SocketAddr) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address)

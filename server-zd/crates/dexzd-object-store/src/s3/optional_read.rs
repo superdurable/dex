@@ -18,6 +18,9 @@ use crate::{
 
 use super::S3ObjectStore;
 
+/// Ranged reads retried after a 416 while HEAD shows bytes in range, as placeholders can recur.
+const MAX_RANGE_REREADS_AFTER_PLACEHOLDER: u32 = 3;
+
 pub(super) enum OptionalReadError {
     Absent,
     Retry,
@@ -128,7 +131,7 @@ impl S3ObjectStore {
             ));
         }
         let mut has_retried_after_listing = false;
-        let mut has_reread_after_placeholder = false;
+        let mut rereads_after_placeholder = 0;
         let response = loop {
             let mut request = self
                 .read_client
@@ -150,13 +153,25 @@ impl S3ObjectStore {
                         let metadata = self.head(key).await?;
                         // The 416 may have come from an empty placeholder whose append committed since.
                         if self.api_dialect.reads_empty_objects_as_absent()
-                            && !has_reread_after_placeholder
-                            && metadata
-                                .as_ref()
-                                .is_some_and(|metadata| metadata.size > range.start)
+                            && let Some(metadata) = &metadata
+                            && metadata.size > range.start
                         {
-                            has_reread_after_placeholder = true;
-                            continue;
+                            if rereads_after_placeholder < MAX_RANGE_REREADS_AFTER_PLACEHOLDER {
+                                rereads_after_placeholder += 1;
+                                continue;
+                            }
+                            return Err(ObjectStoreError::new(
+                                ObjectStoreOperation::Get,
+                                key,
+                                ObjectStoreErrorKind::Transient,
+                                format!(
+                                    "ranged GET from byte {} answered 416 {} times, but HEAD \
+                                     shows {} bytes",
+                                    range.start,
+                                    rereads_after_placeholder + 1,
+                                    metadata.size
+                                ),
+                            ));
                         }
                         return Ok(metadata.map(|metadata| ObjectContent {
                             bytes: Bytes::new(),

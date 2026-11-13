@@ -21,8 +21,8 @@ use dexzd_object_store::{
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 use tempfile::TempDir;
 
-use super::set_s3local_fault;
 use super::tencent_cos_dialect::{BUCKET, KEY_PREFIX, TencentCosEmulator};
+use super::{clear_s3local_faults, set_s3local_fault};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
 const LEASE_KEY: &str = "lease/node-a";
@@ -34,6 +34,9 @@ fn append_fault(key_prefix: &str, action: &str) -> String {
 }
 
 const INTERRUPTED_APPEND: &str = r#"{"type":"interrupted_append"}"#;
+
+/// Holds each append as a placeholder until the test deletes the faults.
+const HELD_APPEND_PLACEHOLDER: &str = r#"{"type":"append_placeholder","milliseconds":600000}"#;
 
 /// Creates `key` with an append that the emulator interrupts, leaving an empty object.
 async fn leave_residue(emulator: &TencentCosEmulator, store: &dyn ObjectStore, key: &str) {
@@ -150,10 +153,7 @@ async fn tencent_cos_reads_an_append_in_flight_as_absent_and_commits_one_winner(
     let store = Arc::new(emulator.object_store().await);
     set_s3local_fault(
         emulator.address(),
-        &append_fault(
-            "inflight/",
-            r#"{"type":"append_placeholder","milliseconds":1500}"#,
-        ),
+        &append_fault("inflight/", HELD_APPEND_PLACEHOLDER),
     )
     .await;
     let mut creators = tokio::task::JoinSet::new();
@@ -171,12 +171,12 @@ async fn tencent_cos_reads_an_append_in_flight_as_absent_and_commits_one_winner(
             (body, outcome)
         });
     }
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(emulator.record("inflight/key").size, 0, "the placeholder");
+    emulator.wait_for_append_placeholder("inflight/key").await;
     assert_eq!(store.head("inflight/key").await.expect("head"), None);
     assert_eq!(store.get("inflight/key").await.expect("get"), None);
     let listing = store.list("inflight/", None, 1000).await.expect("list");
     assert!(listing.objects.is_empty(), "{:?}", listing.objects);
+    clear_s3local_faults(emulator.address()).await;
 
     let mut winners = Vec::new();
     while let Some(joined) = creators.join_next().await {
@@ -198,37 +198,132 @@ async fn tencent_cos_reads_an_append_in_flight_as_absent_and_commits_one_winner(
     emulator.shutdown().await;
 }
 
-/// A listing that repeats a page of empty objects ends the call instead of paging forever.
+const STALE_LISTING: &str =
+    r#"{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":600000}}"#;
+
+/// Pages `prefix` as callers do and checks that every cursor strictly advances.
+async fn list_all_pages(store: &dyn ObjectStore, prefix: &str, max_keys: u32) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut start_after: Option<String> = None;
+    for _ in 0..16 {
+        let listing = tokio::time::timeout(
+            STEP_TIMEOUT,
+            store.list(prefix, start_after.as_deref(), max_keys),
+        )
+        .await
+        .expect("the listing returns")
+        .expect("the listing succeeds");
+        assert!(listing.objects.len() <= max_keys as usize, "{listing:?}");
+        for object in &listing.objects {
+            assert!(object.size > 0, "{listing:?}");
+            assert!(
+                start_after
+                    .as_deref()
+                    .is_none_or(|after| object.key.as_str() > after),
+                "{object:?} is not after {start_after:?}"
+            );
+            assert!(
+                keys.last().is_none_or(|last: &String| object.key > *last),
+                "{object:?} repeats a key"
+            );
+            keys.push(object.key.clone());
+        }
+        let Some(next) = listing.next_start_after else {
+            return keys;
+        };
+        assert!(
+            start_after
+                .as_deref()
+                .is_none_or(|after| next.as_str() > after),
+            "the cursor {next:?} does not advance past {start_after:?}"
+        );
+        start_after = Some(next);
+    }
+    panic!("the listing of {prefix} did not end; collected {keys:?}");
+}
+
+/// A stale page that replays a residue ends the listing instead of repeating its cursor.
 #[tokio::test]
-async fn tencent_cos_listing_returns_when_a_stale_page_repeats_empty_objects() {
+async fn tencent_cos_listing_ends_when_a_stale_page_replays_only_empty_objects() {
     let emulator = TencentCosEmulator::start().await;
     let store = emulator.object_store().await;
     leave_residue(&emulator, &store, "stale/r0").await;
     leave_residue(&emulator, &store, "stale/r1").await;
-    store
-        .put(
-            "stale/x",
-            Bytes::from_static(b"x"),
-            WriteCondition::CreateOnly,
-        )
-        .await
-        .expect("a create succeeds");
-    set_s3local_fault(
-        emulator.address(),
-        r#"{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":600000}}"#,
-    )
-    .await;
-    for _ in 0..3 {
-        let listing = tokio::time::timeout(STEP_TIMEOUT, store.list("stale/", None, 1))
+    for key in ["stale/x", "stale/y"] {
+        store
+            .put(key, Bytes::from_static(b"x"), WriteCondition::CreateOnly)
             .await
-            .expect("the listing returns")
-            .expect("the listing succeeds");
-        assert!(
-            listing.objects.iter().all(|object| object.size > 0),
-            "{:?}",
-            listing.objects
+            .expect("a create succeeds");
+    }
+    set_s3local_fault(emulator.address(), STALE_LISTING).await;
+    // The first one-key page, holding only stale/r0, is replayed to every later listing.
+    let first = tokio::time::timeout(STEP_TIMEOUT, store.list("stale/", None, 1))
+        .await
+        .expect("the listing returns")
+        .expect("the listing succeeds");
+    assert!(first.objects.is_empty(), "{first:?}");
+    assert_eq!(first.next_start_after, None, "the replay ends the listing");
+    let from_residue = store
+        .list("stale/", Some("stale/r0"), 1)
+        .await
+        .expect("the listing succeeds");
+    assert!(from_residue.objects.is_empty(), "{from_residue:?}");
+    assert_eq!(from_residue.next_start_after, None);
+    for max_keys in [1, 2, 1000] {
+        assert_eq!(
+            list_all_pages(&store, "stale/", max_keys).await,
+            Vec::<String>::new()
         );
-        assert!(listing.next_start_after.is_some(), "the page is truncated");
+    }
+    set_s3local_fault(emulator.address(), "").await;
+    for max_keys in [1, 2, 1000] {
+        assert_eq!(
+            list_all_pages(&store, "stale/", max_keys).await,
+            ["stale/x", "stale/y"]
+        );
+    }
+    emulator.shutdown().await;
+}
+
+/// A replayed page returns only keys after `start_after` and at most `max_keys` of them.
+#[tokio::test]
+async fn tencent_cos_listing_filters_a_replayed_page_to_keys_after_start_after() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator.object_store().await;
+    for key in ["page/a", "page/b", "page/c"] {
+        store
+            .put(key, Bytes::from_static(b"v"), WriteCondition::CreateOnly)
+            .await
+            .expect("a create succeeds");
+    }
+    set_s3local_fault(emulator.address(), STALE_LISTING).await;
+    // Caches the truncated page [page/a, page/b] for every later listing.
+    let primed = store.list("page/", None, 2).await.expect("list");
+    assert_eq!(listed_keys(&primed), ["page/a", "page/b"]);
+    assert_eq!(primed.next_start_after.as_deref(), Some("page/b"));
+
+    let after_a = store.list("page/", Some("page/a"), 1).await.expect("list");
+    assert_eq!(listed_keys(&after_a), ["page/b"]);
+    assert_eq!(after_a.next_start_after.as_deref(), Some("page/b"));
+    let after_b = store.list("page/", Some("page/b"), 1).await.expect("list");
+    assert!(after_b.objects.is_empty(), "{after_b:?}");
+    assert_eq!(after_b.next_start_after, None);
+    let first_key = store.list("page/", None, 1).await.expect("list");
+    assert_eq!(listed_keys(&first_key), ["page/a"]);
+    assert_eq!(first_key.next_start_after.as_deref(), Some("page/a"));
+    // The stale cache hides page/c until it expires, as Tencent COS listings may.
+    for max_keys in [1, 2, 1000] {
+        assert_eq!(
+            list_all_pages(&store, "page/", max_keys).await,
+            ["page/a", "page/b"]
+        );
+    }
+    set_s3local_fault(emulator.address(), "").await;
+    for max_keys in [1, 2, 1000] {
+        assert_eq!(
+            list_all_pages(&store, "page/", max_keys).await,
+            ["page/a", "page/b", "page/c"]
+        );
     }
     emulator.shutdown().await;
 }
@@ -332,10 +427,7 @@ async fn tencent_cos_head_probing_reads_past_a_replacement_in_flight() {
     };
     set_s3local_fault(
         emulator.address(),
-        &append_fault(
-            &format!("{LEASE_KEY}.v/"),
-            r#"{"type":"append_placeholder","milliseconds":1500}"#,
-        ),
+        &append_fault(&format!("{LEASE_KEY}.v/"), HELD_APPEND_PLACEHOLDER),
     )
     .await;
     let renewal = tokio::spawn({
@@ -350,8 +442,9 @@ async fn tencent_cos_head_probing_reads_past_a_replacement_in_flight() {
                 .await
         }
     });
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(emulator.record(&version_object_key(2)).size, 0);
+    emulator
+        .wait_for_append_placeholder(&version_object_key(2))
+        .await;
     let reader = versioned_store(&inner);
     let during = reader
         .get(LEASE_KEY)
@@ -359,6 +452,7 @@ async fn tencent_cos_head_probing_reads_past_a_replacement_in_flight() {
         .expect("the lease reads during the renewal")
         .expect("the lease exists");
     assert_eq!(during.bytes, Bytes::from_static(b"v1"));
+    clear_s3local_faults(emulator.address()).await;
     assert!(matches!(
         renewal
             .await
@@ -517,7 +611,7 @@ async fn tencent_cos_range_read_rereads_an_append_that_commits_after_its_416() {
                 .await
         }
     });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    emulator.wait_for_append_placeholder("racing/key").await;
     let header = ByteRange {
         start: 0,
         end_inclusive: 5,
@@ -536,5 +630,51 @@ async fn tencent_cos_range_read_rereads_an_append_that_commits_after_its_416() {
             .expect("the create reaches the store"),
         WriteOutcome::Written { .. }
     ));
+    emulator.shutdown().await;
+}
+
+/// A range read that keeps getting 416 for a non-empty object fails rather than read no bytes.
+#[tokio::test]
+async fn tencent_cos_range_read_never_returns_empty_bytes_for_a_non_empty_object() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator.object_store().await;
+    store
+        .put(
+            "unsatisfiable/key",
+            Bytes::from_static(b"header and body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("a create succeeds");
+    set_s3local_fault(
+        emulator.address(),
+        &format!(
+            r#"{{"operation":"GetObject","bucket":"{BUCKET}","key_prefix":"{KEY_PREFIX}/unsatisfiable/","action":{{"type":"error","status":416}}}}"#
+        ),
+    )
+    .await;
+    let header = ByteRange {
+        start: 0,
+        end_inclusive: 5,
+    };
+    let error = store
+        .get_range("unsatisfiable/key", header)
+        .await
+        .expect_err("the range read does not return empty bytes");
+    assert_eq!(error.kind, ObjectStoreErrorKind::Transient, "{error}");
+    // A range that starts at the end of the object still reads as no bytes.
+    let past_end = store
+        .get_range(
+            "unsatisfiable/key",
+            ByteRange {
+                start: 15,
+                end_inclusive: 20,
+            },
+        )
+        .await
+        .expect("a range past the end succeeds")
+        .expect("the object exists");
+    assert!(past_end.bytes.is_empty());
+    assert_eq!(past_end.object_size, 15);
     emulator.shutdown().await;
 }

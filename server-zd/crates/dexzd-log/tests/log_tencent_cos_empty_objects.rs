@@ -43,6 +43,7 @@ impl WallClock for FixedClock {
 struct TencentCosLog {
     _directory: tempfile::TempDir,
     server: s3local_server::ServerHandle,
+    s3local_store: Arc<S3LocalStore>,
     store: Arc<S3ObjectStore>,
 }
 
@@ -58,11 +59,12 @@ impl TencentCosLog {
         s3local_store
             .create_bucket(BUCKET, false)
             .expect("the s3local bucket is created");
+        let s3local_store = Arc::new(s3local_store);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("the s3local listener binds");
         let server = s3local_server::start_with_config(
-            Arc::new(s3local_store),
+            Arc::clone(&s3local_store),
             listener,
             s3local_server::ServerConfig {
                 api_dialect: s3local_server::S3ApiDialect::TencentCos,
@@ -86,6 +88,7 @@ impl TencentCosLog {
         Self {
             _directory: directory,
             server,
+            s3local_store,
             store: Arc::new(store),
         }
     }
@@ -101,6 +104,32 @@ impl TencentCosLog {
 
     async fn clear_faults(&self) {
         set_fault_rules(self.server.local_address(), "").await;
+    }
+
+    /// Deletes every fault, which also releases appends waiting as placeholders.
+    async fn release_held_appends(&self) {
+        send_fault_request(self.server.local_address(), "DELETE", "").await;
+    }
+
+    /// Waits until the batch key of `seq` holds the empty object of an append in flight.
+    async fn wait_for_append_placeholder(&self, seq: u64) {
+        let full_key = format!("{KEY_PREFIX}/{}", stream().batch_key(seq));
+        let has_placeholder = || match self.s3local_store.head_object(
+            BUCKET,
+            &full_key,
+            &s3local::ObjectReadRequest::default(),
+        ) {
+            Ok(selection) => selection.record.size == 0,
+            Err(s3local::StoreError::NoSuchKey { .. }) => false,
+            Err(error) => panic!("s3local reads {full_key}: {error}"),
+        };
+        tokio::time::timeout(STEP_TIMEOUT, async {
+            while !has_placeholder() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the append creates its placeholder");
     }
 
     /// Leaves an empty object at `seq`, as a writer that crashed mid-append does.
@@ -244,7 +273,7 @@ async fn epoch_at(store: &dyn ObjectStore, seq: u64) -> u64 {
 async fn a_follower_waits_at_a_batch_whose_append_is_in_flight() {
     let log = TencentCosLog::start().await;
     write_batches(log.store.as_ref(), 1, 1..=3).await;
-    log.fault_batch(4, r#"{"type":"append_placeholder","milliseconds":1500}"#)
+    log.fault_batch(4, r#"{"type":"append_placeholder","milliseconds":600000}"#)
         .await;
     let pending_write = tokio::spawn({
         let store = Arc::clone(&log.store);
@@ -258,7 +287,7 @@ async fn a_follower_waits_at_a_batch_whose_append_is_in_flight() {
                 .await
         }
     });
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    log.wait_for_append_placeholder(4).await;
     let stream = stream();
     let mut reader = StreamTailReader::new(
         log.store.as_ref(),
@@ -278,6 +307,7 @@ async fn a_follower_waits_at_a_batch_whose_append_is_in_flight() {
             Step::WaitingAt(4)
         ]
     );
+    log.release_held_appends().await;
     pending_write
         .await
         .expect("the write task completes")
@@ -332,13 +362,17 @@ async fn recovery_writes_the_epoch_start_over_an_interrupted_append_at_the_tail(
 }
 
 async fn set_fault_rules(address: SocketAddr, rules: &str) {
+    send_fault_request(address, "PUT", &format!(r#"{{"rules":[{rules}]}}"#)).await;
+}
+
+/// Sends `method` with `body` to the s3local faults endpoint and expects HTTP 200.
+async fn send_fault_request(address: SocketAddr, method: &str, body: &str) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let body = format!(r#"{{"rules":[{rules}]}}"#);
     let mut connection = tokio::net::TcpStream::connect(address)
         .await
         .expect("the s3local admin endpoint is reachable");
     let request = format!(
-        "PUT /_s3local/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} /_s3local/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     connection

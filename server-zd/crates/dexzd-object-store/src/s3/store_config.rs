@@ -59,11 +59,13 @@ pub struct S3ObjectStoreConfig {
     ///
     /// [`S3ApiDialect::TencentCos`] needs an endpoint. Its [`WriteCondition::CreateOnly`] is one
     /// AppendObject at position 0 of 1 byte to [`MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES`];
-    /// HTTP 409 `AppendPositionErr` or `ObjectNotAppendable` reports a failed condition. An object
-    /// of 0 bytes reads as absent in GET, HEAD, and listings, because Tencent COS shows one while
-    /// an append to a missing key is in flight and keeps it after an interrupted append. So every
-    /// write of an empty body fails with a permanent error before any request. The rest works as
-    /// in the Aliyun OSS dialect.
+    /// HTTP 409 `AppendPositionErr` or `ObjectNotAppendable` reports a failed condition. The rest
+    /// works as in the Aliyun OSS dialect.
+    ///
+    /// In [`S3ApiDialect::TencentCos`], an object of 0 bytes reads as absent in GET, HEAD, and
+    /// listings, because Tencent COS shows one while an append to a missing key is in flight and
+    /// keeps it after an interrupted append. So every write of an empty body fails with a
+    /// permanent error before any request.
     pub api_dialect: S3ApiDialect,
 }
 
