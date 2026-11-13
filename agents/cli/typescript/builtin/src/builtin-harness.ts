@@ -57,7 +57,7 @@ export const defaultInstructions =
  *
  * Changed in 0.6.0: plan mode is on, and the agent has the `write_todos` built-in tool.
  *
- * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
+ * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts

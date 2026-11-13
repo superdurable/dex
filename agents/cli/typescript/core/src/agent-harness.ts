@@ -188,7 +188,7 @@ export interface AgentHarness {
    *     ),
    * };
    * ```
-   * @since 0.7.0
+   * @since 0.6.2
    */
   readonly supportedReasoningEfforts?: readonly string[];
   /**
@@ -199,7 +199,7 @@ export interface AgentHarness {
    * model call. Each ID is a non-empty string, and no ID repeats; otherwise {@link runAgentCli} throws at startup.
    * The Python CLI core calls it `suggested_models`.
    *
-   * @since 0.7.0
+   * @since 0.6.2
    */
   readonly suggestedModels?: readonly string[];
   /**
@@ -278,9 +278,9 @@ export interface HarnessContext {
    * model call and then the turn, with the error code and JSON Pointer in `lastTurnError`.
    *
    * @param sessionSettings - The turn's `sessionSettings`, or `{}`.
-   * @returns The turn's configuration and its instructions, `null` for the harness default. Since 0.7.0, also the
+   * @returns The turn's configuration and its instructions, `null` for the harness default. Since 0.6.2, also the
    * turn's `reasoningEffort`, when its settings set one.
-   * @throws {ConfigError} When the settings fail the schema or widen the file, or, since 0.7.0, set a
+   * @throws {ConfigError} When the settings fail the schema or widen the file, or, since 0.6.2, set a
    * `reasoning_effort` that {@link AgentHarness.supportedReasoningEfforts} does not list.
    */
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn;
@@ -336,7 +336,7 @@ export interface ResolvedTurn extends TurnConfig {
    * const turn = context.currentTurn();
    * const modelSettings = turn.reasoningEffort === undefined ? {} : { reasoning: { effort: turn.reasoningEffort } };
    * ```
-   * @since 0.7.0
+   * @since 0.6.2
    */
   readonly reasoningEffort?: string;
 }

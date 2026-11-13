@@ -75,7 +75,7 @@ class ConfigError(Exception):
     .. versionchanged:: 0.6.0
        An ``anyOf`` error names the values the field accepts.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The ``unsupported_reasoning_effort`` code, at ``/reasoning_effort``.
     """
 
@@ -359,7 +359,7 @@ class TurnConfigResolution:
             settings set none. ``None`` means the model's own default: pass
             no reasoning effort to the SDK.
 
-            .. versionadded:: 0.7.0
+            .. versionadded:: 0.6.2
     """
 
     config: EffectiveConfig
@@ -488,7 +488,7 @@ def resolve_turn_config(
         >>> resolution.reasoning_effort
         'high'
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The ``supported_reasoning_efforts`` argument, the result's
        ``reasoning_effort``, and the ``unsupported_reasoning_effort`` error.
 

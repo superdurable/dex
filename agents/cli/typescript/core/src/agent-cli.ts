@@ -195,7 +195,7 @@ function requireSessionSummarySetting(
  * @returns The exit code: 0 on success, 1 for a failure or for input that ended during the `init` questions, 2 for
  * invalid arguments or configuration, and 130 for Ctrl-C during the `init` questions. A cancelled `init` writes no
  * file.
- * @throws {Error} Since 0.7.0, before anything else, when the harness's `supportedReasoningEfforts` or
+ * @throws {Error} Since 0.6.2, before anything else, when the harness's `supportedReasoningEfforts` or
  * `suggestedModels` has a malformed or repeated entry: a programming error of the harness.
  * @since 0.5.0
  */

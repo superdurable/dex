@@ -25,7 +25,7 @@ import type { ResolvedTurn } from "@superdurable/dex-agents-cli-core";
  * When the turn has a reasoning effort, each call sets it as the `reasoning` call option. Otherwise the call keeps
  * its own `reasoning`, so the model's default applies.
  *
- * Changed in 0.7.0: sets the turn's reasoning effort.
+ * Changed in 0.6.2: sets the turn's reasoning effort.
  *
  * @example
  * ```ts

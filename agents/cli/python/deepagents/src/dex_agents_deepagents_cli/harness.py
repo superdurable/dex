@@ -155,7 +155,7 @@ class DeepAgentsHarness:
     ``suggested_models`` lists OpenAI and Anthropic models for the terminal
     UI's ``/model``.
 
-    .. versionchanged:: 0.7.0
+    .. versionchanged:: 0.6.2
        The suggested models.
     """
 
