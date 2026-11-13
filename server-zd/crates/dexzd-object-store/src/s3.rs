@@ -33,6 +33,7 @@ mod api_dialect;
 mod credentials;
 mod file_read;
 mod optional_read;
+mod store_config;
 mod tencent_cos;
 
 pub use api_dialect::S3ApiDialect;
@@ -43,6 +44,7 @@ use api_dialect::{
 pub use credentials::S3Credentials;
 use file_read::read_single_put_file;
 use optional_read::OptionalReadError;
+pub use store_config::S3ObjectStoreConfig;
 use tencent_cos::{AppendSource, TencentCosAppendClient};
 pub use tencent_cos::{
     MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES, TencentCosBucketCheckError,
@@ -53,72 +55,6 @@ pub use tencent_cos::{
 const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
 const MAX_SINGLE_PUT_FILE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CONFLICT_RETRIES: u32 = 2;
-
-/// Configuration of an S3 object store. Keys passed to the store are relative to `key_prefix`.
-#[derive(Debug, Clone)]
-pub struct S3ObjectStoreConfig {
-    /// S3 endpoint override, or `None` for the region's AWS endpoint.
-    /// Defaults to `None`; the server connects by HTTP(S), rather than binding or advertising this address.
-    pub endpoint: Option<String>,
-    /// AWS region used for endpoint selection and request signing.
-    /// No default; the caller supplies the AWS region.
-    pub region: String,
-    /// Existing bucket holding all objects.
-    /// No default; the caller supplies the bucket.
-    pub bucket: String,
-    /// Prefix prepended to every relative key. An absent trailing slash is added.
-    /// Defaults to an empty prefix.
-    pub key_prefix: String,
-    /// Whether to put the bucket in the URL path.
-    /// Defaults to false.
-    pub force_path_style: bool,
-    /// Credentials provider.
-    /// Defaults to the AWS provider chain.
-    pub credentials: S3Credentials,
-    /// SDK operation timeout, including retries, and maximum wait between streamed body chunks.
-    /// Defaults to 30 seconds.
-    pub request_timeout: Duration,
-    /// Bodies at least this size use multipart upload; files over 16 MiB also use multipart. Default 8 MiB.
-    pub multipart_threshold: usize,
-    /// Multipart part size; default 8 MiB and must be at least 5 MiB.
-    pub multipart_part_size: usize,
-    /// Request dialect of the endpoint. Defaults to [`S3ApiDialect::AmazonS3`].
-    ///
-    /// [`S3ApiDialect::AliyunOss`] targets the S3-compatible endpoint of Aliyun OSS, which rejects
-    /// `If-None-Match` and `If-Match` on writes. In that dialect, [`WriteCondition::CreateOnly`]
-    /// sends `x-oss-forbid-overwrite: true` on PutObject and CompleteMultipartUpload, and HTTP 409
-    /// `FileAlreadyExists` reports [`WriteOutcome::PreconditionFailed`].
-    /// [`WriteCondition::ReplaceIfEtagMatches`] fails with a permanent error before any request.
-    /// Every PutObject, UploadPart, and DeleteObjects request carries `Content-MD5`, and each part
-    /// ETag must equal the part's MD5. The bucket must never have had versioning enabled or
-    /// suspended, because OSS then ignores `x-oss-forbid-overwrite`.
-    /// [`ObjectStore::supports_replace_if_etag_matches_on_every_key`] returns false in that
-    /// dialect; wrap the store in [`crate::AliyunOssObjectStore`] to replace mutable object keys.
-    ///
-    /// [`S3ApiDialect::TencentCos`] needs an endpoint. Its [`WriteCondition::CreateOnly`] is one
-    /// AppendObject at position 0 of 1 byte to [`MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES`];
-    /// HTTP 409 `AppendPositionErr` or `ObjectNotAppendable` reports a failed condition. The rest
-    /// works as in the Aliyun OSS dialect.
-    pub api_dialect: S3ApiDialect,
-}
-
-impl S3ObjectStoreConfig {
-    /// Creates configuration with 8 MiB multipart defaults and default-chain credentials.
-    pub fn new(region: impl Into<String>, bucket: impl Into<String>) -> Self {
-        Self {
-            endpoint: None,
-            region: region.into(),
-            bucket: bucket.into(),
-            key_prefix: String::new(),
-            force_path_style: false,
-            credentials: S3Credentials::DefaultChain,
-            request_timeout: Duration::from_secs(30),
-            multipart_threshold: DEFAULT_PART_SIZE,
-            multipart_part_size: DEFAULT_PART_SIZE,
-            api_dialect: S3ApiDialect::AmazonS3,
-        }
-    }
-}
 
 /// S3 implementation of [`ObjectStore`] with conditional writes and multipart uploads.
 pub struct S3ObjectStore {
@@ -626,6 +562,7 @@ impl S3ObjectStore {
                 )
             })?
             .len();
+        self.api_dialect.reject_empty_body(key, size)?;
         let single_put_cap = self.multipart_threshold.min(MAX_SINGLE_PUT_FILE_BYTES);
         if size >= self.multipart_threshold as u64 || size > single_put_cap as u64 {
             return self.put_multipart_file(key, path, condition).await;
@@ -647,6 +584,77 @@ impl S3ObjectStore {
             .set_content_md5(content_md5);
         self.send_put_object(key, request, condition).await
     }
+
+    /// Lists one ListObjectsV2 page; `next_start_after` names its last key while truncated.
+    async fn list_page(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> ObjectStoreResult<ObjectListing> {
+        let mut request = self
+            .read_client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(self.full_key(prefix))
+            .max_keys(max_keys as i32);
+        if let Some(after) = start_after {
+            request = request.start_after(self.full_key(after));
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| map_sdk_error(ObjectStoreOperation::List, prefix, false, error))?;
+        let objects = response
+            .contents()
+            .iter()
+            .map(|object| {
+                let full_key = required(
+                    object.key(),
+                    ObjectStoreOperation::List,
+                    prefix,
+                    "object key",
+                )?;
+                let key = full_key.strip_prefix(&self.key_prefix).ok_or_else(|| {
+                    ObjectStoreError::new(
+                        ObjectStoreOperation::List,
+                        prefix,
+                        ObjectStoreErrorKind::Permanent,
+                        "listed key escaped configured prefix",
+                    )
+                })?;
+                let size = u64::try_from(object.size().unwrap_or(-1)).map_err(|error| {
+                    ObjectStoreError::new(
+                        ObjectStoreOperation::List,
+                        prefix,
+                        ObjectStoreErrorKind::Permanent,
+                        error.to_string(),
+                    )
+                })?;
+                Ok(ObjectMetadata {
+                    key: key.to_owned(),
+                    size,
+                    etag: required(object.e_tag(), ObjectStoreOperation::List, prefix, "ETag")?
+                        .to_owned(),
+                    last_modified_unix_micros: object.last_modified().map(|modified| {
+                        modified
+                            .secs()
+                            .saturating_mul(1_000_000)
+                            .saturating_add(i64::from(modified.subsec_nanos() / 1_000))
+                    }),
+                })
+            })
+            .collect::<ObjectStoreResult<Vec<_>>>()?;
+        let next_start_after = if response.is_truncated().unwrap_or(false) {
+            objects.last().map(|object| object.key.clone())
+        } else {
+            None
+        };
+        Ok(ObjectListing {
+            objects,
+            next_start_after,
+        })
+    }
 }
 
 #[async_trait]
@@ -666,6 +674,7 @@ impl ObjectStore for S3ObjectStore {
                 .create_by_append(key, &self.full_key(key), source)
                 .await;
         }
+        self.api_dialect.reject_empty_body(key, body.len() as u64)?;
         let mut conflict_retries = 0;
         loop {
             let result = if body.len() >= self.multipart_threshold {
@@ -763,6 +772,9 @@ impl ObjectStore for S3ObjectStore {
                 error.to_string(),
             )
         })?;
+        if size == 0 && self.api_dialect.reads_empty_objects_as_absent() {
+            return Ok(None);
+        }
         let mut download = TemporaryDownloadFile::create(key, path).await?;
         let mut body = response.body;
         while let Some(chunk) = self.read_body_chunk(&mut body, key).await? {
@@ -799,16 +811,20 @@ impl ObjectStore for S3ObjectStore {
                 },
             }
         };
+        let size = u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
+            ObjectStoreError::new(
+                ObjectStoreOperation::Head,
+                key,
+                ObjectStoreErrorKind::Permanent,
+                error.to_string(),
+            )
+        })?;
+        if size == 0 && self.api_dialect.reads_empty_objects_as_absent() {
+            return Ok(None);
+        }
         Ok(Some(ObjectMetadata {
             key: key.to_owned(),
-            size: u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
-                ObjectStoreError::new(
-                    ObjectStoreOperation::Head,
-                    key,
-                    ObjectStoreErrorKind::Permanent,
-                    error.to_string(),
-                )
-            })?,
+            size,
             etag: required(response.e_tag(), ObjectStoreOperation::Head, key, "ETag")?.to_owned(),
             last_modified_unix_micros: response.last_modified().map(|modified| {
                 modified
@@ -920,68 +936,10 @@ impl ObjectStore for S3ObjectStore {
                 "max_keys must be 1..=1000",
             ));
         }
-        let mut request = self
-            .read_client
-            .list_objects_v2()
-            .bucket(&self.bucket)
-            .prefix(self.full_key(prefix))
-            .max_keys(max_keys as i32);
-        if let Some(after) = start_after {
-            request = request.start_after(self.full_key(after));
+        if self.api_dialect.reads_empty_objects_as_absent() {
+            return tencent_cos::list_non_empty_objects(self, prefix, start_after, max_keys).await;
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| map_sdk_error(ObjectStoreOperation::List, prefix, false, error))?;
-        let objects = response
-            .contents()
-            .iter()
-            .map(|object| {
-                let full_key = required(
-                    object.key(),
-                    ObjectStoreOperation::List,
-                    prefix,
-                    "object key",
-                )?;
-                let key = full_key.strip_prefix(&self.key_prefix).ok_or_else(|| {
-                    ObjectStoreError::new(
-                        ObjectStoreOperation::List,
-                        prefix,
-                        ObjectStoreErrorKind::Permanent,
-                        "listed key escaped configured prefix",
-                    )
-                })?;
-                let size = u64::try_from(object.size().unwrap_or(-1)).map_err(|error| {
-                    ObjectStoreError::new(
-                        ObjectStoreOperation::List,
-                        prefix,
-                        ObjectStoreErrorKind::Permanent,
-                        error.to_string(),
-                    )
-                })?;
-                Ok(ObjectMetadata {
-                    key: key.to_owned(),
-                    size,
-                    etag: required(object.e_tag(), ObjectStoreOperation::List, prefix, "ETag")?
-                        .to_owned(),
-                    last_modified_unix_micros: object.last_modified().map(|modified| {
-                        modified
-                            .secs()
-                            .saturating_mul(1_000_000)
-                            .saturating_add(i64::from(modified.subsec_nanos() / 1_000))
-                    }),
-                })
-            })
-            .collect::<ObjectStoreResult<Vec<_>>>()?;
-        let next_start_after = if response.is_truncated().unwrap_or(false) {
-            objects.last().map(|object| object.key.clone())
-        } else {
-            None
-        };
-        Ok(ObjectListing {
-            objects,
-            next_start_after,
-        })
+        self.list_page(prefix, start_after, max_keys).await
     }
 
     fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {

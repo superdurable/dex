@@ -64,6 +64,30 @@ impl S3ApiDialect {
         }
     }
 
+    /// Returns whether reads, HEAD, and listings treat an object of 0 bytes as absent.
+    ///
+    /// Tencent COS shows an empty object while an append to a missing key is in flight, and
+    /// keeps it after an interrupted append, so only a non-empty object was ever written.
+    pub(super) fn reads_empty_objects_as_absent(self) -> bool {
+        match self {
+            Self::AmazonS3 | Self::AliyunOss => false,
+            Self::TencentCos => true,
+        }
+    }
+
+    /// Fails before any request when a write would store an object that reads as absent.
+    pub(super) fn reject_empty_body(self, key: &str, size: u64) -> Result<(), ObjectStoreError> {
+        if size > 0 || !self.reads_empty_objects_as_absent() {
+            return Ok(());
+        }
+        Err(ObjectStoreError::new(
+            ObjectStoreOperation::Put,
+            key,
+            ObjectStoreErrorKind::Permanent,
+            "the Tencent COS dialect reads an empty object as absent, so it writes no empty object",
+        ))
+    }
+
     /// Maps a failed PutObject or CompleteMultipartUpload that was not a failed condition.
     pub(super) fn map_write_error<E>(self, key: &str, error: SdkError<E>) -> ObjectStoreError
     where

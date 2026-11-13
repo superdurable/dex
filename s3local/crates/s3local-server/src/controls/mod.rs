@@ -9,12 +9,14 @@
 //! Deterministic fault selection and bounded request observations shared by all connections.
 
 mod admin;
+mod append_placeholder;
 mod credential_admin;
 mod observation;
 mod operation;
 mod stale_listing;
 
 pub(crate) use admin::admin_error;
+pub(crate) use append_placeholder::create_append_placeholder;
 use operation::S3OperationName;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -65,6 +67,12 @@ pub(crate) enum FaultAction {
     StaleListing {
         ttl_milliseconds: u64,
     },
+    /// Shows a missing key as an empty appendable object for `milliseconds` before the append.
+    AppendPlaceholder {
+        milliseconds: u64,
+    },
+    /// Leaves an empty appendable object at a missing key and drops the append uncommitted.
+    InterruptedAppend {},
 }
 
 impl FaultAction {

@@ -255,3 +255,170 @@ async fn append_keeps_cos_user_metadata_and_commit_then_error_reports_after_comm
     assert_eq!(server.get("after-commit").await, b"committed");
     server.server.shutdown().await;
 }
+
+/// Sends an append and reads whatever arrives, because an interrupted append drops the connection.
+async fn append_until_closed(server: &RunningServer, key: &str, body: &[u8]) -> Vec<u8> {
+    let mut stream = tokio::net::TcpStream::connect(server.server.local_address())
+        .await
+        .expect("the emulator accepts a connection");
+    let request = format!(
+        "POST /testing/{key}?append&position=0 HTTP/1.1\r\nhost: {}\r\nconnection: close\r\ncontent-length: {}\r\n\r\n",
+        server.server.local_address(),
+        body.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request head is sent");
+    // The server may close before it reads the body.
+    if let Err(error) = stream.write_all(body).await {
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset, "{error}");
+    }
+    let mut response = Vec::new();
+    if let Err(error) = stream.read_to_end(&mut response).await {
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset, "{error}");
+    }
+    response
+}
+
+/// Returns the size and user metadata of `key`, as HEAD reports them.
+async fn head_size_and_metadata(
+    server: &RunningServer,
+    key: &str,
+) -> (i64, std::collections::HashMap<String, String>) {
+    let head = server
+        .client
+        .head_object()
+        .bucket("testing")
+        .key(key)
+        .send()
+        .await
+        .expect("the object heads");
+    (
+        head.content_length().unwrap_or(-1),
+        head.metadata().cloned().unwrap_or_default(),
+    )
+}
+
+#[tokio::test]
+async fn an_append_in_flight_shows_an_empty_placeholder_and_the_commit_picks_one_winner() {
+    let server = Arc::new(RunningServer::start(&TENCENT_COS_DIALECT).await);
+    server
+        .rules(serde_json::json!([{
+            "operation": "AppendObject",
+            "key_prefix": "placeholder/",
+            "action": {"type": "append_placeholder", "milliseconds": 500}
+        }]))
+        .await;
+    let mut appends = tokio::task::JoinSet::new();
+    for writer in ["first", "second"] {
+        let server = Arc::clone(&server);
+        appends.spawn(async move {
+            let response = append(&server, "placeholder/key", 0, writer.as_bytes()).await;
+            (writer, response)
+        });
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let (size, metadata) = head_size_and_metadata(&server, "placeholder/key").await;
+    assert_eq!(size, 0);
+    assert!(metadata.is_empty(), "{metadata:?}");
+    assert_eq!(server.get("placeholder/key").await, b"");
+    let listing = server
+        .client
+        .list_objects_v2()
+        .bucket("testing")
+        .prefix("placeholder/")
+        .send()
+        .await
+        .expect("the prefix lists");
+    let sizes: Vec<_> = listing
+        .contents()
+        .iter()
+        .map(|object| (object.key().unwrap_or_default(), object.size()))
+        .collect();
+    assert_eq!(sizes, [("placeholder/key", Some(0))]);
+    let ranged = server
+        .raw(
+            "GET",
+            "/testing/placeholder/key",
+            "range: bytes=0-37\r\n",
+            b"",
+        )
+        .await;
+    assert!(
+        has_error_code(&ranged, "InvalidRange"),
+        "{}",
+        status_line(&ranged)
+    );
+    let mut winners = Vec::new();
+    while let Some(joined) = appends.join_next().await {
+        let (writer, response) = joined.expect("an append task completes");
+        if status_line(&response) == "HTTP/1.1 200 OK" {
+            winners.push(writer);
+        } else {
+            assert!(has_error_code(&response, "AppendPositionErr"));
+        }
+    }
+    assert_eq!(winners.len(), 1, "{winners:?}");
+    assert_eq!(server.get("placeholder/key").await, winners[0].as_bytes());
+    let server =
+        Arc::try_unwrap(server).unwrap_or_else(|_| panic!("every append task released the server"));
+    server.server.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_interrupted_append_leaves_an_empty_object_that_a_later_append_creates_over() {
+    let server = RunningServer::start(&TENCENT_COS_DIALECT).await;
+    server.put("interrupted/existing", "kept").await;
+    server
+        .rules(serde_json::json!([{
+            "operation": "AppendObject",
+            "key_prefix": "interrupted/",
+            "action": {"type": "interrupted_append"}
+        }]))
+        .await;
+    let response = append_until_closed(&server, "interrupted/key", b"body").await;
+    assert!(response.is_empty(), "{}", status_line(&response));
+    let (size, metadata) = head_size_and_metadata(&server, "interrupted/key").await;
+    assert_eq!(size, 0);
+    assert!(metadata.is_empty(), "{metadata:?}");
+    append_until_closed(&server, "interrupted/existing", b"body").await;
+    assert_eq!(server.get("interrupted/existing").await, b"kept");
+    server.rules(serde_json::json!([])).await;
+    let created = append(&server, "interrupted/key", 0, b"body").await;
+    assert_eq!(status_line(&created), "HTTP/1.1 200 OK");
+    assert_eq!(server.get("interrupted/key").await, b"body");
+    let duplicate = append(&server, "interrupted/key", 0, b"again").await;
+    assert!(has_error_code(&duplicate, "AppendPositionErr"));
+    server.server.shutdown().await;
+}
+
+#[tokio::test]
+async fn append_placeholder_faults_require_append_object() {
+    let server = RunningServer::start(&TENCENT_COS_DIALECT).await;
+    for action in [
+        serde_json::json!({"type": "append_placeholder", "milliseconds": 10}),
+        serde_json::json!({"type": "interrupted_append"}),
+    ] {
+        let (status, _) = server
+            .admin(
+                "PUT",
+                "faults",
+                serde_json::json!({"rules": [{"operation": "PutObject", "action": action}]}),
+            )
+            .await;
+        assert_eq!(status, 400, "{action}");
+    }
+    let (status, _) = server
+        .admin(
+            "PUT",
+            "faults",
+            serde_json::json!({"rules": [{
+                "operation": "AppendObject",
+                "action": {"type": "append_placeholder", "milliseconds": 600_001}
+            }]}),
+        )
+        .await;
+    assert_eq!(status, 400);
+    server.server.shutdown().await;
+}

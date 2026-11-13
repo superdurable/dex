@@ -18,6 +18,8 @@ mod fake_cloud_server;
 mod recording_s3_proxy;
 #[path = "conformance/tencent_cos_dialect.rs"]
 mod tencent_cos_dialect;
+#[path = "conformance/tencent_cos_empty_objects.rs"]
+mod tencent_cos_empty_objects;
 
 use std::sync::Arc;
 

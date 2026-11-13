@@ -119,6 +119,23 @@ impl Controls {
                             "delay must not exceed 600000 milliseconds".into(),
                         ));
                     }
+                    if matches!(
+                        rule.action,
+                        FaultAction::AppendPlaceholder { .. } | FaultAction::InterruptedAppend {}
+                    ) && rule.operation != Some(S3OperationName::AppendObject)
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "append_placeholder and interrupted_append require operation AppendObject".into(),
+                        ));
+                    }
+                    if matches!(rule.action, FaultAction::AppendPlaceholder { milliseconds } if milliseconds > 600_000)
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "append_placeholder must not exceed 600000 milliseconds".into(),
+                        ));
+                    }
                     if let FaultAction::StaleListing { ttl_milliseconds } = rule.action
                         && (rule.operation != Some(S3OperationName::ListObjectsV2)
                             || !(1..=600_000).contains(&ttl_milliseconds))

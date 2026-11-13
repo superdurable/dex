@@ -22,9 +22,10 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use url::Url;
 
-use super::{S3ApiDialect, S3Credentials, S3ObjectStoreConfig};
+use super::{S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
 use crate::{
-    ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteOutcome,
+    ObjectListing, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
+    WriteOutcome,
 };
 use append_body::AppendBody;
 use append_response::{AppendResponse, read_append_response, read_error_document};
@@ -117,6 +118,8 @@ impl TencentCosAppendClient {
             AppendSource::File(path) => AppendBody::from_file(key, path).await?,
         };
         let digests = body.digests(key).await?;
+        // An empty object reads as absent, so a create must never send one.
+        assert_ne!(digests.size, 0, "AppendBody accepts only non-empty bodies");
         let append_id = format!("{:032x}", rand::random::<u128>());
         let uri = format!("{}?append&position=0", self.object_uri(full_key));
         let content_length = digests.size.to_string();
@@ -221,6 +224,58 @@ impl TencentCosAppendClient {
         let etag = header(http::header::ETAG.as_str())
             .ok_or_else(|| unknown("the HEAD response omitted the ETag".to_owned()))?;
         Ok(WriteOutcome::Written { etag })
+    }
+}
+
+/// Lists up to `max_keys` non-empty objects, which may take several ListObjectsV2 pages.
+///
+/// Empty objects read as absent in this dialect, so the listing omits them. A truncated result
+/// continues after the last key that a page showed, empty or not. A page that repeats keys up to
+/// its start, as a stale COS listing does, ends the call with the objects found so far.
+pub(super) async fn list_non_empty_objects(
+    store: &S3ObjectStore,
+    prefix: &str,
+    start_after: Option<&str>,
+    max_keys: u32,
+) -> ObjectStoreResult<ObjectListing> {
+    let mut objects = Vec::new();
+    let mut page_start_after = start_after.map(str::to_owned);
+    let mut is_continuation = false;
+    loop {
+        let wanted = max_keys - u32::try_from(objects.len()).expect("at most 1000 objects");
+        let page = store
+            .list_page(prefix, page_start_after.as_deref(), wanted)
+            .await?;
+        let is_after_start = |key: &str| {
+            !is_continuation || page_start_after.as_deref().is_none_or(|after| key > after)
+        };
+        let has_progressed = page
+            .objects
+            .iter()
+            .any(|object| is_after_start(&object.key));
+        if is_continuation && !has_progressed {
+            return Ok(ObjectListing {
+                objects,
+                next_start_after: page_start_after,
+            });
+        }
+        objects.extend(
+            page.objects
+                .into_iter()
+                .filter(|object| object.size > 0 && is_after_start(&object.key)),
+        );
+        match page.next_start_after {
+            Some(next) if objects.len() < max_keys as usize => {
+                page_start_after = Some(next);
+                is_continuation = true;
+            }
+            next_start_after => {
+                return Ok(ObjectListing {
+                    objects,
+                    next_start_after,
+                });
+            }
+        }
     }
 }
 

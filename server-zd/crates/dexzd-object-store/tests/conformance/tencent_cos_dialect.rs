@@ -24,11 +24,11 @@ use tempfile::TempDir;
 use super::aliyun_oss_dialect::check_store_without_atomic_replacement;
 use super::{s3local_request_log, set_s3local_fault};
 
-const BUCKET: &str = "tencent-cos-dialect";
-const KEY_PREFIX: &str = "dexzd/tencent";
+pub(super) const BUCKET: &str = "tencent-cos-dialect";
+pub(super) const KEY_PREFIX: &str = "dexzd/tencent";
 const PART_SIZE: usize = 5 * 1024 * 1024;
 
-struct TencentCosEmulator {
+pub(super) struct TencentCosEmulator {
     _directory: TempDir,
     store: Arc<Store>,
     server: s3local_server::ServerHandle,
@@ -36,7 +36,7 @@ struct TencentCosEmulator {
 
 impl TencentCosEmulator {
     /// Starts the emulator with strict signature checks, so AppendObject signing is verified.
-    async fn start() -> Self {
+    pub(super) async fn start() -> Self {
         let directory = TempDir::new().expect("the emulator directory is created");
         let store = Store::open(&StoreConfig {
             root_directory: directory.path().to_path_buf(),
@@ -68,11 +68,11 @@ impl TencentCosEmulator {
         }
     }
 
-    fn address(&self) -> SocketAddr {
+    pub(super) fn address(&self) -> SocketAddr {
         self.server.local_address()
     }
 
-    async fn object_store(&self) -> S3ObjectStore {
+    pub(super) async fn object_store(&self) -> S3ObjectStore {
         let mut config = S3ObjectStoreConfig::new("us-east-1", BUCKET);
         config.endpoint = Some(format!("http://{}", self.address()));
         config.key_prefix = KEY_PREFIX.to_owned();
@@ -90,7 +90,7 @@ impl TencentCosEmulator {
     }
 
     /// Returns the stored record of `key`, relative to the store prefix.
-    fn record(&self, key: &str) -> s3local::VersionRecord {
+    pub(super) fn record(&self, key: &str) -> s3local::VersionRecord {
         self.store
             .head_object(
                 BUCKET,
@@ -101,7 +101,7 @@ impl TencentCosEmulator {
             .record
     }
 
-    async fn shutdown(self) {
+    pub(super) async fn shutdown(self) {
         self.server.shutdown().await;
     }
 }
@@ -193,14 +193,12 @@ async fn tencent_cos_rejects_create_only_bodies_that_append_cannot_create_exclus
     assert!(oversized.detail.contains("5 GiB"), "{oversized}");
     let log = s3local_request_log(emulator.address()).await;
     assert!(!log.contains("AppendObject"), "{log}");
-    // Unconditional writes do not use AppendObject, so an empty object is fine.
-    assert!(matches!(
-        store
-            .put("empty/plain", Bytes::new(), WriteCondition::Unconditional)
-            .await
-            .expect("an empty unconditional put succeeds"),
-        WriteOutcome::Written { .. }
-    ));
+    // Unconditional writes do not use AppendObject, but an empty object would read as absent.
+    let empty_plain = store
+        .put("empty/plain", Bytes::new(), WriteCondition::Unconditional)
+        .await
+        .expect_err("an empty unconditional put is rejected");
+    assert_eq!(empty_plain.kind, ObjectStoreErrorKind::Permanent);
     let replace = store
         .put(
             "objects/a",

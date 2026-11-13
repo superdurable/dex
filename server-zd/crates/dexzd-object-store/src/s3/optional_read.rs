@@ -187,6 +187,10 @@ impl S3ObjectStore {
                 )
             })?
         };
+        // A ranged read of an empty object answers 416, which the HEAD above hides.
+        if object_size == 0 && self.api_dialect.reads_empty_objects_as_absent() {
+            return Ok(None);
+        }
         let mut body = response.body;
         let mut buffer = Vec::new();
         while let Some(chunk) = self.read_body_chunk(&mut body, key).await? {
