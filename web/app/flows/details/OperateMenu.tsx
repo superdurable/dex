@@ -7,66 +7,85 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useId } from 'react';
-import { ChevronDown, History, Square } from 'lucide-react';
+import { ChevronDown, History, Square, type LucideIcon } from 'lucide-react';
 import { usePopover } from '../../components/frame/usePopover';
 
-/** The run's state-changing actions, one click away from a dialog and never one click from a change. */
+interface OperateAction {
+  id: 'stop' | 'time-travel';
+  label: string;
+  description: string;
+  Icon: LucideIcon;
+  onSelect: () => void;
+}
+
+/**
+ * The run's state-changing actions as one split button. Its main action follows the run: Stop while it runs,
+ * Time travel once it ended. Each opens a dialog, so no single click changes the run.
+ */
 export function OperateMenu({
-  canStop,
+  isRunning,
   onStop,
   onTimeTravel,
 }: {
-  /** False once the run has ended. */
-  canStop: boolean;
+  isRunning: boolean;
   onStop: () => void;
   onTimeTravel: () => void;
 }) {
   const { isOpen, setIsOpen, rootRef } = usePopover<HTMLDivElement>();
   const menuId = useId();
-  const choose = (action: () => void) => {
-    setIsOpen(false);
-    action();
+  const stop: OperateAction = {
+    id: 'stop', label: 'Stop…', description: 'Cancel, terminate or fail the run', Icon: Square, onSelect: onStop,
   };
+  const timeTravel: OperateAction = {
+    id: 'time-travel', label: 'Time travel…', description: 'Run again from an earlier point', Icon: History,
+    onSelect: onTimeTravel,
+  };
+  const [primary, ...others] = isRunning ? [stop, timeTravel] : [timeTravel];
   return (
     <div className="operate-menu" ref={rootRef}>
-      <button
-        aria-controls={menuId}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        className="operate-menu-button"
-        onClick={() => setIsOpen((open) => !open)}
-        type="button"
-      >
-        Operate
-        <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
-      </button>
+      <div aria-label="Operate" className="operate-split" role="group">
+        <button
+          className={`operate-primary operate-primary--${primary.id}`}
+          onClick={primary.onSelect}
+          type="button"
+        >
+          <primary.Icon aria-hidden="true" size={14} strokeWidth={2.25} />
+          <span className="operate-primary-label">{primary.label}</span>
+        </button>
+        {others.length > 0 && (
+          <button
+            aria-controls={menuId}
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
+            aria-label="More run actions"
+            className="operate-more"
+            onClick={() => setIsOpen((open) => !open)}
+            type="button"
+          >
+            <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
+          </button>
+        )}
+      </div>
       {isOpen && (
-        <div aria-label="Operate" className="app-bar-popover operate-menu-popover" id={menuId} role="menu">
-          <button
-            className="app-bar-menu-item is-danger"
-            disabled={!canStop}
-            onClick={() => choose(onStop)}
-            role="menuitem"
-            type="button"
-          >
-            <span className="app-bar-menu-icon"><Square aria-hidden="true" size={15} strokeWidth={2.25} /></span>
-            <span className="app-bar-menu-words">
-              <b>Stop…</b>
-              <small>{canStop ? 'Cancel, terminate or fail the run' : 'The run has ended'}</small>
-            </span>
-          </button>
-          <button
-            className="app-bar-menu-item is-danger"
-            onClick={() => choose(onTimeTravel)}
-            role="menuitem"
-            type="button"
-          >
-            <span className="app-bar-menu-icon"><History aria-hidden="true" size={15} strokeWidth={2} /></span>
-            <span className="app-bar-menu-words">
-              <b>Time travel…</b>
-              <small>Restart the run from an earlier point</small>
-            </span>
-          </button>
+        <div aria-label="Run actions" className="app-bar-popover operate-menu-popover" id={menuId} role="menu">
+          {others.map((action) => (
+            <button
+              className="app-bar-menu-item"
+              key={action.id}
+              onClick={() => {
+                setIsOpen(false);
+                action.onSelect();
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <span className="app-bar-menu-icon"><action.Icon aria-hidden="true" size={15} strokeWidth={2} /></span>
+              <span className="app-bar-menu-words">
+                <b>{action.label}</b>
+                <small>{action.description}</small>
+              </span>
+            </button>
+          ))}
         </div>
       )}
     </div>

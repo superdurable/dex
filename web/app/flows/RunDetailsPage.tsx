@@ -57,6 +57,8 @@ import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
 import { OperateMenu } from './details/OperateMenu';
 import { RunFactsMenu, type RunFact } from './details/RunFactsMenu';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
+import { CopyButton } from '../components/CopyButton';
+import { RunFailureLine, runFailureOf } from './details/RunFailureLine';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline } from './details/HorizontalTimeline';
@@ -839,6 +841,7 @@ export function RunDetailsPage({
   const currentRunAttempt = positiveRunAttempt(summary?.runAttempt);
   const displayedRunAttempt = summary && isViewingEarlierRunAttempt ? historyRunAttempt(summary) : currentRunAttempt;
 
+  const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
@@ -861,6 +864,7 @@ export function RunDetailsPage({
         <span aria-hidden="true" className="app-bar-separator">/</span>
         {summary && <StatusBadge status={summary.flowStatus} />}
         <RunFactsMenu facts={runFacts} flowId={flowId} runId={runId} />
+        <CopyButton className="app-bar-copy" label="Copy Flow ID" value={flowId} />
         {summary && currentRunAttempt > 1 && (
           <RunAttemptSelect
             currentRunAttempt={currentRunAttempt}
@@ -904,12 +908,15 @@ export function RunDetailsPage({
           </label>
         )}
         <OperateMenu
-          canStop={summary !== null && !terminalStatuses.has(summary.flowStatusCode)}
+          isRunning={summary !== null && !terminalStatuses.has(summary.flowStatusCode)}
           onStop={() => setStopOpen(true)}
           onTimeTravel={() => openTimeTravel(selectedEvent ? selected : null)}
         />
       </AppBarSlot>
 
+      {runFailure && (
+        <RunFailureLine failure={runFailure} onJumpToEvent={(eventId) => void jumpToEvent(eventId)} />
+      )}
       {isViewingEarlierRunAttempt && (
         <div className="warning-banner run-error">
           Showing the history of run attempt {displayedRunAttempt}. Time travel replaced it with run

@@ -8,6 +8,11 @@
  * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
  */
 
+/* Every page sits on the same plane, including the split workspaces. */
+body {
+  background: var(--ui-page);
+}
+
 /* The one bar: trail, page, views, actions, settings. Tints and spacing separate; no rules. */
 .app-bar.v1-page {
   --bar-wash: transparent;
@@ -451,23 +456,42 @@
 
 /* ----------------------------------------------------- giving way, in order */
 
+/* Narrow bars keep each inactive tab's name for screen readers only. */
 @container app-bar (max-width: 1360px) {
   .app-bar.v1-page .run-tabs button:not(.active) .run-tab-label {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 }
 
 @container app-bar (max-width: 820px) {
-  .app-bar-trail > .app-bar-separator:first-of-type,
-  .app-bar-section {
+  .app-bar-jump-button kbd {
     display: none;
   }
 }
 
-/* On a phone the attempt stays in the run's details popover. */
+/* On a phone the attempt stays in the run's details popover, and the status keeps its icon. */
 @container app-bar (max-width: 560px) {
-  .app-bar .run-attempt-select {
+  .app-bar .run-attempt-select,
+  .app-bar .app-bar-copy {
     display: none;
+  }
+
+  .app-bar .status-badge {
+    padding: 5px;
+    font-size: 0;
+  }
+
+  .operate-primary-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
 }
 
@@ -503,5 +527,210 @@
   .app-bar.v1-page .run-tabs button,
   .app-bar.v1-page .run-tabs button::after {
     transition: none;
+  }
+}
+
+/* ------------------------------------------------- additions from review */
+
+.app-bar-reach-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--tone-accent);
+}
+
+.app-bar-reach-dot.is-unreachable {
+  background: var(--tone-fail);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-fail) 25%, transparent);
+}
+
+.app-bar .app-bar-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-bar-copy:hover {
+  background: var(--ui-hover);
+}
+
+.operate-split {
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.operate-primary,
+.operate-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  color: var(--ui-ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  transition: background-color 150ms ease;
+}
+
+.operate-primary {
+  padding: 0 12px;
+  border-radius: 999px;
+}
+
+.operate-more ~ .operate-primary,
+.operate-split:has(.operate-more) .operate-primary {
+  padding-right: 8px;
+  border-radius: 999px 0 0 999px;
+}
+
+.operate-more {
+  padding: 0 9px 0 6px;
+  border-radius: 0 999px 999px 0;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--ui-ink-3) 30%, transparent);
+}
+
+.operate-primary:hover,
+.operate-more:hover {
+  background: var(--ui-hover);
+}
+
+.operate-primary--stop {
+  color: var(--tone-fail-ink);
+}
+
+.app-bar-jump {
+  position: relative;
+}
+
+.app-bar-jump-button kbd {
+  padding: 1px 5px;
+  border-radius: 5px;
+  color: var(--ui-ink-3);
+  background: var(--ui-chip);
+  font: inherit;
+  font-size: 11px;
+}
+
+.app-bar-jump-popover {
+  right: 0;
+  width: min(420px, calc(100vw - 24px));
+}
+
+.app-bar-jump-input {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+  font: inherit;
+}
+
+.app-bar-jump-input:focus {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 0;
+}
+
+/* A failed run says why, right under the bar. */
+.run-failure-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--ui-radius-item);
+  color: var(--tone-fail-ink);
+  background: var(--tone-fail-soft);
+  font-weight: 600;
+}
+
+.run-failure-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.run-failure-jump {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--tone-fail-ink);
+  background: color-mix(in srgb, var(--tone-fail) 14%, transparent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+}
+
+/* The event pager is the head of the view it pages. */
+.run-primary > .run-events-tile {
+  margin-bottom: 0;
+  padding: 10px 18px;
+  border-radius: var(--ui-radius-section) var(--ui-radius-section) 0 0;
+  background: var(--ui-surface);
+  box-shadow: inset 0 -1px 0 var(--ui-hairline);
+}
+
+.run-primary > .run-events-tile + * {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.v2-shell.v2-run > .v2-empty {
+  padding: 32px 24px;
+  font-size: var(--ui-text-md);
+}
+
+.htl-legend-fold {
+  margin: -4px 0 6px;
+}
+
+.htl-legend-fold > summary {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--ui-ink-3);
+  background: var(--ui-chip);
+  cursor: pointer;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  list-style: none;
+}
+
+.htl-legend-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.htl-legend-fold[open] > summary {
+  margin-bottom: 8px;
+}
+
+/* On a phone a run page drops the section from its trail; the run's name needs the room. */
+@container app-bar (max-width: 560px) {
+  .app-bar .app-bar-copy,
+  .app-bar-trail:has(.app-bar-page:not(:empty)) > .app-bar-section,
+  .app-bar-trail:has(.app-bar-page:not(:empty)) > .app-bar-separator {
+    display: none;
   }
 }

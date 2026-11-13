@@ -367,7 +367,8 @@ describe('time travel on the run page', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Operate' }));
+    // A running run leads with Stop, so Time travel sits under More run actions.
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
     fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));

@@ -22,6 +22,8 @@ import {
   CONNECTORS_SECTION, DESIGNS_SECTION, FLOWS_SECTION, SectionMenu, WORK_QUEUE_SECTION, type AppSection,
 } from './SectionMenu';
 import { SettingsMenu } from './SettingsMenu';
+import { JumpTo } from './JumpTo';
+import { useServerReachability } from './useServerReachability';
 import './frame.css';
 
 /** Designs has something to show only when a directory file or an upload declares at least one Flow type. */
@@ -82,6 +84,7 @@ export function AppBar() {
   const flowTypes = useFlowDefinitionTypes(pathname);
   const flowsHref = useFlowsHref(pathname, search);
   const hostLink = useMemo(readHostLink, []);
+  const reachability = useServerReachability(pathname);
   const hasFlowDefinitions = hasLoadedFlowDefinitions(flowTypes);
   const hasWorkQueue = isWorkQueueApplicable(flowTypes, canUseV2);
   const sections: AppSection[] = [
@@ -103,12 +106,21 @@ export function AppBar() {
             <DexMark size={22} />
           </Link>
         )}
+        {reachability !== 'checking' && (
+          <span
+            aria-label={reachability === 'reachable' ? 'Dex Server reachable' : 'Dex Web cannot reach the Dex Server'}
+            className={`app-bar-reach-dot is-${reachability}`}
+            role="img"
+            title={reachability === 'reachable' ? 'Dex Server reachable' : 'Dex Web cannot reach the Dex Server'}
+          />
+        )}
         <span aria-hidden="true" className="app-bar-separator">/</span>
         <SectionMenu flowsHref={flowsHref} sections={sections} />
         <AppBarSlotTarget className="app-bar-page" name="page" />
       </nav>
       <AppBarSlotTarget className="app-bar-views" name="views" />
       <AppBarSlotTarget className="app-bar-actions" name="actions" />
+      <JumpTo sections={sections} />
       <SettingsMenu />
     </header>
   );
