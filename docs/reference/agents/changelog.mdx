@@ -16,12 +16,13 @@ and upgrade steps.
 
 ## 0.6 {#v0-6}
 
-Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3); 0.6.4 released 2026-11-13 as [agents/v0.6.4](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.4); 0.6.5 released 2026-11-13 as [agents/v0.6.5](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.5).
+Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3); 0.6.4 released 2026-11-13 as [agents/v0.6.4](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.4); 0.6.5 released 2026-11-13 as [agents/v0.6.5](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.5); 0.6.6 released 2026-11-13 as [agents/v0.6.6](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.6).
 
 ### Breaking
 
 - **dex-agents-deepagents**: file writes and shell commands no longer wait for approval by default, as in Deep Agents without **interrupt_on**. Name the tool in **approval.always** to make it wait. **local_tools.shell.allow** has no effect on this command, and its file tools are Deep Agents' own, which take absolute paths. [Reference](/reference/agents/cli#harness-tools).
 - **dex-agents-pi**: file writes, edits, and **bash** no longer wait for approval by default, as in Pi. Name the tool in **approval.always** to make it wait. **local_tools.shell.allow** has no effect on this command. The file tools and **bash** have no workspace boundary. Without **workspace** in the file, the workspace is the directory the command starts in. [Reference](/reference/agents/cli#harness-tools).
+- TypeScript Claude Agent SDK adapter: **createClaudeAgentSessionFlow** now returns an **AgentSessionFlow** typed with **ClaudeAgentRunner**, and the runner's **executeDeferredToolCall** returns a **DeferredToolOutcome**. Code that annotates the Flow as a plain **AgentSessionFlow** no longer compiles. Drop the annotation, or type it with **ClaudeAgentRunner** as the built-in agent loop's Flow is typed with **BuiltinLoopAgentRunner**. Since 0.6.6.
 
 ### Added
 
@@ -48,6 +49,7 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
   RPCs and the **SessionTerminalLease** Attribute, which mark the terminal that
   has the session open. Since 0.6.3.
 - Python and TypeScript CLI commands: the new **mcp_servers** section of the configuration file adds the tools of remote MCP servers over Streamable HTTP, stateless servers included. The agent sees each tool as **SERVER__TOOL**, and every call waits for approval unless **trust_tool_annotations** lets the server's hints mark the tool a read or an idempotent write. A header value can take its secret from an environment variable reference, which the Worker expands at startup and never prints, logs, or stores; error text that a server sends back, such as an HTTP 401 body or a tool error, has the header values replaced with **[redacted]** on a best-effort basis; an http URL on a host that is not loopback, or an unset variable, stops the command. [Reference](/reference/agents/cli#mcp-servers). Since 0.6.4.
+- TypeScript Claude Agent SDK adapter: a tool source call can start a tool task. The session polls it while no Claude Code CLI runs, and the resumed Claude session receives the task's result. **cancel_turn** records the call **outcome_unknown** and cancels the task through its source. A source call can also ask the user a question, as in the Python adapter. Before, such a call recorded **failed**, or **outcome_unknown** for a task of a write. Since 0.6.6.
 
 ### Changed
 
