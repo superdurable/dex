@@ -10,12 +10,13 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0).
+Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0); 1.45.1 released 2026-11-13 as [sdk-typescript/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.1).
 
 ### Added
 
 - **WorkerOptions.flowDefinitionPaths** and **WorkerOptions.flowDefinitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/typescript/workers#flow-definitions).
 - **Client.uploadFlowDefinitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/typescript/workers#flow-definitions).
+- **Client.getFlowState** reads the open Step executions of the current or latest Flow run and returns a **FlowState**. Each **ActiveStepExecution** reports its Step type, execution number, phase, the open WaitFor or Execute call as a **StepMethodInvocation** (pending, running, or retry backoff, with its attempt), and the latest failed attempt as a **StepMethodFailureInfo** (attempt, error type, message, and stack trace). Use it to tell a Flow that is still running from one whose active Step is failing and retrying. [Reference](/reference/typescript/client#api-names). Since 1.45.1.
 
 ### Breaking
 
