@@ -57,7 +57,7 @@ async function parseResponseJSON<T>(response: Response): Promise<T> {
 }
 
 function emptyResponseMessage(response: Response): string {
-  return `${responseDescription(response, 'an empty response')}. The Dex server may be unreachable.`;
+  return `${responseDescription(response, 'an empty response')}. The Dex Server may be unreachable.`;
 }
 
 function nonJSONResponseMessage(response: Response, body: string): string {
