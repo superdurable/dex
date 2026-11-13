@@ -33,6 +33,7 @@ from dex_agents import (
 )
 from dex_agents_cli_core.config import ConnectorsConfig
 from dex_agents_cli_core.connectors import ConnectorsMcpUnavailableError, read_connector_catalog
+from dex_agents_cli_core.dex_connection import describe_dex_refusal_without_details
 from dex_agents_cli_core.terminal_ui.contract import candidate_session_ids
 from dex_agents_cli_core.terminal_ui.local_requests import RequestOutcome
 
@@ -142,8 +143,12 @@ class HostedChatSession:
                 return await self._wait_for_session(short_id)
             if not is_long_taken and await self._start_with_key(long_id, idempotency_key):
                 return await self._wait_for_session(long_id)
-        except Exception:  # Any start failure is reported the same way.
-            _LOGGER.exception("start_session could not start %s", short_id)
+        except Exception as error:  # Any start failure is reported the same way.
+            refused = describe_dex_refusal_without_details(error)
+            if refused is None:
+                _LOGGER.exception("start_session could not start %s", short_id)
+            else:
+                _LOGGER.error("start_session could not start %s: %s", short_id, refused)
             return RequestOutcome.failed(
                 "start_failed", f"Session {short_id} could not start; see the log."
             )

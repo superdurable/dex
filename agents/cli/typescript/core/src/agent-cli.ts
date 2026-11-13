@@ -39,7 +39,19 @@ import {
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
-import { readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
+import { readCliEnvironment, removeDexSecretVariables, type CliEnvironment } from "./cli-environment.js";
+import {
+  DexConnectionSettingsError,
+  createDexConnectionOptions,
+  DescribedDexFailure,
+  describeDexRefusalWithoutDetails,
+  describeFailureWithoutDexDetails,
+  describeRefusedDexCredential,
+  describeRefusedTlsOptions,
+  resolveDexConnectionSettings,
+  type DexConnectionOptions,
+  type DexConnectionSettings,
+} from "./dex-connection.js";
 import {
   askInitQuestions,
   defaultConfigPath,
@@ -314,6 +326,8 @@ export class AgentCliCommand {
     private readonly log: (line: string) => void,
   ) {
     this.environment = readCliEnvironment(io.environment);
+    // Tools, browsers, and dexcli dev inherit process.env; the credential stays in this.environment.
+    removeDexSecretVariables(process.env);
     this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
   }
 
@@ -342,7 +356,9 @@ export class AgentCliCommand {
    * @param error - The error.
    */
   public exitCodeOf(error: unknown): number {
-    return error instanceof ConfigError || error instanceof UsageError ? 2 : 1;
+    return error instanceof ConfigError || error instanceof UsageError || error instanceof DexConnectionSettingsError
+      ? 2
+      : 1;
   }
 
   public async run(): Promise<number> {
@@ -360,6 +376,11 @@ export class AgentCliCommand {
     }
     const loaded = await this.loadConfig(configPath);
     const effective = this.applyOverrides(loaded.effective);
+    const connection = resolveDexConnectionSettings(effective, this.environment.dexConnectionVariables ?? {}, {
+      configPath: loaded.configPath,
+      homeDirectory: this.environment.homeDirectory,
+      workingDirectory: process.cwd(),
+    });
     if (this.parsed.subcommand === "run") {
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
     }
@@ -380,9 +401,9 @@ export class AgentCliCommand {
       case "connectors":
         return this.listConnectors(effective, server);
       case "sessions":
-        return this.listSessions(effective, loaded, server);
+        return this.listSessions(effective, loaded, server, connection);
       default: {
-        const outcome = await this.chatInTerminalUi(effective, loaded, server);
+        const outcome = await this.chatInTerminalUi(effective, loaded, server, connection);
         if (outcome?.kind === "exited") {
           return outcome.exitCode;
         }
@@ -390,6 +411,7 @@ export class AgentCliCommand {
           effective,
           loaded,
           server,
+          connection,
           outcome?.resumeSessionId ?? this.parsed.resumeSessionId,
           outcome === undefined,
         );
@@ -466,10 +488,11 @@ export class AgentCliCommand {
     effective: EffectiveConfig,
     loaded: LoadedConfig,
     server: DexServerConnection,
+    connection: DexConnectionSettings,
     resumeSessionId: string | undefined,
     isOpeningConnectorsPage: boolean,
   ): Promise<number> {
-    const opened = await this.openSessionWorker(effective, loaded, server, {
+    const opened = await this.openSessionWorker(effective, loaded, server, connection, {
       resumeSessionId,
       isOpeningConnectorsPage,
       toolProcessGroups: undefined,
@@ -499,6 +522,7 @@ export class AgentCliCommand {
     effective: EffectiveConfig,
     loaded: LoadedConfig,
     server: DexServerConnection,
+    connection: DexConnectionSettings,
   ): Promise<TerminalUiChatOutcome | undefined> {
     const isSelected = isTerminalUiSelected({
       platform: process.platform,
@@ -542,6 +566,7 @@ export class AgentCliCommand {
           configPath: loaded.configPath,
           isFromFile: loaded.isFromFile,
           server,
+          connection,
           resumeSessionId: this.parsed.resumeSessionId ?? null,
         },
         configPath: loaded.isFromFile ? loaded.configPath : null,
@@ -550,6 +575,7 @@ export class AgentCliCommand {
         logFilePath: this.logFilePath(),
         startedDexcliDevLines: this.startedDexcliDevLines,
         environment: this.environment.childProcessVariables,
+        dexConnectionVariables: this.environment.dexConnectionVariables ?? {},
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
         commandSignals: {
           release: () => this.startedDexcliDev.releaseSignals(),
@@ -569,21 +595,25 @@ export class AgentCliCommand {
    * @param effective - The effective configuration.
    * @param loaded - The loaded configuration file.
    * @param server - The Dex server.
+   * @param connection - How to verify and authenticate to the Dex server.
    * @param options - The session to resume, whether to open the Connectors page, and the tool process group
    * registry of a Worker host.
    * @returns The opened session; {@link close} releases it.
    * @throws {UsageError} When the session to resume does not exist or belongs to another environment.
+   * @throws {DexConnectionSettingsError} When the CA file or the bearer token file is unusable.
    */
   public async openSessionWorker(
     effective: EffectiveConfig,
     loaded: LoadedConfig,
     server: DexServerConnection,
+    connection: DexConnectionSettings,
     options: {
       readonly resumeSessionId: string | undefined;
       readonly isOpeningConnectorsPage: boolean;
       readonly toolProcessGroups: ToolProcessGroupRegistry | undefined;
     },
   ): Promise<OpenedSessionWorker> {
+    const connectionOptions = this.dexConnectionOptions(server, connection);
     this.mediaStore ??= await createMediaStore(effective.media, this.environment.agentsDirectory);
     const turns = new TurnConfigResolver(
       effective,
@@ -630,35 +660,31 @@ export class AgentCliCommand {
     const registry = new Registry([flow]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
-    const connection = {
-      serverAddress: server.serverAddress,
-      ...(server.isTls ? { flowServiceTls: {} } : {}),
-    };
     // The Client exists before the Worker starts, because tool Steps read their turn's settings through it.
-    this.client = new Client(registry, this.blobCache, connection);
+    const client = this.constructDexClient(registry, connectionOptions, connection);
+    this.client = client;
     this.worker = new Worker(registry, this.blobCache, {
-      ...connection,
+      ...connectionOptions,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
     this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
-    try {
-      await this.worker.start();
-      await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
-    } catch (error: unknown) {
-      const unavailable = describeUnavailableDexServer(error, effective.dex.server, server.serverAddress);
-      throw unavailable === undefined ? error : new Error(unavailable, { cause: error });
-    }
-    await this.uploadSessionFlowDefinition(this.client, flowType);
+    const worker = this.worker;
+    await this.callDex(effective, server, connection, async () => {
+      await worker.start();
+      await worker.waitPullRegistered({ timeoutMs: 30_000 });
+    });
+    await this.uploadSessionFlowDefinition(client, flowType);
     const startEnvironment = sessionStartEnvironment(identity);
     const resumeSessionId = options.resumeSessionId;
-    let sessionId: string;
-    if (resumeSessionId === undefined) {
-      sessionId = newSessionId(this.harness);
-      await startAgentSession(this.client, flow, sessionId, { startEnvironment });
-    } else {
-      sessionId = await this.checkResumedSession(this.client, flowType, resumeSessionId);
-    }
+    const sessionId = await this.callDex(effective, server, connection, async () => {
+      if (resumeSessionId === undefined) {
+        const newId = newSessionId(this.harness);
+        await startAgentSession(client, flow, newId, { startEnvironment });
+        return newId;
+      }
+      return this.checkResumedSession(client, flowType, resumeSessionId);
+    });
     const connectorsUrl = effective.connectors.mcp === "auto" ? server.autoConnectorsMcpUrl : effective.connectors.mcp;
     return {
       client: this.client,
@@ -672,6 +698,47 @@ export class AgentCliCommand {
         connectorsSource === undefined || connectorsUrl === null ? undefined : { source: connectorsSource, url: connectorsUrl },
       workspace,
     };
+  }
+
+  /** Returns the Client and Worker options of this command: its TLS options and its one credential. */
+  private dexConnectionOptions(server: DexServerConnection, connection: DexConnectionSettings): DexConnectionOptions {
+    return createDexConnectionOptions(server.serverAddress, connection, this.environment.dexConnectionVariables ?? {});
+  }
+
+  /** Constructs a Client, naming the TLS setting that its constructor refused. */
+  private constructDexClient(
+    registry: Registry,
+    options: DexConnectionOptions,
+    connection: DexConnectionSettings,
+  ): Client {
+    if (this.blobCache === undefined) {
+      throw new Error("the blob cache opens before the Client");
+    }
+    try {
+      return new Client(registry, this.blobCache, options);
+    } catch (error: unknown) {
+      throw describeRefusedTlsOptions(error, connection.tls) ?? error;
+    }
+  }
+
+  /** Runs Dex calls, turning a refused credential or an unreachable server into a one-line error. */
+  private async callDex<T>(
+    effective: EffectiveConfig,
+    server: DexServerConnection,
+    connection: DexConnectionSettings,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await call();
+    } catch (error: unknown) {
+      if (error instanceof UsageError) {
+        throw error;
+      }
+      const description =
+        describeRefusedDexCredential(error, connection.auth, server.serverAddress) ??
+        describeUnavailableDexServer(error, effective.dex.server, server.serverAddress);
+      throw description === undefined ? error : new DescribedDexFailure(description, { cause: error });
+    }
   }
 
   /**
@@ -694,7 +761,7 @@ export class AgentCliCommand {
       const [result] = await Promise.race([client.uploadFlowDefinitions([document]), timeout]);
       line = `session Flow definition ${result?.outcome ?? "unspecified"}: flowType=${flowType} storedDigest=${result?.storedDigest ?? ""}`;
     } catch (error: unknown) {
-      line = `session Flow definition upload failed; Dex Web shows this session only with --flow-rendering-dir: flowType=${flowType} ${describe(error)}`;
+      line = sessionFlowDefinitionUploadFailureLine(flowType, error);
     } finally {
       clearTimeout(timer);
     }
@@ -911,20 +978,19 @@ export class AgentCliCommand {
     effective: EffectiveConfig,
     loaded: LoadedConfig,
     server: DexServerConnection,
+    connection: DexConnectionSettings,
   ): Promise<number> {
+    const connectionOptions = this.dexConnectionOptions(server, connection);
     const workspace = this.prepareWorkspace(effective, loaded);
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);
     const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
     const registry = new Registry([]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
-    this.client = new Client(registry, this.blobCache, {
-      serverAddress: server.serverAddress,
-      ...(server.isTls ? { flowServiceTls: {} } : {}),
-    });
-    const client = this.client;
-    const { sessions: loadedSessions, hasMoreSessions } = await collectSessionsForList((nextPageToken) =>
-      listAgentSessions(client, flowType, { nextPageToken }),
+    const client = this.constructDexClient(registry, connectionOptions, connection);
+    this.client = client;
+    const { sessions: loadedSessions, hasMoreSessions } = await this.callDex(effective, server, connection, () =>
+      collectSessionsForList((nextPageToken) => listAgentSessions(client, flowType, { nextPageToken })),
     );
     if (loadedSessions.length === 0 && !hasMoreSessions) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
@@ -1012,7 +1078,7 @@ const workerReconnectMessage =
   /^(Worker task stream disconnected|Worker task stream did not register|Worker task registration failed|send Worker (task|keepalive) Pong)\b/;
 
 /** Logs library `console.warn` and `console.error` calls, and shows their first line unless it is reconnect noise. */
-class LibraryConsoleRedirection {
+export class LibraryConsoleRedirection {
   private readonly originalWarn = console.warn;
   private readonly originalError = console.error;
 
@@ -1030,7 +1096,8 @@ class LibraryConsoleRedirection {
   }
 
   private handle(level: string, values: readonly unknown[]): void {
-    const text = format(...values);
+    // A Dex refusal's server details may echo the credential, as in the SDK's Flow definition upload warning.
+    const text = format(...values.map((value) => (isObject(value) ? (describeDexRefusalWithoutDetails(value) ?? value) : value)));
     try {
       appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${text}\n`);
     } catch {
@@ -1262,5 +1329,18 @@ function ignoreWriteErrorsOfClosedTerminal(stream: Writable): void {
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeFailureWithoutDexDetails(error);
+}
+
+/**
+ * Returns the log line of a failed session graph upload; a Dex refusal leaves out the server's details.
+ * @param flowType - The session Flow type.
+ * @param error - The failure.
+ */
+export function sessionFlowDefinitionUploadFailureLine(flowType: string, error: unknown): string {
+  return `session Flow definition upload failed; Dex Web shows this session only with --flow-rendering-dir: flowType=${flowType} ${describe(error)}`;
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
 }

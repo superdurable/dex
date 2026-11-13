@@ -25,6 +25,11 @@ from dex_agents_cli_core.config import (
     resolve_config,
     resolve_turn_config,
 )
+from dex_agents_cli_core.dex_connection import (
+    DexConnectionSettingsError,
+    resolve_dex_connection_settings,
+)
+from dex_agents_cli_core.environment import CommandEnvironment
 
 AGENTS_DIR = Path(__file__).resolve().parents[4]
 FIXTURE: dict[str, Any] = json.loads(
@@ -139,3 +144,30 @@ def expect_error(resolve: Any, expected: dict[str, str]) -> None:
     else:
         assert raised.value.path == expected["path"]
         assert raised.value.schema_errors == frozenset()
+
+
+@pytest.mark.parametrize("case", FIXTURE["dex_connection"]["cases"], ids=case_id)
+def test_dex_connection_case(case: dict[str, Any]) -> None:
+    context = FIXTURE["dex_connection"]["context"]
+    effective = resolve_config(
+        case["config"], context["harness_section"], context["harness_default_model"]
+    )
+    variables = CommandEnvironment.from_environment(
+        {"HOME": context["home"], **case["environment"]}
+    ).dex_connection_variables
+
+    def resolve() -> dict[str, Any]:
+        return resolve_dex_connection_settings(
+            effective,
+            variables,
+            config_directory=Path(context["config_path"]).parent,
+            home=Path(context["home"]),
+            working_directory=Path(context["working_directory"]),
+        ).to_json()
+
+    if "settings" in case:
+        assert resolve() == case["settings"]
+        return
+    with pytest.raises(DexConnectionSettingsError) as raised:
+        resolve()
+    assert {"setting": raised.value.setting, "message": raised.value.message} == case["error"]

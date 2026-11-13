@@ -16,6 +16,7 @@ import contextlib
 import importlib
 import importlib.metadata
 import logging
+import os
 import secrets
 import signal
 import sys
@@ -32,13 +33,10 @@ from dex import (
     AsyncWorker,
     BlobCache,
     BlobCacheConfig,
-    ClientOptions,
     FlowNotFoundError,
-    FlowServiceTlsOptions,
     FlowStatus,
     PullWorkerOptions,
     Registry,
-    WorkerOptions,
     open_blob_cache,
 )
 
@@ -84,6 +82,15 @@ from dex_agents_cli_core.connectors import (
     connectors_unavailable_line,
     read_connector_catalog,
 )
+from dex_agents_cli_core.dex_connection import (
+    DexConnection,
+    DexConnectionSettings,
+    DexConnectionSettingsError,
+    DexRefusalDetailsFilter,
+    describe_dex_refusal_without_details,
+    describe_rejected_dex_credential,
+    resolve_dex_connection_settings,
+)
 from dex_agents_cli_core.dex_server import (
     DexServerEndpoint,
     DexServerError,
@@ -98,7 +105,7 @@ from dex_agents_cli_core.dexcli_install import (
     download_dexcli,
     locate_dexcli,
 )
-from dex_agents_cli_core.environment import CommandEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment, remove_dex_secret_variables
 from dex_agents_cli_core.harness import (
     SESSION_ACTION_PERMISSION,
     AgentHarness,
@@ -157,6 +164,8 @@ _SESSION_SUMMARY_ATTRIBUTE_NAMES = frozenset(
     )
 )
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
+# A Flow ID no session uses; describing it proves the credential before the Worker starts.
+_CREDENTIAL_PROBE_FLOW_ID = "dex-agents-cli-credential-probe"
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
 _SESSION_START_TIMEOUT_SECONDS = 60.0
@@ -240,6 +249,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
+    remove_dex_secret_variables(os.environ)
     log_path = _configure_logging(environment, harness)
     server = _CommandDexServer(environment)
     try:
@@ -262,6 +272,12 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         return 2
     except (CommandFailure, DexServerError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:
+        refused = describe_dex_refusal_without_details(error)
+        if refused is None:
+            raise
+        print(f"{command_name(harness)}: {refused}", file=sys.stderr)
         return 1
     finally:
         server.stop_started_dexcli_dev()
@@ -370,6 +386,7 @@ def _run_worker_host(harness: AgentHarness, argv: Sequence[str]) -> int:
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
+    remove_dex_secret_variables(os.environ)
     log_path = _configure_logging(environment, harness)
 
     async def open_run(
@@ -403,7 +420,14 @@ async def _open_hosted_run(
         def report_ignored_settings(warnings: Sequence[str]) -> None:
             reports.report(f"Session settings keys ignored: {', '.join(warnings)}")
 
-        inputs = _prepare_run(start.model, loaded, environment, harness, report_ignored_settings)
+        inputs = _prepare_run(
+            start.model,
+            loaded,
+            environment,
+            harness,
+            report_ignored_settings,
+            DexConnectionSettings.from_json(start.dex_connection),
+        )
         endpoint = DexServerEndpoint(
             address=start.server_address,
             is_tls=start.is_tls,
@@ -553,6 +577,7 @@ def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -
         root.handlers[:] = [logging.NullHandler()]
         return None
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.addFilter(DexRefusalDetailsFilter())
     root.handlers[:] = [handler]
     return log_path
 
@@ -616,7 +641,10 @@ async def _run(
     log_path: Path | None,
     server: _CommandDexServer,
 ) -> int:
-    inputs = _prepare_run(arguments.model, loaded, environment, harness, _report_ignored_settings)
+    connection = _resolve_connection(loaded, environment)
+    inputs = _prepare_run(
+        arguments.model, loaded, environment, harness, _report_ignored_settings, connection
+    )
     endpoint = await server.resolve(inputs.config)
     if _is_terminal_ui_wanted(arguments, environment, harness):
         outcome = await _run_terminal_ui(
@@ -687,8 +715,12 @@ async def _run_terminal_ui(
             is_tls=endpoint.is_tls,
             web_url=endpoint.web_url,
             connectors_mcp_url=endpoint.connectors_mcp_url,
+            dex_connection=inputs.connection.to_json(),
         ),
-        terminal_variables=environment.terminal_variables,
+        terminal_variables={
+            **environment.terminal_variables,
+            **inputs.connection.terminal_ui_auth_variables(environment.dex_connection_variables),
+        },
         display={
             "model": inputs.config.model,
             "workspace": _path_shown(inputs.workspace, environment.home),
@@ -703,6 +735,9 @@ async def _run_terminal_ui(
         is_browser_opening_enabled=environment.is_browser_opening_enabled,
         is_resumed=arguments.resume_session_id is not None,
         startup_notices=tuple(server.started_dexcli_dev_lines),
+        worker_host_variables=inputs.connection.terminal_ui_auth_variables(
+            environment.dex_connection_variables
+        ),
     )
     return await run_terminal_ui_chat(
         launch, print, restore_signal_handlers=server.install_termination_handlers
@@ -730,6 +765,41 @@ class _RunInputs:
     media_store: MediaStore
     workspace: Path
     resolver: TurnConfigResolver
+    connection: DexConnectionSettings
+
+
+def _resolve_connection(
+    loaded: LoadedConfig, environment: CommandEnvironment
+) -> DexConnectionSettings:
+    """Resolve ``dex.auth`` and ``dex.tls`` with the environment; a missing setting exits 2."""
+    try:
+        return resolve_dex_connection_settings(
+            loaded.config,
+            environment.dex_connection_variables,
+            config_directory=loaded.directory,
+            home=environment.home,
+            working_directory=Path.cwd(),
+        )
+    except DexConnectionSettingsError as error:
+        raise CommandError(error.message) from error
+
+
+def _open_connection(
+    settings: DexConnectionSettings, environment: CommandEnvironment
+) -> DexConnection:
+    try:
+        return DexConnection.open(settings, environment.dex_connection_variables)
+    except DexConnectionSettingsError as error:
+        raise CommandError(error.message) from error
+
+
+def _describe_dex_failure(
+    failure: BaseException, connection: DexConnection, server: str, address: str
+) -> str | None:
+    """Return the line for a rejected credential, else for an unavailable server, else ``None``."""
+    return describe_rejected_dex_credential(
+        failure, connection.settings, address
+    ) or describe_unavailable_dex_server(failure, server, address)
 
 
 def _prepare_run(
@@ -738,6 +808,7 @@ def _prepare_run(
     environment: CommandEnvironment,
     harness: AgentHarness,
     report_ignored_settings: Callable[[Sequence[str]], None],
+    connection: DexConnectionSettings,
 ) -> _RunInputs:
     config = loaded.config if model is None else replace(loaded.config, model=model)
     media_store = _build_media_store(config, environment)
@@ -750,7 +821,7 @@ def _prepare_run(
         report_ignored_settings,
         supported_reasoning_efforts=declared_reasoning_efforts(harness),
     )
-    return _RunInputs(config, media_store, workspace, resolver)
+    return _RunInputs(config, media_store, workspace, resolver, connection)
 
 
 async def _run_plain_chat(
@@ -828,6 +899,8 @@ class _SessionWorker:
         worker: AsyncWorker,
         blob_cache: BlobCache,
         local_tools: LocalToolSource | None,
+        connection: DexConnection,
+        address: str,
     ) -> None:
         self.harness = harness
         self.flow = flow
@@ -837,6 +910,8 @@ class _SessionWorker:
         self._worker = worker
         self._blob_cache = blob_cache
         self._local_tools = local_tools
+        self._connection = connection
+        self._address = address
         self._serving = asyncio.create_task(worker.start())
 
     @classmethod
@@ -893,33 +968,50 @@ class _SessionWorker:
         cache_directory = environment.agents_directory / "cache" / harness.name
         cache_directory.mkdir(parents=True, exist_ok=True)
         blob_cache = open_blob_cache(BlobCacheConfig(str(cache_directory), _BLOB_CACHE_BYTES))
-        tls = FlowServiceTlsOptions() if endpoint.is_tls else None
-        client = AsyncClient(
-            registry,
-            blob_cache,
-            ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
-        )
+        connection = _open_connection(inputs.connection, environment)
+        try:
+            client = AsyncClient(registry, blob_cache, connection.client_options(endpoint.address))
+        except ValueError as error:
+            connection.close()
+            blob_cache.close()
+            raise CommandError(connection.describe_setup_error(error)) from error
+        if connection.settings.mode != "none":
+            try:
+                await _check_dex_credential(client, connection, config.dex.server, endpoint.address)
+            except BaseException:
+                await client.close()
+                connection.close()
+                blob_cache.close()
+                raise
         worker = AsyncWorker(
             registry,
             blob_cache,
-            WorkerOptions(
-                server_address=endpoint.address,
-                flow_service_tls=tls,
-                pull=PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5)),
+            connection.worker_options(
+                endpoint.address, PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5))
             ),
         )
-        session_worker = cls(harness, flow, identity, client, worker, blob_cache, local_tools)
+        session_worker = cls(
+            harness,
+            flow,
+            identity,
+            client,
+            worker,
+            blob_cache,
+            local_tools,
+            connection,
+            endpoint.address,
+        )
         try:
             await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
             await _upload_session_flow_definition(client, flow_type)
         except BaseException as failure:
             await session_worker.close(startup_failure=failure)
-            unavailable = describe_unavailable_dex_server(
-                failure, config.dex.server, endpoint.address
+            described = _describe_dex_failure(
+                failure, connection, config.dex.server, endpoint.address
             )
-            if unavailable is None:
+            if described is None:
                 raise
-            raise DexServerError(unavailable) from failure
+            raise DexServerError(described) from failure
         return session_worker
 
     @property
@@ -929,14 +1021,24 @@ class _SessionWorker:
 
     async def open_session(self, resume_session_id: str | None) -> str:
         """Check and return the resumed session, or start a new one and return its ID."""
-        return await _open_session(
-            self.client,
-            self.sessions,
-            resume_session_id,
-            self.harness,
-            self.flow_type,
-            self.identity,
-        )
+        try:
+            return await _open_session(
+                self.client,
+                self.sessions,
+                resume_session_id,
+                self.harness,
+                self.flow_type,
+                self.identity,
+            )
+        except (CommandError, asyncio.CancelledError):
+            raise
+        except Exception as failure:
+            rejected = describe_rejected_dex_credential(
+                failure, self._connection.settings, self._address
+            )
+            if rejected is None:
+                raise
+            raise DexServerError(rejected) from failure
 
     async def close(self, *, startup_failure: BaseException | None = None) -> None:
         """Stop the Worker, close the browser pages, the Client, and the blob cache.
@@ -956,6 +1058,7 @@ class _SessionWorker:
         if self._local_tools is not None:
             await self._local_tools.browser.close()
         await self.client.close()
+        self._connection.close()
         self._blob_cache.close()
 
 
@@ -1164,6 +1267,21 @@ def _local_tool_source(
     return LocalToolSource(workspace, groups, resolver, process_groups=process_groups)
 
 
+async def _check_dex_credential(
+    client: AsyncClient, connection: DexConnection, server: str, address: str
+) -> None:
+    """Make one Client call, so a rejected credential fails before the Worker retries it."""
+    try:
+        await client.describe_flow(_CREDENTIAL_PROBE_FLOW_ID)
+    except FlowNotFoundError:
+        return
+    except Exception as failure:
+        described = _describe_dex_failure(failure, connection, server, address)
+        if described is None:
+            raise
+        raise DexServerError(described) from failure
+
+
 async def _upload_session_flow_definition(client: AsyncClient, flow_type: str) -> None:
     """Upload the session graph so Dex Web shows the session without ``--flow-rendering-dir``.
 
@@ -1194,7 +1312,10 @@ async def _upload_session_flow_definition(client: AsyncClient, flow_type: str) -
 
 
 def _describe_upload_error(error: BaseException) -> str:
-    """Return the error's type and text, or its type alone when the text is empty."""
+    """Return the error's type and text, or its type alone; a Dex refusal leaves out its details."""
+    refused = describe_dex_refusal_without_details(error)
+    if refused is not None:
+        return f"{type(error).__name__}: {refused}"
     text = str(error)
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
@@ -1242,26 +1363,44 @@ async def _list_sessions(
     harness: AgentHarness,
     server: _CommandDexServer,
 ) -> int:
+    settings = _resolve_connection(loaded, environment)
     endpoint = await server.resolve(loaded.config)
     workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
     flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
     blob_cache = open_blob_cache(
         BlobCacheConfig(str(environment.agents_directory / "cache" / "sessions"), _BLOB_CACHE_BYTES)
     )
-    tls = FlowServiceTlsOptions() if endpoint.is_tls else None
-    client = AsyncClient(
-        Registry([], allow_async_handlers=True),
-        blob_cache,
-        ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
-    )
+    try:
+        connection = _open_connection(settings, environment)
+    except CommandError:
+        blob_cache.close()
+        raise
+    try:
+        client = AsyncClient(
+            Registry([], allow_async_handlers=True),
+            blob_cache,
+            connection.client_options(endpoint.address),
+        )
+    except ValueError as error:
+        connection.close()
+        blob_cache.close()
+        raise CommandError(connection.describe_setup_error(error)) from error
     try:
         collected = await collect_sessions_for_list(
             lambda next_page_token: list_agent_sessions(
                 client, flow_type, next_page_token=next_page_token
             )
         )
+    except Exception as failure:
+        described = _describe_dex_failure(
+            failure, connection, loaded.config.dex.server, endpoint.address
+        )
+        if described is None:
+            raise
+        raise DexServerError(described) from failure
     finally:
         await client.close()
+        connection.close()
         blob_cache.close()
     sessions = collected.sessions
     if not sessions and not collected.has_more_sessions:
@@ -1285,6 +1424,8 @@ async def _list_connectors(
     server: _CommandDexServer,
 ) -> int:
     config = loaded.config
+    # Validated as for the other subcommands, though listing connectors makes no Dex call.
+    _resolve_connection(loaded, environment)
     endpoint = await server.resolve(config)
     url = _connectors_mcp_url(config, endpoint)
     if url is None:

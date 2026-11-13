@@ -21,9 +21,12 @@
     "dex": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The Dex server the Worker connects to.",
+      "description": "The Dex server the Worker and the Client connect to, and how they authenticate to it.",
       "default": {
-        "server": "auto"
+        "server": "auto",
+        "auth": {
+          "mode": "none"
+        }
       },
       "properties": {
         "server": {
@@ -39,6 +42,155 @@
           ],
           "default": "auto",
           "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the CLI core also checks that each IPv4 part is 0 or a decimal from 1 to 255 without a leading zero, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "default": {
+            "mode": "none"
+          },
+          "description": "How the Worker and the Client authenticate to the Dex server. Only this section turns authentication on: with mode none, or without this section, the command reads none of DEX_API_KEY, DEX_TOKEN_URL, DEX_SERVER_ID, DEX_CREDENTIAL, and DEX_CREDENTIAL_FILE. Any other mode needs dex.server set to a Dex server URL. The secret never goes in this file: the API key comes from DEX_API_KEY, and a bearer token from DEX_CREDENTIAL or a token file. A variable that is set and not empty after trimming overrides the matching field of the selected mode: DEX_TOKEN_URL overrides token_url, DEX_SERVER_ID overrides server_id, and DEX_CREDENTIAL_FILE overrides file.",
+          "properties": {
+            "mode": {
+              "enum": [
+                "none",
+                "api_key",
+                "bearer"
+              ],
+              "default": "none",
+              "description": "none: no credential. api_key: exchange the API key in DEX_API_KEY at token_url for short-lived access tokens scoped to server_id. bearer: send a bearer token, the value of DEX_CREDENTIAL (source env) or the content of a token file, read again for each call (source file)."
+            },
+            "token_url": {
+              "type": "string",
+              "pattern": "^https?://(?:(?:[A-Za-z0-9-]+\\.)*[A-Za-z][A-Za-z0-9-]*|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?(?:/[!-\"$-~]*)?(?![\\s\\S])",
+              "description": "api_key only. The token endpoint that exchanges the API key for access tokens: an https URL, or an http URL on localhost, 127.0.0.0/8, or [::1], without user info or a fragment. DEX_TOKEN_URL overrides it; one of the two is required. The host rules and the CLI core checks are those of dex.server."
+            },
+            "server_id": {
+              "$ref": "#/$defs/single_line_text",
+              "description": "api_key only. The Dex server ID that the access tokens are scoped to. DEX_SERVER_ID overrides it; one of the two is required."
+            },
+            "source": {
+              "enum": [
+                "env",
+                "file"
+              ],
+              "description": "bearer only, and required with it. env: the token is the value of DEX_CREDENTIAL. file: the token is the content of the file that file or DEX_CREDENTIAL_FILE names."
+            },
+            "file": {
+              "$ref": "#/$defs/single_line_text",
+              "description": "bearer with source file only. The file that holds the bearer token, such as one that another process rotates. A leading ~ means the home directory; a relative path is relative to the directory of this configuration file. DEX_CREDENTIAL_FILE overrides it; one of the two is required."
+            },
+            "api_key": {
+              "not": {},
+              "description": "Never: secrets come only from the environment."
+            },
+            "credential": {
+              "not": {},
+              "description": "Never: secrets come only from the environment."
+            },
+            "token": {
+              "not": {},
+              "description": "Never: secrets come only from the environment."
+            },
+            "access_token": {
+              "not": {},
+              "description": "Never: secrets come only from the environment."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "api_key"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "else": {
+                "properties": {
+                  "token_url": {
+                    "not": {}
+                  },
+                  "server_id": {
+                    "not": {}
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "bearer"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "then": {
+                "required": [
+                  "source"
+                ],
+                "properties": {
+                  "source": true
+                }
+              },
+              "else": {
+                "properties": {
+                  "source": {
+                    "not": {}
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "bearer"
+                  },
+                  "source": {
+                    "const": "file"
+                  }
+                },
+                "required": [
+                  "mode",
+                  "source"
+                ]
+              },
+              "else": {
+                "properties": {
+                  "file": {
+                    "not": {}
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "description": "How the Worker and the Client verify an https dex.server. An https dex.server turns TLS on, with the default trust store and the URL's host as the server name; these fields change that, and they need an https dex.server. DEX_TLS_CA_FILE and DEX_TLS_SERVER_NAME, when set and not empty after trimming, override them; the command reads them only for an https dex.server.",
+          "properties": {
+            "ca_file": {
+              "$ref": "#/$defs/single_line_text",
+              "description": "A PEM file of root CAs to trust in addition to the default trust store, such as a private CA. A leading ~ means the home directory; a relative path is relative to the directory of this configuration file. Omitted: the default trust store only."
+            },
+            "server_name": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)(?![\\s\\S])",
+              "description": "The name the server certificate must match, sent as SNI, when it differs from the dex.server host: a DNS name or an IP address, without a port. Omitted: the dex.server host."
+            }
+          }
         }
       }
     },

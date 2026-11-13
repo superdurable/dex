@@ -10,6 +10,7 @@
 // it has no version negotiation and is not part of the terminal UI contract.
 
 import type { EffectiveConfig } from "../cli-config.js";
+import type { DexConnectionSettings } from "../dex-connection.js";
 import type { DexServerConnection } from "../dex-server.js";
 import type { SessionFlowCapabilities } from "../terminal-ui/launch-document.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
@@ -25,6 +26,8 @@ export interface WorkerHostStartRequest {
   readonly configPath: string;
   readonly isFromFile: boolean;
   readonly server: DexServerConnection;
+  /** How to verify and authenticate to the server; the secret it names is in the Worker host's environment. */
+  readonly connection: DexConnectionSettings;
   readonly resumeSessionId: string | null;
 }
 

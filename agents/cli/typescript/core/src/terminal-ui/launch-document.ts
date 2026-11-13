@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { DexAuthSettings, DexTlsSettings } from "../dex-connection.js";
 import type { TerminalUiAuth } from "./terminal-ui-environment.js";
 
 /** The most code points a notice text keeps; a longer one keeps 499 and ends with `…`. */
@@ -31,7 +32,10 @@ export interface ChatLaunchDetails {
   readonly harnessName: string;
   readonly commandVersion: string;
   readonly serverAddress: string;
-  readonly isTls: boolean;
+  /** The launch document's `dex.tls`. */
+  readonly tls: DexTlsSettings;
+  /** The launch document's `dex.auth`. */
+  readonly auth: TerminalUiAuth;
   readonly webUrl: string | null;
   readonly flowType: string;
   readonly sessionId: string;
@@ -54,8 +58,17 @@ export interface ChatLaunchDetails {
   readonly workerHostStartupLines: readonly string[];
 }
 
-/** The `dex.auth` every launch document of this CLI core carries: its Client authenticates with nothing else. */
-export const launchAuth: TerminalUiAuth = Object.freeze({ mode: "none" });
+/** Returns the launch document's `dex.auth` of a command's auth settings: the token file's path stays out. */
+export function terminalUiAuthOf(auth: DexAuthSettings): TerminalUiAuth {
+  switch (auth.mode) {
+    case "api_key":
+      return { mode: "api_key", token_url: auth.token_url, server_id: auth.server_id };
+    case "bearer":
+      return { mode: "bearer", source: auth.source };
+    default:
+      return { mode: "none" };
+  }
+}
 
 /**
  * Returns the chat launch document of contract 1. It holds no secret, and every path in `display` writes the home
@@ -76,8 +89,8 @@ export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, u
     },
     dex: {
       server_address: details.serverAddress,
-      tls: { enabled: details.isTls, ca_file: null, server_name: null },
-      auth: launchAuth,
+      tls: { enabled: details.tls.enabled, ca_file: details.tls.ca_file, server_name: details.tls.server_name },
+      auth: details.auth,
       web_url: details.webUrl,
     },
     session: { flow_type: details.flowType, session_id: details.sessionId, is_resumed: details.isResumed },

@@ -16,12 +16,15 @@ import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 
 import {
   ConfigError,
+  DexConnectionSettingsError,
   canonicalOperationName,
   compareCodePoints,
   isShellCommandAllowed,
   parseConfigYaml,
+  readDexConnectionVariables,
   readSchema,
   resolveConfig,
+  resolveDexConnectionSettings,
   resolveTurn,
 } from "../../src/index.js";
 
@@ -63,6 +66,22 @@ interface ConformanceFixture {
     reasoning_effort?: string;
     error?: ExpectedError;
   }[];
+  readonly dex_connection: {
+    readonly context: {
+      harness_section: string;
+      harness_default_model: string | null;
+      config_path: string;
+      home: string;
+      working_directory: string;
+    };
+    readonly cases: readonly {
+      name: string;
+      config: unknown;
+      environment: Readonly<Record<string, string>>;
+      settings?: unknown;
+      error?: { setting: string; message: string };
+    }[];
+  };
 }
 
 /** Every validator error, nested anyOf branches included, as the conformance contract counts them. */
@@ -150,6 +169,35 @@ describe("CLI configuration conformance", () => {
       assert.deepEqual(turn, testCase.turn);
       assert.deepEqual(warnings, testCase.warnings);
       assert.equal(reasoningEffort, testCase.reasoning_effort);
+    });
+  }
+
+  const connection = fixture.dex_connection;
+  for (const testCase of connection.cases) {
+    test(`dex connection: ${testCase.name}`, () => {
+      const context = connection.context;
+      const effective = resolveConfig(testCase.config, context.harness_section, context.harness_default_model);
+      const resolve = () =>
+        resolveDexConnectionSettings(effective, readDexConnectionVariables(testCase.environment), {
+          configPath: context.config_path,
+          homeDirectory: context.home,
+          workingDirectory: context.working_directory,
+        });
+      if (testCase.error !== undefined) {
+        assert.throws(resolve, (error: unknown) => {
+          assert.ok(error instanceof DexConnectionSettingsError, String(error));
+          assert.deepEqual({ setting: error.setting, message: error.message }, testCase.error);
+          return true;
+        });
+        return;
+      }
+      const settings = resolve();
+      assert.deepEqual(settings, testCase.settings);
+      for (const secret of [testCase.environment.DEX_API_KEY, testCase.environment.DEX_CREDENTIAL]) {
+        if (secret !== undefined && secret.trim() !== "") {
+          assert.ok(!JSON.stringify(settings).includes(secret.trim()), "the settings hold no secret");
+        }
+      }
     });
   }
 

@@ -16,6 +16,7 @@ import { outcomeUnknownToolResult } from "@superdurable/dex-agents";
 import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
+import { assertNoDexSecret, secretSentinels } from "../fixtures/dex-secret-sentinels.js";
 
 const formPage = `<!doctype html>
 <html><head><title>Signup</title></head>
@@ -134,6 +135,22 @@ describe("local tools", () => {
     await cli.stdout.waitFor(/result: exit code 0\n--- stdout ---\nallowed\nmore/);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("a shell command never sees Dex credential variables that the shell exported, without dex.auth", async () => {
+    const command = "env > shell-environment.txt";
+    const testHome = new TestHome(enginePorts(engine));
+    testHome.writeConfig(
+      `connectors: {enabled: []}\nlocal_tools: {browser: false, shell: {enabled: true, allow: ["${command}"]}}\n`,
+    );
+    const cli = CliProcess.start(testHome, [], secretSentinels);
+    processes.push(cli);
+    await cli.waitForSession();
+    cli.writeLine(`call run_shell_command ${JSON.stringify({ command })}`);
+    await cli.stdout.waitFor(/result: exit code 0/);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0, cli.stderr.all);
+    assertNoDexSecret(readFileSync(join(testHome.workspace, "shell-environment.txt"), "utf8"));
   });
 
   test("the browser reads pages at once and fills and submits only after approval", async () => {

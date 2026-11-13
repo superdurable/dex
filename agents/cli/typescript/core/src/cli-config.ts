@@ -107,6 +107,45 @@ export interface SessionsConfig {
 }
 
 /**
+ * The `dex.auth` section in effective form: how the Worker and the Client authenticate to the Dex server.
+ *
+ * Only this section turns authentication on. It never holds a secret: the API key comes from `DEX_API_KEY`, and a
+ * bearer token from `DEX_CREDENTIAL` or a token file. A field the file omits is `null`, because a variable may give
+ * it; `resolveDexConnectionSettings` fills it in and checks that it is there.
+ *
+ * - `none`: no credential.
+ * - `api_key`: exchange `DEX_API_KEY` at `token_url` for access tokens scoped to `server_id`.
+ * - `bearer` with `source: "env"`: the token is the value of `DEX_CREDENTIAL`.
+ * - `bearer` with `source: "file"`: the token is the content of `file`, as written in the configuration file.
+ *
+ * @example
+ * ```ts
+ * const effective = resolveConfig(parseConfigYaml(text), "claude", null);
+ * if (effective.dex.auth?.mode === "api_key") console.log(effective.dex.auth.token_url);
+ * ```
+ * @since 0.6.2
+ */
+export type DexAuthConfig =
+  | { readonly mode: "none" }
+  | { readonly mode: "api_key"; readonly token_url: string | null; readonly server_id: string | null }
+  | { readonly mode: "bearer"; readonly source: "env" }
+  | { readonly mode: "bearer"; readonly source: "file"; readonly file: string | null };
+
+/**
+ * The `dex.tls` section in effective form: how the Worker and the Client verify an `https` `dex.server`.
+ *
+ * Both fields are `null` when the file omits them. Paths keep their leading `~`.
+ *
+ * @since 0.6.2
+ */
+export interface DexTlsConfig {
+  /** A PEM file of root CAs trusted in addition to the default trust store, as written, or `null`. */
+  readonly ca_file: string | null;
+  /** The name the server certificate must match, or `null` for the `dex.server` host. */
+  readonly server_name: string | null;
+}
+
+/**
  * The effective configuration of a configuration file: every default filled in, connector entries parsed, and
  * the command's own harness section copied to `harness_options`.
  *
@@ -123,8 +162,14 @@ export interface EffectiveConfig {
   readonly system_prompt: string | null;
   /** The instructions file, or `null`. */
   readonly system_prompt_file: string | null;
-  /** The Dex server: `auto` or a URL. */
-  readonly dex: { readonly server: string };
+  /**
+   * The Dex server: `auto` or a URL, and how to authenticate to it and verify it. {@link resolveConfig} always sets
+   * `auth` and `tls`; they are optional so that code that builds an `EffectiveConfig` itself keeps compiling, and
+   * absent means `{ mode: "none" }` and no TLS settings.
+   *
+   * Changed in 0.6.2: adds `auth` and `tls`.
+   */
+  readonly dex: { readonly server: string; readonly auth?: DexAuthConfig; readonly tls?: DexTlsConfig };
   /** The connectors MCP server and the enabled connections. */
   readonly connectors: {
     /** `auto` or a loopback URL. */
@@ -166,7 +211,13 @@ export type TurnConfig = EffectiveConfig;
  * `unsupported_reasoning_effort` rejects a session's `reasoning_effort` that the harness command does not declare
  * in `AgentHarness.supportedReasoningEfforts`, at `/reasoning_effort`.
  *
+ * `insecure_token_url` rejects an http `dex.auth.token_url` whose host is not loopback, at `/dex/auth/token_url`.
+ * `auth_needs_server_url` rejects a `dex.auth` mode other than `none` with `dex.server: auto`, at `/dex/auth`.
+ * `tls_needs_https_server` rejects `dex.tls` settings without an `https` `dex.server`, at `/dex/tls`.
+ *
  * Changed in 0.6.2: adds `unsupported_reasoning_effort`.
+ *
+ * Changed in 0.6.2: adds `insecure_token_url`, `auth_needs_server_url`, and `tls_needs_https_server`.
  *
  * @since 0.5.0
  */
@@ -174,6 +225,9 @@ export type ConfigErrorCode =
   | "yaml"
   | "schema"
   | "invalid_url"
+  | "insecure_token_url"
+  | "auth_needs_server_url"
+  | "tls_needs_https_server"
   | "duplicate_tool"
   | "duplicate_connection"
   | "model_required"
@@ -256,8 +310,8 @@ export function parseConfigYaml(text: string): unknown {
 /**
  * Returns the effective configuration of a parsed configuration file.
  *
- * It checks, in this order, the schema, the two URLs, the connector entries in list order, and the model, and
- * throws the first failure.
+ * It checks, in this order, the schema, the URLs, the token URL's scheme, `dex.auth` and `dex.tls` against
+ * `dex.server`, the connector entries in list order, and the model, and throws the first failure.
  *
  * @example
  * ```ts
@@ -270,7 +324,11 @@ export function parseConfigYaml(text: string): unknown {
  * @param harnessDefaultWorkspace - The workspace when the file sets none; defaults to {@link defaultWorkspace}.
  * Since 0.6.0.
  * @returns The effective configuration.
- * @throws {ConfigError} `schema`, `invalid_url`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
+ * @throws {ConfigError} `schema`, `invalid_url`, `insecure_token_url`, `auth_needs_server_url`,
+ * `tls_needs_https_server`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
+ *
+ * Changed in 0.6.2: reads `dex.auth` and `dex.tls`, and checks them against `dex.server`.
+ *
  * @since 0.5.0
  */
 export function resolveConfig(
@@ -284,11 +342,27 @@ export function resolveConfig(
   const file = value as FileConfig;
   const dexServer = file.dex?.server ?? defaultDexServer;
   const connectorsMcp = file.connectors?.mcp ?? defaultConnectorsMcp;
+  const fileAuth: FileDexAuth = file.dex?.auth ?? { mode: "none" };
+  const fileTls: FileDexTls = file.dex?.tls ?? {};
   throwInvalidUrl(dexServer, "/dex/server");
+  const tokenUrl = fileAuth.token_url;
+  if (tokenUrl !== undefined) {
+    throwInvalidUrl(tokenUrl, "/dex/auth/token_url");
+  }
   throwInvalidUrl(connectorsMcp, "/connectors/mcp");
   const mediaEndpoint = file.media?.endpoint ?? null;
   if (mediaEndpoint !== null) {
     throwInvalidUrl(mediaEndpoint, "/media/endpoint");
+  }
+  if (tokenUrl !== undefined && !isSecureTokenUrl(tokenUrl)) {
+    throw new ConfigError("insecure_token_url", "/dex/auth/token_url");
+  }
+  if (fileAuth.mode !== "none" && dexServer === defaultDexServer) {
+    throw new ConfigError("auth_needs_server_url", "/dex/auth");
+  }
+  const hasTlsSettings = fileTls.ca_file !== undefined || fileTls.server_name !== undefined;
+  if (hasTlsSettings && !dexServer.startsWith("https://")) {
+    throw new ConfigError("tls_needs_https_server", "/dex/tls");
   }
   const enabled = file.connectors?.enabled;
   const entries = enabled === undefined ? null : parseConnectorEntries(enabled, null, false);
@@ -302,7 +376,11 @@ export function resolveConfig(
     model,
     system_prompt: file.system_prompt ?? null,
     system_prompt_file: file.system_prompt_file ?? null,
-    dex: { server: dexServer },
+    dex: {
+      server: dexServer,
+      auth: effectiveDexAuth(fileAuth),
+      tls: { ca_file: fileTls.ca_file ?? null, server_name: fileTls.server_name ?? null },
+    },
     connectors: { mcp: connectorsMcp, enabled: entries },
     approval: { always: [...(file.approval?.always ?? [])] },
     workspace: file.workspace ?? harnessDefaultWorkspace,
@@ -519,13 +597,28 @@ interface FileConfig {
   readonly model?: string;
   readonly system_prompt?: string;
   readonly system_prompt_file?: string;
-  readonly dex?: { readonly server?: string };
+  readonly dex?: { readonly server?: string; readonly auth?: FileDexAuth; readonly tls?: FileDexTls };
   readonly connectors?: { readonly mcp?: string; readonly enabled?: readonly RawConnectorEntry[] };
   readonly approval?: { readonly always?: readonly string[] };
   readonly workspace?: string;
   readonly local_tools?: SessionLocalTools;
   readonly media?: { readonly store?: string; readonly endpoint?: string };
   readonly sessions?: { readonly summary?: "auto" | "on" | "off" };
+}
+
+/** `dex.auth` after the schema accepted it. */
+interface FileDexAuth {
+  readonly mode: "none" | "api_key" | "bearer";
+  readonly token_url?: string;
+  readonly server_id?: string;
+  readonly source?: "env" | "file";
+  readonly file?: string;
+}
+
+/** `dex.tls` after the schema accepted it. */
+interface FileDexTls {
+  readonly ca_file?: string;
+  readonly server_name?: string;
 }
 
 /** Session settings after the schema accepted them. */
@@ -590,6 +683,51 @@ function throwFirstSchemaError(validate: ValidateFunction, value: unknown): void
   const title: unknown = (outermost.parentSchema as { readonly title?: unknown } | undefined)?.title;
   const validForms = outermost.keyword === "anyOf" && typeof title === "string" ? title : undefined;
   throw new ConfigError("schema", outermost.instancePath, outermost.keyword, validForms);
+}
+
+/** Returns `dex.auth` in effective form: the mode and its own fields, `null` when omitted. */
+function effectiveDexAuth(auth: FileDexAuth): DexAuthConfig {
+  if (auth.mode === "api_key") {
+    return { mode: "api_key", token_url: auth.token_url ?? null, server_id: auth.server_id ?? null };
+  }
+  if (auth.mode === "bearer") {
+    return auth.source === "file"
+      ? { mode: "bearer", source: "file", file: auth.file ?? null }
+      : { mode: "bearer", source: "env" };
+  }
+  return { mode: "none" };
+}
+
+/**
+ * Returns whether a token URL that passed the schema and the `invalid_url` checks is https, or http on a loopback
+ * host: `localhost` in any case, an IPv4 address in 127.0.0.0/8, or `::1` in any spelling.
+ */
+export function isSecureTokenUrl(url: string): boolean {
+  if (url.startsWith("https://")) {
+    return true;
+  }
+  const host = urlParts.exec(url)?.groups?.host ?? "";
+  if (host.toLowerCase() === "localhost") {
+    return true;
+  }
+  if (host.startsWith("[")) {
+    // A WHATWG parser writes every spelling of ::1 as [::1].
+    return new URL(`http://${host}/`).hostname === "[::1]";
+  }
+  return /^[0-9.]+$/.test(host) && host.split(".")[0] === "127";
+}
+
+/** Returns whether a URL that matches a schema URL pattern passes the `invalid_url` checks. */
+export function isValidUrl(url: string): boolean {
+  try {
+    throwInvalidUrl(url, "");
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof ConfigError) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function throwInvalidUrl(url: string, path: string): void {
