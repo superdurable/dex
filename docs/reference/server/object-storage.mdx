@@ -321,7 +321,9 @@ listings. OSS listings showed every write at once in every test so far, so
 guarantees.
 
 With **head**, the server deletes replaced versions oldest first, one at a
-time, so the versions it keeps are always consecutive. Before it first deletes
+time, so the versions that a key's writers first stored are always
+consecutive. A stale writer can briefly store an old version again below them;
+the server deletes it. Before it first deletes
 the oldest version of **K**, it writes **K.v/anchor**, a small object that it
 never deletes. The anchor shows that **K** still has versions after its oldest
 ones are gone. The minimum of 10 minutes still decides when a replaced version
