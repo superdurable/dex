@@ -186,10 +186,10 @@ async fn aliyun_oss_serve_cleans_up_objects_and_recovers_after_warm_and_cold_res
     primary.shutdown().await;
 }
 
-/// Processes with HEAD-probing and with listing version discovery serve the same bucket in turn,
-/// and each recovers every Flow the others acknowledged.
+/// A prefix that HEAD-probing nodes serve stays theirs: a listing node refuses it, and a later
+/// HEAD-probing node recovers every Flow from it. A HEAD-probing node refuses a listing prefix.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn aliyun_oss_head_and_list_version_discovery_share_a_bucket_across_restarts() {
+async fn aliyun_oss_head_and_list_version_discovery_refuse_each_others_prefix() {
     let primary = S3Emulator::start_with_dialect(
         PRIMARY_BUCKET,
         SignatureVerification::Strict,
@@ -198,15 +198,15 @@ async fn aliyun_oss_head_and_list_version_discovery_share_a_bucket_across_restar
     .await;
     let endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
-    let server_with = |version_discovery| AliyunOssServer {
+    let server_with = |version_discovery, store: &str| AliyunOssServer {
         directory: directory.path(),
         endpoint: &endpoint,
-        local_directory: directory.path().join("store"),
+        local_directory: directory.path().join(store),
         hard_delete_endpoint: None,
         extra_config: "",
         version_discovery: Some(version_discovery),
     };
-    let head = server_with("head");
+    let head = server_with("head", "head-store");
     let mut first = head.spawn("head-first");
     let channel = first.wait_until_serving().await;
     let worker = start_greeting_worker(channel.clone()).await;
@@ -222,29 +222,56 @@ async fn aliyun_oss_head_and_list_version_discovery_share_a_bucket_across_restar
     let status = first.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", first.log());
 
-    for (name, version_discovery) in [("list-warm", "list"), ("head-cold", "head")] {
-        let server = server_with(version_discovery);
-        if version_discovery == "head" {
-            std::fs::remove_dir_all(&server.local_directory)
-                .expect("the warm local directory is deleted");
-        }
-        let mut process = server.spawn(name);
-        let channel = process.wait_until_serving().await;
-        assert_completed(
-            &mut FlowServiceClient::new(channel.clone()),
-            &acknowledged,
-            &process,
-        )
-        .await;
-        let worker = start_greeting_worker(channel.clone()).await;
-        let flow_id = format!("aliyun-{name}-flow");
-        let run_id = run_greeting_flow(&mut FlowServiceClient::new(channel), &flow_id).await;
-        acknowledged.push((flow_id, run_id));
-        worker.stop().await;
-        let status = process.terminate(SHUTDOWN_BUDGET).await;
-        assert_eq!(status.code(), Some(0), "{}", process.log());
-    }
+    let mut listing = server_with("list", "list-store").spawn("list-refused");
+    let status = listing.wait_for_exit(FAILED_STARTUP_BUDGET).await;
+    let log = listing.log();
+    assert_ne!(status.code(), Some(0), "{log}");
+    assert!(
+        log.contains("version-discovery/head") && log.contains("versionDiscovery: head"),
+        "{log}"
+    );
+
+    let cold_head = server_with("head", "cold-head-store");
+    let mut process = cold_head.spawn("head-cold");
+    let channel = process.wait_until_serving().await;
+    assert_completed(
+        &mut FlowServiceClient::new(channel),
+        &acknowledged,
+        &process,
+    )
+    .await;
+    let status = process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", process.log());
     primary.shutdown().await;
+
+    let listing_primary = S3Emulator::start_with_dialect(
+        PRIMARY_BUCKET,
+        SignatureVerification::Strict,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+    let listing_endpoint = listing_primary.endpoint();
+    let listing_server = |version_discovery, store: &str| AliyunOssServer {
+        directory: directory.path(),
+        endpoint: &listing_endpoint,
+        local_directory: directory.path().join(store),
+        hard_delete_endpoint: None,
+        extra_config: "",
+        version_discovery: Some(version_discovery),
+    };
+    let mut listing = listing_server("list", "listing-store").spawn("list-first");
+    listing.wait_until_serving().await;
+    let status = listing.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", listing.log());
+    let mut head = listing_server("head", "late-head-store").spawn("head-refused");
+    let status = head.wait_for_exit(FAILED_STARTUP_BUDGET).await;
+    let log = head.log();
+    assert_ne!(status.code(), Some(0), "{log}");
+    assert!(
+        log.contains("version-discovery/head") && log.contains("empty prefix"),
+        "{log}"
+    );
+    listing_primary.shutdown().await;
 }
 
 /// A bucket that ever had versioning ignores `x-oss-forbid-overwrite`, so startup fails.

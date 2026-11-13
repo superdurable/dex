@@ -23,11 +23,13 @@ use std::sync::Arc;
 use bytes::Bytes;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
-    AliyunOssObjectStore, ByteRange, InMemoryObjectStore, InMemoryObjectStoreOptions,
-    InstrumentedObjectStore, MANIFEST_OBJECT_KEY, MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS,
-    ObjectStore, ObjectStoreErrorKind, S3ApiDialect, S3Credentials, S3ObjectStore,
-    S3ObjectStoreConfig, StartupSelfCheckFailure, VersionDiscovery, WriteCondition, WriteOutcome,
-    is_mutable_object_key, node_lease_object_key, startup_self_check,
+    AliyunOssObjectStore, ByteRange, HEAD_PROBING_MARKER_OBJECT_KEY, InMemoryObjectStore,
+    InMemoryObjectStoreOptions, InstrumentedObjectStore, MANIFEST_OBJECT_KEY,
+    MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS, ObjectStore, ObjectStoreErrorKind,
+    S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig, StartupSelfCheckFailure,
+    VersionDiscovery, VersionDiscoveryCheckError, WriteCondition, WriteOutcome,
+    check_version_discovery_marker, is_mutable_object_key, node_lease_object_key,
+    startup_self_check,
 };
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 
@@ -870,6 +872,105 @@ async fn the_startup_self_check_over_stale_cos_listings_needs_head_probing() {
         };
     }
     assert_eq!(etag_generation(&etag), 4);
+    server.shutdown().await;
+}
+
+/// Over the COS dialect, which cannot create an empty object exclusively, head probing writes
+/// its prefix marker and the anchor of a key, then reclaims generation 1.
+#[tokio::test]
+async fn head_probing_marks_the_prefix_and_anchors_keys_over_the_s3_tencent_cos_dialect() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let (server, s3_store) = start_dialect_emulator(
+        directory.path(),
+        EtagMode::Opaque,
+        s3local_server::S3ApiDialect::TencentCos,
+        S3ApiDialect::TencentCos,
+    )
+    .await;
+    let inner: Arc<dyn ObjectStore> = Arc::new(s3_store);
+    check_version_discovery_marker(inner.as_ref(), VersionDiscovery::HeadProbing)
+        .await
+        .expect("an empty prefix gets the marker");
+    assert!(
+        inner
+            .head(HEAD_PROBING_MARKER_OBJECT_KEY)
+            .await
+            .expect("head")
+            .is_some()
+    );
+    assert!(matches!(
+        check_version_discovery_marker(inner.as_ref(), VersionDiscovery::Listing).await,
+        Err(VersionDiscoveryCheckError::HeadProbingPrefix { .. })
+    ));
+    // Store timestamps have one-second granularity, so writes are spaced past the age.
+    let minimum_age = std::time::Duration::from_secs(1);
+    let store = AliyunOssObjectStore::with_version_discovery(
+        Arc::clone(&inner),
+        minimum_age,
+        NodeMetrics::unregistered(),
+        VersionDiscovery::HeadProbing,
+    );
+    let mut etag = match store
+        .put(
+            MANIFEST_OBJECT_KEY,
+            Bytes::from_static(b"one"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create")
+    {
+        WriteOutcome::Written { etag } => etag,
+        WriteOutcome::PreconditionFailed => panic!("the manifest is absent"),
+    };
+    for body in ["two", "three"] {
+        tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+        etag = match store
+            .put(
+                MANIFEST_OBJECT_KEY,
+                Bytes::from_static(body.as_bytes()),
+                WriteCondition::ReplaceIfEtagMatches { etag },
+            )
+            .await
+            .expect("replace")
+        {
+            WriteOutcome::Written { etag } => etag,
+            WriteOutcome::PreconditionFailed => panic!("the replacement uses the newest ETag"),
+        };
+    }
+    let first_version = version_key(MANIFEST_OBJECT_KEY, 1);
+    for _ in 0..100 {
+        if inner.head(&first_version).await.expect("head").is_none() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        inner.head(&first_version).await.expect("head").is_none(),
+        "generation 1 is reclaimed"
+    );
+    assert!(
+        inner
+            .head("manifest.v/anchor")
+            .await
+            .expect("head")
+            .is_some(),
+        "the anchor exists before generation 1 goes"
+    );
+    let fresh = AliyunOssObjectStore::with_version_discovery(
+        Arc::clone(&inner),
+        minimum_age,
+        NodeMetrics::unregistered(),
+        VersionDiscovery::HeadProbing,
+    );
+    assert_eq!(
+        fresh
+            .get(MANIFEST_OBJECT_KEY)
+            .await
+            .expect("get")
+            .expect("exists")
+            .bytes,
+        Bytes::from_static(b"three")
+    );
     server.shutdown().await;
 }
 

@@ -19,6 +19,9 @@ const VERSION_KEY_SEPARATOR: &str = ".v/";
 /// Digits of `u64::MAX`, the width of an inverted generation.
 const INVERTED_GENERATION_DIGITS: usize = 20;
 
+/// Suffix of the anchor object, which HEAD probing writes before first reclaiming generation 1.
+const ANCHOR_SUFFIX: &str = "anchor";
+
 /// Bytes a physical version key adds to its logical key; count them when limiting key lengths.
 pub const VERSION_OBJECT_KEY_SUFFIX_BYTES: usize =
     VERSION_KEY_SEPARATOR.len() + INVERTED_GENERATION_DIGITS;
@@ -109,6 +112,11 @@ pub(super) fn version_object_key(logical_key: &str, generation: u64) -> String {
         u64::MAX - generation,
         width = INVERTED_GENERATION_DIGITS
     )
+}
+
+/// Returns the physical key of the anchor of `logical_key`; it sorts after every version.
+pub(super) fn version_anchor_key(logical_key: &str) -> String {
+    format!("{logical_key}{VERSION_KEY_SEPARATOR}{ANCHOR_SUFFIX}")
 }
 
 /// Returns the generation of a well-formed version key under `prefix`, or `None`.

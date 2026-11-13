@@ -145,10 +145,10 @@ pub struct ObjectStoreConfig {
     pub hard_delete_store: Option<ObjectStoreLocationConfig>,
     /// Defaults to none, which means list for aliyunOSS and head for tencentCOS. It selects how
     /// every aliyunOSS or tencentCOS store of the node, primary or hardDeleteStore, finds the
-    /// newest version of a replaced object. list reads a listing. head starts from a listing or
-    /// a recent read and HEADs the following versions, so a listing that lags behind writes
-    /// does not stall them. tencentCOS rejects list, and other providers reject any value.
-    /// Processes with either value can share a bucket.
+    /// newest version of a replaced object. list reads a listing. head reads single objects
+    /// only, so a listing that lags behind writes cannot make it wrong. tencentCOS rejects
+    /// list, and other providers reject any value. A head store marks its prefix at startup; a
+    /// list store refuses a marked prefix, and a head store refuses versions written by list.
     pub version_discovery: Option<ObjectStoreVersionDiscovery>,
     /// Defaults to none; runtime credentials resolved from environment when credentialsSource is environment, never serialized.
     #[serde(skip)]

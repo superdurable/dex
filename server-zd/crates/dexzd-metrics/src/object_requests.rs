@@ -156,15 +156,16 @@ impl EncodeMetric for ObjectRequests {
     }
 }
 
-/// Where a listing of a versioned mutable key missed a version that this process created.
+/// Where a listing of a versioned mutable key did not show its newest version.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum VersionedListingStaleSite {
     /// The listing right after a create did not show the created version as the newest.
     ConfirmCreatedVersion,
     /// The reclamation listing after a confirmed write did not start at the confirmed version.
     Reclamation,
-    /// With HEAD-probing version discovery, HEAD requests found a newer version than the
-    /// listing that gave their lower bound.
+    /// With HEAD-probing version discovery, the version that a read's listing showed first was
+    /// not the newest or was gone. Another process's write between the listing and the HEAD
+    /// requests counts too.
     NewestVersionLookup,
 }
 
@@ -191,7 +192,7 @@ struct VersionedListingStaleLabel {
     site: VersionedListingStaleSite,
 }
 
-/// Fixed per-site counters of listings that missed a version this process had just created.
+/// Fixed per-site counters of listings that did not show the newest version of a versioned key.
 #[derive(Clone, Debug)]
 pub struct VersionedListingStaleCounters {
     values: Arc<[Counter; 3]>,
@@ -206,7 +207,7 @@ impl Default for VersionedListingStaleCounters {
 }
 
 impl VersionedListingStaleCounters {
-    /// Counts one listing at `site` that did not show the version this process created.
+    /// Counts one listing at `site` that did not show the newest version.
     pub fn record(&self, site: VersionedListingStaleSite) {
         self.values[site.index()].inc();
     }

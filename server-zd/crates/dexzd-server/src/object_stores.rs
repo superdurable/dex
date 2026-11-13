@@ -16,7 +16,8 @@ use dexzd_object_store::{
     S3Credentials, S3ObjectStore, S3ObjectStoreConfig, VersionDiscovery,
     check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
     check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
-    check_tencent_cos_holds_no_data_of_another_provider, startup_self_check,
+    check_tencent_cos_holds_no_data_of_another_provider, check_version_discovery_marker,
+    startup_self_check,
 };
 
 use crate::ServerError;
@@ -245,12 +246,20 @@ async fn connect_tencent_cos_store(
 }
 
 /// Wraps a checked create-only store in the versioning adapter and runs the startup self check.
+///
+/// The prefix must suit `version_discovery` before the adapter writes its first version.
 async fn connect_versioned_layer(
     inner: Arc<dyn ObjectStore>,
     bucket: String,
     version_discovery: VersionDiscovery,
     metrics: &NodeMetrics,
 ) -> Result<Arc<dyn ObjectStore>, ServerError> {
+    check_version_discovery_marker(inner.as_ref(), version_discovery)
+        .await
+        .map_err(|source| ServerError::VersionDiscoveryCheck {
+            bucket: bucket.clone(),
+            source,
+        })?;
     let adapter = Arc::new(AliyunOssObjectStore::with_version_discovery(
         inner,
         MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,

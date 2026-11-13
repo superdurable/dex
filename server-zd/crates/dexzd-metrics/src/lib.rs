@@ -98,7 +98,7 @@ pub struct NodeMetrics {
     pub object_errors: ObjectErrorCounters,
     /// Uploaded object bytes.
     pub object_put_bytes: Counter,
-    /// Listings of versioned mutable keys that missed a version this process had just created.
+    /// Listings of versioned mutable keys that did not show the newest version.
     pub object_store_versioned_listing_stale: VersionedListingStaleCounters,
     /// Snapshot attempts.
     pub snapshots: OutcomeCounters,
@@ -369,7 +369,7 @@ impl NodeMetrics {
         );
         registry.register(
             "dexzd_object_store_versioned_listing_stale",
-            "Listings of versioned keys that missed a version this process had just created.",
+            "Listings of versioned keys that did not show the newest version.",
             metrics.object_store_versioned_listing_stale.clone(),
         );
         registry.register(

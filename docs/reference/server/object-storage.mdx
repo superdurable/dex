@@ -313,18 +313,41 @@ newest version of a key:
 | Value | How it works |
 | --- | --- |
 | **list** (default for **aliyunOSS**) | One listing of **K.v/** names the newest version, and a listing after each write confirms it. It needs listings that show every write at once. |
-| **head** (always for **tencentCOS**) | A listing, or a version that the node read in the last 5 minutes, gives a starting version. HEAD requests of the next versions find the newest one, and a read of the next version confirms each write. It needs only reads of single objects to be current, and listings that lag behind writes by less than 5 minutes. It costs about one more request for each read. |
+| **head** (always for **tencentCOS**) | HEAD and GET requests of single objects find the newest version and confirm each write. A listing only suggests where to start. It needs only reads and writes of single objects to be current, and it costs about one more request for each read. |
 
 Aliyun documents strong consistency for reads of single objects, but not for
 listings. OSS listings showed every write at once in every test so far, so
 **list** stays the default. Set **head** to depend only on documented
-guarantees. Both values use the same objects, so nodes of 0.1.30 or later with
-different values can share a prefix, including during a rolling upgrade
-between them. Set **head** only once every node that shares the prefix runs
-0.1.29 or later. Older nodes delete replaced versions after 60 seconds, and
-**head** trusts a version it read for up to 5 minutes. The value applies to
-every **aliyunOSS** store of the node, including
-**objectStore.hardDeleteStore**.
+guarantees.
+
+With **head**, the server deletes replaced versions oldest first, one at a
+time, so the versions it keeps are always consecutive. Before it first deletes
+the oldest version of **K**, it writes **K.v/anchor**, a small object that it
+never deletes. The anchor shows that **K** still has versions after its oldest
+ones are gone. The minimum of 10 minutes still decides when a replaced version
+goes. With **head**, reads and writes stay correct whatever that minimum or any
+clock does.
+
+**list** deletes old versions in any order, which **head** cannot read safely.
+So the two never share a prefix:
+
+- A node with **head** writes the small object **version-discovery/head** at
+  startup, before its first write of a version. The object stays.
+- A node with **list** fails to start when the prefix holds
+  **version-discovery/head**. Set **head** on that node instead. A prefix never
+  returns to **list**.
+- A node with **head** fails to start when the prefix holds versions but not
+  **version-discovery/head**. So **head** starts only on an empty prefix, such
+  as a new cluster's. Versions that **list** wrote can have gaps that **head**
+  cannot read safely, so an existing **aliyunOSS** prefix keeps **list**.
+- Nodes check the prefix only at startup. Start every node that shares a
+  **head** prefix with **head**.
+- Nodes before 0.1.30 skip this check and delete versions in any order.
+  Every node that shares a **head** prefix must run 0.1.30 or later, and a
+  rollback below 0.1.30 is unsupported once a prefix uses **head**.
+
+The value applies to every **aliyunOSS** store of the node, including
+**objectStore.hardDeleteStore**, and each prefix gets its own check.
 
 Data cannot move between **aliyunOSS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute
@@ -397,10 +420,14 @@ types whose object keys are 197 bytes shorter than on S3.
 
 A COS listing can repeat an earlier listing of the same prefix for a few
 seconds. It can miss new objects and still show deleted ones. The server
-therefore always finds the newest version with HEAD requests, as
-**objectStore.versionDiscovery: head** does on OSS, and **list** fails
-validation. See [Finding the newest version](#version-discovery). Log recovery
-and snapshot retention also check single objects where a listing may lag.
+therefore always finds the newest version with HEAD and GET requests of single
+objects, which COS answers from current data, as
+**objectStore.versionDiscovery: head** does on OSS. **list** fails validation.
+The server deletes a replaced version once it has been replaced for at least
+10 minutes, at the next write of its key, and it writes
+**version-discovery/head** and **K.v/anchor** as described in
+[Finding the newest version](#version-discovery). Log recovery and snapshot
+retention also check single objects where a listing may lag.
 **ListFlowDefinitions** lists the bucket, so it can miss a definition uploaded
 in the last few seconds.
 

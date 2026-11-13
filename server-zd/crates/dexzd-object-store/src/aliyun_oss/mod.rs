@@ -33,8 +33,9 @@ use crate::{
     WriteCondition, WriteOutcome,
 };
 pub use bucket_checks::{
-    AliyunOssBucketCheckError, check_aliyun_oss_create_only_writes,
-    check_no_data_of_another_provider,
+    AliyunOssBucketCheckError, HEAD_PROBING_MARKER_OBJECT_KEY, VersionDiscoveryCheckError,
+    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
+    check_version_discovery_marker,
 };
 pub use startup_probes::STALE_STARTUP_PROBE_AGE;
 use startup_probes::{purge_startup_probe, read_store_time, remove_startup_probes_written_before};
@@ -177,9 +178,11 @@ impl AliyunOssObjectStore {
     /// Wraps `inner` like [`Self::new`], finding the newest version of each mutable key with
     /// `version_discovery` instead of [`VersionDiscovery::Listing`].
     ///
-    /// [`VersionDiscovery::HeadProbing`] needs only strongly consistent HEAD and GET requests on
-    /// `inner`, and listings that lag behind writes by less than the minimum age. A lagging
-    /// listing then only adds HEAD requests. See the example of [`VersionDiscovery`].
+    /// [`VersionDiscovery::HeadProbing`] needs only strongly consistent HEAD, GET, create-only,
+    /// and DELETE requests on `inner`. A listing that lags behind writes then only adds requests,
+    /// and no clock affects which version a read or write sees. Every store that shares `inner`
+    /// must use the same discovery; run [`crate::check_version_discovery_marker`] first. See the
+    /// example of [`VersionDiscovery`].
     ///
     /// Since 0.1.30.
     ///
@@ -282,7 +285,6 @@ impl AliyunOssObjectStore {
             locator: NewestVersionLocator::new(
                 Arc::clone(&inner),
                 version_discovery,
-                minimum_superseded_age_before_reclamation,
                 listing_stale,
             ),
             inner,

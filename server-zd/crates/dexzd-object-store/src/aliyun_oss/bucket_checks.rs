@@ -10,11 +10,118 @@
 
 use bytes::Bytes;
 
+use crate::aliyun_oss::version_discovery::VersionDiscovery;
+use crate::aliyun_oss::version_keys::version_prefix;
 use crate::{
-    ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY, MANIFEST_OBJECT_KEY, ObjectStore, ObjectStoreError,
-    STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_PROBE_OBJECT_KEY_PREFIX, STARTUP_SELF_CHECK_DEADLINE,
-    WriteCondition, WriteOutcome,
+    ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY, MANIFEST_OBJECT_KEY, MUTABLE_OBJECT_KEY_PREFIXES,
+    MUTABLE_OBJECT_KEYS, ObjectStore, ObjectStoreError, STARTUP_PROBE_MAXIMUM_LIFETIME,
+    STARTUP_PROBE_OBJECT_KEY_PREFIX, STARTUP_SELF_CHECK_DEADLINE, WriteCondition, WriteOutcome,
 };
+
+/// Object key of the marker that the versions under a prefix are found with
+/// [`VersionDiscovery::HeadProbing`].
+///
+/// A HEAD-probing store creates this small object before its first write of a version and
+/// never deletes it. See [`check_version_discovery_marker`].
+pub const HEAD_PROBING_MARKER_OBJECT_KEY: &str = "version-discovery/head";
+
+/// Body of the marker; Tencent COS cannot create an empty object exclusively.
+const HEAD_PROBING_MARKER_BODY: &[u8] = b"versionDiscovery: head\n";
+
+/// Why a prefix does not suit the version discovery of an [`crate::AliyunOssObjectStore`].
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum VersionDiscoveryCheckError {
+    /// A store with [`VersionDiscovery::Listing`] found the HEAD-probing marker.
+    #[error(
+        "the prefix holds {marker_key}, so its nodes use objectStore.versionDiscovery: head; \
+         set head on this node too, because a prefix never returns to list"
+    )]
+    HeadProbingPrefix {
+        /// Key of the marker relative to the store prefix.
+        marker_key: String,
+    },
+    /// A store with [`VersionDiscovery::HeadProbing`] found versions written without the marker.
+    #[error(
+        "the prefix holds the version {version_key} but not {marker_key}, so it was written with \
+         objectStore.versionDiscovery: list or by a release before 0.1.30; head starts only on a \
+         prefix without such versions, so keep list here or start head on an empty prefix"
+    )]
+    VersionsWithoutHeadProbingMarker {
+        /// Key of a version object relative to the store prefix.
+        version_key: String,
+        /// Key of the missing marker relative to the store prefix.
+        marker_key: String,
+    },
+    /// A request of the check failed.
+    #[error("checking the version discovery of the prefix: {0}")]
+    ObjectStore(#[from] ObjectStoreError),
+}
+
+/// Checks that the prefix of `inner`, the store an [`crate::AliyunOssObjectStore`] wraps, suits
+/// `version_discovery`, and marks it for HEAD probing.
+///
+/// HEAD probing relies on reclamation that deletes versions from the oldest up, which
+/// [`VersionDiscovery::Listing`] does not do. So a listing store refuses a prefix that holds
+/// [`HEAD_PROBING_MARKER_OBJECT_KEY`]. A HEAD-probing store accepts a prefix with the marker. On
+/// a prefix without it, the store lists each mutable key prefix except startup probes, refuses
+/// any version it finds, and otherwise creates the marker. Call it at startup, before the store
+/// writes its first version. The check cannot see a listing node that is already running, so
+/// stop every node before changing the discovery of a prefix.
+///
+/// Since 0.1.30.
+///
+/// # Errors
+///
+/// Returns [`VersionDiscoveryCheckError::HeadProbingPrefix`] for a listing store on a marked
+/// prefix, [`VersionDiscoveryCheckError::VersionsWithoutHeadProbingMarker`] for a HEAD-probing
+/// store on an unmarked prefix with versions, and the store's error when a request fails.
+pub async fn check_version_discovery_marker(
+    inner: &dyn ObjectStore,
+    version_discovery: VersionDiscovery,
+) -> Result<(), VersionDiscoveryCheckError> {
+    let marker_key = HEAD_PROBING_MARKER_OBJECT_KEY;
+    let is_marked = inner.head(marker_key).await?.is_some();
+    match version_discovery {
+        VersionDiscovery::Listing if is_marked => {
+            Err(VersionDiscoveryCheckError::HeadProbingPrefix {
+                marker_key: marker_key.to_owned(),
+            })
+        }
+        VersionDiscovery::Listing => Ok(()),
+        VersionDiscovery::HeadProbing if is_marked => Ok(()),
+        VersionDiscovery::HeadProbing => {
+            let version_prefixes = MUTABLE_OBJECT_KEYS
+                .iter()
+                .map(|key| version_prefix(key))
+                .chain(
+                    MUTABLE_OBJECT_KEY_PREFIXES
+                        .iter()
+                        .filter(|prefix| **prefix != STARTUP_PROBE_OBJECT_KEY_PREFIX)
+                        .map(|prefix| (*prefix).to_owned()),
+                );
+            for prefix in version_prefixes {
+                if let Some(version) = inner.list(&prefix, None, 1).await?.objects.first() {
+                    return Err(
+                        VersionDiscoveryCheckError::VersionsWithoutHeadProbingMarker {
+                            version_key: version.key.clone(),
+                            marker_key: marker_key.to_owned(),
+                        },
+                    );
+                }
+            }
+            // Another node may have created the marker first.
+            inner
+                .put(
+                    marker_key,
+                    Bytes::from_static(HEAD_PROBING_MARKER_BODY),
+                    WriteCondition::CreateOnly,
+                )
+                .await?;
+            Ok(())
+        }
+    }
+}
 
 /// Why a bucket cannot hold server-zd data through an [`crate::AliyunOssObjectStore`].
 #[derive(Debug, thiserror::Error)]
