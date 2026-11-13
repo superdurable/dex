@@ -209,6 +209,25 @@ func updatesOfType[T sessionfeed.SessionUpdate](updates []sessionfeed.SessionUpd
 	return matching
 }
 
+// A message with a declared sender name shows the name instead of an origin
+// label, live and in history.
+func TestSenderNamedMessageShowsItsName(t *testing.T) {
+	harness := newModelHarness(t)
+	named := message(1, "turn-1", dexagents.MessageRoleUser, "hello")
+	senderName := "Alice"
+	named.SenderName = &senderName
+	harness.applySnapshot(snapshotOf(idleState(1), named,
+		message(2, "turn-1", dexagents.MessageRoleAssistant, "hi Alice")))
+	recorded := updatesOfType[sessionfeed.UserMessageRecorded](harness.drain())
+	require.Len(t, recorded, 1)
+	require.Equal(t, "Alice", recorded[0].SenderName)
+	require.Empty(t, recorded[0].Origin, "the name says who sent it")
+
+	update, isShown := earlierMessageUpdate(named)
+	require.True(t, isShown)
+	require.Equal(t, "Alice", update.(sessionfeed.UserMessageRecorded).SenderName)
+}
+
 // A turn that started and ended between two snapshots still shows its user
 // message, start, reply, and end, after the wait for its end event.
 func TestTurnBetweenTwoSnapshots(t *testing.T) {

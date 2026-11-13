@@ -585,6 +585,29 @@
         "text": "[Dex] The user approved plan revision 12. Execute it and keep the task statuses current with write_todos."
       }
     ],
+    "sender_named_user_message": [
+      {
+        "input": {
+          "sender_name": "Alice",
+          "text": "hello"
+        },
+        "text": "Alice: hello"
+      },
+      {
+        "input": {
+          "sender_name": "Åsa 😀",
+          "text": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
+        },
+        "text": "Åsa 😀: Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
+      },
+      {
+        "input": {
+          "sender_name": null,
+          "text": "hi"
+        },
+        "text": "hi"
+      }
+    ],
     "plan_note": [
       {
         "input": {

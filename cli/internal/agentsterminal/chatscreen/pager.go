@@ -377,7 +377,7 @@ func renderHistoryPages(history historyPages, width int, theme terminaltheme.The
 			rows = append(rows, "")
 			switch typed := message.(type) {
 			case sessionfeed.UserMessageRecorded:
-				rows = append(rows, renderUserMessage(typed.Text, "", typed.Images, width, theme)...)
+				rows = append(rows, renderUserMessage(typed.Text, "", typed.SenderName, typed.Images, width, theme)...)
 			case sessionfeed.AssistantMessageRecorded:
 				rows = append(rows, renderAssistantMarkdown(typed.Text, width, theme)...)
 			case sessionfeed.ToolCallChanged:

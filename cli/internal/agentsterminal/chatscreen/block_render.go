@@ -42,15 +42,21 @@ const (
 )
 
 // renderUserMessage draws a user message and its image chips for the
-// scrollback.
-func renderUserMessage(text string, origin string, images []sessionfeed.ImageAttachment, width int, theme terminaltheme.Theme) []string {
+// scrollback. A declared sender name replaces the origin label.
+func renderUserMessage(text string, origin string, senderName string, images []sessionfeed.ImageAttachment, width int, theme terminaltheme.Theme) []string {
 	prefix := theme.Secondary.Render(theme.Symbols.UserPrompt) + " "
-	if origin != "" {
+	if senderName != "" {
+		// The name joins the first line, so it wraps with the text.
+		text = senderName + ": " + text
+	} else if origin != "" {
 		prefix += theme.Secondary.Render("("+origin+")") + " "
 	}
 	var lines []string
 	for index, paragraph := range strings.Split(strings.TrimRight(terminaltheme.ExpandTabs(text), "\n"), "\n") {
 		for wrappedIndex, line := range terminaltheme.WrapToWidth(paragraph, max(width-2, 1)) {
+			if index == 0 && wrappedIndex == 0 && senderName != "" {
+				line = styleSenderName(line, senderName, theme)
+			}
 			if index == 0 && wrappedIndex == 0 {
 				lines = append(lines, strings.TrimRight(prefix+line, " "))
 				continue
@@ -62,6 +68,16 @@ func renderUserMessage(text string, origin string, images []sessionfeed.ImageAtt
 		lines = append(lines, contentIndent+renderImageChips(images, width-len(contentIndent), theme))
 	}
 	return lines
+}
+
+// styleSenderName highlights the "<name>:" label at the start of a user
+// message's first line; a name the wrap split stays plain.
+func styleSenderName(line string, senderName string, theme terminaltheme.Theme) string {
+	label := senderName + ":"
+	if !strings.HasPrefix(line, label) {
+		return line
+	}
+	return theme.Accent.Render(label) + strings.TrimPrefix(line, label)
 }
 
 // renderImageChips draws attachments as "▣ name · type · size" chips.

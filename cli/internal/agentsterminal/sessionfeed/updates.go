@@ -63,6 +63,9 @@ type UserMessageRecorded struct {
 	// Origin names the client that sent it, such as "Dex Web"; empty for
 	// this terminal or unknown.
 	Origin string
+	// SenderName is the display name the sender declared, or empty. It is
+	// self-declared, not authenticated.
+	SenderName string
 	// TurnID identifies the turn the message started; empty when unknown.
 	TurnID string
 	// Sequence is the stored sequence, or 0 for none. Each positive sequence

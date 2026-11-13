@@ -36,7 +36,8 @@ const (
 // isTurnStart marks the user messages that start a turn, so TurnReplySequence records where the
 // turn's replies begin. An append with no messages that starts no turn writes nothing else. The
 // AgentMessageIndex is written only when a chunk is added or deleted. origins, nil or one per
-// message, marks the messages the session wrote itself.
+// message, marks the messages the session wrote itself; senderNames, nil or one per message,
+// holds their declared senders.
 func (flow *AgentSessionFlow) appendMessages(
 	ctx dex.Context,
 	state AgentState,
@@ -44,9 +45,13 @@ func (flow *AgentSessionFlow) appendMessages(
 	messages []FrameworkMessage,
 	isTurnStart bool,
 	origins []*AgentMessageOrigin,
+	senderNames []*string,
 ) (AgentState, error) {
 	if origins != nil && len(origins) != len(messages) {
 		panic("appendMessages: origins must be nil or have one value per message")
+	}
+	if senderNames != nil && len(senderNames) != len(messages) {
+		panic("appendMessages: senderNames must be nil or have one value per message")
 	}
 	if len(messages) == 0 && !isTurnStart {
 		return state, AgentStateAttribute.Set(ctx, state)
@@ -73,6 +78,10 @@ func (flow *AgentSessionFlow) appendMessages(
 		if origins != nil {
 			origin = origins[position]
 		}
+		var senderName *string
+		if senderNames != nil {
+			senderName = senderNames[position]
+		}
 		stored := AgentMessage{
 			Sequence:      sequence,
 			TurnID:        turnID,
@@ -85,6 +94,7 @@ func (flow *AgentSessionFlow) appendMessages(
 			FrameworkItem: message.FrameworkItem,
 			CreatedAt:     createdAt,
 			Origin:        origin,
+			SenderName:    senderName,
 		}
 		messageBytes, err := encodedMessageBytes(stored)
 		if err != nil {

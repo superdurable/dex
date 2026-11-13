@@ -279,6 +279,10 @@ func TestEnterQueuesWhileTurnRunsAndPendingBarActs(t *testing.T) {
 		sessionfeed.UserMessageRecorded{Text: "From the browser.", Origin: "Dex Web"},
 	)
 	require.Contains(t, harness.scrollbackText(), "› (Dex Web) From the browser.")
+
+	harness.feed(sessionfeed.UserMessageRecorded{Text: "Hi from my phone.", Origin: "another client", SenderName: "Alice"})
+	require.Contains(t, harness.scrollbackText(), "› Alice: Hi from my phone.")
+	require.NotContains(t, harness.scrollbackText(), "(another client) Alice")
 }
 
 func TestPendingBarIgnoresSteerWithoutTurnControl(t *testing.T) {

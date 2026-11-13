@@ -14,6 +14,12 @@
       "description": "Steer a queued message.",
       "wire": "{\"message_id\":\"msg-3\",\"text\":null}",
       "canonical": "{\"message_id\":\"msg-3\",\"text\":null}"
+    },
+    {
+      "name": "by-text-with-sender-name",
+      "description": "A new steered message whose sender declared a display name.",
+      "wire": "{\"message_id\":null,\"sender_name\":\"Alice\",\"text\":\"stop and summarize\"}",
+      "canonical": "{\"message_id\":null,\"sender_name\":\"Alice\",\"text\":\"stop and summarize\"}"
     }
   ]
 }

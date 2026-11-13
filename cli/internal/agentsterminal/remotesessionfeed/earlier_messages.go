@@ -54,7 +54,7 @@ func earlierMessageUpdate(message dexagents.AgentMessage) (sessionfeed.SessionUp
 	}
 	switch message.Role {
 	case dexagents.MessageRoleUser:
-		return sessionfeed.UserMessageRecorded{Text: text, TurnID: message.TurnID, Images: storedImages(message.Images)}, true
+		return sessionfeed.UserMessageRecorded{Text: text, TurnID: message.TurnID, Images: storedImages(message.Images), SenderName: storedSenderName(message)}, true
 	case dexagents.MessageRoleAssistant:
 		if strings.TrimSpace(text) == "" {
 			return nil, false

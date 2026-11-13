@@ -28,9 +28,11 @@ export interface SessionRouteContext {
 export function sendSessionMessage(
   context: SessionRouteContext,
   text: string,
+  senderName: string | null = null,
   fetcher: typeof fetch = fetch,
 ): Promise<SessionActionOutcome> {
-  return postSessionRoute(context, 'messages', { text }, SESSION_COPY.sendRefused, fetcher);
+  const fields = senderName === null ? { text } : { text, senderName };
+  return postSessionRoute(context, 'messages', fields, SESSION_COPY.sendRefused, fetcher);
 }
 
 /** Replaces the session's settings through update_session_settings, from the next turn on. */

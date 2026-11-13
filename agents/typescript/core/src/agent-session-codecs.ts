@@ -370,6 +370,7 @@ export function encodeAgentMessage(value: AgentMessage): unknown {
     created_at: value.createdAt,
     images: encodeImages(value.images),
     origin: value.origin ?? null,
+    ...encodeSenderName(value.senderName),
   };
 }
 
@@ -388,7 +389,18 @@ export function decodeAgentMessage(value: unknown): AgentMessage {
     createdAt: reader.readString("created_at"),
     ...decodeImages(reader),
     ...decodeAgentMessageOrigin(reader),
+    ...decodeSenderName(reader),
   };
+}
+
+/** Encoding omits an absent sender name, so values without one keep their released bytes. */
+function encodeSenderName(senderName: string | undefined): { sender_name?: string } {
+  return senderName === undefined ? {} : { sender_name: senderName };
+}
+
+function decodeSenderName(reader: WireRecordReader): { senderName?: string } {
+  const senderName = reader.readNullableString("sender_name");
+  return senderName === null ? {} : { senderName };
 }
 
 /** Keeps an origin this release does not know, so a client still tells the message apart from user text. */
@@ -566,13 +578,23 @@ export function decodeAgentUsage(value: unknown): AgentUsage {
 }
 
 export function encodeAgentUserMessage(value: AgentUserMessage): unknown {
-  return { text: value.text, plan_mode: value.planMode ?? false, images: encodeImages(value.images) };
+  return {
+    text: value.text,
+    plan_mode: value.planMode ?? false,
+    images: encodeImages(value.images),
+    ...encodeSenderName(value.senderName),
+  };
 }
 
 export function decodeAgentUserMessage(value: unknown): AgentUserMessage {
   const reader = new WireRecordReader(value, "AgentUserMessage");
   const planMode = reader.readBooleanOrDefault("plan_mode", false);
-  return { text: reader.readString("text"), ...(planMode ? { planMode } : {}), ...decodeImages(reader) };
+  return {
+    text: reader.readString("text"),
+    ...(planMode ? { planMode } : {}),
+    ...decodeImages(reader),
+    ...decodeSenderName(reader),
+  };
 }
 
 export function encodeAgentPlan(value: AgentPlan): unknown {
@@ -622,12 +644,16 @@ export function decodePendingUserMessage(value: unknown): PendingUserMessage {
 }
 
 export function encodeSteerUserMessageRequest(value: SteerUserMessageRequest): unknown {
-  return { message_id: value.messageId, text: value.text };
+  return { message_id: value.messageId, text: value.text, ...encodeSenderName(value.senderName) };
 }
 
 export function decodeSteerUserMessageRequest(value: unknown): SteerUserMessageRequest {
   const reader = new WireRecordReader(value, "SteerUserMessageRequest");
-  return { messageId: reader.readNullableString("message_id"), text: reader.readNullableString("text") };
+  return {
+    messageId: reader.readNullableString("message_id"),
+    text: reader.readNullableString("text"),
+    ...decodeSenderName(reader),
+  };
 }
 
 export function encodeDeleteQueuedMessageRequest(value: DeleteQueuedMessageRequest): unknown {

@@ -209,6 +209,7 @@ export {
   sessionFlowDefinitionDocument,
   type SessionFlowGraphOptions,
 } from "./agent-session-flow-graph.js";
+export { buildSenderNamedText, isValidSenderName, maxSenderNameLength } from "./agent-sender-names.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
 export {
   buildSessionTitle,

@@ -31,7 +31,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncGenerator, Generator, Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import Field, dataclass, fields, is_dataclass
 from datetime import timedelta
 from enum import Enum
 from types import MappingProxyType
@@ -658,10 +658,19 @@ def _omit_json_fields(value: dict[str, Any], field_names: frozenset[str]) -> dic
 def _convert_wire_value(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
         return {
-            field.name: _convert_wire_value(getattr(value, field.name)) for field in fields(value)
+            field.name: _convert_wire_value(getattr(value, field.name))
+            for field in fields(value)
+            if not _is_omitted_default(field, getattr(value, field.name))
         }
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, list | tuple):
         return [_convert_wire_value(item) for item in value]
     return value
+
+
+def _is_omitted_default(definition: Field[Any], field_value: Any) -> bool:
+    # Matches the Dex codec, which leaves out such a field when it holds its default.
+    return (
+        bool(definition.metadata.get("dex_json_omit_default")) and field_value == definition.default
+    )
