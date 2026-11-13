@@ -78,13 +78,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # workspace, simulation, and server split make test by crate, so each test runs once.
         suite: >-
           ${{ fromJSON(
             github.event.action == 'labeled'
               && '[{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests","postgres_image":"postgres:16"}]'
               || (contains(github.event.pull_request.labels.*.name, 'db9-tests')
-                && '[{"name":"workspace","target":"test","postgres_image":""},{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests","postgres_image":"postgres:16"}]'
-                || '[{"name":"workspace","target":"test","postgres_image":""}]')
+                && '[{"name":"workspace","target":"test-without-slow-crates","postgres_image":""},{"name":"simulation","target":"test-simulation","postgres_image":""},{"name":"server","target":"test-server","postgres_image":""},{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests","postgres_image":"postgres:16"}]'
+                || '[{"name":"workspace","target":"test-without-slow-crates","postgres_image":""},{"name":"simulation","target":"test-simulation","postgres_image":""},{"name":"server","target":"test-server","postgres_image":""}]')
           ) }}
     services:
       # An empty image skips the service, so only the db9 suite starts PostgreSQL.
@@ -116,7 +117,12 @@ jobs:
         with:
           workspaces: server-zd
           shared-key: server-zd-test
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # The workspace suite builds nearly every dependency; one saver avoids a race for the key.
+          save-if: ${{ github.ref == 'refs/heads/main' && matrix.suite.name == 'workspace' }}
+      # Owner decision: pull requests run 16 simulation seeds; main and nightly keep their defaults.
+      - name: Use 16 simulation seeds on pull requests
+        if: github.event_name == 'pull_request' && matrix.suite.name == 'simulation'
+        run: echo "DEXZD_SIMULATION_SEEDS=16" >> "$GITHUB_ENV"
       - name: Run tests
         run: make ${{ matrix.suite.target }}
 

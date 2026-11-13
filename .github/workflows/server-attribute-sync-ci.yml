@@ -30,7 +30,7 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
-    # Matches the Server ZD CI ParadeDB job, so its main cache restores here.
+    # Matches the Server ZD build cache workflow, so its main cache restores here.
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
@@ -46,11 +46,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server-zd
-          shared-key: server-zd-paradedb
+          shared-key: server-zd-build
           save-if: false
       - name: Build dex-server-zd
         working-directory: server-zd
-        run: cargo build -p dexzd-server --bin dex-server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-go@v7
         with:
           go-version-file: server-zd/integ/go.mod
