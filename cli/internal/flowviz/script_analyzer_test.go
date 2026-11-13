@@ -193,6 +193,179 @@ func TestTypeScriptUnsupportedWaitsAndRPCsAreBlocking(t *testing.T) {
 	}
 }
 
+// Each case once produced a valid graph that was wrong; it must now be either correct or blocked.
+func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
+	const skipReturn = "      return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)], cancelingSteps: [AwaitApproval] };"
+	const approveBranches = "    if (decision === \"skip\") {\n" + skipReturn + "\n    }\n    return { output: status.get(context) };"
+	const signalWait = `return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`
+	const publish = "approvals.publish(context, decision);"
+	emptyReturn := func(statement string) string {
+		return "    if (decision === \"skip\") " + statement + "\n    return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)] };"
+	}
+	type replacement struct{ original, replacement string }
+	cases := map[string]struct {
+		replacements []replacement
+		codes        []string
+		check        func(t *testing.T, graph *Graph)
+	}{
+		"local nextSteps with a helper element": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [plannedMovement(decision)];\n      return { output: decision, nextSteps };"}},
+			codes:        []string{"dynamic_step_target"},
+		},
+		"local nextSteps emptied after construction": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      nextSteps.length = 0;\n      return { output: decision, nextSteps };"}},
+			codes:        []string{"dynamic_step_target"},
+		},
+		"local nextSteps with a push": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      nextSteps.push(StepMovement.of(ReviewBounds, 1));\n      return { output: decision, nextSteps };"}},
+			check: func(t *testing.T, graph *Graph) {
+				require.ElementsMatch(t, []string{"step:FailingWait", "step:ReviewBounds"}, rpcTransitionTargets(graph, "rpc:approve", `decision === "skip"`))
+			},
+		},
+		"one helper called on every path": {
+			replacements: []replacement{{approveBranches, "    if (decision === \"skip\") return this.finish(context, decision);\n    return this.finish(context, decision);\n  }\n\n  private finish(_context: Context, decision: string): RPCResult<string> {\n    return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)] };"}},
+			check: func(t *testing.T, graph *Graph) {
+				require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `decision === "skip"`))
+				require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `!(decision === "skip")`))
+			},
+		},
+		"empty return":           {replacements: []replacement{{approveBranches, emptyReturn("return;")}}, check: checkGuardedRPCResult},
+		"return undefined":       {replacements: []replacement{{approveBranches, emptyReturn("return undefined;")}}, check: checkGuardedRPCResult},
+		"return void expression": {replacements: []replacement{{approveBranches, emptyReturn("return void 0;")}}, check: checkGuardedRPCResult},
+		"local shadows a Channel in a Wait": {
+			replacements: []replacement{{signalWait, "const approvals = getApprovalChannel();\n      return Wait.until(approvals.forOne(\"priority\"));"}},
+			codes:        []string{"dynamic_wait_condition"},
+		},
+		"local shadows a Channel in a publish": {
+			replacements: []replacement{{publish, "const approvals = getApprovalChannel();\n    approvals.publish(context, decision);"}},
+			codes:        []string{"dynamic_resource_access"},
+		},
+		"one Wait returned twice": {
+			replacements: []replacement{
+				{"  waitFor(context: Context, input: ApprovalInput): Wait {\n", "  waitFor(context: Context, input: ApprovalInput): Wait {\n    const waiting = Wait.until(approvals.forOne());\n"},
+				{signalWait, "if (input.minutes > 1) return waiting;\n      return waiting;"},
+			},
+			check: func(t *testing.T, graph *Graph) {
+				waits := 0
+				for _, node := range graph.Nodes {
+					if node.Kind == "wait" && node.ParentID == "step:AwaitApproval" {
+						waits++
+					}
+				}
+				require.Equal(t, 5, waits)
+			},
+		},
+		"Stream write with a literal key in an RPC": {
+			replacements: []replacement{{publish, `progress["write"](context, decision);`}},
+			codes:        []string{"step_progress_outside_step"},
+		},
+		"publish with a literal key": {
+			replacements: []replacement{{publish, `approvals["publish"](context, decision);`}},
+			check: func(t *testing.T, graph *Graph) {
+				require.True(t, hasScriptEdge(graph, "resource_publish", "rpc:approve", "resource:channel:approvals"))
+			},
+		},
+		"read with a literal key is the only access": {
+			replacements: []replacement{
+				{"    return { output: status.get(context) };", `    return { output: status["get"](context) };`},
+				{`    status.set(context, "timed out");`, ""},
+				{"    status.set(context, approvals.results(context).join(\",\"));", ""},
+			},
+			check: func(t *testing.T, graph *Graph) {
+				require.True(t, hasScriptEdge(graph, "resource_read", "resource:attribute:status", "rpc:approve"))
+			},
+		},
+		"publish with a computed key": {
+			replacements: []replacement{{publish, "const method = \"publish\";\n    approvals[method](context, decision);"}},
+			codes:        []string{"dynamic_resource_access"},
+		},
+	}
+	helpers := "\nfunction plannedMovement(input: string) {\n  return StepMovement.of(FailingWait, input);\n}\n" +
+		"\nfunction getApprovalChannel() {\n  return buckets;\n}\n"
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := string(source)
+			for _, change := range testCase.replacements {
+				require.Contains(t, modified, change.original)
+				modified = strings.Replace(modified, change.original, change.replacement, 1)
+			}
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified+helpers), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+			require.NoError(t, err)
+			errorCodes := make(map[string]bool)
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Severity == "error" {
+					errorCodes[diagnostic.Code] = true
+				}
+			}
+			expectedCodes := make(map[string]bool)
+			for _, code := range testCase.codes {
+				expectedCodes[code] = true
+			}
+			require.Equal(t, expectedCodes, errorCodes, "%+v", graph.Diagnostics)
+			require.Equal(t, len(testCase.codes) == 0, graph.Valid)
+			for _, diagnostic := range graph.Diagnostics {
+				require.NotEqual(t, "unused_resource", diagnostic.Code, diagnostic.Message)
+			}
+			nodeIDs := make(map[string]bool)
+			for _, node := range graph.Nodes {
+				require.False(t, nodeIDs[node.ID], "duplicate node %s", node.ID)
+				nodeIDs[node.ID] = true
+			}
+			edgeKeys := make(map[string]bool)
+			for _, edge := range graph.Edges {
+				key := edge.Kind + " " + edge.From + " " + edge.To + " " + edge.Label
+				require.False(t, edgeKeys[key], "duplicate edge %s", key)
+				edgeKeys[key] = true
+			}
+			if testCase.check != nil {
+				testCase.check(t, graph)
+			}
+		})
+	}
+}
+
+func checkGuardedRPCResult(t *testing.T, graph *Graph) {
+	t.Helper()
+	conditions := make([]string, 0)
+	for _, node := range graph.Nodes {
+		if node.Kind == "decision" && node.ParentID == "rpc:approve" {
+			conditions = append(conditions, node.Condition)
+		}
+	}
+	require.Equal(t, []string{`!(decision === "skip")`}, conditions)
+	require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `!(decision === "skip")`))
+}
+
+// rpcTransitionTargets returns the Steps that the RPC decisions with condition schedule.
+func rpcTransitionTargets(graph *Graph, rpcID string, condition string) []string {
+	decisions := make(map[string]bool)
+	for _, node := range graph.Nodes {
+		if node.Kind == "decision" && node.ParentID == rpcID && node.Condition == condition {
+			decisions[node.ID] = true
+		}
+	}
+	targets := make([]string, 0)
+	for _, edge := range graph.Edges {
+		if edge.Kind == "transition" && decisions[edge.From] {
+			targets = append(targets, edge.To)
+		}
+	}
+	return targets
+}
+
+func hasScriptEdge(graph *Graph, kind string, from string, to string) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind && edge.From == from && edge.To == to {
+			return true
+		}
+	}
+	return false
+}
+
 func TestTypeScriptRPCCancelsRegisteredInstance(t *testing.T) {
 	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
 	source, err := os.ReadFile(sourcePath)

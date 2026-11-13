@@ -442,9 +442,13 @@ Join, and SubFlow conditions; a `waitFor` that only throws; RPC `RPCResult`
 literals with their `nextSteps` and `cancelingSteps`; `handleTimeout`
 decisions; and resource reads, writes, and publishes in handlers and the
 same-file helpers they call. The graph uses the Go analyzer's node IDs and
-Wait types. A Wait from a helper reports `hidden_dex_wait`, any other
-condition reports `dynamic_wait_condition`, and an RPC result that is not an
-object literal reports `hidden_dex_decision`. Several Flows in one file report
+Wait types. Every shape it cannot prove is a blocking diagnostic: a Wait
+from a helper reports `hidden_dex_wait`, any other condition, including one on
+an unresolvable local name, reports `dynamic_wait_condition`, an RPC result
+that is not an object literal reports `hidden_dex_decision`, a `nextSteps`
+list it cannot follow reports `dynamic_step_target`, and resource access
+through a computed key, an unresolvable receiver, or an unfollowed function
+reports `dynamic_resource_access`. Several Flows in one file report
 `multiple_flows` with one unknown node per Flow, as in Go and Python. Version
 2.0 Indexed Attributes, Summary, Display, and start-input schemas are not
 analyzed yet. See the [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
