@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.47 {#v1-47}
 
-Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1).
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2).
 
 ### Added
 
@@ -24,6 +24,33 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
   command, **/model** lists only its configured model and **/effort** says the
   command has no reasoning effort setting.
 - **dexcli agents-tui** shows a user message that carries a sender name, such as one sent from Dex Web with **Your name**, as **› Alice: text**, live, on resume, and in **/history**. Messages from another client without a name keep the **(another client)** label. Since 1.47.1.
+- **dexcli agents-tui** hands a session switch back to the agents command when
+  the launch document sets **launcher_session_switch**. Then **/sessions** and
+  **/new** end the terminal UI, and the command opens the chosen session after
+  it waits until no other terminal has that session open. Without the
+  capability, the terminal UI switches in place as before. **--describe**
+  lists the capability. Since 1.47.2.
+- **dexcli visualize** accepts **--typescript-compiler**, or the
+  **DEX_TYPESCRIPT_COMPILER** environment variable, naming a trusted
+  **typescript** package directory. The analyzer then loads only that
+  compiler and starts Node.js without **NODE_** environment variables, so no
+  code from the analyzed source tree runs. Without it, the analyzer loads the
+  **typescript** package that the source project resolves, which a source tree
+  can supply through its own or a parent **node_modules** or a package named
+  **typescript**, even when **NODE_PATH** is set. Set it whenever you
+  visualize untrusted TypeScript source, and keep the analyzed tree's
+  directories out of **PATH**. An empty flag value or an empty variable is a
+  usage error, never a fallback to the source project's compiler.
+  [Reference](/reference/web/flow-visualization#typescript-compiler). Since 1.47.2.
+
+### Changed
+
+- **dexcli visualize** reports a missing TypeScript compiler with a message
+  that names both places it looks: the source project and the
+  **node_modules** directories listed in **NODE_PATH**. A source project
+  without **node_modules** can use a separately installed, pinned
+  **typescript** package through **--typescript-compiler**; see
+  [Trusted TypeScript compiler](/reference/web/flow-visualization#typescript-compiler). Since 1.47.2.
 
 ## 1.46 {#v1-46}
 
