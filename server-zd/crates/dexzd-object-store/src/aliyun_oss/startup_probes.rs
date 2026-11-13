@@ -97,11 +97,8 @@ pub(super) async fn read_store_time(
         })
 }
 
-/// Returns the store time of a clock probe version this call writes to `inner` and deletes.
-///
-/// The probe is generation 1 of a new `probe/store-clock-*` key, as the adapter would write it,
-/// so the stale probe sweep removes it if the delete fails. The store sets its last-write time
-/// during this call, so it is a lower bound of the store's clock when this call returns.
+/// Returns the last-write time of a new `probe/store-clock-*` version this call writes and deletes.
+/// That store time has passed by the time this call returns.
 ///
 /// # Errors
 ///

@@ -97,9 +97,9 @@ listings that missed a version the node had just written. Only the
   the new version as the newest. The write fails with an unknown outcome, and
   the caller reads the key again.
 - **reclamation**: the listing that deletes old versions did not show the
-  version the node had confirmed. The node deletes nothing in that pass. A
-  write that the node confirmed more than an hour after it was replaced can
-  also count here.
+  version the node had confirmed, and no version two or more generations newer
+  exists that could have deleted it. The node deletes nothing in that pass and
+  tries again later, so a listing that stays stale counts once per attempt.
 
 Alert on any increase. In every test so far, an OSS listing showed each write
 at once, so an increase means a listing lagged behind a write. Replacements

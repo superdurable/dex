@@ -195,10 +195,7 @@ impl VersionReclamationTask {
     }
 
     /// Deletes the versions of one key that `pass` makes obsolete; failures only keep them.
-    ///
-    /// A version is deleted when its successor was written at least the minimum age before the
-    /// reference time. The reference is the confirmed version's last-write time, or a fresh
-    /// store clock probe for a pass that runs long after the write. Returns how the pass ended.
+    /// Returns how the pass ended.
     async fn reclaim_superseded_versions(
         &self,
         pass: &DueReclamationPass,
@@ -341,11 +338,8 @@ impl VersionReclamationTask {
         }
     }
 
-    /// Decides why the listing of `pass` missed its confirmed version, listing `listed_generation`
-    /// first instead, and returns how the pass ends.
-    ///
-    /// A generation two or more above the confirmed one may have reclaimed it legitimately.
-    /// Otherwise the version must still exist, so the listing was stale and the pass is retried.
+    /// Returns how `pass` ends after its listing missed the confirmed version.
+    /// Only a version two generations newer may have reclaimed it; otherwise the listing was stale.
     async fn classify_missing_confirmed_version(
         &self,
         pass: &DueReclamationPass,

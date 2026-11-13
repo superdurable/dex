@@ -184,9 +184,10 @@ async fn a_follow_up_whose_listings_fail_is_retried_until_it_reclaims() {
     write_three_generations(&store).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     inner.is_failing_lists.store(true, Ordering::SeqCst);
+    let listings_before_failures = inner.list_calls.load(Ordering::SeqCst);
     tokio::time::sleep(2 * TEST_MINIMUM_SUPERSEDED_AGE).await;
     assert_eq!(physical.generations(KEY).await, [3, 2, 1]);
-    let failed_listings = inner.list_calls.load(Ordering::SeqCst);
+    let failed_listings = inner.list_calls.load(Ordering::SeqCst) - listings_before_failures;
     assert!(
         failed_listings >= 4,
         "the follow-up was retried: {failed_listings} listings"

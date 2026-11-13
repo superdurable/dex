@@ -33,8 +33,9 @@ use create_only_store::{
 use replacement_history::{ReplacementWorkload, run_replacement_workload};
 
 const KEY: &str = MANIFEST_OBJECT_KEY;
-/// Longer than the reclamation age, so the next confirmed write may reclaim older versions.
-const RECLAIMABLE_GAP: Duration = Duration::from_secs(TEST_MINIMUM_SUPERSEDED_AGE.as_secs() + 1);
+/// Longer than the reclamation age plus its one-second timestamp margin, so the next confirmed
+/// write may reclaim older versions.
+const RECLAIMABLE_GAP: Duration = Duration::from_secs(TEST_MINIMUM_SUPERSEDED_AGE.as_secs() + 2);
 
 async fn create(store: &dyn ObjectStore, body: &'static str) -> String {
     match store
