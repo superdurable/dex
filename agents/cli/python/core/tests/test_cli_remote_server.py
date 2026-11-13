@@ -20,6 +20,10 @@ import pexpect
 import pytest
 
 from dex_agents.testing import find_free_ports
+from dex_agents_cli_core.dex_connection import (
+    DexConnectionSettings,
+    describe_rejected_dex_credential,
+)
 from tests.authenticated_dex_server import (
     TEST_SERVER_ID,
     AuthenticatedDexServer,
@@ -118,7 +122,7 @@ async def test_a_missing_api_key_stops_the_command_before_any_call(
 ) -> None:
     remote_home.write_config(config_yaml(api_key_over_tls(remote_server)))
     remote_home.extra_environment["DEX_API_KEY"] = "  "
-    for arguments in (("sessions",), ()):
+    for arguments in (("sessions",), ("connectors",), ()):
         completed = await asyncio.to_thread(remote_home.run, *arguments)
         assert completed.returncode == 2
         assert completed.stderr.strip().endswith(
@@ -136,12 +140,12 @@ async def test_a_wrong_api_key_names_the_token_exchange(
     for arguments in (("sessions",), ()):
         completed = await asyncio.to_thread(remote_home.run, *arguments)
         assert completed.returncode == 1, completed.stderr
-        exchange_line = f"{COMMAND}: could not exchange DEX_API_KEY for an access token: "
-        assert exchange_line in completed.stderr
-        assert "invalid_api_key" in completed.stderr
         assert completed.stderr.strip().endswith(
-            "Check DEX_API_KEY, dex.auth.token_url, and dex.auth.server_id."
+            f"{COMMAND}: could not exchange DEX_API_KEY for an access token at "
+            f"{remote_server.token_endpoint.url} (HTTP status 401). Check DEX_API_KEY, "
+            "dex.auth.token_url, and dex.auth.server_id."
         )
+        assert "invalid_api_key" not in completed.stderr
         assert wrong_key not in completed.stderr + completed.stdout
     assert remote_server.token_endpoint.rejected_count > rejected_before
 
@@ -155,11 +159,10 @@ async def test_a_wrong_bearer_token_names_the_rejected_credential(
     for arguments in (("sessions",), ()):
         completed = await asyncio.to_thread(remote_home.run, *arguments)
         assert completed.returncode == 1, completed.stderr
-        assert (
+        assert completed.stderr.strip().endswith(
             f"{COMMAND}: the Dex server at {remote_server.address} rejected the bearer token in "
-            "DEX_CREDENTIAL (UNAUTHENTICATED: "
-        ) in completed.stderr
-        assert completed.stderr.strip().endswith("Check DEX_CREDENTIAL.")
+            "DEX_CREDENTIAL (UNAUTHENTICATED). Check DEX_CREDENTIAL."
+        )
         assert wrong_token not in completed.stderr + completed.stdout
 
 
@@ -197,3 +200,84 @@ async def test_the_terminal_ui_gets_the_tls_and_auth_settings_and_only_the_api_k
     assert "DEX_API_KEY" in names
     assert not names & {"DEX_SERVER_ID", "DEX_TLS_CA_FILE", "DEX_TOKEN_URL", "OPENAI_API_KEY"}
     assert remote_server.api_key not in fake.record_path.read_text()
+
+
+SHELL_ENVIRONMENT_COMMAND = "env > shell-environment.txt"
+SECRET_SENTINELS = {
+    "DEX_API_KEY": "dex-api-key-sentinel-1",
+    "DEX_CREDENTIAL": "dex-credential-sentinel-2",
+    "DEX_CREDENTIAL_FILE": "/run/dex-credential-file-sentinel-3",
+}
+
+
+async def run_shell_environment_command(home: CliHome, config: dict[str, Any]) -> str:
+    """Run the shell tool once in the plain chat and return the environment it saw."""
+    home.write_config(
+        config_yaml({**config, "local_tools": {"shell": {"allow": [SHELL_ENVIRONMENT_COMMAND]}}})
+    )
+    child = home.spawn("--plain")
+    await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline(f'call run_shell_command {{"command": "{SHELL_ENVIRONMENT_COMMAND}"}}')
+    await expect(child, "done: run_shell_command=exit code 0")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    return (home.home / "dex-agent-workspace" / "shell-environment.txt").read_text()
+
+
+def assert_no_dex_secret(shell_environment: str) -> None:
+    for name, value in SECRET_SENTINELS.items():
+        assert f"{name}=" not in shell_environment, name
+        assert value not in shell_environment, name
+
+
+async def test_a_shell_command_never_sees_exported_dex_credentials_without_dex_auth(
+    cli_home: CliHome,
+) -> None:
+    cli_home.extra_environment.update(SECRET_SENTINELS)
+    assert_no_dex_secret(await run_shell_environment_command(cli_home, NO_CONNECTORS))
+
+
+async def test_a_shell_command_never_sees_the_credential_the_command_uses(
+    remote_home: CliHome, remote_server: AuthenticatedDexServer
+) -> None:
+    remote_home.extra_environment.update(SECRET_SENTINELS)
+    remote_home.extra_environment["DEX_CREDENTIAL"] = remote_server.access_token
+    shell_environment = await run_shell_environment_command(
+        remote_home, bearer_over_plaintext(remote_server)
+    )
+    assert_no_dex_secret(shell_environment)
+    assert remote_server.access_token not in shell_environment
+
+
+class _EchoingStatusError(Exception):
+    """A gRPC error, by shape, whose details echo the credential back."""
+
+    def __init__(self, name: str, details: str) -> None:
+        super().__init__(details)
+        self._name = name
+        self._details = details
+
+    def code(self) -> Any:
+        return type("StatusCode", (), {"name": self._name})()
+
+    def details(self) -> str:
+        return self._details
+
+
+@pytest.mark.parametrize("status", ["UNAUTHENTICATED", "PERMISSION_DENIED"])
+def test_a_refusal_never_shows_the_server_details(status: str) -> None:
+    secret = "bearer-token-echoed-by-a-proxy-9876"
+    settings = DexConnectionSettings.from_json(
+        {
+            "tls": {"enabled": True, "ca_file": None, "server_name": None},
+            "auth": {"mode": "bearer", "source": "env"},
+        }
+    )
+    failure = RuntimeError("cannot start the Worker")
+    failure.__cause__ = _EchoingStatusError(status, f"token {secret} is not valid")
+    line = describe_rejected_dex_credential(failure, settings, "dex.example.com:443")
+    assert line is not None
+    assert secret not in line
+    assert f"({status})" in line

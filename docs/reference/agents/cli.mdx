@@ -238,7 +238,7 @@ TLS or a credential.
 
 ### Run against a remote Dex server {#remote-server}
 
-Since 0.6.3. A command can keep its sessions on a shared Dex server that
+Since 0.6.2. A command can keep its sessions on a shared Dex server that
 requires TLS and a credential. Set **dex.server** to the server's URL and add
 **dex.auth**:
 
@@ -318,11 +318,20 @@ credential stops the command with exit code 1 and one line that says which part
 refused it:
 
 - the token endpoint did not exchange **DEX_API_KEY**: the line starts with
-  **could not exchange DEX_API_KEY for an access token**;
+  **could not exchange DEX_API_KEY for an access token** and names the token
+  URL and the HTTP status;
 - the server answered **UNAUTHENTICATED** or **PERMISSION_DENIED**: the line
-  names the server, the credential, and the server's reason.
+  names the server, the credential, and the status code.
 
-Messages name settings and variables, never their values.
+Messages name settings and variables, never their values. They leave out the
+error text that the token endpoint or the server sent, which may repeat the
+credential.
+
+The command keeps **DEX_API_KEY**, **DEX_CREDENTIAL**, and
+**DEX_CREDENTIAL_FILE** to itself, whether or not **dex.auth** uses them.
+Shell commands, the browser, downloads, and **dexcli dev** never see them, so
+an agent cannot read them with a tool. Only the command's own Worker process
+and the terminal UI get the one variable that **dex.auth** needs.
 
 With **dex.server** set to a URL, **connectors.mcp: auto** has no Connectors
 MCP server, so Connector tools are off; see [Connectors](#connectors).
@@ -373,10 +382,10 @@ claude: {}
 | **system_prompt** | The harness's instructions | The agent's instructions. |
 | **system_prompt_file** | None | A UTF-8 file whose text is the instructions. Set either this or **system_prompt**, not both. |
 | **dex.server** | **auto** | **auto** reuses or starts the local **dexcli dev**. Otherwise an http or https URL of a Dex server. See [The local Dex server](#dex-server). |
-| **dex.auth.mode** | **none** | Since 0.6.3. How the command authenticates to the Dex server: **none**, **api_key**, or **bearer**. See [Run against a remote Dex server](#remote-server). |
-| **dex.auth.token_url**, **dex.auth.server_id** | None | Since 0.6.3. With **api_key**: the token endpoint that exchanges **DEX_API_KEY**, and the server ID of the access tokens. |
-| **dex.auth.source**, **dex.auth.file** | None | Since 0.6.3. With **bearer**: **env** reads the token from **DEX_CREDENTIAL**; **file** reads it from the file that **file** names. |
-| **dex.tls.ca_file**, **dex.tls.server_name** | None | Since 0.6.3. With an **https** **dex.server**: a PEM file of root CAs to trust as well, and the name the server certificate must match. |
+| **dex.auth.mode** | **none** | Since 0.6.2. How the command authenticates to the Dex server: **none**, **api_key**, or **bearer**. See [Run against a remote Dex server](#remote-server). |
+| **dex.auth.token_url**, **dex.auth.server_id** | None | Since 0.6.2. With **api_key**: the token endpoint that exchanges **DEX_API_KEY**, and the server ID of the access tokens. |
+| **dex.auth.source**, **dex.auth.file** | None | Since 0.6.2. With **bearer**: **env** reads the token from **DEX_CREDENTIAL**; **file** reads it from the file that **file** names. |
+| **dex.tls.ca_file**, **dex.tls.server_name** | None | Since 0.6.2. With an **https** **dex.server**: a PEM file of root CAs to trust as well, and the name the server certificate must match. |
 | **connectors.mcp** | **auto** | The Connectors MCP server. **auto** uses the one **dexcli dev** serves. Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. |
 | **connectors.enabled** | Every authorized connection | The connections, and their operations, that the agent may call. See [Connectors](#connectors). |
 | **approval.always** | Empty | Tool names, as the agent sees them, whose every call waits for approval. They add to the approvals the tools already require. |
@@ -572,7 +581,7 @@ same session in the plain chat.
 **NO_COLOR** removes the colors and keeps the bold and dim styles. The
 terminal UI never gets the provider keys: the command passes it only the
 terminal and locale variables, and the one Dex credential variable that
-**dex.auth** needs. Since 0.6.3, it connects with the same **dex.auth** and
+**dex.auth** needs. Since 0.6.2, it connects with the same **dex.auth** and
 **dex.tls** as the Worker; see [Run against a remote Dex server](#remote-server).
 
 ### The plain chat {#plain-chat}

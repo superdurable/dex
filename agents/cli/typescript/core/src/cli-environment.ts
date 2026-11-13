@@ -39,7 +39,7 @@ export const defaultDexcliDownloadUrl = "https://github.com/superdurable/dex/rel
  * | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `dex.server: auto` reuses or starts. Default 8801 and 8802. |
  * | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. |
  * | `DEX_AGENTS_OPEN_BROWSER` | Set to `0` or `false` so the command never opens a web browser. Since 0.6.0. |
- * | `DEX_API_KEY`, `DEX_TOKEN_URL`, `DEX_SERVER_ID`, `DEX_CREDENTIAL`, `DEX_CREDENTIAL_FILE`, `DEX_TLS_CA_FILE`, `DEX_TLS_SERVER_NAME` | The Dex connection settings; see {@link DexConnectionVariables}. Since 0.6.3. |
+ * | `DEX_API_KEY`, `DEX_TOKEN_URL`, `DEX_SERVER_ID`, `DEX_CREDENTIAL`, `DEX_CREDENTIAL_FILE`, `DEX_TLS_CA_FILE`, `DEX_TLS_SERVER_NAME` | The Dex connection settings; see {@link DexConnectionVariables}. Since 0.6.2. |
  *
  * @since 0.5.0
  */
@@ -72,11 +72,48 @@ export interface CliEnvironment {
    * The Dex connection variables, which only a `dex.auth` mode or an `https` `dex.server` puts to use.
    * {@link readCliEnvironment} always sets it. An environment built by hand may omit it, which means none is set.
    *
-   * @since 0.6.3
+   * @since 0.6.2
    */
   readonly dexConnectionVariables?: DexConnectionVariables;
-  /** The variables that child processes, such as `dexcli dev`, inherit. */
+  /**
+   * The variables that child processes, such as `dexcli dev`, inherit.
+   *
+   * Changed in 0.6.2: it lacks the Dex credential variables in {@link dexSecretVariableNames}.
+   */
   readonly childProcessVariables: NodeJS.ProcessEnv;
+}
+
+/**
+ * The variables that hold a Dex credential or point at one. Only the Worker host and `dexcli agents-tui` get them,
+ * never a tool, a browser, a download, or `dexcli dev`.
+ *
+ * @since 0.6.2
+ */
+export const dexSecretVariableNames: readonly string[] = Object.freeze([
+  "DEX_API_KEY",
+  "DEX_CREDENTIAL",
+  "DEX_CREDENTIAL_FILE",
+]);
+
+/**
+ * Removes the Dex credential variables in {@link dexSecretVariableNames} from an environment.
+ *
+ * A command calls it on `process.env` right after {@link readCliEnvironment} kept their values, whether or not
+ * `dex.auth` is set: a shell exported for `dexcli` may hold them. Shell tools, browsers, downloads, and `dexcli dev`
+ * then never see a credential, and the Worker host gets only the one variable its mode needs.
+ *
+ * @example
+ * ```ts
+ * const environment = readCliEnvironment(process.env);
+ * removeDexSecretVariables(process.env);
+ * ```
+ * @param environment - The variables to change, such as `process.env`.
+ * @since 0.6.2
+ */
+export function removeDexSecretVariables(environment: NodeJS.ProcessEnv): void {
+  for (const name of dexSecretVariableNames) {
+    delete environment[name];
+  }
 }
 
 /**
@@ -94,7 +131,7 @@ export interface CliEnvironment {
  * const variables = readDexConnectionVariables(process.env);
  * const hasApiKey = variables.DEX_API_KEY !== undefined;
  * ```
- * @since 0.6.3
+ * @since 0.6.2
  */
 export interface DexConnectionVariables {
   /** The API key that `dex.auth` mode `api_key` exchanges for access tokens. A secret. */
@@ -129,7 +166,7 @@ const dexConnectionVariableNames = [
  *
  * @param environment - The variables, such as `process.env`.
  * @returns The Dex connection variables.
- * @since 0.6.3
+ * @since 0.6.2
  */
 export function readDexConnectionVariables(environment: NodeJS.ProcessEnv): DexConnectionVariables {
   const variables: Record<string, string> = {};
@@ -162,8 +199,14 @@ export function readCliEnvironment(environment: NodeJS.ProcessEnv): CliEnvironme
     dexcliDownloadUrl: nonEmpty(environment.DEX_AGENTS_DEXCLI_DOWNLOAD_URL) ?? defaultDexcliDownloadUrl,
     isBrowserOpeningEnabled: !["0", "false"].includes((environment.DEX_AGENTS_OPEN_BROWSER ?? "").trim().toLowerCase()),
     dexConnectionVariables: readDexConnectionVariables(environment),
-    childProcessVariables: { ...environment, HOME: homeDirectory },
+    childProcessVariables: { ...withoutDexSecretVariables(environment), HOME: homeDirectory },
   };
+}
+
+function withoutDexSecretVariables(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const copy = { ...environment };
+  removeDexSecretVariables(copy);
+  return copy;
 }
 
 function readPort(environment: NodeJS.ProcessEnv, name: string, fallback: number): number {

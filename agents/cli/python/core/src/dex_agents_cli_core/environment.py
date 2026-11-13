@@ -14,7 +14,7 @@ This is the only module that reads environment variables.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,7 +45,7 @@ DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 OPEN_BROWSER_ENVIRONMENT_VARIABLE = "DEX_AGENTS_OPEN_BROWSER"
 #: The variables that may give the Dex connection settings, with ``dexcli``'s names.
 #:
-#: .. versionadded:: 0.6.3
+#: .. versionadded:: 0.6.2
 DEX_CONNECTION_ENVIRONMENT_NAMES = (
     "DEX_API_KEY",
     "DEX_TOKEN_URL",
@@ -55,6 +55,29 @@ DEX_CONNECTION_ENVIRONMENT_NAMES = (
     "DEX_TLS_CA_FILE",
     "DEX_TLS_SERVER_NAME",
 )
+#: The variables that hold a Dex credential or point at one. Only the Worker
+#: host and ``dexcli agents-tui`` get them, never a tool, browser, or ``dexcli dev``.
+#:
+#: .. versionadded:: 0.6.2
+DEX_SECRET_ENVIRONMENT_NAMES = ("DEX_API_KEY", "DEX_CREDENTIAL", "DEX_CREDENTIAL_FILE")
+
+
+def remove_dex_secret_variables(environ: MutableMapping[str, str]) -> None:
+    """Remove the Dex credential variables, so the child processes a command starts lack them.
+
+    A command calls it on ``os.environ`` right after
+    ``CommandEnvironment.from_environment`` kept their values, whether or
+    not ``dex.auth`` is set: a shell exported for ``dexcli`` may hold them.
+    Shell tools, browsers, downloads, and ``dexcli dev`` then never see a
+    credential; the Worker host gets the one variable its mode needs.
+
+    Args:
+        environ: The variables to change, such as ``os.environ``.
+
+    .. versionadded:: 0.6.2
+    """
+    for name in DEX_SECRET_ENVIRONMENT_NAMES:
+        environ.pop(name, None)
 
 
 @dataclass(frozen=True)
@@ -89,7 +112,7 @@ class CommandEnvironment:
             of the configuration decides which of them a command uses. See
             ``resolve_dex_connection_settings``.
 
-            .. versionadded:: 0.6.3
+            .. versionadded:: 0.6.2
     """
 
     home: Path

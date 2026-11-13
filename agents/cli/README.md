@@ -148,7 +148,10 @@ A missing setting stops the command at startup with exit code 2 and a message
 that names the setting, such as
 `DEX_API_KEY is not set; dex.auth mode api_key needs it.` A credential that
 the token endpoint or the server rejects stops it with exit code 1 and a line
-that says which. The terminal UI gets the same `dex.tls` and `dex.auth` in its
+that says which, with the HTTP status or the gRPC status code but not the
+remote error text, which may echo the credential. Shell commands, browsers,
+downloads, and `dexcli dev` never get `DEX_API_KEY`, `DEX_CREDENTIAL`, or
+`DEX_CREDENTIAL_FILE`, whether or not `dex.auth` is set. The terminal UI gets the same `dex.tls` and `dex.auth` in its
 launch document and only the one variable its mode needs: see the
 [terminal UI contract](TERMINAL_UI_CONTRACT.md#environment).
 

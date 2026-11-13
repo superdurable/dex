@@ -24,7 +24,7 @@ const tokenExchangeMessagePrefix = "dex: token exchange";
 /**
  * How a command verifies the Dex server: the launch document's `dex.tls` of the terminal UI contract.
  *
- * @since 0.6.3
+ * @since 0.6.2
  */
 export interface DexTlsSettings {
   /** Whether the connection uses TLS: `dex.server` is an `https` URL. */
@@ -42,7 +42,7 @@ export interface DexTlsSettings {
  * `file` for `bearer` with `source: "file"`. The secret stays in the environment: `DEX_API_KEY` for `api_key`, and
  * `DEX_CREDENTIAL` for `bearer` with `source: "env"`.
  *
- * @since 0.6.3
+ * @since 0.6.2
  */
 export type DexAuthSettings =
   | { readonly mode: "none" }
@@ -55,7 +55,7 @@ export type DexAuthSettings =
  * secret. Field names are snake case, so the value is the same JSON in every CLI core, as
  * `agents/conformance/cli_config.json` fixes it.
  *
- * @since 0.6.3
+ * @since 0.6.2
  */
 export interface DexConnectionSettings {
   /** How to verify the server. */
@@ -76,7 +76,7 @@ export interface DexConnectionSettings {
  *   if (error instanceof DexConnectionSettingsError) console.error(`${error.setting}: ${error.message}`);
  * }
  * ```
- * @since 0.6.3
+ * @since 0.6.2
  */
 export class DexConnectionSettingsError extends Error {
   /**
@@ -96,7 +96,7 @@ export class DexConnectionSettingsError extends Error {
 /**
  * The paths that relative file paths of the Dex connection settings resolve against.
  *
- * @since 0.6.3
+ * @since 0.6.2
  */
 export interface DexConnectionPaths {
   /** The configuration file: a relative path in it is relative to its directory. */
@@ -133,7 +133,7 @@ export interface DexConnectionPaths {
  * @param paths - What relative paths resolve against.
  * @returns The settings, without a secret.
  * @throws {DexConnectionSettingsError} The first missing or invalid setting.
- * @since 0.6.3
+ * @since 0.6.2
  */
 export function resolveDexConnectionSettings(
   effective: EffectiveConfig,
@@ -361,8 +361,9 @@ export function describeRefusedTlsOptions(failure: unknown, tls: DexTlsSettings)
 /**
  * Returns the one-line error for a call that the token endpoint or the Dex server refused for its credential.
  *
- * A failed API key exchange names `DEX_API_KEY`; an `UNAUTHENTICATED` or `PERMISSION_DENIED` answer names the
- * credential the command sent. Neither holds a secret.
+ * A failed API key exchange names `DEX_API_KEY`, the token URL, and the HTTP status; an `UNAUTHENTICATED` or
+ * `PERMISSION_DENIED` answer names the credential the command sent and the status code. Neither holds a secret, and
+ * neither repeats a remote error text, which may echo the credential.
  *
  * @param failure - The failure, whose cause chain is searched.
  * @param auth - How the command authenticates.
@@ -376,8 +377,9 @@ export function describeRefusedDexCredential(
 ): string | undefined {
   const exchangeMessage = tokenExchangeFailure(failure);
   if (exchangeMessage !== undefined && auth.mode === "api_key") {
+    const httpStatus = /HTTP status (\d{3}|unavailable)/.exec(exchangeMessage)?.[1] ?? "unavailable";
     return (
-      `could not exchange DEX_API_KEY for an access token: ${exchangeMessage}. ` +
+      `could not exchange DEX_API_KEY for an access token at ${auth.token_url} (HTTP status ${httpStatus}). ` +
       "Check DEX_API_KEY, dex.auth.token_url, and dex.auth.server_id."
     );
   }
@@ -388,11 +390,11 @@ export function describeRefusedDexCredential(
   const what = describeCredential(auth);
   if (status.code === grpcPermissionDeniedCode) {
     return (
-      `the Dex server at ${serverAddress} denied ${what} (PERMISSION_DENIED: ${status.details}). ` +
+      `the Dex server at ${serverAddress} denied ${what} (PERMISSION_DENIED). ` +
       "Use a credential that may run Workers and start Flows."
     );
   }
-  return `the Dex server at ${serverAddress} rejected ${what} (UNAUTHENTICATED: ${status.details}). ${credentialHint(auth)}`;
+  return `the Dex server at ${serverAddress} rejected ${what} (UNAUTHENTICATED). ${credentialHint(auth)}`;
 }
 
 function describeCredential(auth: DexAuthSettings): string {
@@ -432,15 +434,12 @@ function tokenExchangeFailure(failure: unknown): string | undefined {
   return undefined;
 }
 
-/** Returns the first gRPC status of the codes in the cause chain, matched by shape. */
-function grpcStatusOf(
-  failure: unknown,
-  codes: readonly number[],
-): { readonly code: number; readonly details: string } | undefined {
+/** Returns the first gRPC status code of the codes in the cause chain, matched by shape. */
+function grpcStatusOf(failure: unknown, codes: readonly number[]): { readonly code: number } | undefined {
   for (const link of causeChain(failure)) {
     const code = (link as { readonly code?: unknown }).code;
     if (typeof code === "number" && codes.includes(code)) {
-      return { code, details: statusDetails(link) ?? "" };
+      return { code };
     }
   }
   return undefined;

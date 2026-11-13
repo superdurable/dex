@@ -14,7 +14,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { WorkerHostProcess } from "../worker-host/worker-host-process.js";
 import type { WorkerHostReady, WorkerHostStartRequest } from "../worker-host/worker-host-protocol.js";
 import { cleanUpWorkerHostRecord } from "../worker-host/leftover-worker-hosts.js";
-import { readDexConnectionVariables } from "../cli-environment.js";
+import type { DexConnectionVariables } from "../cli-environment.js";
 import { chatLaunchDocument, noticeText, terminalUiAuthOf } from "./launch-document.js";
 import { LocalRequestRelay, refusal, type LocalRequestMethod } from "./local-request-relay.js";
 import type { LocalRequestOutcome } from "./request-outcome-table.js";
@@ -56,8 +56,10 @@ export interface TerminalUiChatLaunch {
   readonly logFilePath: string;
   /** The lines the command printed while it started a `dexcli dev`; empty when it started none. */
   readonly startedDexcliDevLines: readonly string[];
-  /** The launcher's environment, which the Worker host inherits. */
+  /** The launcher's environment, which the Worker host inherits; it has no Dex credential variable. */
   readonly environment: NodeJS.ProcessEnv;
+  /** The command's Dex connection variables, from which the Worker host and the terminal UI get the one they need. */
+  readonly dexConnectionVariables: DexConnectionVariables;
   /** Whether `open_url` may start a browser. */
   readonly isBrowserOpeningEnabled: boolean;
   /** The command's own signal handlers, which the handoff takes over while the terminal UI runs. */
@@ -107,7 +109,8 @@ export class TerminalUiChatLauncher {
    * @returns How it ended.
    */
   public async run(): Promise<TerminalUiChatOutcome> {
-    const host = new WorkerHostProcess(this.launch.logFilePath, this.launch.environment, (text) =>
+    const authVariables = terminalUiAuthVariables(this.launch.start.connection.auth, this.launch.dexConnectionVariables);
+    const host = new WorkerHostProcess(this.launch.logFilePath, { ...this.launch.environment, ...authVariables }, (text) =>
       this.workerHostStartupLines.push(text),
     );
     this.host = host;
@@ -352,7 +355,7 @@ class TerminalUiHandoff {
     methods.set("open_url", (params) => this.openUrl(params));
     const connectionAuth = launch.start.connection.auth;
     const terminalUiAuth = terminalUiAuthOf(connectionAuth);
-    const authVariables = terminalUiAuthVariables(connectionAuth, readDexConnectionVariables(launch.environment));
+    const authVariables = terminalUiAuthVariables(connectionAuth, launch.dexConnectionVariables);
     const document = chatLaunchDocument({
       commandName: launch.commandName,
       harnessName: launch.harnessName,

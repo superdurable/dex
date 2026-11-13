@@ -79,7 +79,7 @@ class ConfigError(Exception):
     .. versionchanged:: 0.7.0
        The ``unsupported_reasoning_effort`` code, at ``/reasoning_effort``.
 
-    .. versionchanged:: 0.6.3
+    .. versionchanged:: 0.6.2
        The ``insecure_token_url`` code, at ``/dex/auth/token_url``, the
        ``auth_needs_server_url`` code, at ``/dex/auth``, and the
        ``tls_needs_https_server`` code, at ``/dex/tls``.
@@ -171,7 +171,7 @@ class DexAuthConfig:
         file: ``bearer`` with ``source`` ``file`` only: the token file as
             written, or ``None`` when ``DEX_CREDENTIAL_FILE`` must give it.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
 
     mode: str = "none"
@@ -204,7 +204,7 @@ class DexTlsConfig:
         server_name: The name the server certificate must match, or ``None``
             for the ``dex.server`` host.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
 
     ca_file: str | None = None
@@ -219,10 +219,10 @@ class DexServerConfig:
         server: ``auto`` or the Dex server URL.
         auth: How to authenticate to the Dex server.
 
-            .. versionadded:: 0.6.3
+            .. versionadded:: 0.6.2
         tls: How to verify an ``https`` Dex server.
 
-            .. versionadded:: 0.6.3
+            .. versionadded:: 0.6.2
     """
 
     server: str = AUTO
@@ -482,7 +482,7 @@ def resolve_config(
             ``duplicate_tool``, ``duplicate_connection``, or
             ``model_required``, in the conformance file's check order.
 
-    .. versionchanged:: 0.6.3
+    .. versionchanged:: 0.6.2
        Reads ``dex.auth`` and ``dex.tls``.
     """
     if config is None:
@@ -738,7 +738,7 @@ def is_secure_token_url(url: str) -> bool:
         ``True`` for ``https``, and for ``http`` on ``localhost`` in any case,
         an IPv4 address in 127.0.0.0/8, or ``::1``.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
     if url.startswith("https://"):
         return True
@@ -763,7 +763,7 @@ def is_valid_url(url: str) -> bool:
     Returns:
         ``True`` when a WHATWG URL parser accepts it with a port of at most 65535.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
     try:
         _raise_invalid_url(url, "")

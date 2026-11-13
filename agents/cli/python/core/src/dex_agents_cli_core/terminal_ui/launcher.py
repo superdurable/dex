@@ -25,7 +25,7 @@ import socket
 import subprocess
 import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +129,8 @@ class TerminalUiLaunch:
         startup_notices: Lines the launcher printed while it started a
             ``dexcli dev``, such as its log file. The launch document shows
             them again as ``info`` notices, before the Worker host's own.
+        worker_host_variables: The Dex credential variable the Worker host
+            needs on top of the launcher's environment, which lacks every one.
     """
 
     command_name: str
@@ -146,6 +148,7 @@ class TerminalUiLaunch:
     is_browser_opening_enabled: bool
     is_resumed: bool
     startup_notices: Sequence[str] = ()
+    worker_host_variables: Mapping[str, str] = field(default_factory=dict)
 
 
 async def describe_terminal_ui(
@@ -320,6 +323,7 @@ class WorkerHostProcess:
                     stderr=log,
                     pass_fds=(host_fd,),
                     start_new_session=True,
+                    env={**os.environ, **launch.worker_host_variables},
                 )
         finally:
             host_socket.close()

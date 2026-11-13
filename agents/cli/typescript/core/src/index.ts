@@ -64,6 +64,8 @@ export {
   defaultDexcliDownloadUrl,
   readCliEnvironment,
   readDexConnectionVariables,
+  removeDexSecretVariables,
+  dexSecretVariableNames,
   type CliEnvironment,
   type DexConnectionVariables,
 } from "./cli-environment.js";

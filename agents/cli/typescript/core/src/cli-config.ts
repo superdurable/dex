@@ -123,7 +123,7 @@ export interface SessionsConfig {
  * const effective = resolveConfig(parseConfigYaml(text), "claude", null);
  * if (effective.dex.auth?.mode === "api_key") console.log(effective.dex.auth.token_url);
  * ```
- * @since 0.6.3
+ * @since 0.6.2
  */
 export type DexAuthConfig =
   | { readonly mode: "none" }
@@ -136,7 +136,7 @@ export type DexAuthConfig =
  *
  * Both fields are `null` when the file omits them. Paths keep their leading `~`.
  *
- * @since 0.6.3
+ * @since 0.6.2
  */
 export interface DexTlsConfig {
   /** A PEM file of root CAs trusted in addition to the default trust store, as written, or `null`. */
@@ -167,7 +167,7 @@ export interface EffectiveConfig {
    * `auth` and `tls`; they are optional so that code that builds an `EffectiveConfig` itself keeps compiling, and
    * absent means `{ mode: "none" }` and no TLS settings.
    *
-   * Changed in 0.6.3: adds `auth` and `tls`.
+   * Changed in 0.6.2: adds `auth` and `tls`.
    */
   readonly dex: { readonly server: string; readonly auth?: DexAuthConfig; readonly tls?: DexTlsConfig };
   /** The connectors MCP server and the enabled connections. */
@@ -217,7 +217,7 @@ export type TurnConfig = EffectiveConfig;
  *
  * Changed in 0.7.0: adds `unsupported_reasoning_effort`.
  *
- * Changed in 0.6.3: adds `insecure_token_url`, `auth_needs_server_url`, and `tls_needs_https_server`.
+ * Changed in 0.6.2: adds `insecure_token_url`, `auth_needs_server_url`, and `tls_needs_https_server`.
  *
  * @since 0.5.0
  */
@@ -327,7 +327,7 @@ export function parseConfigYaml(text: string): unknown {
  * @throws {ConfigError} `schema`, `invalid_url`, `insecure_token_url`, `auth_needs_server_url`,
  * `tls_needs_https_server`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
  *
- * Changed in 0.6.3: reads `dex.auth` and `dex.tls`, and checks them against `dex.server`.
+ * Changed in 0.6.2: reads `dex.auth` and `dex.tls`, and checks them against `dex.server`.
  *
  * @since 0.5.0
  */

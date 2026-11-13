@@ -16,6 +16,7 @@ import contextlib
 import importlib
 import importlib.metadata
 import logging
+import os
 import secrets
 import signal
 import sys
@@ -102,7 +103,7 @@ from dex_agents_cli_core.dexcli_install import (
     download_dexcli,
     locate_dexcli,
 )
-from dex_agents_cli_core.environment import CommandEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment, remove_dex_secret_variables
 from dex_agents_cli_core.harness import (
     SESSION_ACTION_PERMISSION,
     AgentHarness,
@@ -246,6 +247,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
+    remove_dex_secret_variables(os.environ)
     log_path = _configure_logging(environment, harness)
     server = _CommandDexServer(environment)
     try:
@@ -376,6 +378,7 @@ def _run_worker_host(harness: AgentHarness, argv: Sequence[str]) -> int:
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
+    remove_dex_secret_variables(os.environ)
     log_path = _configure_logging(environment, harness)
 
     async def open_run(
@@ -723,6 +726,9 @@ async def _run_terminal_ui(
         is_browser_opening_enabled=environment.is_browser_opening_enabled,
         is_resumed=arguments.resume_session_id is not None,
         startup_notices=tuple(server.started_dexcli_dev_lines),
+        worker_host_variables=inputs.connection.terminal_ui_auth_variables(
+            environment.dex_connection_variables
+        ),
     )
     return await run_terminal_ui_chat(
         launch, print, restore_signal_handlers=server.install_termination_handlers
@@ -1406,6 +1412,8 @@ async def _list_connectors(
     server: _CommandDexServer,
 ) -> int:
     config = loaded.config
+    # Validated as for the other subcommands, though listing connectors makes no Dex call.
+    _resolve_connection(loaded, environment)
     endpoint = await server.resolve(config)
     url = _connectors_mcp_url(config, endpoint)
     if url is None:

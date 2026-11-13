@@ -39,7 +39,7 @@ import {
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
-import { readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
+import { readCliEnvironment, removeDexSecretVariables, type CliEnvironment } from "./cli-environment.js";
 import {
   DexConnectionSettingsError,
   createDexConnectionOptions,
@@ -323,6 +323,8 @@ export class AgentCliCommand {
     private readonly log: (line: string) => void,
   ) {
     this.environment = readCliEnvironment(io.environment);
+    // Tools, browsers, and dexcli dev inherit process.env; the credential stays in this.environment.
+    removeDexSecretVariables(process.env);
     this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
   }
 
@@ -570,6 +572,7 @@ export class AgentCliCommand {
         logFilePath: this.logFilePath(),
         startedDexcliDevLines: this.startedDexcliDevLines,
         environment: this.environment.childProcessVariables,
+        dexConnectionVariables: this.environment.dexConnectionVariables ?? {},
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
         commandSignals: {
           release: () => this.startedDexcliDev.releaseSignals(),

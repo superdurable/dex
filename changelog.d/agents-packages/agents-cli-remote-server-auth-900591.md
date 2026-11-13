@@ -20,3 +20,9 @@ section: Added
 - Terminal UI contract 1: the launch document's `dex.auth` and `dex.tls`
   carry the command's settings instead of `none` and the defaults. The
   terminal UI gets the one credential variable that `dex.auth` names.
+- The commands remove `DEX_API_KEY`, `DEX_CREDENTIAL`, and
+  `DEX_CREDENTIAL_FILE` from the environment of shell commands, browsers,
+  downloads, and `dexcli dev`, also without `dex.auth`. Only the Worker host
+  and the terminal UI get the one variable that the mode needs.
+  `childProcessVariables` (TypeScript) lacks them too, and the new
+  `removeDexSecretVariables` (`remove_dex_secret_variables`) does the removal.

@@ -11,7 +11,7 @@
 The rules are the ``dex_connection`` cases of
 ``agents/conformance/cli_config.json``.
 
-.. versionadded:: 0.6.3
+.. versionadded:: 0.6.2
 """
 
 from __future__ import annotations
@@ -46,6 +46,7 @@ _TOKEN_URL_PATTERN = re.compile(
 )
 _UNAUTHENTICATED = "UNAUTHENTICATED"
 _PERMISSION_DENIED = "PERMISSION_DENIED"
+_HTTP_STATUS = re.compile(r"HTTP status ([0-9]{3}|unavailable)")
 
 
 class DexConnectionSettingsError(Exception):
@@ -59,7 +60,7 @@ class DexConnectionSettingsError(Exception):
             ``dex.auth.token_url``, or a variable such as ``DEX_API_KEY``.
         message: The exact English sentence that the conformance file fixes.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
 
     def __init__(self, setting: str, message: str) -> None:
@@ -91,7 +92,7 @@ class DexConnectionSettings:
             "server_id": ...}``, ``{"mode": "bearer", "source": "env"}``, or
             ``{"mode": "bearer", "source": "file", "file": ...}``.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
 
     is_tls: bool = False
@@ -207,7 +208,7 @@ def resolve_dex_connection_settings(
             ``api_key`` the token URL, the server ID, then ``DEX_API_KEY``;
             for ``bearer`` the token or the token file.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
     trimmed = {name: value.strip() for name, value in variables.items() if value.strip()}
     dex = config.dex
@@ -323,7 +324,7 @@ class DexConnection:
     Attributes:
         settings: The resolved settings.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
 
     def __init__(
@@ -479,6 +480,8 @@ def describe_rejected_dex_credential(
     It looks through the cause chain for the SDK's ``ApiKeyExchangeError``,
     then for a gRPC ``UNAUTHENTICATED`` or ``PERMISSION_DENIED``. Check it
     before an ``UNAVAILABLE``, which a failed token lookup can also cause.
+    The line names only the HTTP status or the gRPC status code: a remote
+    error text is untrusted and may echo the credential.
 
     Args:
         failure: The failure of a Worker start or a Client call.
@@ -489,32 +492,29 @@ def describe_rejected_dex_credential(
         The line, which names the setting to check and never holds a secret;
         ``None`` when no rejected credential caused the failure.
 
-    .. versionadded:: 0.6.3
+    .. versionadded:: 0.6.2
     """
     chain = _cause_chain(failure)
     for error in chain:
         if isinstance(error, ApiKeyExchangeError):
+            http_status = _HTTP_STATUS.search(str(error))
             return (
-                f"could not exchange DEX_API_KEY for an access token: {error}. Check "
+                "could not exchange DEX_API_KEY for an access token at "
+                f"{settings.auth.get('token_url')} (HTTP status "
+                f"{http_status.group(1) if http_status else 'unavailable'}). Check "
                 "DEX_API_KEY, dex.auth.token_url, and dex.auth.server_id."
             )
     for error in chain:
         status = _grpc_status(error)
         if status is None:
             continue
-        name, details = status
         what, hint = _rejected_credential_wording(settings)
-        if name == _UNAUTHENTICATED:
-            return (
-                f"the Dex server at {server_address} rejected {what} "
-                f"(UNAUTHENTICATED: {details}). {hint}"
-            )
-        if name == _PERMISSION_DENIED:
-            return (
-                f"the Dex server at {server_address} denied {what} "
-                f"(PERMISSION_DENIED: {details}). Use a credential that may run Workers and "
-                "start Flows."
-            )
+        if status == _UNAUTHENTICATED:
+            return f"the Dex server at {server_address} rejected {what} (UNAUTHENTICATED). {hint}"
+        return (
+            f"the Dex server at {server_address} denied {what} (PERMISSION_DENIED). Use a "
+            "credential that may run Workers and start Flows."
+        )
     return None
 
 
@@ -542,17 +542,12 @@ def _cause_chain(failure: BaseException) -> list[BaseException]:
     return chain
 
 
-def _grpc_status(error: BaseException) -> tuple[str, str] | None:
-    """Return the status name and details of a gRPC error or a Dex service error, by shape."""
+def _grpc_status(error: BaseException) -> str | None:
+    """Return a gRPC error's or a Dex service error's status name, by shape, if it is a refusal."""
     code = getattr(error, "code", None)
     if callable(code):
         code = code()
     name = getattr(code, "name", None)
     if name not in (_UNAUTHENTICATED, _PERMISSION_DENIED):
         return None
-    details = getattr(error, "details", None)
-    if callable(details):
-        details = details()
-    if not isinstance(details, str) or not details:
-        details = getattr(error, "message", None) or str(error)
-    return str(name), str(details)
+    return str(name)
