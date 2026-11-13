@@ -56,6 +56,8 @@ jobs:
         id: discover
         env:
           SELECTED_PACKAGES: ${{ steps.select.outputs.selected }}
+          # Owner decision: pull requests test TypeScript packages on Node 22 only; other runs add Node 26.
+          TYPESCRIPT_NODE_VERSIONS: ${{ github.event_name == 'pull_request' && '["22"]' || '["22","26"]' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -71,7 +73,8 @@ jobs:
             echo "::error::found no agents/<language>/<package>/ci.sh"
             exit 1
           fi
-          packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c --argjson selected "$SELECTED_PACKAGES" '
+          packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c --argjson selected "$SELECTED_PACKAGES" \
+            --argjson typescript_nodes "$TYPESCRIPT_NODE_VERSIONS" '
             split("\n")
             | map(select(length > 0))
             | map(select(. as $path | $selected | index($path)))
@@ -81,12 +84,12 @@ jobs:
                   end)
             | map(. as $package
                   | if .language == "typescript"
-                    then ("22", "26") as $node | $package + {node: $node}
+                    then $typescript_nodes[] as $node | $package + {node: $node}
                     else $package + {node: "22"}
                     end)
             | map(. + {label: (if .node == "22" then .path else (.path + " (node " + .node + ")") end)})
             | map(. as $package
-                  | ({"agents/python/core": 3}[.path] // 1) as $count
+                  | ({"agents/python/core": 3, "agents/typescript/core": 3}[.path] // 1) as $count
                   | range(1; $count + 1) as $index
                   | $package + {shard: "\($index)/\($count)", shard_name: "\($index)-of-\($count)"}
                   | if $count == 1 then . else .label += " (shard \(.shard))" end)

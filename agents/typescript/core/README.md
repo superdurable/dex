@@ -2497,7 +2497,8 @@ which builds with `tsc` and runs `node --test` over `dist/test/integ`. It skips
 `test/long`, the 2,000-turn compaction session behind the agent deployment
 guide's run budget numbers, which runs for minutes; `test/integ` has an
 800-turn retention guard instead. The `Agents Long Tests Nightly` workflow runs `test/long` every
-night. Run it by hand with:
+night. CI sets `DEX_AGENTS_CI_SHARD=<index>/<count>` to split the integration test files with
+`node --test --test-shard`; only shard 1 runs the typecheck. Run `test/long` by hand with:
 
 ```bash
 DEXCLI=/path/to/dexcli npm run test:long

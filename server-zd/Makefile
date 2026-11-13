@@ -1,4 +1,4 @@
-.PHONY: check test clippy fmt-check build-server
+.PHONY: check test test-without-slow-crates test-simulation test-server clippy fmt-check build-server
 
 # Build only one crate while iterating: cargo test -p <crate>
 
@@ -7,6 +7,18 @@ check:
 
 test:
 	cargo test --all-targets --locked
+
+# CI splits make test into these three parallel suites; together they run every test once.
+SLOW_TEST_CRATES := dexzd-simulation dexzd-server
+
+test-without-slow-crates:
+	cargo test --workspace --all-targets --locked $(addprefix --exclude ,$(SLOW_TEST_CRATES))
+
+test-simulation:
+	cargo test --all-targets --locked -p dexzd-simulation
+
+test-server:
+	cargo test --all-targets --locked -p dexzd-server
 
 clippy:
 	cargo clippy --all-targets --locked -- -D warnings
