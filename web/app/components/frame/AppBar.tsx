@@ -60,10 +60,7 @@ function useFlowsHref(pathname: string, search: string): string {
   return `${FLOWS_PATH}${lastSearch}`;
 }
 
-/**
- * Marks the bar compact when the page's views do not fit with their names, and lifts it once they would.
- * It measures instead of using a fixed width, because names and IDs vary per page.
- */
+/** Marks the bar compact when the views' names do not fit; measured, since names vary per page. */
 function useCompactViews(bar: HTMLElement | null) {
   useEffect(() => {
     const views = bar?.querySelector<HTMLElement>('.app-bar-views');
@@ -97,10 +94,7 @@ function useCompactViews(bar: HTMLElement | null) {
   }, [bar]);
 }
 
-/**
- * The one bar of every page: the trail from home, then what the page puts in
- * its page, views and actions slots, then the viewer's settings.
- */
+/** The one bar of every page: the trail, the page's slots, then settings. */
 export function AppBar() {
   const { canUseV2, hasConnectorSetup } = useWebCatalog();
   const { pathname, search } = useLocation();

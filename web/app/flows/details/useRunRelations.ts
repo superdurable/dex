@@ -37,10 +37,7 @@ async function searchFlows(query: string, pageSize: number, signal: AbortSignal)
   return readResponseJSON<SearchFlowsResult>(response);
 }
 
-/**
- * Reads a Flow's parent and child Flows once per Flow ID. A failed read shows no relations; the run page
- * itself does not depend on them.
- */
+/** Reads a Flow's parent and child Flows once; a failed read shows no relations. */
 export function useRunRelations(flowId: string): RunRelations | null {
   const [relations, setRelations] = useState<RunRelations | null>(null);
   useEffect(() => {

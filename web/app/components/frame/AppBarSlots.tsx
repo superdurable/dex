@@ -39,10 +39,7 @@ export function AppBarSlotTarget({ name, className }: { name: AppBarSlotName; cl
   return <div className={className} data-slot={name} ref={ref} />;
 }
 
-/**
- * Puts a page's content into the bar. Outside the app frame, as in component
- * tests, the content renders in place.
- */
+/** Puts a page's content into the bar, or in place outside the app frame. */
 export function AppBarSlot({ name, children }: { name: AppBarSlotName; children: ReactNode }) {
   const slots = useContext(AppBarSlotsContext);
   if (!slots) return <>{children}</>;

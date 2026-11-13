@@ -13,7 +13,7 @@ export type ServerReachability = 'checking' | 'reachable' | 'unreachable';
 
 const RECHECK_MILLISECONDS = 30_000;
 
-/** Asks Dex Web's readiness probe whether it reaches the Dex Server, on load, every 30 s and on each page. */
+/** Asks the readiness probe whether Dex Web reaches the Dex Server, now and every 30 s. */
 export function useServerReachability(pathname: string): ServerReachability {
   const [reachability, setReachability] = useState<ServerReachability>('checking');
   useEffect(() => {

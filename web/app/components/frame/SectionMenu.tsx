@@ -43,10 +43,7 @@ export function sectionOf(pathname: string, sections: readonly AppSection[]): Ap
     ?? FLOWS_SECTION;
 }
 
-/**
- * The trail's section: a link to the section's home and, when other sections
- * apply, a menu to switch to them.
- */
+/** The trail's section: a link to its home, plus a menu when other sections apply. */
 export function SectionMenu({ sections, flowsHref }: { sections: readonly AppSection[]; flowsHref: string }) {
   const { pathname } = useLocation();
   const { isOpen, setIsOpen, rootRef } = usePopover<HTMLDivElement>();

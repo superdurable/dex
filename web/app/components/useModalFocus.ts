@@ -10,10 +10,7 @@ import { useEffect, useRef } from 'react';
 
 const FOCUSABLE = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
-/**
- * Keeps keyboard focus in an open modal: it moves to the first field, Tab cycles inside, Escape closes, and
- * focus returns to where it was when the modal closes.
- */
+/** Keeps focus in an open modal: first field focused, Tab trapped, Escape closes, focus restored. */
 export function useModalFocus<T extends HTMLElement>(isOpen: boolean, onClose: () => void) {
   const modalRef = useRef<T>(null);
   const onCloseRef = useRef(onClose);

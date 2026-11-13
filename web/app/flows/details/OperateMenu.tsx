@@ -18,10 +18,7 @@ interface OperateAction {
   onSelect: () => void;
 }
 
-/**
- * The run's state-changing actions as one split button. Its main action follows the run: Stop while it runs,
- * Time travel once it ended. Each opens a dialog, so no single click changes the run.
- */
+/** The run's actions as one split button; the main action follows the run's state. */
 export function OperateMenu({
   isRunning,
   onStop,
