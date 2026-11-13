@@ -25,12 +25,14 @@ from cli_config_reference import (
     SESSION_SETTINGS_VALIDATOR,
     ConfigError,
     DexConnectionError,
+    McpServerSettingsError,
     canonical_operation_name,
     is_shell_command_allowed,
     json_pointer,
     parse_config_yaml,
     resolve_config,
     resolve_dex_connection,
+    resolve_mcp_servers,
     resolve_turn,
     schema_errors,
 )
@@ -72,7 +74,7 @@ def test_harness_sections_match_the_schema() -> None:
             "description": CONFIG_SCHEMA["properties"][section]["description"],
         }
     common = {"model", "system_prompt", "system_prompt_file", "dex", "connectors"}
-    common |= {"approval", "workspace", "local_tools", "media", "sessions"}
+    common |= {"mcp_servers", "approval", "workspace", "local_tools", "media", "sessions"}
     assert set(CONFIG_SCHEMA["properties"]) == common | set(sections)
 
 
@@ -218,6 +220,23 @@ def test_dex_connection_errors_hold_no_secret() -> None:
             secret = case["environment"].get(name, "").strip()
             if "error" in case and secret:
                 assert secret not in case["error"]["message"], case["name"]
+
+
+@pytest.mark.parametrize("case", FIXTURE["mcp_servers"]["cases"], ids=case_id)
+def test_mcp_servers_case(case: dict[str, Any]) -> None:
+    context = FIXTURE["mcp_servers"]["context"]
+    assert list(CONFIG_VALIDATOR.iter_errors(case["config"])) == []
+    effective = resolve_config(
+        case["config"], context["harness_section"], context["harness_default_model"]
+    )
+    if "servers" in case:
+        assert resolve_mcp_servers(effective, case["environment"]) == case["servers"]
+        return
+    with pytest.raises(McpServerSettingsError) as raised:
+        resolve_mcp_servers(effective, case["environment"])
+    assert {"setting": raised.value.setting, "message": raised.value.message} == case["error"]
+    for value in case["environment"].values():
+        assert value == "" or value not in case["error"]["message"], case["name"]
 
 
 def expect_error(

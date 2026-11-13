@@ -1,5 +1,5 @@
 {
-  "description": "Dex Agents CLI configuration behavior every CLI core must match: YAML parsing, schema validation, file defaults, the Dex server's authentication and TLS settings, the media store, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
+  "description": "Dex Agents CLI configuration behavior every CLI core must match: YAML parsing, schema validation, file defaults, the Dex server's authentication and TLS settings, the media store, remote MCP servers and their header variables, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
   "schemas": {
     "config": "agents/cli/config.schema.json",
     "session_settings": "agents/cli/session-settings.schema.json"
@@ -7,8 +7,10 @@
   "error_codes": {
     "yaml": "The file is not one YAML 1.2 document with unique keys. path is always \"\".",
     "schema": "The value fails the schema. CLI cores may report schema errors in any order. Each schema case has exactly one violation, and a CLI core passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
-    "invalid_url": "dex.server, dex.auth.token_url, connectors.mcp, or media.endpoint passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
+    "invalid_url": "dex.server, dex.auth.token_url, connectors.mcp, media.endpoint, or an mcp_servers URL passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
     "insecure_token_url": "dex.auth.token_url is an http URL whose host is not loopback: localhost in any case, an IPv4 address in 127.0.0.0/8, or the IPv6 address ::1 in any spelling. path is \"/dex/auth/token_url\".",
+    "insecure_mcp_server_url": "An mcp_servers URL is an http URL whose host is not loopback, by the rule of insecure_token_url. path is \"/mcp_servers/<name>/url\".",
+    "literal_credential_header": "An mcp_servers header whose name is credential-like, by the credential_names rule of approval_display.json, has no ${NAME} reference in its value. path is \"/mcp_servers/<name>/headers/<header>\".",
     "auth_needs_server_url": "dex.auth.mode is not none, but dex.server is auto or omitted: the local dexcli dev takes no credential. path is \"/dex/auth\".",
     "tls_needs_https_server": "dex.tls sets ca_file or server_name, but dex.server is not an https URL. An empty dex.tls passes. path is \"/dex/tls\".",
     "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
@@ -19,7 +21,7 @@
     "unsupported_reasoning_effort": "A session's reasoning_effort passes the schema but is not one of the values the harness command declares, or the command declares none. path is \"/reasoning_effort\"."
   },
   "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript CLI core must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
-  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then dex.auth.token_url, then connectors.mcp, then media.endpoint; then insecure_token_url; then auth_needs_server_url; then tls_needs_https_server; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then dex.auth.token_url, then connectors.mcp, then media.endpoint, then each mcp_servers URL; then insecure_token_url; then insecure_mcp_server_url for each mcp_servers URL; then literal_credential_header for each mcp_servers header; then auth_needs_server_url; then tls_needs_https_server; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values. The mcp_servers checks take the servers in Unicode code point order of their names, and a server's headers in Unicode code point order of their names.",
   "harness_sections": [
     "claude",
     "openai",
@@ -205,6 +207,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -259,6 +262,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -310,6 +314,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -373,6 +378,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -479,6 +485,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -536,6 +543,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -594,6 +602,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -652,6 +661,7 @@
           "mcp": "http://127.0.0.1:8899/mcp",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -706,6 +716,7 @@
           "mcp": "https://[::1]/mcp",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -760,6 +771,7 @@
           "mcp": "http://127.0.0.1:65535",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -811,6 +823,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -862,6 +875,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -913,6 +927,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -964,6 +979,7 @@
           "mcp": "auto",
           "enabled": []
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -1049,6 +1065,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -1120,6 +1137,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -1182,6 +1200,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "Bash",
@@ -1234,6 +1253,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -1283,6 +1303,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -1334,6 +1355,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -1386,6 +1408,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2414,6 +2437,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2470,6 +2494,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2528,6 +2553,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2585,6 +2611,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2642,6 +2669,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2698,6 +2726,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2756,6 +2785,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2813,6 +2843,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2866,6 +2897,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2921,6 +2953,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -2972,6 +3005,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -3640,6 +3674,875 @@
         "path": "/dex/tls/ca_file",
         "keyword": "pattern"
       }
+    },
+    {
+      "name": "mcp-servers-every-field",
+      "description": "Remote MCP servers by name: headers as written, ${NAME} references unexpanded, and trust_tool_annotations false unless set.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/v1/mcp?region=eu",
+            "headers": {
+              "Authorization": "Bearer ${STUDIO_API_KEY}",
+              "X-Trace": "plain text, $5, and $NAME stay"
+            }
+          },
+          "local-tools_2": {
+            "url": "http://127.0.0.1:9000/mcp",
+            "trust_tool_annotations": true
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/v1/mcp?region=eu",
+            "headers": {
+              "Authorization": "Bearer ${STUDIO_API_KEY}",
+              "X-Trace": "plain text, $5, and $NAME stay"
+            },
+            "trust_tool_annotations": false
+          },
+          "local-tools_2": {
+            "url": "http://127.0.0.1:9000/mcp",
+            "headers": {},
+            "trust_tool_annotations": true
+          }
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "mcp-servers-empty",
+      "description": "An empty mcp_servers is no remote MCP server, as omitting it is.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {}
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "mcp_servers": {},
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "mcp-server-http-on-loopback-hosts",
+      "description": "http is allowed on localhost in any case, 127.0.0.0/8, and [::1].",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "a": {
+            "url": "http://LocalHost:8080/mcp"
+          },
+          "b": {
+            "url": "http://127.1.2.3/mcp"
+          },
+          "c": {
+            "url": "http://[::1]:9000"
+          },
+          "d": {
+            "url": "http://[0:0:0:0:0:0:0:1]/mcp"
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "mcp_servers": {
+          "a": {
+            "url": "http://LocalHost:8080/mcp",
+            "headers": {},
+            "trust_tool_annotations": false
+          },
+          "b": {
+            "url": "http://127.1.2.3/mcp",
+            "headers": {},
+            "trust_tool_annotations": false
+          },
+          "c": {
+            "url": "http://[::1]:9000",
+            "headers": {},
+            "trust_tool_annotations": false
+          },
+          "d": {
+            "url": "http://[0:0:0:0:0:0:0:1]/mcp",
+            "headers": {},
+            "trust_tool_annotations": false
+          }
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "mcp-server-credential-header-with-reference",
+      "description": "A credential-like header passes when its value has at least one ${NAME} reference.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "x-api-key": "${STUDIO_KEY}",
+              "Cookie": "session=${STUDIO_SESSION}"
+            }
+          }
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "x-api-key": "${STUDIO_KEY}",
+              "Cookie": "session=${STUDIO_SESSION}"
+            },
+            "trust_tool_annotations": false
+          }
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "mcp-servers-null",
+      "description": "mcp_servers must be a map.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": null
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "mcp-server-unknown-key",
+      "description": "A server entry has only url, headers, and trust_tool_annotations.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "token": "abc"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "mcp-server-without-url",
+      "description": "url is required.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "headers": {}
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "mcp-server-name-starts-with-digit",
+      "description": "A server name starts with a letter.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "1studio": {
+            "url": "https://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "mcp-server-name-with-dot",
+      "description": "A server name has only letters, digits, underscores, and hyphens.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio.eu": {
+            "url": "https://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "mcp-server-name-too-long",
+      "description": "A server name has at most 32 characters.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "sssssssssssssssssssssssssssssssss": {
+            "url": "https://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "mcp-server-bad-scheme",
+      "description": "The URL is http or https.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "ftp://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-websocket-scheme",
+      "description": "A WebSocket URL is not a Streamable HTTP endpoint.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "wss://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-url-userinfo",
+      "description": "The URL has no user info.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://user:secret@mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-url-fragment",
+      "description": "The URL has no fragment.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp#tools"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/url",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-trust-not-boolean",
+      "description": "trust_tool_annotations is a boolean.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "trust_tool_annotations": "yes"
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/trust_tool_annotations",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "mcp-server-header-not-string",
+      "description": "A header value is a string.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "X-Version": 2
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/headers/X-Version",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "mcp-server-header-line-break",
+      "description": "A header value has no control character, so it cannot inject another header.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "X-Trace": "a\r\nX-Injected: 1"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/headers/X-Trace",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-header-non-ascii",
+      "description": "A header value is printable ASCII.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "X-Trace": "caf\u00e9"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/headers/X-Trace",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-header-reference-starts-with-digit",
+      "description": "${ starts a reference whose name does not start with a digit.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer ${1KEY}"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/headers/Authorization",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-header-unclosed-reference",
+      "description": "${ starts a reference that a } closes.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer ${STUDIO_API_KEY"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/headers/Authorization",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "mcp-server-header-name-with-space",
+      "description": "A header name is an HTTP token.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "X Trace": "a"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/mcp_servers/studio/headers",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "mcp-server-url-port-out-of-range",
+      "description": "The URL passes the invalid_url checks of dex.server.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com:70000/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/mcp_servers/studio/url"
+      }
+    },
+    {
+      "name": "mcp-server-urls-checked-in-name-order",
+      "description": "Server URLs are checked in Unicode code point order of their names, not file order.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "zeta": {
+            "url": "https://zeta.example.com:70000/mcp"
+          },
+          "alpha": {
+            "url": "https://alpha.example.com:70000/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/mcp_servers/alpha/url"
+      }
+    },
+    {
+      "name": "media-endpoint-checked-before-mcp-server-url",
+      "description": "media.endpoint is checked before the mcp_servers URLs.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent-media",
+          "endpoint": "http://127.0.0.1:99999"
+        },
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com:70000/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/media/endpoint"
+      }
+    },
+    {
+      "name": "mcp-server-http-remote",
+      "description": "http is allowed only on a loopback host.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "http://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_mcp_server_url",
+        "path": "/mcp_servers/studio/url"
+      }
+    },
+    {
+      "name": "mcp-server-http-localhost-suffix",
+      "description": "A host that only starts with localhost is not loopback.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "http://localhost.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_mcp_server_url",
+        "path": "/mcp_servers/studio/url"
+      }
+    },
+    {
+      "name": "mcp-server-http-outside-loopback-range",
+      "description": "An IPv4 address outside 127.0.0.0/8 is not loopback.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "http://128.0.0.1/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_mcp_server_url",
+        "path": "/mcp_servers/studio/url"
+      }
+    },
+    {
+      "name": "mcp-server-url-checked-before-insecure-url",
+      "description": "Every invalid_url check runs before insecure_mcp_server_url.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "alpha": {
+            "url": "http://alpha.example.com/mcp"
+          },
+          "zeta": {
+            "url": "https://zeta.example.com:70000/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/mcp_servers/zeta/url"
+      }
+    },
+    {
+      "name": "insecure-token-url-checked-before-insecure-mcp-server-url",
+      "description": "insecure_token_url comes before insecure_mcp_server_url.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": {
+            "mode": "api_key",
+            "token_url": "http://auth.example.com/token",
+            "server_id": "dex-prod"
+          }
+        },
+        "mcp_servers": {
+          "studio": {
+            "url": "http://mcp.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_token_url",
+        "path": "/dex/auth/token_url"
+      }
+    },
+    {
+      "name": "mcp-server-literal-authorization",
+      "description": "A credential-like header must take its secret from an environment variable.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer abc123"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "literal_credential_header",
+        "path": "/mcp_servers/studio/headers/Authorization"
+      }
+    },
+    {
+      "name": "mcp-server-literal-api-key-lowercase",
+      "description": "Credential-like names are recognized in any case, as approval displays recognize them.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "x-api-key": "k-1"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "literal_credential_header",
+        "path": "/mcp_servers/studio/headers/x-api-key"
+      }
+    },
+    {
+      "name": "mcp-server-literal-headers-in-name-order",
+      "description": "Headers are checked in Unicode code point order of their names, after the servers' names.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "zeta": {
+            "url": "https://zeta.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer z"
+            }
+          },
+          "alpha": {
+            "url": "https://alpha.example.com/mcp",
+            "headers": {
+              "X-Api-Key": "a",
+              "Cookie": "c=1"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "literal_credential_header",
+        "path": "/mcp_servers/alpha/headers/Cookie"
+      }
+    },
+    {
+      "name": "insecure-mcp-server-url-checked-before-literal-header",
+      "description": "insecure_mcp_server_url comes before literal_credential_header.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "mcp_servers": {
+          "alpha": {
+            "url": "https://alpha.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer a"
+            }
+          },
+          "zeta": {
+            "url": "http://zeta.example.com/mcp"
+          }
+        }
+      },
+      "error": {
+        "code": "insecure_mcp_server_url",
+        "path": "/mcp_servers/zeta/url"
+      }
+    },
+    {
+      "name": "literal-header-checked-before-auth-needs-server-url",
+      "description": "literal_credential_header comes before auth_needs_server_url.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "auth": {
+            "mode": "bearer",
+            "source": "env"
+          }
+        },
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer a"
+            }
+          }
+        }
+      },
+      "error": {
+        "code": "literal_credential_header",
+        "path": "/mcp_servers/studio/headers/Authorization"
+      }
     }
   ],
   "session_configs": {
@@ -3742,6 +4645,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -3813,6 +4717,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -3887,6 +4792,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -3965,6 +4871,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4043,6 +4950,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4117,6 +5025,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4173,6 +5082,7 @@
           "mcp": "auto",
           "enabled": []
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4251,6 +5161,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -4325,6 +5236,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message",
@@ -4410,6 +5322,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4488,6 +5401,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4544,6 +5458,7 @@
           "mcp": "auto",
           "enabled": null
         },
+        "mcp_servers": {},
         "approval": {
           "always": []
         },
@@ -4617,6 +5532,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4697,6 +5613,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4775,6 +5692,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4853,6 +5771,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -4932,6 +5851,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -5009,6 +5929,7 @@
             }
           ]
         },
+        "mcp_servers": {},
         "approval": {
           "always": [
             "slack_post_channel_message"
@@ -5367,6 +6288,86 @@
         "code": "widens_local_tools",
         "path": "/local_tools/shell/enabled"
       }
+    },
+    {
+      "name": "mcp-servers-cannot-change",
+      "description": "Session settings cannot add, remove, or change remote MCP servers: an mcp_servers key is ignored with a warning.",
+      "config": "bounded",
+      "session_settings": {
+        "mcp_servers": {
+          "studio": {
+            "url": "https://mcp.example.com/mcp"
+          }
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "mcp_servers": {},
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/mcp_servers"
+      ]
     }
   ],
   "dex_connection": {
@@ -6250,6 +7251,347 @@
             "mode": "bearer",
             "source": "env"
           }
+        }
+      }
+    ]
+  },
+  "mcp_servers": {
+    "description": "How a CLI core turns a valid file's mcp_servers and its environment into the servers its Worker connects to. Each ${NAME} reference in a header value is replaced by the value of the environment variable NAME, exactly as set, without trimming; the result is never expanded again, and any other $ stays as written. A variable that is not set or is empty, or whose value has a character outside printable ASCII (U+0020 to U+007E), is an error that names the setting and the variable and never the value. The servers come in Unicode code point order of their names. The checks take the servers in that order, the headers of a server in Unicode code point order of their names, and the references of a value from left to right; the first failure is the error, and its message is exact. Only the Worker expands the values, when the command starts: the effective configuration, the session, and every log keep the text as written.",
+    "context": {
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5"
+    },
+    "cases": [
+      {
+        "name": "expands-references",
+        "description": "Every reference is replaced, a variable may repeat, and headers without references stay as written.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}",
+                "X-Workspace": "${STUDIO_WORKSPACE}/${STUDIO_WORKSPACE}",
+                "X-Trace": "dex-agents"
+              },
+              "trust_tool_annotations": true
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": "sk-test-1",
+          "STUDIO_WORKSPACE": "w1",
+          "UNRELATED": "x"
+        },
+        "servers": [
+          {
+            "name": "studio",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer sk-test-1",
+              "X-Workspace": "w1/w1",
+              "X-Trace": "dex-agents"
+            },
+            "trust_tool_annotations": true
+          }
+        ]
+      },
+      {
+        "name": "no-servers",
+        "description": "Without mcp_servers there is no server, whatever the environment holds.",
+        "config": {},
+        "environment": {
+          "STUDIO_API_KEY": "sk-test-1"
+        },
+        "servers": []
+      },
+      {
+        "name": "servers-in-name-order",
+        "description": "The servers come in Unicode code point order of their names, not file order.",
+        "config": {
+          "mcp_servers": {
+            "zeta": {
+              "url": "https://zeta.example.com/mcp"
+            },
+            "Zeta": {
+              "url": "https://upper-zeta.example.com/mcp"
+            },
+            "alpha": {
+              "url": "http://localhost:9000/mcp"
+            }
+          }
+        },
+        "environment": {},
+        "servers": [
+          {
+            "name": "Zeta",
+            "url": "https://upper-zeta.example.com/mcp",
+            "headers": {},
+            "trust_tool_annotations": false
+          },
+          {
+            "name": "alpha",
+            "url": "http://localhost:9000/mcp",
+            "headers": {},
+            "trust_tool_annotations": false
+          },
+          {
+            "name": "zeta",
+            "url": "https://zeta.example.com/mcp",
+            "headers": {},
+            "trust_tool_annotations": false
+          }
+        ]
+      },
+      {
+        "name": "other-dollar-signs-stay",
+        "description": "A $ that does not start ${ stays as written.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "X-Note": "$5 or $HOME or $"
+              }
+            }
+          }
+        },
+        "environment": {
+          "HOME": "/home/dev"
+        },
+        "servers": [
+          {
+            "name": "studio",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "X-Note": "$5 or $HOME or $"
+            },
+            "trust_tool_annotations": false
+          }
+        ]
+      },
+      {
+        "name": "values-are-not-expanded-again",
+        "description": "A variable whose value holds ${NAME} text is used as it is.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": "${OTHER}",
+          "OTHER": "sk-other"
+        },
+        "servers": [
+          {
+            "name": "studio",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer ${OTHER}"
+            },
+            "trust_tool_annotations": false
+          }
+        ]
+      },
+      {
+        "name": "values-are-not-trimmed",
+        "description": "A value keeps its spaces.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": " sk-test-1 "
+        },
+        "servers": [
+          {
+            "name": "studio",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer  sk-test-1 "
+            },
+            "trust_tool_annotations": false
+          }
+        ]
+      },
+      {
+        "name": "unset-variable",
+        "description": "A variable that is not set stops the command; the message names the variable.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {},
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty."
+        }
+      },
+      {
+        "name": "empty-variable",
+        "description": "An empty variable counts as not set.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": ""
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty."
+        }
+      },
+      {
+        "name": "variable-names-are-case-sensitive",
+        "description": "STUDIO_API_KEY is not studio_api_key.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "studio_api_key": "sk-test-1"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty."
+        }
+      },
+      {
+        "name": "variable-with-line-break",
+        "description": "A value with a line break would inject a header; the message never shows the value.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": "sk-test-1\r\nX-Injected: 1"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, whose value is not printable ASCII."
+        }
+      },
+      {
+        "name": "variable-with-non-ascii",
+        "description": "A value outside printable ASCII cannot be a header value.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": "sk-caf\u00e9"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, whose value is not printable ASCII."
+        }
+      },
+      {
+        "name": "references-checked-left-to-right",
+        "description": "The first failing reference of a value is the error.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "Authorization": "${STUDIO_SCHEME} ${STUDIO_API_KEY}"
+              }
+            }
+          }
+        },
+        "environment": {
+          "STUDIO_API_KEY": "sk\u00e9"
+        },
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_SCHEME, which is not set or is empty."
+        }
+      },
+      {
+        "name": "headers-checked-in-name-order",
+        "description": "The headers of a server are checked in Unicode code point order of their names.",
+        "config": {
+          "mcp_servers": {
+            "studio": {
+              "url": "https://mcp.example.com/mcp",
+              "headers": {
+                "X-Api-Key": "${STUDIO_KEY}",
+                "Authorization": "Bearer ${STUDIO_TOKEN}"
+              }
+            }
+          }
+        },
+        "environment": {},
+        "error": {
+          "setting": "mcp_servers.studio.headers.Authorization",
+          "message": "mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_TOKEN, which is not set or is empty."
+        }
+      },
+      {
+        "name": "servers-checked-in-name-order",
+        "description": "The servers are checked in Unicode code point order of their names.",
+        "config": {
+          "mcp_servers": {
+            "zeta": {
+              "url": "https://zeta.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${ZETA_TOKEN}"
+              }
+            },
+            "alpha": {
+              "url": "https://alpha.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${ALPHA_TOKEN}"
+              }
+            }
+          }
+        },
+        "environment": {},
+        "error": {
+          "setting": "mcp_servers.alpha.headers.Authorization",
+          "message": "mcp_servers.alpha.headers.Authorization needs the environment variable ALPHA_TOKEN, which is not set or is empty."
         }
       }
     ]

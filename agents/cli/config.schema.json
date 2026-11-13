@@ -222,6 +222,17 @@
         }
       }
     },
+    "mcp_servers": {
+      "type": "object",
+      "default": {},
+      "description": "Remote MCP servers whose tools the agent may call over the Streamable HTTP transport, by server name: 1 to 32 ASCII letters, digits, underscores, or hyphens, starting with a letter. The agent sees each tool as <server name>__<tool name>, and approval.always names it that way. Every call waits for approval unless trust_tool_annotations lets the server's hints mark the tool a read. Secrets never go in this file: a header value takes them from environment variables with ${NAME} references, which the Worker expands when the command starts. Session settings cannot change it: they ignore an mcp_servers key with a warning.",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]{0,31}(?![\\s\\S])": {
+          "$ref": "#/$defs/mcp_server"
+        }
+      },
+      "additionalProperties": false
+    },
     "approval": {
       "type": "object",
       "additionalProperties": false,
@@ -473,6 +484,39 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/connector_entry"
+      }
+    },
+    "mcp_server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ],
+      "description": "One remote MCP server.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^https?://(?:(?:[A-Za-z0-9-]+\\.)*[A-Za-z][A-Za-z0-9-]*|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?(?:/[!-\"$-~]*)?(?![\\s\\S])",
+          "description": "The server's Streamable HTTP endpoint: an https URL, or an http URL on localhost, 127.0.0.0/8, or [::1], without user info or a fragment. The host rules and the CLI core checks are those of dex.server. The URL is used as written, never expanded, so it must not hold a secret."
+        },
+        "headers": {
+          "type": "object",
+          "default": {},
+          "description": "HTTP headers sent with every request to the server, such as Authorization, by header name: 1 to 256 HTTP token characters. A value is printable ASCII. Each ${NAME} in it is replaced by the value of the environment variable NAME when the command starts; NAME has ASCII letters, digits, and underscores and does not start with a digit. A variable that is not set, is empty, or holds anything but printable ASCII stops the command. Any other $ stays as written. A header whose name looks like a credential, such as Authorization, X-Api-Key, or Cookie, must contain at least one ${NAME} reference. The command never prints, logs, or stores the expanded values.",
+          "patternProperties": {
+            "^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,256}(?![\\s\\S])": {
+              "type": "string",
+              "pattern": "^(?:[ -#%-~]|\\$(?!\\{)|\\$\\{[A-Za-z_][A-Za-z0-9_]*\\})*(?![\\s\\S])",
+              "description": "A header value: printable ASCII, where ${ always starts a ${NAME} reference."
+            }
+          },
+          "additionalProperties": false
+        },
+        "trust_tool_annotations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the server's readOnlyHint and idempotentHint annotations, and the effects it declares by the Dex MCP conventions, pick each tool's effect. false: every call of the server's tools waits for approval and runs at most once. true: a tool the server marks read-only runs without approval, and reads and idempotent writes may be retried. Set it only for a server whose hints you trust."
+        }
       }
     },
     "shell_commands": {
