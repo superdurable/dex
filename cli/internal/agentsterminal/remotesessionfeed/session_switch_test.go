@@ -259,3 +259,85 @@ func TestRelaunchAfterAHandedBackSwitchShowsTheSwitch(t *testing.T) {
 	require.Equal(t, "session-1", loop.model.sessionID)
 	require.Equal(t, "session-1", harness.feed.SessionID(), "actions keep writing to the launch session")
 }
+
+// recordingSendSessions records the session of every sent message.
+type recordingSendSessions struct {
+	fakeSessions
+	recordLock sync.Mutex
+	sentTo     []string
+}
+
+func (sessions *recordingSendSessions) SendUserMessage(_ context.Context, sessionID string, _ dexagents.AgentUserMessage) (bool, error) {
+	sessions.recordLock.Lock()
+	defer sessions.recordLock.Unlock()
+	sessions.sentTo = append(sessions.sentTo, sessionID)
+	return true, nil
+}
+
+func (sessions *recordingSendSessions) sentSessions() []string {
+	sessions.recordLock.Lock()
+	defer sessions.recordLock.Unlock()
+	return append([]string(nil), sessions.sentTo...)
+}
+
+// While a relaunch still reads the left session's history, the feed says
+// nothing is loaded, so the screen holds what the user types; it then loads
+// the launch session, and the held message goes there.
+func TestRelaunchedSwitchLoadsOnlyTheLaunchSession(t *testing.T) {
+	historyRequested := make(chan struct{})
+	releaseHistory := make(chan struct{})
+	var requestOnce sync.Once
+	sessions := &recordingSendSessions{}
+	sessions.snapshot = snapshotOf(idleState(1))
+	sessions.listMessages = func(sessionID string, _ *int64, _ int64) (dexagents.AgentMessagesPage, error) {
+		if sessionID == "session-0" {
+			requestOnce.Do(func() { close(historyRequested) })
+			<-releaseHistory
+		}
+		return dexagents.AgentMessagesPage{Messages: []dexagents.AgentMessage{message(1, "turn-1", dexagents.MessageRoleUser, "from "+sessionID)}}, nil
+	}
+	feed := NewRemoteSessionFeed(RemoteSessionFeedConfig{
+		Sessions: sessions,
+		Requests: noLocalRequests{},
+		Launch: launchcontract.LaunchDocument{
+			Command: launchcontract.LaunchCommand{Harness: "test"},
+			Session: launchcontract.LaunchSession{FlowType: "Test", SessionID: "session-1", IsResumed: true, PreviousSessionID: "session-0"},
+		},
+		Timings: FeedTimings{SnapshotTimeout: 5 * time.Second, RPCTimeout: time.Second, LockConflictBudget: time.Second, IdlePoll: time.Hour, RunningPoll: time.Hour},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	runFinished := make(chan error, 1)
+	go func() { runFinished <- feed.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		require.ErrorIs(t, <-runFinished, context.Canceled)
+	})
+
+	<-historyRequested
+	require.Empty(t, updatesOfType[sessionfeed.SessionLoaded](drainFeed(feed)), "the left session never counts as loaded")
+	close(releaseHistory)
+	var updates []sessionfeed.SessionUpdate
+	require.Eventually(t, func() bool {
+		updates = append(updates, drainFeed(feed)...)
+		return len(updatesOfType[sessionfeed.SessionLoaded](updates)) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	launchOpenedAt, loadedAt := -1, -1
+	for index, update := range updates {
+		switch typed := update.(type) {
+		case sessionfeed.SessionOpened:
+			if typed.SessionID == "session-1" {
+				launchOpenedAt = index
+			}
+		case sessionfeed.SessionLoaded:
+			loadedAt = index
+		}
+	}
+	require.NotEqual(t, -1, launchOpenedAt)
+	require.Greater(t, loadedAt, launchOpenedAt, "only the launch session loads")
+	require.Contains(t, noticeTexts(updatesOfType[sessionfeed.NoticeRaised](updates)), "── session session-1 ──")
+
+	// The screen sends the held message with the session it shows now.
+	targeted := sessionfeed.TargetSessionContext(context.Background(), "session-1")
+	require.NoError(t, feed.SubmitUserAction(targeted, sessionfeed.SendUserMessage{Text: "typed during the replay"}))
+	require.Equal(t, []string{"session-1"}, sessions.sentSessions())
+}

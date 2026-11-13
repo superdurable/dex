@@ -281,13 +281,15 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	if !wasLoaded && fetched.history != nil {
 		model.emitHistory(*fetched.history, fetched.snapshot.State.ActiveTurnID, fetched.cancelledTurns)
 	}
+	// The left session is only replayed: no state, and no SessionLoaded that
+	// would release held messages to it.
+	if loop.switchToPendingSession() {
+		return
+	}
 	model.applySnapshot(fetched.snapshot)
 	if !wasLoaded {
 		loop.loadFailures = 0
 		loop.feed.emit(sessionfeed.SessionLoaded{})
-		if loop.switchToPendingSession() {
-			return
-		}
 	}
 	delay := loop.feed.timings.IdlePoll
 	if model.isBusy() {
