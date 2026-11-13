@@ -31,8 +31,10 @@ const LISTING_PAGE_KEYS: u32 = 1000;
 const STALE_PAGE_RETRIES: usize = 5;
 const STALE_PAGE_PAUSE: Duration = Duration::from_secs(1);
 /// Rounds of listing and deleting before the cleanup reports what is left.
-const CLEANUP_ROUNDS: usize = 30;
-const CLEANUP_PAUSE: Duration = Duration::from_secs(1);
+const CLEANUP_ROUNDS: usize = 5;
+/// Listings this far apart that agree are past a COS listing cache.
+const LISTING_CACHE_WINDOW: Duration = Duration::from_secs(5);
+const SETTLED_LISTING_ATTEMPTS: usize = 6;
 
 /// The provider of the soak's object storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,22 +244,19 @@ impl SoakTarget {
             .expect("the soak's inspection store is configured")
     }
 
-    /// Deletes every object under the prefix and returns the keys still listed afterwards.
-    pub(crate) async fn delete_everything(&self) -> Vec<String> {
+    /// Deletes every object under the prefix and returns the keys that a settled listing still
+    /// shows afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns a description of a failed listing, or of listings that never settled.
+    pub(crate) async fn delete_everything(&self) -> Result<Vec<String>, String> {
         let store = self.physical_store().await;
         for _ in 0..CLEANUP_ROUNDS {
-            let objects = match list_all(&store, "").await {
-                Ok(objects) => objects,
-                Err(error) => {
-                    eprintln!("soak cleanup: listing failed: {error}");
-                    tokio::time::sleep(CLEANUP_PAUSE).await;
-                    continue;
-                }
-            };
-            if objects.is_empty() {
-                return Vec::new();
+            let keys = settled_keys(&store).await?;
+            if keys.is_empty() {
+                return Ok(keys);
             }
-            let keys: Vec<String> = objects.into_iter().map(|object| object.key).collect();
             for batch in keys.chunks(LISTING_PAGE_KEYS as usize) {
                 if let Err(error) = store.delete_many(batch).await {
                     eprintln!(
@@ -267,12 +266,17 @@ impl SoakTarget {
                 }
             }
             // A listing may repeat deleted keys for seconds, so the next round lists again.
-            tokio::time::sleep(CLEANUP_PAUSE).await;
         }
-        list_all(&store, "")
-            .await
-            .map(|objects| objects.into_iter().map(|object| object.key).collect())
-            .unwrap_or_else(|error| vec![format!("<the final listing failed: {error}>")])
+        settled_keys(&store).await
+    }
+
+    /// Returns every key under the prefix, from a settled listing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a description of a failed listing, or of listings that never settled.
+    pub(crate) async fn remaining_keys(&self) -> Result<Vec<String>, String> {
+        settled_keys(&self.physical_store().await).await
     }
 
     pub(crate) async fn shutdown(self) {
@@ -284,8 +288,7 @@ impl SoakTarget {
 
 /// Lists every object under `prefix` once.
 ///
-/// A COS listing can repeat an earlier page and ignore `start_after`, so a page that adds no
-/// key after `start_after` is read again after a pause before the listing counts as complete.
+/// A COS page may repeat and ignore `start_after`; a page without a new key is read again.
 ///
 /// # Errors
 ///
@@ -328,6 +331,33 @@ pub(crate) async fn list_all(
             }
         }
     }
+}
+
+/// Returns every key under the prefix once two listings a cache window apart agree.
+///
+/// # Errors
+///
+/// Returns a description of a failed listing, or of listings that never agreed.
+async fn settled_keys(store: &S3ObjectStore) -> Result<Vec<String>, String> {
+    let mut previous = listed_keys(store).await?;
+    for _ in 0..SETTLED_LISTING_ATTEMPTS {
+        tokio::time::sleep(LISTING_CACHE_WINDOW).await;
+        let current = listed_keys(store).await?;
+        if current == previous {
+            return Ok(current);
+        }
+        previous = current;
+    }
+    Err(format!(
+        "{SETTLED_LISTING_ATTEMPTS} listings of the prefix {LISTING_CACHE_WINDOW:?} apart never agreed"
+    ))
+}
+
+async fn listed_keys(store: &S3ObjectStore) -> Result<Vec<String>, String> {
+    list_all(store, "")
+        .await
+        .map(|objects| objects.into_iter().map(|object| object.key).collect())
+        .map_err(|error| format!("listing the prefix failed: {error}"))
 }
 
 /// Counts objects and bytes by their first path segment, or by the key before `.v/`.

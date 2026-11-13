@@ -61,16 +61,28 @@ fault, in shuffled rounds of every kind:
 - SIGTERM of the active, which releases its lease, then the same restart;
 - a cold restart of both processes on wiped local directories, which must restore a snapshot
   when one exists;
-- a SIGKILL of both processes, then the same cold restart once their lease expired, so the
-  restarted process restores the latest periodic snapshot and replays the log written since it;
+- a SIGKILL of both processes, then the same cold restart once their lease expired. The first
+  process starts as a cold standby, so its recovery restores the latest periodic snapshot and
+  must replay the log written since it;
 - stopping the oldest vault Flows and erasing their hard-delete values.
 
-After each fault the counters and vault Flows must read back every acknowledged write. At the
-end every acknowledged Flow must complete once with its expected result, every hard-delete
-object must be gone, and no two processes may have served at once. With HEAD probing
-(tencentCOS, or aliyunOSS with `versionDiscovery: head`), every versioned key except startup
-probes must hold consecutive first versions that name their predecessors, with an anchor once
-generation 1 is gone. A progress line every 30 seconds and the final summary report the faults,
+After each fault the counters and vault Flows must read back every acknowledged write. A cold
+restart must restore a snapshot when one exists. When the fault interval exceeds the snapshot
+interval by at least a minute, every cold restart must restore one, and the soak warns at the
+start otherwise.
+
+At the end, the acknowledged run of every chain and timer Flow must complete with its expected
+output. Each chain Step must run under exactly one Step execution ID; its handler may run again
+after a crash, and the summary counts those re-executions. Each timer Step must run only after
+its timer fired. Each counter must hold every acknowledged increment once, and every resent
+increment must end acknowledged. Every hard-delete object must be gone.
+
+The router samples each process's readiness every 25 ms and fails the test when two processes
+served at once. Sampling can miss a short overlap; the node lease and create-only log writes are
+what fence one. With HEAD probing (tencentCOS, or aliyunOSS with `versionDiscovery: head`),
+every versioned key except startup probes must hold consecutive first versions that name their
+predecessors, with an anchor once generation 1 is gone. The manifest and node lease keys must be
+listed, and a failed HEAD fails the check. A progress line every 30 seconds and the final summary report the faults,
 takeover times, commit latency, `dexzd_object_store_versioned_listing_stale_total` by site
 (`newest_version_lookup` grows on COS), and the objects by area. Any violation fails the test.
 A process whose start fails after it took the lease restarts, as a container supervisor would
@@ -78,7 +90,9 @@ restart it, and the summary lists it as a FAILED START; three failed starts of o
 fail the test.
 
 Each run writes under a new prefix, `dexzd-soak/<unix-nanos>/`, and deletes every object under
-it at the end, also after a failure; set `DEX_SOAK_KEEP_OBJECTS=1` to keep them. Process logs
+it at the end, also after a failure. Cleanup trusts only two listings five seconds apart that
+agree, and fails when objects remain or a listing fails. Set `DEX_SOAK_KEEP_OBJECTS=1` to keep
+the objects; the soak then reports how many stay. Process logs
 stay in `DEX_SOAK_LOG_DIR`, by default a new directory under the system temporary directory that
 the soak prints.
 

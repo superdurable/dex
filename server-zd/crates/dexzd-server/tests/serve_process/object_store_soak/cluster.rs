@@ -30,7 +30,7 @@ use crate::robustness::processes::{
 use crate::robustness::workload::{VerificationReport, Workload};
 use crate::standby_failover::readiness_router::{ReadinessRouter, RouterBackend, ServingReport};
 
-const NODE_ID: &str = "soak-node";
+pub(crate) const NODE_ID: &str = "soak-node";
 /// Long enough to ride out object storage latency spikes of a real bucket.
 const LEASE_DURATION: &str = "10s";
 /// Outlasts a killed process's lease and the one-second takeover grace.
@@ -48,6 +48,8 @@ const SUPERVISION_POLL_INTERVAL: Duration = Duration::from_millis(100);
 struct SoakSlot {
     name: String,
     config_path: PathBuf,
+    /// The same configuration with `standby.mode: cold`.
+    cold_standby_config_path: PathBuf,
     local_directory: PathBuf,
     address: SocketAddr,
     metrics_address: SocketAddr,
@@ -96,17 +98,24 @@ impl SoakCluster {
             let address = free_loopback_address();
             let metrics_address = free_loopback_address();
             let config_path = directory.join(format!("{name}.yaml"));
+            let cold_standby_config_path = directory.join(format!("{name}-cold-standby.yaml"));
             let local_directory = directory.join(format!("{name}-store"));
-            let contents = format!(
-                "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {LEASE_DURATION}\n  failIfHeld: false\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: hot\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
-                object_store = target.object_store_yaml(),
-                local = local_directory.display(),
-                snapshot_interval = snapshot_interval.as_secs(),
-            );
-            std::fs::write(&config_path, contents).expect("the soak configuration is written");
+            let contents = |standby_mode: &str| {
+                format!(
+                    "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {LEASE_DURATION}\n  failIfHeld: false\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: {standby_mode}\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
+                    object_store = target.object_store_yaml(),
+                    local = local_directory.display(),
+                    snapshot_interval = snapshot_interval.as_secs(),
+                )
+            };
+            std::fs::write(&config_path, contents("hot"))
+                .expect("the soak configuration is written");
+            std::fs::write(&cold_standby_config_path, contents("cold"))
+                .expect("the soak configuration is written");
             slots.push(SoakSlot {
                 name: (*name).to_owned(),
                 config_path,
+                cold_standby_config_path,
                 local_directory,
                 address,
                 metrics_address,
@@ -165,6 +174,15 @@ impl SoakCluster {
 
     /// Starts a process in `slot`, which must have none.
     pub(crate) fn spawn(&mut self, slot: usize) {
+        self.spawn_with_standby_mode(slot, false);
+    }
+
+    /// Starts a process in `slot` that waits for the lease without following the log.
+    pub(crate) fn spawn_as_cold_standby(&mut self, slot: usize) {
+        self.spawn_with_standby_mode(slot, true);
+    }
+
+    fn spawn_with_standby_mode(&mut self, slot: usize, is_cold_standby: bool) {
         let entry = &mut self.slots[slot];
         assert!(
             entry.process.is_none(),
@@ -175,7 +193,12 @@ impl SoakCluster {
         entry.last_scrape = None;
         self.router.note_process_start(slot);
         let name = format!("{}-{}", entry.name, entry.process_count);
-        entry.process = Some(self.fleet.spawn(&entry.config_path, entry.address, &name));
+        let config_path = if is_cold_standby {
+            &entry.cold_standby_config_path
+        } else {
+            &entry.config_path
+        };
+        entry.process = Some(self.fleet.spawn(config_path, entry.address, &name));
     }
 
     /// Deletes `slot`'s local directory, so its next process restores from object storage.

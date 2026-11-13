@@ -59,12 +59,14 @@ struct VersionIdentity {
     predecessor_id: Option<u128>,
 }
 
-/// Checks every versioned key except startup probes; `objects` is a listing of the prefix.
+/// Checks every versioned key except startup probes; `objects` is a listing of the prefix, and
+/// every key of `required_keys` must be among them.
 ///
 /// A listing may lag, so HEAD requests decide which generations exist.
 pub(crate) async fn check_versioned_layout(
     store: &S3ObjectStore,
     objects: &[ObjectMetadata],
+    required_keys: &[String],
 ) -> LayoutReport {
     let mut listed: BTreeMap<String, ListedVersions> = BTreeMap::new();
     for object in objects {
@@ -88,6 +90,13 @@ pub(crate) async fn check_versioned_layout(
         }
     }
     let mut report = LayoutReport::default();
+    for required_key in required_keys {
+        if !listed.contains_key(required_key) {
+            report.violations.push(format!(
+                "{required_key}: the soak's processes wrote this key, but no version of it is listed"
+            ));
+        }
+    }
     for (logical_key, versions) in listed {
         report.keys += 1;
         for other in &versions.others {
@@ -124,13 +133,28 @@ async fn check_key(
     }
     present.sort_unstable();
     let Some((&oldest, &newest)) = present.first().zip(present.last()) else {
+        report.violations.push(format!(
+            "{logical_key}: listed, but no listed generation exists"
+        ));
         return;
     };
     // A lagging listing can miss the newest generations.
     let mut newest = newest;
-    while let Ok(Some(_)) = store.head(&version_key(logical_key, newest + 1)).await {
-        newest += 1;
-        present.push(newest);
+    loop {
+        match store.head(&version_key(logical_key, newest + 1)).await {
+            Ok(Some(_)) => {
+                newest += 1;
+                present.push(newest);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                report.violations.push(format!(
+                    "{logical_key}: HEAD of generation {} failed: {error}",
+                    newest + 1
+                ));
+                return;
+            }
+        }
     }
     report.versions += present.len();
     if present.len() as u64 != newest - oldest + 1 {
@@ -138,8 +162,16 @@ async fn check_key(
             "{logical_key}: generations {oldest} to {newest} have gaps: {present:?}"
         ));
     }
-    let has_anchor =
-        versions.has_anchor || matches!(store.head(&anchor_key(logical_key)).await, Ok(Some(_)));
+    let has_anchor = versions.has_anchor
+        || match store.head(&anchor_key(logical_key)).await {
+            Ok(anchor) => anchor.is_some(),
+            Err(error) => {
+                report
+                    .violations
+                    .push(format!("{logical_key}: HEAD of the anchor failed: {error}"));
+                return;
+            }
+        };
     if oldest > 1 {
         if has_anchor {
             report.anchored_keys += 1;

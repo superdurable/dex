@@ -22,12 +22,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dexzd_object_store::{MANIFEST_OBJECT_KEY, node_lease_object_key};
 use tempfile::TempDir;
 use tokio::time::Instant;
 
-use crate::robustness::processes::replay_field;
 use crate::robustness::workload::{LoadShape, Workload};
-use cluster::{KILLED_LEASE_EXPIRY_WAIT, SoakCluster};
+use cluster::{KILLED_LEASE_EXPIRY_WAIT, NODE_ID, SoakCluster};
 use layout::check_versioned_layout;
 use target::{SoakTarget, count_by_area, list_all};
 use vault::Vault;
@@ -69,6 +69,8 @@ const READ_BACK_BUDGET: Duration = Duration::from_secs(90);
 const HARD_DELETE_DRAIN_BUDGET: Duration = Duration::from_secs(180);
 const HARD_DELETE_PREFIX: &str = "hard-delete/";
 const SNAPSHOT_PREFIX: &str = "snapshot/";
+/// A serving process snapshots one interval after it starts; this covers its start and upload.
+const SNAPSHOT_MARGIN: Duration = Duration::from_secs(60);
 /// A COS listing can repeat an earlier one for about three seconds.
 const LISTING_SETTLE: Duration = Duration::from_secs(5);
 const VERIFICATION_BASE_BUDGET: Duration = Duration::from_secs(120);
@@ -83,8 +85,8 @@ enum SoakFault {
     RestartActive,
     /// SIGTERM both, wipe both local directories, and restore from object storage.
     ColdRestartBoth,
-    /// SIGKILL both, wait out their lease, wipe both local directories, and restore the latest
-    /// periodic snapshot, so recovery replays the log written since it.
+    /// SIGKILL both, wait out their lease, wipe both local directories, and start the active slot
+    /// as a cold standby, so its recovery replays the log since the latest periodic snapshot.
     CrashColdRestartBoth,
     /// Stop the oldest vault Flows and erase their hard-delete values.
     HardDeleteClosedRuns,
@@ -145,6 +147,11 @@ struct SoakSettings {
 }
 
 impl SoakSettings {
+    /// Returns whether every active process lives long enough to publish a snapshot.
+    fn requires_snapshot_restores(&self) -> bool {
+        self.fault_interval >= self.snapshot_interval + SNAPSHOT_MARGIN
+    }
+
     fn from_environment(run_id: &str, default_seed: u64) -> Self {
         let duration = std::env::var(DURATION_VARIABLE)
             .ok()
@@ -231,39 +238,46 @@ struct LogReplay {
     last_applied_seq: u64,
     batches: u64,
     /// From the lease to serving, by the process's own log timestamps.
-    recovery_duration: Option<Duration>,
+    recovery_duration: Duration,
 }
 
 impl LogReplay {
-    /// Parses the first recovery in `log`; returns `None` when it logged no log replay.
-    fn parse(log: &str) -> Option<Self> {
+    /// Parses the first recovery in `log`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a description of the missing log line or field.
+    fn parse(log: &str) -> Result<Self, String> {
         let replay_line = log
             .lines()
-            .find(|line| line.contains("replayed the log stream"))?;
+            .find(|line| line.contains("replayed the log stream"))
+            .ok_or("the process logged no log replay")?;
         let field = |name: &str| {
             let prefix = format!("{name}=");
             replay_line
                 .split_whitespace()
                 .find_map(|token| token.strip_prefix(prefix.as_str()))
                 .and_then(|value| value.parse().ok())
+                .ok_or_else(|| format!("the replay line has no numeric {name}: {replay_line}"))
         };
         let line_seconds = |message: &str| {
             log.lines()
                 .find(|line| line.contains(message))
                 .and_then(seconds_of_day)
         };
-        let recovery_duration = line_seconds("engine node recovering")
+        let (recovering, serving) = line_seconds("engine node recovering")
             .zip(line_seconds("engine node serving"))
-            .map(|(recovering, serving)| {
-                // A recovery that crosses midnight UTC.
-                let seconds = if serving < recovering {
-                    serving + 86_400.0 - recovering
-                } else {
-                    serving - recovering
-                };
-                Duration::from_secs_f64(seconds)
-            });
-        Some(Self {
+            .ok_or("the process logged no timed recovery and serving lines")?;
+        let recovery_duration = {
+            // A recovery that crosses midnight UTC.
+            let seconds = if serving < recovering {
+                serving + 86_400.0 - recovering
+            } else {
+                serving - recovering
+            };
+            Duration::from_secs_f64(seconds)
+        };
+        Ok(Self {
             last_applied_seq: field("last_applied_seq")?,
             batches: field("batches")?,
             recovery_duration,
@@ -275,13 +289,9 @@ impl fmt::Display for LogReplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "replayed {} batches after seq {}",
-            self.batches, self.last_applied_seq
-        )?;
-        match self.recovery_duration {
-            Some(duration) => write!(formatter, " in a {duration:.1?} recovery"),
-            None => Ok(()),
-        }
+            "replayed {} batches after seq {} in a {:.1?} recovery",
+            self.batches, self.last_applied_seq, self.recovery_duration
+        )
     }
 }
 
@@ -302,6 +312,8 @@ struct SoakLedger {
     recoveries: Vec<Recovery>,
     snapshot_restores: Vec<u64>,
     hard_delete_closures: usize,
+    /// Whether every cold restart must restore a snapshot; see `requires_snapshot_restores`.
+    requires_snapshot_restores: bool,
 }
 
 /// Soaks a cluster on the target that `DEX_SOAK_TARGET` names; see `crates/dexzd-server/README.md`.
@@ -318,26 +330,42 @@ async fn object_store_soak() {
     eprintln!("soak: {}; {settings}", target.describe());
     let keeps_objects = settings.keeps_objects;
     let outcome = tokio::spawn(run_soak(Arc::clone(&target), settings, run_id)).await;
-    let remaining = if keeps_objects {
-        eprintln!("soak: {KEEP_OBJECTS_VARIABLE}=1, so the objects stay under the prefix");
-        Vec::new()
-    } else {
-        target.delete_everything().await
-    };
-    eprintln!(
-        "soak: {} objects remain under the prefix after cleanup{}",
-        remaining.len(),
-        if remaining.is_empty() {
-            String::new()
-        } else {
-            format!(": {:?}", &remaining[..remaining.len().min(20)])
+    let cleanup_failure = if keeps_objects {
+        match target.remaining_keys().await {
+            Ok(keys) => {
+                eprintln!(
+                    "soak: {KEEP_OBJECTS_VARIABLE}=1, so {} objects stay under the prefix",
+                    keys.len()
+                );
+                None
+            }
+            Err(failure) => Some(failure),
         }
-    );
+    } else {
+        match target.delete_everything().await {
+            Ok(remaining) if remaining.is_empty() => {
+                eprintln!("soak: no object remains under the prefix after cleanup");
+                None
+            }
+            Ok(remaining) => Some(format!(
+                "{} objects remain under the prefix: {:?}",
+                remaining.len(),
+                &remaining[..remaining.len().min(20)]
+            )),
+            Err(failure) => Some(failure),
+        }
+    };
+    if let Some(failure) = &cleanup_failure {
+        eprintln!("soak cleanup failed: {failure}");
+    }
     if let Ok(target) = Arc::try_unwrap(target) {
         target.shutdown().await;
     }
     if let Err(error) = outcome {
         resume_unwind(error.into_panic());
+    }
+    if let Some(failure) = cleanup_failure {
+        panic!("soak cleanup failed: {failure}");
     }
 }
 
@@ -372,7 +400,16 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
     let load = workload.start_shaped_load(cluster.router_address(), "soak", &LOAD_SHAPE);
     let mut vault = Vault::new(&run_id);
     let mut schedule = FaultSchedule::new(settings.seed);
-    let mut ledger = SoakLedger::default();
+    let mut ledger = SoakLedger {
+        requires_snapshot_restores: settings.requires_snapshot_restores(),
+        ..SoakLedger::default()
+    };
+    if !ledger.requires_snapshot_restores {
+        eprintln!(
+            "soak: WARNING: faults come every {:?}, within a {:?} snapshot interval plus {SNAPSHOT_MARGIN:?}, so a cold restart may find no snapshot and the soak does not require one",
+            settings.fault_interval, settings.snapshot_interval
+        );
+    }
     let mut next_fault_at = started_at + settings.fault_interval;
     let mut next_progress_at = started_at + PROGRESS_INTERVAL;
     let mut next_vault_round_at = started_at;
@@ -473,7 +510,11 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
         .await
         .expect("the soak prefix lists");
     let layout = if target.provider.is_head_probing() {
-        Some(check_versioned_layout(&inspection, &objects).await)
+        let required_keys = [
+            MANIFEST_OBJECT_KEY.to_owned(),
+            node_lease_object_key(NODE_ID),
+        ];
+        Some(check_versioned_layout(&inspection, &objects, &required_keys).await)
     } else {
         None
     };
@@ -506,7 +547,7 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
         );
     }
     eprintln!(
-        "  {} process starts, {} stale-batch restarts; readiness {:?}",
+        "  {} process starts, {} stale-batch restarts; readiness sampled every 25 ms, which can miss a short overlap that the lease and create-only writes still fence: {:?}",
         cluster_report.process_starts, cluster_report.stale_batch_restarts, cluster_report.serving
     );
     eprintln!(
@@ -522,6 +563,9 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
     eprintln!("  objects by area at the end:");
     for (area, (count, bytes)) in count_by_area(&objects) {
         eprintln!("    {area}: {count} objects, {bytes} bytes");
+    }
+    if ledger.snapshot_restores.is_empty() {
+        eprintln!("  WARNING: no cold restart happened, so no snapshot restore was checked");
     }
     if let Some(layout) = &layout {
         eprintln!("  versioned layout: {layout}");
@@ -568,21 +612,20 @@ async fn inject_fault(
                 from,
                 to: cluster.slot_name(serving).to_owned(),
                 serving_again_after: stopped_at.elapsed(),
-                replay: LogReplay::parse(&cluster.process_log(serving)),
+                replay: LogReplay::parse(&cluster.process_log(serving)).ok(),
             });
             cluster.spawn(active);
             cluster.wait_for_hot_standby(active, STANDBY_BUDGET).await;
         }
         SoakFault::ColdRestartBoth | SoakFault::CrashColdRestartBoth => {
-            let snapshot_manifests =
-                list_all(inspection, SNAPSHOT_PREFIX)
-                    .await
-                    .map_or(0, |objects| {
-                        objects
-                            .iter()
-                            .filter(|object| object.key.contains("/manifest/"))
-                            .count()
-                    });
+            let snapshot_manifests = list_all(inspection, SNAPSHOT_PREFIX)
+                .await
+                .unwrap_or_else(|error| {
+                    panic!("fault #{number}: listing the snapshots failed: {error}")
+                })
+                .iter()
+                .filter(|object| object.key.contains("/manifest/"))
+                .count();
             let stopped_at = if fault == SoakFault::CrashColdRestartBoth {
                 cluster.kill(standby).await;
                 cluster.kill(active).await;
@@ -598,28 +641,35 @@ async fn inject_fault(
             };
             cluster.wipe(active);
             cluster.wipe(standby);
-            cluster.spawn(active);
-            let serving = cluster.wait_for_serving(None, STARTUP_BUDGET).await;
-            let restored_seq = replay_field(&cluster.process_log(serving), "last_applied_seq");
-            assert!(
-                snapshot_manifests == 0 || restored_seq > 0,
-                "fault #{number}: {snapshot_manifests} snapshot manifests existed, but the cold restart replayed the log from seq 1:\n{}",
-                cluster.process_log(serving)
-            );
-            ledger.snapshot_restores.push(restored_seq);
-            let replay = LogReplay::parse(&cluster.process_log(serving));
-            if let Some(replay) = &replay {
-                eprintln!(
-                    "soak +{}: fault #{number} {fault:?}: {replay}",
-                    elapsed(started_at)
-                );
+            if fault == SoakFault::CrashColdRestartBoth {
+                cluster.spawn_as_cold_standby(active);
+            } else {
+                cluster.spawn(active);
             }
+            let serving = cluster.wait_for_serving(None, STARTUP_BUDGET).await;
+            let log = cluster.process_log(serving);
+            let replay = LogReplay::parse(&log)
+                .unwrap_or_else(|failure| panic!("fault #{number}: {failure}:\n{log}"));
+            assert!(
+                (snapshot_manifests == 0 && !ledger.requires_snapshot_restores)
+                    || replay.last_applied_seq > 0,
+                "fault #{number}: {snapshot_manifests} snapshot manifests existed, but the cold restart replayed the log from seq 1:\n{log}"
+            );
+            assert!(
+                fault != SoakFault::CrashColdRestartBoth || replay.batches > 0,
+                "fault #{number}: the crash left no log after the latest snapshot to replay:\n{log}"
+            );
+            ledger.snapshot_restores.push(replay.last_applied_seq);
+            eprintln!(
+                "soak +{}: fault #{number} {fault:?}: {replay}",
+                elapsed(started_at)
+            );
             ledger.recoveries.push(Recovery {
                 fault,
                 from,
                 to: cluster.slot_name(serving).to_owned(),
                 serving_again_after: stopped_at.elapsed(),
-                replay,
+                replay: Some(replay),
             });
             cluster.spawn(standby);
             cluster.wait_for_hot_standby(standby, STANDBY_BUDGET).await;

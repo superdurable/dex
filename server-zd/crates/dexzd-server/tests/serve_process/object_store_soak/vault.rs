@@ -491,8 +491,8 @@ async fn check_record(
     Ok(violations)
 }
 
-/// Returns the text of Attribute `key` among `attributes`, loading it when the server returned a
-/// blob reference, or `None` when it is missing or not text.
+/// Returns the text of Attribute `key`, loading a blob reference, or `None` when missing or not
+/// text.
 async fn attribute_text(
     client: &mut FlowServiceClient<Channel>,
     record: &VaultRecord,
