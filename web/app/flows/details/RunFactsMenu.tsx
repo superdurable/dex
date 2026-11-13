@@ -12,6 +12,7 @@ import { CalendarClock, ChevronDown, CornerDownRight, Flag, Layers, ListOrdered,
 import type { FlowExecution } from '@/lib/types';
 import { runPath } from '../../routes';
 import { CopyButton } from '../../components/CopyButton';
+import { StatusBadge } from '../../components/StatusBadge';
 import { usePopover } from '../../components/frame/usePopover';
 
 /** One fact about the run, shown in the facts popover. */
@@ -35,10 +36,16 @@ export function RunFactsMenu({
   flowId,
   runId,
   facts,
+  flowType,
   childFlows = [],
+  hasMoreChildFlows = false,
   childFlowsHref,
 }: {
   flowId: string;
+  /** Shown muted after the Flow ID, so the run reads as "which Flow, of what kind". */
+  flowType?: string;
+  /** True when the run has more child Flows than childFlows lists. */
+  hasMoreChildFlows?: boolean;
   runId: string;
   facts: readonly RunFact[];
   childFlows?: readonly FlowExecution[];
@@ -60,6 +67,13 @@ export function RunFactsMenu({
         type="button"
       >
         <span className="run-facts-name mono">{middleTruncate(flowId, 30)}</span>
+        {flowType && <span className="run-facts-type">{flowType}</span>}
+        {childFlows.length > 0 && (
+          <span className="run-facts-children-count">
+            <CornerDownRight aria-hidden="true" size={12} strokeWidth={2.25} />
+            {childFlowCountLabel(childFlows.length, hasMoreChildFlows)}
+          </span>
+        )}
         <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
       </button>
       {isOpen && (
@@ -77,15 +91,15 @@ export function RunFactsMenu({
           </dl>
           {childFlows.length > 0 && (
             <div className="run-facts-children">
-              <span>Child Flows</span>
+              <span>Child Flows · {childFlowCountLabel(childFlows.length, hasMoreChildFlows)}</span>
               {childFlows.slice(0, 5).map((child) => (
                 <Link key={child.flowId} title={child.flowId} to={runPath(child.flowId, child.runId)}>
                   <CornerDownRight aria-hidden="true" size={13} strokeWidth={2} />
                   <span className="mono">{middleTruncate(child.flowId, 40)}</span>
-                  <small>{child.flowStatus}</small>
+                  <StatusBadge status={child.flowStatus} />
                 </Link>
               ))}
-              {childFlowsHref && childFlows.length > 5 && <Link to={childFlowsHref}>See all child Flows</Link>}
+              {childFlowsHref && (childFlows.length > 5 || hasMoreChildFlows) && <Link to={childFlowsHref}>See all child Flows</Link>}
             </div>
           )}
           <div className="run-facts-ids">
@@ -104,4 +118,8 @@ export function RunFactsMenu({
       )}
     </div>
   );
+}
+
+function childFlowCountLabel(count: number, hasMore: boolean): string {
+  return `${count}${hasMore ? '+' : ''} ${count === 1 && !hasMore ? 'child' : 'children'}`;
 }

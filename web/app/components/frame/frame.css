@@ -160,14 +160,25 @@ body {
 }
 
 .run-facts-button {
-  max-width: min(100%, 36ch);
+  max-width: min(100%, 64ch);
   color: var(--ui-ink);
   font-weight: 600;
 }
 
 .run-facts-name {
   overflow: hidden;
-  font-size: var(--ui-text-md);
+  font-size: var(--ui-text-lg, 16px);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-facts-type {
+  overflow: hidden;
+  max-width: 22ch;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -456,9 +467,10 @@ body {
 
 /* ----------------------------------------------------- giving way, in order */
 
-/* When the views do not fit with names, inactive tabs keep their name for screen readers only. */
+/* Views give way from the end: later tabs lose their names first, all but the active one last. */
 @container app-bar (min-width: 0px) {
-  .app-bar.v1-page[data-compact-views='true'] .run-tabs button:not(.active) .run-tab-label {
+  .app-bar.v1-page[data-compact-views='tail'] .run-tabs button:not(.active):nth-child(n+3) .run-tab-label,
+  .app-bar.v1-page[data-compact-views='all'] .run-tabs button:not(.active) .run-tab-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -481,7 +493,17 @@ body {
     display: none;
   }
 
-  .app-bar .status-badge {
+  .run-facts-type {
+  overflow: hidden;
+  max-width: 22ch;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar .status-badge {
     padding: 5px;
     font-size: 0;
   }
@@ -682,6 +704,56 @@ body {
   font-size: var(--ui-text-sm);
 }
 
+.run-state-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 14px;
+  border-radius: var(--ui-radius-item);
+  color: var(--tone-done-ink);
+  background: var(--tone-done-soft);
+  font-weight: 600;
+}
+
+.run-state-line.is-open {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.run-state-label {
+  flex: none;
+  font-size: var(--ui-text-xs);
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  text-transform: uppercase;
+}
+
+.run-state-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-state-message .mono {
+  font-weight: 500;
+}
+
+.run-state-line .run-failure-jump {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.selected-event-time-travel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: var(--ui-text-sm);
+}
+
 /* The event pager is the head of the view it pages. */
 .run-primary > .run-events-tile {
   margin-bottom: 0;
@@ -734,6 +806,9 @@ body {
 
 /* Parent and child Flows sit in the trail, so a subflow always leads back up. */
 .app-bar-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   max-width: 24ch;
   overflow: hidden;
   padding: 4px 6px;
@@ -745,13 +820,12 @@ body {
   white-space: nowrap;
 }
 
-.app-bar-parent:hover,
-.app-bar-children:hover {
+.app-bar-parent:hover {
   color: var(--ui-ink);
   background: var(--ui-hover);
 }
 
-.app-bar-children {
+.run-facts-children-count {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -881,8 +955,23 @@ body {
   justify-content: center;
 }
 
+/* The Flow ID is what gives way first, down to a readable stub. */
 .app-bar-page > .run-facts-menu {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+}
+
+.run-facts-button {
+  min-width: 0;
+}
+
+.run-facts-name {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.run-facts-children-count,
+.run-facts-button > svg {
+  flex: none;
 }
 
 .app-bar-duration {
@@ -893,7 +982,8 @@ body {
 }
 
 /* An icon-only tab shows its name on hover and focus. */
-.app-bar.v1-page[data-compact-views='true'] .run-tabs button:not(.active):is(:hover, :focus-visible)::before {
+.app-bar.v1-page[data-compact-views='tail'] .run-tabs button:not(.active):nth-child(n+3):is(:hover, :focus-visible)::before,
+.app-bar.v1-page[data-compact-views='all'] .run-tabs button:not(.active):is(:hover, :focus-visible)::before {
   position: absolute;
   z-index: 45;
   top: calc(100% + 4px);
@@ -951,4 +1041,116 @@ body {
 /* The bar is the page's top edge; content starts close under it. */
 .v1-page.run-page > .run-content {
   padding-top: 0;
+}
+
+/* ------------------------------------------- desktop: the trail gives way first */
+
+/* On desktop the trail never overlaps the views; the Flow ID shortens in steps instead, then the views. */
+@container app-bar (min-width: 1100px) {
+  .app-bar.v1-page .app-bar-trail {
+    min-width: auto;
+  }
+}
+
+@container app-bar (max-width: 1520px) {
+  .app-bar .app-bar-copy {
+    display: none;
+  }
+
+  .run-facts-name {
+    max-width: 24ch;
+  }
+}
+
+@container app-bar (max-width: 1360px) {
+  .run-facts-name {
+    max-width: 15ch;
+  }
+
+  .app-bar.v1-page .run-tabs button {
+    gap: 5px;
+    padding: 0 8px;
+  }
+
+  .run-facts-children-count {
+    display: none;
+  }
+}
+
+@container app-bar (max-width: 1520px) {
+  .run-facts-type {
+    display: none;
+  }
+}
+
+/* Page buttons are icons with names for screen readers and tooltips, so the pager stays one short row. */
+.run-events-pager--icons .pager-button {
+  min-width: 30px;
+  padding: 0 7px;
+}
+
+.run-events-pager--icons .pager-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.run-primary > .run-events-tile .run-fact-label {
+  display: none;
+}
+
+/* One click filters the Flows list by status, as a run list's first question usually is. */
+.v1-page .status-quick-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-right: auto;
+  margin-left: 14px;
+}
+
+.v1-page .status-quick-filters button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.v1-page .status-quick-filters button:hover {
+  background: var(--ui-hover);
+}
+
+.v1-page .status-quick-filters button.active {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+/* With no filter rows the Flows search is one line: modes, statuses, Add filter, Search. */
+.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)):not(:has(.saved-query-panel)) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)):not(:has(.saved-query-panel)) > .query-toolbar {
+  flex: 1 1 640px;
+}
+
+.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)):not(:has(.saved-query-panel)) > .query-submit {
+  margin-top: 0;
+}
+
+.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)) .query-submit > .button.ghost {
+  display: none;
 }

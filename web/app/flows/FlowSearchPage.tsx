@@ -99,6 +99,19 @@ function newFilter(field = 'ExecutionStatus'): BasicFilter {
   };
 }
 
+const ALL_STATUSES = 'All';
+const QUICK_STATUSES = [ALL_STATUSES, 'Running', 'Failed', 'Completed'] as const;
+type QuickStatus = typeof QUICK_STATUSES[number];
+
+/** The quick status a search is exactly, or null when it filters anything else. */
+function quickStatusOf(filters: BasicFilter[] | null): QuickStatus | null {
+  if (!filters) return null;
+  if (filters.length === 0) return ALL_STATUSES;
+  const [only] = filters;
+  if (filters.length !== 1 || only.field !== 'ExecutionStatus' || only.operator !== '=') return null;
+  return QUICK_STATUSES.find((status) => status === only.value) ?? null;
+}
+
 function readJSON<T>(key: string, fallback: T): T {
   try {
     const stored = window.localStorage.getItem(key);
@@ -133,6 +146,7 @@ export function FlowSearchPage() {
   const modeTabs = useRef<Partial<Record<QueryMode, HTMLButtonElement | null>>>({});
   const [filters, setFilters] = useState<BasicFilter[]>([]);
   const [query, setQuery] = useState('');
+  const [searchedQuery, setSearchedQuery] = useState('');
   const [flows, setFlows] = useState<FlowExecution[]>([]);
   const [nextPageToken, setNextPageToken] = useState('');
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
@@ -149,6 +163,7 @@ export function FlowSearchPage() {
 
   const generatedQuery = useMemo(() => buildVisibilityQuery(filters), [filters]);
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
+  const quickStatus = quickStatusOf(parseVisibilityQuery(searchedQuery));
   const customAttributes = useMemo(() => selectVisibleIndexedAttributeKeys(flows), [flows]);
 
   const executeSearch = useCallback(async (
@@ -171,6 +186,7 @@ export function FlowSearchPage() {
       });
       const data = await readResponseJSON<SearchFlowsResult>(response);
       setFlows(data.flows);
+      setSearchedQuery(requestedQuery);
       setNextPageToken(data.nextPageToken);
       setPage(requestedPage);
       const url = new URL(window.location.href);
@@ -254,6 +270,17 @@ export function FlowSearchPage() {
     else return;
     event.preventDefault();
     if (switchMode(target)) modeTabs.current[target]?.focus();
+  }
+
+  // One click per status: the filters become just that status, and the search runs.
+  function searchByStatus(status: QuickStatus) {
+    const nextFilters = status === ALL_STATUSES ? [] : [{ ...newFilter(), value: status }];
+    const nextQuery = buildVisibilityQuery(nextFilters);
+    setMode('basic');
+    setFilters(nextFilters);
+    setQuery(nextQuery);
+    setPageTokens(['']);
+    void executeSearch(nextQuery, '', 0, pageSize);
   }
 
   function loadQuery(nextQuery: string) {
@@ -348,6 +375,19 @@ export function FlowSearchPage() {
               Query
             </button>
           </div>
+          <div aria-label="Status" className="status-quick-filters" role="group">
+            {QUICK_STATUSES.map((status) => (
+              <button
+                aria-pressed={quickStatus === status}
+                className={quickStatus === status ? 'active' : ''}
+                key={status}
+                onClick={() => searchByStatus(status)}
+                type="button"
+              >
+                {status === ALL_STATUSES ? 'All' : status}
+              </button>
+            ))}
+          </div>
           <div className="query-actions">
             <button aria-expanded={savedOpen} className="button quiet" onClick={() => setSavedOpen(!savedOpen)} type="button">
               <History aria-hidden="true" size={15} strokeWidth={2} />
@@ -441,10 +481,12 @@ export function FlowSearchPage() {
               <Plus aria-hidden="true" size={15} strokeWidth={2} />
               Add filter
             </button>
-            <div className="query-preview">
-              <span>Generated query</span>
-              <code>{generatedQuery || 'All flows'}</code>
-            </div>
+            {generatedQuery && (
+              <div className="query-preview">
+                <span>Generated query</span>
+                <code>{generatedQuery}</code>
+              </div>
+            )}
           </div>
         ) : (
           <div aria-labelledby="flow-search-query-tab" id="flow-search-query-panel" role="tabpanel">

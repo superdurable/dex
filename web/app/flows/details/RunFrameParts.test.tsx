@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { flowIdPrefixQuery, linkedRunPathOf } from '../../components/frame/JumpTo';
 import { OperateMenu } from './OperateMenu';
-import { runFailureOf } from './RunFailureLine';
+import { runFailureOf, runStateOf } from './RunFailureLine';
 
 afterEach(cleanup);
 
@@ -61,6 +61,17 @@ describe('run failure line', () => {
     expect(runFailureOf([event(3, 'FlowClosed', { errorMessage: 'timed out' })])).toEqual({ message: 'timed out', eventId: 3 });
     expect(runFailureOf([event(3, 'FlowClosed', {})])).toBeNull();
     expect(runFailureOf([event(3, 'StepExecuteFailed')])).toBeNull();
+  });
+});
+
+describe('run state line', () => {
+  it('names the newest event and the newest Step, whatever order events arrive in', () => {
+    const events = [
+      event(9, 'StepWaitForCompleted', { context: { stepType: 'AwaitNextWindow' } }),
+      event(4, 'StepExecuteCompleted', { context: { stepType: 'SyncBatch' } }),
+    ];
+    expect(runStateOf(events, true)).toEqual({ isOpen: true, title: 'Waiting for conditions', stepType: 'AwaitNextWindow', eventId: 9 });
+    expect(runStateOf([], false)).toBeNull();
   });
 });
 

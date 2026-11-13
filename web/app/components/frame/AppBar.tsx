@@ -60,31 +60,26 @@ function useFlowsHref(pathname: string, search: string): string {
   return `${FLOWS_PATH}${lastSearch}`;
 }
 
-/** Marks the bar compact when the views' names do not fit; measured, since names vary per page. */
+const COMPACT_VIEW_LEVELS = ['tail', 'all'] as const;
+
+/** Picks the least compact views level whose tabs fit; measured, since names vary per page. */
 function useCompactViews(bar: HTMLElement | null) {
   useEffect(() => {
     const views = bar?.querySelector<HTMLElement>('.app-bar-views');
     // Without ResizeObserver, as in some test environments, the views keep their names.
     if (!bar || !views || typeof ResizeObserver === 'undefined') return undefined;
-    let widthWithNames = 0;
     const update = () => {
       const tabs = views.firstElementChild as HTMLElement | null;
       if (!tabs) return;
-      const isCompact = bar.dataset.compactViews === 'true';
-      if (!isCompact) {
-        widthWithNames = tabs.scrollWidth;
-        if (tabs.scrollWidth > views.clientWidth + 1) bar.dataset.compactViews = 'true';
-      } else if (views.clientWidth >= widthWithNames + 8) {
-        delete bar.dataset.compactViews;
+      delete bar.dataset.compactViews;
+      for (const level of COMPACT_VIEW_LEVELS) {
+        if (tabs.scrollWidth <= views.clientWidth + 1) return;
+        bar.dataset.compactViews = level;
       }
     };
     const resize = new ResizeObserver(update);
     resize.observe(bar);
-    resize.observe(views);
-    const mutation = new MutationObserver(() => {
-      delete bar.dataset.compactViews;
-      update();
-    });
+    const mutation = new MutationObserver(update);
     mutation.observe(views, { childList: true, subtree: true });
     update();
     return () => {

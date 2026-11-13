@@ -2432,7 +2432,8 @@ html:has(.v1-page .stream-scroll--entries) {
 
 /* ---------------------------------------------------- horizontal Timeline */
 
-@media (min-width: 761px) {
+/* Below desktop width the event panel sits under the strip; on desktop it stays beside it, like the graph's. */
+@media (min-width: 761px) and (max-width: 1279px) {
   .v1-page .run-content.run-content--horizontal-timeline {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2445,6 +2446,12 @@ html:has(.v1-page .stream-scroll--entries) {
     position: static;
     max-height: none;
     overflow: visible;
+  }
+}
+
+@media (min-width: 1280px) {
+  .v1-page .run-content.run-content--horizontal-timeline {
+    grid-template-columns: minmax(560px, 1fr) min(var(--run-sidebar-width), 44%);
   }
 }
 

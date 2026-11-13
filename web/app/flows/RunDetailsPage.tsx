@@ -34,7 +34,7 @@ import type {
 } from '@/lib/types';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import {
-  CornerDownRight,
+  CornerLeftUp,
   LayoutDashboard,
   Rows3,
   PencilRuler,
@@ -61,7 +61,7 @@ import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { CopyButton } from '../components/CopyButton';
 import { rememberRecentRun } from '../components/frame/recentRuns';
-import { RunFailureLine, runFailureOf } from './details/RunFailureLine';
+import { RunFailureLine, runFailureOf, RunStateLine, runStateOf } from './details/RunFailureLine';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline } from './details/HorizontalTimeline';
@@ -854,6 +854,7 @@ export function RunDetailsPage({
 
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
+  const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
@@ -877,7 +878,8 @@ export function RunDetailsPage({
         {relations?.parentFlowId && (
           <>
             <Link className="app-bar-parent" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
-              <span className="mono">{middleTruncate(relations.parentFlowId, 22)}</span>
+              <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
+              <span className="mono">{middleTruncate(relations.parentFlowId, 16)}</span>
             </Link>
             <span aria-hidden="true" className="app-bar-separator">/</span>
           </>
@@ -893,20 +895,11 @@ export function RunDetailsPage({
           childFlowsHref={childFlowsHref}
           facts={runFacts}
           flowId={flowId}
+          flowType={summary?.flowType}
+          hasMoreChildFlows={relations?.hasMoreChildren}
           runId={runId}
         />
         <CopyButton className="app-bar-copy" label="Copy Flow ID" value={flowId} />
-        {relations && relations.children.length > 0 && (
-          <Link
-            aria-label={`${relations.children.length}${relations.hasMoreChildren ? '+' : ''} child Flows`}
-            className="app-bar-children"
-            title="Child Flows of this run"
-            to={childFlowsHref}
-          >
-            <CornerDownRight aria-hidden="true" size={13} strokeWidth={2.25} />
-            {relations.children.length}{relations.hasMoreChildren ? '+' : ''}
-          </Link>
-        )}
         {summary && currentRunAttempt > 1 && (
           <RunAttemptSelect
             currentRunAttempt={currentRunAttempt}
@@ -961,6 +954,9 @@ export function RunDetailsPage({
 
       {runFailure && (
         <RunFailureLine failure={runFailure} onJumpToEvent={(eventId) => void jumpToEvent(eventId)} />
+      )}
+      {runState && (shownTab === 'timeline' || shownTab === 'steps' || shownTab === 'overview') && (
+        <RunStateLine onJumpToEvent={(eventId) => void jumpToEvent(eventId)} state={runState} />
       )}
       {isViewingEarlierRunAttempt && (
         <div className="warning-banner run-error">
@@ -1132,6 +1128,7 @@ export function RunDetailsPage({
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
               isJumpDisabled={runHistory.isLoadingTimelinePage}
+              onTimeTravelFromEvent={openTimeTravel}
             />
           </aside>
         )}

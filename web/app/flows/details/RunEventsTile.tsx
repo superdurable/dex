@@ -88,33 +88,33 @@ function RunEventsPager({ paging }: { paging: RunEventsPaging }) {
   const isNewerDisabled = paging.isLoading || paging.isNewest;
   const isOlderDisabled = paging.isLoading || !paging.hasOlder;
   return (
-    <div aria-busy={paging.isLoading} aria-label="Event pages" className="run-events-pager" role="group">
+    <div aria-busy={paging.isLoading} aria-label="Event pages" className="run-events-pager run-events-pager--icons" role="group">
       {paging.canGoBack && (
-        <button className="pager-button" disabled={paging.isLoading} onClick={paging.onBack} type="button">
+        <button className="pager-button" disabled={paging.isLoading} onClick={paging.onBack} title="Back" type="button">
           <Undo2 aria-hidden="true" size={14} strokeWidth={2} />
-          Back
+          <span className="pager-label">Back</span>
         </button>
       )}
-      <button className="pager-button" disabled={isNewerDisabled} onClick={paging.onLatestPage} type="button">
+      <button className="pager-button" disabled={isNewerDisabled} onClick={paging.onLatestPage} title="Latest page" type="button">
         <ChevronsUp aria-hidden="true" size={14} strokeWidth={2} />
-        Latest page
+        <span className="pager-label">Latest page</span>
       </button>
       <button
         className="pager-button"
         disabled={isNewerDisabled || !paging.hasNewer}
-        onClick={paging.onNewerPage}
+        onClick={paging.onNewerPage} title="Newer page"
         type="button"
       >
         <ChevronUp aria-hidden="true" size={14} strokeWidth={2} />
-        Newer page
+        <span className="pager-label">Newer page</span>
       </button>
-      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOlderPage} type="button">
+      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOlderPage} title="Older page" type="button">
         <ChevronDown aria-hidden="true" size={14} strokeWidth={2} />
-        Older page
+        <span className="pager-label">Older page</span>
       </button>
-      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOldestPage} type="button">
+      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOldestPage} title="Oldest page" type="button">
         <ChevronsDown aria-hidden="true" size={14} strokeWidth={2} />
-        Oldest page
+        <span className="pager-label">Oldest page</span>
       </button>
     </div>
   );
