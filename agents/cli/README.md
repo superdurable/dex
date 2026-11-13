@@ -54,6 +54,10 @@ claude: {}
 | `system_prompt` | the harness's instructions | The agent's instructions. |
 | `system_prompt_file` | none | A UTF-8 file whose text is the instructions. Use either this or `system_prompt`, not both. |
 | `dex.server` | `auto` | `auto` reuses this machine's running `dexcli dev` or starts one. Otherwise an `http` or `https` URL of a Dex server. See URLs below. |
+| `dex.auth.mode` | `none` | How the Worker and the Client authenticate to the Dex server: `none`, `api_key`, or `bearer`. Any other mode than `none` needs a `dex.server` URL. See A remote Dex server below. |
+| `dex.auth.token_url`, `dex.auth.server_id` | none | `api_key` only. The token endpoint that exchanges the key in `DEX_API_KEY`, and the server ID the access tokens are scoped to. `DEX_TOKEN_URL` and `DEX_SERVER_ID` override them. |
+| `dex.auth.source`, `dex.auth.file` | none | `bearer` only. `source: env` takes the token from `DEX_CREDENTIAL`; `source: file` reads it from `file`, which `DEX_CREDENTIAL_FILE` overrides. |
+| `dex.tls.ca_file`, `dex.tls.server_name` | none | An `https` `dex.server` only. A PEM file of root CAs to trust as well, and the name the certificate must match. `DEX_TLS_CA_FILE` and `DEX_TLS_SERVER_NAME` override them. |
 | `connectors.mcp` | `auto` | The connectors MCP server. `auto` uses the one `dexcli dev` provides. Otherwise an `http` or `https` URL on `127.0.0.1`, `localhost`, or `[::1]`. See URLs below. |
 | `connectors.enabled` | every authorized connection | Which connections, and which of their operations, the agent may call. See below. |
 | `approval.always` | `[]` | Tool names, as the agent sees them, whose every call waits for approval. This adds to what the connectors and local tools already require. |
@@ -95,6 +99,58 @@ optional. The schema checks this shape. After the schema, the command rejects
 the URL with `invalid_url` when an IPv4 part is over 255 or has a leading
 zero (`010` would mean 8 to a WHATWG parser), the IPv6 address is invalid, a DNS label starts with `xn--`, or the port is over 65535. Every URL
 that passes both checks parses with a WHATWG URL parser.
+
+### A remote Dex server
+
+```yaml
+dex:
+  server: https://dex.example.com
+  auth:
+    mode: api_key
+    token_url: https://auth.example.com/oauth/token
+    server_id: dex-prod
+  tls:
+    ca_file: ~/certs/dex-ca.pem    # Only for a private CA.
+```
+
+Only `dex.auth.mode` turns authentication on. Without `dex.auth`, or with
+`mode: none`, the command reads none of `DEX_API_KEY`, `DEX_TOKEN_URL`,
+`DEX_SERVER_ID`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE`, so variables
+exported for `dexcli` never change a configuration that does not ask for
+them. `dex.auth` with `dex.server: auto` is an error (`auth_needs_server_url`):
+the local `dexcli dev` takes no credential.
+
+| Mode | Secret | Other settings |
+| --- | --- | --- |
+| `api_key` | `DEX_API_KEY` | `token_url` (or `DEX_TOKEN_URL`) and `server_id` (or `DEX_SERVER_ID`), both required |
+| `bearer`, `source: env` | `DEX_CREDENTIAL` | none |
+| `bearer`, `source: file` | the content of `file` (or `DEX_CREDENTIAL_FILE`) | none |
+
+The secret never goes in the file: the schema rejects `api_key`, `token`,
+`credential`, and `access_token` under `dex.auth`. Each variable is trimmed,
+and one that is empty after trimming is not set. A variable that is set
+overrides the file's field of the selected mode, so one file can point at
+another token endpoint or server ID per shell. `token_url`, and
+`DEX_TOKEN_URL`, must be `https`, or `http` on `localhost`, `127.0.0.0/8`, or
+`[::1]` (`insecure_token_url`). A credential may also go to an `http`
+`dex.server`; it is then readable on the network path.
+
+An `https` `dex.server` turns TLS on with the default trust store. `dex.tls`
+adds a CA bundle or another server name. It needs an `https` server
+(`tls_needs_https_server`). `DEX_TLS_CA_FILE` and `DEX_TLS_SERVER_NAME`
+override it, and the command reads them only for an `https` server. The URL
+scheme decides TLS, so `DEX_TLS` is never read, and neither is
+`DEX_FLOW_SERVICE_ADDRESS`. Paths in the file expand a leading `~` and are
+relative to the file's directory; paths in a variable expand `~` and are
+relative to the working directory.
+
+A missing setting stops the command at startup with exit code 2 and a message
+that names the setting, such as
+`DEX_API_KEY is not set; dex.auth mode api_key needs it.` A credential that
+the token endpoint or the server rejects stops it with exit code 1 and a line
+that says which. The terminal UI gets the same `dex.tls` and `dex.auth` in its
+launch document and only the one variable its mode needs: see the
+[terminal UI contract](TERMINAL_UI_CONTRACT.md#environment).
 
 ### Connectors
 
@@ -195,8 +251,10 @@ the session keeps its settings until someone fixes them.
 
 [`../conformance/cli_config.json`](../conformance/cli_config.json) holds the
 cases every CLI core runs: YAML parsing, valid and invalid files with the
-expected effective configuration or error, and session settings with the
-expected turn configuration and warnings, or error. Its `error_codes`,
+expected effective configuration or error, session settings with the
+expected turn configuration and warnings, or error, and, in `dex_connection`,
+files and environments with the expected Dex connection settings, or the
+setting to fix and its exact message. Its `error_codes`,
 `warnings`, and `check_order` fields define how errors and warnings are
 reported.
 
