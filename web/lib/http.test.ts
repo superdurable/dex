@@ -43,7 +43,7 @@ describe('readResponseJSON', () => {
     });
 
     await expect(readResponseJSON(response)).rejects.toThrow(
-      'Dex API returned an empty response (HTTP 500) for /api/flows/summary?flowId=order-1. The Dex server may be unreachable.',
+      'Dex API returned an empty response (HTTP 500) for /api/flows/summary?flowId=order-1. The Dex Server may be unreachable.',
     );
   });
 
