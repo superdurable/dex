@@ -150,6 +150,33 @@ describe('SessionComposer', () => {
     fireEvent.change(nameInput, { target: { value: '\u{1F600}'.repeat(70) } });
     expect([...nameInput.value]).toHaveLength(64);
     expect(nameInput.value).toBe('\u{1F600}'.repeat(64));
+    fireEvent.change(nameInput, { target: { value: '\u{1F600}'.repeat(63) } });
+    expect([...nameInput.value]).toHaveLength(63);
+    window.localStorage.clear();
+  });
+
+  it('lets an input method finish its text at the limit, then cuts the committed name', () => {
+    window.localStorage.clear();
+    renderComposer(sessionWith({}));
+    const nameInput = screen.getByRole('textbox', { name: SESSION_COPY.senderNameLabel }) as HTMLInputElement;
+    const base = 'a'.repeat(63);
+    fireEvent.change(nameInput, { target: { value: base } });
+    fireEvent.compositionStart(nameInput);
+    fireEvent.change(nameInput, { target: { value: `${base}zh` } });
+    fireEvent.change(nameInput, { target: { value: `${base}zhong` } });
+    expect(nameInput.value).toBe(`${base}zhong`);
+    fireEvent.change(nameInput, { target: { value: `${base}\u4e2d` } });
+    fireEvent.compositionEnd(nameInput);
+    expect(nameInput.value).toBe(`${base}\u4e2d`);
+    expect(window.localStorage.getItem('dex.agents.senderName')).toBe(`${base}\u4e2d`);
+
+    fireEvent.compositionStart(nameInput);
+    fireEvent.change(nameInput, { target: { value: `${base}\u4e2d\u6587` } });
+    fireEvent.compositionEnd(nameInput);
+    expect(nameInput.value).toBe(`${base}\u4e2d`);
+    // Backspace after the limit shortens the name as usual.
+    fireEvent.change(nameInput, { target: { value: base } });
+    expect(nameInput.value).toBe(base);
     window.localStorage.clear();
   });
 

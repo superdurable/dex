@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ListPlus, SendHorizontal, ShieldCheck, Square } from 'lucide-react';
 import { SESSION_COPY } from './copy';
 import type { SessionActionInvoker } from './InterruptControls';
@@ -55,6 +55,13 @@ export function SessionComposer({
   const [busy, setBusy] = useState<ComposerAction>('');
   const [message, setMessage] = useState<{ tone: 'note' | 'error'; text: string } | null>(null);
   const [senderName, setSenderName] = useState(readStoredSenderName);
+  const isComposingSenderNameRef = useRef(false);
+  const changeSenderName = (name: string) => {
+    // An input method's unfinished text may pass the limit, so the name is cut once it is committed.
+    const next = isComposingSenderNameRef.current ? name : limitSenderNameLength(name);
+    setSenderName(next);
+    if (!isComposingSenderNameRef.current) writeStoredSenderName(next);
+  };
   const state = session.view.state;
   const activeTurnId = state?.activeTurnId ?? null;
   const isTurnRunning = activeTurnId !== null;
@@ -139,10 +146,11 @@ export function SessionComposer({
               placeholder={SESSION_COPY.senderNamePlaceholder}
               type="text"
               value={senderName}
-              onChange={(event) => {
-                const limited = limitSenderNameLength(event.target.value);
-                setSenderName(limited);
-                writeStoredSenderName(limited);
+              onChange={(event) => changeSenderName(event.target.value)}
+              onCompositionStart={() => { isComposingSenderNameRef.current = true; }}
+              onCompositionEnd={(event) => {
+                isComposingSenderNameRef.current = false;
+                changeSenderName(event.currentTarget.value);
               }}
             />
           </label>

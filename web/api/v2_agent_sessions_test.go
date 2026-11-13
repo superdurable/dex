@@ -137,6 +137,8 @@ func TestAgentSessionMessageCarriesTheSenderName(t *testing.T) {
 		{`"  Alice  "`, `{"plan_mode":false,"sender_name":"Alice","text":"hi"}`},
 		{`"   "`, `{"plan_mode":false,"text":"hi"}`},
 		{`null`, `{"plan_mode":false,"text":"hi"}`},
+		{`"\ud83d\ude00"`, `{"plan_mode":false,"sender_name":"😀","text":"hi"}`},
+		{`"a\\ud800"`, `{"plan_mode":false,"sender_name":"a\\ud800","text":"hi"}`},
 	} {
 		client.rpcRequests = nil
 		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
@@ -149,7 +151,11 @@ func TestAgentSessionMessageCarriesTheSenderName(t *testing.T) {
 			t.Fatalf("%s: RPC input = %s", testCase.senderName, payload)
 		}
 	}
-	for _, refused := range []string{`"A\nB"`, `"A\u0007"`, `"\u202eAdmin\u202c"`, `"\u200b"`, `"` + strings.Repeat("x", 65) + `"`} {
+	// encoding/json would read each unpaired surrogate escape as U+FFFD, so the route checks the raw string.
+	for _, refused := range []string{
+		`"A\nB"`, `"A\u0007"`, `"\u202eAdmin\u202c"`, `"\u200b"`, `"` + strings.Repeat("x", 65) + `"`,
+		`"\ud800"`, `"A\udc00"`, `"\ud800x"`, `"\ud800\u0041"`, `"\ude00\ud83d"`, `42`,
+	} {
 		client.rpcRequests = nil
 		response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/messages", testAgentSessionRevision,
 			`{"flowType":"SupportAgent","flowId":"session-1","workQueuePermissions":["agent.operate"],"text":"hi",`+

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -45,8 +46,9 @@ type v2AgentSessionMessageRequest struct {
 	FlowID               string   `json:"flowId"`
 	WorkQueuePermissions []string `json:"workQueuePermissions"`
 	Text                 string   `json:"text"`
-	// SenderName is the display name the sender declared, or nil. It is not authenticated.
-	SenderName *string `json:"senderName"`
+	// SenderName is the display name the sender declared, a JSON string or null. It is not
+	// authenticated. It stays raw because decoding turns a lone surrogate escape into U+FFFD.
+	SenderName json.RawMessage `json:"senderName"`
 }
 
 type v2AgentSessionSettingsRequest struct {
@@ -141,17 +143,16 @@ func (h *v2Handler) sendAgentSessionMessage(response http.ResponseWriter, reques
 		return
 	}
 	rpcInput := map[string]interface{}{"text": body.Text, "plan_mode": false}
-	if body.SenderName != nil {
-		senderName := strings.TrimSpace(*body.SenderName)
-		if senderName != "" && !isValidAgentSessionSenderName(senderName) {
-			WriteError(response, http.StatusBadRequest, fmt.Sprintf(
-				"senderName must have at most %d characters and no control, format, or line break characters",
-				maximumAgentSessionSenderNameLength), nil)
-			return
-		}
-		if senderName != "" {
-			rpcInput["sender_name"] = senderName
-		}
+	senderName, isSenderNameReadable := decodeAgentSessionSenderName(body.SenderName)
+	senderName = strings.TrimSpace(senderName)
+	if !isSenderNameReadable || (senderName != "" && !isValidAgentSessionSenderName(senderName)) {
+		WriteError(response, http.StatusBadRequest, fmt.Sprintf(
+			"senderName must be a string of at most %d characters with no control, format, "+
+				"surrogate, or line break characters", maximumAgentSessionSenderNameLength), nil)
+		return
+	}
+	if senderName != "" {
+		rpcInput["sender_name"] = senderName
 	}
 	input, err := json.Marshal(rpcInput)
 	if err != nil {
@@ -160,6 +161,57 @@ func (h *v2Handler) sendAgentSessionMessage(response http.ResponseWriter, reques
 	}
 	h.invokeAgentSessionRPC(response, request, body.FlowType, body.FlowID, body.WorkQueuePermissions,
 		agentSessionSendUserMessageRPC, input)
+}
+
+// decodeAgentSessionSenderName returns the name of a raw JSON string, or "" for an absent or
+// null field. It returns false for another JSON type, invalid UTF-8, or an unpaired
+// surrogate escape, which encoding/json would otherwise decode as U+FFFD.
+func decodeAgentSessionSenderName(raw json.RawMessage) (string, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", true
+	}
+	if !utf8.Valid(trimmed) || hasUnpairedSurrogateEscape(trimmed) {
+		return "", false
+	}
+	var senderName string
+	if err := json.Unmarshal(trimmed, &senderName); err != nil {
+		return "", false
+	}
+	return senderName, true
+}
+
+// hasUnpairedSurrogateEscape reports whether a JSON string token holds a \uD800-\uDFFF escape
+// that is not a high surrogate escape followed by a low one.
+func hasUnpairedSurrogateEscape(token []byte) bool {
+	isAfterHighSurrogate := false
+	for index := 0; index < len(token); index++ {
+		if token[index] != '\\' || index+1 >= len(token) {
+			if isAfterHighSurrogate {
+				return true
+			}
+			continue
+		}
+		if token[index+1] != 'u' || index+6 > len(token) {
+			if isAfterHighSurrogate {
+				return true
+			}
+			index++
+			continue
+		}
+		codeUnit, err := strconv.ParseUint(string(token[index+2:index+6]), 16, 16)
+		if err != nil {
+			return true
+		}
+		isHigh := codeUnit >= 0xD800 && codeUnit <= 0xDBFF
+		isLow := codeUnit >= 0xDC00 && codeUnit <= 0xDFFF
+		if isAfterHighSurrogate != isLow {
+			return true
+		}
+		isAfterHighSurrogate = isHigh
+		index += 5
+	}
+	return isAfterHighSurrogate
 }
 
 // isValidAgentSessionSenderName applies the agents cores' sender name rule, so the route
