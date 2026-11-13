@@ -45,8 +45,8 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 - **Step 至少运行一次。** 见[幂等键](/concepts/step#idempotency-keys)。
 - **ASYNC Step 可能基于新的快照重新运行。** 如果 server 节点在保存 ASYNC Step 的开始之前出故障，这次尝试会再运行一次，读到的 Attribute 值可能不同。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
 - **重试的 RPC 会再次运行。** 每次 RPC 调用都是一个新请求，所以 client 重试可能让 handler 运行两次。见 [RPC](/concepts/primitives/rpc#guarantees)。
-- **重复的 Channel 发布会投递两次。** 响应丢失后再次发送的 `PublishToChannel` 请求，会把这条消息再存一次。通过 request ID 实现只发布一次的功能计划在 [issue 1519](https://github.com/superdurable/dex/issues/1519) 中完成。
-- **重试 StopFlow 时要传入 run ID。** 不带 run ID 的重试可能停掉一个更新的 run。由系统替你处理这件事计划在 [issue 1520](https://github.com/superdurable/dex/issues/1520) 中完成。
+- **重复的 Channel 发布会投递两次。** 响应丢失后再次发送的 `PublishToChannel` 请求，会把这条消息再存一次。
+- **重试 StopFlow 时要传入 run ID。** 不带 run ID 的重试可能停掉一个更新的 run。
 
 [命令最多发送一次](/concepts/client#inbound-commands)给出丢弃重复命令的模式。
 

@@ -71,7 +71,7 @@ Flow 把数据保存在 **Attribute** 里，例如订单状态。**RPC** 让你�
 
 基于 replay 的引擎通过重放事件历史来重建 workflow 的状态。所以 workflow 代码必须是确定性的，读取时间和随机值都要通过引擎的 API。Dex 不重放代码。Step 代码就是普通代码，可以读时钟，也可以调用任何库。修改代码不会让正在运行的 Flow 因为 replay 而出错。
 
-[Dex vs. Temporal](/intro/compared-to-durable-execution)把 Temporal 的每项核心能力对应到 Dex，并说明什么时候 Temporal 更合适。
+[Dex vs. Temporal](/intro/compared-to-durable-execution)比较重放 workflow 代码和保存每个 Step 结果这两种设计。
 
 ## 下一步
 
