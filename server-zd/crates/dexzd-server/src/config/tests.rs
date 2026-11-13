@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{EffectsConfig, HistoryUploadLimits, LocalStoreConfig};
+use dexzd_metrics::MetricsLevel;
 
 use super::engine_config::SERVE_HISTORY_WINDOW_EVENTS;
 use super::{
@@ -63,6 +64,7 @@ fn example_declares_every_default_key_and_value() {
     assert_eq!(parsed.api.grpc_max_message_bytes, 32 * 1024 * 1024);
     assert_eq!(parsed.api.max_wait_seconds, 60);
     assert!(parsed.metrics.listen.is_empty());
+    assert_eq!(parsed.metrics.level, MetricsLevel::Advanced);
     assert_eq!(parsed.matching.dispatch_wait, Duration::from_secs(10));
     assert_eq!(parsed.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(
@@ -277,6 +279,24 @@ fn removed_history_keys_are_accepted_ignored_and_logged_at_startup() {
         .expect("single-node commands accept the removed keys");
         assert_eq!(loaded.history.ignored_keys().len(), 3);
     }
+}
+
+#[test]
+fn metrics_level_parses_each_level_and_rejects_others() {
+    for (yaml_name, level) in [
+        ("basic", MetricsLevel::Basic),
+        ("advanced", MetricsLevel::Advanced),
+        ("verbose", MetricsLevel::Verbose),
+    ] {
+        let parsed = Config::parse_yaml(&format!("metrics:\n  level: {yaml_name}\n"))
+            .expect("a known metrics level parses");
+        assert_eq!(parsed.metrics.level, level);
+        assert_eq!(level.yaml_name(), yaml_name);
+    }
+    let error = Config::parse_yaml("metrics:\n  level: bogus\n")
+        .expect_err("an unknown metrics level fails startup");
+    assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
+    assert!(error.to_string().contains("metrics.level"), "{error}");
 }
 
 #[test]
@@ -1187,6 +1207,7 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
     );
     assert!(local.auth.authenticators.is_empty());
     assert!(local.metrics.listen.is_empty());
+    assert_eq!(local.metrics.level, MetricsLevel::Advanced);
     let dev_with_serve_drain = Config {
         lifecycle: local.lifecycle.clone(),
         ..dev

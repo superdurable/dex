@@ -7,9 +7,14 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# Lists the exported family names of each metrics level for tests.
+test-util = []
+
 [dependencies]
 prometheus-client.workspace = true
 rustix.workspace = true
+serde.workspace = true
 tracing.workspace = true
 
 [lints]

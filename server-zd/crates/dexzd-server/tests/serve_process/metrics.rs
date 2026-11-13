@@ -6,41 +6,79 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::net::SocketAddr;
+use std::path::Path;
 
+use dexzd_metrics::{MetricsLevel, exported_family_names_for_test};
 use dexzd_protocol::dex::{RetryPolicy, StepMovement};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
+/// Scenario series caps without process series; the scenario measured 68, 153, and 205.
+const BASIC_SERIES_CAP: usize = 72;
+const ADVANCED_SERIES_CAP: usize = 158;
+const VERBOSE_SERIES_CAP: usize = 210;
+/// How long a stopped Worker's poll stream may take to be counted.
+const WORKER_STREAM_CLOSE_BUDGET: Duration = Duration::from_secs(10);
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
+async fn basic_metrics_level_exports_only_basic_families() {
+    metrics_level_scenario(MetricsLevel::Basic).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn advanced_metrics_level_exports_basic_and_advanced_families() {
+    metrics_level_scenario(MetricsLevel::Advanced).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn verbose_metrics_level_tracks_one_completed_flow_and_worker_poll() {
+    metrics_level_scenario(MetricsLevel::Verbose).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn omitted_metrics_level_exports_advanced_families() {
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    let directory = TempDir::new().expect("temporary directory exists");
+    let metrics_address = free_loopback_address();
+    let mut process = spawn_serve_with_metrics(
+        &primary.endpoint(),
+        directory.path(),
+        "default-level-metrics",
+        free_loopback_address(),
+        metrics_address,
+        None,
+        "",
+    );
+    process.wait_until_serving().await;
+    let response = scrape(metrics_address, "/metrics").await;
+    assert_exported_families(http_body(&response), MetricsLevel::Advanced);
+    assert!(
+        effective_config_line(&process).contains("metrics_level=\"advanced\""),
+        "{}",
+        process.log()
+    );
+    let status = process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", process.log());
+}
+
+/// Runs two Flows and a pull Worker at `level`; value and recovery checks need verbose.
+async fn metrics_level_scenario(level: MetricsLevel) {
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let directory = TempDir::new().expect("temporary directory exists");
     let api_address = free_loopback_address();
     let metrics_address = free_loopback_address();
-    let configuration_path = directory.path().join("metrics.yaml");
-    ServeConfig {
-        primary_endpoint: &primary.endpoint(),
-        hard_delete_endpoint: None,
-        listen: api_address,
-        local_directory: &directory.path().join("store"),
-        lease_duration: HELD_LEASE_DURATION,
-        fail_if_held: true,
-        parade_db: None,
-    }
-    .write(&configuration_path);
-    let mut configuration =
-        fs::read_to_string(&configuration_path).expect("configuration is readable");
-    configuration.push_str(&format!(
-        "metrics:\n  listen: '{metrics_address}'\nmatching:\n  dispatchWait: 1s\n  stickyWait: 1s\n"
-    ));
-    fs::write(&configuration_path, configuration).expect("configuration is writable");
-    let mut process = ServeProcess::spawn(
-        &configuration_path,
+    let mut process = spawn_serve_with_metrics(
+        &primary.endpoint(),
+        directory.path(),
+        "metrics",
         api_address,
-        directory.path().join("metrics.log"),
+        metrics_address,
+        Some(level),
+        "matching:\n  dispatchWait: 1s\n  stickyWait: 1s\n",
     );
     let channel = process.wait_until_serving().await;
     let before = scrape(metrics_address, "/metrics").await;
@@ -157,110 +195,38 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
     assert_eq!(failed.flow_status, FlowStatus::Failed as i32);
     worker.stop().await;
 
-    let after = scrape(metrics_address, "/metrics").await;
-    let body = after.split_once("\r\n\r\n").expect("HTTP body exists").1;
-    let before_body = before.split_once("\r\n\r\n").expect("HTTP body exists").1;
-    for name in [
-        "dexzd_build_info",
-        "dexzd_behavior_version",
-        "dexzd_node_role",
-        "dexzd_lease_epoch",
-        "dexzd_lease_renewals_total",
-        "dexzd_api_requests_total",
-        "dexzd_api_request_latency_seconds",
-        "dexzd_commit_batches_total",
-        "dexzd_commit_records_total",
-        "dexzd_commit_bytes_total",
-        "dexzd_commit_latency_seconds",
-        "dexzd_object_store_requests_total",
-        "dexzd_object_store_request_errors_total",
-        "dexzd_object_store_put_bytes_total",
-        "dexzd_snapshots_total",
-        "dexzd_snapshot_last_duration_seconds",
-        "dexzd_snapshot_last_bytes",
-        "dexzd_recovery_last_duration_seconds",
-        "dexzd_recovery_last_replayed_bytes",
-        "dexzd_local_storage_bytes",
-        "dexzd_timer_lag_seconds",
-        "dexzd_matching_queued_tasks",
-        "dexzd_matching_worker_streams",
-        "dexzd_step_task_queue_entries",
-        "dexzd_step_task_queue_oldest_age_seconds",
-        "dexzd_matching_unserved_task_queues",
-        "dexzd_matching_heads_restored_refs_total",
-        "dexzd_matching_heads_incomplete_scans_total",
-        "dexzd_step_task_queue_incomplete_seeks_total",
-        "dexzd_step_attempt_failures_total",
-        "dexzd_step_retries_exhausted_total",
-        "dexzd_flow_closes_total",
-        "dexzd_flow_end_to_end_latency_seconds",
-        "dexzd_step_schedule_to_start_latency_seconds",
-        "dexzd_worker_stream_events_total",
-        "dexzd_step_stream_writes_dropped_total",
-        "dexzd_attribute_sync_backlog_entries",
-        "dexzd_attribute_sync_oldest_pending_age_seconds",
-        "dexzd_attribute_sync_write_failures_total",
-        "dexzd_attribute_sync_dropped_entries_total",
-        "dexzd_attribute_sync_fenced_writes_total",
-        "dexzd_search_skipped_documents_total",
-        "dexzd_config_closed_flow_retention_seconds",
-        "dexzd_config_max_value_bytes",
-        "dexzd_config_max_flow_state_bytes",
-        "dexzd_config_attempt_drain_timeout_seconds",
-    ] {
-        let family = name.strip_suffix("_total").unwrap_or(name);
-        assert!(
-            body.contains(&format!("# TYPE {family} ")),
-            "missing {name}: {body}"
-        );
-        if name.ends_with("_latency_seconds") {
-            assert!(
-                body.lines()
-                    .any(|line| line.starts_with(&format!("{name}_count")))
-            );
-        } else {
-            assert!(
-                body.lines().any(|line| {
-                    line.strip_prefix(name)
-                        .is_some_and(|tail| tail.starts_with(' ') || tail.starts_with('{'))
-                }),
-                "missing exposed sample {name}"
-            );
-        }
-    }
-    // Durability applies only to the embedded object store of dev and local.
-    assert!(
-        !body.contains("dexzd_config_durability_mode_info"),
-        "{body}"
-    );
-    let effective_config_log = process.log();
-    let effective_config_line = effective_config_log
-        .lines()
-        .find(|line| line.contains("effective configuration"))
-        .unwrap_or_else(|| {
-            panic!("missing the effective configuration line:\n{effective_config_log}")
-        });
+    let after = scrape_after_worker_stream_closes(metrics_address, level).await;
+    let body = http_body(&after);
+    let before_body = http_body(&before);
+    assert_exported_families(body, level);
+    assert_every_family_has_a_sample(body);
+    let effective_config_line = effective_config_line(&process);
     assert!(
         effective_config_line.contains("closed_flow_retention_seconds=604800.0")
+            && effective_config_line.contains(&format!("metrics_level=\"{}\"", level.yaml_name()))
             && !effective_config_line.contains("durability_mode"),
         "{effective_config_line}"
     );
-    #[cfg(target_os = "linux")]
-    for name in [
-        "process_resident_memory_bytes",
-        "process_cpu_seconds_total",
-        "process_open_fds",
-        "process_start_time_seconds",
-    ] {
-        assert!(
-            body.lines().any(|line| line.starts_with(name)),
-            "missing {name}"
-        );
-    }
+    assert!(!body.contains("_total_total"));
+    let series_count = body
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.is_empty())
+        .count();
+    let series_cap = series_cap(level);
     assert!(
-        sample_sum(body, "dexzd_commit_batches_total")
-            > sample_sum(before_body, "dexzd_commit_batches_total")
+        series_count <= series_cap,
+        "a {} scrape has {series_count} series, above its cap of {series_cap}",
+        level.yaml_name()
     );
+    eprintln!(
+        "{} metrics scenario series count: {series_count}",
+        level.yaml_name()
+    );
+    if level != MetricsLevel::Verbose {
+        let status = process.terminate(SHUTDOWN_BUDGET).await;
+        assert_eq!(status.code(), Some(0), "{}", process.log());
+        return;
+    }
     assert!(
         sample_sum(body, "dexzd_commit_records_total")
             > sample_sum(before_body, "dexzd_commit_records_total")
@@ -340,43 +306,24 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
             "{name} did not move"
         );
     }
-    assert!(!body.contains("_total_total"));
-    let series_count = body
-        .lines()
-        .filter(|line| !line.starts_with('#') && !line.is_empty())
-        .count();
-    // dexzd_history_reads_total adds six series: two kinds by three sources.
-    // The history upload limiter adds two gauges: its concurrency limit and in-flight bytes.
-    // The effective configuration adds four gauges; serve has no durability mode series.
-    assert!(series_count <= 214, "scrape has {series_count} series");
-    eprintln!("metrics scenario series count: {series_count}");
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());
+    assert_recovery_replays_without_counting_again(&primary.endpoint(), directory.path()).await;
+}
 
+/// Checks that a fresh node replaying the scenario's log reports replayed bytes and does not
+/// count the replayed Flow closes and Step failures again.
+async fn assert_recovery_replays_without_counting_again(primary_endpoint: &str, directory: &Path) {
     let recovered_address = free_loopback_address();
     let recovered_metrics_address = free_loopback_address();
-    let recovered_config_path = directory.path().join("recovered-metrics.yaml");
-    ServeConfig {
-        primary_endpoint: &primary.endpoint(),
-        hard_delete_endpoint: None,
-        listen: recovered_address,
-        local_directory: &directory.path().join("recovered-store"),
-        lease_duration: HELD_LEASE_DURATION,
-        fail_if_held: true,
-        parade_db: None,
-    }
-    .write(&recovered_config_path);
-    let mut recovered_configuration =
-        fs::read_to_string(&recovered_config_path).expect("recovery configuration is readable");
-    recovered_configuration.push_str(&format!(
-        "metrics:\n  listen: '{recovered_metrics_address}'\n"
-    ));
-    fs::write(&recovered_config_path, recovered_configuration)
-        .expect("recovery configuration is writable");
-    let mut recovered = ServeProcess::spawn(
-        &recovered_config_path,
+    let mut recovered = spawn_serve_with_metrics(
+        primary_endpoint,
+        directory,
+        "recovered-metrics",
         recovered_address,
-        directory.path().join("recovered-metrics.log"),
+        recovered_metrics_address,
+        Some(MetricsLevel::Verbose),
+        "",
     );
     recovered.wait_until_serving().await;
     let replay_scrape = scrape(recovered_metrics_address, "/metrics").await;
@@ -395,6 +342,148 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
     }
     let status = recovered.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", recovered.log());
+}
+
+/// Starts a serve process with a metrics listener at `level`, or without `metrics.level` when
+/// `level` is `None`, and appends `extra_sections` to its configuration.
+fn spawn_serve_with_metrics(
+    primary_endpoint: &str,
+    directory: &Path,
+    name: &str,
+    api_address: SocketAddr,
+    metrics_address: SocketAddr,
+    level: Option<MetricsLevel>,
+    extra_sections: &str,
+) -> ServeProcess {
+    let configuration_path = directory.join(format!("{name}.yaml"));
+    ServeConfig {
+        primary_endpoint,
+        hard_delete_endpoint: None,
+        listen: api_address,
+        local_directory: &directory.join(format!("{name}-store")),
+        lease_duration: HELD_LEASE_DURATION,
+        fail_if_held: true,
+        parade_db: None,
+    }
+    .write(&configuration_path);
+    let mut configuration =
+        fs::read_to_string(&configuration_path).expect("configuration is readable");
+    configuration.push_str(&format!("metrics:\n  listen: '{metrics_address}'\n"));
+    if let Some(level) = level {
+        configuration.push_str(&format!("  level: {}\n", level.yaml_name()));
+    }
+    configuration.push_str(extra_sections);
+    fs::write(&configuration_path, configuration).expect("configuration is writable");
+    ServeProcess::spawn(
+        &configuration_path,
+        api_address,
+        directory.join(format!("{name}.log")),
+    )
+}
+
+/// Asserts that `body` exports exactly the families of `level`.
+fn assert_exported_families(body: &str, level: MetricsLevel) {
+    let exported = body
+        .lines()
+        .filter_map(|line| line.strip_prefix("# TYPE "))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(exported, exported_family_names_for_test(level), "{body}");
+    // These anchors do not read the tier table, so they catch a wrong table row.
+    let has_family = |name: &str| exported.contains(name);
+    assert!(has_family("dexzd_node_role") && has_family("dexzd_commit_latency_seconds"));
+    assert!(!has_family("dexzd_commit_batches"));
+    assert_eq!(
+        has_family("dexzd_local_storage_bytes"),
+        level >= MetricsLevel::Advanced
+    );
+    assert_eq!(
+        has_family("dexzd_commit_records"),
+        level >= MetricsLevel::Advanced
+    );
+    assert_eq!(
+        has_family("dexzd_takeover_duration_seconds"),
+        level == MetricsLevel::Verbose
+    );
+    assert_eq!(
+        has_family("process_cpu_seconds"),
+        cfg!(target_os = "linux") && level == MetricsLevel::Verbose
+    );
+}
+
+/// Asserts that every family in `body` has a sample; some families add samples only on use.
+fn assert_every_family_has_a_sample(body: &str) {
+    for family in body
+        .lines()
+        .filter_map(|line| line.strip_prefix("# TYPE "))
+        .filter_map(|line| line.split_whitespace().next())
+    {
+        assert!(
+            body.lines().any(|line| {
+                line.strip_prefix(family).is_some_and(|tail| {
+                    tail.starts_with([' ', '{'])
+                        || ["_total", "_bucket", "_count", "_sum"]
+                            .iter()
+                            .any(|suffix| tail.starts_with(suffix))
+                })
+            }),
+            "{family} has no sample: {body}"
+        );
+    }
+}
+
+/// Returns the most series a scenario scrape may have at `level`.
+fn series_cap(level: MetricsLevel) -> usize {
+    let dexzd_series_cap = if level == MetricsLevel::Basic {
+        BASIC_SERIES_CAP
+    } else if level == MetricsLevel::Advanced {
+        ADVANCED_SERIES_CAP
+    } else {
+        VERBOSE_SERIES_CAP
+    };
+    // Linux adds one series for each of the four process families at verbose.
+    if cfg!(target_os = "linux") && level == MetricsLevel::Verbose {
+        dexzd_series_cap + 4
+    } else {
+        dexzd_series_cap
+    }
+}
+
+/// Scrapes until the stopped Worker's poll stream is counted; the server counts it after the
+/// stream ends.
+async fn scrape_after_worker_stream_closes(
+    metrics_address: SocketAddr,
+    level: MetricsLevel,
+) -> String {
+    let deadline = tokio::time::Instant::now() + WORKER_STREAM_CLOSE_BUDGET;
+    loop {
+        let response = scrape(metrics_address, "/metrics").await;
+        let body = http_body(&response);
+        let is_stream_counted = body.contains("rpc_class=\"worker_poll\"")
+            && (level < MetricsLevel::Verbose
+                || sample_with_label(body, "dexzd_worker_stream_events_total", "event", "closed")
+                    > 0.0);
+        if is_stream_counted {
+            return response;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the stopped Worker's poll stream was not counted: {body}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+fn effective_config_line(process: &ServeProcess) -> String {
+    let log = process.log();
+    log.lines()
+        .find(|line| line.contains("effective configuration"))
+        .unwrap_or_else(|| panic!("missing the effective configuration line:\n{log}"))
+        .to_owned()
+}
+
+fn http_body(response: &str) -> &str {
+    response.split_once("\r\n\r\n").expect("HTTP body exists").1
 }
 
 async fn scrape(address: SocketAddr, path: &str) -> String {

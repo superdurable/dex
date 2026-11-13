@@ -63,6 +63,8 @@ bytes.workspace = true
 # Unit tests wait on a local store directory through the engine's test-only waiter.
 dexzd-engine = { workspace = true, features = ["test-util"] }
 dexzd-history-segment.workspace = true
+# serve_process tests derive the expected families of each metrics level from the tier table.
+dexzd-metrics = { workspace = true, features = ["test-util"] }
 dexzd-visibility-query.workspace = true
 hyper-util.workspace = true
 libc.workspace = true

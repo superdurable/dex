@@ -10,6 +10,7 @@ use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
+use dexzd_metrics::MetricsLevel;
 use serde::{Deserialize, Serialize, Serializer};
 
 /// Controls planned server shutdown and step-down.
@@ -67,6 +68,9 @@ pub struct MetricsConfig {
     /// A Prometheus-compatible scraper connects to plain HTTP GET /metrics for OpenMetrics text; other paths return 404.
     /// This listener starts before recovery and has no authentication, so do not expose it publicly.
     pub listen: String,
+    /// Defaults to advanced; which metric families /metrics exports: basic, advanced, or verbose.
+    /// Each level includes the families of the levels below it. Has no effect while listen is empty.
+    pub level: MetricsLevel,
 }
 
 /// Controls pull Worker dispatch waits, registration capacity, and idle pings.

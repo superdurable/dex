@@ -1361,6 +1361,7 @@ version = "0.1.0"
 dependencies = [
  "prometheus-client",
  "rustix",
+ "serde",
  "tracing",
 ]
 

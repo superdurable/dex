@@ -443,7 +443,6 @@ async fn run_pipeline(
                         );
                         return;
                     }
-                    metrics.commit_batches.inc();
                     metrics
                         .commit_records
                         .inc_by(finished.batch.proposals.len() as u64);
@@ -582,7 +581,7 @@ mod tests {
     use std::path::PathBuf;
 
     use dexzd_clock::SystemWallClock;
-    use dexzd_metrics::encode_registry;
+    use dexzd_metrics::{MetricsLevel, encode_registry};
     use dexzd_object_store::{
         FaultAction, FaultInjector, InMemoryObjectStore, ObjectStoreOperation,
     };
@@ -637,7 +636,8 @@ mod tests {
                 duration: Duration::from_secs(2),
             },
         )));
-        let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+        let (registry, metrics) =
+            NodeMetrics::registered(PathBuf::from("/nonexistent"), 1, MetricsLevel::Basic);
         let (pipeline, mut committed) = CommitPipeline::start_with_metrics(
             store.clone(),
             Arc::new(SystemWallClock),
@@ -662,7 +662,6 @@ mod tests {
             .unwrap();
         wait_for_second_write(&store, &stream).await;
         tokio::task::yield_now().await;
-        assert_eq!(metrics.commit_batches.get(), 0);
         assert_eq!(metrics.commit_records.get(), 0);
         assert_eq!(metrics.commit_bytes.get(), 0);
         tokio::time::advance(Duration::from_secs(1)).await;
@@ -671,7 +670,6 @@ mod tests {
         assert!(committed.try_recv().is_err());
         let body = encode_registry(&registry).unwrap();
         assert_eq!(sample(&body, "dexzd_commit_latency_seconds_count"), 0.0);
-        assert_eq!(metrics.commit_batches.get(), 0);
         drop(pipeline);
     }
 
@@ -683,7 +681,8 @@ mod tests {
                 duration: Duration::from_millis(200),
             },
         )));
-        let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+        let (registry, metrics) =
+            NodeMetrics::registered(PathBuf::from("/nonexistent"), 1, MetricsLevel::Basic);
         let (pipeline, mut committed) = CommitPipeline::start_with_metrics(
             store.clone(),
             Arc::new(SystemWallClock),
@@ -714,7 +713,6 @@ mod tests {
         let body = encode_registry(&registry).unwrap();
         assert_eq!(sample(&body, "dexzd_commit_latency_seconds_count"), 2.0);
         assert!(sample(&body, "dexzd_commit_latency_seconds_sum") >= 0.4);
-        assert_eq!(metrics.commit_batches.get(), 2);
         assert_eq!(metrics.commit_records.get(), 2);
         assert!(metrics.commit_bytes.get() > 0);
         drop(pipeline);

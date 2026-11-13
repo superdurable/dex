@@ -21,7 +21,7 @@ use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     BlockingWorkPlacement, DeterministicCommandApplier, HistorySegmentReader, LocalStoreCloseWaiter,
 };
-use dexzd_metrics::NodeMetrics;
+use dexzd_metrics::{MetricsLevel, NodeMetrics};
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore};
 use dexzd_storage::{RocksDbLocalStore, RocksDbStoreOptions};
 use tokio::sync::{oneshot, watch};
@@ -173,7 +173,8 @@ fn process_parts(directory: &Path) -> ProcessParts {
     let config = Config::parse_yaml(CONFIG_YAML).expect("the test configuration parses");
     let components =
         ComponentConfigs::from_config(&config, false).expect("the test configuration resolves");
-    let (_registry, metrics) = NodeMetrics::registered(directory.to_path_buf(), 1);
+    let (_registry, metrics) =
+        NodeMetrics::registered(directory.to_path_buf(), 1, MetricsLevel::Verbose);
     let object_store: Arc<dyn ObjectStore> = Arc::new(InMemoryObjectStore::new());
     let metrics = Arc::new(metrics);
     let history_segment_reader = Arc::new(HistorySegmentReader::new(

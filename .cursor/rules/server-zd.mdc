@@ -24,6 +24,41 @@ alwaysApply: false
 - Local tests use the in-process s3local or the in-memory object store, never
   MinIO.
 
+### server-zd metrics
+
+- Add a metric only for an operator question, alert, or dashboard that
+  existing metrics, a histogram's `_count` or `_sum`, or a log line cannot
+  answer. Name that question in the pull request.
+- Prefer a new label value on an existing family over a new family.
+- Do not add constant configuration or info metrics. The startup
+  "effective configuration" log line reports configuration.
+  `dexzd_build_info` is the only info metric.
+- Give every family exactly one level in the `FAMILY_LEVELS` table of
+  `dexzd-metrics`, and register it through `LeveledRegistry`. Levels are
+  cumulative, and `metrics.level` defaults to `advanced`:
+  - `basic`: golden signals that an SLO or a page-worthy alert uses:
+    serving, errors, latency, saturation, and commit and object storage
+    health.
+  - `advanced`: capacity, cost, and the lag and failure signal of each
+    optional Component.
+  - `verbose`: internal mechanisms, invariant detectors that also log, and
+    throughput detail read only during an investigation.
+- Put a family in `basic` only when an SLO or a page-worthy alert needs it.
+  Otherwise choose the highest level that its consumers still enable.
+- Labels take values from a closed Rust enum. Never label by partition,
+  Flow, Flow type, Step type, run, tenant, key, Worker ID, or any request
+  value. Aggregate per-partition state before encoding.
+- A family has the same labels and buckets at every level that exports it.
+- Use the `dexzd_` prefix and base units (`_seconds`, `_bytes`). The encoder
+  adds `_total` to counters; do not write it.
+- In the same pull request, update `docs/reference/server/metrics.mdx`
+  (type, labels, buckets, level, and a "Since" marker) and the per-level
+  series caps of the `serve_process` metrics test, and add a server
+  change-log fragment.
+- Removing or renaming a released family, or moving it to a higher level,
+  is a breaking change. List it in a `Breaking` fragment with its
+  replacement.
+
 ### server-zd Rust conventions ported from the Go rules
 
 These rules restate the applicable Server Go rules for `server-zd/**`. The

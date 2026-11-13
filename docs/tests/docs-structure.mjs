@@ -35,7 +35,6 @@ const pendingReadmeLinks = new Set([
   'reference/agents/install.mdx:agents/README.md#versions-and-compatibility',
   'reference/agents/tracing.mdx:agents/python/core/README.md#tracing',
   'reference/agents/tracing.mdx:agents/typescript/core/README.md#tracing',
-  'reference/server/metrics.mdx:server-zd/README.md#metrics',
 ]);
 // Snapshots of older reference versions are immutable history.
 const versionedReferenceDir = /^reference\/[^/]+\/\d+\.\d+\.\d+(\/|$)/;

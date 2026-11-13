@@ -234,7 +234,9 @@ server-zd has no hook to wake Workers. When Workers may scale to zero, a Step
 that no Worker takes waits in the durable task queue until a Worker starts. The
 wait uses no retry. Scale Workers on the queue depth and oldest age metrics,
 **dexzd_step_task_queue_entries** and
-**dexzd_step_task_queue_oldest_age_seconds**. Right after a restart or a
+**dexzd_step_task_queue_oldest_age_seconds**. The depth gauge needs the
+default **advanced** metrics level; the oldest age is exported at **basic**
+too. Right after a restart or a
 failover, the entries gauge can read low until each partition's background
 count finishes. So do not scale to zero on that gauge alone; the oldest age
 stays accurate. An RPC does not queue, so while no Worker runs, it fails after
@@ -318,9 +320,10 @@ partitions, and each node serves the partitions it owns.
 A freed Worker slot serves waiting RPCs first, then Steps waiting in memory,
 then the durable queue.
 
-Alert on **dexzd_step_task_queue_entries** and
-**dexzd_step_task_queue_oldest_age_seconds**, not on
-**dexzd_matching_queued_tasks**. **dexzd_matching_queued_tasks** now counts only
+Alert on the durable backlog rather than on **dexzd_matching_queued_tasks**.
+At every metrics level, use **dexzd_step_task_queue_oldest_age_seconds** and
+**dexzd_matching_unserved_task_queues**. At the default **advanced** level and
+above, also use **dexzd_step_task_queue_entries**. **dexzd_matching_queued_tasks** now counts only
 in-memory waiters: Steps and RPCs that wait for a slot. It does not count the
 durable backlog. **dexzd_step_task_queue_entries** is a gauge of queued Step
 tasks in the partitions this node owns.
@@ -343,4 +346,6 @@ queued task that matching had lost" and report it as a bug.
 **dexzd_matching_heads_incomplete_scans_total** counts checks that did not
 finish. **dexzd_step_task_queue_incomplete_seeks_total** counts searches for the
 next queued task that passed too many deleted entries. Dex retries each one
-after a backoff. A steady increase means compaction is falling behind.
+after a backoff. A steady increase means compaction is falling behind. Since
+0.1.29, these three counters need the **verbose** metrics level; see
+[Metrics levels](/reference/server/metrics#metrics-levels).
