@@ -14,7 +14,6 @@ import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { DesignCanvasErrorBoundary, DesignUnavailable } from '../design/DesignCanvasErrorBoundary';
 import { flowDefinitionShapeProblem } from '../design/definitionLimits';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
-import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { drawableDefinitions, fetchFlowTypeDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { useTimezonePreference } from '../providers';
 import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
@@ -94,7 +93,6 @@ export function FlowRenderingPage() {
 
   return (
     <div className="page-shell flow-rendering-page v1-page">
-      <PageBreadcrumb pageName="Designs" />
       <section className="flow-rendering-header">
         <div>
           <h1>Designs <ExperimentalBadge className="page-title-badge" /></h1>

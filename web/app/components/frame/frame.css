@@ -1,0 +1,507 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/* The one bar: trail, page, views, actions, settings. Tints and spacing separate; no rules. */
+.app-bar.v1-page {
+  --bar-wash: transparent;
+  position: sticky;
+  z-index: 30;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--header-h);
+  padding: 0 16px 0 14px;
+  background:
+    linear-gradient(var(--bar-wash), var(--bar-wash)),
+    color-mix(in srgb, var(--ui-surface) 90%, transparent);
+  box-shadow: 0 1px 0 var(--ui-hairline);
+  backdrop-filter: blur(16px);
+  container: app-bar / inline-size;
+  transition: background-color 150ms ease;
+}
+
+/* The run's status washes the bar: the page's one focal colour. */
+.app-shell:has(.run-page[data-status='running']) .app-bar { --bar-wash: color-mix(in srgb, var(--tone-accent) 7%, transparent); }
+.app-shell:has(.run-page[data-status='failed']) .app-bar,
+.app-shell:has(.run-page[data-status='timed-out']) .app-bar,
+.app-shell:has(.run-page[data-status='terminated']) .app-bar { --bar-wash: color-mix(in srgb, var(--tone-fail) 8%, transparent); }
+
+.app-bar-trail,
+.app-bar-page,
+.app-bar-actions,
+.app-bar-section {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.app-bar-trail {
+  flex: 0 1 auto;
+  gap: 4px;
+}
+
+.app-bar-page {
+  flex: 0 1 auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-bar-page > * {
+  flex: none;
+}
+
+.app-bar-page > .run-facts-menu {
+  flex: 0 1 auto;
+}
+
+.app-bar-page:empty,
+.app-bar-actions:empty {
+  display: none;
+}
+
+.app-bar-root {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.app-bar-root:hover,
+.app-bar-section-link:hover,
+.app-bar-icon-button:hover,
+.operate-menu-button:hover,
+.run-facts-button:hover {
+  background: var(--ui-hover);
+}
+
+.app-bar-root--host {
+  max-width: 22ch;
+  padding-left: 2px;
+}
+
+.app-bar-root--host span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar-separator {
+  flex: none;
+  color: var(--ui-ink-3);
+  opacity: 0.6;
+}
+
+.app-bar-section {
+  position: relative;
+  flex: none;
+}
+
+.app-bar-section-link {
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  font-weight: 600;
+  line-height: 32px;
+  text-decoration: none;
+}
+
+.app-bar-icon-button,
+.operate-menu-button,
+.run-facts-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 32px;
+  min-width: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-bar-section-toggle {
+  min-width: 22px;
+  margin-left: -4px;
+  padding: 0 3px;
+}
+
+/* ---------------------------------------------------------------- run page */
+
+.run-facts-menu,
+.operate-menu,
+.app-bar-settings {
+  position: relative;
+  min-width: 0;
+}
+
+.run-facts-button {
+  max-width: min(100%, 36ch);
+  color: var(--ui-ink);
+  font-weight: 600;
+}
+
+.run-facts-name {
+  overflow: hidden;
+  font-size: var(--ui-text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar .status-badge {
+  flex: none;
+}
+
+.app-bar .run-attempt-select {
+  max-width: 16ch;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 650;
+}
+
+.app-bar-views {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  justify-content: center;
+}
+
+.app-bar.v1-page .run-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.app-bar.v1-page .run-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0 11px;
+  border: 0;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-md);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 150ms ease;
+}
+
+.app-bar.v1-page .run-tabs button:hover,
+.app-bar.v1-page .run-tabs button.active {
+  color: var(--ui-ink);
+}
+
+.app-bar.v1-page .run-tabs button::after {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  content: '';
+  background: var(--tone-accent);
+  transform: scaleX(0);
+  transition: transform 150ms ease;
+}
+
+.app-bar.v1-page .run-tabs button.active::after {
+  transform: scaleX(1);
+}
+
+.experimental-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: 2px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: #8b5cf6;
+}
+
+.app-bar-actions {
+  flex: none;
+  gap: 4px;
+}
+
+.app-bar .live-toggle {
+  margin-right: 2px;
+  padding: 5px 10px 5px 9px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.operate-menu-button {
+  padding: 0 10px 0 12px;
+  border-radius: 999px;
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ menus */
+
+.app-bar-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  display: grid;
+  min-width: 260px;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--ui-radius-item);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 16px 40px -12px rgba(15, 23, 36, 0.32), 0 0 0 1px var(--ui-hairline);
+  animation: app-bar-popover-in 150ms ease-out;
+}
+
+.app-bar-section-popover,
+.run-facts-popover {
+  left: 0;
+}
+
+.operate-menu-popover,
+.app-bar-settings-popover {
+  right: 0;
+}
+
+@keyframes app-bar-popover-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.app-bar-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.app-bar-menu-item:hover:not(:disabled),
+.app-bar-menu-item[aria-current='page'] {
+  background: var(--ui-hover);
+}
+
+.app-bar-menu-item:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.app-bar-menu-item.is-danger b {
+  color: var(--tone-fail-ink);
+}
+
+.app-bar-menu-icon {
+  display: inline-flex;
+  padding-top: 2px;
+  color: var(--ui-ink-3);
+}
+
+.app-bar-menu-words {
+  display: grid;
+  gap: 1px;
+}
+
+.app-bar-menu-words b {
+  font-size: var(--ui-text-md);
+  font-weight: 600;
+}
+
+.app-bar-menu-words small {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.app-bar-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 10px;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.app-bar-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.app-bar-segmented button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-bar-segmented button[aria-pressed='true'] {
+  color: var(--ui-ink);
+  background: var(--ui-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 36, 0.12);
+}
+
+.run-facts-popover {
+  min-width: 320px;
+  padding: 12px 14px;
+  gap: 12px;
+}
+
+.run-facts-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.run-facts-list > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.run-facts-list dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+}
+
+.run-facts-list dd {
+  margin: 0;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.run-facts-ids {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  box-shadow: 0 -1px 0 var(--ui-hairline);
+}
+
+.run-facts-ids > div {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--ui-text-xs);
+}
+
+.run-facts-ids span {
+  color: var(--ui-ink-3);
+}
+
+.run-facts-ids code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------- giving way, in order */
+
+@container app-bar (max-width: 1360px) {
+  .app-bar.v1-page .run-tabs button:not(.active) .run-tab-label {
+    display: none;
+  }
+}
+
+@container app-bar (max-width: 820px) {
+  .app-bar-trail > .app-bar-separator:first-of-type,
+  .app-bar-section {
+    display: none;
+  }
+}
+
+/* On a phone the attempt stays in the run's details popover. */
+@container app-bar (max-width: 560px) {
+  .app-bar .run-attempt-select {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-bar.v1-page {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding: 0 10px;
+  }
+
+  .app-bar-trail {
+    flex: 1 1 0;
+  }
+
+  .app-bar-views {
+    order: 10;
+    flex-basis: 100%;
+    height: 40px;
+    justify-content: flex-start;
+  }
+
+  .live-toggle {
+    font-size: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-bar-popover {
+    animation: none;
+  }
+
+  .app-bar.v1-page,
+  .app-bar.v1-page .run-tabs button,
+  .app-bar.v1-page .run-tabs button::after {
+    transition: none;
+  }
+}

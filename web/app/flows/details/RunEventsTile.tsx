@@ -31,7 +31,7 @@ export interface RunEventsPaging {
   onOldestPage: () => void;
 }
 
-/** The run header tile that names the latest event and pages through events. */
+/** The event toolbar of the Timeline and Execution graph: the shown range, page buttons and page size. */
 export function RunEventsTile({
   latestEventId,
   paging,
@@ -45,19 +45,19 @@ export function RunEventsTile({
   onPageSizeChange?: (size: HistoryPageSize) => void;
 }) {
   return (
-    <div className="run-events-tile">
+    <div className="run-events-tile" role="group" aria-label="Events">
       <span className="run-fact-label"><ListOrdered aria-hidden="true" size={14} strokeWidth={2} />Events</span>
       <div className="run-events-line">
-        <b className="run-events-latest">{latestEventId === null ? 'None' : `Latest #${latestEventId}`}</b>
         {paging && (
           <span className="run-events-range">
             Showing #{paging.firstEventId}–#{paging.lastEventId}
             {pageLabel(paging) ? ` · ${pageLabel(paging)}` : ''}
           </span>
         )}
+        <span className="run-events-latest">{latestEventId === null ? 'None yet' : `Latest #${latestEventId}`}</span>
       </div>
       <div className="run-events-controls">
-        {paging && <RunEventsPager paging={paging} />}
+        {paging && hasOtherPages(paging) && <RunEventsPager paging={paging} />}
         {pageSize !== undefined && onPageSizeChange && (
           <label className="run-events-page-size">
             Page size
@@ -72,6 +72,11 @@ export function RunEventsTile({
       </div>
     </div>
   );
+}
+
+/** Page buttons matter only when another page exists or the reader has paged away. */
+function hasOtherPages(paging: RunEventsPaging): boolean {
+  return paging.hasOlder || paging.hasNewer || !paging.isNewest || paging.canGoBack;
 }
 
 function pageLabel(paging: RunEventsPaging): string {

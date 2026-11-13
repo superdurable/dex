@@ -20,7 +20,6 @@ import '../workspace/css/experimental.css';
 import { RUN_COPY } from '../workspace/runCopy';
 import { useFlowTypesDefinitions, useV2Catalog } from '../catalog/WebCatalogProvider';
 import { drawableDefinitions } from '../catalog/flowTypeDefinitionCache';
-import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { StartFlowDialog } from '../start/StartFlowDialog';
 import { SESSION_COPY } from '../agents/copy';
 import { agentSessionFlowTypes, NewSessionDialog } from '../agents/NewSessionDialog';
@@ -107,7 +106,6 @@ function RunQueueWorkspace() {
   if (error) {
     return (
       <div className="page-shell v1-page">
-        <PageBreadcrumb pageName={WORK_QUEUE_COPY.appName} />
         <div className="error-banner">{error}</div>
       </div>
     );
@@ -116,7 +114,6 @@ function RunQueueWorkspace() {
   if (catalog.flows.length === 0) {
     return (
       <div className="v2-shell v2-run">
-        <PageBreadcrumb pageName={WORK_QUEUE_COPY.appName} />
         <div className="v2-empty">Load a valid Flow Definition Graph 2.0 file to use Work Queue.</div>
       </div>
     );
@@ -130,7 +127,6 @@ function RunQueueWorkspace() {
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
-      <PageBreadcrumb pageName={WORK_QUEUE_COPY.appName} />
       <div className="v2-run-body" ref={bodyRef}>
         <RunList
           collapsed={listPane.isCollapsed}

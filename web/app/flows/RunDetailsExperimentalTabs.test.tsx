@@ -187,7 +187,7 @@ function renderRun(entry = '/v1/flows/run-flow/run-1', navigateTo = '/v1/flows/r
     <MemoryRouter initialEntries={[entry]}>
       <PreferencesProvider>
         <WebCatalogProvider>
-          <RunDetailsPage breadcrumb={null} flowId="run-flow" runId="run-1" runPath={(runID) => `/v1/flows/run-flow/${runID}`} />
+          <RunDetailsPage flowId="run-flow" runId="run-1" runPath={(runID) => `/v1/flows/run-flow/${runID}`} />
           <LocationProbe />
           <NavigateButton to={navigateTo} />
         </WebCatalogProvider>
@@ -249,9 +249,9 @@ describe('Run page experimental tabs', () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun();
     await waitFor(() => expect(tabLabels()).toContain('design'));
-    expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
     const design = screen.getByRole('button', { name: /^Design/ });
-    expect(design.querySelector('.experimental-badge')?.textContent).toBe('Experimental');
+    expect(design.querySelector('.experimental-dot')?.getAttribute('aria-label')).toBe('Experimental');
   });
 
   it('reads only the definitions of the run Flow type, never every definition', async () => {
@@ -347,7 +347,7 @@ describe('Run page experimental tabs', () => {
     renderRun();
     await screen.findByText('Running');
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream']);
   });
 
   it('falls back to the Timeline for a remembered tab that does not apply', async () => {
@@ -380,7 +380,7 @@ describe('Run page experimental tabs', () => {
     });
     renderRun('/v1/flows/run-flow/run-1?view=session');
     expect((await screen.findByTestId('session-view')).getAttribute('data-flow-id')).toBe('run-flow');
-    expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design', 'session', 'actions']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'session', 'actions', 'design']);
   });
 
   it('hides Agent session and Actions without the operator API', async () => {
@@ -388,7 +388,7 @@ describe('Run page experimental tabs', () => {
     stubDexWeb({ flowType: graph.flow.name, definitions: [definitionEntry('session', graph.flow.name, graph)] });
     renderRun('/v1/flows/run-flow/run-1?view=session');
     await waitFor(() => expect(tabLabels()).toContain('design'));
-    expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
     expect(screen.queryByTestId('session-view')).toBeNull();
   });
 
@@ -429,7 +429,7 @@ describe('Run page experimental tabs', () => {
     renderRun(`/v1/flows/run-flow/run-1?view=actions${search}`);
     const currentRunLink = await screen.findByRole('link', { name: 'Open the current run' });
     expect(currentRunLink.getAttribute('href')).toBe('/v1/flows/run-flow?view=actions');
-    expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
     await settle();
     expect(screen.queryByRole('region', { name: 'Actions' })).toBeNull();
     expect(screen.queryByTestId('session-view')).toBeNull();

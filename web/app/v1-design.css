@@ -328,7 +328,7 @@ body:has(.v1-page) {
 /* ---------------------------------------------------------------- header */
 
 .v1-page.run-page {
-  padding-top: 22px;
+  padding-top: 12px;
 }
 
 .v1-page .run-header {
@@ -576,9 +576,10 @@ body:has(.v1-page) {
 .run-events-tile {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-  margin-left: auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-bottom: 12px;
 }
 
 .run-events-line {
@@ -601,9 +602,7 @@ body:has(.v1-page) {
 .v1-page .run-events-pager {
   display: inline-flex;
   flex-wrap: wrap;
-  align-self: flex-start;
   gap: 2px;
-  margin-top: 2px;
   padding: 2px;
   border-radius: 9px;
   background: var(--ui-chip);
@@ -620,7 +619,6 @@ body:has(.v1-page) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
   font-weight: 600;
@@ -2374,10 +2372,6 @@ html:has(.v1-page .stream-scroll--entries) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .run-events-tile {
-    margin-left: 0;
-    flex-basis: 100%;
-  }
 }
 
 @media (max-width: 760px) {

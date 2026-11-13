@@ -74,7 +74,7 @@
   /* The header's tallest child is a 34px select, so 70px was carrying 18px of
      slack per side. 52px leaves 9px. Two viewport-offset rules below used to
      hardcode 70 independently, as did two sticky offsets. */
-  --header-h: 52px;
+  --header-h: 48px;
 }
 
 /* Palette D's dark ramps. The hue -rule tokens are shared by both themes, so they stay. */
