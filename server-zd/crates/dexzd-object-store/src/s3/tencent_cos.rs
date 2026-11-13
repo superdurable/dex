@@ -240,8 +240,9 @@ impl TencentCosAppendClient {
 ///
 /// Returns the objects in ascending key order and, when more may follow, the key of the last
 /// returned object, which is always after `start_after`. A truncated page without newer keys is
-/// a replay of the listing cache: it is requested again with backoff, and once that lasts
-/// `stale_listing_retry_window` the listing fails with [`ObjectStoreErrorKind::Transient`].
+/// a replay of the listing cache: it is requested again with backoff, and once the replays of
+/// this call have lasted `stale_listing_retry_window` from the first one, the listing fails with
+/// [`ObjectStoreErrorKind::Transient`].
 pub(super) async fn list_non_empty_objects(
     store: &S3ObjectStore,
     prefix: &str,
@@ -279,7 +280,10 @@ pub(super) async fn list_non_empty_objects(
                 .await?;
             continue;
         };
-        stale_page_wait = None;
+        // The window bounds the whole call, so only the backoff restarts after progress.
+        if let Some(wait) = &mut stale_page_wait {
+            wait.restart_backoff();
+        }
         objects.extend(new_objects.into_iter().filter(|object| object.size > 0));
         if objects.len() >= max_objects {
             let has_more = is_truncated || objects.len() > max_objects;
@@ -301,7 +305,8 @@ pub(super) async fn list_non_empty_objects(
     }
 }
 
-/// Backoff of one streak of replayed listing pages that end before the cursor.
+/// Backoff of one streak of replayed listing pages that end before the cursor, and the deadline
+/// of every streak of one listing call.
 struct StalePageWait {
     deadline: tokio::time::Instant,
     next_backoff: Duration,
@@ -315,9 +320,15 @@ impl StalePageWait {
         }
     }
 
+    /// Starts the backoff of a new streak; the deadline stays.
+    fn restart_backoff(&mut self) {
+        self.next_backoff = STALE_PAGE_INITIAL_BACKOFF;
+    }
+
     /// Sleeps before the replayed page is requested again.
     ///
-    /// Returns [`ObjectStoreErrorKind::Transient`] once the streak has lasted its window.
+    /// Returns [`ObjectStoreErrorKind::Transient`] once the streaks of the call have lasted its
+    /// window.
     async fn wait_before_next_request(
         &mut self,
         prefix: &str,

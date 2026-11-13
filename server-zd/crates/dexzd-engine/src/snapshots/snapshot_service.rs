@@ -27,7 +27,9 @@ use crate::commit::{CommitProgress, EngineLocalStore, PartitionApplierPool};
 use crate::engine_id_source::EngineIdSource;
 use crate::snapshots::log_cleanup::LogCleanup;
 use crate::snapshots::ownership_fence::OwnershipFence;
-use crate::snapshots::snapshot_retention::{SnapshotCatalog, SnapshotRetention};
+use crate::snapshots::snapshot_retention::{
+    ReservedSnapshotLineage, SnapshotCatalog, SnapshotRetention,
+};
 use crate::snapshots::snapshot_upload_store::SnapshotUploadStore;
 use crate::snapshots::{SnapshotConfig, SnapshotError};
 
@@ -125,6 +127,7 @@ impl SnapshotService {
             .filter_map(|partition| partition.snapshot.as_ref())
             .map(|snapshot| snapshot.manifest_key.clone())
             .collect();
+        let reserved_lineage = self.reserved_snapshot_lineage()?;
         let mut catalog = self.take_catalog().await;
         let result = async {
             let retained = self
@@ -132,6 +135,7 @@ impl SnapshotService {
                 .run_once(
                     &mut catalog,
                     &referenced_keys,
+                    reserved_lineage.as_ref(),
                     &self.fence,
                     self.clock.now_unix_micros(),
                 )
@@ -213,6 +217,7 @@ impl SnapshotService {
             .collect();
         self.last_snapshot_routed_seq
             .store(last_routed_seq, Ordering::Release);
+        let reserved_lineage = self.reserved_snapshot_lineage()?;
         let mut catalog = self.take_catalog().await;
         let cleanup_result = async {
             let retained = self
@@ -220,6 +225,7 @@ impl SnapshotService {
                 .run_once(
                     &mut catalog,
                     &referenced_keys,
+                    reserved_lineage.as_ref(),
                     &self.fence,
                     self.clock.now_unix_micros(),
                 )
@@ -241,6 +247,22 @@ impl SnapshotService {
             .snapshot_last_bytes
             .set(i64::try_from(snapshot_bytes).unwrap_or(i64::MAX));
         Ok(reference)
+    }
+
+    /// Returns the lineage of the local store and its newest reserved snapshot number.
+    ///
+    /// Returns `None` when the store has no node metadata yet.
+    fn reserved_snapshot_lineage(&self) -> Result<Option<ReservedSnapshotLineage>, SnapshotError> {
+        let Some(node_meta) = self.store.node_meta()? else {
+            return Ok(None);
+        };
+        let lineage_id = uuid::Uuid::from_slice(&node_meta.lineage_id).map_err(|error| {
+            SnapshotError::Invalid(format!("node metadata lineage is not a UUID: {error}"))
+        })?;
+        Ok(Some(ReservedSnapshotLineage {
+            lineage_id,
+            last_reserved_snapshot_number: node_meta.last_snapshot_number,
+        }))
     }
 
     async fn acquire_operation_lock(&self) -> OwnedMutexGuard<()> {

@@ -443,18 +443,34 @@ objects, which COS answers from current data, as
 The server deletes a replaced version once it has been replaced for at least
 10 minutes, at the next write of its key, and it writes
 **version-discovery/head** and **K.v/anchor** as described in
-[Finding the newest version](#version-discovery). Log recovery and snapshot
-retention also check single objects where a listing may lag.
-**ListFlowDefinitions** lists the bucket, so it can miss a definition uploaded
-in the last few seconds.
+[Finding the newest version](#version-discovery). Log recovery also checks
+single objects where a listing may lag.
 
-A listing that gets the same truncated page again requests it again for up to
-5 seconds. Then it fails as a retryable error rather than end early, and
-**ListFlowDefinitions** returns **UNAVAILABLE**. A run purge deletes the run's
-hard-delete objects by key. It then lists the run's hard-delete prefix twice,
-at least 5 seconds apart, and purges the run only when both listings are empty.
-So a purge takes a few seconds longer when the hard-delete store uses
-**tencentCOS**.
+A COS listing can also return the page that COS made for a later position in
+the same listing. Keys before that position are then skipped without an error.
+So **ListFlowDefinitions** lists the bucket and can miss definitions for a few
+seconds, both new ones and older ones, and can end its pages early. A later
+request lists them again.
+
+When a listing gets a truncated page without a key after its position, it
+requests that page again. Once such pages have taken 5 seconds of one listing
+request, the listing fails as a retryable error, and **ListFlowDefinitions**
+returns **UNAVAILABLE**.
+
+Snapshot retention deletes a snapshot file only when it knows, without a
+listing, every snapshot that can use the file. It reads each snapshot of the
+current owner's lineage by key. A snapshot of an earlier lineage can be missing
+from every listing. So retention keeps a file of an earlier lineage until
+**snapshot.retainedCount** snapshots of later lineages are older than
+**snapshot.logDeletionDelay**. Then retention deletes every snapshot of that
+lineage, listed or not. After a restart or a takeover, files of the former
+owner's snapshots can therefore stay longer than on other providers.
+
+A run purge first deletes, by key, the hard-delete objects that committed state
+references. It then lists the run's hard-delete prefix twice, at least 5
+seconds apart, and purges the run only when both listings are empty. This
+deletes the run's objects that were written before the purge started. A purge
+takes a few seconds longer when the hard-delete store uses **tencentCOS**.
 
 Data cannot move between **tencentCOS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute

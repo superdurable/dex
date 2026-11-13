@@ -15,7 +15,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_object_store::{
     FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions,
-    ListingConsistency, ObjectStore, ObjectStoreErrorKind, ObjectStoreOperation, WriteCondition,
+    ListingConsistency, ObjectStore, ObjectStoreOperation, WriteCondition,
 };
 use dexzd_protocol::dexzd::v1::{SnapshotFile, SnapshotManifest};
 use prost::Message;
@@ -100,7 +100,7 @@ async fn a_manifest_this_process_published_keeps_its_files_while_listings_lack_i
     catalog.insert(hidden.manifest_key.clone(), hidden.manifest.clone());
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
+            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -125,7 +125,7 @@ async fn a_referenced_manifest_that_listings_lack_keeps_its_files() {
     let mut catalog = SnapshotCatalog::default();
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &referenced_keys, &fence, i64::MAX)
+            .run_once(&mut catalog, &referenced_keys, None, &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -155,7 +155,7 @@ async fn a_manifest_deleted_elsewhere_leaves_the_catalog_once_a_head_misses_it()
     let mut catalog = SnapshotCatalog::default();
     catalog.insert(hidden.manifest_key.clone(), hidden.manifest.clone());
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
         .await
         .expect("retention runs");
     hidden
@@ -164,7 +164,7 @@ async fn a_manifest_deleted_elsewhere_leaves_the_catalog_once_a_head_misses_it()
         .await
         .expect("delete manifest");
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
         .await
         .expect("retention runs");
     assert!(!catalog.manifests.contains_key(&hidden.manifest_key));
@@ -183,7 +183,7 @@ async fn a_strong_listing_reads_no_manifest_that_listings_lack() {
     catalog.insert(hidden.manifest_key.clone(), hidden.manifest.clone());
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &referenced_keys, &fence, i64::MAX)
+            .run_once(&mut catalog, &referenced_keys, None, &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -239,24 +239,12 @@ async fn a_lineage_whose_manifest_listing_fails_keeps_every_file() {
     let fence = test_fence(hidden.object_store.clone()).await;
     let retention = retention(hidden.object_store.clone());
     let mut catalog = SnapshotCatalog::default();
-    let mut failures = 0;
     for _ in 0..3 {
-        if let Err(error) = retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
+        retention
+            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
             .await
-        {
-            assert!(
-                matches!(&error, crate::snapshots::SnapshotError::ObjectStore(store_error)
-                    if store_error.kind == ObjectStoreErrorKind::Transient),
-                "{error}"
-            );
-            failures += 1;
-        }
+            .expect("an eventual retention decides without listing a lineage's manifests");
     }
-    assert!(
-        failures > 0,
-        "an orphan candidate lists its lineage's manifests"
-    );
     assert!(
         hidden
             .object_store

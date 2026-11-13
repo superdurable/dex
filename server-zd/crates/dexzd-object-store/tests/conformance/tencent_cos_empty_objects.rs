@@ -444,6 +444,65 @@ async fn tencent_cos_listing_ends_at_an_untruncated_replayed_page() {
     emulator.shutdown().await;
 }
 
+/// A listing cache that lives 600 milliseconds, so one listing call meets several of its replays.
+const BRIEF_STALE_LISTING: &str =
+    r#"{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":600}}"#;
+
+/// Replays after progress count toward the same window, so one call waits at most that long.
+#[tokio::test]
+async fn tencent_cos_listing_bounds_the_replays_of_one_call_by_one_window() {
+    let emulator = TencentCosEmulator::start().await;
+    let retry_window = Duration::from_secs(1);
+    let store = emulator
+        .object_store_with_stale_listing_retry_window(retry_window)
+        .await;
+    for key in ["streak/a", "streak/b"] {
+        store
+            .put(key, Bytes::from_static(b"v"), WriteCondition::CreateOnly)
+            .await
+            .expect("a create succeeds");
+    }
+    // Each fresh page ends at a residue, and its replay then holds no key after the cursor.
+    for (residue, key) in [
+        ("streak/c0", "streak/c1"),
+        ("streak/d0", "streak/d1"),
+        ("streak/e0", "streak/e1"),
+    ] {
+        leave_residue(&emulator, &store, residue).await;
+        store
+            .put(key, Bytes::from_static(b"v"), WriteCondition::CreateOnly)
+            .await
+            .expect("a create succeeds");
+    }
+    set_s3local_fault(emulator.address(), BRIEF_STALE_LISTING).await;
+    let primed = store.list("streak/", None, 2).await.expect("list");
+    assert_eq!(listed_keys(&primed), ["streak/a", "streak/b"]);
+    // Three streaks of replays, each shorter than the window, would together exceed it.
+    let started = tokio::time::Instant::now();
+    let error = tokio::time::timeout(STEP_TIMEOUT, store.list("streak/", None, 5))
+        .await
+        .expect("the listing returns")
+        .expect_err("the replays of one call exceed its window");
+    assert_eq!(error.kind, ObjectStoreErrorKind::Transient, "{error}");
+    assert!(started.elapsed() >= retry_window, "{error}");
+    assert!(
+        started.elapsed() < retry_window + Duration::from_secs(1),
+        "{error}"
+    );
+    set_s3local_fault(emulator.address(), "").await;
+    assert_eq!(
+        list_all_pages(&store, "streak/", 1000).await,
+        [
+            "streak/a",
+            "streak/b",
+            "streak/c1",
+            "streak/d1",
+            "streak/e1"
+        ]
+    );
+    emulator.shutdown().await;
+}
+
 /// A listing cache that expires within the retry window delays a listing but never fails it.
 #[tokio::test]
 async fn tencent_cos_listing_waits_out_a_listing_cache_shorter_than_its_bound() {
