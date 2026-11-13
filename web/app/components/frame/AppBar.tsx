@@ -122,7 +122,8 @@ export function AppBar() {
     <header className="app-bar v1-page" ref={setBar}>
       <nav aria-label="Trail" className="app-bar-trail">
         {hostLink ? (
-          <a className="app-bar-root app-bar-root--host" href={hostLink.url}>
+          // The host page replaces the whole window, not just the frame Dex Web runs in.
+          <a className="app-bar-root app-bar-root--host" href={hostLink.url} target="_top">
             <ChevronLeft aria-hidden="true" size={16} strokeWidth={2.25} />
             <span>{hostLink.name}</span>
           </a>

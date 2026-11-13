@@ -133,6 +133,7 @@ describe('Dex Web bar trail', () => {
     renderBar('/v1/flows');
     const host = screen.getByRole('link', { name: 'test' });
     expect(host.getAttribute('href')).toBe('/servers/test');
+    expect(host.getAttribute('target')).toBe('_top');
     expect(screen.queryByRole('link', { name: 'Dex home' })).toBeNull();
   });
 
