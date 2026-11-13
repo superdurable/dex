@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum MetricsLevel {
     /// Golden signals for SLOs and page-worthy alerts.
     Basic,
@@ -222,14 +223,15 @@ impl<'registry> LeveledRegistry<'registry> {
         }
     }
 
-    /// Registers `collector` when the level exports every family in `family_names`.
+    /// Creates and registers a collector only when the level exports every family in
+    /// `family_names`.
     pub(crate) fn register_collector(
         &mut self,
         family_names: &[&str],
-        collector: Box<dyn Collector>,
+        create_collector: impl FnOnce() -> Box<dyn Collector>,
     ) {
         if family_names.iter().all(|name| self.exports(name)) {
-            self.registry.register_collector(collector);
+            self.registry.register_collector(create_collector());
         }
     }
 

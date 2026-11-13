@@ -672,18 +672,16 @@ impl NodeMetrics {
             "Time from attempting an available lease to serving.",
             metrics.takeover_duration.clone(),
         );
-        registry.register_collector(
-            &[LOCAL_STORAGE_FAMILY_NAME],
+        registry.register_collector(&[LOCAL_STORAGE_FAMILY_NAME], || {
             Box::new(LocalStorageCollector {
                 directory: local_store_directory,
                 gauge: metrics.local_storage_bytes.clone(),
-            }),
-        );
+            })
+        });
         #[cfg(target_os = "linux")]
-        registry.register_collector(
-            &collectors::process::PROCESS_FAMILY_NAMES,
-            Box::new(collectors::process::ProcessCollector::new()),
-        );
+        registry.register_collector(&collectors::process::PROCESS_FAMILY_NAMES, || {
+            Box::new(collectors::process::ProcessCollector::new())
+        });
         (exported_registry, metrics)
     }
 

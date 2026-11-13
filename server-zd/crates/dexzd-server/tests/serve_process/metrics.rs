@@ -63,8 +63,7 @@ async fn omitted_metrics_level_exports_advanced_families() {
     assert_eq!(status.code(), Some(0), "{}", process.log());
 }
 
-/// Runs a completed Flow, a failed Flow, and a pull Worker at `level`, then checks the scrape.
-/// Value and recovery checks run only at verbose, which exports every family they read.
+/// Runs two Flows and a pull Worker at `level`; value and recovery checks need verbose.
 async fn metrics_level_scenario(level: MetricsLevel) {
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let directory = TempDir::new().expect("temporary directory exists");
@@ -433,10 +432,12 @@ fn assert_every_family_has_a_sample(body: &str) {
 
 /// Returns the most series a scenario scrape may have at `level`.
 fn series_cap(level: MetricsLevel) -> usize {
-    let dexzd_series_cap = match level {
-        MetricsLevel::Basic => BASIC_SERIES_CAP,
-        MetricsLevel::Advanced => ADVANCED_SERIES_CAP,
-        MetricsLevel::Verbose => VERBOSE_SERIES_CAP,
+    let dexzd_series_cap = if level == MetricsLevel::Basic {
+        BASIC_SERIES_CAP
+    } else if level == MetricsLevel::Advanced {
+        ADVANCED_SERIES_CAP
+    } else {
+        VERBOSE_SERIES_CAP
     };
     // Linux adds one series for each of the four process families at verbose.
     if cfg!(target_os = "linux") && level == MetricsLevel::Verbose {
