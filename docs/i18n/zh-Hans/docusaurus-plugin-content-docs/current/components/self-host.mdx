@@ -32,7 +32,7 @@ db9 是兼容 PostgreSQL、可以保存 Dex Server 自身状态的选项；普�
 
 活动节点的 lease 过期后再过 1 秒，备用节点接管。lease 默认是 10 秒。没有备用节点时，节点重启后才能再次提供服务。主动让出（graceful step down）会释放 lease，所以备用节点立即接管。
 
-接管之后，Worker 已经收到的每个 Step 尝试都会再运行一次，每次都会用掉一次重试。所以 Step 中的外部调用需要[幂等键](/concepts/step#idempotency-keys)。[故障转移和部署](/concepts/failover-and-deploys)列出每种事件下哪些会重新运行，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）给出具体时间。
+接管之后，Worker 已经收到的每个 Step 尝试都会再运行一次，每次都会用掉一次重试；部分 ASYNC 尝试例外，它们保留原来的尝试次数。所以 Step 中的外部调用需要[幂等键](/concepts/step#idempotency-keys)。[故障转移和部署](/concepts/failover-and-deploys)列出每种事件下哪些会重新运行，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）给出具体时间。
 
 ## 运行它 {#run-it}
 

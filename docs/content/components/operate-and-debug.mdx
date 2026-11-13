@@ -33,11 +33,11 @@ A Flow advances only when a Worker takes its next Step. When a Step stays active
 4. Check that the deployed Worker registers the Flow, Step, and RPC names that the open Flow uses.
 5. Open the Step in Dex Web. Its attempt, Worker error, gRPC status, and stack trace tell an unavailable Worker from an application failure.
 
-After you fix the Worker, an active retry continues on its own.
+After you fix the Worker, an active retry continues on its own. Do not restart or time travel a Flow only to test connectivity.
 
 ## A Flow failed {#flow-failed}
 
-A Flow fails when a Step handler fails and its retries run out, or when the Flow reaches its timeout. By default, Step retries stop after 4 hours. In Dex Web, select the failed event in **Timeline**. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
+A Flow fails when a Step handler fails and its retries run out, or when its Flow timeout is set to fail it. A Flow timeout can also cancel the Flow or run a handler. By default, Step retries stop after 4 hours. In Dex Web, select the failed event in **Timeline**. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
 
 [Troubleshoot a Flow run](/reference/web/debugging) has the full read-only workflow, with screenshots.
 
@@ -45,7 +45,7 @@ A Flow fails when a Step handler fails and its retries run out, or when the Flow
 
 Time Travel moves a run back to an earlier point and runs it again from there. Use it after you deploy a fix. Verify the fix with a new run first.
 
-Every Step after that point runs again, with its external calls, so each call needs an [idempotency key](/concepts/step#idempotency-keys). Input that came from outside the run after that point, such as RPC calls, is applied again by default. Start Time Travel from Dex Web, `dexcli`, or a Client. [Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel) gives the options.
+Every Step after that point runs again, with its external calls, so each call needs an [idempotency key](/concepts/step#idempotency-keys). Input that came from outside the run after that point, such as RPC calls, is applied again by default. Start Time Travel from Dex Web, a Client, or `dexcli flow time-travel`; the [CLI reference](/reference/cli) lists its flags. [Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel) gives the options.
 
 ## What runs again after a crash {#what-runs-again}
 

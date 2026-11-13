@@ -14,7 +14,7 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 
 <a id="how-they-fit-together"></a>
 
-<FlowModelDiagram markdownDescription="你的应用通过 Client 启动 Flow、调用它的 RPC、读取或等待它的 Attribute，并接收 Stream 的实时更新。在一个 Flow（一个 Flow ID）内部，Step 依次运行，等待 Channel、Timer 和 SubFlow，并调用 Connector；Flow 保存 Attribute、Channel 和 Stream。" />
+<FlowModelDiagram markdownDescription="你的应用通过 Client 启动 Flow、调用它的 RPC、读取或等待它的 Attribute，并接收 Stream 的实时更新。在一个 Flow（一个 Flow ID）内部，Step 依次或并行运行，等待 Channel、Timer 和 SubFlow，并调用 Connector；Flow 保存 Attribute、Channel 和 Stream。" />
 
 ## Flow 和 Step {#flow-and-step}
 

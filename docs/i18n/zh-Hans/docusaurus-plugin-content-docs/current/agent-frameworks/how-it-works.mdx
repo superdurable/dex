@@ -11,7 +11,7 @@ import AgentTermMapDiagram from '@site/src/components/diagrams/AgentTermMapDiagr
 
 Agent 仍然由你的框架运行：它的 prompt、tool 和模型选择都不变。Dex 把每段对话作为一个 Session Flow 运行，把其中每次模型调用和 tool call 作为一个 Step 运行。Dex 记录每个 Step 的结果，所以崩溃、部署或长时间等待都不会让已完成的工作重复。
 
-<AgentTermMapDiagram markdownDescription="你的应用的 Client 把消息（send_user_message）发进 Session Flow，也就是对话的 thread。在 Session Flow 里，Agent Loop 作为 Dex 记录的 Step 运行：LLM 调用是 RunModel，tool call 是 CallTool，人工介入是 AwaitToolApproval，ResumeTurn 把 tool 结果交还给模型。聊天记录保存在 Session 的 Attribute 中，实时输出写到 AgentEvents Stream。这些 Step 调用你的模型和 tool。" />
+<AgentTermMapDiagram markdownDescription="你的应用的 Client 把消息（send_user_message）发进 Session Flow，也就是对话的 thread。在 Session Flow 里，Agent Loop 作为 Dex 记录的 Step 运行：LLM 调用是 RunModel，tool call 在读取或幂等写入时是 CallTool，其他写入时是 CallSingleAttemptTool，人工介入是 AwaitToolApproval，ResumeTurn 把 tool 结果交还给模型。聊天记录保存在 Session 的 Attribute 中，实时输出写到 AgentEvents Stream。这些 Step 调用你的模型和 tool。" />
 
 ## 你的框架术语在 Dex 中的对应 {#term-map}
 
@@ -20,17 +20,17 @@ Agent 仍然由你的框架运行：它的 prompt、tool 和模型选择都不�
 | Agent | 你的 Agent，由 Dex 适配器包装成一个 Session Flow | Prompt、tool 和模型选择保持不变。 |
 | Thread、对话、session | 一个 **Session**：一次 Flow run。Flow ID 就是 Session ID。 | Session 能经受崩溃和部署。停止后，在保留期内仍可读取。 |
 | 运行 Agent | 从 Client 调用 `send_user_message` RPC（TypeScript 中是 `sendUserMessage`） | Dex 在 turn 开始前记录这条消息。turn 进行中发送的消息会排队。 |
-| Turn | 一个 **turn**：从一条用户消息到回复的那些 Step | **Steer** 和 `cancel_turn` 在下一个安全的 Step 边界结束 turn。 |
+| Turn | 一个 **turn**：从一条用户消息到回复的那些 Step | **Steer**（`steer_user_message`）在下一个安全的 Step 边界结束 turn。`cancel_turn` 还会停止正在运行的模型调用，丢弃它的回答。两者都不会停止已经开始的 tool call。 |
 | LLM 调用 | 一个 `RunModel` Step | Dex 记录响应。重试会再次调用模型。 |
-| Tool call、function call | 读取或幂等写入用 `CallTool` Step，其他写入用 `CallSingleAttemptTool` Step | 写入最多运行一次。崩溃导致结果未知时，模型看到 `outcome_unknown`。 |
+| Tool call、function call | 读取或幂等写入用 `CallTool` Step，其他写入用 `CallSingleAttemptTool` Step | 在自己 Step 中运行的写入最多运行一次。崩溃导致结果未知时，模型看到 `outcome_unknown`。 |
 | 并行 tool call | 并行运行的 tool Step，然后是一个 `ResumeTurn` Step | `ResumeTurn` 等到所有结果，再交给模型。 |
-| 人工介入、tool 确认 | 一个 `AwaitToolApproval` Step，通过 `resolve_interrupt` RPC 或在 Dex Web 中回答 | 等待可以持续数天，不占用 Worker。 |
+| 人工介入、tool 确认 | 一个 `AwaitToolApproval` Step，通过 `resolve_interrupt` RPC（TypeScript 中是 `resolveInterrupt`）或在 Dex Web 中回答 | 等待可以持续数天，不占用 Worker。 |
 | Checkpointer、持久化执行插件 | 记录下来的 Step 结果。适配器在 Step 之间保存框架自己的状态。 | 崩溃只会重复正在运行的那个 Step。Agent 代码不需要遵守确定性规则。 |
 | 聊天记录、短期记忆 | Session 的 Attribute | 跨 Session 的长期记忆放在你自己的存储里，通过 tool 访问。 |
-| 流式回调 | AgentEvents Stream | 它是尽力而为的。`get_agent_snapshot` 读取记录下来的对话。 |
+| 流式回调 | AgentEvents Stream | 它是尽力而为的。`get_agent_snapshot`（TypeScript 中是 `getAgentSnapshot`）读取记录下来的对话。 |
 | MCP server、tool 集成 | Tool source。官方 Connector 通过 `ConnectorToolSource` 接入。 | 每次 Connector 调用都带上它的凭据和一个幂等键。 |
 
-有两个框架会把更多工作放进一个 Step。Claude Agent SDK 在 `RunModel` 中运行读取。LangGraph 图可以在一个 `RunModel` 中调用多次模型。[框架支持](/agent-frameworks/framework-support)列出这些差别。
+有些 tool 在 `RunModel` 里或在模型提供方运行，那个 Step 重试时它们可能再运行一次。例如 Claude Agent SDK 中的读取和 **Bash** 这类 CLI tool、hosted tool，以及 Mastra 自己运行的 tool。LangGraph 图也可以在一个 `RunModel` 中调用多次模型。[框架支持](/agent-frameworks/framework-support)列出这些差别。
 
 ## Session {#sessions}
 

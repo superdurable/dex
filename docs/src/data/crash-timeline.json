@@ -58,7 +58,7 @@
           "kind": "fire",
           "text": "The Timer fires.",
           "title": "Timer fired",
-          "history": true
+          "history": false
         },
         {
           "actor": "second",
@@ -141,7 +141,7 @@
           "kind": "fire",
           "text": "Timer 到时。",
           "title": "Timer 到时",
-          "history": true
+          "history": false
         },
         {
           "actor": "second",

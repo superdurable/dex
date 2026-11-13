@@ -54,7 +54,7 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 
 <RecoveryModelDiagram markdownDescription="Worker 运行中途停止。Temporal：Event History 记录每条命令和结果；新的 Worker 从头重放 workflow 函数，直到最后一个 await，所以 workflow 代码必须是确定的。Dex：Step 结果和 Attribute 与每个决定一起保存；新的 Worker 只运行下一个 Step，完成的 Step 不再运行，所以每个外部效果必须是幂等的。" />
 
-**Temporal。** 一个 Workflow 是一个函数。服务器记录 Event History，即已经发生的每件事的完整有序日志。要继续一次运行，Worker 从头再运行这个函数。已记录的 Activity 结果直接返回，Activity 不再运行。代码产生的命令会和历史比对。不一致就是非确定性错误。所以对同样的输入，workflow 代码必须以同样的顺序发出同样的调用。读取时钟、随机数和 I/O 要通过 Temporal 的 API，或者放进 Activity。
+**Temporal。** 一个 Workflow 是一个函数。服务器记录 Event History，即 Workflow Execution 生命周期中发生的每件事的完整、持久的日志。运行不在 Worker 缓存中时，Worker 从头再运行这个函数来继续它。已记录的 Activity 结果直接返回，Activity 不再运行。代码产生的命令会和历史比对。不一致就是非确定性错误。所以对同样的输入，workflow 代码必须以同样的顺序发出同样的调用。读取时钟、随机数和 I/O 要通过 Temporal 的 API，或者放进 Activity。
 
 **Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把 Step 的结果、它写入的 Attribute 和这个决定一起保存。要继续一次运行，Worker 只运行下一个 Step。它读取保存的 Attribute。没有任何重放。
 
@@ -297,7 +297,7 @@ Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也�
 
 ### 长时间运行的 Flow {#long-running-flows}
 
-Temporal 限制每次运行的 Event History。超过 10,240 个事件后，服务器记录警告。超过 51,200 个事件、2,000 个 Update 或 10,000 个 Signal 时，运行会被终止。Continue-As-New 用新的历史开始一次新的运行，并把状态带过去。
+Temporal 限制每次运行的 Event History。超过 10,240 个事件或 10 MB 后，服务器记录警告。超过 51,200 个事件或 50 MB、2,000 个 Update 或 10,000 个 Signal 时，运行会被终止。Continue-As-New 用新的历史开始一次新的运行，并把状态带过去。
 
 Dex 保留每次运行最新的一段历史事件，生产服务器默认 50,000 个，更早的会被裁剪。裁剪从不让 Flow 失败，所以长期运行的 Flow 不需要 Continue-As-New。代价是：窗口之外的旧事件就没有了。见[历史窗口](/reference/server/configuration#history-window)。
 
@@ -372,6 +372,11 @@ DBOS 是一个例子。Workflow 和 step 是你应用里加了注解的函数。
 
 Dex 在对象存储上运行自己的服务器。它可以用 [Attribute Store 同步](/components/your-database#attribute-store-sync)把 Attribute 值复制到你的数据库。
 
+### Restate 或 DBOS 更合适的情况 {#when-restate-or-dbos-fits}
+
+- **你的流程是一个服务里的一个短函数，而你已经在运行 PostgreSQL。** 基于数据库的库不会增加新的 server。
+- **你希望每个 key 只有一个写入方，而且不用声明锁。** Restate 的 virtual object 默认就是这样。在 Dex 里，你要声明 Attribute 锁。
+
 ### Step function 服务 {#step-function-services}
 
 AWS Step Functions 是一个例子：用 JSON 定义语言写的状态机，每个状态调用一个服务。两者都记录一张显式的状态图。Dex 的 Step 和决定是用你的语言写的代码。它们在你的 Worker 上运行，所以 Step 可以调用任何库。
@@ -390,11 +395,10 @@ LangGraph 是一个例子。checkpointer 在每个节点之后按 thread ID 保�
 
 ### 运行在 durable execution 引擎上的 Agent 框架 {#agent-frameworks-on-a-durable-execution-engine}
 
-运行在 Temporal 上的 OpenAI Agents SDK，运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装后的工具调用记录为引擎的一个单元。崩溃只会重复正在运行的那次调用。Dex 增加了三点：
+运行在 Temporal 上的 OpenAI Agents SDK，运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装后的工具调用记录为引擎的一个单元。崩溃只会重复正在运行的那次调用。Dex 增加了两点：
 
 - 每个工具有一个效果类别。读取可以再次运行。非幂等的写入默认只尝试一次。如果它被中断，模型会得到 `outcome_unknown`。见[工具调用](/agent-frameworks/tool-calls)。
 - 效果类别也决定默认的审批方式。审批等待不占用 Worker，可以持续几分钟或几天。见[审批](/agent-frameworks/approvals)。
-- 一种 adapter 模型和一个 session Flow 覆盖所有支持的框架。
 
 ## 下一步 {#next}
 

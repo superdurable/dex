@@ -32,7 +32,7 @@ One active process serves a cluster. It holds a lease in object storage, so a se
 
 A standby takes over after the active node's lease expires, plus 1 second. The lease is 10 seconds by default. Without a standby, the node serves again only after it restarts. A graceful step down releases the lease, so a standby takes over at once.
 
-After a takeover, every Step attempt that a Worker had received runs again, and each one uses a retry. So the external calls in a Step need an [idempotency key](/concepts/step#idempotency-keys). [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again for each event, and [Lease, hot standby, and step down](/reference/server/high-availability) gives the timings.
+After a takeover, every Step attempt that a Worker had received runs again, and each one uses a retry, except some ASYNC attempts that keep their attempt number. So the external calls in a Step need an [idempotency key](/concepts/step#idempotency-keys). [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again for each event, and [Lease, hot standby, and step down](/reference/server/high-availability) gives the timings.
 
 ## Run it {#run-it}
 

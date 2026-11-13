@@ -205,7 +205,7 @@ const sidebars: SidebarsConfig = {
           label: 'Correctness and Expressiveness',
           link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
           items: [
-            'correctness-and-expressiveness/step-guarantees',
+            'concepts/step/advanced-guarantees',
             'correctness-and-expressiveness/expressiveness-proof',
             'correctness-and-expressiveness/failure-transparency-proof',
             'correctness-and-expressiveness/workflow-patterns',
@@ -254,7 +254,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
-          label: 'Dex Skills',
+          label: 'Dex Skills in Depth',
           link: {type: 'doc', id: 'reference/dex-skills'},
           items: [
             'build-with-ai/dex-developer-skill/dex-app-builder',

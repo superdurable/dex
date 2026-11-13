@@ -10,7 +10,7 @@ description: 部署对未关闭的 Flow 有什么影响，在 Flow 仍未关闭�
 
 Flow 可能保持打开几天甚至几个月，所以新代码经常会遇到在旧代码下启动的 Flow。这一页介绍怎样安全地修改代码，以及修复之后怎样重新运行 Flow。
 
-<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/concepts/change-flow-code.md 检查我对 Dex Flow 的修改对还没结束的 run 是否安全。" />
+<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/concepts/change-flow-code.md 检查我对 Dex Flow 的修改对还没结束的 run 是否安全。只读：不要部署、停止或重新运行任何东西。" />
 
 ## 部署会改变什么 {#what-a-deploy-changes}
 
@@ -96,6 +96,6 @@ Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute�
 
 ## 下一步 {#next}
 
-- [运维和排错](/components/operate-and-debug)：找到 Flow，修复停住或失败的 Flow。
+- [概念](/concepts)：Flow、Step 和它们使用的原语。
 - [故障转移和部署](/concepts/failover-and-deploys)：部署期间哪些会重新运行。
 - [Step 的保证](/concepts/step#guarantees)

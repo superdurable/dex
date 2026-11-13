@@ -107,12 +107,12 @@
     "message": "深入了解 Agent",
     "description": "The label for category Agents in Depth in sidebar docs"
   },
-  "sidebar.docs.category.Dex Skills": {
-    "message": "深入了解 Dex Skills",
-    "description": "The label for category Dex Skills in sidebar docs"
-  },
   "sidebar.docs.category.Running Dex in Depth": {
-    "message": "深入运行 Dex",
+    "message": "深入了解 Dex 的运行",
     "description": "The label for category Running Dex in Depth in sidebar docs"
+  },
+  "sidebar.docs.category.Dex Skills in Depth": {
+    "message": "深入了解 Dex Skills",
+    "description": "The label for category Dex Skills in Depth in sidebar docs"
   }
 }

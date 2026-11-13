@@ -54,7 +54,7 @@ The two engines rebuild a run in different ways after a Worker stops.
 
 <RecoveryModelDiagram markdownDescription="A Worker stops mid-run. Temporal: the Event History holds every command and result; a new Worker replays the workflow function from the top to the last await, so workflow code must be deterministic. Dex: Step results and Attributes are saved with each decision; a new Worker runs only the next Step, and finished Steps never run again, so each external effect must be idempotent." />
 
-**Temporal.** A Workflow is one function. The server records an Event History, "a complete, ordered log of everything that has already happened". To continue a run, a Worker runs the function again from the beginning. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history. A mismatch is a nondeterminism error. So workflow code must make the same calls in the same order for the same input. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
+**Temporal.** A Workflow is one function. The server records an Event History, "a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution". When the run is not in a Worker's cache, a Worker runs the function again from the beginning to continue it. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history. A mismatch is a nondeterminism error. So workflow code must make the same calls in the same order for the same input. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
 
 **Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves the Step's result, its Attribute writes, and the decision together. To continue a run, a Worker runs only the next Step. It reads the saved Attributes. Nothing is replayed.
 
@@ -297,7 +297,7 @@ The gap is smaller than "one thread versus many" suggests, but it is real. Tempo
 
 ### Long-running Flows {#long-running-flows}
 
-Temporal limits each run's Event History. The server logs a warning after 10,240 events. It terminates a run past 51,200 events, 2,000 Updates, or 10,000 Signals. Continue-As-New starts a new run with a fresh history and carries the state over.
+Temporal limits each run's Event History. The server logs a warning after 10,240 events or 10 MB. It terminates a run past 51,200 events or 50 MB, 2,000 Updates, or 10,000 Signals. Continue-As-New starts a new run with a fresh history and carries the state over.
 
 Dex keeps a window of each run's newest history events, 50,000 by default on a production server, and prunes older ones. Pruning never fails a Flow, so a long-lived Flow needs no Continue-As-New. The trade-off: events older than the window are gone. See [History window](/reference/server/configuration#history-window).
 
@@ -372,6 +372,11 @@ DBOS is an example. Workflows and steps are annotated functions in your applicat
 
 Dex runs its own server on object storage. It can copy Attribute values to your database with [Attribute Store sync](/components/your-database#attribute-store-sync).
 
+### When Restate or DBOS fits better {#when-restate-or-dbos-fits}
+
+- **Your process is one short function in one service, and you already run PostgreSQL.** A database-backed library adds no new server.
+- **You want one writer per key with no locks to declare.** A Restate virtual object gives that by default. In Dex you declare Attribute locks.
+
 ### Step function services {#step-function-services}
 
 AWS Step Functions is an example: a state machine in a JSON definition language, with each state calling a service. Both record an explicit graph of states. Dex Steps and decisions are code in your language. They run on your Workers, so a Step can call any library.
@@ -390,11 +395,10 @@ With [Durable Agents](/agent-frameworks), you keep your framework. The adapter w
 
 ### Agent frameworks on a durable execution engine {#agent-frameworks-on-a-durable-execution-engine}
 
-The OpenAI Agents SDK on Temporal, Pydantic AI on Temporal, DBOS, or Prefect, and the LangGraph platform record each model call and wrapped tool call as a unit of the engine. A crash repeats only the running call. Dex adds three things:
+The OpenAI Agents SDK on Temporal, Pydantic AI on Temporal, DBOS, or Prefect, and the LangGraph platform record each model call and wrapped tool call as a unit of the engine. A crash repeats only the running call. Dex adds two things:
 
 - Each tool has an effect class. A read may run again. A non-idempotent write runs in one attempt by default. If it is cut off, the model gets `outcome_unknown`. See [Tool Calls](/agent-frameworks/tool-calls).
 - The effect class also sets the default approval. An approval wait holds no Worker, for minutes or days. See [Approvals](/agent-frameworks/approvals).
-- One adapter model and one session Flow cover every supported framework.
 
 ## Next
 

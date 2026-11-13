@@ -12,7 +12,7 @@ import quickStartOrderFlow from '@site/src/data/flow-definitions/quick-start/ord
 
 Run your first Flow, stop its Worker in the middle of a wait, and watch Dex continue the Flow after a restart.
 
-<CodingAgentBox prompt="Follow https://docs.superdurable.io/quick-start.md to build and run the Dex Quick Start in this folder. Ask me which language to use first." />
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/quick-start.md to build and run the Dex Quick Start in this folder. Ask me which language to use first, and before installing anything else." />
 
 <a id="before-you-start"></a>
 <a id="optional-build-it-with-a-coding-agent"></a>
@@ -524,7 +524,8 @@ def main() -> None:
     client = Client(registry, cache, ClientOptions(server_address=SERVER_ADDRESS))
     try:
         client.start_flow(order_flow, order_id, order_id)
-        print(f"Started Flow {order_id}. Ship runs in 60 seconds.", flush=True)
+        seconds = int(SHIP_DELAY.total_seconds())
+        print(f"Started Flow {order_id}. Ship runs in {seconds} seconds.", flush=True)
     finally:
         client.close()
         cache.close()
@@ -608,7 +609,7 @@ func run() (err error) {
 	if _, err := client.StartFlow(context.Background(), orderFlow, orderID, orderID, dex.StartFlowOptions{}); err != nil {
 		return err
 	}
-	fmt.Printf("Started Flow %s. Ship runs in 60 seconds.\n", orderID)
+	fmt.Printf("Started Flow %s. Ship runs in %d seconds.\n", orderID, int(quickstart.ShipDelay().Seconds()))
 	return nil
 }
 ```
@@ -655,7 +656,8 @@ public static void main(final String[] args) throws Exception {
             Client client = new Client(
                     registry, cache, new ClientOptions(QuickStartConfig.SERVER_ADDRESS))) {
         client.startFlow(orderFlow, orderId, orderId);
-        System.out.println("Started Flow " + orderId + ". Ship runs in 60 seconds.");
+        System.out.println("Started Flow " + orderId + ". Ship runs in "
+                + QuickStartConfig.SHIP_DELAY.toSeconds() + " seconds.");
     }
 }
 ```
@@ -693,7 +695,7 @@ const cache = openCache(".dex-blob-cache/client");
 const client = new Client(registry, cache, { serverAddress: SERVER_ADDRESS });
 try {
   await client.startFlow(orderFlow, orderId, orderId);
-  console.log(`Started Flow ${orderId}. Ship runs in 60 seconds.`);
+  console.log(`Started Flow ${orderId}. Ship runs in ${SHIP_DELAY_MS / 1000} seconds.`);
 } finally {
   await client.close();
   cache.close();
@@ -752,7 +754,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let options = ClientOptions::new().server_address(config.server_address);
     let client = Client::try_new(registry, cache, options)?;
     client.start_flow(&order_flow, &order_id, order_id.clone())?;
-    println!("Started Flow {order_id}. Ship runs in 60 seconds.");
+    let seconds = ship_delay_from_environment().as_secs();
+    println!("Started Flow {order_id}. Ship runs in {seconds} seconds.");
     Ok(())
 }
 ```
@@ -944,7 +947,7 @@ When the Ship Timer fires, 60 seconds after Charge finishes by default, the Work
 
 ## 7. See the run in Dex Web {#7-see-the-run-in-dex-web}
 
-Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select your Flow. Dex Web shows the run's history, and the Worker stop sits between two of its events:
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select the Flow from step 5; the start command printed its ID. The numbered rows are the run's history events in Dex Web. The Worker stop and the Timer firing are not events, so the card draws them between events:
 
 <CrashTimeline variant="quick-start" />
 

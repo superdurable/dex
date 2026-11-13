@@ -10,5 +10,7 @@
 
 /** Returns the host's Dex Skills install lines, then its launch command with the prompt quoted on one line. */
 export function codingAgentCommand(host: {install: string; launch: string}, prompt: string): string {
+  // The prompt goes inside double quotes in bash and zsh, where these characters would be interpreted.
+  if (/["$`!\\]/.test(prompt)) throw new Error(`CodingAgentBox prompt has a character the shell would interpret: ${prompt}`);
   return `${host.install}\n${host.launch} "${prompt.trim()}"`;
 }

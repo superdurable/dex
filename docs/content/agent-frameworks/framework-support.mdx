@@ -17,7 +17,7 @@ Dex runs agents built with eight frameworks, plus its own built-in agent loop. E
 | --- | --- | --- | --- | --- |
 | Claude Agent SDK | Python, TypeScript | Writes and Connector calls. Reads run inside the model call's Step. | No. Claude Code compacts its own transcript. | No |
 | Google ADK | Python | Yes | Yes | No |
-| LangChain and LangGraph | Python | Yes | Yes | No |
+| LangChain and LangGraph | Python | Yes. Provider-run tools run at the provider. | Yes | No |
 | Mastra | TypeScript | Yes, except tools that Mastra runs itself | Yes | No |
 | OpenAI Agents SDK | Python, TypeScript | Function tools. Hosted tools run at the provider. | Yes | No |
 | Pi | TypeScript | Yes | Yes | Yes |

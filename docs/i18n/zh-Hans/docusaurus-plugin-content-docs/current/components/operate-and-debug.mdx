@@ -33,11 +33,11 @@ dexcli flow history FLOW_ID --run-id RUN_ID --all
 4. 检查已部署的 Worker 是否注册了这个未结束的 Flow 用到的 Flow、Step 和 RPC 名称。
 5. 在 Dex Web 中打开这个 Step。它的尝试次数、Worker 错误、gRPC 状态和调用栈能区分 Worker 不可用和应用失败。
 
-修复 Worker 之后，进行中的重试会自己继续。
+修复 Worker 之后，进行中的重试会自己继续。不要只为了测试连通性而重启 Flow 或对它运行 Time Travel。
 
 ## Flow 失败了 {#flow-failed}
 
-Step handler 失败且重试用完，或者 Flow 达到它的超时时间，Flow 就会失败。默认情况下，Step 的重试在 4 小时后停止。在 Dex Web 中，在 **Timeline** 里选中失败的事件。它的 **Failure** 面板显示尝试次数、错误和 gRPC 状态。把失败交给负责这段代码的团队之前，先展开 **Stack trace**。
+Step handler 失败且重试用完，或者 Flow 的超时被设置为让它失败，Flow 就会失败。Flow 超时也可以取消 Flow 或运行一个 handler。默认情况下，Step 的重试在 4 小时后停止。在 Dex Web 中，在 **Timeline** 里选中失败的事件。它的 **Failure** 面板显示尝试次数、错误和 gRPC 状态。把失败交给负责这段代码的团队之前，先展开 **Stack trace**。
 
 [Troubleshoot a Flow run](/reference/web/debugging)（英文）有完整的只读排查流程和截图。
 
@@ -45,7 +45,7 @@ Step handler 失败且重试用完，或者 Flow 达到它的超时时间，Flow
 
 Time Travel 把一次 run 退回到较早的一个点，并从那里重新运行。在部署修复之后使用它。先用一个新的 run 验证修复。
 
-那个点之后的每个 Step 都会重新运行，包括它的外部调用，所以每个调用都需要[幂等键](/concepts/step#idempotency-keys)。那个点之后从 run 外部进来的输入，比如 RPC 调用，默认会再应用一次。可以从 Dex Web、`dexcli` 或 Client 启动 Time Travel。[用 Time Travel 恢复 Flow](/concepts/change-flow-code#time-travel) 介绍了它的选项。
+那个点之后的每个 Step 都会重新运行，包括它的外部调用，所以每个调用都需要[幂等键](/concepts/step#idempotency-keys)。那个点之后从 run 外部进来的输入，比如 RPC 调用，默认会再应用一次。可以从 Dex Web、Client 或 `dexcli flow time-travel` 启动 Time Travel；[CLI 参考](/reference/cli)（英文）列出它的参数。[用 Time Travel 恢复 Flow](/concepts/change-flow-code#time-travel) 介绍了它的选项。
 
 ## 崩溃之后哪些会重新运行 {#what-runs-again}
 

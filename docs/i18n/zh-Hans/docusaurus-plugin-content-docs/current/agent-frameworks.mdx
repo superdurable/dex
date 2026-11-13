@@ -16,7 +16,7 @@ Dex 上的持久化 Agent 由三部分组成：
 - **Dex Server：**保存每个 Session，并把它的工作交给 Worker。它运行在 Dex Cloud 上，或你自己的基础设施上。
 - **你的 Agent Worker：**用你的框架或内置 Agent Loop 写成的 Agent，通过 Dex Agents 适配器运行。
 
-<AgentStackDiagram markdownDescription="你的应用（带 Dex Client 的 Web 应用或 API）在 Dex Server 上启动并驱动 Session，Dex Server 运行在 Dex Cloud 上或自托管。你的 Agent Worker 从 Dex Server 拉取 Step，通过 Dex Agents 适配器运行你的 Agent，支持 Claude Agent SDK、Google ADK、LangChain 和 LangGraph、Mastra、OpenAI Agents SDK、Pydantic AI、Vercel AI SDK 或内置 Agent Loop。" />
+<AgentStackDiagram markdownDescription="你的应用（带 Dex Client 的 Web 应用或 API）在 Dex Server 上启动并驱动 Session，Dex Server 运行在 Dex Cloud 上或自托管。你的 Agent Worker 从 Dex Server 拉取 Step，通过 Dex Agents 适配器运行你的 Agent，支持 Claude Agent SDK、Google ADK、LangChain 和 LangGraph、Mastra、OpenAI Agents SDK、Pi、Pydantic AI、Vercel AI SDK 或内置 Agent Loop。" />
 
 你的 Agent 保留它的框架和代码。Dex 把每个 Session 作为一个 Flow 运行，每次模型调用、Tool Call 和审批完成时都记录为一个 Step。Worker 崩溃或部署之后，Session 从最后一次完成的调用之后继续。
 
@@ -36,7 +36,7 @@ Dex 上的持久化 Agent 由三部分组成：
 
 <a id="coming-from-a-framework"></a>
 
-Harness（运行框架）负责运行 Agent Loop：内置 Agent Loop 或某个框架。选择你的框架，打开它的 Agent 快速开始；每个框架的细节和限制在[框架支持](/agent-frameworks/framework-support)页面。
+Harness（运行框架）负责运行 Agent Loop：内置 Agent Loop 或某个框架。选择你的框架，打开它的 Agent 快速开始；[框架支持](/agent-frameworks/framework-support)汇总每个框架，[各框架如何在 Dex 上运行](/agent-frameworks/framework-details)给出细节。
 
 <div className="docs-home-sections docs-harness-cards">
   <DocsSection section="agent-frameworks" logo="claude-agent-sdk" to="/agent-frameworks/quick-start/?framework=claude-agent-sdk" title="Claude Agent SDK">
@@ -77,10 +77,11 @@ Harness（运行框架）负责运行 Agent Loop：内置 Agent Loop 或某个�
 - [在生产环境运行 Agent](/agent-frameworks/production)：在生产环境运行 Session 之前的检查清单。
 - 示例：基于内置 Agent Loop 的 [AI Agent](/use-cases/ai-agent)，以及在每个框架上实现的[订单客服 Agent](/use-cases/order-support-agent)。
 
-[深入了解 Agent](/reference/agents-in-depth)包含 Session、tool call、审批、Connector 作为 tool 和内置 Agent Loop 的完整页面。[Agents 参考](/reference/agents/)（英文）中有 [Tracing](/reference/agents/tracing)、[Upgrades](/reference/agents/upgrades)、[Session limits](/reference/agents/session-limits)、[Spend limits](/reference/agents/spend-limits) 和 [CLI commands](/reference/agents/cli)。
+[深入了解 Agent](/reference/agents-in-depth)包含 Session、tool call、审批、Connector 作为 tool、内置 Agent Loop 以及各框架如何在 Dex 上运行的完整页面。[Agents 参考](/reference/agents/)（英文）中有 [Tracing](/reference/agents/tracing)、[Upgrades](/reference/agents/upgrades)、[Session limits](/reference/agents/session-limits)、[Spend limits](/reference/agents/spend-limits) 和 [CLI commands](/reference/agents/cli)。
 
 ## 下一步 {#next}
 
+- [Agent 快速开始](/agent-frameworks/quick-start)
 - [AI Agent](/use-cases/ai-agent)
 - [Step](/concepts/step)
 - [Agents 参考](/reference/agents/)（英文）

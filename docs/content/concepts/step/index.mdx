@@ -269,6 +269,7 @@ details behind the other two.
   Channel message, and wait for it in the next Step's `WaitFor`. Hard-delete
   Attributes are the exception: Dex reads them again on every attempt. See
   [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
+- **A method's writes are saved with its result.** Its Attribute writes and Channel publications take effect only when the method succeeds. When Dex cannot tell whether a method ran, it runs it again or reports the outcome as unknown.
 - **Parallel writers can overwrite each other.** Two Steps or RPCs that read
   and then write the same Attribute need a lock on it. See [What Dex saves](/correctness-and-expressiveness/step-guarantees#what-dex-saves).
 

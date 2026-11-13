@@ -17,7 +17,7 @@ Dex 可以运行用八个框架构建的 Agent，还有它自己的内置 Agent 
 | --- | --- | --- | --- | --- |
 | Claude Agent SDK | Python、TypeScript | 写入和 Connector 调用。读取在模型调用的 Step 里运行。 | 否。Claude Code 自己压缩 transcript。 | 否 |
 | Google ADK | Python | 是 | 是 | 否 |
-| LangChain 和 LangGraph | Python | 是 | 是 | 否 |
+| LangChain 和 LangGraph | Python | 是。提供方运行的 tool 在提供方运行。 | 是 | 否 |
 | Mastra | TypeScript | 是，Mastra 自己运行的 tool 除外 | 是 | 否 |
 | OpenAI Agents SDK | Python、TypeScript | Function tool。Hosted tool 在提供方运行。 | 是 | 否 |
 | Pi | TypeScript | 是 | 是 | 是 |
