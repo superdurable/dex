@@ -144,16 +144,31 @@ pub(crate) struct RobustnessProcess {
 impl RobustnessProcess {
     /// Starts `serve --config` with environment credentials for the primary store.
     pub(crate) fn spawn(config_path: &Path, address: SocketAddr, log_path: PathBuf) -> Self {
+        Self::spawn_with_credentials(
+            config_path,
+            address,
+            log_path,
+            harness::ACCESS_KEY_ID,
+            harness::SECRET_ACCESS_KEY,
+        )
+    }
+
+    /// Starts like [`Self::spawn`] with the primary store's keys `access_key_id` and
+    /// `secret_access_key`, as for a real bucket.
+    pub(crate) fn spawn_with_credentials(
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> Self {
         let log = fs::File::create(&log_path).expect("the process log file is created");
         let child = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"))
             .arg("serve")
             .arg("--config")
             .arg(config_path)
-            .env("DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID", harness::ACCESS_KEY_ID)
-            .env(
-                "DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY",
-                harness::SECRET_ACCESS_KEY,
-            )
+            .env("DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID", access_key_id)
+            .env("DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY", secret_access_key)
             .env("RUST_LOG", "info")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -341,6 +356,8 @@ pub(crate) struct ServeFleet {
     log_directory: PathBuf,
     log_paths: Vec<PathBuf>,
     summary: Box<dyn Fn() -> String + Send + Sync>,
+    /// The primary store's access key ID and secret; `None` uses the emulator's test keys.
+    object_store_credentials: Option<(String, String)>,
 }
 
 impl ServeFleet {
@@ -352,7 +369,20 @@ impl ServeFleet {
             log_directory: log_directory.to_path_buf(),
             log_paths: Vec::new(),
             summary,
+            object_store_credentials: None,
         }
+    }
+
+    /// Returns this fleet starting every process with the primary store's keys `access_key_id`
+    /// and `secret_access_key`.
+    pub(crate) fn with_object_store_credentials(
+        mut self,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> Self {
+        self.object_store_credentials =
+            Some((access_key_id.to_owned(), secret_access_key.to_owned()));
+        self
     }
 
     /// Starts `serve --config` with its log in `<name>.log`.
@@ -364,7 +394,16 @@ impl ServeFleet {
     ) -> RobustnessProcess {
         let log_path = self.log_directory.join(format!("{name}.log"));
         self.log_paths.push(log_path.clone());
-        RobustnessProcess::spawn(config_path, address, log_path)
+        match &self.object_store_credentials {
+            Some((access_key_id, secret_access_key)) => RobustnessProcess::spawn_with_credentials(
+                config_path,
+                address,
+                log_path,
+                access_key_id,
+                secret_access_key,
+            ),
+            None => RobustnessProcess::spawn(config_path, address, log_path),
+        }
     }
 }
 

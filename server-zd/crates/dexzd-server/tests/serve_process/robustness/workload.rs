@@ -293,6 +293,9 @@ pub(crate) struct LoadShape {
     pub(crate) call_timeout: Duration,
     /// How long an increment is resent with its request ID after UNAVAILABLE or a timeout.
     pub(crate) increment_resend_budget: Option<Duration>,
+    /// How long each starter waits after its Flow closes, and each counter writer after an
+    /// increment; zero runs at full speed.
+    pub(crate) pause_between_calls: Duration,
 }
 
 /// Chain and timer Flows and locked counters driven against one fixed server address.
@@ -402,6 +405,7 @@ impl Workload {
                 timer_starters: 0,
                 call_timeout,
                 increment_resend_budget: None,
+                pause_between_calls: Duration::ZERO,
             },
         )
     }
@@ -440,6 +444,7 @@ impl Workload {
                 flow_id_prefix,
                 kind,
                 shape.call_timeout,
+                shape.pause_between_calls,
             ));
             tasks.push(starter_task);
         }
@@ -454,6 +459,7 @@ impl Workload {
                 flow_id,
                 shape.call_timeout,
                 shape.increment_resend_budget,
+                shape.pause_between_calls,
             ));
             tasks.push(writer_task);
         }
@@ -535,8 +541,19 @@ impl Workload {
         channel: Channel,
         server: &mut RobustnessProcess,
     ) -> VerificationReport {
+        self.verify_within(channel, server, VERIFICATION_BUDGET)
+            .await
+    }
+
+    /// Verifies like [`Self::verify`], allowing `budget` for every acknowledged Flow together.
+    pub(crate) async fn verify_within(
+        &self,
+        channel: Channel,
+        server: &mut RobustnessProcess,
+        budget: Duration,
+    ) -> VerificationReport {
         let mut client = FlowServiceClient::new(channel);
-        let deadline = Instant::now() + VERIFICATION_BUDGET;
+        let deadline = Instant::now() + budget;
         let starts = self.ledger.starts();
         let mut chain_flows = 0;
         let mut timer_flows = 0;
@@ -588,6 +605,80 @@ impl Workload {
             chain_step_executions,
             re_executed_step_executions,
         }
+    }
+
+    /// Returns the number of acknowledged Flow starts, counters included.
+    pub(crate) fn acknowledged_start_count(&self) -> usize {
+        self.ledger
+            .starts
+            .lock()
+            .expect("the ledger lock is not poisoned")
+            .len()
+    }
+
+    /// Reads every counter through `channel` and returns a description of each one whose
+    /// stored value is below the largest increment acknowledged before this call.
+    ///
+    /// A failed read is retried until `budget` passes, as right after a takeover.
+    ///
+    /// # Errors
+    ///
+    /// Returns the last failure when a counter could not be read within `budget`.
+    pub(crate) async fn counters_behind_acknowledged(
+        &self,
+        channel: Channel,
+        budget: Duration,
+    ) -> Result<Vec<String>, String> {
+        let starts = self.ledger.starts();
+        let acknowledged: Vec<(AcknowledgedStart, i64)> = self
+            .ledger
+            .counters()
+            .into_iter()
+            .filter_map(|(flow_id, counter)| {
+                let start = starts.iter().find(|start| start.flow_id == flow_id)?;
+                let largest = counter.acknowledged_values.iter().copied().max()?;
+                Some((start.clone(), largest))
+            })
+            .collect();
+        let mut client = FlowServiceClient::new(channel);
+        let deadline = Instant::now() + budget;
+        let mut behind = Vec::new();
+        for (start, largest) in acknowledged {
+            let stored = loop {
+                let read = client.get_attributes(GetAttributesRequest {
+                    flow_id: start.flow_id.clone(),
+                    run_id: start.run_id.clone(),
+                    keys: vec![COUNTER_ATTRIBUTE.to_owned()],
+                    all_keys: false,
+                });
+                let failure = match tokio::time::timeout(VERIFICATION_CALL_TIMEOUT, read).await {
+                    Ok(Ok(response)) => {
+                        break response
+                            .into_inner()
+                            .attributes
+                            .iter()
+                            .find(|attribute| attribute.key == COUNTER_ATTRIBUTE)
+                            .map_or(0, |attribute| integer_of(attribute.value.as_ref()));
+                    }
+                    Ok(Err(status)) => status.to_string(),
+                    Err(_) => format!("no reply within {VERIFICATION_CALL_TIMEOUT:?}"),
+                };
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "reading counter {} failed until {budget:?} passed: {failure}",
+                        start.flow_id
+                    ));
+                }
+                tokio::time::sleep(RETRY_PAUSE).await;
+            };
+            if stored < largest {
+                behind.push(format!(
+                    "{} stores {stored}, below the acknowledged {largest}",
+                    start.flow_id
+                ));
+            }
+        }
+        Ok(behind)
     }
 
     /// Waits until the first acknowledged chain Flow completes on `server` and returns it.
@@ -1038,6 +1129,7 @@ async fn run_flow_starter(
     flow_id_prefix: String,
     kind: WorkloadFlowKind,
     call_timeout: Duration,
+    pause_between_flows: Duration,
 ) {
     let mut sequence = 0;
     while !is_stopping.load(Ordering::SeqCst) {
@@ -1085,6 +1177,9 @@ async fn run_flow_starter(
                 Ok(Err(_)) | Err(_) => tokio::time::sleep(RETRY_PAUSE).await,
             }
         }
+        if !pause_between_flows.is_zero() {
+            tokio::time::sleep(pause_between_flows).await;
+        }
     }
 }
 
@@ -1098,8 +1193,12 @@ async fn run_counter_writer(
     flow_id: String,
     call_timeout: Duration,
     resend_budget: Option<Duration>,
+    pause_between_increments: Duration,
 ) {
     while !is_stopping.load(Ordering::SeqCst) {
+        if !pause_between_increments.is_zero() {
+            tokio::time::sleep(pause_between_increments).await;
+        }
         let request = InvokeRpcRequest {
             flow_id: flow_id.clone(),
             rpc_name: INCREMENT_COUNTER_RPC.to_owned(),
