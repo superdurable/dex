@@ -14,10 +14,15 @@ use dexzd_object_store::{ListingConsistency, ObjectMetadata, ObjectStore};
 use dexzd_protocol::dexzd::v1::SnapshotManifest;
 use prost::Message;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::snapshots::SnapshotError;
 use crate::snapshots::ownership_fence::OwnershipFence;
+
+use eventual_protection::EventualProtection;
+
+mod eventual_protection;
 
 const LISTING_PAGE_SIZE: u32 = 1000;
 const LISTING_PAGES_PER_RUN: usize = 10;
@@ -36,12 +41,6 @@ pub(crate) struct SnapshotRetention {
     pub(crate) listing_consistency: ListingConsistency,
 }
 
-/// This process's upload lineage and newest reserved number; every manifest in it is read by key.
-pub(crate) struct ReservedSnapshotLineage {
-    pub(crate) lineage_id: Uuid,
-    pub(crate) last_reserved_snapshot_number: u64,
-}
-
 /// Decoded snapshot manifests of this node by object key.
 ///
 /// Manifests never change, so each one is read at most once per process.
@@ -57,8 +56,8 @@ pub(crate) struct SnapshotCatalog {
     orphan_first_seen: BTreeMap<String, OrphanMark>,
     completed_scan_number: u64,
     candidate_cursor: Option<String>,
-    /// Reserved manifest numbers up to this one, in this lineage, were read by key.
-    reserved_manifests_read_through: Option<(Uuid, u64)>,
+    /// What retention keeps when listings are eventually consistent; strong listings leave it empty.
+    protection: EventualProtection,
 }
 
 struct OrphanMark {
@@ -73,6 +72,28 @@ impl SnapshotCatalog {
         self.inserted_manifest_keys.insert(key.clone());
         self.manifests.insert(key, manifest);
     }
+
+    /// Adds a manifest that this process just wrote and counts it among its own snapshots.
+    pub(crate) fn insert_own(&mut self, key: String, manifest: SnapshotManifest) {
+        self.protection.record_own_manifest(key.clone());
+        self.insert(key, manifest);
+    }
+
+    /// Records a manifest write whose upload failed; the files it lists stay until it is resolved.
+    pub(crate) fn record_failed_manifest_upload(
+        &mut self,
+        key: String,
+        manifest: &SnapshotManifest,
+        attempt_ended_at: Instant,
+    ) {
+        self.protection
+            .record_unresolved_upload(key, manifest, attempt_ended_at);
+    }
+
+    /// Records manifests that a strong read showed pointed, such as pointers a snapshot replaced.
+    pub(crate) fn record_pointed_manifests(&mut self, keys: impl IntoIterator<Item = String>) {
+        self.protection.record_pointed_manifests(keys);
+    }
 }
 
 impl SnapshotRetention {
@@ -81,26 +102,22 @@ impl SnapshotRetention {
     ///
     /// Snapshots in `referenced_keys` are always kept, and so is every file a kept snapshot
     /// references. A deleted snapshot's files go in the same pass, independent of process
-    /// lifetime. Over an eventually consistent listing, `reserved_lineage` names the lineage
-    /// whose manifests are read by key. Returns the kept snapshots, oldest first.
+    /// lifetime. Over an eventually consistent listing, [`Self::run_eventual_once`] decides
+    /// instead. Returns the kept snapshots, oldest first.
     pub(crate) async fn run_once<'catalog>(
         &self,
         catalog: &'catalog mut SnapshotCatalog,
         referenced_keys: &BTreeSet<String>,
-        reserved_lineage: Option<&ReservedSnapshotLineage>,
         fence: &OwnershipFence,
         now_unix_micros: i64,
     ) -> Result<Vec<&'catalog SnapshotManifest>, SnapshotError> {
+        if !self.listing_consistency.is_strong() {
+            return self
+                .run_eventual_once(catalog, referenced_keys, fence)
+                .await;
+        }
         if !self.refresh(catalog).await? {
             return Ok(Self::kept(catalog));
-        }
-        if !self.listing_consistency.is_strong() {
-            self.read_unlisted_referenced_manifests(catalog, referenced_keys)
-                .await?;
-            if let Some(reserved_lineage) = reserved_lineage {
-                self.read_unlisted_reserved_manifests(catalog, reserved_lineage)
-                    .await?;
-            }
         }
         let mut unreferenced_files: BTreeSet<String> = self
             .find_orphan_files(catalog, now_unix_micros)
@@ -130,17 +147,9 @@ impl SnapshotRetention {
                 "deleted snapshots beyond the retained count"
             );
         }
-        let orphan_files = if self.listing_consistency.is_strong() {
-            self.exclude_newly_referenced_files(catalog, unreferenced_files.into_iter().collect())
-                .await?
-        } else {
-            self.exclude_files_unknown_manifests_may_use(
-                catalog,
-                unreferenced_files,
-                reserved_lineage,
-                now_unix_micros,
-            )
-        };
+        let orphan_files = self
+            .exclude_newly_referenced_files(catalog, unreferenced_files.into_iter().collect())
+            .await?;
         for chunk in orphan_files.chunks(LISTING_PAGE_SIZE as usize) {
             fence.ensure_current_lease().await?;
             // An issued delete can finish after lease loss; successors upload into fresh lineages.
@@ -152,6 +161,67 @@ impl SnapshotRetention {
                 "deleted unreferenced snapshot files"
             );
         }
+        Ok(Self::kept(catalog))
+    }
+
+    /// Deletes listed objects that stayed unprotected for the deletion delay on the monotonic clock.
+    ///
+    /// Returns the kept snapshots, oldest first.
+    async fn run_eventual_once<'catalog>(
+        &self,
+        catalog: &'catalog mut SnapshotCatalog,
+        referenced_keys: &BTreeSet<String>,
+        fence: &OwnershipFence,
+    ) -> Result<Vec<&'catalog SnapshotManifest>, SnapshotError> {
+        let node_prefix = format!("snapshot/{}/", self.node_id);
+        let pointed_keys: BTreeSet<&str> = referenced_keys
+            .iter()
+            .filter(|key| key.starts_with(&node_prefix))
+            .map(String::as_str)
+            .collect();
+        catalog.protection.observe_pointed_manifests(
+            &pointed_keys,
+            Instant::now(),
+            self.deletion_delay,
+        );
+        if !self.refresh(catalog).await? {
+            return Ok(Self::kept(catalog));
+        }
+        self.read_protected_manifests(catalog).await?;
+        let now = Instant::now();
+        let (protected_manifests, protected_files) = catalog
+            .protection
+            .protected_objects(&catalog.manifests, self.retained_count);
+        let obsolete_manifests: Vec<String> = catalog
+            .protection
+            .matured_manifests(
+                catalog.manifests.keys(),
+                &protected_manifests,
+                now,
+                self.deletion_delay,
+            )
+            .into_iter()
+            .take(CANDIDATES_PER_RUN)
+            .collect();
+        for chunk in obsolete_manifests.chunks(LISTING_PAGE_SIZE as usize) {
+            fence.ensure_current_lease().await?;
+            self.object_store.delete_many(chunk).await?;
+        }
+        for key in &obsolete_manifests {
+            catalog.manifests.remove(key);
+            catalog.protection.forget_deleted_manifest(key);
+        }
+        if !obsolete_manifests.is_empty() {
+            tracing::info!(
+                manifests = obsolete_manifests.len(),
+                "deleted unprotected snapshots"
+            );
+        }
+        catalog
+            .protection
+            .nominate_files(&catalog.listed_files, &protected_files, now);
+        catalog.listed_files.clear();
+        self.delete_matured_files(catalog, fence, now).await?;
         Ok(Self::kept(catalog))
     }
 
@@ -210,61 +280,6 @@ impl SnapshotRetention {
                     && !referenced_files.contains(key.as_str())
             })
             .collect())
-    }
-
-    /// Keeps each file that a known manifest uses or that a manifest retention would keep may use.
-    fn exclude_files_unknown_manifests_may_use(
-        &self,
-        catalog: &SnapshotCatalog,
-        unreferenced_files: BTreeSet<String>,
-        reserved_lineage: Option<&ReservedSnapshotLineage>,
-        now_unix_micros: i64,
-    ) -> Vec<String> {
-        let referenced_files: BTreeSet<&str> = catalog
-            .manifests
-            .values()
-            .flat_map(|manifest| &manifest.files)
-            .map(|file| file.object_key.as_str())
-            .collect();
-        unreferenced_files
-            .into_iter()
-            .filter(|key| {
-                !referenced_files.contains(key.as_str())
-                    && file_lineage(key).is_some_and(|lineage| {
-                        reserved_lineage.is_some_and(|reserved| reserved.lineage_id == lineage)
-                            || self.is_every_manifest_of_lineage_obsolete(
-                                catalog,
-                                lineage,
-                                now_unix_micros,
-                            )
-                    })
-            })
-            .collect()
-    }
-
-    /// Returns whether retention deletes every manifest of `lineage`, including manifests no listing showed.
-    ///
-    /// One process writes each UUIDv7 lineage, so its manifests predate every later lineage's.
-    /// `retained_count` known later manifests past the deletion delay therefore displace them all.
-    fn is_every_manifest_of_lineage_obsolete(
-        &self,
-        catalog: &SnapshotCatalog,
-        lineage: Uuid,
-        now_unix_micros: i64,
-    ) -> bool {
-        let mut later_created_at: Vec<i64> = catalog
-            .manifests
-            .values()
-            .filter(|manifest| {
-                Uuid::from_slice(&manifest.lineage_id).is_ok_and(|other| other > lineage)
-            })
-            .map(|manifest| manifest.created_at_unix_micros)
-            .collect();
-        later_created_at.sort_unstable();
-        let delay_micros = i64::try_from(self.deletion_delay.as_micros()).unwrap_or(i64::MAX);
-        later_created_at
-            .get(self.retained_count.max(1) - 1)
-            .is_some_and(|created_at| now_unix_micros.saturating_sub(*created_at) >= delay_micros)
     }
 
     async fn find_orphan_files(
@@ -460,57 +475,95 @@ impl SnapshotRetention {
         Ok(true)
     }
 
-    /// Reads referenced manifests of this node that the catalog lacks, as listings can hide them.
-    async fn read_unlisted_referenced_manifests(
+    /// Reads by key the pointed manifests and unresolved manifest writes, which listings can hide.
+    async fn read_protected_manifests(
         &self,
         catalog: &mut SnapshotCatalog,
-        referenced_keys: &BTreeSet<String>,
     ) -> Result<(), SnapshotError> {
         let node_prefix = format!("snapshot/{}/", self.node_id);
-        for key in referenced_keys {
-            if !key.starts_with(&node_prefix) || catalog.manifests.contains_key(key) {
-                continue;
+        let pointed_keys: Vec<String> = catalog
+            .protection
+            .pointed_manifest_keys()
+            .filter(|key| key.starts_with(&node_prefix) && !catalog.manifests.contains_key(*key))
+            .cloned()
+            .collect();
+        for key in pointed_keys {
+            if let Some(manifest) = self.read_manifest(&key).await? {
+                catalog.manifests.insert(key, manifest);
             }
-            let Some(content) = self.object_store.get(key).await? else {
-                continue;
-            };
-            let manifest = SnapshotManifest::decode(content.bytes)?;
-            self.validate(key, &manifest)?;
-            catalog.manifests.insert(key.clone(), manifest);
+        }
+        for key in catalog.protection.unresolved_manifest_keys() {
+            // A write with a failed upload can land after the failure was reported.
+            match self.read_manifest(&key).await? {
+                Some(manifest) => {
+                    catalog.protection.resolve_found_manifest(&key);
+                    catalog.manifests.insert(key, manifest);
+                }
+                None => catalog.protection.expire_missing_manifest(
+                    &key,
+                    Instant::now(),
+                    self.deletion_delay,
+                ),
+            }
         }
         Ok(())
     }
 
-    /// Reads the manifests of the reserved lineage that the catalog lacks, as listings can hide them.
-    async fn read_unlisted_reserved_manifests(
+    /// Returns the validated manifest at `key`, or `None` when it does not exist.
+    async fn read_manifest(&self, key: &str) -> Result<Option<SnapshotManifest>, SnapshotError> {
+        let Some(content) = self.object_store.get(key).await? else {
+            return Ok(None);
+        };
+        let manifest = SnapshotManifest::decode(content.bytes)?;
+        self.validate(key, &manifest)?;
+        Ok(Some(manifest))
+    }
+
+    /// Deletes up to [`CANDIDATES_PER_RUN`] matured file candidates whose ETag a HEAD confirms.
+    async fn delete_matured_files(
         &self,
         catalog: &mut SnapshotCatalog,
-        reserved_lineage: &ReservedSnapshotLineage,
+        fence: &OwnershipFence,
+        now: Instant,
     ) -> Result<(), SnapshotError> {
-        let lineage = reserved_lineage.lineage_id;
-        let first_unread_number = match catalog.reserved_manifests_read_through {
-            Some((read_lineage, read_through)) if read_lineage == lineage => read_through + 1,
-            _ => 1,
-        };
-        for snapshot_number in first_unread_number..=reserved_lineage.last_reserved_snapshot_number
-        {
-            let key = format!(
-                "snapshot/{}/{lineage}/manifest/{snapshot_number:020}",
-                self.node_id
-            );
-            if catalog.manifests.contains_key(&key) {
-                continue;
+        let manifest_files: BTreeSet<&str> = catalog
+            .manifests
+            .values()
+            .flat_map(|manifest| &manifest.files)
+            .map(|file| file.object_key.as_str())
+            .collect();
+        let matured = catalog.protection.matured_files(
+            &manifest_files,
+            now,
+            self.deletion_delay,
+            CANDIDATES_PER_RUN,
+        );
+        let mut orphan_files = Vec::new();
+        for file in matured {
+            match self.object_store.head(&file.key).await? {
+                None => catalog.protection.forget_file(&file.key),
+                Some(current) if current.etag != file.etag => {
+                    catalog
+                        .protection
+                        .renominate_file(&file.key, current.etag, now);
+                }
+                Some(_) => orphan_files.push(file.key),
             }
-            // An upload with an unknown outcome can leave a manifest this process never recorded.
-            let Some(content) = self.object_store.get(&key).await? else {
-                continue;
-            };
-            let manifest = SnapshotManifest::decode(content.bytes)?;
-            self.validate(&key, &manifest)?;
-            catalog.manifests.insert(key, manifest);
         }
-        catalog.reserved_manifests_read_through =
-            Some((lineage, reserved_lineage.last_reserved_snapshot_number));
+        for chunk in orphan_files.chunks(LISTING_PAGE_SIZE as usize) {
+            fence.ensure_current_lease().await?;
+            // An issued delete can finish after lease loss; successors upload into fresh lineages.
+            self.object_store.delete_many(chunk).await?;
+        }
+        for key in &orphan_files {
+            catalog.protection.forget_file(key);
+        }
+        if !orphan_files.is_empty() {
+            tracing::info!(
+                files = orphan_files.len(),
+                "deleted unprotected snapshot files"
+            );
+        }
         Ok(())
     }
 
@@ -533,13 +586,6 @@ impl SnapshotRetention {
         }
         Ok(())
     }
-}
-
-/// Returns the lineage of a snapshot file key, or `None` when the key names none.
-fn file_lineage(key: &str) -> Option<Uuid> {
-    key.split('/')
-        .nth(2)
-        .and_then(|lineage| Uuid::parse_str(lineage).ok())
 }
 
 fn creation_order(manifest: &SnapshotManifest) -> (i64, &[u8], u64) {

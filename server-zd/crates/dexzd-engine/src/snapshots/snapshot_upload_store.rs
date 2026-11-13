@@ -8,8 +8,8 @@
 
 use std::future::Future;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -17,6 +17,8 @@ use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
 };
+use dexzd_protocol::dexzd::v1::SnapshotManifest;
+use prost::Message;
 
 use crate::commit::CommitState;
 
@@ -28,6 +30,8 @@ pub(crate) struct SnapshotUploadStore {
     inner: Arc<dyn ObjectStore>,
     state: Arc<CommitState>,
     has_started_manifest_write: AtomicBool,
+    /// The key and body of the manifest write, once it was sent.
+    attempted_manifest: Mutex<Option<(String, Bytes)>>,
 }
 
 impl SnapshotUploadStore {
@@ -36,7 +40,20 @@ impl SnapshotUploadStore {
             inner,
             state,
             has_started_manifest_write: AtomicBool::new(false),
+            attempted_manifest: Mutex::new(None),
         }
+    }
+
+    /// Returns the manifest whose write this upload sent, or `None` when it sent none.
+    pub(crate) fn take_attempted_manifest(&self) -> Option<(String, SnapshotManifest)> {
+        let (key, body) = self
+            .attempted_manifest
+            .lock()
+            .expect("attempted manifest lock is not poisoned")
+            .take()?;
+        let manifest = SnapshotManifest::decode(body)
+            .expect("the only put of a snapshot upload is its encoded manifest");
+        Some((key, manifest))
     }
 
     /// Runs a file-phase request unless the node stops first.
@@ -76,6 +93,11 @@ impl ObjectStore for SnapshotUploadStore {
         // A manifest without the node metadata update makes its snapshot number conflict forever.
         self.has_started_manifest_write
             .store(true, Ordering::Release);
+        *self
+            .attempted_manifest
+            .lock()
+            .expect("attempted manifest lock is not poisoned") =
+            Some((key.to_owned(), body.clone()));
         self.inner.put(key, body, condition).await
     }
 

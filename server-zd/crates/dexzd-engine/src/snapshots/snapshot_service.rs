@@ -27,9 +27,7 @@ use crate::commit::{CommitProgress, EngineLocalStore, PartitionApplierPool};
 use crate::engine_id_source::EngineIdSource;
 use crate::snapshots::log_cleanup::LogCleanup;
 use crate::snapshots::ownership_fence::OwnershipFence;
-use crate::snapshots::snapshot_retention::{
-    ReservedSnapshotLineage, SnapshotCatalog, SnapshotRetention,
-};
+use crate::snapshots::snapshot_retention::{SnapshotCatalog, SnapshotRetention};
 use crate::snapshots::snapshot_upload_store::SnapshotUploadStore;
 use crate::snapshots::{SnapshotConfig, SnapshotError};
 
@@ -127,7 +125,6 @@ impl SnapshotService {
             .filter_map(|partition| partition.snapshot.as_ref())
             .map(|snapshot| snapshot.manifest_key.clone())
             .collect();
-        let reserved_lineage = self.reserved_snapshot_lineage()?;
         let mut catalog = self.take_catalog().await;
         let result = async {
             let retained = self
@@ -135,7 +132,6 @@ impl SnapshotService {
                 .run_once(
                     &mut catalog,
                     &referenced_keys,
-                    reserved_lineage.as_ref(),
                     &self.fence,
                     self.clock.now_unix_micros(),
                 )
@@ -192,10 +188,14 @@ impl SnapshotService {
         }
         let started = Instant::now();
         let (manifest_key, manifest) = self.upload_snapshot().await?;
-        self.catalog
-            .lock()
-            .await
-            .insert(manifest_key.clone(), manifest.clone());
+        {
+            let mut catalog = self.catalog.lock().await;
+            if self.retention.listing_consistency.is_strong() {
+                catalog.insert(manifest_key.clone(), manifest.clone());
+            } else {
+                catalog.insert_own(manifest_key.clone(), manifest.clone());
+            }
+        }
         let reference = SnapshotReference {
             node_id: stream.node_id.clone(),
             lineage_id: manifest.lineage_id.clone(),
@@ -217,7 +217,6 @@ impl SnapshotService {
             .collect();
         self.last_snapshot_routed_seq
             .store(last_routed_seq, Ordering::Release);
-        let reserved_lineage = self.reserved_snapshot_lineage()?;
         let mut catalog = self.take_catalog().await;
         let cleanup_result = async {
             let retained = self
@@ -225,7 +224,6 @@ impl SnapshotService {
                 .run_once(
                     &mut catalog,
                     &referenced_keys,
-                    reserved_lineage.as_ref(),
                     &self.fence,
                     self.clock.now_unix_micros(),
                 )
@@ -249,22 +247,6 @@ impl SnapshotService {
         Ok(reference)
     }
 
-    /// Returns the lineage of the local store and its newest reserved snapshot number.
-    ///
-    /// Returns `None` when the store has no node metadata yet.
-    fn reserved_snapshot_lineage(&self) -> Result<Option<ReservedSnapshotLineage>, SnapshotError> {
-        let Some(node_meta) = self.store.node_meta()? else {
-            return Ok(None);
-        };
-        let lineage_id = uuid::Uuid::from_slice(&node_meta.lineage_id).map_err(|error| {
-            SnapshotError::Invalid(format!("node metadata lineage is not a UUID: {error}"))
-        })?;
-        Ok(Some(ReservedSnapshotLineage {
-            lineage_id,
-            last_reserved_snapshot_number: node_meta.last_snapshot_number,
-        }))
-    }
-
     async fn acquire_operation_lock(&self) -> OwnedMutexGuard<()> {
         let operation_lock = self.catalog.lock().await.operation_lock.clone();
         operation_lock.lock_owned().await
@@ -285,8 +267,10 @@ impl SnapshotService {
         let should_prepare_snapshot_lineage =
             !self.catalog.lock().await.has_prepared_snapshot_lineage;
         let store = self.store.clone();
-        let upload_store =
-            SnapshotUploadStore::new(self.object_store.clone(), self.fence.state.clone());
+        let upload_store = Arc::new(SnapshotUploadStore::new(
+            self.object_store.clone(),
+            self.fence.state.clone(),
+        ));
         let identity = SnapshotIdentity {
             cluster_id: self.cluster_id,
             node_id: self.log_cleanup.stream.node_id.clone(),
@@ -302,6 +286,7 @@ impl SnapshotService {
         let created = match self.blocking_work {
             BlockingWorkPlacement::BlockingThreadPool => {
                 let runtime = tokio::runtime::Handle::current();
+                let upload_store = upload_store.clone();
                 // Checkpoints and file hashing block, so the whole upload runs on the blocking pool.
                 tokio::task::spawn_blocking(move || {
                     // create_snapshot reads NodeMeta first and writes it back before it publishes the manifest.
@@ -361,32 +346,53 @@ impl SnapshotService {
                 }
             }
         };
+        let attempt_ended_at = Instant::now();
         let result = created.map_err(|error| match self.fence.state.stop_reason() {
             Some(_) => SnapshotError::NodeStopped,
             None => SnapshotError::from(error),
         });
+        let mut catalog = self.catalog.lock().await;
         if result.is_ok() {
-            self.catalog.lock().await.has_prepared_snapshot_lineage = true;
+            catalog.has_prepared_snapshot_lineage = true;
+        } else if !self.retention.listing_consistency.is_strong()
+            && let Some((manifest_key, manifest)) = upload_store.take_attempted_manifest()
+        {
+            catalog.record_failed_manifest_upload(manifest_key, &manifest, attempt_ended_at);
         }
         result
     }
 
+    /// Points every partition at `reference` and records replaced pointers for eventual retention.
+    ///
+    /// Returns the written cluster manifest.
     async fn record_snapshot(
         &self,
         reference: &SnapshotReference,
     ) -> Result<Manifest, SnapshotError> {
-        self.fence
+        let mut replaced_manifest_keys = BTreeSet::new();
+        let result = self
+            .fence
             .update_manifest(|manifest| {
                 let mut change = ManifestChange::Unchanged;
                 for partition in &mut manifest.partitions {
                     if partition.snapshot.as_ref() != Some(reference) {
-                        partition.snapshot = Some(reference.clone());
+                        if let Some(replaced) = partition.snapshot.replace(reference.clone()) {
+                            replaced_manifest_keys.insert(replaced.manifest_key);
+                        }
                         change = ManifestChange::Changed;
                     }
                 }
                 change
             })
-            .await
+            .await;
+        if !self.retention.listing_consistency.is_strong() {
+            // A hot standby may still restore a replaced pointer, so retention protects it.
+            self.catalog
+                .lock()
+                .await
+                .record_pointed_manifests(replaced_manifest_keys);
+        }
+        result
     }
 
     /// Returns whether a batch was routed after the last successful snapshot.

@@ -24,8 +24,8 @@ use prost::Message;
 use uuid::Uuid;
 
 use super::super::{
-    EVENTUAL_LISTING_DURATION_PER_RUN, LISTING_PAGE_SIZE, LISTING_PAGES_PER_RUN,
-    ReservedSnapshotLineage, SnapshotCatalog, SnapshotRetention,
+    EVENTUAL_LISTING_DURATION_PER_RUN, LISTING_PAGE_SIZE, LISTING_PAGES_PER_RUN, SnapshotCatalog,
+    SnapshotRetention,
 };
 use super::test_fence;
 
@@ -110,17 +110,14 @@ async fn exists(object_store: &InMemoryObjectStore, key: &str) -> bool {
 struct SkippedNewestManifest {
     object_store: Arc<InMemoryObjectStore>,
     lineage: Uuid,
+    newest_key: String,
     file_of_newest: String,
     shared_file: String,
-    /// The file of three listed snapshots in a later lineage, when the test asks for them.
-    later_lineage_file: Option<String>,
 }
 
-async fn skipped_newest_manifest(has_later_lineage: bool) -> SkippedNewestManifest {
+async fn skipped_newest_manifest() -> SkippedNewestManifest {
     let object_store = Arc::new(InMemoryObjectStore::with_stale_listings());
-    let mut lineages = [Uuid::now_v7(), Uuid::now_v7()];
-    lineages.sort();
-    let [lineage, later_lineage] = lineages;
+    let lineage = Uuid::now_v7();
     let file_of_newest = file_key(lineage, "only-1-and-5");
     let shared_file = file_key(lineage, "shared-1-to-4");
     upload_files(&object_store, &[&file_of_newest, &shared_file]).await;
@@ -142,23 +139,6 @@ async fn skipped_newest_manifest(has_later_lineage: bool) -> SkippedNewestManife
         )
         .await;
     }
-    let later_lineage_file = if has_later_lineage {
-        let later_file = file_key(later_lineage, "later");
-        upload_files(&object_store, &[&later_file]).await;
-        for snapshot_number in 1..=3 {
-            publish_manifest(
-                &object_store,
-                later_lineage,
-                snapshot_number,
-                10 + i64::try_from(snapshot_number).expect("small number"),
-                &[&later_file],
-            )
-            .await;
-        }
-        Some(later_file)
-    } else {
-        None
-    };
     object_store
         .list(NODE_PREFIX, None, 1000)
         .await
@@ -174,48 +154,22 @@ async fn skipped_newest_manifest(has_later_lineage: bool) -> SkippedNewestManife
     SkippedNewestManifest {
         object_store,
         lineage,
+        newest_key,
         file_of_newest,
         shared_file,
-        later_lineage_file,
     }
 }
 
 #[tokio::test]
-async fn a_forward_skipped_listing_keeps_the_file_of_an_unlisted_newest_manifest() {
-    let skipped = skipped_newest_manifest(false).await;
+async fn a_forward_skipped_listing_keeps_the_files_of_an_unlisted_pointed_manifest() {
+    let skipped = skipped_newest_manifest().await;
     let fence = test_fence(skipped.object_store.clone()).await;
     let retention = retention(skipped.object_store.clone(), 3);
+    let referenced_keys = BTreeSet::from([skipped.newest_key.clone()]);
     let mut catalog = SnapshotCatalog::default();
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
-            .await
-            .expect("retention runs");
-    }
-    assert!(
-        !exists(&skipped.object_store, &manifest_key(skipped.lineage, 1)).await,
-        "manifest 1 is beyond the retained count"
-    );
-    assert!(
-        exists(&skipped.object_store, &skipped.file_of_newest).await,
-        "the newest manifest, which no listing shows, still uses this file"
-    );
-    assert!(exists(&skipped.object_store, &skipped.shared_file).await);
-}
-
-#[tokio::test]
-async fn a_lineage_displaced_by_later_snapshots_loses_files_its_unlisted_manifests_use() {
-    let skipped = skipped_newest_manifest(true).await;
-    let later_file = skipped
-        .later_lineage_file
-        .clone()
-        .expect("the later lineage has a file");
-    let fence = test_fence(skipped.object_store.clone()).await;
-    let retention = retention(skipped.object_store.clone(), 3);
-    let mut catalog = SnapshotCatalog::default();
-    for _ in 0..3 {
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+            .run_once(&mut catalog, &referenced_keys, &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -225,19 +179,23 @@ async fn a_lineage_displaced_by_later_snapshots_loses_files_its_unlisted_manifes
                 &skipped.object_store,
                 &manifest_key(skipped.lineage, snapshot_number)
             )
-            .await
+            .await,
+            "manifest {snapshot_number} is neither pointed nor this process's"
         );
     }
+    assert!(exists(&skipped.object_store, &skipped.newest_key).await);
     assert!(
-        !exists(&skipped.object_store, &skipped.file_of_newest).await,
-        "three later snapshots displace every manifest of the earlier lineage, listed or not"
+        exists(&skipped.object_store, &skipped.file_of_newest).await,
+        "the pointed manifest, which no listing shows, still uses this file"
     );
-    assert!(!exists(&skipped.object_store, &skipped.shared_file).await);
-    assert!(exists(&skipped.object_store, &later_file).await);
+    assert!(
+        !exists(&skipped.object_store, &skipped.shared_file).await,
+        "only unprotected manifests use this file"
+    );
 }
 
 #[tokio::test]
-async fn an_unrecorded_manifest_of_the_reserved_lineage_keeps_its_files() {
+async fn an_unrecorded_manifest_of_this_process_keeps_its_files() {
     let object_store = Arc::new(InMemoryObjectStore::with_stale_listings());
     let lineage = Uuid::now_v7();
     let file_of_unrecorded = file_key(lineage, "only-1-and-3");
@@ -250,15 +208,20 @@ async fn an_unrecorded_manifest_of_the_reserved_lineage_keeps_its_files() {
     ] {
         let (key, manifest) =
             publish_manifest(&object_store, lineage, snapshot_number, 1, &files).await;
-        catalog.insert(key, manifest);
+        catalog.insert_own(key, manifest);
     }
     object_store
         .list(NODE_PREFIX, None, 1000)
         .await
         .expect("cache a node listing without manifest 3");
     // Manifest 3's upload reported an unknown outcome, so this process never recorded it.
-    let (unrecorded_key, _) =
+    let (unrecorded_key, unrecorded) =
         publish_manifest(&object_store, lineage, 3, 3, &[&file_of_unrecorded]).await;
+    catalog.record_failed_manifest_upload(
+        unrecorded_key.clone(),
+        &unrecorded,
+        tokio::time::Instant::now(),
+    );
     cache_listing(
         &object_store,
         &format!("snapshot/node-a/{lineage}/manifest/"),
@@ -267,19 +230,9 @@ async fn an_unrecorded_manifest_of_the_reserved_lineage_keeps_its_files() {
     .await;
     let fence = test_fence(object_store.clone()).await;
     let retention = retention(object_store.clone(), 1);
-    let reserved_lineage = ReservedSnapshotLineage {
-        lineage_id: lineage,
-        last_reserved_snapshot_number: 3,
-    };
     for _ in 0..3 {
         retention
-            .run_once(
-                &mut catalog,
-                &BTreeSet::new(),
-                Some(&reserved_lineage),
-                &fence,
-                i64::MAX,
-            )
+            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -295,7 +248,7 @@ async fn an_unrecorded_manifest_of_the_reserved_lineage_keeps_its_files() {
             &unrecorded_key
         ),
         1,
-        "each reserved number is read once"
+        "a found manifest write is read once"
     );
 }
 
@@ -395,7 +348,7 @@ async fn an_eventual_refresh_starts_no_page_after_its_listing_duration() {
     loop {
         let started = tokio::time::Instant::now();
         retention
-            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
             .await
             .expect("retention runs");
         let elapsed = started.elapsed();

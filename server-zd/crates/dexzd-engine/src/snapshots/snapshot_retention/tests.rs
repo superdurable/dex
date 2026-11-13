@@ -29,6 +29,7 @@ use crate::snapshots::ownership_fence::OwnershipFence;
 
 use super::{CANDIDATES_PER_RUN, SnapshotCatalog, SnapshotRetention};
 
+mod eventual_protection_tests;
 mod forward_skip_tests;
 mod stale_listing_tests;
 
@@ -243,7 +244,7 @@ async fn missing_head_timestamp_resets_rewritten_key_eligibility() {
     };
     let mut catalog = SnapshotCatalog::default();
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX / 2)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX / 2)
         .await
         .expect("mark first version");
     let current_etag = inner
@@ -261,7 +262,7 @@ async fn missing_head_timestamp_resets_rewritten_key_eligibility() {
         .await
         .expect("rewrite key");
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("inspect rewritten version");
     assert!(
@@ -297,11 +298,11 @@ async fn orphan_sweep_limits_head_and_delete_work_per_pass() {
     };
     let mut catalog = SnapshotCatalog::default();
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("mark orphans");
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("first bounded sweep");
     assert_eq!(
@@ -317,7 +318,7 @@ async fn orphan_sweep_limits_head_and_delete_work_per_pass() {
             .is_some()
     );
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("resume sweep");
     assert_eq!(
@@ -351,12 +352,12 @@ async fn orphan_requires_a_later_manifest_scan_before_deletion() {
     };
     let mut catalog = SnapshotCatalog::default();
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("mark orphan");
     assert_eq!(object_store.call_count(ObjectStoreOperation::Delete, ""), 0);
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("sweep orphan");
     assert!(
@@ -387,7 +388,7 @@ async fn manifest_published_after_mark_protects_its_file_on_sweep() {
     };
     let mut catalog = SnapshotCatalog::default();
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("mark file while manifest is unpublished");
     let manifest = SnapshotManifest {
@@ -410,7 +411,7 @@ async fn manifest_published_after_mark_protects_its_file_on_sweep() {
         .await
         .expect("publish delayed manifest");
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("sweep after a fresh manifest scan");
     assert!(
@@ -449,7 +450,7 @@ async fn manifest_published_after_deleting_pass_list_protects_its_file() {
     };
     let mut catalog = SnapshotCatalog::default();
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("mark file");
     let manifest = SnapshotManifest {
@@ -469,7 +470,7 @@ async fn manifest_published_after_deleting_pass_list_protects_its_file() {
         .expect("manifest publication lock") =
         Some((manifest_key.clone(), Bytes::from(manifest.encode_to_vec())));
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("sweep after manifest publication during listing");
     assert!(
@@ -501,12 +502,12 @@ async fn fenced_retention_does_not_delete_an_orphan_file() {
     };
     let mut catalog = SnapshotCatalog::default();
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("mark orphan");
     fence.state.stop(NodeStopReason::Fenced);
     let result = retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await;
     assert!(matches!(result, Err(SnapshotError::NodeStopped)));
     assert!(

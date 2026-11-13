@@ -97,10 +97,10 @@ async fn a_manifest_this_process_published_keeps_its_files_while_listings_lack_i
     let fence = test_fence(hidden.object_store.clone()).await;
     let retention = retention(hidden.object_store.clone());
     let mut catalog = SnapshotCatalog::default();
-    catalog.insert(hidden.manifest_key.clone(), hidden.manifest.clone());
+    catalog.insert_own(hidden.manifest_key.clone(), hidden.manifest.clone());
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -125,7 +125,7 @@ async fn a_referenced_manifest_that_listings_lack_keeps_its_files() {
     let mut catalog = SnapshotCatalog::default();
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &referenced_keys, None, &fence, i64::MAX)
+            .run_once(&mut catalog, &referenced_keys, &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -153,9 +153,9 @@ async fn a_manifest_deleted_elsewhere_leaves_the_catalog_once_a_head_misses_it()
     let fence = test_fence(hidden.object_store.clone()).await;
     let retention = retention(hidden.object_store.clone());
     let mut catalog = SnapshotCatalog::default();
-    catalog.insert(hidden.manifest_key.clone(), hidden.manifest.clone());
+    catalog.insert_own(hidden.manifest_key.clone(), hidden.manifest.clone());
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("retention runs");
     hidden
@@ -164,7 +164,7 @@ async fn a_manifest_deleted_elsewhere_leaves_the_catalog_once_a_head_misses_it()
         .await
         .expect("delete manifest");
     retention
-        .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+        .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
         .await
         .expect("retention runs");
     assert!(!catalog.manifests.contains_key(&hidden.manifest_key));
@@ -183,7 +183,7 @@ async fn a_strong_listing_reads_no_manifest_that_listings_lack() {
     catalog.insert(hidden.manifest_key.clone(), hidden.manifest.clone());
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &referenced_keys, None, &fence, i64::MAX)
+            .run_once(&mut catalog, &referenced_keys, &fence, i64::MAX)
             .await
             .expect("retention runs");
     }
@@ -221,7 +221,7 @@ impl FaultInjector for ManifestListingFailure {
 }
 
 #[tokio::test]
-async fn a_lineage_whose_manifest_listing_fails_keeps_every_file() {
+async fn a_failing_manifest_listing_neither_stops_retention_nor_deletes_pointed_files() {
     let failure = Arc::new(ManifestListingFailure::default());
     let hidden = hidden_manifest_in(Arc::new(
         InMemoryObjectStore::with_options_and_stale_listings(
@@ -238,10 +238,11 @@ async fn a_lineage_whose_manifest_listing_fails_keeps_every_file() {
         .store(true, std::sync::atomic::Ordering::SeqCst);
     let fence = test_fence(hidden.object_store.clone()).await;
     let retention = retention(hidden.object_store.clone());
+    let referenced_keys = BTreeSet::from([hidden.manifest_key.clone()]);
     let mut catalog = SnapshotCatalog::default();
     for _ in 0..3 {
         retention
-            .run_once(&mut catalog, &BTreeSet::new(), None, &fence, i64::MAX)
+            .run_once(&mut catalog, &referenced_keys, &fence, i64::MAX)
             .await
             .expect("an eventual retention decides without listing a lineage's manifests");
     }
@@ -252,7 +253,7 @@ async fn a_lineage_whose_manifest_listing_fails_keeps_every_file() {
             .await
             .expect("read file")
             .is_some(),
-        "a failed manifest listing must not delete a file that a later manifest may use"
+        "the pointed manifest, which listings lack, uses this file"
     );
     assert_eq!(
         hidden
