@@ -55,6 +55,7 @@ import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialo
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
+import { EventList } from './details/EventList';
 import { OperateMenu } from './details/OperateMenu';
 import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './details/RunFactsMenu';
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
@@ -180,6 +181,25 @@ function storedRunTab(): RunTab {
   }
 }
 
+const timelineLaneStorageKey = 'dex.run.timeline-lane';
+
+/** The desktop event list makes the labelled lane optional; it starts hidden. */
+function storedTimelineLaneShown(): boolean {
+  try {
+    return window.localStorage.getItem(timelineLaneStorageKey) === 'shown';
+  } catch {
+    return false;
+  }
+}
+
+function persistTimelineLaneShown(isShown: boolean) {
+  try {
+    window.localStorage.setItem(timelineLaneStorageKey, isShown ? 'shown' : 'hidden');
+  } catch (storageError) {
+    console.warn('Unable to save the Timeline lane preference.', storageError);
+  }
+}
+
 function persistRunTab(tab: RunTab) {
   try {
     window.localStorage.setItem(runTabStorageKey, tab);
@@ -261,6 +281,13 @@ export function RunDetailsPage({
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
   const hasTimelineEventList = useMediaQuery(timelineEventListQuery);
+  const [isTimelineLaneShown, setIsTimelineLaneShown] = useState(storedTimelineLaneShown);
+  const toggleTimelineLane = useCallback(() => {
+    setIsTimelineLaneShown((isShown) => {
+      persistTimelineLaneShown(!isShown);
+      return !isShown;
+    });
+  }, []);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
@@ -901,6 +928,15 @@ export function RunDetailsPage({
           flowType={summary?.flowType}
           hasMoreChildFlows={relations?.hasMoreChildren}
           runId={runId}
+          attemptLabel={summary && currentRunAttempt > 1 ? `${displayedRunAttempt} of ${currentRunAttempt}` : undefined}
+          attemptControl={summary && currentRunAttempt > 1 ? (
+            <RunAttemptSelect
+              currentRunAttempt={currentRunAttempt}
+              displayedRunAttempt={displayedRunAttempt}
+              label="Run attempt in run details"
+              onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+            />
+          ) : undefined}
         />
         <CopyButton className="app-bar-copy" label="Copy Flow ID" value={flowId} />
         {summary && currentRunAttempt > 1 && (
@@ -1017,7 +1053,18 @@ export function RunDetailsPage({
               paging={eventsPaging}
               pageSize={historyPageSize}
               onPageSizeChange={changeHistoryPageSize}
-            />
+            >
+              {shownTab === 'timeline' && isHorizontalTimeline && hasTimelineEventList && (
+                <button
+                  aria-pressed={isTimelineLaneShown}
+                  className="pager-button run-events-lane-toggle"
+                  onClick={() => toggleTimelineLane()}
+                  type="button"
+                >
+                  {isTimelineLaneShown ? 'Hide lane' : 'Show lane'}
+                </button>
+              )}
+            </RunEventsTile>
           )}
           {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
             <LoadingIndicator className="card page-loading" label="Loading events…" />
@@ -1053,6 +1100,7 @@ export function RunDetailsPage({
             />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
+            <div className={`htl-host${hasTimelineEventList && !isTimelineLaneShown ? ' is-lane-hidden' : ''}`}>
             <HorizontalTimeline
               events={displayedTimelineEvents}
               selectedEvent={selectedRaw}
@@ -1067,8 +1115,18 @@ export function RunDetailsPage({
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
             />
+            </div>
           )}
-          {shownTab === 'timeline' && !isWaitingForHistory && (!isHorizontalTimeline || hasTimelineEventList) && (
+          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && hasTimelineEventList && (
+            <EventList
+              events={displayedTimelineEvents}
+              onSelectEvent={selectTimelineEvent}
+              onTimeTravelFromEvent={openTimeTravel}
+              runStartTime={summary?.startTime}
+              selectedEvent={selectedRaw}
+            />
+          )}
+          {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
             <Timeline
               flowId={flowId}
               events={displayedTimelineEvents}
@@ -1230,7 +1288,10 @@ function RunAttemptSelect({
   currentRunAttempt,
   displayedRunAttempt,
   onSelect,
+  label = 'Run attempt',
 }: {
+  /** The picker's accessible name; the popover's copy needs its own. */
+  label?: string;
   currentRunAttempt: number;
   displayedRunAttempt: number;
   onSelect: (runAttempt: number) => void;
@@ -1238,7 +1299,7 @@ function RunAttemptSelect({
   const attempts = Array.from({ length: currentRunAttempt }, (_, index) => currentRunAttempt - index);
   return (
     <select
-      aria-label="Run attempt"
+      aria-label={label}
       className="run-attempt-select"
       value={displayedRunAttempt}
       onChange={(event) => onSelect(Number(event.target.value))}

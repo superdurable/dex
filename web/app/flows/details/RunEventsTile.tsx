@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { ChevronDown, ChevronsDown, ChevronsUp, ChevronUp, ListOrdered, Undo2 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { HISTORY_PAGE_SIZES, type HistoryPageSize } from '@/lib/history';
 
 /** The event page that the Execution graph and the Timeline share, and its page buttons. */
@@ -37,7 +38,10 @@ export function RunEventsTile({
   paging,
   pageSize,
   onPageSizeChange,
+  children,
 }: {
+  /** Controls of the view the tile heads, after the page controls. */
+  children?: ReactNode;
   latestEventId: number | null;
   paging: RunEventsPaging | null;
   /** How many events one page holds; changing it reloads the Latest page. */
@@ -69,6 +73,7 @@ export function RunEventsTile({
             </select>
           </label>
         )}
+        {children}
       </div>
     </div>
   );

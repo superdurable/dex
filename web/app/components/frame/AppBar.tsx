@@ -73,8 +73,15 @@ function useCompactViews(bar: HTMLElement | null) {
       if (!tabs) return;
       delete bar.dataset.compactViews;
       for (const level of COMPACT_VIEW_LEVELS) {
-        if (tabs.scrollWidth <= views.clientWidth + 1) return;
+        if (tabs.scrollWidth <= views.clientWidth + 1) break;
         bar.dataset.compactViews = level;
+      }
+      // A tab that shows only its icon names itself in a tooltip.
+      for (const tab of tabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
+        const label = tab.querySelector<HTMLElement>('.run-tab-label');
+        const isIconOnly = label !== null && label.getBoundingClientRect().width <= 1;
+        if (isIconOnly) tab.title = tab.dataset.tooltip ?? label.textContent ?? '';
+        else tab.removeAttribute('title');
       }
     };
     const resize = new ResizeObserver(update);

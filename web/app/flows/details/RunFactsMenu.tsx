@@ -22,6 +22,12 @@ export interface RunFact {
   icon: 'started' | 'closed' | 'duration' | 'attempt' | 'events' | 'type';
 }
 
+/** Shortens a Flow ID for the bar: a SubFlow keeps its distinguishing end, others shorten in the middle. */
+export function shortFlowId(flowId: string, maxLength: number): string {
+  if (!flowId.startsWith('SubFlow:') || flowId.length <= maxLength) return middleTruncate(flowId, maxLength);
+  return `…${flowId.slice(-(maxLength - 1))}`;
+}
+
 /** Shortens a long ID in the middle, so the distinguishing tail stays visible. */
 export function middleTruncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
@@ -40,7 +46,13 @@ export function RunFactsMenu({
   childFlows = [],
   hasMoreChildFlows = false,
   childFlowsHref,
+  attemptLabel,
+  attemptControl,
 }: {
+  /** Shown in the button when the bar hides the attempt picker, such as "2 of 2". */
+  attemptLabel?: string;
+  /** The attempt picker, repeated in the popover for when the bar hides it. */
+  attemptControl?: ReactNode;
   flowId: string;
   /** Shown muted after the Flow ID, so the run reads as "which Flow, of what kind". */
   flowType?: string;
@@ -66,12 +78,14 @@ export function RunFactsMenu({
         title={flowId}
         type="button"
       >
-        <span className="run-facts-name mono">{middleTruncate(flowId, 30)}</span>
+        <span className="run-facts-name mono">{shortFlowId(flowId, flowId.startsWith('SubFlow:') ? 24 : 30)}</span>
+        {attemptLabel && <span className="run-facts-attempt">Attempt {attemptLabel}</span>}
         {flowType && <span className="run-facts-type">{flowType}</span>}
         {childFlows.length > 0 && (
           <span className="run-facts-children-count">
             <CornerDownRight aria-hidden="true" size={12} strokeWidth={2.25} />
-            {childFlowCountLabel(childFlows.length, hasMoreChildFlows)}
+            {childFlows.length}{hasMoreChildFlows ? '+' : ''}
+            <span className="run-facts-children-word"> {childFlows.length === 1 && !hasMoreChildFlows ? 'child' : 'children'}</span>
           </span>
         )}
         <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
@@ -89,6 +103,7 @@ export function RunFactsMenu({
               );
             })}
           </dl>
+          {attemptControl && <div className="run-facts-attempt-control">{attemptControl}</div>}
           {childFlows.length > 0 && (
             <div className="run-facts-children">
               <span>Child Flows · {childFlowCountLabel(childFlows.length, hasMoreChildFlows)}</span>

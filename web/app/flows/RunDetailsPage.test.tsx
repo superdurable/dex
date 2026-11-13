@@ -233,8 +233,9 @@ describe('run attempts on the run page', () => {
     // Each load reads FlowStart and one newest page; none rereads the history from event 0.
     expect(historyReads(dex.historyRequests)).toEqual([['1', '2'], ['1', '1000'], ['1', '2'], ['1', '1000']]);
     expect(dex.historyRequests.every((params) => !params.has('runAttempt'))).toBe(true);
-    expect(screen.getByRole('option', { name: 'Attempt 2 of 2' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'Attempt 1 of 2' })).toBeTruthy();
+    const barAttempts = within(screen.getByRole('combobox', { name: 'Run attempt' }));
+    expect(barAttempts.getByRole('option', { name: 'Attempt 2 of 2' })).toBeTruthy();
+    expect(barAttempts.getByRole('option', { name: 'Attempt 1 of 2' })).toBeTruthy();
   });
 
   it('shows an earlier run attempt lineage without following live history', async () => {
