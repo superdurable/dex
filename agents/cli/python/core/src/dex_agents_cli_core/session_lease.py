@@ -178,12 +178,12 @@ def is_session_call_allowed_here(
 
 
 def is_lease_expired_here(lease: SessionTerminalLease, now: datetime) -> bool:
-    """Return whether a stored lease has expired by this host's clock."""
+    """Return whether a stored lease has expired by this host's clock; one without a zone has."""
     try:
         expires_at = datetime.fromisoformat(lease.expires_at)
     except ValueError:
         return True
-    return expires_at <= now
+    return expires_at.tzinfo is None or expires_at <= now
 
 
 class HeldSessionLease:
