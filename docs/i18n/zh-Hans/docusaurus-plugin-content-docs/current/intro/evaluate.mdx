@@ -13,7 +13,7 @@ description: 判断 Dex 是否适合你的系统时要读的页面，每页回�
 - [为什么是 Dex？](/intro/what-is-dex) 用一个中途出错的订单流程说明问题，以及 Dex 如何把它建模成由 Step 组成的 Flow。
 - [Dex vs. 数据库](/intro/compared-to-database) 先用数据库实现同一个流程，再加上队列和 outbox，最后写成 Flow，并列出仍由你负责的部分。
 - [Dex 与你的数据库](/components/your-database) 说明 Step 怎样写入你已有的数据库，以及何时把 Flow 数据复制到 PostgreSQL。
-- [Dex vs. Temporal](/intro/compared-to-durable-execution) 把 Temporal 的每项核心能力对应到 Dex，说明何时 Temporal 更合适，最后介绍其他引擎。
+- [Dex vs. Temporal](/intro/compared-to-durable-execution) 比较重放 workflow 代码和保存每个 Step 结果这两种设计，给出术语对照，最后介绍其他引擎。
 - [性能](/intro/performance) 给出单节点加 S3 的实测吞吐和延迟、运行成本，以及如何复现结果。
 - [限制](/intro/limits) 列出团队在生产中可能遇到的意外、发布状态和许可证。
 - [故障转移和部署](/concepts/failover-and-deploys) 说明 server 或 Worker 停止时会发生什么，以及在 Flow 未结束时怎样部署新代码。

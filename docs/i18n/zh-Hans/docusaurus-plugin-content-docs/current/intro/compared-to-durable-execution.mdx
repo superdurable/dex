@@ -2,14 +2,14 @@
 title: Dex vs. Temporal
 sidebar_label: Dex vs. Temporal
 slug: /intro/compared-to-durable-execution
-description: Dex 怎样用不同的设计提供 Temporal 的核心能力：用显式的 Step 图取代重放 workflow 代码，每种设计的代价，以及何时 Temporal 更合适。最后一节介绍其他 durable execution 工具。
+description: Dex 和 Temporal 在一个设计选择上不同：保存每个 Step 的结果，而不是重放 workflow 代码。本页说明这个选择对代码、变更、长时间运行和恢复意味着什么，后面是术语对照和其他 durable execution 工具。
 ---
 
 import RecoveryModelDiagram from '@site/src/components/diagrams/RecoveryModelDiagram';
 
 # Dex vs. Temporal
 
-Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续运行。本页把 Temporal 的每项核心能力对应到 Dex。对每一项，本页说明 Dex 怎样提供它、差别的代价是什么，以及 Temporal 在哪些地方更合适。[最后一节](#other-engines)介绍其他 durable execution 工具。
+Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续运行。它们在一个设计选择上不同：Temporal 通过重放 workflow 代码来重建一次运行，Dex 保存每个 Step 的结果。本页比较这两种设计，以及各自对你的代码意味着什么。[术语对照](#term-map)和[其他引擎](#other-engines)在后面。
 
 本页关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。关于 Dex 的事实链接到对应的页面。
 
@@ -22,33 +22,7 @@ Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续
 - 每次运行有一个业务 ID。同一个 ID 同时最多有一个打开的运行，复用策略决定下一次启动怎样处理。
 - 一个工作单元可能运行不止一次。调用其他系统的代码要传入幂等键。
 
-## 术语对照 {#term-map}
-
-| Temporal | Dex | 说明 |
-| --- | --- | --- |
-| Workflow、Workflow ID、Run ID | [Flow](/concepts/flow)、Flow ID、Run ID | 角色相同。 |
-| Activity 之间的 workflow 代码 | Step 决定：`GoTo`、`GoToMany`、`GracefulComplete`、`DeadEnd` | 控制流是 Dex 保存的数据，不是再次运行的代码。 |
-| Activity | [Step](/concepts/step) 的 `Execute` 方法 | 一个 retry 单元。每个需要持久化的调用放在自己的 Step 里。 |
-| Local Activity | 最接近的是 ASYNC Step | 两者都用一部分持久性换取延迟。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。 |
-| Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) | 两者都是持久化的。 |
-| Signal | [Channel](/concepts/primitives/channel) 消息 | 两者都能在没有 Worker 在线时被接收。 |
-| Query | 只读 [RPC](/concepts/primitives/rpc) | |
-| Update | 写入 Attribute 或发布到 Channel 的 [RPC](/concepts/primitives/rpc) | 两者都需要 Worker。见[消息和请求](#messages-and-requests)。 |
-| Workflow 变量 | [Attribute](/concepts/primitives/attribute) | Dex 保存它们。Temporal 通过重放重建它们。 |
-| Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
-| Task Queue | Flow 类型的队列 | 要使用单独的 Worker 池，给这项工作一个自己的 Flow 类型。 |
-| Sticky execution | 尽力而为的 sticky 路由 | Dex 先把任务交给上次服务这个 Flow 的 Worker。Worker 不保留历史缓存。 |
-| Search Attributes | 带索引的 Attribute | |
-| Workflow ID 复用策略和冲突策略 | ID 复用策略和启动 request ID | 见 [Flow 标识](/concepts/flow)。 |
-| 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都是协作式的。见[取消运行中的 Step](/concepts/primitives/rpc#cancel-running-steps)。 |
-| Reset | [Time Travel](/concepts/change-flow-code#time-travel) | Time Travel 保留 Run ID。 |
-| Continue-As-New | 不需要对应机制 | Dex 会裁剪旧的历史事件。见[长时间运行的 Flow](#long-running-flows)。 |
-| Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[版本管理](#versioning)。 |
-| Schedule | 在 Timer 上循环的 Flow | 见 [Cron 定时](/design-patterns/durable-timer/cron)。 |
-| Nexus | 没有直接对应 | 其他团队的服务通过 FlowService API 启动 Flow 或调用 RPC。 |
-| Temporal Web UI | [Dex Web](/components/web) | |
-
-## Dex 保存 Step 结果，Temporal 重放代码 {#the-main-difference-an-explicit-step-graph-not-replayed-code}
+## 重放与保存的 Step 结果 {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
 Worker 停止之后，两个引擎用不同的方式重建一次运行。
 
@@ -58,14 +32,21 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 
 **Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把 Step 的结果、它写入的 Attribute 和这个决定一起保存。要继续一次运行，Worker 只运行下一个 Step。它读取保存的 Attribute。没有任何重放。
 
-| | Temporal | Dex |
+下表说明每种设计对核心能力意味着什么。前几行直接来自重放。
+
+| | Temporal：重放 workflow 代码 | Dex：保存每个 Step 的结果 |
 | --- | --- | --- |
-| 代码的形状 | 一个函数，从上往下读 | Step 和决定组成的图 |
-| 循环或分支 | 普通的 `while` 和 `if` | 转到自己的 Step，有两个目标的决定 |
-| 编排代码里的时钟、随机值和库 | 只能通过确定性 API | 可以使用。Step 代码就是普通代码。 |
-| 修改正在运行的流程的代码 | 可能导致非确定性错误 | 不会导致重放错误 |
-| 状态怎样保存 | 从历史重建，缓存在 Worker 上 | 每个 Step 之后保存为 Attribute |
-| 你必须遵守的规则 | 确定性，加上幂等的 Activity | 幂等的外部效果 |
+| 编排代码 | 必须是确定性的。读取时钟、随机值和 I/O 要通过 Temporal 的 API，或者放进 Activity。 | 普通代码。Step 可以读取时钟、使用随机值，调用任何库。 |
+| 你要遵守的规则 | 确定性的 workflow 代码，加上幂等的 Activity | 幂等的外部效果 |
+| Worker 停止后的状态 | 通过重放 Event History 重建，在两次任务之间缓存在 Worker 上 | 从每个 Step 一起保存的 Attribute 读取。Worker 不保留缓存。 |
+| 运行未结束时修改代码 | 改变命令顺序的修改会让重放失败，报非确定性错误。Patching 或 Worker Versioning 让旧的运行走旧路径。 | 未结束的 Flow 从下一个 Step 开始运行新代码。保留旧的 Step 类型直到旧 Flow 结束，并以增量方式修改数据。见[部署代码变更](/concepts/change-flow-code#versioning-flow-code)。 |
+| 持续数月的运行 | Event History 有上限：10,240 个事件或 10 MB 时警告，超过 51,200 个事件或 50 MB 时终止。Continue-As-New 开始一次新的运行。 | Dex 保留每次运行最新的一段事件，默认 50,000 个，并清理更早的事件。Flow 继续运行。见 [History window](/reference/server/configuration#history-window)（英文）。 |
+| 修复 bug 后恢复 | Reset 从较早的事件开始一次新的运行。 | Time Travel 恢复较早时间点的 Attribute、Channel 消息和等待中的 Step，Run ID 不变。 |
+| 代码的形状 | 一个函数，从上往下读，用普通的循环和分支 | 由 Step 组成的图。每个决策指定接下来的 Step。 |
+| 等待 | `await` 一个 Timer，或者等待由 Signal handler 设置的条件 | Step 的 `WaitFor` 返回 Timer、Channel 或 SubFlow 条件，可以单独使用，也可以组合。 |
+| 并行工作 | 在一个 workflow 线程里 await 多个 Activity | `GoToMany` 在不同的 Worker 上并行运行 Step。 |
+| 重试 | Activity 默认重试，workflow 代码不重试。 | 每个 Step 方法默认重试，退避方式相同。 |
+| 失败处理 | 在 workflow 代码里捕获 Activity 的错误。 | Step 上的失败策略把流程交给一个恢复 Step。见[失败处理](/design-patterns/failure-handling)。 |
 
 ### 确定性要求转移到了幂等键上 {#determinism-moved-it-did-not-vanish}
 
@@ -260,21 +241,7 @@ impl Step for ReminderStep {
 
 Temporal 版本从上往下读。退出是一个设置变量的 Signal handler，重放会重建这个变量。Dex 版本给等待状态起了名字。Timer 和 Channel 是同一个 Wait，由决定选择接下来做什么。
 
-## 核心能力逐项对比 {#capabilities}
-
-| 能力 | Temporal | Dex |
-| --- | --- | --- |
-| 持久化状态 | Workflow 变量，通过重放 Event History 重建。Worker 在内存里缓存状态。 | Attribute，和每个 Step 结果一起保存。Worker 读取它们，不保留缓存。 |
-| 持久化等待 | Timer 不占用 Worker。Workflow 也可以等待一个由 Signal handler 设置的条件。 | Step 的 `WaitFor` 返回 Timer、Channel 或 SubFlow 条件，或者用 `AnyOf` 和 `AllOf` 组合多个条件。不占用 Worker。 |
-| Retry | Activity 默认会 retry：1 秒，每次翻倍，最多 100 秒，不限次数。Workflow 默认不 retry。 | 每个 Step 方法默认用同样的 backoff retry，总时长最多 4 小时。不支持 Flow 级别的 retry 策略。见 [Step 选项](/concepts/step)。 |
-| 超时 | Activity 必须设置 Start-To-Close 或 Schedule-To-Close。Heartbeat 默认关闭。 | 默认方法超时 2 小时，heartbeat 超时 1 分钟。 |
-| 失败处理 | 在 workflow 代码里捕获 Activity 错误。 | Step 上的失败策略转到一个恢复 Step。见[失败处理](/design-patterns/failure-handling)。 |
-| 并行工作 | 启动多个 Activity，在一个线程里 `await` 它们。 | `GoToMany` 在不同的 Worker 上并行运行 Step。 |
-| 修复 bug 后恢复 | 把运行重置到更早的事件。 | Time Travel 恢复更早时刻的 Attribute、Channel 消息和等待中的 Step，Run ID 不变。 |
-| 搜索 | Visibility 存储里的 Search Attributes。 | 带索引的 Attribute。默认是内置搜索，大量使用时用 PostgreSQL 或 ParadeDB。 |
-| 语言 | Go、Java、Python、TypeScript、.NET、Ruby、PHP、Rust | Go、Python、Java、TypeScript、Rust |
-
-下面几项一个表格单元写不下。
+## 并发、消息和服务器 {#capabilities}
 
 ### 并发的默认行为 {#concurrency-defaults}
 
@@ -295,18 +262,6 @@ Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也�
 
 [最多发送一次命令](/concepts/client#inbound-commands)给出了 Dex 里丢弃重复命令的模式。[限制](/intro/limits#requests-that-can-repeat)列出了所有可能重复的请求。
 
-### 长时间运行的 Flow {#long-running-flows}
-
-Temporal 限制每次运行的 Event History。超过 10,240 个事件或 10 MB 后，服务器记录警告。超过 51,200 个事件或 50 MB、2,000 个 Update 或 10,000 个 Signal 时，运行会被终止。Continue-As-New 用新的历史开始一次新的运行，并把状态带过去。
-
-Dex 保留每次运行最新的一段历史事件，生产服务器默认 50,000 个，更早的会被裁剪。裁剪从不让 Flow 失败，所以长期运行的 Flow 不需要 Continue-As-New。代价是：窗口之外的旧事件就没有了。见[历史窗口](/reference/server/configuration#history-window)。
-
-### 版本管理 {#versioning}
-
-在 Temporal 里，改变命令顺序的代码修改会让打开的运行重放失败。Temporal 提供两种工具。Worker Versioning 把运行固定到某个代码版本的 Worker 上，Temporal 称它为推荐的方式。Patching 用 `Patched` 或 `GetVersion` 在代码里分支。
-
-打开的 Dex Flow 从下一个 Step 开始运行新代码。Dex 从不重放，所以代码修改不会导致重放错误。规则转移到了你的数据和 Step 类型上：在旧 Flow 结束前保留旧的 Step 类型，以增量方式修改 Attribute 和输入。[部署代码变更](/concepts/change-flow-code#versioning-flow-code)给出这些规则。[部署前检查](/concepts/change-flow-code#check-before-you-deploy)给出手动检查方法。Dex 还没有自动检查。
-
 ### 运行服务器 {#run-the-server}
 
 | | Temporal Service | Dex Server |
@@ -314,26 +269,36 @@ Dex 保留每次运行最新的一段历史事件，生产服务器默认 50,000
 | 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。活跃节点停止时，备用节点接管。见 [Dex Server](/components/server)。 |
 | 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发。 | 对象存储，例如 Amazon S3，或者用 db9 代替。 |
 | 搜索存储 | Visibility 存储。生产环境推荐 Elasticsearch。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
-| 扩展 | 每个服务可以横向扩展。 | 一个活跃节点就是一个集群的上限。超过它，就运行多个独立集群。见[限制](/intro/limits#grow-past-one-node)。 |
-| 托管选项 | Temporal Cloud | [Dex Cloud](/components/dex-cloud) |
-| 发布状态 | 生产使用的时间更长 | Beta。Dex Server 处于 0.1.x。见[发布状态](/intro/limits#release-status)。 |
-| 许可证 | MIT | Sustainable Use License 1.0，源码可见。见[许可证](/intro/limits#license)。 |
 
 活跃的 Dex 节点故障转移时，每个进行中的 Step 尝试都会再次运行。见[故障转移和部署](/concepts/failover-and-deploys)。[性能](/intro/performance)给出单个 Dex 节点实测的吞吐量和延迟。
 
-## 何时 Temporal 更合适 {#when-another-tool-is-the-better-fit}
+<a id="when-another-tool-is-the-better-fit"></a>
 
-- **你想把流程写成一个从头到尾的函数。** Temporal 可以这样写。Dex 要求你把它建模成 Step 和决定。
-- **你现在就需要成熟的服务器。** Dex Server 处于 0.1.x。Temporal 的生产使用记录更长。
-- **一个集群需要超过一个节点的容量。** Temporal 可以横向扩展各个服务。一个集群由一个活跃的 Dex 节点服务。
-- **你想要每次运行只有一个写入方，而且不用声明锁。** Temporal Workflow 默认就是这样。
-- **你现在就需要去重的消息。** Temporal 按 ID 去重 Update。Dex 会再次运行重复的 RPC 或 Channel 发布。
-- **你需要 .NET、Ruby 或 PHP。** Dex 没有这些语言的 SDK。
-- **你需要内置的 Schedule，带暂停、回填和重叠策略。** Dex 提供 cron 模式，没有 Schedule 对象。
-- **你的团队已经在大规模运行 Temporal。** 迁移的成本高于本页列出的差别，除非重放或版本错误对你来说是真实的问题。
-- **你需要 OSI 开源许可证。** Temporal 服务器采用 MIT 许可证。Dex 是源码可见的。
+## 术语对照 {#term-map}
 
-如果你希望编排代码就是普通代码、版本管理不依赖重放、服务器是对象存储上的一个二进制、Step 默认并行，Dex 更合适。
+| Temporal | Dex | 说明 |
+| --- | --- | --- |
+| Workflow、Workflow ID、Run ID | [Flow](/concepts/flow)、Flow ID、Run ID | 角色相同。 |
+| Activity 之间的 workflow 代码 | Step 决定：`GoTo`、`GoToMany`、`GracefulComplete`、`DeadEnd` | 控制流是 Dex 保存的数据，不是再次运行的代码。 |
+| Activity | [Step](/concepts/step) 的 `Execute` 方法 | 一个 retry 单元。每个需要持久化的调用放在自己的 Step 里。 |
+| Local Activity | 最接近的是 ASYNC Step | 两者都用一部分持久性换取延迟。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。 |
+| Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) | 两者都是持久化的。 |
+| Signal | [Channel](/concepts/primitives/channel) 消息 | 两者都能在没有 Worker 在线时被接收。 |
+| Query | 只读 [RPC](/concepts/primitives/rpc) | |
+| Update | 写入 Attribute 或发布到 Channel 的 [RPC](/concepts/primitives/rpc) | 两者都需要 Worker。见[消息和请求](#messages-and-requests)。 |
+| Workflow 变量 | [Attribute](/concepts/primitives/attribute) | Dex 保存它们。Temporal 通过重放重建它们。 |
+| Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
+| Task Queue | Flow 类型的队列 | 要使用单独的 Worker 池，给这项工作一个自己的 Flow 类型。 |
+| Sticky execution | 尽力而为的 sticky 路由 | Dex 先把任务交给上次服务这个 Flow 的 Worker。Worker 不保留历史缓存。 |
+| Search Attributes | 带索引的 Attribute | |
+| Workflow ID 复用策略和冲突策略 | ID 复用策略和启动 request ID | 见 [Flow 标识](/concepts/flow)。 |
+| 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都是协作式的。见[取消运行中的 Step](/concepts/primitives/rpc#cancel-running-steps)。 |
+| Reset | [Time Travel](/concepts/change-flow-code#time-travel) | Time Travel 保留 Run ID。 |
+| Continue-As-New | 不需要对应机制 | Dex 会裁剪旧的历史事件。见[重放与保存的 Step 结果](#the-main-difference-an-explicit-step-graph-not-replayed-code)。 |
+| Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[重放与保存的 Step 结果](#the-main-difference-an-explicit-step-graph-not-replayed-code)。 |
+| Schedule | 在 Timer 上循环的 Flow | 见 [Cron 定时](/design-patterns/durable-timer/cron)。 |
+| Nexus | 没有直接对应 | 其他团队的服务通过 FlowService API 启动 Flow 或调用 RPC。 |
+| Temporal Web UI | [Dex Web](/components/web) | |
 
 如果你了解 iWF：Dex 由它发展而来。Dex 的 Step 就是 iWF 的 State，`WaitFor` 就是 `WaitUntil`。
 

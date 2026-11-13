@@ -2,14 +2,14 @@
 title: Dex vs. Temporal
 sidebar_label: Dex vs. Temporal
 slug: /intro/compared-to-durable-execution
-description: How Dex provides the core capabilities of Temporal with a different design, an explicit Step graph instead of replayed workflow code, what each design costs, and when Temporal fits better. The last section covers other durable execution tools.
+description: How Dex and Temporal differ in one design choice, saving each Step's result instead of replaying workflow code, and what that choice means for code, changes, long runs, and recovery. A terms map and other durable execution tools follow.
 ---
 
 import RecoveryModelDiagram from '@site/src/components/diagrams/RecoveryModelDiagram';
 
 # Dex vs. Temporal
 
-Dex and Temporal both run processes that survive crashes, restarts, and long waits. This page maps each core Temporal capability onto Dex. For each one, it says how Dex provides it, what the difference costs, and where Temporal is the better fit. The [last section](#other-engines) covers other durable execution tools.
+Dex and Temporal both run processes that survive crashes, restarts, and long waits. They differ in one design choice: Temporal replays workflow code to rebuild a run, and Dex saves the result of each Step. This page compares the two designs and what each one means for your code. The [terms map](#term-map) and [other engines](#other-engines) come after.
 
 Temporal facts on this page come from the [Temporal documentation](https://docs.temporal.io). Dex facts link to the page that covers them.
 
@@ -22,33 +22,7 @@ Temporal facts on this page come from the [Temporal documentation](https://docs.
 - A run has a business ID. At most one run with that ID is open at a time, and a reuse policy decides what happens to the next start.
 - A unit of work can run more than once. Code that calls another system passes an idempotency key.
 
-## Terms map {#term-map}
-
-| Temporal | Dex | Notes |
-| --- | --- | --- |
-| Workflow, Workflow ID, Run ID | [Flow](/concepts/flow), Flow ID, Run ID | Same roles. |
-| Workflow code between Activities | Step decisions: `GoTo`, `GoToMany`, `GracefulComplete`, `DeadEnd` | Control flow is data that Dex saves, not code that runs again. |
-| Activity | The `Execute` method of a [Step](/concepts/step) | One retry unit. Give each durable call its own Step. |
-| Local Activity | Closest: an ASYNC Step | Both trade some durability for latency. See [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async). |
-| Timer, `sleep` | [Timer](/concepts/primitives/timer) in a Step's `WaitFor` | Both durable. |
-| Signal | [Channel](/concepts/primitives/channel) message | Both are accepted with no Worker online. |
-| Query | Read-only [RPC](/concepts/primitives/rpc) | |
-| Update | [RPC](/concepts/primitives/rpc) that writes Attributes or publishes to a Channel | Both need a Worker. See [Messages and requests](#messages-and-requests). |
-| Workflow variables | [Attributes](/concepts/primitives/attribute) | Dex saves them. Temporal rebuilds them by replay. |
-| Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
-| Task Queue | The Flow type's queue | To use a separate Worker pool, give the work its own Flow type. |
-| Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. A Worker keeps no history cache. |
-| Search Attributes | Indexed Attributes | |
-| Workflow ID Reuse and Conflict Policy | ID reuse policy and start request ID | See [Flow identity](/concepts/flow). |
-| Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | Cooperative in both. See [Cancel running Steps](/concepts/primitives/rpc#cancel-running-steps). |
-| Reset | [Time Travel](/concepts/change-flow-code#time-travel) | Time Travel keeps the Run ID. |
-| Continue-As-New | No equivalent needed | Dex prunes old history events. See [Long-running Flows](#long-running-flows). |
-| Patching, Worker Versioning | Keep old Step types and change data additively | See [Versioning](#versioning). |
-| Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |
-| Nexus | No direct equivalent | A service in another team starts a Flow or calls an RPC over the FlowService API. |
-| Temporal Web UI | [Dex Web](/components/web) | |
-
-## Dex saves Step results, Temporal replays code {#the-main-difference-an-explicit-step-graph-not-replayed-code}
+## Replay and saved Step results {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
 The two engines rebuild a run in different ways after a Worker stops.
 
@@ -58,14 +32,21 @@ The two engines rebuild a run in different ways after a Worker stops.
 
 **Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves the Step's result, its Attribute writes, and the decision together. To continue a run, a Worker runs only the next Step. It reads the saved Attributes. Nothing is replayed.
 
-| | Temporal | Dex |
+The table shows what each design means for the core capabilities. The first rows follow directly from replay.
+
+| | Temporal: replays workflow code | Dex: saves each Step's result |
 | --- | --- | --- |
-| Shape of the code | One function, read top to bottom | A graph of Steps and decisions |
-| A loop or a branch | Ordinary `while` and `if` | A Step that moves to itself, a decision with two targets |
-| Clock, random values, libraries in orchestration code | Only through deterministic APIs | Allowed. Step code is ordinary code. |
-| A code change to a running process | Can cause a nondeterminism error | Cannot cause a replay error |
-| How state is kept | Rebuilt from the history, cached on the Worker | Saved as Attributes after each Step |
-| The rule you must follow | Determinism, plus idempotent Activities | Idempotent external effects |
+| Orchestration code | Must be deterministic. Clock reads, random values, and I/O go through Temporal APIs or into Activities. | Ordinary code. A Step can read the clock, use random values, and call any library. |
+| The rule you follow | Deterministic workflow code, plus idempotent Activities | Idempotent external effects |
+| State after a Worker stops | Rebuilt by replaying the Event History, and cached on a Worker between tasks | Read from the Attributes saved with each Step. A Worker keeps no cache. |
+| A code change while runs are open | A change in the order of commands fails replay with a nondeterminism error. Patching or Worker Versioning keeps old runs on the old path. | Open Flows run the new code from their next Step. Keep old Step types until old Flows finish, and change data additively. See [Deploy Code Changes](/concepts/change-flow-code#versioning-flow-code). |
+| A run that lasts months | The Event History has a cap: a warning at 10,240 events or 10 MB, and termination past 51,200 events or 50 MB. Continue-As-New starts a fresh run. | Dex keeps a window of each run's newest events, 50,000 by default, and prunes older ones. The Flow keeps running. See [History window](/reference/server/configuration#history-window). |
+| Recover after a bug fix | Reset starts a new run from an earlier event. | Time Travel restores Attributes, Channel messages, and waiting Steps at an earlier point, with the same Run ID. |
+| Shape of the code | One function, read top to bottom, with ordinary loops and branches | A graph of Steps. Each decision names the next Steps. |
+| Waiting | `await` a Timer, or a condition that a Signal handler sets | A Step's `WaitFor` returns Timer, Channel, or SubFlow conditions, alone or combined. |
+| Parallel work | Several Activities awaited in one workflow thread | `GoToMany` runs Steps in parallel on different Workers. |
+| Retries | Activities retry by default. Workflow code does not. | Every Step method retries by default, with the same backoff. |
+| Failure handling | Catch an Activity error in workflow code. | A failure policy on the Step routes to a recovery Step. See [Failure Handling](/design-patterns/failure-handling). |
 
 ### Determinism moves to the idempotency key {#determinism-moved-it-did-not-vanish}
 
@@ -260,21 +241,7 @@ The reminder passes no idempotency key, because a second reminder does no harm. 
 
 The Temporal version reads top to bottom. The opt-out is a Signal handler that sets a variable, and replay rebuilds the variable. The Dex version names the waiting state. The Timer and the Channel are one Wait, and the decision chooses what comes next.
 
-## Each core capability, side by side {#capabilities}
-
-| Capability | Temporal | Dex |
-| --- | --- | --- |
-| Durable state | Workflow variables, rebuilt by replaying the Event History. A Worker caches the state in memory. | Attributes, saved with each Step result. A Worker reads them and keeps no cache. |
-| Durable waits | A Timer holds no Worker. A workflow can also wait on a condition that a Signal handler sets. | A Step's `WaitFor` returns a Timer, Channel, or SubFlow condition, or several with `AnyOf` and `AllOf`. No Worker is held. |
-| Retries | Activities retry by default: 1 second, doubling to 100 seconds, no attempt limit. Workflows do not retry by default. | Every Step method retries by default with the same backoff, up to 4 hours in total. A Flow-level retry policy is not supported. See [Step options](/concepts/step). |
-| Timeouts | Start-To-Close or Schedule-To-Close is required on an Activity. Heartbeat is off by default. | A method timeout of 2 hours and a heartbeat timeout of 1 minute by default. |
-| Failure handling | Catch an Activity error in workflow code. | A failure policy on the Step routes to a recovery Step. See [Failure Handling](/design-patterns/failure-handling). |
-| Parallel work | Start several Activities and `await` them in one thread. | `GoToMany` runs Steps in parallel on different Workers. |
-| Recover after a bug fix | Reset a run to an earlier event. | Time Travel restores Attributes, Channel messages, and waiting Steps at an earlier point, with the same Run ID. |
-| Search | Search Attributes in the Visibility store. | Indexed Attributes. Built-in search by default, PostgreSQL or ParadeDB for heavy use. |
-| Languages | Go, Java, Python, TypeScript, .NET, Ruby, PHP, Rust | Go, Python, Java, TypeScript, Rust |
-
-The rows below need more than a table cell.
+## Concurrency, messages, and the server {#capabilities}
 
 ### Concurrency defaults {#concurrency-defaults}
 
@@ -295,18 +262,6 @@ The gap is smaller than "one thread versus many" suggests, but it is real. Tempo
 
 [Send a command at most once](/concepts/client#inbound-commands) gives the Dex pattern that drops a repeated command. [Limits](/intro/limits#requests-that-can-repeat) lists every request that can repeat.
 
-### Long-running Flows {#long-running-flows}
-
-Temporal limits each run's Event History. The server logs a warning after 10,240 events or 10 MB. It terminates a run past 51,200 events or 50 MB, 2,000 Updates, or 10,000 Signals. Continue-As-New starts a new run with a fresh history and carries the state over.
-
-Dex keeps a window of each run's newest history events, 50,000 by default on a production server, and prunes older ones. Pruning never fails a Flow, so a long-lived Flow needs no Continue-As-New. The trade-off: events older than the window are gone. See [History window](/reference/server/configuration#history-window).
-
-### Versioning {#versioning}
-
-In Temporal, a code change that alters the order of commands breaks replay for open runs. Temporal offers two tools. Worker Versioning pins a run to Workers on a given code revision, and Temporal calls it the recommended way. Patching branches inside the code with `Patched` or `GetVersion`.
-
-Open Dex Flows run the new code from their next Step. Dex never replays, so a code change cannot cause a replay error. The rules move to your data and Step types: keep old Step types until old Flows finish, and change Attributes and inputs additively. [Deploy Code Changes](/concepts/change-flow-code#versioning-flow-code) gives the rules. [Check before you deploy](/concepts/change-flow-code#check-before-you-deploy) gives a manual check. Dex has no automatic check yet.
-
 ### Run the server {#run-the-server}
 
 | | Temporal Service | Dex Server |
@@ -314,26 +269,36 @@ Open Dex Flows run the new code from their next Step. Dex never replays, so a co
 | Processes | Frontend, History, Matching, and Worker services. They can share a process. Temporal recommends separate processes in production. | One binary. One active node holds a lease in object storage. Standby nodes take over when it stops. See [Dex Server](/components/server). |
 | Required storage | A database: Cassandra, MySQL, or PostgreSQL. SQLite for development only. | Object storage, such as Amazon S3, or db9 in its place. |
 | Search storage | A Visibility store. Elasticsearch is recommended in production. | Built-in by default. PostgreSQL or ParadeDB optional. |
-| Scale | Scales each service out. | One active node is the ceiling of a cluster. Past it, run separate clusters. See [Limits](/intro/limits#grow-past-one-node). |
-| Hosted option | Temporal Cloud | [Dex Cloud](/components/dex-cloud) |
-| Release status | A longer production record | Beta. Dex Server is at 0.1.x. See [Release status](/intro/limits#release-status). |
-| License | MIT | Sustainable Use License 1.0, source-available. See [License](/intro/limits#license). |
 
 When the active Dex node fails over, every in-flight Step attempt runs again. See [Failover and Deploys](/concepts/failover-and-deploys). [Performance](/intro/performance) gives measured throughput and latency for one Dex node.
 
-## When Temporal is the better fit {#when-another-tool-is-the-better-fit}
+<a id="when-another-tool-is-the-better-fit"></a>
 
-- **You want to write the process as one straight-line function.** Temporal lets you do that. Dex asks you to model it as Steps and decisions.
-- **You need a mature server today.** Dex Server is at 0.1.x. Temporal has a longer production record.
-- **You need more than one node's capacity in one cluster.** Temporal scales its services out. One active Dex node serves a cluster.
-- **You want one writer per run with no locks to declare.** A Temporal Workflow gives that by default.
-- **You need deduplicated messages today.** Temporal deduplicates Updates by ID. Dex runs a repeated RPC or Channel publish again.
-- **You need .NET, Ruby, or PHP.** Dex has no SDK for them.
-- **You need a built-in Schedule with pause, backfill, and overlap policies.** Dex has a cron pattern, not a Schedule object.
-- **Your team already runs Temporal at scale.** A move costs more than the differences on this page, unless replay or versioning errors are a real problem for you.
-- **You need an OSI open source license.** The Temporal server is MIT licensed. Dex is source-available.
+## Terms map {#term-map}
 
-Dex fits when you want orchestration code that is ordinary code, versioning without replay, one binary on object storage, and parallel Steps by default.
+| Temporal | Dex | Notes |
+| --- | --- | --- |
+| Workflow, Workflow ID, Run ID | [Flow](/concepts/flow), Flow ID, Run ID | Same roles. |
+| Workflow code between Activities | Step decisions: `GoTo`, `GoToMany`, `GracefulComplete`, `DeadEnd` | Control flow is data that Dex saves, not code that runs again. |
+| Activity | The `Execute` method of a [Step](/concepts/step) | One retry unit. Give each durable call its own Step. |
+| Local Activity | Closest: an ASYNC Step | Both trade some durability for latency. See [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async). |
+| Timer, `sleep` | [Timer](/concepts/primitives/timer) in a Step's `WaitFor` | Both durable. |
+| Signal | [Channel](/concepts/primitives/channel) message | Both are accepted with no Worker online. |
+| Query | Read-only [RPC](/concepts/primitives/rpc) | |
+| Update | [RPC](/concepts/primitives/rpc) that writes Attributes or publishes to a Channel | Both need a Worker. See [Messages and requests](#messages-and-requests). |
+| Workflow variables | [Attributes](/concepts/primitives/attribute) | Dex saves them. Temporal rebuilds them by replay. |
+| Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
+| Task Queue | The Flow type's queue | To use a separate Worker pool, give the work its own Flow type. |
+| Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. A Worker keeps no history cache. |
+| Search Attributes | Indexed Attributes | |
+| Workflow ID Reuse and Conflict Policy | ID reuse policy and start request ID | See [Flow identity](/concepts/flow). |
+| Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | Cooperative in both. See [Cancel running Steps](/concepts/primitives/rpc#cancel-running-steps). |
+| Reset | [Time Travel](/concepts/change-flow-code#time-travel) | Time Travel keeps the Run ID. |
+| Continue-As-New | No equivalent needed | Dex prunes old history events. See [Replay and saved Step results](#the-main-difference-an-explicit-step-graph-not-replayed-code). |
+| Patching, Worker Versioning | Keep old Step types and change data additively | See [Replay and saved Step results](#the-main-difference-an-explicit-step-graph-not-replayed-code). |
+| Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |
+| Nexus | No direct equivalent | A service in another team starts a Flow or calls an RPC over the FlowService API. |
+| Temporal Web UI | [Dex Web](/components/web) | |
 
 If you know iWF, Dex grew out of it. A Dex Step is an iWF State, and `WaitFor` is `WaitUntil`.
 
