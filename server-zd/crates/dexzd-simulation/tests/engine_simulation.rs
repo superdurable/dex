@@ -33,6 +33,10 @@ const FIRST_VERSIONED_STORAGE_SEED: u64 = 0x0a11_0000;
 const DEFAULT_VERSIONED_STORAGE_HOT_STANDBY_SEED_COUNT: u64 = 4;
 /// Hot standbys over versioned storage form their own group too.
 const FIRST_VERSIONED_STORAGE_HOT_STANDBY_SEED: u64 = 0x0a11_5700;
+/// Seeds of create-only storage whose listings repeat, as on Tencent COS.
+const DEFAULT_STALE_LISTING_STORAGE_SEED_COUNT: u64 = 8;
+/// First seed of the stale-listing storage runs.
+const FIRST_STALE_LISTING_STORAGE_SEED: u64 = 0x0c05_0000;
 const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
 /// Hot standbys change every trajectory, so their seeds form their own group.
 const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
@@ -315,6 +319,27 @@ fn create_only_storage_with_versioned_mutable_keys_keeps_every_invariant() {
     );
     total.recent_events.clear();
     println!("versioned storage coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    assert_failover_covered(&total);
+}
+
+/// Runs leases, failover, and fencing on create-only storage whose listings repeat for seconds.
+#[test]
+fn create_only_storage_with_stale_listings_keeps_every_invariant() {
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_STALE_LISTING_STORAGE_SEED_COUNT,
+        FIRST_STALE_LISTING_STORAGE_SEED,
+        &[],
+    );
+    let mut total = run_seeds_on_storage(
+        &seeds,
+        EngineSimulationProfile::Standard,
+        SimulatedObjectStoreSemantics::CreateOnlyWithStaleListings,
+    );
+    total.recent_events.clear();
+    println!("stale-listing storage coverage: {total:#?}");
     if is_single_seed {
         return;
     }
