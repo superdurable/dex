@@ -54,6 +54,7 @@ export {
   type EffectiveConfig,
   type LocalToolsConfig,
   type MediaConfig,
+  type RemoteMcpServerConfig,
   type SessionsConfig,
   type TurnConfig,
   type TurnResolution,
@@ -98,6 +99,14 @@ export {
   type StartedDexcliDev,
 } from "./dex-server.js";
 export { LocalToolSource, localToolNames } from "./local-tools/local-tool-source.js";
+export {
+  McpServerSettingsError,
+  McpServersToolSource,
+  mcpServerHeaderVariableValues,
+  mcpServersToolSourceName,
+  resolveMcpServers,
+  type McpServersToolSourceOptions,
+} from "./mcp-servers-tool-source.js";
 export {
   WorkspaceFileRefusedError,
   WorkspaceFiles,

@@ -216,8 +216,12 @@ class HarnessContext:
         instructions: The file's ``system_prompt``, or the text of its
             ``system_prompt_file``, or ``None`` for the harness's default.
         harness_options: The harness's own configuration section, ``{}`` when omitted.
-        tool_sources: The connector and local tool sources, which apply each
-            turn's session settings themselves. Offer all of them.
+        tool_sources: The connector, remote MCP server, and local tool
+            sources, which apply each turn's session settings themselves.
+            Offer all of them.
+
+            .. versionchanged:: 0.6.4
+               Adds the remote MCP server source of ``mcp_servers``.
         resolver: The turn configuration resolver behind ``resolve_turn``.
         media_store: The store of the session's images, built from the
             file's ``media`` section: the images the user attaches with

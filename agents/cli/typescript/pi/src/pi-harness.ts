@@ -9,7 +9,12 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
-import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
+import {
+  ConfigError,
+  mcpServersToolSourceName,
+  type AgentHarness,
+  type HarnessContext,
+} from "@superdurable/dex-agents-cli-core";
 
 import {
   defaultBashTimeoutSeconds,
@@ -21,8 +26,8 @@ import { PiModelClients } from "./pi-model-clients.js";
 import { PrefixedConnectorToolSource } from "./prefixed-connector-tool-source.js";
 import { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
 
-/** The `sourceName` of the CLI core's connectors tool source. */
-const connectorsToolSourceName = "connectors";
+/** The `sourceName`s of the CLI core's MCP tool sources, whose writes always wait for approval in Pi. */
+const mcpToolSourceNames: ReadonlySet<string> = new Set(["connectors", mcpServersToolSourceName]);
 
 /**
  * The base Flow type of the command's sessions, before the CLI core namespaces it.
@@ -80,7 +85,8 @@ export interface PiSection {
  * `files` and `shell` groups, with Pi's behavior and Pi's approval default: no approval unless `approval.always`
  * names the tool; see {@link PiCodingToolSource}. The CLI core's web fetch, browser, and connector tools stay, and
  * the agent can ask the user questions. A connector tool whose name a Pi tool has gets the `connector_` prefix, and
- * every connector write waits for approval; see {@link PrefixedConnectorToolSource}. Each model call adds the
+ * every connector write waits for approval; see {@link PrefixedConnectorToolSource}. The tools of the `mcp_servers`
+ * of the file stay too, and each of their writes waits for approval the same way. Each model call adds the
  * workspace's `AGENTS.md` files unless `pi.load_project_context` is `false`.
  *
  * The workspace is the directory the command starts in, as in Pi, unless the file sets `workspace`.
@@ -93,6 +99,8 @@ export interface PiSection {
  * default workspace.
  *
  * Changed in 0.6.2: maps the `reasoning_effort` session setting and suggests models.
+ *
+ * Changed in 0.6.4: offers the tools of the `mcp_servers` of the file.
  *
  * @example
  * ```ts
@@ -158,7 +166,7 @@ export function createPiSessionFlow(
       },
       toolSources: [
         ...context.toolSources.map((source) =>
-          source.sourceName === connectorsToolSourceName
+          mcpToolSourceNames.has(source.sourceName)
             ? new PrefixedConnectorToolSource(source, new Set(Object.keys(piCodingLocalTools)))
             : source,
         ),

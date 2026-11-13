@@ -60,6 +60,7 @@ claude: {}
 | `dex.tls.ca_file`, `dex.tls.server_name` | none | An `https` `dex.server` only. A PEM file of root CAs to trust as well, and the name the certificate must match. `DEX_TLS_CA_FILE` and `DEX_TLS_SERVER_NAME` override them. |
 | `connectors.mcp` | `auto` | The connectors MCP server. `auto` uses the one `dexcli dev` provides. Otherwise an `http` or `https` URL on `127.0.0.1`, `localhost`, or `[::1]`. See URLs below. |
 | `connectors.enabled` | every authorized connection | Which connections, and which of their operations, the agent may call. See below. |
+| `mcp_servers` | `{}` | Remote MCP servers whose tools the agent may call, by name, over Streamable HTTP. See Remote MCP servers below. |
 | `approval.always` | `[]` | Tool names, as the agent sees them, whose every call waits for approval. This adds to what the connectors and local tools already require. |
 | `workspace` | `~/dex-agent-workspace`; for `dex-agents-pi`, the directory the command starts in | The only directory the local file tools use, and the working directory of shell commands. |
 | `local_tools.files` | `true` | Read, write, list, and search files in `workspace`. Reads run at once; writes wait for approval. |
@@ -85,7 +86,8 @@ boundary. As in Pi, they run without approval unless `approval.always` names
 them; see [its README](typescript/pi/README.md#tools-and-approvals).
 
 Do not put secrets in the file. Provider keys come from the environment.
-Connector credentials stay in the connections you authorize in Dex Web. The
+Connector credentials stay in the connections you authorize in Dex Web.
+Remote MCP server headers take their secrets from environment variables. The
 schema rejects user info in URLs, but it cannot check the harness sections,
 which each harness command defines.
 
@@ -173,6 +175,66 @@ letter or a digit, and an acronym stays one word, so `listStoryIDs` is
 Two entries must not cover the same connection, so `slack` and `slack/work`
 cannot appear together. An empty list gives the agent no connector tools.
 
+### Remote MCP servers
+
+`mcp_servers` adds the tools of MCP servers that are not Dex connectors, such
+as a team's own tool server. Each key is the server's name, and each server
+speaks the Streamable HTTP transport. Stateless servers work: every request
+opens its own connection and protocol session.
+
+```yaml
+mcp_servers:
+  studio:
+    url: https://mcp.example.com/mcp
+    headers:
+      Authorization: "Bearer ${STUDIO_API_KEY}"
+  local-notes:
+    url: http://127.0.0.1:9000/mcp
+    trust_tool_annotations: true
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| name (the key) | | 1 to 32 ASCII letters, digits, `_`, or `-`, starting with a letter. |
+| `url` | required | The server's endpoint: `https`, or `http` on `localhost`, `127.0.0.0/8`, or `[::1]` (`insecure_mcp_server_url`). No user info or fragment. It follows the URL rules of `dex.server` and is used as written. |
+| `headers` | `{}` | HTTP headers sent with every request to the server. |
+| `trust_tool_annotations` | `false` | Whether the server's `readOnlyHint` and `idempotentHint` annotations, and the effects it declares under the Dex MCP conventions, pick each tool's effect. |
+
+The agent sees each tool as `<server name>__<tool name>`, such as
+`studio__search_assets`, and `approval.always` names it that way. With
+`trust_tool_annotations: false`, every call waits for approval and runs at
+most once. With `true`, a tool the server marks read-only or idempotent runs
+without approval, unless `approval.always` names it, and may be retried; set
+it only for a server whose hints you trust. `dex-agents-pi` and
+`dex-agents-deepagents` still make every call that is not a read wait for
+approval, as they do for connector tools.
+
+Secrets belong in environment variables, never in the file. In a header
+value, each `${NAME}` is replaced by the value of the environment variable
+`NAME` when the command starts. `NAME` has ASCII letters, digits, and `_`, and
+does not start with a digit. Any other `$` stays as written. The value is used
+exactly as set, never trimmed or expanded again. `DEX_API_KEY`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE` count as not set,
+so a Dex credential never reaches another server. A variable that is not set
+or is empty stops the command with exit code 2 and a message that names it,
+such as
+`mcp_servers.studio.headers.Authorization needs the environment variable STUDIO_API_KEY, which is not set or is empty.`
+A value outside printable ASCII stops it the same way. A header value may
+also be literal text, but a literal secret then sits in the file: use a
+`${NAME}` reference for every secret. Only the Worker expands the values. The command never prints, logs, or stores them:
+the effective configuration, the session, and the log file keep the text as
+written. Error text that a server sends back, such as an HTTP 401 body or a
+tool error, is redacted on a best-effort basis: each header value, each of its
+parts between spaces, `=`, `:`, `,`, or `;`, and each variable value of at
+least 8 characters becomes `[redacted]` in the log file, the terminal, tool
+output, and errors. Other content the server returns, such as progress and
+task status messages and tool descriptions, is not covered, so give a token
+only to servers you trust with it. A Worker that runs a stored call checks it against its own
+configuration: for a server whose annotations it does not trust, the call must
+have had approval and a single-attempt effect, or it fails unsent.
+
+A server that cannot be listed offers no tools until it answers again; the
+log file has the error. Session settings cannot change `mcp_servers`.
+
 ### Images
 
 In the chat, `/image <path>` attaches an image file to your next message. A
@@ -242,7 +304,7 @@ session in Dex Web can edit its settings.
 
 Other top-level keys are ignored, so the settings can also hold keys that
 other readers use. This includes `dex`, `workspace`, `system_prompt_file`,
-`media`, and the harness sections, which belong to the file only. The command reports each
+`media`, `mcp_servers`, and the harness sections, which belong to the file only. The command reports each
 ignored key as a warning, but the turn still runs. Inside a known field, an
 unknown key is an error, so `connectors.mcp` fails.
 
@@ -257,7 +319,9 @@ cases every CLI core runs: YAML parsing, valid and invalid files with the
 expected effective configuration or error, session settings with the
 expected turn configuration and warnings, or error, and, in `dex_connection`,
 files and environments with the expected Dex connection settings, or the
-setting to fix and its exact message. Its `error_codes`,
+setting to fix and its exact message, and, in `mcp_servers`, files and
+environments with the expected remote MCP servers and their expanded headers,
+or the setting to fix and its exact message. Its `error_codes`,
 `warnings`, and `check_order` fields define how errors and warnings are
 reported.
 

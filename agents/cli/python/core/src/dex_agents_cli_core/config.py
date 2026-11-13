@@ -57,8 +57,9 @@ class ConfigError(Exception):
     Attributes:
         code: The stable error code from the conformance file: ``yaml``,
             ``schema``, ``invalid_url``, ``insecure_token_url``,
-            ``auth_needs_server_url``, ``tls_needs_https_server``,
-            ``duplicate_tool``, ``duplicate_connection``, ``model_required``,
+            ``insecure_mcp_server_url``, ``auth_needs_server_url``,
+            ``tls_needs_https_server``, ``duplicate_tool``,
+            ``duplicate_connection``, ``model_required``,
             ``widens_connectors``, ``widens_local_tools``, or
             ``unsupported_reasoning_effort``.
         path: JSON Pointer of the first problem, ``""`` for the whole value.
@@ -83,6 +84,9 @@ class ConfigError(Exception):
        The ``insecure_token_url`` code, at ``/dex/auth/token_url``, the
        ``auth_needs_server_url`` code, at ``/dex/auth``, and the
        ``tls_needs_https_server`` code, at ``/dex/tls``.
+
+    .. versionchanged:: 0.6.4
+       The ``insecure_mcp_server_url`` code, at ``/mcp_servers/<name>/url``.
     """
 
     def __init__(
@@ -262,6 +266,36 @@ class ConnectorsConfig:
 
 
 @dataclass(frozen=True)
+class RemoteMcpServerConfig:
+    """One ``mcp_servers`` entry, as the file writes it: a remote MCP server.
+
+    It never holds a secret: each header value keeps its ``${NAME}``
+    references. ``resolve_mcp_servers`` expands them from the environment.
+
+    Example:
+        >>> RemoteMcpServerConfig(
+        ...     url="https://mcp.example.com/mcp",
+        ...     headers={"Authorization": "Bearer ${STUDIO_API_KEY}"},
+        ... )
+
+    Attributes:
+        url: The server's Streamable HTTP endpoint: ``https``, or ``http`` on
+            a loopback host.
+        headers: The HTTP headers sent with every request, by name, with
+            their ``${NAME}`` references unexpanded. Empty by default.
+        trust_tool_annotations: Whether the server's annotations and declared
+            effects pick each tool's effect. ``False`` by default, so every
+            call waits for approval and runs at most once.
+
+    .. versionadded:: 0.6.4
+    """
+
+    url: str
+    headers: Mapping[str, str] = field(default_factory=dict)
+    trust_tool_annotations: bool = False
+
+
+@dataclass(frozen=True)
 class ApprovalConfig:
     """The ``approval`` section.
 
@@ -362,6 +396,11 @@ class EffectiveConfig:
             change it.
 
             .. versionadded:: 0.6.0
+        mcp_servers: The remote MCP servers, by name, with their header
+            values as written. Empty by default. Session settings never
+            change it.
+
+            .. versionadded:: 0.6.4
     """
 
     model: str
@@ -375,6 +414,7 @@ class EffectiveConfig:
     harness_options: Mapping[str, Any] = field(default_factory=dict)
     media: MediaConfig = field(default_factory=MediaConfig)
     sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    mcp_servers: Mapping[str, RemoteMcpServerConfig] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         """Return the configuration in the conformance file's JSON shape.
@@ -404,6 +444,14 @@ class EffectiveConfig:
                     }
                     for entry in enabled
                 ],
+            },
+            "mcp_servers": {
+                name: {
+                    "url": server.url,
+                    "headers": dict(server.headers),
+                    "trust_tool_annotations": server.trust_tool_annotations,
+                }
+                for name, server in self.mcp_servers.items()
             },
             "approval": {"always": list(self.approval.always)},
             "workspace": self.workspace,
@@ -478,12 +526,16 @@ def resolve_config(
 
     Raises:
         ConfigError: ``schema``, ``invalid_url``, ``insecure_token_url``,
-            ``auth_needs_server_url``, ``tls_needs_https_server``,
+            ``insecure_mcp_server_url``, ``auth_needs_server_url``,
+            ``tls_needs_https_server``,
             ``duplicate_tool``, ``duplicate_connection``, or
             ``model_required``, in the conformance file's check order.
 
     .. versionchanged:: 0.6.2
        Reads ``dex.auth`` and ``dex.tls``.
+
+    .. versionchanged:: 0.6.4
+       Reads ``mcp_servers``.
     """
     if config is None:
         config = {}
@@ -504,8 +556,12 @@ def resolve_config(
     endpoint = media.get("endpoint")
     if endpoint is not None:
         _raise_invalid_url(endpoint, "/media/endpoint")
+    mcp_servers = _read_mcp_servers(config.get("mcp_servers", {}))
+    for name in sorted(mcp_servers):
+        _raise_invalid_url(mcp_servers[name].url, _json_pointer(["mcp_servers", name, "url"]))
     if token_url is not None and not is_secure_token_url(token_url):
         raise ConfigError("insecure_token_url", "/dex/auth/token_url")
+    _raise_unsafe_mcp_servers(mcp_servers)
     if auth["mode"] != "none" and server == AUTO:
         raise ConfigError("auth_needs_server_url", "/dex/auth")
     if tls and not server.startswith("https://"):
@@ -546,7 +602,29 @@ def resolve_config(
         harness_options=json.loads(json.dumps(config.get(harness_section, {}))),
         media=MediaConfig(store=media.get("store", AUTO), endpoint=endpoint),
         sessions=SessionsConfig(summary=config.get("sessions", {}).get("summary", AUTO)),
+        mcp_servers=mcp_servers,
     )
+
+
+def _read_mcp_servers(raw_servers: Mapping[str, Any]) -> dict[str, RemoteMcpServerConfig]:
+    return {
+        name: RemoteMcpServerConfig(
+            url=server["url"],
+            headers=dict(server.get("headers", {})),
+            trust_tool_annotations=server.get("trust_tool_annotations", False),
+        )
+        for name, server in raw_servers.items()
+    }
+
+
+def _raise_unsafe_mcp_servers(servers: Mapping[str, RemoteMcpServerConfig]) -> None:
+    """Reject an http URL whose host is not loopback."""
+    names = sorted(servers)
+    for name in names:
+        if not is_secure_token_url(servers[name].url):
+            raise ConfigError(
+                "insecure_mcp_server_url", _json_pointer(["mcp_servers", name, "url"])
+            )
 
 
 def is_session_summary_indexed(config: EffectiveConfig) -> bool:

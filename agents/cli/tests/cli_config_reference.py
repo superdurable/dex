@@ -96,8 +96,15 @@ def resolve_config(
     endpoint = media.get("endpoint")
     if endpoint is not None:
         raise_invalid_url(endpoint, "/media/endpoint")
+    mcp_servers = config.get("mcp_servers", {})
+    server_names = sorted(mcp_servers)
+    for name in server_names:
+        raise_invalid_url(mcp_servers[name]["url"], f"/mcp_servers/{name}/url")
     if token_url is not None and not is_secure_token_url(token_url):
         raise ConfigError("insecure_token_url", "/dex/auth/token_url")
+    for name in server_names:
+        if not is_secure_token_url(mcp_servers[name]["url"]):
+            raise ConfigError("insecure_mcp_server_url", f"/mcp_servers/{name}/url")
     if auth["mode"] != "none" and server == DEFAULT_DEX_SERVER:
         raise ConfigError("auth_needs_server_url", "/dex/auth")
     if tls and not server.startswith("https://"):
@@ -121,6 +128,14 @@ def resolve_config(
         "connectors": {
             "mcp": connectors.get("mcp", DEFAULT_CONNECTORS_MCP),
             "enabled": entries,
+        },
+        "mcp_servers": {
+            name: {
+                "url": server["url"],
+                "headers": dict(server.get("headers", {})),
+                "trust_tool_annotations": server.get("trust_tool_annotations", False),
+            }
+            for name, server in mcp_servers.items()
         },
         "approval": {"always": list(config.get("approval", {}).get("always", []))},
         "workspace": config.get("workspace", DEFAULT_WORKSPACE),
@@ -508,3 +523,61 @@ def expand_path(path: str, base_directory: str, home: str) -> str:
     if path == "~" or path.startswith("~/"):
         path = home + path[1:]
     return posixpath.normpath(posixpath.join(base_directory, path))
+
+
+DEX_SECRET_VARIABLES = ("DEX_API_KEY", "DEX_CREDENTIAL", "DEX_CREDENTIAL_FILE")
+VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+PRINTABLE_ASCII = re.compile(r"[ -~]*")
+
+
+class McpServerSettingsError(Exception):
+    """An mcp_servers header variable is unusable: the one setting to fix and the message."""
+
+    def __init__(self, setting: str, message: str) -> None:
+        super().__init__(message)
+        self.setting = setting
+        self.message = message
+
+
+def resolve_mcp_servers(
+    effective: Mapping[str, Any], environment: Mapping[str, str]
+) -> list[dict[str, Any]]:
+    """Return the remote MCP servers of an effective configuration with every header expanded.
+
+    Raises:
+        McpServerSettingsError: The first unusable variable, in the conformance order.
+    """
+    servers = []
+    for name in sorted(effective["mcp_servers"]):
+        server = effective["mcp_servers"][name]
+        headers = {}
+        for header in sorted(server["headers"]):
+            setting = f"mcp_servers.{name}.headers.{header}"
+
+            def expand(reference: re.Match[str], setting: str = setting) -> str:
+                variable = reference[1]
+                value = "" if variable in DEX_SECRET_VARIABLES else environment.get(variable, "")
+                if value == "":
+                    raise McpServerSettingsError(
+                        setting,
+                        f"{setting} needs the environment variable {variable}, "
+                        "which is not set or is empty.",
+                    )
+                if PRINTABLE_ASCII.fullmatch(value) is None:
+                    raise McpServerSettingsError(
+                        setting,
+                        f"{setting} needs the environment variable {variable}, "
+                        "whose value is not printable ASCII.",
+                    )
+                return value
+
+            headers[header] = VARIABLE_REFERENCE.sub(expand, server["headers"][header])
+        servers.append(
+            {
+                "name": name,
+                "url": server["url"],
+                "headers": {header: headers[header] for header in server["headers"]},
+                "trust_tool_annotations": server["trust_tool_annotations"],
+            }
+        )
+    return servers

@@ -8,6 +8,7 @@ one `AgentHarness` and calls `runAgentCli`. This package does the rest:
   [`../../README.md`](../../README.md), and creates it on first run;
 - reuses or starts a local `dexcli dev`, downloading `dexcli` when needed;
 - connects the connectors MCP server and applies `connectors.enabled`;
+- connects the remote MCP servers of `mcp_servers`;
 - offers the local tools: files, shell, web fetch, and a browser;
 - runs the Worker in the command's process and chats in the terminal.
 
@@ -189,7 +190,7 @@ interface HarnessContext {
   readonly workspace: string; // absolute, exists
   readonly instructions: string | null; // system_prompt or system_prompt_file text
   readonly harnessOptions: Readonly<Record<string, unknown>>;
-  readonly toolSources: readonly ToolSource[]; // connectors, then local tools
+  readonly toolSources: readonly ToolSource[]; // connectors, mcp_servers, then local tools
   readonly mediaStore?: MediaStore; // media.store; the CLI core always sets it
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, reasoningEffort, narrowing
   currentTurn(): ResolvedTurn; // the running model call's turn, else the file
@@ -445,6 +446,33 @@ when the catalog is unavailable.
 A configured connection that the server
 does not list is reported as not authorized, and at a terminal the command
 opens the Dex Web Connectors page.
+
+## Remote MCP servers
+
+`McpServersToolSource` offers the tools of the servers in `mcp_servers` under
+the source name `mcp_servers`, which `mcpServersToolSourceName` exports. The
+CLI core always registers it, also without servers, so it refuses a stored
+call whose server this Worker does not configure. The command calls
+`resolveMcpServers` before it starts `dexcli dev`, so an unset or unusable
+header variable stops it with exit code 2 and the `McpServerSettingsError`
+message, which names the variable but never its value. The Worker resolves the
+servers again when it connects; only the expanded headers it passes to
+`McpToolSource` hold the values. `CliEnvironment.mcpServerHeaderVariables` is
+the environment the references read.
+
+The source lists the servers in every model call and once at startup, so a
+harness with `isToolSetFixedAtBuild` gets their tools. When no server answers,
+the terminal shows one line, and the error goes to the log file. Each call adds
+the turn's `approval.always` and is checked again in its tool Step against
+the `approval.always` of the Worker that runs it. That Worker also refuses,
+unsent, a call that lacks the approval or single attempt its own
+`trust_tool_annotations: false` requires. The source replaces each header
+value, its parts, and each value of `mcpServerHeaderVariableValues` with
+`[redacted]` in its log lines, errors, and tool output. This is best-effort
+for error text only: progress and task status messages and tool descriptions
+are not redacted. Harnesses that offer
+`context.toolSources` need no change; Pi wraps the source as it wraps the
+connectors source, so every write waits for approval.
 
 ## The Dex server and dexcli
 

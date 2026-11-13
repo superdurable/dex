@@ -22,6 +22,7 @@ import { terminalUiTerminalVariables } from "../../src/terminal-ui/terminal-ui-e
 import { readProcessIdentity } from "../../src/worker-host/process-identity.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
+import { FakeRemoteMcpServer } from "../fixtures/fake-remote-mcp-server.js";
 import {
   plainOnlyScriptedHarness,
   scriptedHarness,
@@ -769,6 +770,40 @@ describe("the terminal UI launcher", () => {
       "launcher canary console.error",
     ]) {
       assert.match(log, new RegExp(text), text);
+    }
+  });
+
+  test("the Worker host connects mcp_servers with the header from the launcher's environment", async () => {
+    const apiKey = "worker-host-mcp-api-key-sentinel-9";
+    const remote = new FakeRemoteMcpServer(apiKey);
+    const remoteUrl = await remote.start();
+    try {
+      const home = newHome(
+        [
+          "connectors: {enabled: []}",
+          "local_tools: {browser: false}",
+          "mcp_servers:",
+          "  studio:",
+          `    url: ${remoteUrl}`,
+          '    headers: {Authorization: "Bearer ${STUDIO_API_KEY}"}',
+          "    trust_tool_annotations: true",
+          "",
+        ].join("\n"),
+      );
+      const fake = new FakeTerminalUi([chatTranscript("mcp_servers", [tuiPause(15_000)])]);
+      const terminal = startOnTerminal(home, fake, [], { STUDIO_API_KEY: apiKey });
+      await waitForReady(fake);
+      const sessionId = await onlySession(home);
+      const sessions = await sessionClients.of(home);
+      const call = `call studio__search_assets ${JSON.stringify({ query: "from the host" })}`;
+      assert.equal(await sessions.sendUserMessage(sessionId, call), true);
+      await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 12_000 });
+      assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+      assert.equal(remote.runsOf("search_assets").filter((run) => run.arguments.query === "from the host").length, 1);
+      assert.equal(remote.rejectedRequests, 0);
+      assert.ok(!(terminal.terminal.all + logFile(home)).includes(apiKey), "the API key reached the terminal or the log");
+    } finally {
+      await remote.stop();
     }
   });
 

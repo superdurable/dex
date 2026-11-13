@@ -438,6 +438,35 @@ read, and caches them for the harness:
   Connectors page, `<Dex Web URL>/v1/connectors`, and opens it only in an
   interactive terminal.
 
+## Remote MCP server tools
+
+`McpServersToolSource` offers the tools of the configuration's
+`mcp_servers` through `McpToolSource`, over Streamable HTTP. The agent sees
+each tool as `<server name>__<tool name>`. Its `source_name` is
+`mcp_servers`, and the command registers it even without servers, so it
+refuses a stored call of a server this Worker does not configure.
+
+- `resolve_mcp_servers(config, os.environ)` expands each `${NAME}` in a
+  header value when the command starts. A variable that is not set, is
+  empty, or is not printable ASCII raises `McpServerSettingsError`, whose
+  message names the setting and the variable, never the value; the command
+  prints it and exits with code 2. The Worker host does the same.
+- Each call adds the turn's `approval.always`. The tool Step checks it again
+  on the Worker that runs it and refuses a call that had no approval but now
+  needs one. For a server whose annotations that Worker does not trust, it
+  also refuses, unsent, a call without approval or with a retried effect.
+- The source replaces each header value, each part of it between whitespace,
+  `=`, `:`, `,`, or `;`, and each value of `mcp_server_secret_texts`, of at
+  least 8 characters, with `[redacted]` in errors, tool output, and the log
+  file. This is best-effort for error text only: progress and task status
+  messages and tool descriptions are not redacted. The log filter covers the
+  root logger's handlers that exist when the Worker connects the servers.
+- A listing that no server answers offers no remote tools and prints one
+  line, `MCP server tools are unavailable for now; each turn tries again.
+  See <log file> for the error.`, until a server answers again. The error
+  goes to the log file. The command lists every server once at startup, so a
+  harness whose tool set is fixed at build gets the tools that answered then.
+
 ## Local tools
 
 The local tool source offers these tools in their own Dex tool Steps. Paths
@@ -646,7 +675,7 @@ harness may replace only `FILES` and `SHELL`.
 | `workspace: Path` | The absolute workspace, which exists. |
 | `instructions: str \| None` | `system_prompt`, else the text of `system_prompt_file`, else `None` for the harness default. |
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
-| `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
+| `tool_sources: Sequence[ToolSource]` | The connector, remote MCP server, and local tool sources, which apply each turn's settings themselves. Offer all of them. |
 | `media_store: MediaStore \| None` | The media store of `media.store`, holding the images of `/image` and of connector tool results. Pass it to an adapter that takes one, such as `media_store=context.media_store`. The CLI core always sets it; it is `None` only in a context a test builds without one. |
 | `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model`, `instructions`, and `reasoning_effort`. Raises `ConfigError` for rejected settings. |
 | `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a built-in loop function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |

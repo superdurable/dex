@@ -30,6 +30,7 @@ from dex_agents_cli_core.dex_connection import (
     resolve_dex_connection_settings,
 )
 from dex_agents_cli_core.environment import CommandEnvironment
+from dex_agents_cli_core.mcp_servers import McpServerSettingsError, resolve_mcp_servers
 
 AGENTS_DIR = Path(__file__).resolve().parents[4]
 FIXTURE: dict[str, Any] = json.loads(
@@ -171,3 +172,29 @@ def test_dex_connection_case(case: dict[str, Any]) -> None:
     with pytest.raises(DexConnectionSettingsError) as raised:
         resolve()
     assert {"setting": raised.value.setting, "message": raised.value.message} == case["error"]
+
+
+@pytest.mark.parametrize("case", FIXTURE["mcp_servers"]["cases"], ids=case_id)
+def test_mcp_servers_case(case: dict[str, Any]) -> None:
+    context = FIXTURE["mcp_servers"]["context"]
+    effective = resolve_config(
+        case["config"], context["harness_section"], context["harness_default_model"]
+    )
+    if "servers" in case:
+        servers = resolve_mcp_servers(effective, case["environment"])
+        assert [
+            {
+                "name": server.name,
+                "url": server.url,
+                "headers": dict(server.headers or {}),
+                "trust_tool_annotations": server.trusts_tool_annotations,
+            }
+            for server in servers
+        ] == case["servers"]
+        for server in servers:
+            assert all(value not in repr(server) for value in (server.headers or {}).values())
+        return
+    with pytest.raises(McpServerSettingsError) as raised:
+        resolve_mcp_servers(effective, case["environment"])
+    assert {"setting": raised.value.setting, "message": raised.value.message} == case["error"]
+    assert str(raised.value) == case["error"]["message"]
