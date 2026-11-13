@@ -249,7 +249,7 @@ export function buildDurableAgent(
   orderDesk: OrderDesk,
   model: string,
   cliEnvironment: Readonly<Record<string, string>>,
-): AgentSessionFlow {
+) {
   return createClaudeAgentSessionFlow(
     {
       options: { model, systemPrompt: orderSupportInstructions, tools: [], settingSources: [], env: { ...cliEnvironment } },
