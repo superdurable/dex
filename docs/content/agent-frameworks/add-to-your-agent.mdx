@@ -9,23 +9,7 @@ description: Install the adapter for your framework, copy the complete agent and
 
 Move the example agent of the [Agent Quick Start](/agent-frameworks/quick-start) into your own code: install your framework's adapter, copy the complete files, and serve the session from a web app.
 
-<CodingAgentBox>
-
-```text
-Make the agent in <file> durable with Dex.
-
-1. Read https://docs.superdurable.io/agent-frameworks/add-to-your-agent.md and
-   https://docs.superdurable.io/agent-frameworks/framework-support.md, and treat
-   them as the source of truth.
-2. Wrap the agent with the Dex Agents adapter for its framework, and give every
-   tool a policy: read, idempotent_write, or non_idempotent_write.
-3. Wire the session into my web app: start it, send messages, stream replies.
-4. Run it on dexcli dev and show me one turn with a tool call.
-
-Rules: ask me about any tool you cannot classify. Do not invent APIs.
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/agent-frameworks/add-to-your-agent.md to make the agent in this repository durable with Dex." />
 
 ## What changes in your app {#what-changes-in-your-app}
 

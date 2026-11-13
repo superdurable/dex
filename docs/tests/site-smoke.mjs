@@ -223,10 +223,10 @@ assert.match(home, /href="\/evaluate\/"[^>]*>(?:(?!<\/a>)[\s\S])*Evaluate Dex<\/
 const sidebarGroupOrder = [
   'Get Started',
   'Durable Agents',
+  'Run Dex',
   'Concepts',
   'Design Patterns',
   'Examples',
-  'Run Dex',
   'Evaluate Dex',
   'Developer Reference',
   'Glossary',

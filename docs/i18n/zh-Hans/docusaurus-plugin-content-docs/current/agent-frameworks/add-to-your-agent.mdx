@@ -9,20 +9,7 @@ description: 安装你所用框架的适配器，复制完整的 Agent 文件与
 
 把 [Agent 快速开始](/agent-frameworks/quick-start) 中的示例 Agent 移到你自己的代码中：安装框架的适配器，复制完整文件，再在 Web 应用中对外提供 Session。
 
-<CodingAgentBox>
-
-```text
-用 Dex 让 <file> 中的 Agent 变得持久。
-
-1. 阅读 https://docs.superdurable.io/zh-Hans/agent-frameworks/add-to-your-agent.md 和 https://docs.superdurable.io/zh-Hans/agent-frameworks/framework-support.md，把它们当作唯一依据。
-2. 用对应框架的 Dex Agents 适配器包装这个 Agent，并给每个 tool 指定策略：read、idempotent_write 或 non_idempotent_write。
-3. 把 Session 接入我的 Web 应用：启动 Session、发送消息、流式返回回复。
-4. 在 dexcli dev 上运行，向我展示一个带 Tool Call 的 turn。
-
-规则：无法判断类别的 tool 先问我。不要编造 API。
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/agent-frameworks/add-to-your-agent.md 用 Dex 让这个仓库里的 Agent 变得持久。" />
 
 ## 你的应用会有哪些变化 {#what-changes-in-your-app}
 

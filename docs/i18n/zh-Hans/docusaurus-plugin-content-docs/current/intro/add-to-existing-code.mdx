@@ -14,20 +14,7 @@ import FunctionToFlowDiagram from '@site/src/components/diagrams/FunctionToFlowD
 
 <FunctionToFlowDiagram markdownDescription="改造前：一个函数依次扣款、等待审批、发货、退款；崩溃会让它停在半路。改造后：一个由 Step 组成的 Flow，先 Charge，再 Ship（等待审批或 24 小时），然后完成；Ship 失败时运行 Refund。" />
 
-<CodingAgentBox>
-
-```text
-把 <file> 中的 <function> 改成 Dex Flow。
-
-1. 阅读 https://docs.superdurable.io/zh-Hans/intro/add-to-existing-code.md，把它当作唯一依据。
-2. 每个会改变其他系统的调用都放进自己的 Step，把等待移到 WaitFor，把状态保存在 Attribute 中。
-3. 给每个外部写操作加上幂等键。
-4. 加一个在 dexcli dev 上运行的集成测试。
-
-规则：保持现有行为不变。不要编造 API。修改这个函数以外的代码之前先问我。
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/intro/add-to-existing-code.md 把这个仓库里的一个函数改写成 Dex Flow。先问我改哪个函数。" />
 
 <a id="with-a-coding-agent"></a>
 

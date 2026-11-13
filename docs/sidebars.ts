@@ -44,6 +44,19 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Run Dex',
+      customProps: {section: 'components'},
+      link: {type: 'doc', id: 'components/index'},
+      items: [
+        'components/dex-cloud',
+        'components/self-host',
+        'components/production',
+        'components/operate-and-debug',
+        'concepts/change-flow-code',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Concepts',
       customProps: {section: 'concepts'},
       link: {type: 'doc', id: 'concepts/index'},
@@ -174,19 +187,6 @@ const sidebars: SidebarsConfig = {
         'use-cases/microservice-orchestration',
         'use-cases/job-post',
         'use-cases/customer-refund',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Run Dex',
-      customProps: {section: 'components'},
-      link: {type: 'doc', id: 'components/index'},
-      items: [
-        'components/dex-cloud',
-        'components/self-host',
-        'components/production',
-        'components/operate-and-debug',
-        'concepts/change-flow-code',
       ],
     },
     {

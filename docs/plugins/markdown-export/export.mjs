@@ -34,7 +34,7 @@ const localeCopies = {
     steps: 'Steps',
     when: 'when',
     diagram: 'Diagram',
-    codingAgent: {title: 'Do it with a coding agent', install: 'Install Dex Skills once:', prompt: 'Then paste this prompt:'},
+    codingAgent: {title: 'Do it with a coding agent', note: 'Install Dex Skills, then start the agent on this page:'},
     graph: {
       conditionOpen: ' when its condition holds (', timerOpen: words => ` when ${words} (`, isCaseLowered: true, sentenceEnd: '.', clauseJoiner: '; ', groupJoiner: ' ',
       flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.', flowGraph: 'Flow graph',
@@ -80,7 +80,7 @@ const localeCopies = {
     steps: 'Step 列表',
     when: '条件',
     diagram: '图示',
-    codingAgent: {title: '用编程 Agent 来做', install: '先安装一次 Dex Skills：', prompt: '然后粘贴这段提示词：'},
+    codingAgent: {title: '用编程 Agent 来做', note: '先安装 Dex Skills，再让 Agent 按这一页来做：'},
     graph: {
       conditionOpen: '（条件 ', timerOpen: words => `（${words}：`, isCaseLowered: false, sentenceEnd: '。', clauseJoiner: '；', groupJoiner: ' ',
       flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。', flowGraph: 'Flow 图',
@@ -666,12 +666,15 @@ async function expandDocsSection(node, context) {
 }
 
 // Mirrors CodingAgentBox.tsx: the install command for each host, then the page's prompt.
+// Mirrors CodingAgentBox.tsx and codingAgentCommand.ts: per host, the install lines, then the launch with the prompt.
 async function expandCodingAgentBox(node, context) {
   const {hosts} = context.codingAgentHosts;
   const copy = context.copy.codingAgent;
-  const installs = hosts.flatMap(host => [paragraph(`${host.label}:`), {type: 'code', lang: 'bash', value: host.install}]);
-  return [{type: 'blockquote', children: [paragraph(copy.title, true), paragraph(copy.install), ...installs,
-    paragraph(copy.prompt), ...await transformChildren(node.children, context)]}];
+  const prompt = attribute(node, 'prompt', context);
+  if (typeof prompt !== 'string' || !prompt.trim()) fail(context, node, 'CodingAgentBox needs a prompt string');
+  const commands = hosts.flatMap(host => [paragraph(`${host.label}:`),
+    {type: 'code', lang: 'bash', value: `${host.install}\n${host.launch} "${prompt.trim()}"`}]);
+  return [{type: 'blockquote', children: [paragraph(copy.title, true), paragraph(copy.note), ...commands]}];
 }
 
 // A group of section cards exports as a bullet list, one card per item.

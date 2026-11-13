@@ -12,20 +12,7 @@ Flows can stay open for days or months, so new code often meets Flows that
 started under old code. This page shows how to change code safely and how to
 rerun a Flow after a fix.
 
-<CodingAgentBox>
-
-```text
-Check whether my change to the <FlowType> Flow is safe for its open Flows.
-
-1. Read https://docs.superdurable.io/concepts/change-flow-code.md and treat it
-   as the source of truth.
-2. Compare the old and new code against the checks on that page.
-3. Tell me which checks pass, which fail, and how to fix each failure.
-
-Rules: read only. Do not deploy, stop, or rerun any Flow.
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/concepts/change-flow-code.md to check whether my change to a Dex Flow is safe for its open runs." />
 
 ## What a deploy changes {#what-a-deploy-changes}
 

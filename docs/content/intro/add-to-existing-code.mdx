@@ -14,23 +14,7 @@ This page turns code you already run, such as a function, a queue consumer, a cr
 
 <FunctionToFlowDiagram markdownDescription="Before: one function charges the buyer, waits for approval, ships, and refunds; a crash leaves it half done. After: a Flow of Steps, Charge then Ship, which waits for approval or 24 hours, then Done, with Refund when Ship fails." />
 
-<CodingAgentBox>
-
-```text
-Turn <function> in <file> into a Dex Flow.
-
-1. Read https://docs.superdurable.io/intro/add-to-existing-code.md and treat it
-   as the source of truth.
-2. Give each call that changes another system its own Step, move waits into
-   WaitFor, and keep state in Attributes.
-3. Add an idempotency key to every external write.
-4. Add an integration test that runs against dexcli dev.
-
-Rules: keep the existing behavior. Do not invent APIs. Ask me before changing
-code outside this function.
-```
-
-</CodingAgentBox>
+<CodingAgentBox prompt="Follow https://docs.superdurable.io/intro/add-to-existing-code.md to turn a function in this repository into a Dex Flow. Ask me which function first." />
 
 <a id="with-a-coding-agent"></a>
 
