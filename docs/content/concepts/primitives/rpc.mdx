@@ -49,9 +49,9 @@ Attribute in this RPC and in every Step and RPC that writes it. Dex then runs
 them one at a time. If the Flow closes while the handler runs, Dex rejects the
 RPC's changes. The handler's calls to external systems have still happened.
 
-<a id="request-ids"></a>Each RPC call from your code is a new request. Calling
-an RPC again, such as after a lost response, runs the handler again and saves
-its changes a second time, including its Channel publications. Make RPC
+<a id="request-ids"></a>Every SDK call generates a new request ID, so calling
+the RPC again from your code, such as after a lost response, runs the handler
+again and saves its changes a second time, including its Channel publications. Make RPC
 handlers safe to repeat; [Send a command at most once](/concepts/client#inbound-commands)
 gives the pattern. [Request IDs](/reference/server/configuration#limits) covers
 how Dex Server deduplicates a resent request.
