@@ -418,6 +418,12 @@ holds an object. These are appendable objects. They have these limits:
 At startup the server also appends a probe object twice. The second append
 must fail, or startup fails.
 
+COS shows an empty object at a key while an append creates it. An append that
+is interrupted, such as by a crash or a timeout, can leave that empty object
+behind. The server writes only non-empty objects, so it treats every empty
+object as absent and creates its object over it. Do not edit or delete these
+empty objects.
+
 The server stores its mutable metadata objects as a series of versions, as it
 does on OSS. These are the cluster manifest, the Attribute index registry, node
 leases, startup probes, and Flow definitions. A key **K** becomes objects under
