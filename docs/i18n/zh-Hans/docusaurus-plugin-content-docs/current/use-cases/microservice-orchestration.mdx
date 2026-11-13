@@ -34,8 +34,6 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 - **Ready** 消息可能一直不来。这是预期内的结果。Timer 触发后，Flow 会继续走 `CallAPI4`。
 - 如果 **Swap** 恰好发生在 `CallAPI2` 和 `CallAPI3` 两次读取之间，两个 Step 会看到不同的值。两个分支不共享快照，各自读取运行时的当前值。
 
-示例调用的是本地 stub。生产环境中，要给每个 API 调用设置超时和幂等键，并配置适合该 API 的重试或恢复策略。
-
 ## Flow 设计
 
 如上图所示，这个 Flow 分叉一次，有两种完成方式。
@@ -50,6 +48,8 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 每个下游 API 都有独立 Step。因此重试 API 3 不会重复 API 1 或 API 2，Step 执行图也能准确显示哪个调用正在等待、重试或已经完成。
 
 给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
+
+示例调用的是本地 stub。生产环境中，还要给每个 API 调用设置超时，并配置适合该 API 的重试或恢复策略。
 
 ## 核心实现
 

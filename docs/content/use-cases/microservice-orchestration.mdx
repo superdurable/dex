@@ -36,8 +36,6 @@ Failures to handle:
 - The Timer can fire before **Ready** arrives. This is an expected outcome, and the Flow continues through `CallAPI4`.
 - If **Swap** runs between the reads of `CallAPI2` and `CallAPI3`, the two Steps see different values. The branches do not share a snapshot. Each reads the value that is current when it runs.
 
-The examples call local stubs. In production, give each API call a timeout, an idempotency key, and a retry or recovery policy that fits that API.
-
 ## Flow design
 
 The Flow splits once and can finish in two ways, as the graph above shows.
@@ -52,6 +50,8 @@ It combines these design patterns:
 Each downstream API has its own Step. A retry of API 3 therefore does not repeat API 1 or API 2, and the Step execution graph shows exactly which call is waiting, retrying, or complete.
 
 Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
+
+The examples call local stubs. In production, also give each API call a timeout and a retry or recovery policy that fits that API.
 
 ## Core implementation
 
