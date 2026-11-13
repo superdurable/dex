@@ -43,7 +43,7 @@ Kubernetes service-link variables such as **DEX_WEB_PORT**.
 | **--bind-address** | **DEX_WEB_BIND_ADDRESS** | **127.0.0.1**; the image sets **0.0.0.0**. Pass **0.0.0.0** when remote clients must connect. |
 | **--port** | **DEX_WEB_HTTP_PORT_NUMBER** | **8802**; the HTTP port. |
 | **--flow-service-address** | **DEX_WEB_FLOW_SERVICE_ADDRESS** | **127.0.0.1:8801**; the FlowService gRPC address. |
-| **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** | Empty; a Flow Definition Graph JSON directory. The **Design** view of **Graph**, **Actions**, **Conversation**, **Designs**, and **Work Queue** read their definitions from it and, since 1.45, from the definitions uploaded to the Dex Server. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
+| **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** | Empty; a Flow Definition Graph JSON directory. **Actions**, **Conversation**, **Designs**, and **Work Queue** read their definitions from it and, since 1.45, from the definitions uploaded to the Dex Server. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
 | **--tls** | **DEX_WEB_TLS** | **false**; encrypts and verifies the FlowService connection. |
 | **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | Empty; a PEM file added to the system roots. Requires **--tls**. |
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
@@ -196,11 +196,11 @@ dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refu
 dexcli dev --flow-rendering-dir ./build
 ```
 
-The **Design** view and **Work Queue** find current runs by Flow type and use that Flow type's generated definition, so you do not pick a JSON file again. Historical runs open on the Run page.
+**Work Queue** finds current runs by Flow type and use that Flow type's generated definition, so you do not pick a JSON file again. Historical runs open on the Run page.
 
 Each definition uses the Flow type and Step types that your Workers register, as described in [Flow and Step names](/reference/web/flow-visualization#flow-and-step-names). Go Flows need no **GetFlowType** or **GetStepType** override unless the analyzer reports one of the name diagnostics listed there. Generate definitions with the **dexcli** release that matches your Dex Web, and regenerate them after upgrading.
 
-Schema version 1 is the analyzer's default. Versions 1 and 2 support Go, Python, and TypeScript. Python and TypeScript support a subset of the Go analyzer features; see [Flow source visualization](/reference/web/flow-visualization). Version 1 and Version 2 definition files can coexist. Dex Web rejects a malformed Version 2 file, and two valid definitions for the same Flow type. For example, two package-main binaries that both define **main.Flow** resolve to one Flow type, and the error names both files. Changed in 1.45.0: a rejected file is marked invalid on **Designs** with its error, and the other definitions keep working; before, it failed the whole catalog. An analyzer result with **valid: false** still appears on **Designs**. It does not appear as a Flow type in **Work Queue**, and the Run page's **Graph** shows no **Design** view for it.
+Schema version 1 is the analyzer's default. Versions 1 and 2 support Go, Python, and TypeScript. Python and TypeScript support a subset of the Go analyzer features; see [Flow source visualization](/reference/web/flow-visualization). Version 1 and Version 2 definition files can coexist. Dex Web rejects a malformed Version 2 file, and two valid definitions for the same Flow type. For example, two package-main binaries that both define **main.Flow** resolve to one Flow type, and the error names both files. Changed in 1.45.0: a rejected file is marked invalid on **Designs** with its error, and the other definitions keep working; before, it failed the whole catalog. An analyzer result with **valid: false** still appears on **Designs**. It does not appear as a Flow type in **Work Queue**.
 
 ## View a remote server with dexcli web {#dexcli-web}
 
@@ -260,7 +260,7 @@ Changed in 1.45.3: every page has one bar in place of the header and the page br
 - The search button, or ⌘K and Ctrl+K, lists Flows whose ID starts with what you type, opens a pasted run link, and shows this browser's recent runs and the pages. Arrow keys and Enter choose a match.
 - The settings button holds **Theme**, **Timezone**, and **Docs**.
 
-The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns. Changed in 1.45.3: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter. **Group by type** groups the page's runs by Flow type, each under its name and its counts by status on that page, with **Design ›** to the type's design on **Designs** when one is loaded. The browser remembers the choice.
+The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns. Changed in 1.45.3: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter. **Group by type**, on by default, groups the page's runs by Flow type, each under its name and its counts by status on that page, with **Design ›** to the type's design on **Designs** when one is loaded. The browser remembers the choice.
 
 Changed in 1.45.3: the Run page puts the run in the bar, so the selected tab starts right below it.
 
@@ -287,15 +287,15 @@ The selected event panel sits below the strip at full width. Changed in 1.45.3: 
 
 ### Run tabs {#run-tabs}
 
-Changed in 1.45.3: a run opens on the tab this browser last chose on that Flow. Other Flows open on **Timeline**, and a Dex Agents session opens on **Conversation**. The run tabs are **Timeline**, **Graph**, and **State**, in that order, and **More**. **Graph** has two views: **This run**, the run's Steps and their progress, which was **Execution graph**, and **Design**, the Flow type's design with no run data, which was the **Design** tab. The browser remembers the last view. **More** lists **Streams** under **Advanced**, and **Actions** under **Experimental** when it applies; while one of them is open, **More** takes its name. When the tab names do not fit in the bar, later tabs show only their icon first, and then all but the open tab; each keeps its name as a tooltip. Links and remembered choices that name a former tab still open its view.
+Changed in 1.45.3: a run opens on the tab this browser last chose on that Flow. Other Flows open on **Timeline**, and a Dex Agents session opens on **Conversation**. The run tabs are **Timeline**, **Graph**, and **State**, in that order, and **More**. **Graph** shows the run's Steps and their progress; it was **Execution graph**. The run page has no **Design** tab or switch, because not every Flow type has a definition to draw: that depends on the source language and on how the definition is generated. A Flow type's design is on **Designs**, and a former **?view=design** link still opens it under **Graph**. **More** lists **Streams** under **Advanced**, and **Actions** under **Experimental** when it applies; while one of them is open, **More** takes its name. When the tab names do not fit in the bar, later tabs show only their icon first, and then all but the open tab; each keeps its name as a tooltip. Links and remembered choices that name a former tab still open its view.
 
 | Tab | Appears when | Open it directly with |
 | --- | --- | --- |
 | **Conversation**, first | The run is a Dex Agents session, by the rule in [Compatibility](#agent-session-compatibility). | **?view=session** |
 | **Actions**, in **More** | The Flow Definition Graph declares Actions for the Flow type. | **?view=actions** |
-| **Design**, a view of **Graph** | A loaded Flow Definition Graph matches the run's Flow type. | **?view=design** |
+| **Design**, under **Graph**, from a link only | A loaded Flow Definition Graph matches the run's Flow type. | **?view=design** |
 
-**?view=** also accepts the other tab names. Changed in 1.41.1: a run opens on **Timeline** unless the browser remembers another tab, and a tab that does not apply to the run opens **Timeline** instead. Changed in 1.45.3: a run without a matching definition shows **Graph** without its **Design** view.
+**?view=** also accepts the other tab names. Changed in 1.41.1: a run opens on **Timeline** unless the browser remembers another tab, and a tab that does not apply to the run opens **Timeline** instead.
 
 ## Named directives
 
@@ -352,7 +352,7 @@ Select a card with **⚠** to draw its failure handling beside it. The Steps its
 
 A Step that catches its own error and then chooses the next Step makes an ordinary decision, so it stays in the main story. To hide that handling, return the error so the Step's failure route runs.
 
-The **Design** view does not mark where the run is. Use **This run** to follow the run through its Steps.
+The **Design** view does not mark where the run is. Use **Graph** to follow the run through its Steps.
 
 ## Start Flow
 

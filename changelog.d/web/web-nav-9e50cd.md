@@ -3,9 +3,9 @@ section: Changed
 ---
 - A left rail holds Dex Web's sections: Flows, then Designs, Work Queue and Connectors under an Experimental heading when they apply. It starts as icons with their names on hover, expands to show the names, and remembers the choice; on a phone it opens from the bar's menu button. The rail starts at the Dex mark and shows whether Dex Web reaches the Dex Server. The bar starts with the page's name.
 - Early features carry the word **Experimental** in place of a violet dot.
-- The run tabs are Timeline, Graph and State, plus More. Graph switches between This run, which was Execution graph, and Design, which was the Design tab, and remembers the last view. State was Overview. More holds Streams under Advanced and Actions under Experimental. A Dex Agents session's run opens on its first tab, Conversation, which was Agent session. Links that name a former tab still open its view.
+- The run tabs are Timeline, Graph and State, plus More. Graph was Execution graph. The run page has no Design tab; a Flow type's design is on Designs, and old Design links open it under Graph. State was Overview. More holds Streams under Advanced and Actions under Experimental. A Dex Agents session's run opens on its first tab, Conversation, which was Agent session. Links that name a former tab still open its view.
 - Live moved out of the bar to the event range above Timeline and Graph. It reads **Live** while the page follows the run, and **Updates paused · Resume** after a click.
 - **Input** and **Result** on the line under the bar select Flow started and Flow closed, which show the run's start input and how it ended.
 - On screens 1600 pixels wide or more, each event row has a bar on the page's time axis, so slow Steps stand out; a page whose bars would all be ticks shows none.
-- **Group by type** on the Flows page groups the page's runs by Flow type, with counts by status and a link to the type's design.
+- **Group by type**, on by default, on the Flows page groups the page's runs by Flow type, with counts by status and a link to the type's design.
 - `web/embedded`: `Target.HasHostNavigation` tells Dex Web that your page draws the navigation around it, so Dex Web draws no rail.

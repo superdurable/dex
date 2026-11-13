@@ -153,9 +153,10 @@ const groupByTypeStorageKey = 'dex-web-group-by-type';
 
 function storedIsGroupedByType(): boolean {
   try {
-    return window.localStorage.getItem(groupByTypeStorageKey) === 'true';
+    // The landing page groups by Flow type until a viewer turns it off.
+    return window.localStorage.getItem(groupByTypeStorageKey) !== 'false';
   } catch {
-    return false;
+    return true;
   }
 }
 

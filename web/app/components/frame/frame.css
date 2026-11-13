@@ -1739,36 +1739,6 @@ body {
   align-items: center;
 }
 
-/* Graph's This run | Design switch heads the canvas it switches. */
-.graph-view-switch {
-  display: inline-flex;
-  align-self: flex-start;
-  margin: 0 0 10px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--ui-chip);
-}
-
-.graph-view-switch button {
-  height: 28px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  color: var(--ui-ink-2);
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--ui-text-sm);
-  font-weight: 600;
-}
-
-.graph-view-switch button[aria-checked='true'] {
-  color: var(--ui-ink);
-  background: var(--ui-surface);
-  box-shadow: 0 1px 2px rgb(15 23 36 / 12%), 0 0 0 1px var(--ui-hairline);
-}
-
-.graph-view-switch button:focus-visible,
 .live-status:focus-visible,
 .run-io-button:focus-visible {
   outline: 2px solid var(--ui-focus-outline);
@@ -1818,10 +1788,6 @@ body {
 .run-events-line .live-status {
   align-self: center;
   margin-left: 4px;
-}
-
-.run-events-controls .graph-view-switch {
-  margin: 0 0 0 auto;
 }
 
 /* Input and Result sit on the run line, before its jump to the event that matters. */

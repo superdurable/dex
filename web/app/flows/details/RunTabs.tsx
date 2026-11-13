@@ -117,19 +117,6 @@ export function RunViewTabs<T extends string>({
   );
 }
 
-/** Graph's two views of the same Steps: this run's progress, or the Flow type's design. */
-export function GraphViewSwitch({ view, onSelect }: { view: 'run' | 'design'; onSelect: (view: 'run' | 'design') => void }) {
-  return (
-    <div aria-label="Graph view" className="graph-view-switch" role="radiogroup">
-      {([['run', 'This run'], ['design', 'Design']] as const).map(([id, label]) => (
-        <button aria-checked={view === id} key={id} onClick={() => onSelect(id)} role="radio" type="button">
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Whether the page follows new events; pausing is for this visit, and resuming reads the run again. */
 export function LiveStatus({ isLive, onChange }: { isLive: boolean; onChange: (isLive: boolean) => void }) {
   return isLive ? (

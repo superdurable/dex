@@ -259,11 +259,12 @@ afterEach(() => {
 });
 
 describe('Run page experimental tabs', () => {
-  it('offers Design as a Graph view for a run whose Flow type has a loaded definition', async () => {
+  it('offers no Design switch, while an old Design link still opens the design under Graph', async () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
-    renderRun('/v1/flows/run-flow/run-1?view=steps');
-    expect(await screen.findByRole('radio', { name: 'Design' })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: 'This run' }).getAttribute('aria-checked')).toBe('true');
+    renderRun('/v1/flows/run-flow/run-1?view=design');
+    expect((await screen.findByTestId('design-graph')).getAttribute('data-definition')).toBe('order');
+    expect(screen.getByRole('tab', { name: 'Graph' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('radio', { name: 'Design' })).toBeNull();
     expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'more']);
     expect(moreLabels()).toEqual(['stream']);
   });
@@ -273,8 +274,8 @@ describe('Run page experimental tabs', () => {
       flowType: 'OrderFlow',
       definitions: [definitionEntry('order', 'OrderFlow', plainGraph), definitionEntry('other', 'OtherFlow', plainGraph)],
     });
-    renderRun('/v1/flows/run-flow/run-1?view=steps');
-    await screen.findByRole('radio', { name: 'Design' });
+    renderRun('/v1/flows/run-flow/run-1?view=design');
+    await screen.findByTestId('design-graph');
     const definitionRequests = requests.filter((path) => path.includes('definition') || path === '/api/v2/catalog');
     expect(definitionRequests).toEqual(['/api/flow-definition-types', '/api/flow-definitions/by-type']);
   });
@@ -288,7 +289,7 @@ describe('Run page experimental tabs', () => {
     expect(runDataRequests(requests)).toEqual([]);
 
     expect(screen.getByRole('tab', { name: 'Graph' }).getAttribute('aria-selected')).toBe('true');
-    fireEvent.click(screen.getByRole('radio', { name: 'This run' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Graph' }));
     await waitFor(() => expect(runDataRequests(requests)).toEqual(expect.arrayContaining([
       '/api/flows/history',
       '/api/flows/state',
@@ -317,9 +318,9 @@ describe('Run page experimental tabs', () => {
 
   it('stops reading history and waiting while Design is shown', async () => {
     const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
-    renderRun('/v1/flows/run-flow/run-1?view=steps');
+    renderRun('/v1/flows/run-flow/run-1?view=steps', '/v1/flows/run-flow/run-1?view=design');
     await waitFor(() => expect(requests).toContain('/api/flows/wait'));
-    fireEvent.click(await screen.findByRole('radio', { name: 'Design' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
     await screen.findByTestId('design-graph');
     await settle();
     const opened = requests.length;
@@ -348,10 +349,9 @@ describe('Run page experimental tabs', () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?runAttempt=1', '/v1/flows/run-flow/run-1?view=overview');
     fireEvent.click(await screen.findByRole('tab', { name: 'Graph' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'Design' }));
     await waitFor(() => expect(screen.getByLabelText('location').textContent)
-      .toBe('/v1/flows/run-flow/run-1?runAttempt=1&view=design'));
-    expect(JSON.parse(window.localStorage.getItem('dex.run.selected-tab') ?? '')).toEqual({ flowId: 'run-flow', tab: 'design' });
+      .toBe('/v1/flows/run-flow/run-1?runAttempt=1&view=steps'));
+    expect(JSON.parse(window.localStorage.getItem('dex.run.selected-tab') ?? '')).toEqual({ flowId: 'run-flow', tab: 'steps' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
     await waitFor(() => expect(screen.getByRole('tab', { name: 'State' }).getAttribute('aria-selected')).toBe('true'));
