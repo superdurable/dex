@@ -11,8 +11,7 @@ section: Added
   session stops its chat with one line. In the terminal UI, **/sessions** and
   **/new** wait the same way with dexcli 1.47.2. Commands of earlier releases
   take no lease. [Reference](/reference/agents/cli#one-terminal-per-session).
-  Since 0.6.3.
 - Python and TypeScript cores: the session Flow has the
   **acquire_session_terminal_lease** and **release_session_terminal_lease**
   RPCs and the **SessionTerminalLease** Attribute, which mark the terminal that
-  has the session open. Since 0.6.3.
+  has the session open.
