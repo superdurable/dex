@@ -139,7 +139,18 @@ Go analysis requires a local Go toolchain. The input must belong to a module and
 
 For Python, the analyzer recognizes Stream outputs yielded by synchronous Step generators and synchronously enqueued Stream writes in asynchronous Step handlers. Step Stream progress in an RPC or Flow timeout handler is invalid and produces a blocking diagnostic.
 
-TypeScript analysis requires Node.js and the **typescript** package resolvable from the source project, through **node_modules** or **NODE_PATH**. The analyzer never loads a compiler from the **dexcli** working directory. It reads the compiler AST without importing application modules. It recognizes these source shapes:
+TypeScript analysis requires Node.js and the **typescript** package resolvable from the source project, through **node_modules** or **NODE_PATH**. The analyzer never loads a compiler from the **dexcli** working directory. It reads the compiler AST without importing application modules.
+
+A source project without **node_modules**, such as one in a build environment without network access, can use a separately installed compiler. Install a **typescript** package once in its own directory, and list that directory's **node_modules** in **NODE_PATH**. A **typescript** package installed in the source project still takes precedence. The **dexcli** tests use Node.js 22 and TypeScript 5.9.3. A Flow that calls a Connector factory still needs that Connector package installed under **node_modules** next to the source. See [Connector package manifests](#connector-package-manifests).
+
+```bash
+# Once, from a local npm cache or registry mirror.
+npm install --prefix /opt/dex-typescript --no-save typescript@5.9.3
+NODE_PATH=/opt/dex-typescript/node_modules \
+  dexcli visualize src/review-flow.ts --schema-version 2.0 --json --out build/review-flow
+```
+
+The TypeScript analyzer recognizes these source shapes:
 
 - Local Step classes and static Flow fields registered with **StepList.startStep**, **StepList.withoutStartStep**, **otherSteps**, or **StepList.empty**.
 - Execute decisions returned directly: **goTo**, **goToMany** with **StepMovement.of**, **gracefulComplete**, **forceComplete**, **forceFail**, **deadEnd**, and **forceCompleteIfChannelsEmpty**. **withCancelingSteps** and **withCancelingSiblingSteps** add cancellations. Named, aliased, and namespace imports of **@superdurable/dex** all work.
