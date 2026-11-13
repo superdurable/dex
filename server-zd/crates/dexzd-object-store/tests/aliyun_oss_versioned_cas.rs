@@ -687,6 +687,33 @@ async fn a_reclamation_listing_that_misses_the_confirmed_version_is_counted_and_
     );
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_follow_up_pass_after_a_newer_writer_reclaimed_its_version_counts_no_stale_listing() {
+    let physical = CreateOnlyStore::new();
+    let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+    let store = AliyunOssObjectStore::new(physical.inner(), TEST_MINIMUM_SUPERSEDED_AGE, metrics);
+    let mut etag = create(&store, "one").await;
+    for body in ["two", "three"] {
+        etag = replace(&store, &etag, body).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        physical.generations(KEY).await,
+        [3, 2, 1],
+        "the pass after generation 3 scheduled a follow-up for generation 1"
+    );
+    // Another writer's reclamation removes generation 3 before the follow-up runs.
+    physical
+        .store
+        .delete(&version_key(KEY, 3))
+        .await
+        .expect("delete");
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    let encoded = encode_registry(&registry).expect("the registry encodes");
+    assert_eq!(stale_listing_count(&encoded, "reclamation"), 0);
+    assert_eq!(physical.generations(KEY).await, [2, 1]);
+}
+
 /// Returns the stale listing count of `site` in an encoded registry.
 fn stale_listing_count(encoded: &str, site: &str) -> u64 {
     let series = format!("dexzd_object_store_versioned_listing_stale_total{{site=\"{site}\"}} ");

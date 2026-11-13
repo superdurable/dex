@@ -228,13 +228,7 @@ async fn reclaim_superseded_versions(
             else {
                 // The confirmed version is gone only after a newer writer reclaimed it.
                 if generation != confirmed_generation {
-                    record_stale_version_listing(
-                        listing_stale,
-                        VersionedListingStaleSite::Reclamation,
-                        logical_key,
-                        confirmed_generation,
-                        Some(generation),
-                    );
+                    record_missing_confirmed_version(listing_stale, pass, Some(generation));
                     return None;
                 }
                 let written_at = object.last_modified_unix_micros?;
@@ -282,13 +276,7 @@ async fn reclaim_superseded_versions(
         }
         let Some(observed_reference) = reference else {
             // Only an empty first page leaves the reference unset here.
-            record_stale_version_listing(
-                listing_stale,
-                VersionedListingStaleSite::Reclamation,
-                logical_key,
-                confirmed_generation,
-                None,
-            );
+            record_missing_confirmed_version(listing_stale, pass, None);
             return None;
         };
         if !reclaimable_keys.is_empty()
@@ -305,6 +293,30 @@ async fn reclaim_superseded_versions(
             }
         }
     }
+}
+
+/// Counts a listing that misses the confirmed version as stale, unless `pass` is a follow-up.
+fn record_missing_confirmed_version(
+    listing_stale: &VersionedListingStaleCounters,
+    pass: &DueReclamationPass,
+    listed_generation: Option<u64>,
+) {
+    if pass.reference.is_some() {
+        // A follow-up may run after a newer writer legitimately reclaimed the version.
+        tracing::debug!(
+            key = %pass.logical_key,
+            generation = pass.confirmed_generation,
+            "a follow-up reclamation pass found its version reclaimed; a newer writer owns reclamation"
+        );
+        return;
+    }
+    record_stale_version_listing(
+        listing_stale,
+        VersionedListingStaleSite::Reclamation,
+        &pass.logical_key,
+        pass.confirmed_generation,
+        listed_generation,
+    );
 }
 
 /// Returns the follow-up at which a version whose successor was written at
