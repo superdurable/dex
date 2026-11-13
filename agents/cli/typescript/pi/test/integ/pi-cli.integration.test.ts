@@ -26,7 +26,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { crc32, deflateSync } from "node:zlib";
 
-import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
+import { PrivateDexEngine, pollUntil } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, RefusingProxy, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
@@ -534,6 +534,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   test("an approved call is checked again by the Worker that runs it", async () => {
     const approval = { always: ["write"] };
     const home = newHome({ ...noConnectors, approval });
+    // The killed command cannot release its lease, so a short one lets the next command in soon.
+    home.extraEnvironment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS = "3";
     const first = start(home);
     const sessionId = await first.waitForSession();
     const todo = join(home.workspace, "todo.txt");
@@ -557,6 +559,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   test("a bash command whose Worker dies after it started records outcome_unknown and never runs again", async () => {
     const command = "echo started >> runs.txt; sleep 20";
     const home = newHome(noConnectors);
+    // The killed command cannot release its lease, so a short one lets the next command in soon.
+    home.extraEnvironment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS = "3";
     const first = start(home);
     const sessionId = await first.waitForSession();
     first.writeLine(call("bash", { command }));
@@ -569,7 +573,21 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await first.kill();
 
     const second = start(home, ["--resume", sessionId]);
-    await second.stdout.waitFor("bash: The tool call's outcome is unknown", 240_000);
+    // The resumed chat waits for the killed command's lease, so the turn may end before the chat shows it.
+    await second.stdout.waitFor(`Resumed session ${sessionId}`, 240_000);
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      const toolMessage = await pollUntil(
+        async () => {
+          const snapshot = await sessions.getAgentSnapshot(sessionId);
+          return snapshot.state?.activeTurnId === null ? snapshot.messages.find((message) => message.role === "tool") : undefined;
+        },
+        { description: "the interrupted turn to end", timeoutMs: 240_000 },
+      );
+      assert.match(toolMessage.toolOutput ?? "", /The tool call's outcome is unknown/);
+    } finally {
+      await environment.close();
+    }
     second.writeLine("recall");
     await second.stdout.waitFor("history: ");
     second.writeLine("/exit");

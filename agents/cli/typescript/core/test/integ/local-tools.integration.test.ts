@@ -187,11 +187,18 @@ describe("local tools", () => {
 
     try {
       const second = startWith(config, ["--resume", sessionId], first.home);
+      // The resumed chat waits for the killed command's lease to expire, so the turn may end before it shows.
       await second.cli.stdout.waitFor(`Resumed session ${sessionId}`);
-      await second.cli.stdout.waitFor(`result: ${outcomeUnknownToolResult}`, 180_000);
+      const sessions = await sessionClients.of(first.home);
+      const toolMessage = await pollUntil(
+        async () => {
+          const snapshot = await sessions.getAgentSnapshot(sessionId);
+          return snapshot.state?.activeTurnId === null ? snapshot.messages.find((message) => message.role === "tool") : undefined;
+        },
+        { description: "the interrupted turn to end", timeoutMs: 180_000 },
+      );
+      assert.equal(toolMessage.toolOutput, outcomeUnknownToolResult);
       assert.equal(readFileSync(startsLog, "utf8"), "started\n");
-      const snapshot = await (await sessionClients.of(first.home)).getAgentSnapshot(sessionId);
-      assert.equal(snapshot.messages.find((message) => message.role === "tool")?.toolOutput, outcomeUnknownToolResult);
       second.cli.writeLine("/exit");
       assert.equal(await second.cli.waitForExit(), 0);
     } finally {

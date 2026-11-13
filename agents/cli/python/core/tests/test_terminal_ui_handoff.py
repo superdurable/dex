@@ -229,6 +229,7 @@ async def test_a_chat_hands_off_and_relays_each_local_request(
     transcript = chat_transcript(steps)
     # The scripted runner takes images, has no plan mode, and supports turn control.
     transcript["steps"][0]["ignore"].remove("capabilities")
+    transcript["steps"][0]["message"]["capabilities"]["launcher_session_switch"] = True
     fake = FakeTerminalUi(tmp_path / "tui", transcript)
     child = start_chat(cli_home, fake, screen, environment={"DEX_AGENTS_OPEN_BROWSER": "1"})
     session_id = await read_session_id(child)
@@ -268,6 +269,7 @@ async def test_the_launch_document_offers_the_harness_models_and_reasoning_effor
     # The configured model, the harness default, then the suggestions, each once.
     launch["display"]["models"] = ["scripted-large", "scripted-model", "scripted-small"]
     launch["capabilities"]["reasoning_effort"] = {"values": ["low", "medium", "high"]}
+    launch["capabilities"]["launcher_session_switch"] = True
     fake = FakeTerminalUi(tmp_path / "tui", transcript)
     child = start_chat(
         cli_home,

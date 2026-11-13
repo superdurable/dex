@@ -52,7 +52,7 @@ var modeMethods = map[string][]string{
 func NewDescribeDocument(dexcliVersion string, supported SupportedModes) DescribeDocument {
 	document := DescribeDocument{DexcliVersion: dexcliVersion, Contracts: map[string]DescribedContract{}}
 	for contract, modes := range supported {
-		described := DescribedContract{Modes: map[string]DescribedMode{}, Capabilities: []string{"images", "plan_mode", "turn_control", "reasoning_effort"}}
+		described := DescribedContract{Modes: map[string]DescribedMode{}, Capabilities: []string{"images", "plan_mode", "turn_control", "reasoning_effort", "launcher_session_switch"}}
 		for _, mode := range modes {
 			described.Modes[mode] = DescribedMode{UsesMethods: slices.Clone(modeMethods[mode])}
 		}

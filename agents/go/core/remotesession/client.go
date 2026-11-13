@@ -208,6 +208,37 @@ func (sessions *RemoteSessionClient) UpdateSessionSettings(
 	return sessions.invokeBoolRPC(ctx, sessionID, sessions.flow.UpdateSessionSettings, request)
 }
 
+// AcquireSessionTerminalLease takes or renews the session's terminal lease through
+// acquire_session_terminal_lease.
+//
+// The lease is granted when it is free, held by request.HolderID, or
+// expired. A refusal returns the other holder's lease. The RPC locks
+// SessionTerminalLease, so a concurrent call can fail with
+// *dex.RPCLockConflictError, which is safe to retry. Since 0.6.3.
+//
+//	result, err := sessions.AcquireSessionTerminalLease(ctx, "session-42", dexagents.AcquireSessionTerminalLeaseRequest{
+//		HolderID: holderID, HostName: hostName, ProcessID: int64(os.Getpid()), TTLSeconds: 15,
+//	})
+func (sessions *RemoteSessionClient) AcquireSessionTerminalLease(
+	ctx context.Context,
+	sessionID string,
+	request dexagents.AcquireSessionTerminalLeaseRequest,
+) (dexagents.SessionTerminalLeaseResult, error) {
+	var result dexagents.SessionTerminalLeaseResult
+	err := sessions.client.InvokeRPC(ctx, sessionID, sessions.flow.AcquireSessionTerminalLease, request, &result)
+	return result, err
+}
+
+// ReleaseSessionTerminalLease ends holderID's terminal lease through
+// release_session_terminal_lease.
+//
+// It returns true when holderID held the lease, and false when another
+// holder or none has it. It locks SessionTerminalLease. Since 0.6.3.
+func (sessions *RemoteSessionClient) ReleaseSessionTerminalLease(ctx context.Context, sessionID string, holderID string) (bool, error) {
+	request := dexagents.ReleaseSessionTerminalLeaseRequest{HolderID: holderID}
+	return sessions.invokeBoolRPC(ctx, sessionID, sessions.flow.ReleaseSessionTerminalLease, request)
+}
+
 // GetAgentSnapshot returns the session snapshot through get_agent_snapshot.
 //
 // It reads committed state without locks, so it also works on a retained

@@ -1,0 +1,13 @@
+{
+  "type": "ReleaseSessionTerminalLeaseRequest",
+  "wire_kind": "json",
+  "description": "Input of the release_session_terminal_lease RPC.",
+  "cases": [
+    {
+      "name": "full",
+      "description": "Release one holder's lease.",
+      "wire": "{\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\"}",
+      "canonical": "{\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\"}"
+    }
+  ]
+}

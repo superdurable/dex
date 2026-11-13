@@ -379,7 +379,7 @@ curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
 
 要改变 Flow 的 handler 调用一个 RPC，比如 **approve**。RPC 把消息发到 Channel，正在等待的 Step 就会醒来。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。RPC 在 Worker 上基于 Flow 的当前状态运行，所以 handler 读写的状态和 Step 用的是同一份。handler 从构造函数或工厂函数参数拿到 Client 和 Flow。
 
-RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guarantees)）。要在没有 Worker 运行时保存一条消息，见[没有 Worker 运行时投递事件](/concepts/client#deliver-without-a-worker)。
+RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guarantees)）。要在没有 Worker 运行时保存一条消息，见[一个命令最多处理一次](/concepts/client#inbound-commands)。
 
 [订单处理](/use-cases/order-processing) 示例用完整代码展示了这三种模式。
 
@@ -422,7 +422,7 @@ Worker 和 Client 适合运行在无状态容器中：
 
 ## 用 Time Travel 恢复 Flow {#time-travel}
 
-Time Travel 在你部署修复之后，从较早的一个点重新运行 Flow。[部署代码变更](/concepts/change-flow-code#time-travel) 介绍了它。
+Time Travel 在你部署修复之后，从较早的一个点重新运行 Flow。[用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)介绍了它。
 
 ## 下一步 {#next}
 

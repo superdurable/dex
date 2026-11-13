@@ -44,7 +44,7 @@ active 节点崩溃后，standby 在 lease 到期再过 1 秒后接管。lease �
 
 ## 你部署新代码 {#you-deploy-new-code}
 
-每次 Step 尝试运行的是领取它的 Worker 上的代码；Dex 不会 [replay](/concepts/change-flow-code#versioning-flow-code) 之前的 Step。当前正在某个 Step 中等待的 Flow，在条件满足时会运行新的 `Execute`。
+每次 Step 尝试运行的是领取它的 Worker 上的代码；Dex 不会 [replay](/concepts/change-flow-code#versioning-flow-code) 之前的 Step。已经在某个 Step 中等待的 Flow，在条件满足时会运行新的 `Execute`。
 
 在滚动部署期间，缺少某个 Step 类型或 RPC 的 Worker 会拒绝它。Dex 把调用交给另一个 Worker，Step 尝试不会被消耗。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
 
@@ -60,7 +60,7 @@ active 节点崩溃后，standby 在 lease 到期再过 1 秒后接管。lease �
 
 ## 你运行 Time Travel {#you-run-time-travel}
 
-Time Travel 把一个 Flow run 移回更早的某个点，从那里重新运行。那个点之后的每个 Step 都会再运行，连同它的外部调用。见 [用 Time Travel 恢复 Flow](/concepts/change-flow-code#time-travel)。
+Time Travel 把一个 Flow run 移回更早的某个点，从那里重新运行。那个点之后的每个 Step 都会再运行，连同它的外部调用。见 [用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)。
 
 ## 下一步 {#next}
 

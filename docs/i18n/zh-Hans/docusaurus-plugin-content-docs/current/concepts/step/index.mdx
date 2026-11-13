@@ -12,6 +12,8 @@ import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/S
 
 **Step** 是 [Flow](/concepts/flow) 里的一个后台工作单元。它可以先持久地等待某件事发生，再执行工作，然后决定下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。
 
+核心保证：已经完成的 Step，Dex 会保存它的结果，不会再运行它。被中断的 Step 可能再运行一次，所以它的外部调用要做成幂等的；见[保证](#guarantees)。
+
 Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。同一个 Step 类型在一个 Flow 里可以运行多次，甚至并行运行。每次运行是一个 `StepExecution`，用 `StepExecutionID` 标识，比如 **Charge-2**。
 
 ## Step input {#step-input}
@@ -221,6 +223,27 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [并行 SubFlow](/design-patterns/parallel-subflows) 模式。
 
+## 保证 {#guarantees}
+
+简而言之：完成的工作会被保存，没完成的工作可能重复。
+
+共有五条规则。写第一个 Flow 时，前两条就够了。[Step 的进阶保证](/correctness-and-expressiveness/step-guarantees)解释其余几条背后的细节。
+
+- **已经完成的 Step 不会再运行。** Dex 把它的结果和转到下一个 Step 的动作一起保存。默认的 SYNC Step 是这样；ASYNC Step 的结果如果在 server failover 中丢失，会再运行一次，见[SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
+- **被中断的 Step 可能再运行一次。** 崩溃、超时或重试，可能让一个已经调用过外部系统的方法再运行一次。和其他持久化执行引擎一样，Step 至少运行一次。下一节说明怎样让这件事安全。
+- **重试看到的是第一次尝试的状态。** `Execute` 的重试看不到 Dex 把第一次尝试交给 Worker 之后写入的 Attribute；见[状态快照](/correctness-and-expressiveness/step-guarantees#state-snapshot)。
+- **方法的写入和结果一起保存。** 方法成功时，它的 Attribute 写入和 Channel 消息才生效。Dex 无法判断方法是否运行过时，会再运行一次，或者报告结果未知。
+- **并行写入可能互相覆盖。** 两个先读后写同一个 Attribute 的 Step 或 RPC 需要在它上面加 lock。见 [Attribute lock](/concepts/primitives/attribute#locking)。
+
+### 幂等键 {#idempotency-keys}
+
+重复会造成损害的外部调用（例如付款或订单邮件）都要带上幂等键。无害的重复（例如提醒）可以不带键。执行这个效果的服务用这个键丢弃重复请求。用每次尝试都不变的值来构造键：
+
+- Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
+- 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。
+
+尝试编号、时间和随机值每次重试都会变，所以不要放进键里。
+
 ## StepOptions {#stepoptions}
 
 Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Execute` 各有自己的设置。
@@ -234,40 +257,7 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 
 `StepDecision` 可以为某一次 Step execution 覆盖这些选项。
 
-每个方法使用 server 的默认值，除非 StepOptions 另行设置。所有 SDK 的默认值都一样：
-
-| 设置 | 默认值 |
-| --- | --- |
-| 方法超时（单次尝试） | 2 小时 |
-| Heartbeat 超时 | 1 分钟 |
-| 重试次数 | 在总时长内不限次数 |
-| 重试总时长 | 从第一次交给 Worker 起 4 小时 |
-| 重试退避 | 1 秒起，每次翻倍，最多 100 秒 |
-| Durability | SYNC |
-| Failure policy | 让 Flow 失败 |
-
-SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeouts-and-total-duration)（英文）说明这些限制怎样相互作用。
-
-## 保证 {#guarantees}
-
-简而言之：完成的工作会被保存，没完成的工作可能重复。
-
-最重要的有四条：
-
-- **已经完成的 Step 不会再运行。** Dex 把它的结果和转到下一个 Step 的动作一起保存。
-- **被中断的 Step 可能再运行一次。** 崩溃、超时或重试，可能让一个已经调用过外部系统的方法再运行一次。所以 Step 至少运行一次，而不是恰好一次。下一节说明怎样让这件事安全。
-- **重试看到的是第一次尝试的状态。** `Execute` 的重试复用第一次尝试的状态快照，看不到之后写入的 Attribute。要等待这样的写入，让写入方发布一条 Channel 消息，并在下一个 Step 的 `WaitFor` 里等待它。hard-delete Attribute 是例外：Dex 在每次尝试时都会重新读取它们。见 [短期 secret](/concepts/primitives/attribute#hard-delete-attributes)。
-- **方法的写入和结果一起保存。** 方法成功时，它的 Attribute 写入和 Channel 消息才生效。Dex 无法判断方法是否运行过时，会再运行一次，或者报告结果未知。
-- **并行写入可能互相覆盖。** 两个先读后写同一个 Attribute 的 Step 或 RPC 需要在它上面加 lock。细节见下文。
-
-### 幂等键 {#idempotency-keys}
-
-每个会改变外部状态的调用（例如付款或发邮件）都要带上幂等键。执行这个效果的服务用这个键丢弃重复请求。用每次尝试都不变的值来构造键：
-
-- Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
-- 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。
-
-尝试编号、时间和随机值每次重试都会变，所以不要放进键里。其他页面都链接到这里，而不是重复这条规则。
+每个方法使用 server 的默认值，除非 StepOptions 另行设置。所有 SDK 的默认值都一样；见 [StepOptions 默认值](/reference/python/step-options#defaults)（英文）。
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

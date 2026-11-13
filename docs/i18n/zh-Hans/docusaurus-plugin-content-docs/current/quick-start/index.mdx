@@ -12,7 +12,7 @@ import quickStartOrderFlow from '@site/src/data/flow-definitions/quick-start/ord
 
 运行你的第一个 Flow，在它等待的中途停掉 Worker，然后看 Dex 在重启后继续这个 Flow。
 
-<CodingAgentBox prompt="按照 https://docs.superdurable.io/zh-Hans/quick-start.md 在这个文件夹里构建并运行 Dex 快速开始。先问我用哪种语言；安装其他东西之前也先问我。" />
+<CodingAgentBox withInstall prompt="按照 https://docs.superdurable.io/zh-Hans/quick-start.md 在这个文件夹里构建并运行 Dex 快速开始。先问我用哪种语言；安装其他东西之前也先问我。" />
 
 <a id="before-you-start"></a>
 <a id="optional-build-it-with-a-coding-agent"></a>
@@ -947,7 +947,7 @@ Ship 的 Timer 触发时（默认在 Charge 完成 60 秒后），Worker 为订�
 
 ## 7. 在 Dex Web 中查看这次 run {#7-see-the-run-in-dex-web}
 
-打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，选择第 5 步的 Flow，启动命令打印过它的 ID。带编号的行是 Dex Web 中这次 run 的历史事件。Worker 停止和 Timer 触发不是事件，所以卡片把它们画在事件之间：
+打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，选择第 4 步启动的 Flow，启动命令打印过它的 ID。带编号的行是 Dex Web 中这次 run 的历史事件。Worker 停止和 Timer 触发不是事件，所以卡片把它们画在事件之间：
 
 <CrashTimeline variant="quick-start" />
 

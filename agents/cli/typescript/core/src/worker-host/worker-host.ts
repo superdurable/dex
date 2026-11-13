@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { FlowNotFoundError } from "@superdurable/dex";
 import { maxImageBytes, maxImagesPerMessage } from "@superdurable/dex-agents";
 
 import type { AgentHarness } from "../agent-harness.js";
@@ -14,11 +15,20 @@ import { readCliEnvironment } from "../cli-environment.js";
 import type { SessionFlowCapabilities } from "../terminal-ui/launch-document.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
 import { refusal } from "../terminal-ui/local-request-relay.js";
+import {
+  SessionLeaseRenewal,
+  acquireSessionLease,
+  defaultSessionLeaseTtlSeconds,
+  newSessionLeaseHolder,
+  releaseSessionLease,
+  type SessionLeaseHolder,
+} from "../session-terminal-lease.js";
 import { readProcessIdentity } from "./process-identity.js";
 import { RecordedToolProcessGroups } from "./tool-process-groups.js";
 import { executeWorkerHostMethod } from "./worker-host-methods.js";
-import type {
-  LauncherToWorkerHostMessage,
+import {
+  workerHostLeaseMethods,
+  type LauncherToWorkerHostMessage,
   WorkerHostStartRequest,
   WorkerHostToLauncherMessage,
 } from "./worker-host-protocol.js";
@@ -66,6 +76,10 @@ class WorkerHost {
   private requestStop: () => void = () => undefined;
   private readonly startReceived: Promise<WorkerHostStartRequest | undefined>;
   private resolveStart: (start: WorkerHostStartRequest | undefined) => void = () => undefined;
+  private readonly leaseHolder: SessionLeaseHolder;
+  private readonly leaseTtlSeconds: number;
+  private leaseRenewal: SessionLeaseRenewal | undefined;
+  private readonly unansweredLeaseSessionIds = new Set<string>();
 
   public constructor(
     private readonly harness: AgentHarness,
@@ -73,6 +87,9 @@ class WorkerHost {
     createCommand: WorkerHostCommandFactory,
   ) {
     const environment = readCliEnvironment(io.environment);
+    // A waiting terminal shows the launcher's pid: the command the user ran.
+    this.leaseHolder = newSessionLeaseHolder(this.launcherPid);
+    this.leaseTtlSeconds = environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
     this.recordPath = workerHostRunRecordPath(environment.agentsDirectory, harness.name, process.pid);
     this.command = createCommand((line) => this.log(line));
     this.watchdog = new WorkerHostWatchdog(this.launcherPid, () => void this.stop());
@@ -161,6 +178,9 @@ class WorkerHost {
     if (opened === undefined || start === undefined || this.shutdown !== undefined) {
       return refusal("host_stopped", "The Worker host stopped.");
     }
+    if (method === workerHostLeaseMethods.acquire || method === workerHostLeaseMethods.release) {
+      return this.executeLeaseMethod(method, params, opened);
+    }
     try {
       return await executeWorkerHostMethod(method, params, idempotencyKey, {
         harnessName: this.harness.name,
@@ -174,11 +194,90 @@ class WorkerHost {
     }
   }
 
+  /** Takes or releases a session's lease for the launcher; a failed attempt is `lease_failed`, tried again. */
+  private async executeLeaseMethod(
+    method: string,
+    params: Readonly<Record<string, unknown>>,
+    opened: OpenedSessionWorker,
+  ): Promise<LocalRequestOutcome> {
+    const sessionId = params.session_id;
+    if (typeof sessionId !== "string" || sessionId === "") {
+      return refusal("invalid_params", `${method} needs a session_id.`);
+    }
+    if (method === workerHostLeaseMethods.release) {
+      if (this.leaseRenewal?.currentSessionId === sessionId) {
+        this.leaseRenewal.stop();
+      }
+      await releaseSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder.holderId);
+      return { result: {} };
+    }
+    try {
+      const unavailable = await this.describeUnavailableSession(opened, sessionId);
+      if (unavailable !== undefined) {
+        return refusal("session_unavailable", unavailable);
+      }
+      this.unansweredLeaseSessionIds.add(sessionId);
+      const result = await acquireSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder, this.leaseTtlSeconds);
+      this.unansweredLeaseSessionIds.delete(sessionId);
+      if (result.isAcquired) {
+        this.renewedLeases(opened).renew(sessionId);
+      }
+      return { result: { is_acquired: result.isAcquired, lease: result.lease } };
+    } catch (error: unknown) {
+      return refusal("lease_failed", describe(error));
+    }
+  }
+
+  /** Returns why a session cannot be opened here, or `undefined` when it runs with this Flow type. */
+  private async describeUnavailableSession(opened: OpenedSessionWorker, sessionId: string): Promise<string | undefined> {
+    let info;
+    try {
+      info = await opened.client.describeFlow(sessionId);
+    } catch (error: unknown) {
+      if (error instanceof FlowNotFoundError) {
+        return `session ${sessionId} does not exist`;
+      }
+      throw error;
+    }
+    if (info.flowType !== opened.flowType) {
+      return `session ${sessionId} is a ${info.flowType} session, not ${opened.flowType}`;
+    }
+    return info.status === "running" ? undefined : `session ${sessionId} is ${info.status}, so it cannot continue`;
+  }
+
+  private renewedLeases(opened: OpenedSessionWorker): SessionLeaseRenewal {
+    this.leaseRenewal ??= new SessionLeaseRenewal(
+      this.leaseHolder.holderId,
+      this.leaseTtlSeconds,
+      (sessionId) => acquireSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder, this.leaseTtlSeconds),
+      (sessionId, lease) => this.send({ type: "session_lease_lost", sessionId, lease }),
+    );
+    return this.leaseRenewal;
+  }
+
+  /** Releases the renewed lease, and any a call without an answer may have taken, while the Worker still serves. */
+  private async releaseRenewedLease(): Promise<void> {
+    const sessionIds = new Set(this.unansweredLeaseSessionIds);
+    const current = this.leaseRenewal?.currentSessionId;
+    if (current !== undefined) {
+      sessionIds.add(current);
+    }
+    this.leaseRenewal?.stop();
+    this.unansweredLeaseSessionIds.clear();
+    const opened = this.opened;
+    if (opened !== undefined) {
+      await Promise.all(
+        [...sessionIds].map((sessionId) => releaseSessionLease(opened.client, opened.flow, sessionId, this.leaseHolder.holderId)),
+      );
+    }
+  }
+
   /** Stops once: the watchdog starts its hard bound, the tool groups stop, then the Worker and Client close. */
   private stop(): Promise<number> {
     this.requestStop();
     this.shutdown ??= (async () => {
       this.watchdog.shutdownStarted();
+      await this.releaseRenewedLease();
       await this.toolGroups?.terminateAll();
       await this.command.close();
       removeWorkerHostRunRecord(this.recordPath);

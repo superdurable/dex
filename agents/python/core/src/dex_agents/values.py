@@ -1044,6 +1044,87 @@ class CancelTurnRequest:
 
 
 @dataclass(frozen=True, kw_only=True)
+class SessionTerminalLease:
+    """Record which terminal has a session open, in the ``SessionTerminalLease`` Attribute.
+
+    A chat client, such as a CLI command, holds the lease while it shows the
+    session, so that a second client waits instead of chatting at the same
+    time. The holder renews it before ``expires_at``. A lease past
+    ``expires_at`` is free for any holder, so a holder that crashed frees the
+    session without a release. A session without the Attribute has no holder.
+
+    .. versionadded:: 0.6.3
+
+    Attributes:
+        holder_id: The holder's random ID, one per holding process.
+        host_name: The holder's host name, shown to a waiting client.
+        process_id: The process ID of the command the user ran, shown to a
+            waiting client.
+        opened_at: RFC 3339 time at which this holder first acquired the lease.
+            A renewal keeps it.
+        expires_at: RFC 3339 time after which another holder may acquire it.
+    """
+
+    holder_id: str
+    host_name: str
+    process_id: int
+    opened_at: str
+    expires_at: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AcquireSessionTerminalLeaseRequest:
+    """Acquire or renew the session's terminal lease through ``acquire_session_terminal_lease``.
+
+    The same request with the same ``holder_id`` renews the lease and keeps
+    its ``opened_at``.
+
+    .. versionadded:: 0.6.3
+
+    Attributes:
+        holder_id: The holder's random ID. It must not be blank.
+        host_name: The holder's host name, at most 255 Unicode code points.
+        process_id: The process ID to show to a waiting client; not negative.
+        ttl_seconds: How long the lease lasts from now, from 1 to 3600 seconds.
+    """
+
+    holder_id: str
+    host_name: str
+    process_id: int
+    ttl_seconds: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class SessionTerminalLeaseResult:
+    """Report the outcome of ``acquire_session_terminal_lease``.
+
+    .. versionadded:: 0.6.3
+
+    Attributes:
+        is_acquired: ``True`` when the caller holds the lease now.
+        lease: The lease as it is now: the caller's when ``is_acquired``, the
+            other holder's when not, and ``None`` for a request that is not
+            valid.
+    """
+
+    is_acquired: bool
+    lease: SessionTerminalLease | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReleaseSessionTerminalLeaseRequest:
+    """Release the session's terminal lease through ``release_session_terminal_lease``.
+
+    .. versionadded:: 0.6.3
+
+    Attributes:
+        holder_id: The holder that releases it. Another holder's lease stays.
+    """
+
+    holder_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class UpdateSessionSettingsRequest:
     """Replace the session's settings through the ``update_session_settings`` RPC.
 

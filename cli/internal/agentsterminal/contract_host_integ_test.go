@@ -64,6 +64,7 @@ var transcriptKeys = map[string][]keystrokes{
 	"chat_get_request_result_timed_out_then_resent": {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
 	"chat_start_session_conflict":                   {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
 	"chat_start_session_long_id":                    {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_launcher_session_switch":                  {{afterStep: 1, text: "/new\r"}},
 	"chat_start_session_unknown_then_resent":        {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
 	"chat_host_stopped":                             {{afterStep: 1, text: "/image {imageA}\r"}, {afterStep: 2, text: "/new\r"}, {afterStep: -1, text: "x"}},
 	"chat_notices_and_worker_states":                {{afterStep: -1, text: "\x04"}},
@@ -120,6 +121,9 @@ var transcriptScreenChecks = map[string]func(t *testing.T, screen string){
 	"chat_start_session_background_exit": func(t *testing.T, screen string) {
 		require.Contains(t, screen, "A new session is already starting.")
 		require.Contains(t, screen, "Session "+launchSessionID+" keeps running", "the summary names the session the chat shows")
+	},
+	"chat_launcher_session_switch": func(t *testing.T, screen string) {
+		require.NotContains(t, screen, "keeps running", "the launcher prints how to resume")
 	},
 	"chat_start_session_background_stay": func(t *testing.T, screen string) {
 		require.Contains(t, screen, "Session "+launchSessionID+" keeps running", "the chat stayed")

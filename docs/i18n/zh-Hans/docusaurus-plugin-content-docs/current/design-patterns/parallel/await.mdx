@@ -338,6 +338,14 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 
 如果其余分支不取消、继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 `WaitFor` 等待上一轮剩下的结果，它的 `Execute` 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
 
+## Join 的工作方式 {#how-the-join-works}
+
+**Join** 在一个 Flow 内汇合并行分支。它建在 ChannelMap 之上，五个 SDK 都提供。每一轮的结果只计入这一轮。汇合 Step 的等待是普通的条件，可以和 Timer 组合。
+
+当工作在子 Flow 中运行时，用 `AllOf` 等待 **SubFlow** 就是原生的汇合。
+
+Join 计数的是分支上报的结果，而不是观察分支 Step 本身。汇合 Step 的等待已经消费了结果，但它的 `Execute` 结果还没保存时，它可能被取消。这些结果是否回到这一轮，取决于 server 版本，见[被取消的 Step 与已消费的消息](/reference/server/runtime-data#canceled-step-messages)。如果结果丢失，为同一轮重新建立的汇合永远不会触发。
+
 ## 下一步
 
 - [并行 Step](/design-patterns/parallel)

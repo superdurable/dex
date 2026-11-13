@@ -8,7 +8,7 @@ slug: /correctness-and-expressiveness/failure-transparency-proof
 
 Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变化，是外部副作用的重复。证明在[证明依赖的假设](#what-the-proof-assumes)列出的条件下成立。
 
-- [下载论文（PDF）](/papers/dex-expressiveness.pdf)
+- [下载涵盖两个证明的论文（PDF）](/papers/dex-expressiveness.pdf)
 - [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
 
 ## 结论 {#the-claim}
@@ -30,15 +30,7 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 
 每个重复的副作用，都是同一个 Step 方法先前某个副作用的精确副本。
 
-与[表达能力证明](/correctness-and-expressiveness/expressiveness-proof)合起来，它覆盖那门小型并发语言中每个格式良好（well-formed）的程序。这样的程序在 Dex 上产生的是一次无故障运行的事件，只是外部副作用可能重复。对这些程序，每个多出来的副作用都与先前某个副作用的值相同。
-
-## 为什么重复仍然简单 {#why-repeats-stay-simple}
-
-一个 Step 方法可能分几次尝试运行。每次尝试读到的是同一个快照：Dex 在第一次尝试时取快照，之后每次重试都复用它。
-
-证明假设 Step 方法的副作用只取决于 Dex 传给它的内容，与当前是第几次尝试无关。这样，每次尝试都以相同的顺序算出相同的外部副作用。
-
-一次尝试依次产生它的副作用，所以各个副作用按列表顺序首次出现。首个副本可能来自任何一次尝试，包括 Dex 已经放弃的旧尝试。之后的每个副本都是重复。没有哪次尝试会产生新的副作用，或改变首个副本的顺序。
+这个证明和[表达能力证明](/correctness-and-expressiveness/expressiveness-proof)合起来说明了什么，见[正确性与表达能力](/correctness-and-expressiveness)。
 
 ## 这对你的代码意味着什么 {#what-it-means-for-you}
 
@@ -48,9 +40,17 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 
 客户端重试请求时：
 
-- `StartFlow`：复用第一次启动的 request ID；第一次启动和重试都设置返回已有运行的选项；保持默认的 ID 复用策略。这样，只要 server 的日志把重试排在 Dex 清除已关闭的运行之前，证明就覆盖这次重试。先到达 server 并不够。见[启动选项](/concepts/flow#start-options)。
-- `PublishToChannel`：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。通过 RPC request ID 只发布一次的做法已在计划中，见 [issue 1519](https://github.com/superdurable/dex/issues/1519)。
-- `StopFlow`：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。传入 run ID 的做法已在计划中，见 [issue 1520](https://github.com/superdurable/dex/issues/1520)。
+- `StartFlow`：复用第一次启动的 request ID。第一次启动和重试都设置返回已有运行的选项。保持默认的 ID 复用策略。只有 server 的日志把重试排在 Dex 清除已关闭的运行之前，证明才覆盖这次重试。见[启动选项](/concepts/flow#start-options)。
+- `PublishToChannel`：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。
+- `StopFlow`：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。重试时要传入 run ID。
+
+## 为什么重复仍然简单 {#why-repeats-stay-simple}
+
+一个 Step 方法可能分几次尝试运行。每次尝试读到的是同一个快照：Dex 在第一次尝试时取快照，之后每次重试都复用它。
+
+证明假设 Step 方法的副作用只取决于 Dex 传给它的内容，与当前是第几次尝试无关。这样，每次尝试都以相同的顺序算出相同的外部副作用。
+
+一次尝试依次产生它的副作用，所以各个副作用按列表顺序首次出现。首个副本可能来自任何一次尝试，包括 Dex 已经放弃的旧尝试。之后的每个副本都是重复。没有哪次尝试会产生新的副作用，或改变首个副本的顺序。
 
 ## 证明依赖的假设 {#what-the-proof-assumes}
 
@@ -88,6 +88,19 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 - **经计算机检查的证明。** 证明用 Lean 证明助手写成，它检查每一步。
 - **先测试，再证明。** 一个 fuzzer 遍历了带有崩溃、重试和迟到尝试的随机运行，并在每一步检查论证是否成立。
 - **示例和反例。** 证明助手检查了带有崩溃、重试和迟到的重复副作用的示例运行，并把证明应用到这些运行上。它还检查了违反某条假设的运行，例如读取尝试编号的代码，并表明这时结论不成立。
+- **对 server 代码的故障测试。** 在证明之外，一个[确定性模拟](https://github.com/superdurable/dex/tree/main/server-zd/crates/dexzd-simulation)让真实的 server 引擎面对模拟的对象存储、时钟、Worker 和客户端运行。它注入缓慢和丢失的存储响应、5xx 错误、写入仍在进行时的崩溃、旧进程仍在写入时新进程的接管，以及卡住、失败或断开连接的 Worker。然后它检查每次已确认的写入都保留下来，并且没有任何读取看到未提交或过期的状态。它还覆盖了故障证明没有包含的大部分内容：RPC（包括[事务性 RPC](/reference/server/runtime-data#transactional-reads-and-writes)）、Attribute lock、作为 SubFlow 启动的子 Flow、StopFlow，以及硬删除的 Attribute。Failure policy 和 recovery Step 在它的 apply-level 阶段运行，这个阶段测试应用每条命令的状态机，不带外围的引擎。ASYNC 持久性不在它的工作负载里。CI 每晚运行它。
+- **集成测试。** [server 集成测试](https://github.com/superdurable/dex/tree/main/server-zd/integ)让真实的 Worker 对着真实的 server 运行。这些测试覆盖证明之外的功能：
+
+| 功能 | 集成测试 |
+| --- | --- |
+| ASYNC Step | `create_test.go`、`any_command_close_test.go` |
+| RPC，包括事务性 RPC | `rpc_test.go` |
+| Attribute lock | `locking_test.go` |
+| SubFlow | `subflow_test.go` |
+| Failure policy 和 recovery Step | `wf_state_execute_method_fail_and_proceed_test.go` |
+| Heartbeat | `pull_worker_test.go` |
+| Time Travel | `reset_by_state_id_test.go` |
+| StopFlow | `wf_stop_test.go` |
 
 ## 下一步
 

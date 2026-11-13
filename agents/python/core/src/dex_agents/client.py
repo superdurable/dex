@@ -14,7 +14,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 from dex import (
     ActiveStepSearchMode,
@@ -35,6 +35,7 @@ from dex_agents.session_failure import (
 from dex_agents.session_flow import AgentSessionFlow
 from dex_agents.session_settings import validate_session_settings
 from dex_agents.values import (
+    AcquireSessionTerminalLeaseRequest,
     AgentEvent,
     AgentImageReference,
     AgentMessagesPage,
@@ -46,12 +47,15 @@ from dex_agents.values import (
     DeleteQueuedMessageRequest,
     ExecutePlanRequest,
     ListAgentMessagesRequest,
+    ReleaseSessionTerminalLeaseRequest,
     ResolveInterruptRequest,
+    SessionTerminalLeaseResult,
     SteerUserMessageRequest,
     UpdateSessionSettingsRequest,
 )
 
 _LOCK_CONFLICT_RETRY_INTERVAL_SECONDS = 0.05
+_Output = TypeVar("_Output")
 
 
 #: The search mode ``AgentSessionClient.start_session`` gives a new session.
@@ -467,6 +471,75 @@ class AgentSessionClient:
             lambda: self._client.invoke_rpc(self._flow.answer_question, session_id, request)
         )
 
+    async def acquire_session_terminal_lease(
+        self, session_id: str, request: AcquireSessionTerminalLeaseRequest
+    ) -> SessionTerminalLeaseResult:
+        """Acquire or renew the lease that marks which terminal has the session open.
+
+        A chat client calls it before it shows the session, and again before
+        ``request.ttl_seconds`` pass, with the same ``holder_id``. When another
+        holder has an unexpired lease, the result names it and nothing
+        changes, so the caller can wait and try again. Dex never enforces the
+        lease itself. The call retries ``RpcLockConflictError`` until
+        ``lock_conflict_retry_timeout`` passes.
+
+        .. versionadded:: 0.6.3
+
+        Example:
+            >>> request = AcquireSessionTerminalLeaseRequest(
+            ...     holder_id=uuid.uuid4().hex, host_name=socket.gethostname(),
+            ...     process_id=os.getpid(), ttl_seconds=15)
+            >>> result = await sessions.acquire_session_terminal_lease("session-42", request)
+            >>> if not result.is_acquired and result.lease is not None:
+            ...     print(f"open on {result.lease.host_name}, pid {result.lease.process_id}")
+
+        Args:
+            session_id: Running session.
+            request: The holder and how long the lease lasts.
+
+        Returns:
+            The outcome: whether the caller holds the lease, and the lease as
+            it is now. See ``AgentSessionFlow.acquire_session_terminal_lease``.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(
+                self._flow.acquire_session_terminal_lease, session_id, request
+            )
+        )
+
+    async def release_session_terminal_lease(self, session_id: str, holder_id: str) -> bool:
+        """Release the terminal lease that ``holder_id`` holds.
+
+        Call it when the chat client stops showing the session, so a waiting
+        client can open it at once instead of after the lease expires. The
+        call retries ``RpcLockConflictError`` until
+        ``lock_conflict_retry_timeout`` passes.
+
+        .. versionadded:: 0.6.3
+
+        Args:
+            session_id: Running session.
+            holder_id: The ``holder_id`` that acquired the lease.
+
+        Returns:
+            ``True`` when the lease is released; ``False`` when the session has
+            no lease or another holder has it.
+
+        Raises:
+            RpcLockConflictError: If the lock stays busy past the retry timeout.
+            FlowNotActiveOrNotFoundError: If the session is not running.
+        """
+        request = ReleaseSessionTerminalLeaseRequest(holder_id=holder_id)
+        return await self._retry_lock_conflicts(
+            lambda: self._client.invoke_rpc(
+                self._flow.release_session_terminal_lease, session_id, request
+            )
+        )
+
     async def _raise_session_failure(self, session_id: str, call: Awaitable[bool]) -> bool:
         try:
             return await call
@@ -476,7 +549,7 @@ class AgentSessionClient:
                 raise
             raise AgentSessionFailedError(session_id, reason, error) from error
 
-    async def _retry_lock_conflicts(self, invoke: Callable[[], Awaitable[bool]]) -> bool:
+    async def _retry_lock_conflicts(self, invoke: Callable[[], Awaitable[_Output]]) -> _Output:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._lock_conflict_retry_timeout.total_seconds()
         while True:

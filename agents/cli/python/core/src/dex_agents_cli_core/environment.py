@@ -13,6 +13,7 @@ This is the only module that reads environment variables.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ from dex_agents_cli_core.terminal_ui.contract import (
 )
 
 #: The ``dexcli`` release a command downloads when none is installed.
-DEXCLI_VERSION = "1.47.1"
+DEXCLI_VERSION = "1.47.2"
 #: Where ``dexcli`` releases are published; each tag is ``cli-v<version>``.
 DEXCLI_RELEASE_BASE_URL = "https://github.com/superdurable/dex/releases/download"
 #: The ports a running ``dexcli dev`` uses by default.
@@ -43,6 +44,14 @@ DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 #:
 #: .. versionadded:: 0.6.0
 OPEN_BROWSER_ENVIRONMENT_VARIABLE = "DEX_AGENTS_OPEN_BROWSER"
+#: Seconds a session's terminal lease lasts, from 1 to 3600; for tests. Others are ignored.
+#:
+#: .. versionadded:: 0.6.3
+SESSION_LEASE_TTL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"
+#: How long a session's terminal lease lasts without a renewal.
+#:
+#: .. versionadded:: 0.6.3
+DEFAULT_SESSION_LEASE_TTL_SECONDS = 15
 #: The variables that may give the Dex connection settings, with ``dexcli``'s names.
 #:
 #: .. versionadded:: 0.6.2
@@ -113,6 +122,12 @@ class CommandEnvironment:
             ``resolve_dex_connection_settings``.
 
             .. versionadded:: 0.6.2
+        session_lease_ttl_seconds: How long the lease that marks a session open
+            in this terminal lasts without a renewal; the command renews it
+            every third of that. ``DEFAULT_SESSION_LEASE_TTL_SECONDS`` unless
+            ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` sets 1 to 3600.
+
+            .. versionadded:: 0.6.3
     """
 
     home: Path
@@ -127,6 +142,7 @@ class CommandEnvironment:
     terminal_type: str | None = None
     terminal_variables: Mapping[str, str] = field(default_factory=dict)
     dex_connection_variables: Mapping[str, str] = field(default_factory=dict)
+    session_lease_ttl_seconds: int = DEFAULT_SESSION_LEASE_TTL_SECONDS
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> CommandEnvironment:
@@ -171,6 +187,9 @@ class CommandEnvironment:
                 for name in DEX_CONNECTION_ENVIRONMENT_NAMES
                 if values.get(name, "").strip()
             },
+            session_lease_ttl_seconds=_parse_session_lease_ttl(
+                values.get(SESSION_LEASE_TTL_ENVIRONMENT_VARIABLE)
+            ),
         )
 
     @property
@@ -207,6 +226,14 @@ class CommandEnvironment:
             return self.home / text[2:]
         path = Path(text)
         return path if path.is_absolute() else relative_to / path
+
+
+def _parse_session_lease_ttl(text: str | None) -> int:
+    with contextlib.suppress(ValueError):
+        seconds = int((text or "").strip())
+        if 1 <= seconds <= 3600:
+            return seconds
+    return DEFAULT_SESSION_LEASE_TTL_SECONDS
 
 
 def _parse_port(text: str | None, default: int) -> int:

@@ -7,7 +7,7 @@ slug: /glossary
 
 # Glossary
 
-Short definitions of Dex terms. Dex grew out of iWF, which called a Flow a Workflow and a Step a State. These docs use only the Dex names.
+Short definitions of Dex terms. Dex evolved from iWF, which called a Flow a Workflow and a Step a State. These docs use only the Dex names.
 
 #### [Activation](/reference/agents/tracing)
 
@@ -39,7 +39,7 @@ A local, size-limited disk cache of large Dex values. Dex sends a large value as
 
 #### [Channel](/concepts/primitives/channel)
 
-A durable message pipe. It carries messages from outside a Flow, or between parts of one Flow.
+A durable FIFO queue inside one Flow run. Steps wait on it. Steps, RPCs, and the FlowService `PublishToChannel` request publish to it.
 
 #### [ChannelMap](/concepts/primitives/channel#channelmap)
 
@@ -59,7 +59,7 @@ A package that connects a Flow to an external provider. It gives the Flow ready-
 
 #### [db9](/reference/server/object-storage#db9)
 
-A separate database product that speaks the PostgreSQL wire protocol. Dex Server can keep its data there instead of in object storage. Stock PostgreSQL is not a listed production store.
+A separate database product that speaks the PostgreSQL wire protocol. Dex Server can keep its data there instead of in object storage. Stock PostgreSQL is not supported as a production store.
 
 #### [Dex Server](/components/server)
 
@@ -151,9 +151,9 @@ The ID that the engine assigns to each run of a Flow ID.
 
 #### [server-zd](/components/server)
 
-The name of the current Dex Server implementation. Its binary is **dex-server-zd**. Releases and reference pages use this name.
+The implementation name of [Dex Server](#dex-server), used by releases and reference pages.
 
-#### [State snapshot](/concepts/step#guarantees)
+#### [State snapshot](/correctness-and-expressiveness/step-guarantees#state-snapshot)
 
 The Flow state that one Step method attempt reads: the Attributes as they were when Dex handed the attempt to a Worker. A retry of `Execute` reuses the first attempt's snapshot. Hard-delete Attributes are the exception; Dex reads them again on every attempt.
 
@@ -185,7 +185,7 @@ A best-effort, ordered feed of messages from a Flow to a reader, such as live pr
 
 A Flow run that a parent Flow starts from one of its Steps. The parent can wait for it like any other Condition.
 
-#### [Time Travel](/concepts/change-flow-code#time-travel)
+#### [Time Travel](/components/operate-and-debug#time-travel)
 
 Running a Flow run again from an earlier point in its history, usually after a fix. The run keeps its Run ID. Its state goes back to that point, Steps after it run again with their external calls, and outside input after it is applied again unless you skip write reapply. The FlowService call is `ResetFlow`.
 
@@ -193,7 +193,7 @@ Running a Flow run again from an earlier point in its history, usually after a f
 
 A durable sleep condition. When it fires, the waiting Step resumes.
 
-#### [Transactional RPC](/concepts/primitives/rpc#transactional-reads-and-writes)
+#### [Transactional RPC](/reference/server/runtime-data#transactional-reads-and-writes)
 
 An RPC whose changes Dex saves only if every Channel message it deletes is still pending. An RPC that holds a lock is always transactional.
 

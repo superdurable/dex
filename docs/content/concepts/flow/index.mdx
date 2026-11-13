@@ -27,13 +27,8 @@ into smaller Flows or to fan out work.
 
 ## Guarantees {#guarantees}
 
-- A Flow ID has at most one active run at a time.
-- What one Step method writes and publishes takes effect all at once, or not at
-  all. See [Step guarantees](/concepts/step#guarantees).
-- With the default SYNC durability, a Step's result is stored durably before
-  the next Step starts. It survives Worker crashes and Dex Server restarts.
-- When no Worker is free, a Step waits in a durable queue. It runs when a
-  Worker becomes available.
+A Flow ID has at most one active run at a time. What each Step saves, and when
+it can run again, is covered in [Step guarantees](/concepts/step#guarantees).
 
 ## What a Flow contains {#implement-a-flow}
 
@@ -188,6 +183,25 @@ impl Flow for ExampleFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## Lifecycle {#lifecycle}
+
+A [Client](/concepts/client) starts a Flow with a Flow ID and the start
+input. Dex then runs the start Step on a Worker. Each Step returns a decision
+that moves to the next Steps or closes the Flow. Several Steps can be active
+at the same time.
+
+A Flow closes in one of these ways:
+
+- a Step completes or fails it;
+- its timeout fails or cancels it;
+- a client stops it;
+- a new start with the same Flow ID terminates it; see
+  [Flow close by a new start](/reference/server/runtime-data#flow-close-by-new-start).
+
+Instead of failing or canceling the Flow, a timeout can run a handler that
+decides the outcome. While the Flow runs, clients read and change it through
+its RPCs.
+
 ## Identifiers {#identifiers}
 
 The word Flow can mean a Flow definition or a Flow run. These
@@ -204,57 +218,15 @@ identifiers keep them apart.
 Most SDKs use the language's type name as the `FlowType` unless you
 override it. Do not change these names while runs are open.
 
-## Lifecycle {#lifecycle}
-
-A [Client](/concepts/client) starts a Flow with a Flow ID and the start
-input. Dex then runs the start Step on a Worker. Each Step returns a decision
-that moves to the next Steps or closes the Flow. Several Steps can be active
-at the same time.
-
-A Flow closes in one of these ways:
-
-- a Step completes or fails it;
-- its timeout fails or cancels it;
-- a client stops it;
-- a new start with the same Flow ID terminates it. This happens only when the
-  new start uses an ID reuse policy that terminates the running Flow. A SubFlow
-  restart can terminate an earlier child too. See
-  [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy).
-
-Instead of failing or canceling the Flow, a timeout can run a handler that
-decides the outcome. While the Flow runs, clients read and change it through
-its RPCs.
-
 ## Start options and configuration {#start-options}
 
-Two sets of options shape a Flow run:
-
-- `StartFlowOptions` apply once, at start. They set the Flow timeout, the ID
-  reuse policy, the start request ID, and initial Attribute values.
-- `FlowConfig` holds runtime settings, such as the default Step durability.
-  You can update it while the Flow runs.
-
-Start a Flow directly with a stable business Flow ID. Do not read or search
-first to check whether it already exists. To retry one start safely, do three things. Use an
-ID reuse policy that rejects a second run. Send the same request ID on every
-retry. Set the start option that returns the existing run instead of an
-already-started error. Then a retry of a start that already succeeded returns
-that run. With a policy that allows another run, a retry can start a second
-run instead.
-
-The three options have these names in each SDK:
-
-| SDK | ID reuse policy | Request ID | Return the existing run |
-| --- | --- | --- | --- |
-| Python | `id_reuse_policy` | `request_id` | `ignore_already_started=True` |
-| Go | **IDReusePolicy** | `RequestID` | `AlreadyStarted` with **IgnoreError: true** |
-| Java | `idReusePolicy(...)` | `requestId(...)` | `ignoreAlreadyStarted(true)` |
-| TypeScript | `idReusePolicy` | `requestId` | **ignoreAlreadyStarted: true** |
-| Rust | `id_reuse_policy(...)` | `request_id(...)` | `ignore_already_started(true)` |
-
-The default ID reuse policy already rejects a second run with the same Flow ID,
-so most handlers set only the last two. [A minimal service](/components/application#minimal-service)
-shows a handler that does this in every SDK.
+Start with a stable business Flow ID; to make retries safe, set a request ID
+and the already-started option.
+[StartFlow best practices](/reference/python/start-flow-options#start-flow-best-practices)
+shows the safe-retry recipe, and [StartFlowOptions](/reference/python/start-flow-options)
+lists every start option (Python reference; each SDK reference has the same
+page). `FlowConfig` holds runtime settings that you can
+update while the Flow runs.
 
 ## Reference
 

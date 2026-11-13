@@ -15,10 +15,170 @@ description: 安装你所用框架的适配器，复制完整的 Agent 文件与
 
 - **Agent 定义保持原样。** 你把它包装一层，并为每个 tool 指定一个策略。
 - **请求处理函数（handler）的形态会变。** 它把用户消息发给 Session 后就返回。回复出现在 Session 的事件流上，或者在它的快照中。
-- **你要多运行两样东西。** Worker 进程运行 Session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[在哪里运行 Dex Server](/components#where-to-run) 对比了两者。Dex 处于 Beta 阶段，Dex Server 的版本是 0.1，一个集群由一个活动节点提供服务。
-- **每个 turn 都要等待 Dex 提交。** 一个带三个并行 Tool Call 的 turn 大约多花 0.4 秒；参见 [延迟与成本](/agent-frameworks/sessions#latency-and-cost)。
+- **你要多运行两样东西。** Worker 进程运行 Session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[在哪里运行 Dex Server](/components#where-to-run) 对比了两者。
+- **每个 turn 都要等待 Dex 提交。** 一个有三个并行 tool 调用的 turn 大约增加 0.4 秒；[延迟与成本](/agent-frameworks/sessions#latency-and-cost) 给出计算过程。
 
-[在生产环境运行 Agent](/agent-frameworks/production) 列出了需要准备的事项。[性能](/intro/performance) 给出具体数字，[限制](/intro/limits#license) 给出许可证说明。
+[在生产环境运行 Agent](/agent-frameworks/production) 列出了需要准备的事项。[性能](/intro/performance) 给出具体数字，[限制](/intro/limits) 给出发布状态和许可证说明。
+
+## 在你自己的 Agent 中使用 {#use-it-in-your-own-agent}
+
+把适配器和它对应的框架一起安装。每个适配器都会引入 Dex Agents core。然后复制 [完整文件](#complete-files)。
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/claude-agent-sdk',
+    typescript: 'agents/typescript/claude-agent-sdk',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-claude-agent-sdk
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**认证**
+
+Worker 用 `ANTHROPIC_API_KEY` 为 Claude Code CLI 认证。把它设置在 Worker 的环境中。它永远不会进入 Flow 状态。
+
+示例为 CLI 构建的环境中，`ANTHROPIC_API_KEY` 是唯一的凭据。缺少这个 key 时，示例不会注册 Claude Agent，只提供其他 harness。
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/google-adk',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-google-adk
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/langgraph',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-langgraph langchain-openai
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/mastra',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/openai-agents',
+    typescript: 'agents/typescript/openai-agents',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-openai-agents
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/pi',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
+npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+第二行安装 Pi 的 agent core（提供 `AgentTool` 类型）和 pi-schema（提供带类型的参数）。你的 tool 用到它们时才需要安装。pi-ai 需要 Node.js 22.19 或更高版本。
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/pydantic-ai',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/vercel-ai',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
 
 ## 你的代码有哪些变化 {#what-changes-in-your-code}
 
@@ -465,169 +625,13 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-由框架自己运行的 tool，例如 MCP server 和 hosted tool，需要按你所用框架的 [限制](/agent-frameworks/framework-details#limits) 做相应修改。Session 在 Worker 中运行，由 Client 驱动；[把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) 展示了这部分宿主代码。
+由框架自己运行的 tool，例如 MCP server 和 hosted tool，需要按你所用框架的 [限制](/agent-frameworks/framework-details#limits) 做相应修改。Session 在 Worker 中运行，由 Client 驱动。[把 Session 接入你的应用](#wire-it-into-your-app) 展示了宿主代码。
 
-## 在你自己的 Agent 中使用 {#use-it-in-your-own-agent}
+### 给每个 tool 设置策略 {#tool-policy}
 
-把适配器和它对应的框架一起安装。每个适配器都会引入 Dex Agents core。然后复制下面的 [完整文件](#complete-files)。
+按重复一次会造成什么来给每个 tool 分类。**read** 或 `idempotent_write` 可以再次运行。`non_idempotent_write` 或未分类的 tool 最多运行一次，并且默认等待审批。一次调用的每次尝试都得到同一个幂等键；把它传给 tool 写入的服务。完整规则见 [Tool 策略](/agent-frameworks/tool-calls#tool-policies-and-approvals)。
 
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/claude-agent-sdk',
-    typescript: 'agents/typescript/claude-agent-sdk',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-claude-agent-sdk
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-**认证**
-
-Worker 用 `ANTHROPIC_API_KEY` 为 Claude Code CLI 认证。把它设置在 Worker 的环境中。它永远不会进入 Flow 状态。
-
-示例为 CLI 构建的环境中，`ANTHROPIC_API_KEY` 是唯一的凭据。缺少这个 key 时，示例不会注册 Claude Agent，只提供其他 harness。
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/google-adk',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-google-adk
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/langgraph',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-langgraph langchain-openai
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/mastra',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/openai-agents',
-    typescript: 'agents/typescript/openai-agents',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-openai-agents
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="pi">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/pi',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
-npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-第二行安装 Pi 的 agent core（提供 `AgentTool` 类型）和 pi-schema（提供带类型的参数）。你的 tool 用到它们时才需要安装。pi-ai 需要 Node.js 22.19 或更高版本。
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/pydantic-ai',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/vercel-ai',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-</FrameworkTabs>
-
-### 完整文件 {#complete-files}
+## 完整文件 {#complete-files}
 
 Agent 快速开始程序每种语言有三个文件。除了示例自带的 order desk 及其 tool，以及入口读取的设置之外，它们只用到 Dex、Dex Agents 和你的框架。在仓库中阅读它们：
 
@@ -637,9 +641,9 @@ Agent 快速开始程序每种语言有三个文件。除了示例自带的 orde
 | Runner：Registry、Worker、Client，以及一个带审批的 turn | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
 | 在命令行提示中请求审批的入口 | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
 
-### 把 Session 接入你的应用 {#wire-it-into-your-app}
+## 把 Session 接入你的应用 {#wire-it-into-your-app}
 
-对 Agent 本身的改动很小：就是 [Agent 快速开始第 2 步](#what-changes-in-your-code) 中的那层包装。其余是每个 Dex 应用都有的宿主代码：一个运行 Step 的 Worker，和一个调用它们的 Client。下面这个函数是最小的宿主。它在你的进程中运行一个 Worker 和一个 Client，启动一个 Session，发送一条消息，并在 turn 结束后返回 Session：
+对 Agent 本身的改动很小：就是 [你的代码有哪些变化](#what-changes-in-your-code) 中的那层包装。其余是每个 Dex 应用都有的宿主代码：一个运行 Step 的 Worker，和一个调用它们的 Client。下面这个函数是最小的宿主。它在你的进程中运行一个 Worker 和一个 Client，启动一个 Session，发送一条消息，并在 turn 结束后返回 Session：
 
 <SdkTabs
   examples={{
@@ -765,7 +769,7 @@ Web 应用把同样的部件分到各个路由中：
 
 [订单客服 Agent](/use-cases/order-support-agent) 示例为每个框架都提供了这些 HTTP 路由。
 
-#### Web handler 中由什么代替框架调用 {#web-handler}
+### Web handler 中由什么代替框架调用 {#web-handler}
 
 Handler 把消息排入 Session 的队列，然后返回。
 
@@ -905,6 +909,8 @@ def create_web_app(
 
     return web
 ```
+
+`send_user_message_once` 让重试的发送不会把消息排队两次；模块见[只发送一次消息](/agent-frameworks/sessions#send-a-message-once)。
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">

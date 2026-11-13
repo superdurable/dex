@@ -16,6 +16,10 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 
 <FlowModelDiagram markdownDescription="你的应用通过 Client 启动 Flow、调用它的 RPC、读取或等待它的 Attribute，并接收 Stream 的实时更新。在一个 Flow（一个 Flow ID）内部，Step 依次或并行运行，等待 Channel、Timer 和 SubFlow，并调用 Connector；Flow 保存 Attribute、Channel 和 Stream。" />
 
+## Dex 保证什么 {#guarantees}
+
+Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存，所以已经完成的 Step 不会再运行（默认的 SYNC durability 下）。被中途打断的 Step 可能再运行一次；[Step 的保证](/concepts/step#guarantees)列出了每一条保证和它的限制。
+
 ## Flow 和 Step {#flow-and-step}
 
 | 概念 | 它是什么 | 用它来 |
@@ -46,26 +50,6 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 
 <a id="它们如何配合"></a>
 
-<a id="component"></a>
-
-## 组件 {#components}
-
-概念是编程模型。下面这些进程运行它，[运行 Dex](/components) 逐一介绍：
-
-- 你的**应用**在 Worker 里托管 Flow 代码，并通过 Client 调用 Dex。
-- [Dex Server](/components/server) 保存 Flow 状态，并把 Step 和 RPC 交给 Worker。
-- `dexcli` 在本地运行 Dex，**Dex Web** 让运维人员查看 Flow。
-
-## Dex 保证什么 {#guarantees}
-
-Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存。已经完成的 Step 不会再运行；唯一的例外是 [ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)，如果 server 节点在写入它的结果之前故障，它可能再运行一次。被中途打断的 Step 可能再运行一次；见[幂等键](/concepts/step#idempotency-keys)。重试读取的是第一次尝试的[状态快照](/concepts/step#guarantees)，而不是之后更新的写入。[Step](/concepts/step#guarantees) 列出了每一条保证和它的限制。
-
-并行的 Step 和 RPC 共享 Attribute，彼此之间不隔离；见 [Attribute lock](/concepts/primitives/attribute#locking)。[故障转移和部署](/concepts/failover-and-deploys)列出崩溃、server 故障转移或部署之后哪些工作会再运行。
-
-## 修改 Flow 代码 {#change-flow-code}
-
-部署之后，未结束的 Flow 可能遇到改变了的规则或改了名的 Step。[Flow 代码的版本管理](/concepts/change-flow-code#versioning-flow-code)说明怎样让它们继续工作。修复之后，[Time Travel](/concepts/change-flow-code#time-travel)可以让 Flow 从更早的某个点重新运行。
-
 <a id="下一步"></a>
 
 <a id="where-to-go-next"></a>
@@ -73,6 +57,8 @@ Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存。已�
 ## 下一步 {#next}
 
 - 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。原语都建立在它们之上。
+- <a id="component"></a><a id="components"></a>[运行 Dex](/components) 介绍运行这个模型的进程：你的应用在 Worker 里托管 Flow 代码并通过 Client 调用 Dex，[Dex Server](/components/server) 保存 Flow 状态，`dexcli` 在本地运行 Dex，Dex Web 查看和操作 Flow。
+- <a id="change-flow-code"></a>[修改 Flow 代码](/concepts/change-flow-code)说明部署之后未结束的 Flow 怎样继续工作，以及 [Time Travel](/components/operate-and-debug#time-travel) 怎样让 Flow 从更早的某个点重新运行。
 - [设计模式](/design-patterns)说明怎样组合这些概念来解决常见问题。
 - [正确性与表达能力](/correctness-and-expressiveness)说明 Dex 能表达什么，以及它怎样保持正确。
 - [开发者参考](/reference)收录参数、默认值、限制和版本细节。

@@ -13,8 +13,10 @@ These pages help you decide whether Dex fits your system. Read them in order, or
 - [Why Dex?](/intro/what-is-dex) shows the problem with an order process that breaks halfway, and how Dex models it as a Flow of Steps.
 - [Dex vs. Databases](/intro/compared-to-database) builds the same process on a database, then with queues and an outbox, then as a Flow, and lists the duties that stay with you.
 - [Dex and Your Database](/components/your-database) shows how a Step writes to the database you already have, and when to copy Flow data to PostgreSQL.
-- [Dex vs. Temporal](/intro/compared-to-durable-execution) maps each core Temporal capability onto Dex, says when Temporal fits better, and ends with other engines.
+- [Dex vs. Temporal](/intro/compared-to-durable-execution) compares replaying workflow code with saving each Step's result, maps the terms, and ends with other engines.
 - [Performance](/intro/performance) gives measured throughput and latency on one node with S3, what it costs to run, and how to repeat a result.
 - [Limits](/intro/limits) lists what can surprise a team in production, the release status, and the license.
+- [Examples](/use-cases) are complete processes, such as orders, billing, and transfers, with code in every SDK.
 - [Failover and Deploys](/concepts/failover-and-deploys) shows what happens when the server or a Worker stops, and how to deploy new code while Flows are open.
-- [Correctness and Expressiveness](/correctness-and-expressiveness) gives a machine-checked proof of what a crash can and cannot change, and what Dex can express.
+- [Correctness and Expressiveness](/correctness-and-expressiveness) gives computer-checked proofs of what a crash can and cannot change, and what Dex can express.
+- [Workflow Patterns](/correctness-and-expressiveness/workflow-patterns) rates Dex against the 43 control-flow patterns that researchers use to compare workflow engines.

@@ -7,60 +7,37 @@ description: A checklist for running Dex in production, with a link to the page 
 
 # Run Dex in Production
 
-This page lists what to decide and set up before launch. Each item links to
-the page with the details. Most items are for a [self-hosted](/components/self-host)
-server. In [Dex Cloud](/components/dex-cloud), Super Durable runs the server,
-and your Workers still run your Flow code on your side, so the Worker, code, and database items are yours either way.
+Check each item before launch. In Dex Cloud, Super Durable runs the server; the Worker, Step retry, code-change, and database items still apply. Each item links to the page with the details.
 
-## Smallest real deployment {#smallest-deployment}
+<a id="smallest-deployment"></a>
+<a id="defaults-to-change-before-production"></a>
+<a id="retention"></a>
 
-- One Dex Server node, with a hot standby if you need fast failover.
-- One object storage bucket and prefix for the cluster.
-- Authentication turned on before the API is reachable.
-- TLS in front of the API port, or a private network. See [TLS](/reference/server/authentication#tls).
-- [Retention](#retention) long enough for client retries.
-- Metrics served and alerts on the node and its lease.
+## Before you launch {#before-you-launch}
 
-The [minimal configuration](#minimal-configuration) below sets up this deployment.
+The [minimal configuration](#minimal-configuration) below covers authentication, one node, its bucket, retention, and metrics.
 
-## Before you launch
-
-| Item | What to know | Details |
+| Item | What to do | Details |
 | --- | --- | --- |
-| Topology | One active node serves the cluster. Hot standbys can take over. | [Self-Host Dex](/components/self-host), [Lease, hot standby, and step down](/reference/server/high-availability) |
-| Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance](/intro/performance), [Grow past one node](/intro/limits#grow-past-one-node) |
-| Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
-| Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
-| Configuration | `serve` reads one YAML file. Start from the [minimal configuration](#minimal-configuration). | [Install and configure server-zd](/reference/server/configuration) |
-| Retention | Size it for client retries, as [Retention](#retention) explains. The default is in [Defaults to change](#defaults-to-change-before-production). | [Retention reference](/reference/server/configuration#retention) |
-| Backup and restore | The bucket prefix is the only source of truth. Version or replicate it, and practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
-| Kubernetes | Run the server as a StatefulSet with graceful shutdown. | [Kubernetes deployment](/reference/server/kubernetes) |
-| Authentication | Off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
+| Authentication and TLS | Public API authentication is off by default, so any client that reaches the server can call it. Configure an authenticator before you expose the port. The API port serves plaintext gRPC: put TLS in front of it, or keep it on a private network. | [Authentication](/reference/server/authentication), [TLS](/reference/server/authentication#tls) |
+| Topology | One active node serves the cluster. Add a hot standby if you need fast failover. | [Self-Host Dex](/components/self-host), [Lease, hot standby, and step down](/reference/server/high-availability) |
+| Storage and backup | One object storage bucket and prefix holds all server state for the cluster. db9 can replace it; stock PostgreSQL is not supported. The bucket prefix is the only source of truth: version or replicate it, and practice a restore. | [Object storage and backup](/reference/server/object-storage), [Backup and restore](/reference/server/object-storage#backup-and-restore) |
+| Retention | Closed runs, with their Step history, are deleted after 7 days by default. A deleted run frees its Flow ID. Set `retention.closedFlowDuration` to cover your longest client retry window, and copy data you must keep longer to [your own database](/components/your-database). Each run keeps the value it started with; a new value applies to runs started after the restart. | [Retention reference](/reference/server/configuration#retention) |
 | Monitoring | Serve metrics on their own listener. Alert on a node that is not serving and on failed lease renewals. | [Metrics and alerts](/reference/server/metrics) |
 | Workers | Workers connect out. Size their task slots, and stop them gracefully in a deploy. | [Workers and the task queue](/reference/server/workers) |
+| Step retries | Step retries stop after 4 hours by default, and then the Flow fails. Set a retry policy or a failure route. | [StepOptions](/concepts/step#stepoptions) |
 | Upgrades | Upgrades roll forward. Read each release's notes first; some need every process stopped. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes) |
-| Your database | Writes from Steps must be safe to repeat. | [Dex and Your Database](/components/your-database) |
 | Code changes | Keep old Step types and RPCs until their Flows close. | [Deploy Code Changes](/concepts/change-flow-code) |
-
-### Defaults to change {#defaults-to-change-before-production}
-
-| Default | Change it |
-| --- | --- |
-| Closed runs, with their Step history, are deleted after 7 days. A deleted run frees its Flow ID. | Set a longer [retention](#retention), and copy what you must keep to [your own database](/components/your-database). |
-| Public API authentication is off, so any client that reaches the server can call it. | Configure an authenticator before you expose the port, as the [minimal configuration](#minimal-configuration) does. See [Authentication](/reference/server/authentication). |
-| Step retries stop after 4 hours, and then the Flow fails. | Set a retry policy or a failure route in [StepOptions](/concepts/step#stepoptions). |
+| Your database | Writes from Steps must be safe to repeat. | [Dex and Your Database](/components/your-database) |
+| Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
+| Kubernetes | Run the server as a StatefulSet with graceful shutdown. | [Kubernetes deployment](/reference/server/kubernetes) |
+| Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance](/intro/performance), [Grow past one node](/intro/limits#grow-past-one-node) |
 
 ### Sizing {#sizing}
 
 As a starting point derived from the benchmark, a 2-vCPU node peaked near
 1,800 SYNC Steps per second and a 16-vCPU node near 8,400. Start small and
 watch CPU. Past one node, run separate clusters.
-
-### Retention {#retention}
-
-Set `retention.closedFlowDuration` to cover your longest client retry window,
-since a deleted run frees its Flow ID. Copy data you must keep longer to your
-own tables with [Attribute Store sync](/components/your-database).
 
 ## Minimal configuration {#minimal-configuration}
 
@@ -92,20 +69,11 @@ Replace `BUCKET` and `PREFIX` with your bucket and key prefix. The token file li
 Give each Worker and Client its token through the SDK's `credential` option;
 a file credential rereads the token file, so you can rotate tokens without a
 restart. [Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)
-lists the option in each SDK. The API port serves plaintext gRPC: put TLS in
-front of it, or keep it on a private network. [TLS](/reference/server/authentication#tls)
-lists the matching SDK option.
-
-## When something goes wrong
-
-- A Flow that does not advance or that failed:
-  [Operate and Debug](/components/operate-and-debug).
-- Recover a Flow after a fix by running it again from an earlier Step:
-  [Time Travel](/concepts/change-flow-code#time-travel).
-- Agent sessions in production:
-  [Agents reference](/reference/agents).
+lists the option in each SDK, and [TLS](/reference/server/authentication#tls)
+lists the SDK option for a TLS connection.
 
 ## Next
 
 - [Operate and Debug](/components/operate-and-debug): find a Flow, fix one that is stuck or failed, and recover it.
 - [Deploy Code Changes](/concepts/change-flow-code): change Flow code while runs are still open.
+- [Run Agents in Production](/agent-frameworks/production): the checklist for agent sessions.

@@ -33,6 +33,7 @@ import type {
   ToolPolicy,
 } from "./agent-framework-runner.js";
 import {
+  acquireSessionTerminalLeaseRequestCodec,
   agentMessagesPageCodec,
   agentSnapshotCodec,
   agentUserMessageCodec,
@@ -41,7 +42,9 @@ import {
   deleteQueuedMessageRequestCodec,
   executePlanRequestCodec,
   listAgentMessagesInputCodec,
+  releaseSessionTerminalLeaseRequestCodec,
   resolveInterruptInputCodec,
+  sessionTerminalLeaseResultCodec,
   steerUserMessageRequestCodec,
   updateSessionSettingsRequestCodec,
 } from "./agent-session-codecs.js";
@@ -67,6 +70,10 @@ import {
   ToolCallFailureRecordingStep,
   ToolCallStep,
 } from "./agent-session-steps.js";
+import {
+  decideSessionTerminalLeaseAcquisition,
+  sessionTerminalLeaseRpcTimeoutMs,
+} from "./agent-session-terminal-lease.js";
 import { AgentSessionTracer } from "./agent-session-tracer.js";
 import { CancelToolTaskStep, FinishTurnCancellationStep } from "./agent-session-cancellation-steps.js";
 import { AwaitQuestionAnswerStep, AwaitTimerStep, PollToolTaskStep } from "./agent-session-wait-steps.js";
@@ -79,6 +86,7 @@ import {
   type AgentSessionConfig,
 } from "./agent-session-transitions.js";
 import type {
+  AcquireSessionTerminalLeaseRequest,
   AgentMessagesPage,
   AgentSessionStartInput,
   AgentSnapshot,
@@ -89,7 +97,9 @@ import type {
   ExecutePlanRequest,
   ListAgentMessagesInput,
   PendingUserMessage,
+  ReleaseSessionTerminalLeaseRequest,
   ResolveInterruptInput,
+  SessionTerminalLeaseResult,
   SteerUserMessageRequest,
   ToolEffect,
   UpdateSessionSettingsRequest,
@@ -296,7 +306,8 @@ export interface ResolvedAgentSessionOptions {
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
  * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `steer_user_message`,
  * `delete_queued_message`, `cancel_turn`, `resolve_interrupt`, `answer_question`, `execute_plan`,
- * `update_session_settings`, `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never completes on its
+ * `update_session_settings`, `acquire_session_terminal_lease`, `release_session_terminal_lease`, `get_agent_snapshot`,
+ * and `list_agent_messages`, the same as the Python core. The session never completes on its
  * own: it waits for the next user message after every turn. Stop it with `Client.stopFlow`.
  *
  * `steer_user_message` ends the running turn at its next safe Step boundary. It never interrupts a model call or a
@@ -465,6 +476,49 @@ export interface AgentSessionFlow<
    */
   updateSessionSettings(context: Context, input: UpdateSessionSettingsRequest): RPCResult<boolean>;
   /**
+   * RPC `acquire_session_terminal_lease`: takes or renews the session's terminal lease.
+   *
+   * A CLI command calls it before its chat starts, and again to renew, so one session is open in at most one
+   * terminal at a time. The call succeeds when no terminal holds the lease, when the same `holderId` holds it, or
+   * when the lease expired. It then stores the caller's lease, which lasts `ttlSeconds` from the Worker's clock,
+   * and keeps `openedAt` for a renewal. Otherwise it changes nothing and returns the other holder's lease, so the
+   * caller can say which terminal has the session and try again later. A lease only coordinates callers that
+   * take it: older commands and other clients still read and write the session.
+   *
+   * The RPC locks `SessionTerminalLease` and can fail with `RpcLockConflictError`, which is safe to retry. A
+   * lock conflict never means another holder took the lease.
+   *
+   * @example
+   * ```ts
+   * const result = await client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+   *   holderId, hostName: os.hostname(), processId: process.pid, ttlSeconds: 15 });
+   * ```
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The caller's holder ID, host name, process ID, and lease duration.
+   * @returns `isAcquired` `true` with the caller's lease; `false` with the other holder's lease; or `false` with
+   * `lease` `null` when `holderId` is blank, `hostName` has more than 255 code points, `processId` is negative, or
+   * `ttlSeconds` is outside 1 to 3600.
+   * @since 0.6.3
+   */
+  acquireSessionTerminalLease(
+    context: Context,
+    input: AcquireSessionTerminalLeaseRequest,
+  ): RPCResult<SessionTerminalLeaseResult>;
+  /**
+   * RPC `release_session_terminal_lease`: releases the session's terminal lease when the caller holds it.
+   *
+   * Call it when the chat ends, so a terminal that waits for the session gets it at once instead of after the
+   * lease expires. It locks `SessionTerminalLease` and can fail with `RpcLockConflictError`, which is safe to
+   * retry.
+   *
+   * @param context - RPC Context supplied by Dex.
+   * @param input - The holder ID that acquired the lease.
+   * @returns `true` when the caller held the lease and released it; `false` when no terminal or another holder
+   * holds it, which changes nothing.
+   * @since 0.6.3
+   */
+  releaseSessionTerminalLease(context: Context, input: ReleaseSessionTerminalLeaseRequest): RPCResult<boolean>;
+  /**
    * RPC `resolve_interrupt`: approves or rejects one pending tool approval, or declines one question.
    *
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
@@ -625,6 +679,8 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly contextSummary = persistence.contextSummary;
     public readonly sessionSettings = persistence.sessionSettings;
     public readonly turnSessionSettings = persistence.turnSessionSettings;
+    /** The `SessionTerminalLease` Attribute; see {@link AgentSessionPersistence.sessionTerminalLease}. */
+    public readonly sessionTerminalLease = persistence.sessionTerminalLease;
     /** The `TurnReplySequence` Attribute; see {@link AgentSessionPersistence.turnReplySequence}. */
     public readonly turnReplySequence = persistence.turnReplySequence;
     /** The `AgentSessionTitle` Attribute; see {@link AgentSessionPersistence.agentSessionTitle}. */
@@ -687,6 +743,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.sessionSettings,
           persistence.turnSessionSettings,
           persistence.turnReplySequence,
+          persistence.sessionTerminalLease,
           ...(config.summaryAttributesIndexed
             ? [persistence.agentSessionTitle, persistence.agentSessionLastActivityAt, persistence.agentSessionTurnCount]
             : []),
@@ -884,6 +941,44 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       } else if (transitions.readSessionSettings(context) !== null) {
         persistence.sessionSettings.delete(context);
       }
+      return { output: true };
+    }
+
+    @rpc<AcquireSessionTerminalLeaseRequest, SessionTerminalLeaseResult>({
+      name: "acquire_session_terminal_lease",
+      inputCodec: acquireSessionTerminalLeaseRequestCodec,
+      outputCodec: sessionTerminalLeaseResultCodec,
+      lockAttributes: [persistence.sessionTerminalLease.lock()],
+      timeoutMs: sessionTerminalLeaseRpcTimeoutMs,
+    })
+    public acquireSessionTerminalLease(
+      context: Context,
+      input: AcquireSessionTerminalLeaseRequest,
+    ): RPCResult<SessionTerminalLeaseResult> {
+      // Dex does not replay handlers, and a CLI Flow type's Workers share one host clock.
+      const acquisition = decideSessionTerminalLeaseAcquisition(
+        persistence.sessionTerminalLease.get(context),
+        input,
+        new Date(),
+      );
+      if (acquisition.leaseToWrite !== null) {
+        persistence.sessionTerminalLease.set(context, acquisition.leaseToWrite);
+      }
+      return { output: acquisition.result };
+    }
+
+    @rpc<ReleaseSessionTerminalLeaseRequest, boolean>({
+      name: "release_session_terminal_lease",
+      inputCodec: releaseSessionTerminalLeaseRequestCodec,
+      outputCodec: booleanCodec,
+      lockAttributes: [persistence.sessionTerminalLease.lock()],
+      timeoutMs: sessionTerminalLeaseRpcTimeoutMs,
+    })
+    public releaseSessionTerminalLease(context: Context, input: ReleaseSessionTerminalLeaseRequest): RPCResult<boolean> {
+      if (persistence.sessionTerminalLease.get(context)?.holderId !== input.holderId) {
+        return { output: false };
+      }
+      persistence.sessionTerminalLease.delete(context);
       return { output: true };
     }
 

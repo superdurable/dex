@@ -20,14 +20,21 @@ Dex saves each `WaitFor` or `Execute` call on its own. It saves the call's
 Attribute writes and Channel publications together with its result, and only
 when the method succeeds. Calls to external systems are not part of this save.
 
-A Step method's changes take effect all at once. They are not protected from
-other Steps and RPCs, though. A method reads the Flow state as it was when Dex
-handed the method to a Worker. Other Steps and RPCs can change that state
-before the method's changes take effect. Dex does not check that the values
-the method read are still current. So two Steps or RPCs that read and then
-write the same Attribute can overwrite each other's update. To prevent this,
-have both declare a lock on that Attribute. Dex then runs them one at a time.
-See [Attribute locks](/concepts/primitives/attribute#locking).
+A method reads the state as of dispatch; Dex does not recheck it at commit. Two
+methods that read then write one Attribute must both lock it. See
+[Attribute locks](/concepts/primitives/attribute#locking).
+
+### State snapshot {#state-snapshot}
+
+A method's **state snapshot** is the Flow state that Dex passes to it: every
+ordinary Attribute, the size of every Channel, and the AttributeMap values and
+pending Channel messages that its `StepOptions` select. Dex takes it when it
+hands attempt 1 to a Worker. A retry of `Execute` reuses that snapshot, so it
+does not see Attribute writes made since then. To wait for such a write, have
+the writer publish a Channel message, and wait for it in the next Step's
+`WaitFor`. Hard-delete Attributes are the exception: Dex reads them again on
+every attempt. See
+[Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
 
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>
@@ -48,8 +55,6 @@ SDK:
   a Worker had.
 - **Heartbeats are fire-and-forget.** A heartbeat checkpoint can be lost, so a
   rerun can start from an older checkpoint.
-- **A canceled method keeps running.** Dex does not stop its code. Its
-  external calls still take effect.
 - **An ASYNC Step can repeat an attempt.** See
   [SYNC and ASYNC Steps](#sync-and-async).
 - **Retries can run out without an answer.** The recovery Step then learns
@@ -101,9 +106,19 @@ Attribute writes, its Channel publications, and its decision. What its
 starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
 say what happens to the messages a canceled Step consumed.
 
-A canceled method's code keeps running until the method returns. The method
-should check for cancellation and return. See
+A canceled method's code keeps running until the method returns, and its
+external calls still take effect. The method should check for cancellation and
+return. See
 [Step cancellation](/reference/server/step-and-flow-close#step-cancellation).
+
+<a id="cancel-a-publishing-step"></a>A canceled Step publishes nothing, and
+its failure route does not run. The Step or RPC that cancels it cannot publish
+on its behalf either. Dex decides which Steps to cancel only when it saves the
+result that cancels them. By then the canceled Step may already have
+published. So do not cancel a Step whose publications other Steps depend on,
+such as the token holder in a [Critical Section](/design-patterns/critical-section).
+To stop such a Step early, send it a stop request that it checks, such as an
+Attribute that an RPC sets.
 
 `GracefulComplete` ends its own branch and asks Dex to complete the Flow once no
 Step is active. The request stays in force: a later branch that ends with

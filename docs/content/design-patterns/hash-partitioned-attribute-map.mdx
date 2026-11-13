@@ -11,13 +11,9 @@ Use this pattern when records have a stable lookup key and each record contains 
 
 ## Stable partition algorithm
 
-Every SDK uses the same algorithm:
-
-1. Require a non-empty ASCII email address.
-2. Remove leading and trailing ASCII whitespace.
-3. Lowercase ASCII letters from A through Z.
-4. Calculate 32-bit FNV-1a over the canonical email bytes with wrapping overflow.
-5. Select **hash modulo 1000** and format the instance from **partition-000** through **partition-999**.
+Every SDK canonicalizes the email, hashes it with 32-bit FNV-1a, and selects
+**hash modulo 1000** as the partition; see
+[Hash partition algorithm](/reference/server/runtime-data#hash-partition-algorithm).
 
 A hash collision only places several emails in one partition. The dictionary still tells the records apart by their complete canonical email.
 

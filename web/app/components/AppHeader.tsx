@@ -86,9 +86,9 @@ export function AppHeader() {
       </a>
       <nav className="header-nav" aria-label="Primary navigation">
         <span className="header-nav-spacer" />
-        <span className="connection-pill" title="Dex server">
+        <span className="connection-pill" title="Dex Server">
             <span className="connection-dot" />
-            <span className="connection-label">Dex server</span>
+            <span className="connection-label">Dex Server</span>
         </span>
         <a
           className="header-docs-link"

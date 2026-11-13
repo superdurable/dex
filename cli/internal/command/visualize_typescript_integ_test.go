@@ -11,6 +11,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/cli/internal/flowviz"
+	"github.com/superdurable/dex/web"
+	"github.com/superdurable/dex/web/assets"
 )
 
 func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
@@ -55,8 +58,6 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 					continue
 				}
 				switch diagnostic.Code {
-				case "typescript_wait_for_unsupported":
-					require.Contains(t, string(contents), "waitFor(")
 				case "multiple_flows":
 					require.Greater(t, strings.Count(string(contents), "getSteps("), 1)
 				case "hidden_dex_decision":
@@ -69,6 +70,9 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 			}
 			require.Equal(t, hiddenDecisionSources[filepath.ToSlash(relative)], hasHiddenDecision)
 			require.Equal(t, !hasUnsupportedFeature, graph.Valid, graph.Diagnostics)
+			// NewFlowRenderingServer validates the graph as Dex Web does.
+			_, err = web.NewFlowRenderingServer(&web.Config{BindAddress: "127.0.0.1"}, first, assets.Files)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -118,6 +122,68 @@ func hasDecisionEdge(graph *flowviz.Graph, stepID string, kind string, target st
 		}
 	}
 	return false
+}
+
+func TestVisualizeTypeScriptCompilerFlagOverridesEnvironment(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts")
+	compilerDirectory := filepath.Join(repositoryRoot, "web", "node_modules", "typescript")
+	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("NODE_PATH", "")
+	emptyFlag := ""
+	cases := map[string]struct {
+		flagDirectory *string
+		environment   map[string]string
+		errorMessage  string
+		exitCode      int
+	}{
+		"environment only":           {environment: map[string]string{"DEX_TYPESCRIPT_COMPILER": compilerDirectory}},
+		"flag wins over environment": {flagDirectory: &compilerDirectory, environment: map[string]string{"DEX_TYPESCRIPT_COMPILER": missingDirectory}},
+		"invalid flag is reported": {
+			flagDirectory: &missingDirectory,
+			environment:   map[string]string{"DEX_TYPESCRIPT_COMPILER": compilerDirectory},
+			errorMessage:  "TypeScript compiler directory " + missingDirectory,
+			exitCode:      1,
+		},
+		"invalid environment value": {
+			environment:  map[string]string{"DEX_TYPESCRIPT_COMPILER": missingDirectory},
+			errorMessage: "TypeScript compiler directory " + missingDirectory,
+			exitCode:     1,
+		},
+		"empty flag fails closed": {
+			flagDirectory: &emptyFlag,
+			environment:   map[string]string{"DEX_TYPESCRIPT_COMPILER": compilerDirectory},
+			errorMessage:  "--typescript-compiler requires a typescript package directory",
+			exitCode:      2,
+		},
+		"empty environment value fails closed": {
+			environment:  map[string]string{"DEX_TYPESCRIPT_COMPILER": ""},
+			errorMessage: "DEX_TYPESCRIPT_COMPILER is set but empty",
+			exitCode:     2,
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
+			app.lookupEnv = generatedAtTestEnvironment(testCase.environment)
+			arguments := []string{"visualize", source, "--json", "--out", "-"}
+			if testCase.flagDirectory != nil {
+				arguments = append(arguments, "--typescript-compiler="+*testCase.flagDirectory)
+			}
+			err := app.Execute(context.Background(), arguments)
+			if testCase.errorMessage != "" {
+				require.ErrorContains(t, err, testCase.errorMessage)
+				require.Equal(t, testCase.exitCode, ExitCode(err))
+				require.Empty(t, stdout.String())
+				return
+			}
+			require.NoError(t, err)
+			var graph flowviz.Graph
+			require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
 }
 
 func typeScriptExampleFlowSources(t *testing.T, repositoryRoot string) []string {

@@ -1,0 +1,144 @@
+{
+  "description": "The lines a CLI command prints while it waits for a session that another terminal has open, and when another terminal takes the session from it. Hand-written for the CLI cores. Every line goes to standard error. The animated form is used when standard error is a terminal and TERM is set and is not dumb; otherwise the plain form. The animated line is redrawn in place every frame_interval_ms: the command writes redraw_prefix, then the line, with no newline. A line longer than columns minus 1 Unicode code points keeps its first columns minus 2 code points and ends with an ellipsis; columns is the terminal width, or default_columns when it is unknown. When the command gets the session, it writes redraw_prefix to clear the animated line, then took_over_line and a newline. The plain form writes plain_waiting_line once when the wait starts and took_over_line once when it ends; the holder in plain_waiting_line is the first one seen. A command that gets the session at once prints none of these lines. The command asks again every retry_interval_ms. Ctrl-C while waiting clears the animated line and exits with interrupted_exit_code. since is the local time, HH:MM, of the lease's opened_at. elapsed is whole minutes, a colon, and two-digit seconds, counted from the start of the wait. A chat whose lease another terminal took prints lease_lost_line and exits with lease_lost_exit_code.",
+  "spinner_frames": [
+    "⠋",
+    "⠙",
+    "⠹",
+    "⠸",
+    "⠼",
+    "⠴",
+    "⠦",
+    "⠧",
+    "⠇",
+    "⠏"
+  ],
+  "frame_interval_ms": 100,
+  "retry_interval_ms": 1000,
+  "redraw_prefix": "\r\u001b[2K",
+  "default_columns": 80,
+  "interrupted_exit_code": 130,
+  "lease_lost_exit_code": 1,
+  "templates": {
+    "holder": "{host_name}, pid {process_id}, since {since}",
+    "elapsed": "{minutes}:{seconds:02}",
+    "animated_waiting_line": "{frame} Session {session_id} is open in another terminal ({holder}) · waiting {elapsed} · Ctrl-C to quit",
+    "plain_waiting_line": "Session {session_id} is open in another terminal ({holder}) · waiting · Ctrl-C to quit",
+    "took_over_line": "Took over session {session_id}.",
+    "lease_lost_line": "Session {session_id} is now open in another terminal ({holder}); this chat stopped."
+  },
+  "animated_waiting_cases": [
+    {
+      "name": "the example line",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "since": "20:31",
+      "elapsed_seconds": 12,
+      "frame_index": 2,
+      "columns": 200,
+      "line": "⠹ Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, pid 4242, since 20:31) · waiting 0:12 · Ctrl-C to quit"
+    },
+    {
+      "name": "the first frame at once",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "since": "20:31",
+      "elapsed_seconds": 0,
+      "frame_index": 0,
+      "columns": 200,
+      "line": "⠋ Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, pid 4242, since 20:31) · waiting 0:00 · Ctrl-C to quit"
+    },
+    {
+      "name": "minutes past an hour stay minutes",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "since": "09:05",
+      "elapsed_seconds": 3725,
+      "frame_index": 9,
+      "columns": 200,
+      "line": "⠏ Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, pid 4242, since 09:05) · waiting 62:05 · Ctrl-C to quit"
+    },
+    {
+      "name": "the frame index wraps",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "since": "20:31",
+      "elapsed_seconds": 59,
+      "frame_index": 12,
+      "columns": 200,
+      "line": "⠹ Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, pid 4242, since 20:31) · waiting 0:59 · Ctrl-C to quit"
+    },
+    {
+      "name": "a narrow terminal cuts the line",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "since": "20:31",
+      "elapsed_seconds": 12,
+      "frame_index": 2,
+      "columns": 80,
+      "line": "⠹ Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, …"
+    },
+    {
+      "name": "a very narrow terminal",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "h",
+      "process_id": 1,
+      "since": "00:00",
+      "elapsed_seconds": 1,
+      "frame_index": 1,
+      "columns": 20,
+      "line": "⠙ Session builtin-…"
+    }
+  ],
+  "plain_waiting_cases": [
+    {
+      "name": "the example",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "since": "20:31",
+      "line": "Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, pid 4242, since 20:31) · waiting · Ctrl-C to quit"
+    }
+  ],
+  "took_over_cases": [
+    {
+      "name": "the example",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "line": "Took over session builtin-20261113-203123-3efeb4."
+    }
+  ],
+  "lease_lost_cases": [
+    {
+      "name": "the example",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "host_name": "host-b",
+      "process_id": 77,
+      "since": "21:02",
+      "line": "Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped."
+    }
+  ],
+  "since_cases": [
+    {
+      "name": "whole seconds",
+      "opened_at": "2026-11-13T20:31:59Z",
+      "time_zone": "UTC",
+      "since": "20:31"
+    },
+    {
+      "name": "fractional seconds",
+      "opened_at": "2026-11-13T04:05:06.123456Z",
+      "time_zone": "UTC",
+      "since": "04:05"
+    },
+    {
+      "name": "another time zone",
+      "opened_at": "2026-11-13T20:31:00Z",
+      "time_zone": "Asia/Tokyo",
+      "since": "05:31"
+    }
+  ]
+}

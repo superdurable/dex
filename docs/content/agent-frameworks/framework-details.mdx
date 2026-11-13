@@ -24,7 +24,7 @@ The Claude Agent SDK runs Claude Code as an agent. Its agent loop runs in the Cl
 
 Use it when you want the Claude Code agent loop, its context management, and its tools. Use it when your agent already uses the Claude Agent SDK.
 
-Use the [built-in agent loop](/agent-frameworks/built-in-agent-loop) when you want one model call per Step, parallel tool Steps, or Dex compaction.
+Use the [built-in agent loop](/agent-frameworks/built-in-agent-loop) when you want one model call per Step, parallel tool Steps, or context compaction by Dex.
 
 **How a session runs**
 
@@ -109,7 +109,7 @@ Pi is a TypeScript toolkit for agents. Its **pi-ai** package calls models from m
 
 Use it when your agent already uses pi-ai models and Pi tools. Keep the models and the tools, and let Dex own the session and the loop.
 
-Use it also when you move an agent from **pi-durable**, a durable harness for Pi, to Dex. Dex replaces pi-durable, not Pi. Your pi-ai models and most of your Pi tools carry over. The harness entry code changes: `Harness.open`, the root conversation, `submit`, and `wait` become a session Flow, a Worker, and Client calls. A compatibility layer for the pi-durable API is tracked in [issue 1571](https://github.com/superdurable/dex/issues/1571).
+Use it also when you move an agent from **pi-durable**, a durable harness for Pi, to Dex. Dex replaces pi-durable, not Pi. Your pi-ai models and most of your Pi tools carry over. The harness entry code changes: `Harness.open`, the root conversation, `submit`, and `wait` become a session Flow, a Worker, and Client calls.
 
 **How a session runs**
 
@@ -161,7 +161,7 @@ Some session features depend on the harness:
 | Feature | Framework adapters | Built-in agent loop and Pi |
 | --- | --- | --- |
 | Queued messages, **Steer**, and `cancel_turn` | Yes | Yes |
-| Dex compaction of old messages | Yes, except the Claude Agent SDK | Yes |
+| Context compaction by Dex | Yes, except the Claude Agent SDK | Yes |
 | Questions to the user (`ask_user`) | No | Yes |
 | Plans (plan mode and `execute_plan`) | No | Yes |
 
@@ -175,7 +175,7 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 - One write call per segment leaves the turn. A reply with two writes costs one more segment and model call. The writes of one reply never run as parallel Steps.
 - Tools that run inside the CLI, such as **Bash** or **Edit**, are at least once. They run again when a segment reruns. Files the CLI changes are not recorded.
 - A segment must finish within the `RunModel` method timeout, 15 minutes by default. Raise it with `run_model_limit` in Python or `runModelLimit` in TypeScript.
-- Claude Code compacts its own transcript, and Dex compaction stays off. A long session ends at the state limit, not the context window: the active state of one session, 64 MiB by default ([Session limits](/reference/agents/session-limits)).
+- Claude Code compacts its own transcript, and context compaction by Dex stays off. A long session ends at the state limit, not the context window: the active state of one session, 64 MiB by default ([Session limits](/reference/agents/session-limits)).
 - A recorded tool result keeps text only.
 - A write call inside a subagent is denied. The model is asked to call it from the main conversation.
 

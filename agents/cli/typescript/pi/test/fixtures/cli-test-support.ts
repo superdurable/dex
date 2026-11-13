@@ -208,6 +208,8 @@ export class TestHome {
   public readonly directory: string;
   /** The provider variables every process gets: unless a test removes it, the mock key. */
   public readonly providerEnvironment: Record<string, string>;
+  /** More variables of every command process, applied last, such as a short session lease. */
+  public readonly extraEnvironment: Record<string, string> = {};
   /** The command's `PATH`; defaults to the test process's. */
   public searchPath: string = process.env.PATH ?? "";
 
@@ -339,6 +341,7 @@ export class TestHome {
       HTTP_PROXY: this.proxyUrl,
       NO_PROXY: "127.0.0.1,localhost",
       ...this.providerEnvironment,
+      ...this.extraEnvironment,
     };
   }
 

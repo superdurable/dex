@@ -426,14 +426,52 @@ whose name is not a field or a Step or Flow method that Dex calls. The analyzer 
 follow objects into other modules.
 Decisions hidden in callbacks remain unsupported.
 
-TypeScript analysis loads the `typescript` package only from the source
-project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
+By default, TypeScript analysis loads the `typescript` package that the source
+project resolves (`node_modules`, a parent directory, a package self-reference,
+or `NODE_PATH`), and that package runs as code. For untrusted source, pass a
+trusted `typescript` package directory with `--typescript-compiler` or
+`DEX_TYPESCRIPT_COMPILER`. The analyzer then loads only that package, in a
+Node.js process without `NODE_*` environment variables. An empty value is a
+usage error. `node` comes from `PATH`, so keep the analyzed tree's directories
+out of `PATH`. The analyzer reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,
 `forceCompleteIfChannelsEmpty`, and cancellation decisions, plus
-`ExecuteFailure.proceedTo` in `getStepOptions`. WaitFor
-(`typescript_wait_for_unsupported`), several Flows in one file
-(`multiple_flows`), RPC and timeout handlers, handler resource access, SubFlows,
-and Version 2.0 views are not analyzed yet. See the [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
+`ExecuteFailure.proceedTo` in `getStepOptions`. For `waitFor`, RPC handlers,
+`handleTimeout`, and resource access it accepts an explicit list of shapes and
+blocks every other shape:
+
+- A Wait is a `Wait` factory call in the `return`, or a `const` declared
+  directly in `waitFor` that is only returned. Each argument is a condition
+  call written in place: `Timer.byDuration`, `SubFlow.run`,
+  `ConditionCombination.of`, or a Channel, ChannelMap, or Join condition on a
+  resource reference. A `waitFor` that only throws is a failure Wait.
+- An RPC returns an `RPCResult` object literal, nothing, or a call to a Flow
+  method or file function. `nextSteps` and `cancelingSteps` are array literals
+  in that object, or a block `const` array literal referenced only there.
+  `handleTimeout` follows the Execute rules.
+- A resource reference is a module-level resource name, including a
+  module-level alias, or a `this` field chain that leads to one. An access
+  calls a method by name or string literal key on it, directly in the handler
+  or helper body. A `bufferedText` writer is a `const` used only by calling its
+  methods. Method and function declarations called directly by name are
+  followed six calls deep unless they call themselves or reassign or
+  destructure a parameter.
+- Every `return` ends its path, and unreachable statements add nothing.
+
+Other shapes report `hidden_dex_wait`, `dynamic_wait_condition`,
+`hidden_dex_decision`, `dynamic_step_target`, or `dynamic_resource_access`.
+The last one covers resource access in nested functions, calls on local
+aliases, helpers used as values or through `call`, `apply`, or `bind`, writes
+to resource members, classes that extend resource classes, and a resource
+method called with a Dex `Context` on a receiver that is not a resource
+reference. Literals, functions, and new `Map`, `WeakMap`, `Set`, and similar
+builtins are not checked. The graph describes source written in these shapes in
+good faith; for untrusted source the guarantee is that the analyzer never runs
+it with `--typescript-compiler`. The graph uses the Go analyzer's node IDs and
+Wait types. Several Flows in one file report `multiple_flows` with one unknown
+node per Flow, as in Go and Python. Version 2.0 Indexed Attributes, Summary,
+Display, and start-input schemas are not analyzed yet. See the
+[Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
 recursive start-input schema. The analyzer follows JSON field names, ignored

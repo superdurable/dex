@@ -49,8 +49,180 @@ Session 把对话保存在 Attribute 中。Session 等待下一条用户消息�
 
 长期 memory，例如用户的偏好或过往订单，请保存在你自己掌控的存储中。它可以是你的数据库，也可以是你为每个用户保留的一个 Flow。给 Agent 一个读取它的 tool，以及一个使用合适 [policy](/agent-frameworks/tool-calls#tool-policies-and-approvals) 写入它的 tool。
 
-已停止的 Session 在保留期内仍然可读，之后 Dex 会删除它。默认值见 [History and retention](/reference/agents/session-limits#history)（英文）。
+已停止的 Session 默认在 7 天内仍可读取，之后 server 可能删除它。怎样修改见 [Retention](/reference/server/configuration#retention)（英文）。
 
+## 只发送一次消息 {#send-a-message-once}
+
+`send_user_message` 是 RPC。响应丢失后，如果你的代码再次发送，Dex 会再次运行这个 RPC，同一条消息就可能排队两次。[RPC 的保证](/concepts/primitives/rpc#guarantees)解释原因，[部署期间的 RPC](/agent-frameworks/production#rpcs-during-a-deploy)说明什么时候会发生。
+
+下面这个辅助函数只发送一次消息。每个标签页都展示完整模块。它重试可能没有送达的发送，每次重试前检查 Session，并删除多出的排队副本。它按文本区分消息，所以用户每发一条消息就调用它一次。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/safe_send.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-safe-send.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+"""Sends a user message to a session once, even when a send must be retried."""
+from __future__ import annotations
+
+import asyncio
+from typing import Protocol
+
+import grpc  # type: ignore[import-untyped]
+from dex import DexServiceError
+from dex_agents import AgentSnapshot, MessageRole
+
+# A lost response leaves a send's outcome unknown; these codes mean "check first".
+UNCERTAIN_CODES = (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)
+
+class MessageSessions(Protocol):
+    async def get_agent_snapshot(self, session_id: str) -> AgentSnapshot: ...
+
+    async def send_user_message(self, session_id: str, text: str) -> bool: ...
+
+    async def delete_queued_message(self, session_id: str, message_id: str) -> bool: ...
+
+async def send_user_message_once(
+    sessions: MessageSessions,
+    session_id: str,
+    text: str,
+    *,
+    attempts: int = 5,
+    retry_delay_seconds: float = 1.0,
+) -> None:
+    """Queues one user message, retrying a failed send without queuing it twice.
+
+    Before each retry it reads the session, and stops when a new copy of the
+    text is there. At the end it deletes any extra queued copy. It tells
+    messages apart by their text, so call it once for each message a user sends.
+
+    Raises:
+        DexServiceError: When no attempt reached a Worker, or on any other error.
+    """
+    copies_before = _copies(await sessions.get_agent_snapshot(session_id), text)
+    for attempt in range(1, attempts + 1):
+        try:
+            await sessions.send_user_message(session_id, text)
+            break
+        except DexServiceError as error:
+            if error.code not in UNCERTAIN_CODES or attempt == attempts:
+                raise
+        await asyncio.sleep(retry_delay_seconds)
+        if _copies(await sessions.get_agent_snapshot(session_id), text) > copies_before:
+            break
+    await _delete_extra_copies(sessions, session_id, text, copies_before + 1)
+
+async def _delete_extra_copies(
+    sessions: MessageSessions, session_id: str, text: str, wanted: int
+) -> None:
+    snapshot = await sessions.get_agent_snapshot(session_id)
+    extra = _copies(snapshot, text) - wanted
+    queued = [item for item in snapshot.queued_messages if item.message.text == text]
+    if extra <= 0:
+        return
+    for item in reversed(queued[max(0, len(queued) - extra) :]):
+        await sessions.delete_queued_message(session_id, item.message_id)
+
+def _copies(snapshot: AgentSnapshot, text: str) -> int:
+    delivered = sum(
+        1 for message in snapshot.messages if message.role == MessageRole.USER and message.text == text
+    )
+    queued = sum(1 for item in snapshot.queued_messages if item.message.text == text)
+    return delivered + queued
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+// Queues one user message without queuing it twice when a send is retried.
+
+import { DexServiceError, type Client } from "@superdurable/dex";
+import {
+  readAgentSnapshot,
+  sendAgentUserMessage,
+  type AgentSessionFlow,
+  type AgentSnapshot,
+} from "@superdurable/dex-agents";
+
+// gRPC codes UNAVAILABLE and DEADLINE_EXCEEDED: the send may or may not have arrived.
+const UNCERTAIN_CODES: readonly number[] = [14, 4];
+
+export interface MessageSessions {
+  getAgentSnapshot(sessionId: string): Promise<AgentSnapshot>;
+  sendUserMessage(sessionId: string, text: string): Promise<boolean>;
+  deleteQueuedMessage(sessionId: string, messageId: string): Promise<boolean>;
+}
+
+export function messageSessions(client: Client, flow: AgentSessionFlow): MessageSessions {
+  return {
+    getAgentSnapshot: (sessionId) => readAgentSnapshot(client, flow, sessionId),
+    sendUserMessage: (sessionId, text) => sendAgentUserMessage(client, flow, sessionId, { text }),
+    deleteQueuedMessage: (sessionId, messageId) =>
+      client.invokeRPC(flow.deleteQueuedMessage, sessionId, { messageId }),
+  };
+}
+
+/**
+ * Queues one user message, retrying a failed send without queuing it twice.
+ * Before each retry it reads the session and stops when a new copy of the text is there.
+ * At the end it deletes any extra queued copy. It tells messages apart by their text,
+ * so call it once for each message a user sends.
+ */
+export async function sendUserMessageOnce(
+  sessions: MessageSessions,
+  sessionId: string,
+  text: string,
+  { attempts = 5, retryDelayMs = 1_000 }: { attempts?: number; retryDelayMs?: number } = {},
+): Promise<void> {
+  const copiesBefore = countCopies(await sessions.getAgentSnapshot(sessionId), text);
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await sessions.sendUserMessage(sessionId, text);
+      break;
+    } catch (error) {
+      const isUncertain = error instanceof DexServiceError && UNCERTAIN_CODES.includes(error.code);
+      if (!isUncertain || attempt === attempts) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    if (countCopies(await sessions.getAgentSnapshot(sessionId), text) > copiesBefore) {
+      break;
+    }
+  }
+  await deleteExtraCopies(sessions, sessionId, text, copiesBefore + 1);
+}
+
+async function deleteExtraCopies(
+  sessions: MessageSessions,
+  sessionId: string,
+  text: string,
+  wanted: number,
+): Promise<void> {
+  const snapshot = await sessions.getAgentSnapshot(sessionId);
+  const extra = countCopies(snapshot, text) - wanted;
+  if (extra <= 0) {
+    return;
+  }
+  const queued = (snapshot.queuedMessages ?? []).filter((item) => item.message.text === text);
+  for (const item of queued.slice(Math.max(0, queued.length - extra)).reverse()) {
+    await sessions.deleteQueuedMessage(sessionId, item.messageId);
+  }
+}
+
+function countCopies(snapshot: AgentSnapshot, text: string): number {
+  const delivered = snapshot.messages.filter((message) => message.role === "user" && message.text === text).length;
+  const queued = (snapshot.queuedMessages ?? []).filter((item) => item.message.text === text).length;
+  return delivered + queued;
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 <a id="how-each-framework-runs-a-turn"></a>
 <a id="features-by-harness"></a>

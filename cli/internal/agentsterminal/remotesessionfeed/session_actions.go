@@ -166,12 +166,41 @@ func (feed *RemoteSessionFeed) switchSession(ctx context.Context, request sessio
 	}
 	feed.switchGate.Lock()
 	defer feed.switchGate.Unlock()
+	if feed.launch.Capabilities.HasLauncherSessionSwitch {
+		feed.handOffSessionSwitch(request)
+		return nil
+	}
 	feed.stateMutex.Lock()
 	feed.sessionID = request.SessionID
 	feed.attachedImages = 0
 	feed.imageRequests, feed.cancelImageRequests = context.WithCancel(context.Background())
 	feed.stateMutex.Unlock()
 	return feed.postInput(ctx, sessionSwitchRequested{sessionID: request.SessionID, isResumed: request.IsResumed})
+}
+
+// handOffSessionSwitch keeps the first switch for the launcher, which opens
+// that session after dexcli exits.
+func (feed *RemoteSessionFeed) handOffSessionSwitch(request sessionfeed.SwitchSession) {
+	feed.stateMutex.Lock()
+	isFirst := feed.handedOffSwitch == nil
+	if isFirst {
+		feed.handedOffSwitch = &request
+	}
+	feed.stateMutex.Unlock()
+	if isFirst {
+		feed.emit(sessionfeed.SessionSwitchHandedOff{SessionID: request.SessionID})
+	}
+}
+
+// HandedOffSessionSwitch returns the switch the launcher must open, once the
+// chat ended; isHandedOff is false when the chat ended without one.
+func (feed *RemoteSessionFeed) HandedOffSessionSwitch() (request sessionfeed.SwitchSession, isHandedOff bool) {
+	feed.stateMutex.Lock()
+	defer feed.stateMutex.Unlock()
+	if feed.handedOffSwitch == nil {
+		return sessionfeed.SwitchSession{}, false
+	}
+	return *feed.handedOffSwitch, true
 }
 
 // postInput hands an input to the session loop.

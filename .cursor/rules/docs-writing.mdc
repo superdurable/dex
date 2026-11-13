@@ -103,7 +103,7 @@ These rules come from the docs revisit plan,
 | --- | --- |
 | Concept | Opening, When to use it, Guarantees, The smallest example, Common tasks, Reference links |
 | Design pattern | Use it when (one sentence and one scenario), Flow graph, How it works, Code, Rules and pitfalls, Related |
-| Product example | Goal, Requirements in product terms only, Flow design, Implementation, Run it |
+| Product example | A "Shows:" line, Flow graph, Product requirements in product terms only, Flow design, Implementation, Run it |
 | Framework page | What the adapter does, Install, How a turn maps to Steps, How this framework differs, Limits |
 | How-to and operate | Goal, Before you start, Numbered steps with expected output, Check it worked, Troubleshooting |
 | Comparison | What they share, then for each tool: term map, the same example, differences, when the other fits |
@@ -151,10 +151,11 @@ can skip a Timer".
   Clicking a sidebar group header opens that group's overview page, which is not
   listed again under it and is titled with the group's name; no item is labelled
   "Overview". Every page in the reading sequence (not a group overview, the home
-  page, Get Started, or the Glossary) ends with one section named Next (下一步),
-  and following its first link gives a linear reading order. The home page and
-  Get Started link straight to the one page that does each job, with no ordered
-  reading lists. `npm run lint:structure` (tests/docs-structure.mjs) enforces this.
+  page, or the Glossary) ends with one section named Next (下一步), and
+  following its first link gives a linear reading order. The home page links
+  straight to the one page that does each job, with no ordered reading lists.
+  The Quick Start group's header opens the Quick Start tutorial, which owns the
+  install; it is the one exception to the wayfinder rule. `npm run lint:structure` (tests/docs-structure.mjs) enforces this.
 
 ### Formatting, code, and diagrams
 

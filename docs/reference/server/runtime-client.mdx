@@ -328,6 +328,29 @@ DescribeFlow does not wait for the Flow to finish. Use it for a one-off status c
 after a read-only RPC returns a non-terminal business state. A missing ID, or an
 ID that does not belong to a Flow, returns a typed Flow-not-found error.
 
+## Read open Step executions {#read-open-step-executions}
+
+**GetFlowState** reads the open Step executions of the current or latest Flow
+run. It reads committed state once and does not wait.
+
+- Each open Step execution reports its Step type, Step execution ID, and
+  whether a WaitFor or Execute call is open or the Step waits for its
+  conditions.
+- An open call reports its attempt and whether it is pending, running, or
+  waiting for its retry backoff.
+- While a Step method retries, the open call reports its latest failed
+  attempt: the attempt number, the Worker error type, the message, and the
+  stack trace when the Worker sent one. A Step that has not failed reports no
+  failure.
+- A closed run reports no open Step executions.
+- A missing Flow returns a typed Flow-not-found error.
+
+Use it to tell a Flow that is still running from one whose active Step keeps
+failing and retrying, for example in a test harness.
+
+The TypeScript Client exposes it as **getFlowState** since 1.45.1. Other SDKs
+reach it through their generated FlowService client.
+
 <a id="搜索-flow"></a>
 
 ## Search Flows {#search-flows}
@@ -445,10 +468,17 @@ uploads count as **flow_write**, and lists and gets as **flow_read**.
 ## Time travel {#time-travel}
 
 Time travel creates a new attempt of a Flow run from a point in its history.
-The FlowService call is **ResetFlow**. The Flow run keeps its Run ID. The point must be inside the
+The FlowService call is **ResetFlow**; the docs call it Time Travel. The Flow
+run keeps its Run ID. It restores the run's state at the target point: its
+Attributes, its Channel messages, and the Steps that were waiting or ready. The point must be inside the
 [recent history window](/reference/server/configuration#history-window);
 otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
+
+By default, the window keeps about the newest 50,000 history events of each
+run on **serve**, and 5,000 on **dev**. The server key is
+**history.windowEvents**, and a Flow can set its own size in its Flow
+configuration.
 
 Write reapply is on by default. It applies again the RPC calls, Channel
 publications, and Attribute writes that reached the run after the target point.
@@ -456,6 +486,6 @@ While it is on, **ResetFlow** keeps those writes in memory, to apply them again.
 those writes. A long Flow run with large values can exceed the replay budget
 even when the target state is small. The request then fails with
 **RESOURCE_EXHAUSTED** and changes nothing. Set **skip_writes_reapply** to
-**true** if those writes should not be applied again. Or raise
+**true** (`dexcli flow time-travel -skip-writes-reapply`) if those writes should not be applied again. Or raise
 [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
 and restart the node before you retry.

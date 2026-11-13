@@ -304,6 +304,77 @@
       }
     },
     {
+      "name": "chat-launcher-session-switch",
+      "description": "The launcher opens the session a switch names. dexcli 1.47.2 reads it; older releases ignore it and switch in place.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml",
+          "models": [
+            "gpt-5.2",
+            "gpt-5-mini",
+            "gpt-5-nano"
+          ]
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true,
+          "reasoning_effort": {
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "launcher_session_switch": true
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
       "name": "chat-tls",
       "description": "TLS with a CA file and server name.",
       "terminal_ui_environment": {},
@@ -1846,6 +1917,80 @@
         "code": "invalid_launch",
         "path": "/capabilities/images",
         "keyword": "required"
+      }
+    },
+    {
+      "name": "launcher-session-switch-not-boolean",
+      "description": "capabilities.launcher_session_switch is a boolean.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml",
+          "models": [
+            "gpt-5.2",
+            "gpt-5-mini",
+            "gpt-5-nano"
+          ]
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true,
+          "reasoning_effort": {
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "launcher_session_switch": "yes"
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "exit_code": 2,
+        "code": "invalid_launch",
+        "path": "/capabilities/launcher_session_switch",
+        "keyword": "type"
       }
     },
     {

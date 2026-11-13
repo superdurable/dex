@@ -13,7 +13,7 @@ Dex 可以运行用八个框架构建的 Agent，还有它自己的内置 Agent 
 
 <a id="how-each-framework-runs-a-turn"></a>
 
-| 框架 | 语言 | 每个 tool call 有自己的 Step | Dex 压缩 | 提问和计划 |
+| 框架 | 语言 | 每个 tool call 有自己的 Step | 由 Dex 压缩上下文 | 提问和计划 |
 | --- | --- | --- | --- | --- |
 | Claude Agent SDK | Python、TypeScript | 写入和 Connector 调用。读取在模型调用的 Step 里运行。 | 否。Claude Code 自己压缩 transcript。 | 否 |
 | Google ADK | Python | 是 | 是 | 否 |

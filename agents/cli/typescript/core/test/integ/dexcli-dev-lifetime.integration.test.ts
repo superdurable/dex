@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { constants } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
@@ -17,6 +18,8 @@ import { readCliEnvironment, readStartedDexcliDev } from "../../src/index.js";
 import { CliProcess, TestHome, assertNoStartedServerLeft, enginePorts } from "../fixtures/cli-test-support.js";
 
 const config = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
+/** An hour-long lease, so only an explicit release frees a session within a test. */
+const longLease = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3600" };
 const stoppedLine = "Stopped the dexcli dev this command started.";
 const startedLine = /dexcli dev is ready \(pid (\d+)\); it stops when this command exits\. To share one dexcli dev across sessions, run dexcli dev yourself first\./;
 
@@ -119,6 +122,85 @@ describe("The dexcli dev a command started stops when it exits; a reused one kee
     assert.equal(await cli.waitForExit(), 143);
     assert.match(cli.stderr.all, /Stopped the dexcli dev this command started\./);
     await assertStopped(home, pid);
+  });
+
+  /** Starts a later command on the session; only an explicit release lets it open without waiting an hour. */
+  async function assertLeaseReleased(home: TestHome, sessionId: string): Promise<void> {
+    const resumed = track(CliProcess.start(home, ["--resume", sessionId], longLease));
+    await startedPid(resumed.stderr);
+    assert.equal(await resumed.waitForSession(), sessionId);
+    assert.doesNotMatch(resumed.stderr.all, /is open in another terminal/);
+    resumed.writeLine("/exit");
+    assert.equal(await resumed.waitForExit(), 0);
+  }
+
+  /** Waits until the command logged that its release RPC left, the point where a paused server holds it. */
+  async function waitForReleaseStart(home: TestHome): Promise<void> {
+    await pollUntil(() => readLog(home).includes("releasing the session lease") || undefined, {
+      timeoutMs: 30_000,
+      description: "the command to start releasing the session lease",
+    });
+  }
+
+  for (const signal of ["SIGTERM", "SIGHUP"] as const) {
+    test(`${signal} releases the session lease before the started dexcli dev stops`, async () => {
+      const home = await newPrivateHome();
+      const cli = track(CliProcess.start(home, [], longLease));
+      const pid = await startedPid(cli.stderr);
+      const sessionId = await cli.waitForSession();
+      cli.signal(signal);
+      assert.equal(await cli.waitForExit(), 128 + constants.signals[signal]);
+      await assertStopped(home, pid);
+      await assertLeaseReleased(home, sessionId);
+    });
+  }
+
+  test("a second SIGTERM while the release waits kills the started dexcli dev and exits 143", async () => {
+    const home = await newPrivateHome();
+    const cli = track(CliProcess.start(home, [], longLease));
+    const pid = await startedPid(cli.stderr);
+    await cli.waitForSession();
+    // A paused server holds the release RPC, so the cleanup cannot finish before the second signal.
+    process.kill(-pid, "SIGSTOP");
+    try {
+      cli.signal("SIGTERM");
+      await waitForReleaseStart(home);
+      cli.signal("SIGTERM");
+      assert.equal(await cli.waitForExit(15_000), 143);
+      await pollUntil(() => !isProcessGroupAlive(pid) || undefined, {
+        timeoutMs: 10_000,
+        description: `the dexcli dev process group ${pid} to be killed`,
+      });
+      assert.equal(readStartedDexcliDev(readCliEnvironment(home.environment())), undefined);
+    } finally {
+      if (isProcessGroupAlive(pid)) {
+        process.kill(-pid, "SIGKILL");
+      }
+    }
+  });
+
+  test("a SIGTERM while the chat's own close releases the lease waits for that release and exits 143", async () => {
+    const home = await newPrivateHome();
+    const gate = join(home.directory, "lease-gate");
+    mkdirSync(gate);
+    writeFileSync(join(gate, "acquire.go"), "");
+    const cli = track(CliProcess.start(home, [], { ...longLease, DEX_AGENTS_CLI_TEST_LEASE_GATE_DIR: gate }));
+    const pid = await startedPid(cli.stderr);
+    const sessionId = await cli.waitForSession();
+    // The end of input closes the command, and its release waits at the gate.
+    cli.endInput();
+    await pollUntil(() => existsSync(join(gate, "release.reached")) || undefined, {
+      description: "the chat's release to reach the gate",
+    });
+    cli.signal("SIGTERM");
+    await pollUntil(() => readLog(home).includes("ending the command on SIGTERM") || undefined, {
+      description: "the command to start its signal exit",
+    });
+    // The signal's close must wait for the same release, not close the Client under it.
+    writeFileSync(join(gate, "release.go"), "");
+    assert.equal(await cli.waitForExit(), 143);
+    await assertStopped(home, pid);
+    await assertLeaseReleased(home, sessionId);
   });
 
   test("the sessions subcommand stops the dexcli dev it started", async () => {
@@ -242,4 +324,9 @@ async function isAnswering(home: TestHome): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function readLog(home: TestHome): string {
+  const path = join(home.directory, ".dex", "agents", "scripted.log");
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
 }

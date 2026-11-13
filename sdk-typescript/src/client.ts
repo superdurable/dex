@@ -37,10 +37,17 @@ import {
   FlowResetType as ProtoFlowResetType,
   FlowServiceClient,
   FlowStatus as ProtoFlowStatus,
+  ActiveStepPhase as ProtoActiveStepPhase,
+  StepMethodInvocationPhase as ProtoStepMethodInvocationPhase,
+  StepMethodPendingReason as ProtoStepMethodPendingReason,
+  type ActiveStepExecutionState as ProtoActiveStepExecutionState,
+  type StepMethodFailure as ProtoStepMethodFailure,
+  type StepMethodInvocationState as ProtoStepMethodInvocationState,
   IdReusePolicy as ProtoIdReusePolicy,
   IndexType as ProtoIndexType,
   ExecuteMethodFailurePolicy,
   type GetAttributesResponse,
+  type GetFlowStateResponse,
   type GetFlowSummaryResponse,
   type InvokeRPCResponse,
   type ListStreamMessagesResponse,
@@ -102,7 +109,9 @@ import {
   StopType,
   type ClientOptions,
   type FlowConfig,
+  type ActiveStepExecution,
   type FlowInfo,
+  type FlowState,
   type FlowTimeoutHandlerOptions,
   type FlowStatus,
   type InitialAttribute,
@@ -111,6 +120,9 @@ import {
   type SearchFlowsPage,
   type StartFlowOptions,
   type StepExecutionId,
+  type StepMethodFailureInfo,
+  type StepMethodInvocation,
+  type StepMethodName,
   type StopFlowOptions,
   type TimerId,
   type WaitForAttributeOptions,
@@ -882,6 +894,58 @@ export class Client {
       flowType: response.flowType,
       status: mapFlowStatus(response.flowStatus),
       startedAt: response.startTime,
+    };
+  }
+
+  /**
+   * Reads the open Step executions of the current or latest Flow run and their latest failures.
+   *
+   * Use `getFlowState` when a Flow is still running and you need to know why. It tells a healthy
+   * Flow apart from a Flow whose active Step keeps failing and retrying. Each
+   * {@link ActiveStepExecution} reports its Step type, execution number, and phase. While a
+   * WaitFor or Execute call is open, `invocation` reports its attempt and whether it is pending,
+   * running, or in retry backoff. `lastFailure` reports the latest failed attempt of that call:
+   * its attempt number, error type, message, and stack trace. A Step that has not failed has no
+   * `lastFailure`.
+   *
+   * The call reads committed server state once and does not wait. No Worker runs. Poll it, for
+   * example in a test harness, to wait for a Step to start failing. Use `waitForFlow` or
+   * `waitForStepCompletion` to wait for completion instead. A closed run stays readable until Dex
+   * purges it and reports no open Step executions.
+   *
+   * @example
+   * ```ts
+   * const state = await client.getFlowState("order-42");
+   * for (const step of state.activeStepExecutions) {
+   *   const failure = step.lastFailure;
+   *   if (failure === undefined) {
+   *     console.log(`${step.stepExecutionId} is ${step.invocation?.phase ?? step.phase}`);
+   *     continue;
+   *   }
+   *   console.log(
+   *     `${step.stepExecutionId} attempt ${failure.attempt} failed with ` +
+   *       `${failure.errorType}: ${failure.detail}; ` +
+   *       `next attempt ${step.invocation?.attempt} at ${step.invocation?.backoffFiresAt?.toISOString()}`,
+   *   );
+   * }
+   * ```
+   * @param flowId - Non-empty existing Flow ID.
+   * @returns The open Step executions of the current run, or of the latest run when no run is open.
+   * @throws {@link TypeError} before any request when `flowId` is empty, or when Dex returns a
+   * malformed Step execution ID.
+   * @throws {@link FlowNotFoundError} when the Flow does not exist.
+   * @throws {@link DexServiceError} for other service or transport failures.
+   * @since 1.45.1
+   */
+  public async getFlowState(flowId: string): Promise<FlowState> {
+    const response = await this.unary<GetFlowStateResponse>(
+      { operation: "getFlowState", flowId, requirement: "existing" },
+      (callback) => this.service.getFlowState({ flowId: requireName(flowId), runId: "" }, callback),
+    );
+    return {
+      activeStepExecutions: response.activeStepExecutions.map(
+        (step) => mapActiveStepExecution(flowId, step),
+      ),
     };
   }
 
@@ -1849,6 +1913,92 @@ function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability
     return ProtoStepDurability.STEP_DURABILITY_ASYNC;
   }
   return ProtoStepDurability.STEP_DURABILITY_UNSPECIFIED;
+}
+
+function mapActiveStepExecution(
+  flowId: string,
+  step: ProtoActiveStepExecutionState,
+): ActiveStepExecution {
+  const separator = step.stepExecutionId.lastIndexOf("-");
+  const executionNumber = Number(step.stepExecutionId.slice(separator + 1));
+  if (separator <= 0 || !Number.isSafeInteger(executionNumber) || executionNumber < 1) {
+    throw new TypeError(
+      `Dex returned a malformed Step execution ID ${JSON.stringify(step.stepExecutionId)} for Flow ${flowId}`,
+    );
+  }
+  const waitFor = mapStepMethodInvocation("waitFor", step.waitForInvocation);
+  return {
+    stepExecutionId: step.stepExecutionId,
+    stepType: step.stepType,
+    executionNumber,
+    phase: step.phase === ProtoActiveStepPhase.ACTIVE_STEP_PHASE_WAITING ? "waiting" : "active",
+    invocation: waitFor ?? mapStepMethodInvocation("execute", step.executeInvocation),
+    lastFailure: mapStepMethodFailure(step.lastFailureInfo),
+  };
+}
+
+function mapStepMethodInvocation(
+  method: StepMethodName,
+  invocation: ProtoStepMethodInvocationState | undefined,
+): StepMethodInvocation | undefined {
+  if (invocation === undefined) {
+    return undefined;
+  }
+  return {
+    method,
+    phase: mapStepMethodInvocationPhase(invocation.phase),
+    attempt: invocation.attempt,
+    pendingReason: mapStepMethodPendingReason(invocation.pendingReason),
+    pendingSince: invocation.pendingSinceTime,
+    attemptStartedAt: invocation.attemptStartedTime,
+    backoffFiresAt: invocation.backoffFiresAtTime,
+  };
+}
+
+function mapStepMethodInvocationPhase(
+  phase: ProtoStepMethodInvocationPhase,
+): StepMethodInvocation["phase"] {
+  switch (phase) {
+    case ProtoStepMethodInvocationPhase.STEP_METHOD_INVOCATION_PHASE_PENDING:
+      return "pending";
+    case ProtoStepMethodInvocationPhase.STEP_METHOD_INVOCATION_PHASE_RUNNING:
+      return "running";
+    case ProtoStepMethodInvocationPhase.STEP_METHOD_INVOCATION_PHASE_BACKOFF:
+      return "backoff";
+    default:
+      return "unspecified";
+  }
+}
+
+function mapStepMethodPendingReason(
+  reason: ProtoStepMethodPendingReason,
+): StepMethodInvocation["pendingReason"] {
+  switch (reason) {
+    case ProtoStepMethodPendingReason.STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER:
+      return "waitingForWorker";
+    case ProtoStepMethodPendingReason.STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER:
+      return "waitingForSupportingWorker";
+    case ProtoStepMethodPendingReason.STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS:
+      return "waitingForLocks";
+    default:
+      return undefined;
+  }
+}
+
+function mapStepMethodFailure(
+  failure: ProtoStepMethodFailure | undefined,
+): StepMethodFailureInfo | undefined {
+  if (failure === undefined) {
+    return undefined;
+  }
+  const details = failure.details;
+  return {
+    attempt: failure.attempt,
+    errorType: details?.originalWorkerErrorType ?? "",
+    detail: details?.originalWorkerErrorDetail || details?.detail || "",
+    stackTrace: details?.originalWorkerErrorStackTrace ?? "",
+    backendError: failure.backendError,
+  };
 }
 
 function mapFlowStatus(status: ProtoFlowStatus): FlowStatus {

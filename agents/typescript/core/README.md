@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.0
+npm i @superdurable/dex-agents @superdurable/dex@1.45.1
 ```
 
-`@superdurable/dex` 1.45.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.45.1 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -701,6 +701,29 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
 - `AgentSessionStartInput.startEnvironment` (`startAgentSession(..., { startEnvironment })`) is different: string
   keys and values that say where the starting program ran. It stays in the Flow's start input and the session never
   reads it, so it is not a setting and cannot change.
+
+## Terminal lease
+
+Since 0.6.3, the session keeps a terminal lease in the `SessionTerminalLease`
+Attribute, so a CLI command can open one session in at most one terminal.
+`acquire_session_terminal_lease` takes the lease when no terminal holds it,
+when the same `holderId` holds it, or when it expired, and stores it for
+`ttlSeconds` from the Worker's clock. Acquiring again with the same holder
+renews it and keeps `openedAt`. Otherwise it returns the other holder's lease
+and changes nothing. `release_session_terminal_lease` frees the lease only
+for its holder. Both RPCs lock `SessionTerminalLease`; a lock conflict is safe
+to retry and never means another holder took the lease. The lease only
+coordinates callers that take it: other clients still read and write the
+session.
+
+```ts
+const result = await client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+  holderId, hostName: os.hostname(), processId: process.pid, ttlSeconds: 15 });
+if (!result.isAcquired && result.lease !== null) {
+  console.log(`open on ${result.lease.hostName}, pid ${result.lease.processId}`);
+}
+await client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId });
+```
 
 ## Images
 
@@ -1604,7 +1627,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.45.1 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or

@@ -57,11 +57,12 @@ only when a section genuinely doesn't apply.
   pointers elsewhere and caveats go at the end of the section or in Next.
   Charts use short labels, not sentences; green is Dex, blue a third-party
   service or framework, grey your own code. Every page in the reading sequence (not a group
-  overview, the home page, Get Started, or the Glossary) ends with one last
+  overview, the home page, or the Glossary) ends with one last
   section named Next (下一步 in Chinese); following its first link gives a
-  linear reading order. The home page and Get
-  Started link straight to the one page that does each job, with no ordered
-  reading lists. `npm run lint:structure` enforces these rules.
+  linear reading order. The home page links straight to the one page that
+  does each job, with no ordered reading lists. The Quick Start group is the
+  one exception to the wayfinder rule: its header opens the Quick Start
+  tutorial, which owns the install. `npm run lint:structure` enforces these rules.
 - Each paragraph, list item, and callout opens with what is true. A negation
   comes second, as a clarification. Cut a negation that only restates what the
   positive already implies, such as "dexcli does not run on Windows" after a

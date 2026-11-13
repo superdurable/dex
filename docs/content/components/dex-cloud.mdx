@@ -9,6 +9,17 @@ description: In Dex Cloud, Super Durable runs Dex Server for your application. Y
 
 In Dex Cloud, Super Durable runs Dex Server for your application. Your Workers still run your Flow code, on your servers, your cloud, or your laptop.
 
+## Get started {#get-started}
+
+[Sign up for Dex Cloud](https://dex.superdurable.io/register), then create a server. For pricing, regions, and SLA, [contact Super Durable](https://superdurable.io/about/#contact).
+
+## Connect Workers and Clients {#connect}
+
+Each server you create in Dex Cloud has its own endpoint and API key. Your Workers and Clients connect to that endpoint over TLS with the key:
+
+- The key goes in an [API key credential](/reference/server/authentication#sdk-credentials).
+- TLS is the SDK's [TLS option](/reference/server/authentication#tls).
+
 ## What runs where {#what-runs-where}
 
 | | Who runs it |
@@ -18,16 +29,7 @@ In Dex Cloud, Super Durable runs Dex Server for your application. Your Workers s
 | Your Workers and your Flow code | You, wherever you deploy them |
 | The credentials your code uses for your own APIs | You. They stay in your Workers. |
 
-## Connect Workers and Clients {#connect}
-
-Each server you create in Dex Cloud has its own endpoint and API key. Your Workers and Clients connect to that endpoint over TLS with the key:
-
-- The key goes in an [API key credential](/reference/server/authentication#sdk-credentials).
-- TLS is the SDK's [TLS option](/reference/server/authentication#tls).
-
-## Get started {#get-started}
-
-[Sign up for Dex Cloud](https://dex.superdurable.io/register), then create a server. For pricing, regions, and SLA, [contact Super Durable](https://superdurable.io/about/#contact).
+[Where to run Dex Server](/components#where-to-run) compares Dex Cloud with a self-hosted server.
 
 ## Next
 

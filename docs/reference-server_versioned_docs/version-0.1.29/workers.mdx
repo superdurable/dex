@@ -1,0 +1,351 @@
+---
+title: Workers and the task queue
+sidebar_label: Workers and task queue
+description: "Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server and never listens for incoming calls. For Worker setup, see Application."
+---
+
+# Workers and the task queue
+
+Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server
+and never listens for incoming calls. For Worker setup, see
+[Application](/components/application#enable-pull-mode).
+
+## Readiness
+
+A Worker's readiness wait, **WaitPullRegistered** in Go, blocks until the
+Worker's slot streams have registered. Readiness needs at least one registered
+Step-and-RPC slot. When the Worker reserves RPC slots, it also needs one
+registered RPC-only slot. In a rolling deployment, start the Worker and wait
+for readiness with a startup deadline. Only then activate it or stop the old
+Worker. Registration does not guarantee spare handler capacity.
+
+This page uses the Go names. Each SDK reference lists its own names, the SDK
+release that added readiness, and a readiness probe example:
+[Go](/reference/go/workers), [Python](/reference/python/workers),
+[Java](/reference/java/workers), [TypeScript](/reference/typescript/workers),
+and [Rust](/reference/rust/workers).
+
+**WaitPullRegistered** is safe to call concurrently, including before
+**Start**. Before readiness, if the server permanently rejects a stream and no
+other stream of that slot kind is registered, the wait returns a
+**PullRegistrationError**. The error carries the slot kind and the underlying
+gRPC error. Its queue field holds the slot kind, not a Flow type or Worker ID.
+While another stream of the same kind stays registered, the Worker records the
+rejection and retries the rejected stream. Startup errors from **Start** also
+reach the waiter. If the context is canceled, the wait returns the context
+error. If the Worker stops before readiness, the wait returns an error. Once
+every required slot kind has registered, the wait keeps returning success.
+
+The runnable examples wait for registration with a 30-second startup deadline,
+and stop the Worker if startup fails. Read the readiness state in your probe
+endpoint, and return 200 when the Worker is ready or 503 when it is not.
+
+**Queues** has one entry per required slot kind. Each entry reports
+**HasRegisteredStream** and **LastPermanentError**. After initial registration,
+**IsReady** stays true through reconnects, ownership moves, transient
+disconnects, and backoff. It becomes false only when a slot kind has no
+registered stream and has a permanent error. A successful registration clears
+that slot kind's error. It restores readiness when no other slot kind is
+failing. Readiness does not depend on free slots: a Worker whose slots are all
+busy stays ready. **Stop** does not clear readiness, so remove the Worker from
+service yourself during shutdown.
+
+**StopOnPermanentStreamRejection** defaults to false, so the Worker keeps
+retrying. Set it to true to make **Start** return a **PullRegistrationError** at
+the first permanent rejection that leaves its slot kind without a registered
+stream, even after readiness. A rejection while another stream of the same kind
+stays registered does not stop the Worker. Other streams may still be
+registered while **Start** drains them. Draining waits up to
+**StopDrainTimeout**, then requests cancellation and waits for handlers to
+return. Handlers must respond to cancellation. Always call **Stop** before
+exiting; it is still safe to call after **Start** returns.
+
+## Routing and availability
+
+Each pull Worker polls its own app Worker ID queue and the queue of every Flow
+type it registers. Flow type names must be unique within a Dex Server.
+
+Dex routes by Flow type, not by Step type. Any Worker that registers a Flow
+type can receive any Step or RPC of it. There is no option that limits a
+Worker to some Step types; a Worker that lacks a Step type only declines it,
+as [Unsupported types](#unsupported-types) describes. To run some work on a
+separate pool of Workers, such as hosts with GPUs, give that work its own Flow
+type, for example a SubFlow, and register that Flow type only on the pool.
+Queues have no concurrency or rate limit of their own. The task slots of each
+Worker bound how many tasks it runs at once.
+
+For each Step attempt or RPC, Dex first tries the app Worker ID that served the
+Flow before. This is sticky routing. When no stream for that ID is still
+connected, for example after a Worker restart or a deployment, Dex goes to the
+Flow type queue at once. Otherwise, Dex goes to the Flow type queue after the
+sticky wait, 5 seconds by default, so another Worker can take the task. Sticky
+routing is best effort. Keep durable state in Dex instead of depending on one
+Worker's memory.
+
+An app Worker ID must identify one Worker process, and it must change when that
+process restarts. The SDK generates one unless you set it explicitly. If you set
+it, use a new value after each process restart. See
+[Unsupported types](#unsupported-types) for what goes wrong when an upgraded
+process reuses the old ID.
+
+For a Step, Dex then tries any Worker of the Flow type for a short time, 200
+milliseconds by default. If no Worker takes the attempt, the attempt waits in a
+durable task queue until a Worker takes it, the Flow times out, or the Flow
+stops. It does not fail and does not consume a retry. Queue time does not count
+toward the method timeout or the heartbeat timeout. These timeouts start when
+Dex hands the attempt to a Worker. See [Step task queue](#step-task-queue).
+
+An RPC never queues. If no Worker takes it within the dispatch wait, the caller
+receives an **Unavailable** error directly. The default dispatch wait is 10
+seconds, including up to 5 seconds for a sticky queue with connected streams.
+The wait never extends past the method deadline of the attempt. See
+[Pull Worker dispatch](#pull-worker-dispatch) for the wait settings.
+
+### Unsupported types {#unsupported-types}
+
+When a pull Worker has the Flow type but not the requested Step type or RPC
+name, it declines the task before it runs a handler. Dex then goes to the Flow
+type queue at once and leaves that Worker out of this dispatch, even if the
+Flow was sticky to it. This reassignment does not consume a Step attempt. The
+attempt keeps its attempt number, input snapshot, and Attribute locks. If no
+capable Worker is connected, the Step waits in the queue. For an RPC, Dex tries
+other Workers within the caller's deadline, up to the dispatch wait of 10
+seconds. If none supports the RPC, the caller gets the named error directly.
+Older server releases without this reassignment return the previous
+not-registered Worker error instead.
+
+Dex also remembers the (tenant, Flow type, Step type or RPC name, app Worker ID)
+pair in a bounded cache, and stops offering that type to that Worker. Dex drops
+the entry when every stream with that app Worker ID disconnects. A restarted
+Worker gets a new app Worker ID, so the entry does not exclude it.
+
+If you set the app Worker ID yourself and an upgraded process reuses the old ID
+during a rolling deployment, the old process's entry also excludes the upgraded
+process. The entry lasts until every stream with that ID is gone, including the
+upgraded process's own streams. If the cache evicts the entry first, Dex offers
+the type again after a Worker with that ID completes a Step.
+
+### Attempts and Worker failures
+
+Once Dex hands a Step attempt to a Worker, Dex never hands the same attempt
+number to another Worker. When the Worker disconnects or crashes, the attempt
+fails and the retry policy runs. This holds for SYNC and ASYNC Steps alike, with
+or without output.
+
+There is one exception. A Dex Server node can crash before it writes an ASYNC
+attempt's start to object storage. Dex then rolls the start back and runs the
+same attempt number again, possibly on another Worker. That rerun consumes no
+retry, and the two runs can overlap. See
+[Failure and redelivery](/reference/python/failure-and-retries#same-attempt-redelivery)
+for this case, and for the cases where an attempt returns to pending without
+consuming a retry. Make external side effects idempotent, for example by using
+the Flow ID and Step execution ID as an idempotency key.
+
+New SDKs require server protocol version 4, which server-zd 0.1.17 and later
+provide. See [Upgrades and compatibility](/reference/server/0.1.29/upgrades) for the
+upgrade order.
+
+## Capacity and shutdown
+
+The concurrent task limit sets the number of task slots. The default is the
+CPU count. A Worker opens one long-lived stream for each slot. Each stream
+serves the Worker's app Worker ID queue and every Flow type it registers. A
+stream runs one task at a time and is ready for a new task while it is idle.
+The Worker runs every task it receives and never declines a task for capacity.
+When all its slots are busy, Dex sends the Worker no more tasks.
+
+Each SDK uses its own names for the concurrent task limit, the reserved RPC
+slots, the stop drain timeout, and the shutdown method. See
+[Go](/reference/go/workers), [Python](/reference/python/workers),
+[Java](/reference/java/workers), [TypeScript](/reference/typescript/workers),
+and [Rust](/reference/rust/workers).
+
+The stream count equals the task limit and does not change with load. It must
+fit within **matching.maxConcurrentTasksCap**, which defaults to 256 streams per
+app Worker ID. Dex reports this limit when a Worker registers. If the first
+registration reports a limit below the task limit, the Worker fails to start,
+with an error that names both values. A task that Dex already sent to that
+Worker returns to Dex without consuming an attempt. If a later reconnect
+reports a lower limit, the Worker only logs a warning. **matching.maxStreams**
+limits the node to 100,000 registered streams by default, so count the slots of
+all Workers against it. **matching.maxQueueLength**, **matching.maxFlowTypes**,
+and **matching.maxFlowTypeLength** also limit registration. Each defaults to
+256.
+
+Stop the Worker gracefully during a deployment. The shutdown method starts no
+new tasks. Idle streams half-close at once. Busy streams finish their handlers,
+send the final output, and then half-close. The Worker does not run tasks that
+arrive while it stops. A task that has no output when its stream half-closes
+returns to Dex without consuming a retry, and Dex hands it to another Worker. A
+Worker also finishes an active task before a reconnect that the server asks
+for.
+
+The shutdown method waits up to the drain timeout, 30 seconds by default. After
+the deadline, it resets each stream whose handler is still running, requests
+cancellation, and waits for handlers to return. Dex treats a task on a reset
+stream as one that may have run, so the retry policy applies. Long-running
+handlers should respond to cancellation. A final output that Dex has not yet
+confirmed gets 5 more seconds to flush, so shutdown can return up to 5 seconds
+after the drain deadline. Each SDK's Workers reference page shows how its
+Worker stops.
+
+When a slot frees up, Dex gives it to waiting RPCs before waiting Steps.
+
+### Reserved RPC capacity
+
+Since SDK 1.15.0, Workers reserve capacity for RPCs, so synchronous RPC calls
+stay responsive while Steps run for a long time. Set the reserved RPC slots
+option of your SDK. When it is unset, the reserve is one if the resolved task
+limit is at least two, and zero otherwise. So with the CPU-count default, Steps
+get one fewer slot than before SDK 1.15.0. Set the reserve to zero to opt out.
+With a task limit of one and no explicit reserve, the Worker logs one warning
+at start: RPCs may wait behind long-running Steps. The warning recommends a
+limit of at least two or an explicit reserve.
+
+The reserve must be zero or more, and less than the concurrent task limit after
+the CPU-count default is resolved. Invalid values fail Worker construction.
+
+RPC tasks include both API-direct and transactional **InvokeWorkerRPC** tasks.
+RPC and Step handlers count together against the task limit. Reserved slots
+are RPC-only streams. The other slots accept both Steps and RPCs. Dex sends
+Steps, both WaitFor and Execute, only to Step-and-RPC slots. RPCs can use
+either kind. For example, a limit of eight and a reserve of two gives six shared
+slots and two RPC-only slots.
+
+Steps never use reserved slots, so a Worker never declines a Step for capacity.
+When no Worker has a free Step-and-RPC slot, the Step waits in the durable task
+queue until a slot frees up. The wait consumes no attempt. To see Step capacity
+pressure, watch the queue depth and the age of the oldest queued Step. See
+[Step task queue](#step-task-queue) for these metrics.
+
+The reserve-decline counters are deprecated and remain only for source
+compatibility. On SDKs that use reserved-slot dispatch, they always read zero.
+Workers on older SDKs still decline Steps for capacity on a new server. Dex
+returns those attempts without consuming a retry and counts them with
+**reason="legacy_no_capacity"**. See
+[server-zd metrics](/reference/server/0.1.29/metrics).
+
+The startup examples set the task limit to eight and explicitly reserve one slot
+for RPCs, which matches the default.
+
+## Scale to zero
+
+server-zd has no hook to wake Workers. When Workers may scale to zero, a Step
+that no Worker takes waits in the durable task queue until a Worker starts. The
+wait uses no retry. Scale Workers on the queue depth and oldest age metrics,
+**dexzd_step_task_queue_entries** and
+**dexzd_step_task_queue_oldest_age_seconds**. The depth gauge needs the
+default **advanced** metrics level; the oldest age is exported at **basic**
+too. Right after a restart or a
+failover, the entries gauge can read low until each partition's background
+count finishes. So do not scale to zero on that gauge alone; the oldest age
+stays accurate. An RPC does not queue, so while no Worker runs, it fails after
+the dispatch wait.
+
+A Flow with a timeout still times out while its Step waits. With no Flow
+timeout, a Step with no Worker waits forever.
+
+## Server and network setup
+
+Workers connect to the server's FlowService port, which is **api.listen**.
+Preserve bidirectional HTTP/2 streaming through any load balancer or proxy.
+While a task runs, current SDKs send upstream **Pong** frames every 20 seconds.
+Dex sends **Ping** frames to idle streams at **matching.pingInterval**. Set load
+balancer and proxy idle timeouts above both 20 seconds and
+**matching.pingInterval**, with margin for network delays. Workers on older
+SDKs, which do not send **Pong** frames, need idle timeouts above the longest
+task duration. [Pull Worker dispatch](#pull-worker-dispatch) lists the matching
+limits and wait settings.
+
+All five SDKs, **dexcli**, and Dex Web can send the required bearer credential.
+Workers and Clients have separate credential options. See the
+[authentication settings](/reference/server/0.1.29/authentication).
+
+## Pull Worker dispatch {#pull-worker-dispatch}
+
+server-zd runs as one node, so it owns every Worker queue itself. Workers and
+Clients connect to **api.listen**, which is **0.0.0.0:8801** by default.
+
+~~~yaml
+matching:
+  dispatchWait: 10s
+  stickyWait: 5s
+  syncMatchWait: 200ms
+  headsResyncInterval: 5m
+  maxConcurrentTasksCap: 256
+  maxStreams: 100000
+  unsupportedTypeCacheEntries: 10000
+  maxQueueLength: 256
+  maxFlowTypes: 256
+  maxFlowTypeLength: 256
+  pingInterval: 20s
+~~~
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **matching.dispatchWait** | 10s | Total time to find a Worker for one RPC. Steps do not use it; they wait in the durable task queue. |
+| **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
+| **matching.syncMatchWait** | 200ms | Time to try any Worker of the Flow type for a Step after the sticky wait, before the Step goes to the durable task queue. Must be greater than 0. |
+| **matching.headsResyncInterval** | 5m | Interval of a background check that finds queued tasks matching lost. 0 disables it. See [Step task queue](#step-task-queue). |
+| **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
+| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by total slots. |
+| **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, Flow type, Step type or RPC name, app Worker ID) pairs that Dex remembers as unsupported. |
+| **matching.maxQueueLength** | 256 | Longest queue name, in characters. |
+| **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
+| **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
+| **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
+
+A Worker that uses reserved-slot dispatch opens one stream for each execution
+slot. An idle stream is a free slot. It serves the Worker's sticky queue and
+every Flow type the Worker declares. Reserved RPC slots are RPC-only streams and
+never receive Steps. A registration beyond **matching.maxConcurrentTasksCap** or
+**matching.maxStreams** fails with **RESOURCE_EXHAUSTED**. For the cache that
+**matching.unsupportedTypeCacheEntries** sizes, see
+[Unsupported types](#unsupported-types).
+
+### Step task queue {#step-task-queue}
+
+A Step attempt that no Worker takes at once does not fail. Dex first tries a
+connected sticky Worker for up to **stickyWait**. It then tries any Worker of
+the Flow type for up to **syncMatchWait**. When the Step type already has a
+backlog that a connected Worker can run, a new Step goes straight to the queue.
+
+The attempt then waits in a durable task queue until a Worker takes it, the Flow
+times out, or the Flow stops. There is one queue for each tenant, Flow type,
+and Step type. A Step type that no connected Worker supports stays queued and
+does not block other Step types. Dex dispatches Steps roughly in the order they
+became ready, but does not guarantee strict order. Dex spreads each queue over
+partitions, and each node serves the partitions it owns.
+
+A freed Worker slot serves waiting RPCs first, then Steps waiting in memory,
+then the durable queue.
+
+Alert on the durable backlog rather than on **dexzd_matching_queued_tasks**.
+At every metrics level, use **dexzd_step_task_queue_oldest_age_seconds** and
+**dexzd_matching_unserved_task_queues**. At the default **advanced** level and
+above, also use **dexzd_step_task_queue_entries**. **dexzd_matching_queued_tasks** now counts only
+in-memory waiters: Steps and RPCs that wait for a slot. It does not count the
+durable backlog. **dexzd_step_task_queue_entries** is a gauge of queued Step
+tasks in the partitions this node owns.
+**dexzd_step_task_queue_oldest_age_seconds** is a gauge of the age of the
+oldest one. **dexzd_matching_unserved_task_queues** is a gauge of queues with a
+backlog that no connected Worker can serve. Its **reason** is **no_worker** or
+**no_supporting_worker**.
+
+After a restart or a failover, each partition joins
+**dexzd_step_task_queue_entries** only when its background count finishes, so
+the gauge can read low for a while. During that time, rely on
+**dexzd_step_task_queue_oldest_age_seconds**. The rebuild keeps it accurate from
+the first queued task of each queue.
+
+**matching.headsResyncInterval** sets a periodic background check that only
+catches server bugs that lose queued tasks.
+**dexzd_matching_heads_restored_refs_total** is a counter that should stay 0.
+If it is ever nonzero, look for the WARN log line "periodic Heads restored a
+queued task that matching had lost" and report it as a bug.
+**dexzd_matching_heads_incomplete_scans_total** counts checks that did not
+finish. **dexzd_step_task_queue_incomplete_seeks_total** counts searches for the
+next queued task that passed too many deleted entries. Dex retries each one
+after a backoff. A steady increase means compaction is falling behind. Since
+0.1.29, these three counters need the **verbose** metrics level; see
+[Metrics levels](/reference/server/0.1.29/metrics#metrics-levels).

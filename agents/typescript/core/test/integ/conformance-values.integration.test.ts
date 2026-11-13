@@ -84,6 +84,10 @@ import {
   validateSessionSettings,
 } from "../../src/agent-session-settings.js";
 import { questionInterruptId } from "../../src/agent-session-steps.js";
+import {
+  sessionTerminalLeaseMaxHostNameLength,
+  sessionTerminalLeaseMaxTtlSeconds,
+} from "../../src/agent-session-terminal-lease.js";
 import { allPendingMessages } from "../../src/agent-session-transitions.js";
 import {
   approvalDeadlinePassed,
@@ -544,6 +548,8 @@ describe("the conformance suite's names manifest", () => {
       message_rollover_max_chunks_per_commit: messageRolloverMaxChunksPerCommit,
       message_rollover_max_bytes_per_commit: messageRolloverMaxBytesPerCommit,
       default_retained_message_limit: defaultRetainedMessageLimit,
+      session_terminal_lease_maximum_ttl_seconds: sessionTerminalLeaseMaxTtlSeconds,
+      session_terminal_lease_maximum_host_name_length: sessionTerminalLeaseMaxHostNameLength,
     });
     assert.deepEqual(
       Object.keys(enums["ToolCallStatus"] ?? {}).filter((status) =>

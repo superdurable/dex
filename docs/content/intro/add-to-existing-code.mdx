@@ -333,7 +333,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 </SdkSnippet>
 </SdkTabs>
 
-The default retry policy keeps retrying a Step for 4 hours and then fails the Flow; a failure route catches that failure instead. To let a person decide, route the failure to a Step that waits for them, as [Manual Recovery](/design-patterns/failure-handling/manual-recovery) shows. [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) shows the automatic route. After you fix the cause of a failed run, [Time Travel](/concepts/change-flow-code#time-travel) can run it again from an earlier point.
+The default retry policy keeps retrying a Step for 4 hours and then fails the Flow; a failure route catches that failure instead. To let a person decide, route the failure to a Step that waits for them, as [Manual Recovery](/design-patterns/failure-handling/manual-recovery) shows. [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) shows the automatic route. After you fix the cause of a failed run, [Time Travel](/components/operate-and-debug#time-travel) can run it again from an earlier point.
 
 ## Place the idempotency keys
 

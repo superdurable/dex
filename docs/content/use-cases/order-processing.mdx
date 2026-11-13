@@ -26,7 +26,7 @@ cd dex
 
 The code below is the Flow from [Why Dex?](/intro/what-is-dex), with its Steps, its approve and describe RPCs, and its Attribute.
 
-Pass the mock payment and shipping API to the Flow constructor. Do not set them later with a setter, and do not read them from a global variable.
+Pass the mock payment and shipping API to the Flow constructor, so every Step has them from the moment the Worker registers the Flow. A setter or a global variable leaves a window in which a Step runs without them. See [Pass services to the Flow](/components/application#pass-services-to-the-flow).
 
 Each Step passes an idempotency key built from the order ID, which is also the Flow ID. [Idempotency keys](/concepts/step#idempotency-keys) explains why.
 
@@ -1393,7 +1393,7 @@ Start an order whose shipping always fails:
 curl -s 'http://127.0.0.1:8080/products/order-processing/start?testFailAtShipping=true'
 ```
 
-Approve it as before. The Ship Step fails and retries for 3 seconds. Then the Flow moves to the Refund Step, which refunds the buyer and completes the Flow. Read its status:
+Approve it as before. The Ship Step fails and retries for 3 seconds; the example shortens the one-hour production window so the demo ends quickly. Then the Flow moves to the Refund Step, which refunds the buyer and completes the Flow. Read its status:
 
 ```bash
 curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID"

@@ -6,9 +6,9 @@ slug: /concepts/connector
 
 # Connector
 
-**Connector** 把 Flow 接到外部服务商，例如邮件、支付或新闻服务。它为 Flow 提供调用服务商的现成 Step，以及把服务商事件变成 Flow 启动或 RPC 调用的 Trigger。你的应用引入 Connector 包，像使用自己的 Step 一样使用它的 Step。服务商的凭证永远不会进入持久化的 Flow 状态。
+**Connector** 把 Flow 接到外部服务商，例如邮件、支付或新闻服务。它为 Flow 提供调用服务商的现成 Step，以及把服务商事件变成 Flow 启动或 RPC 调用的 Trigger。你的应用引入 Connector 包，像使用自己的 Step 一样使用它的 Step。
 
-官方 Connector 与 Dex 分开发布。自己编写对接服务商的代码之前，先[查找](#查找-connector)有没有这个服务商的 Connector。
+官方 Connector 与 Dex 分开发布。自己编写对接服务商的代码之前，先[查找](#find-a-connector)有没有这个服务商的 Connector。
 
 ## 能力 {#capabilities}
 
@@ -21,6 +21,19 @@ slug: /concepts/connector
 - **UI** 提供可复用的配置单元。Dex Web 把它们组合成 Step 或 Trigger 绑定的设置表单。
 
 Connector 只提供它的服务商需要的能力。你的应用使用它所引入的那个 Connector 版本生成的类型。
+
+<a id="使用或贡献-connector"></a>
+<a id="与其他组件的关系"></a>
+
+<a id="查找-connector"></a>
+
+## 查找 Connector {#find-a-connector}
+
+在 [Connector 目录](https://connectors.superdurable.io/)中查看已发布的 Connector、它们的操作和支持的语言。每个 Connector 的参考以目录为准。
+
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、服务商实现、界面单元和可运行示例。
+
+应用使用已发布的 Connector 时，用 [Dex SDK Skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor Skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。需要目录里缺少的 Connector 时，可以[提交请求](https://github.com/superdurable/dex-connectors-library/issues/new)。
 
 ## 操作就是现成的 Step {#operation-是-connector-step}
 
@@ -58,24 +71,13 @@ Connector Trigger 是 Flow 之外长期运行的事件源。它保留服务商�
 
 连接是服务商那边一个具名、已授权的账号。Flow 定义按名称引用连接，而不是引用凭证。你的应用在调用服务商时，把名称解析成凭证。
 
-已保存的凭证始终留在 Flow 输入、Attribute、结果、回执、Stream、日志和生成的产物之外。
+已保存的凭证始终留在 Flow 输入、Attribute、结果、回执、Stream、日志、生成的产物和 Connector 界面之外。
 
 ## 语言
 
-Connector 支持 Go、Python 和 TypeScript，暂不支持 Java 和 Rust。每种语言的包只实现该 Connector 为这种语言列出的操作和 Trigger。在 [Connector 目录](https://connectors.superdurable.io/)中按语言筛选，可以看到每个 Connector 提供的内容。
+Connector 支持 Go、Python 和 TypeScript。每种语言的包只实现该 Connector 为这种语言列出的操作和 Trigger。在 [Connector 目录](https://connectors.superdurable.io/)中按语言筛选，可以看到每个 Connector 提供的内容。
 
-Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称为 **dex-connector-&lt;slug&gt;**。TypeScript 包发布在 npm，名称为 **@superdurable/connector-&lt;slug&gt;**。每个 Python 和 TypeScript 包都用验证 Go 包的同一批服务商场景测试。可运行示例位于 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 的 **connectors/&lt;directory&gt;/&lt;language&gt;/examples/** 下。如果需要其他语言，请[提交 Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new)。
-
-<a id="使用或贡献-connector"></a>
-<a id="与其他组件的关系"></a>
-
-## 查找 Connector
-
-在 [Connector 目录](https://connectors.superdurable.io/)中查看已发布的 Connector、它们的操作和支持的语言。每个 Connector 的参考以目录为准。
-
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、服务商实现、界面单元和可运行示例。
-
-应用使用已发布的 Connector 时，用 [Dex SDK Skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor Skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。
+Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称为 **dex-connector-&lt;slug&gt;**。TypeScript 包发布在 npm，名称为 **@superdurable/connector-&lt;slug&gt;**。每个 Python 和 TypeScript 包都用验证 Go 包的同一批服务商场景测试。可运行示例位于 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 的 **connectors/&lt;directory&gt;/&lt;language&gt;/examples/** 下。
 
 ## 在本地配置 Connector
 
@@ -85,7 +87,7 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 2. 在 Dex Web 中打开 **Connectors** 页面。它列出 Flow 定义用到的连接名称。逐个授权。
 3. 用 Dex Web 显示的连接文件启动你的应用。
 
-Dex Web 只配置确切的官方 Connector 版本。Connector 的界面运行在沙箱 iframe 中，已保存的凭证永远不会进入其中。
+Dex Web 只配置确切的官方 Connector 版本。Connector 的界面运行在沙箱 iframe 中。
 
 连接文件以明文保存密钥，只能在本地使用。不要提交它，也不要在生产环境中使用。
 

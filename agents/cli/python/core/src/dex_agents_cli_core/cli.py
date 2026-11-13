@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import dataclasses
 import importlib
 import importlib.metadata
 import logging
@@ -33,6 +34,7 @@ from dex import (
     AsyncWorker,
     BlobCache,
     BlobCacheConfig,
+    DexServiceError,
     FlowNotFoundError,
     FlowStatus,
     PullWorkerOptions,
@@ -49,6 +51,7 @@ from dex_agents import (
     AgentSessionSummary,
     LocalDirectoryMediaStore,
     MediaStore,
+    SessionTerminalLease,
     list_agent_sessions,
     session_flow_definition_document,
     sort_agent_sessions_by_last_activity,
@@ -122,6 +125,16 @@ from dex_agents_cli_core.harness import (
 )
 from dex_agents_cli_core.local_tools import LocalToolSource
 from dex_agents_cli_core.local_tools.shell import ShellProcessGroups
+from dex_agents_cli_core.session_lease import (
+    HeldSessionLease,
+    SessionLeaseHolder,
+    SessionLeaseWaitInterrupted,
+    build_lease_lost_line,
+    format_lease_holder,
+    is_waiting_line_animated,
+    terminal_columns,
+    wait_for_session_lease,
+)
 from dex_agents_cli_core.session_list import collect_sessions_for_list
 from dex_agents_cli_core.terminal_ui.contract import LIST_CONNECTORS, PUT_IMAGE, START_SESSION
 from dex_agents_cli_core.terminal_ui.hosted_session import (
@@ -135,12 +148,16 @@ from dex_agents_cli_core.terminal_ui.launcher import (
     run_terminal_ui_chat,
     worker_host_argv,
 )
-from dex_agents_cli_core.terminal_ui.local_requests import RequestHandler
+from dex_agents_cli_core.terminal_ui.local_requests import RequestHandler, RequestOutcome
 from dex_agents_cli_core.terminal_ui.process_groups import (
     ToolProcessGroupRegistry,
     stop_leftover_processes,
 )
 from dex_agents_cli_core.terminal_ui.worker_host import (
+    ACQUIRE_SESSION_LEASE,
+    RELEASE_SESSION_LEASE,
+    SESSION_LEASE_LOST,
+    SESSION_UNAVAILABLE,
     WORKER_HOST_COMMAND,
     HostedRun,
     WorkerHostReports,
@@ -235,7 +252,8 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         2 for a usage or configuration error, 130 for Ctrl-C during the init
         questions, and 128 plus the signal number after SIGTERM or SIGHUP.
         Input that ends during the init questions exits with 1. A cancelled
-        init writes no file.
+        init writes no file. Ctrl-C while the command waits for a session
+        that another terminal has open exits with 130.
     """
     # A bad declaration is the harness's programming error, so it raises in every subcommand.
     declared_reasoning_efforts(harness)
@@ -267,6 +285,8 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     except _InitCancelled as cancelled:
         print("\nCancelled; no configuration written.", file=sys.stderr)
         return cancelled.exit_code
+    except SessionLeaseWaitInterrupted:
+        return _INTERRUPTED_EXIT_CODE
     except (CommandError, ConfigFileError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
@@ -275,6 +295,9 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         return 1
     except Exception as error:
         refused = describe_dex_refusal_without_details(error)
+        if refused is None and isinstance(error, DexServiceError):
+            _LOGGER.error("the command failed", exc_info=error)
+            refused = _describe_dex_service_error(error)
         if refused is None:
             raise
         print(f"{command_name(harness)}: {refused}", file=sys.stderr)
@@ -467,7 +490,77 @@ async def _open_hosted_run(
         connectors_mcp_url=_connectors_mcp_url(inputs.config, endpoint),
         web_url=endpoint.web_url,
     )
-    return _HostedCliRun(session_worker, session_id, hosted, declared_reasoning_efforts(harness))
+    # The launcher is the Worker host's parent: its pid is the one a waiting terminal shows.
+    holder = SessionLeaseHolder.for_this_process(
+        environment.session_lease_ttl_seconds, process_id=os.getppid()
+    )
+    lease = HeldSessionLease(session_worker.sessions, holder)
+    return _HostedCliRun(
+        session_worker,
+        session_id,
+        hosted,
+        declared_reasoning_efforts(harness),
+        _HostedSessionLease(session_worker, lease, reports),
+    )
+
+
+class _HostedSessionLease:
+    """The Worker host's side of the session lease: the launcher's requests and lost leases."""
+
+    def __init__(
+        self,
+        session_worker: _SessionWorker,
+        lease: HeldSessionLease,
+        reports: WorkerHostReports,
+    ) -> None:
+        self._session_worker = session_worker
+        self._lease = lease
+        self._reports = reports
+        lease.lost.add_done_callback(self._report_lost)
+
+    async def acquire(self, params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
+        """Try once for ``params.session_id``'s lease after checking that the session can open."""
+        session_id = params.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            return RequestOutcome.failed(
+                "invalid_params", "session_id must be a session ID.", is_remembered=False
+            )
+        try:
+            if session_id != self._lease.session_id:
+                await self._session_worker.open_session(session_id)
+            result = await self._lease.try_acquire(session_id)
+        except (CommandError, DexServerError) as error:
+            return RequestOutcome.failed(SESSION_UNAVAILABLE, str(error), is_remembered=False)
+        except (DexServiceError, TimeoutError) as error:
+            return RequestOutcome.failed("lease_call_failed", str(error), is_remembered=False)
+        return RequestOutcome.succeeded(
+            {
+                "is_acquired": result.is_acquired,
+                "lease": None if result.lease is None else dataclasses.asdict(result.lease),
+            }
+        )
+
+    async def release(self, params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
+        """Release the held lease when it is ``params.session_id``'s."""
+        if params.get("session_id") == self._lease.session_id:
+            await self._lease.release()
+        return RequestOutcome.succeeded({})
+
+    async def close(self) -> None:
+        """Release the held lease, before the Worker stops."""
+        await self._lease.release()
+
+    def _report_lost(self, lost: asyncio.Future[tuple[str, SessionTerminalLease]]) -> None:
+        if lost.cancelled():
+            return
+        session_id, holder = lost.result()
+        self._reports.channel.post(
+            {
+                "type": SESSION_LEASE_LOST,
+                "session_id": session_id,
+                "lease": dataclasses.asdict(holder),
+            }
+        )
 
 
 class _HostedCliRun:
@@ -479,14 +572,18 @@ class _HostedCliRun:
         session_id: str,
         hosted: HostedChatSession,
         supported_reasoning_efforts: Sequence[str],
+        session_lease: _HostedSessionLease,
     ) -> None:
         self._session_worker = session_worker
         self._session_id = session_id
         self._supported_reasoning_efforts = tuple(supported_reasoning_efforts)
+        self._session_lease = session_lease
         self._request_handlers: dict[str, RequestHandler] = {
             PUT_IMAGE: hosted.put_image,
             START_SESSION: hosted.start_session,
             LIST_CONNECTORS: hosted.list_connectors,
+            ACQUIRE_SESSION_LEASE: session_lease.acquire,
+            RELEASE_SESSION_LEASE: session_lease.release,
         }
 
     @property
@@ -509,6 +606,7 @@ class _HostedCliRun:
         return self._request_handlers
 
     async def close(self) -> None:
+        await self._session_lease.close()
         await self._session_worker.close()
 
 
@@ -738,6 +836,7 @@ async def _run_terminal_ui(
         worker_host_variables=inputs.connection.terminal_ui_auth_variables(
             environment.dex_connection_variables
         ),
+        is_waiting_line_animated=is_waiting_line_animated(sys.stderr, environment.terminal_type),
     )
     return await run_terminal_ui_chat(
         launch, print, restore_signal_handlers=server.install_termination_handlers
@@ -847,8 +946,13 @@ async def _run_plain_chat(
         ),
     )
     terminal = Terminal()
+    lease = HeldSessionLease(
+        session_worker.sessions,
+        SessionLeaseHolder.for_this_process(environment.session_lease_ttl_seconds),
+    )
     try:
         session_id = await session_worker.open_session(arguments.resume_session_id)
+        await _wait_for_session_lease(session_id, lease, environment)
         print(f"Session {session_id}")
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
@@ -862,12 +966,59 @@ async def _run_plain_chat(
             media_store=inputs.media_store,
             home=environment.home,
         )
-        is_failed = not await chat.run()
+        is_failed = not await _chat_while_lease_held(chat, lease)
     finally:
         with contextlib.suppress(RuntimeError):
             terminal.stop()
+        # Before the Worker stops: it may be the only one left to serve the release.
+        await lease.release()
         await session_worker.close()
     return 1 if is_failed else 0
+
+
+async def _wait_for_session_lease(
+    session_id: str, lease: HeldSessionLease, environment: CommandEnvironment
+) -> None:
+    """Wait until this command holds the session's lease, showing who has it meanwhile."""
+    await wait_for_session_lease(
+        session_id,
+        lambda: lease.try_acquire(session_id),
+        sys.stderr,
+        is_animated=is_waiting_line_animated(sys.stderr, environment.terminal_type),
+        columns=lambda: terminal_columns(sys.stderr),
+    )
+
+
+async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) -> bool:
+    """Run the chat until it ends or another terminal takes the session.
+
+    Returns:
+        The chat's result, or ``False`` when the lease was lost.
+    """
+    chatting = asyncio.create_task(chat.run())
+    try:
+        waited: set[asyncio.Future[Any]] = {chatting, lease.lost}
+        await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
+        # A chat whose session was taken may fail at the same time; the lost lease explains it.
+        if not lease.lost.done():
+            return chatting.result()
+    finally:
+        chatting.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _end_cancelled_chat(chatting)
+    session_id, holder = lease.lost.result()
+    # The newline ends the prompt line, which is on standard output.
+    print(flush=True)
+    print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+    return False
+
+
+async def _end_cancelled_chat(chatting: asyncio.Task[bool]) -> None:
+    """Wait for a chat the lease loss cancelled; a Dex call it had running may fail instead."""
+    try:
+        await chatting
+    except DexServiceError as error:
+        _LOGGER.warning("the stopped chat's last Dex call failed", exc_info=error)
 
 
 @dataclass(frozen=True)
@@ -1060,6 +1211,12 @@ class _SessionWorker:
         await self.client.close()
         self._connection.close()
         self._blob_cache.close()
+
+
+def _describe_dex_service_error(error: DexServiceError) -> str:
+    """Return one line for a Dex service failure that nothing else explains."""
+    target = f" for session {error.flow_id}" if error.flow_id else ""
+    return f"Dex {error.operation}{target} failed: {error.detail or error.code.name}"
 
 
 def _report_on_standard_error(line: str) -> None:

@@ -16,39 +16,6 @@ import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
 
 <DexSystemDiagram withOperatorTools markdownDescription="你的应用包含 Client 和 Worker，两者都用 Dex SDK 构建。Client 通过 startFlow 和 invokeRPC 调用 Dex Server；Dex Server 调用 Worker 运行 Step 和 RPC，并持久化每个 Flow。dexcli 和 Dex Web 也连接 Dex Server，用来在本机运行 Dex，以及查看和操作 Flow。" />
 
-## 你的应用 {#your-application}
-
-你的应用就是你部署的代码。它有两部分：
-
-- **Worker** 在 Dex 交给它工作时，运行你的 `WaitFor`、`Execute` 和 RPC handler。
-- **Client** 启动 Flow，调用 RPC。
-
-一个进程可以运行 Worker、Client，或者两者都运行。Worker 向 Dex Server 建立出站连接，从不监听调用，所以它不需要入站端口。[你的应用](/components/application)介绍怎样启动它们。
-
-## Dex Server {#dex-server}
-
-Dex Server 保存每个 Flow 的状态，并把 Step 和 RPC 交给 Worker。对象存储（比如 Amazon S3）是它的记录，也是它唯一必需的依赖。一个活动进程服务整个集群，它停止时，备用进程可以接管。[Dex Server](/components/server) 介绍它的依赖，以及依赖故障时会怎样。
-
-## dexcli {#dexcli}
-
-`dexcli` 是 Dex 的命令行工具。**dexcli dev** 在本机启动 Dex Server 和 Dex Web。**dexcli flow** 查看、搜索和操作 Flow。它的输出以 JSON 为主，所以脚本和编码 Agent 也能使用。[CLI（dexcli）](/components/cli)列出它的命令。
-
-## Dex Web {#dex-web}
-
-Dex Web 是运维界面。它查找 Flow，显示一次 run 的 Step、Attribute 和失败，并根据 Flow Definition Graph 画出每个 Flow。它也能启动 Flow、调用 RPC。Dex Web 作为独立进程运行，终端用户的身份验证交给你处理。[Web（Dex Web）](/components/web)介绍怎样运行它。
-
-## 本地和生产环境 {#local-and-production}
-
-<a id="本地和生产环境"></a>
-
-| 组件 | 本地开发 | 生产环境 |
-| --- | --- | --- |
-| Server | **dexcli dev** 启动 server-zd | 使用对象存储运行 **dex-server-zd serve**，或使用 Dex Cloud |
-| Web | **dexcli dev** 启动 Dex Web | 单独的 **dex-web** 进程，或 **dexcli web** |
-| 应用 | 你的 Worker 进程 | 你的 Worker 服务，像其他服务一样扩缩容 |
-
-[快速开始](/quick-start)在本地运行所有组件。[本地运行](/components/run-locally)介绍 **dexcli dev** 的安装选项和问题排查。
-
 ## Dex Server 运行在哪里 {#where-to-run}
 
 <a id="dex-cloud"></a>
@@ -62,6 +29,32 @@ Dex Server 可以运行在 Dex Cloud（由 Super Durable 运维），也可以�
 | Flow 状态存在哪里 | 存在 Dex Server 的存储中，由 Super Durable 运维 | 存在你提供的对象存储 bucket 中 |
 | Worker 怎样连接 | 通过 TLS，使用这个 server 的 API key | 使用你配置的认证和 TLS |
 | 从这里开始 | [在 Dex Cloud 上运行](/components/dex-cloud) | [自托管 Dex](/components/self-host) |
+
+## 组件 {#components}
+
+<a id="your-application"></a>
+<a id="dex-server"></a>
+<a id="dexcli"></a>
+<a id="dex-web"></a>
+
+| 组件 | 作用 | 详情 |
+| --- | --- | --- |
+| 你的应用 | 你的代码。Worker 运行你的 Step 和 RPC handler，Client 启动 Flow、调用 RPC。 | [你的应用](/components/application) |
+| Dex Server | 把每个 Flow 的状态保存在对象存储中，并把 Step 和 RPC 交给 Worker。 | [Dex Server](/components/server) |
+| dexcli | 命令行工具。它在本机运行 Dex，并查看和操作 Flow。 | [CLI（dexcli）](/components/cli) |
+| Dex Web | 运维界面。它查找 Flow、显示每次 run、启动 Flow、调用 RPC。 | [Web（Dex Web）](/components/web) |
+
+## 本地和生产环境 {#local-and-production}
+
+<a id="本地和生产环境"></a>
+
+| 组件 | 本地开发 | 生产环境 |
+| --- | --- | --- |
+| Server | **dexcli dev** 启动 server-zd | 使用对象存储运行 **dex-server-zd serve**，或使用 Dex Cloud |
+| Web | **dexcli dev** 启动 Dex Web | 单独的 **dex-web** 进程，或 **dexcli web** |
+| 应用 | 你的 Worker 进程 | 你的 Worker 服务，像其他服务一样扩缩容 |
+
+[快速开始](/quick-start)在本地运行所有组件。[本地运行](/components/run-locally)介绍 **dexcli dev** 的安装选项和问题排查。
 
 ## 本节页面 {#pages}
 

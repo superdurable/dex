@@ -10,6 +10,10 @@ Run a subscription through its trial, recurring billing periods, price changes, 
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
+**Shows:** [Cron schedule](/design-patterns/durable-timer/cron), [Static Parallel Steps](/design-patterns/parallel/static).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
 ## Product requirements
 
 The Flow starts with a customer and a subscription plan. The plan supplies a trial duration, billing-period duration, maximum number of billing periods, and current charge amount. It must:
@@ -26,14 +30,12 @@ The Flow waits on Timers for the trial and each billing period. It waits on Chan
 
 Decide how your product handles these failures:
 
-- The welcome email, a charge, or the final notification can fail after the provider has already accepted it. Dex then retries the Step, which calls the provider again. Make these calls idempotent.
+- A provider can complete a charge or an email whose response is lost. A repeat must not charge or send twice.
 - A price update must contain exactly one amount. If the message is invalid, the update Step fails. It does not guess an amount.
 - A cancellation can arrive just as a billing Timer fires. Your payment provider and cancellation policy must handle that case, including any refund or entitlement decision.
 - After the Flow is canceled or completes, publishing a message cannot reopen it. The client should treat the subscription as ended and start a new one if needed.
 
 ## Flow design
-
-<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **Initialize** starts three long-running branches:
 
@@ -47,7 +49,7 @@ Decide how your product handles these failures:
 
 The billing schedule is a Step that moves back to itself after each period. No process has to stay in memory between charges. The customer, plan, and billing counter live in Attributes, so every branch reads the current values instead of a copy in Worker memory. **Cancel** and the last `ChargeCurrentBill` force-complete the Flow, which also ends the waits in the other branches.
 
-The Rust example has the same state, billing loop, and control branches, with one difference. Clients update or cancel through RPCs, and each RPC publishes to an internal Channel. In the other SDK examples, clients publish to the Channels directly.
+Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
 ## Core implementation
 
@@ -316,7 +318,7 @@ impl Flow for SubscriptionFlow {
 
 ## Demo
 
-In this Go run, the Flow stored the subscription and started **Trial**, **Cancel**, and `UpdateChargeAmount`. It applied a price update, then completed when the subscription was canceled. Completed nodes are finished Step executions. Waiting nodes show what each Step was still waiting for when the cancellation ended the Flow.
+[Run any example](/use-cases#run-any-example) starts the samples app. In this Go run, the Flow stored the subscription and started **Trial**, **Cancel**, and `UpdateChargeAmount`. It applied a price update, then completed when the subscription was canceled. Completed nodes are finished Step executions. Waiting nodes show what each Step was still waiting for when the cancellation ended the Flow.
 
 <a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img

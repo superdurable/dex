@@ -181,6 +181,14 @@ func (channel *LauncherChannel) SendResult(resumeSessionID string) error {
 	})
 }
 
+// SendSwitchSession hands the session to switch to back to the launcher,
+// once, right before the channel closes.
+func (channel *LauncherChannel) SendSwitchSession(sessionID string, isResumed bool) error {
+	return channel.writeMessage(map[string]any{
+		"type": launchcontract.MessageTypeSwitchSession, "session_id": sessionID, "is_resumed": isResumed,
+	})
+}
+
 // SendLaunchRejected tells the launcher why the launch failed.
 func (channel *LauncherChannel) SendLaunchRejected(rejection *launchcontract.LaunchRejection) error {
 	return channel.writeMessage(map[string]any{
