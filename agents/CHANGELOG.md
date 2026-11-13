@@ -4,6 +4,83 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.2 (2026-11-12)
+
+### Added
+
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: the
+  configuration file's optional `dex.auth` (`none`, `api_key`, or `bearer`)
+  and `dex.tls` (`ca_file`, `server_name`) connect the Worker, the Clients,
+  the Worker host, and the terminal UI to a remote Dex server that requires
+  TLS and a credential. Secrets come only from `DEX_API_KEY`,
+  `DEX_CREDENTIAL`, or a token file. `DEX_TOKEN_URL`, `DEX_SERVER_ID`,
+  `DEX_CREDENTIAL_FILE`, `DEX_TLS_CA_FILE`, and `DEX_TLS_SERVER_NAME`
+  override the matching fields. The file's `dex.auth` alone turns
+  authentication on.
+- New configuration error codes: `insecure_token_url`,
+  `auth_needs_server_url`, and `tls_needs_https_server`.
+  `EffectiveConfig.dex` carries `auth` and `tls`. In TypeScript both are
+  optional, so code that builds an `EffectiveConfig` itself keeps compiling.
+  `resolve_dex_connection_settings` (`resolveDexConnectionSettings`) returns
+  the connection settings without secrets. The `dex_connection` cases in
+  `agents/conformance/cli_config.json` fix the rules.
+- Terminal UI contract 1: the launch document's `dex.auth` and `dex.tls`
+  carry the command's settings instead of `none` and the defaults. The
+  terminal UI gets the one credential variable that `dex.auth` names.
+- The commands remove `DEX_API_KEY`, `DEX_CREDENTIAL`, and
+  `DEX_CREDENTIAL_FILE` from the environment of shell commands, browsers,
+  downloads, and `dexcli dev`, also without `dex.auth`. Only the Worker host
+  and the terminal UI get the one variable that the mode needs.
+  `childProcessVariables` (TypeScript) lacks them too, and the new
+  `removeDexSecretVariables` (`remove_dex_secret_variables`) does the removal.
+- `dex-agents`, `@superdurable/dex-agents`, and the Go core: the optional
+  `sender_name` (`senderName`, `SenderName`) on `AgentUserMessage`,
+  `SteerUserMessageRequest`, and `AgentMessage` holds a self-declared display
+  name of the person who sent a user message. The model sees the message as
+  `"<name>: <text>"` through the framework item, while `AgentMessage.text`
+  keeps the text as sent. `send_user_message` and `steer_user_message` return
+  false for a name that `is_valid_sender_name` (`isValidSenderName`,
+  `IsValidSenderName`) refuses, and for a name sent with `message_id`.
+  Encoding omits an absent name, and a Worker before this release ignores it.
+- The session graph declares the optional `sender_name` input of the
+  `steer_user_message` Action.
+- `describe_stored_message` (`describeStoredMessage`), which builds the text
+  of a context summary prompt, shows a named user message as
+  `user: <name>: <text>`.
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: the
+  `reasoning_effort` session setting sets the reasoning effort of every model
+  call from the next turn. A harness declares the values it maps with the
+  optional `supported_reasoning_efforts` (`supportedReasoningEfforts`), and the
+  turn's value is `ResolvedTurn.reasoning_effort` (`reasoningEffort`). A value
+  the harness does not declare fails the turn with
+  `unsupported_reasoning_effort`. A harness may also list
+  `suggested_models` (`suggestedModels`).
+- Python `resolve_turn_config` takes the supported values as the keyword
+  argument `supported_reasoning_efforts` and returns the turn's value in
+  `TurnConfigResolution.reasoning_effort`. TypeScript `resolveTurn` takes them
+  as a third argument and returns `TurnResolution`, with the value in
+  `reasoningEffort`. `TurnConfigResolver` takes them at construction in both.
+  All these additions are optional. A harness may not declare `default`,
+  which the terminal UI reserves, and a suggested model ID has no space or
+  control character.
+- Terminal UI contract 1: the launch document carries the optional
+  `display.models` and `capabilities.reasoning_effort`, which dexcli 1.47.0
+  reads for `/model` and `/effort`. Older dexcli releases ignore them.
+- Harness commands: `dex-agents-claude-sdk` maps `reasoning_effort` to the
+  Claude Agent SDK `effort` (`low`, `medium`, `high`, `xhigh`, `max`). The
+  built-in commands, `dex-agents-openai-sdk`, `dex-agents-pydantic-ai`,
+  `dex-agents-vercel-ai`, and `dex-agents-pi` map `low`, `medium`, and `high`
+  to their SDK's reasoning option. `dex-agents-deepagents`,
+  `dex-agents-google-adk`, and `dex-agents-mastra` declare none yet. Every
+  command suggests a few models for `/model`.
+
+### Changed
+
+- The agents CLI commands download dexcli 1.47.0, whose terminal UI lists the
+  suggested models for `/model` and the reasoning effort values for `/effort`.
+- The agents CLI commands download dexcli 1.47.1, whose terminal UI shows the
+  declared name of a message sent from Dex Web as "Name: text".
+
 ## 0.6.1 (2026-11-12)
 
 ### Changed
