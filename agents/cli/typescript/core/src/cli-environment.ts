@@ -39,6 +39,7 @@ export const defaultDexcliDownloadUrl = "https://github.com/superdurable/dex/rel
  * | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `dex.server: auto` reuses or starts. Default 8801 and 8802. |
  * | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. |
  * | `DEX_AGENTS_OPEN_BROWSER` | Set to `0` or `false` so the command never opens a web browser. Since 0.6.0. |
+ * | `DEX_API_KEY`, `DEX_TOKEN_URL`, `DEX_SERVER_ID`, `DEX_CREDENTIAL`, `DEX_CREDENTIAL_FILE`, `DEX_TLS_CA_FILE`, `DEX_TLS_SERVER_NAME` | The Dex connection settings; see {@link DexConnectionVariables}. Since 0.6.3. |
  *
  * @since 0.5.0
  */
@@ -67,8 +68,78 @@ export interface CliEnvironment {
    * @since 0.6.0
    */
   readonly isBrowserOpeningEnabled?: boolean;
+  /**
+   * The Dex connection variables, which only a `dex.auth` mode or an `https` `dex.server` puts to use.
+   * {@link readCliEnvironment} always sets it. An environment built by hand may omit it, which means none is set.
+   *
+   * @since 0.6.3
+   */
+  readonly dexConnectionVariables?: DexConnectionVariables;
   /** The variables that child processes, such as `dexcli dev`, inherit. */
   readonly childProcessVariables: NodeJS.ProcessEnv;
+}
+
+/**
+ * The Dex connection variables of an environment, each trimmed. A variable that is unset, or empty after trimming,
+ * is absent.
+ *
+ * They use `dexcli`'s names, but a command reads them only when its configuration asks for them:
+ * `DEX_API_KEY`, `DEX_TOKEN_URL`, and `DEX_SERVER_ID` for `dex.auth` mode `api_key`; `DEX_CREDENTIAL` for mode
+ * `bearer` with source `env`; `DEX_CREDENTIAL_FILE` for source `file`; and `DEX_TLS_CA_FILE` and
+ * `DEX_TLS_SERVER_NAME` for an `https` `dex.server`. `DEX_API_KEY` and `DEX_CREDENTIAL` are secrets: never print
+ * or log them.
+ *
+ * @example
+ * ```ts
+ * const variables = readDexConnectionVariables(process.env);
+ * const hasApiKey = variables.DEX_API_KEY !== undefined;
+ * ```
+ * @since 0.6.3
+ */
+export interface DexConnectionVariables {
+  /** The API key that `dex.auth` mode `api_key` exchanges for access tokens. A secret. */
+  readonly DEX_API_KEY?: string;
+  /** The token endpoint, which overrides `dex.auth.token_url`. */
+  readonly DEX_TOKEN_URL?: string;
+  /** The server ID, which overrides `dex.auth.server_id`. */
+  readonly DEX_SERVER_ID?: string;
+  /** The bearer token of `dex.auth` mode `bearer` with source `env`. A secret. */
+  readonly DEX_CREDENTIAL?: string;
+  /** The bearer token file, which overrides `dex.auth.file`. */
+  readonly DEX_CREDENTIAL_FILE?: string;
+  /** The CA bundle, which overrides `dex.tls.ca_file`. */
+  readonly DEX_TLS_CA_FILE?: string;
+  /** The TLS server name, which overrides `dex.tls.server_name`. */
+  readonly DEX_TLS_SERVER_NAME?: string;
+}
+
+const dexConnectionVariableNames = [
+  "DEX_API_KEY",
+  "DEX_TOKEN_URL",
+  "DEX_SERVER_ID",
+  "DEX_CREDENTIAL",
+  "DEX_CREDENTIAL_FILE",
+  "DEX_TLS_CA_FILE",
+  "DEX_TLS_SERVER_NAME",
+] as const;
+
+/**
+ * Reads the {@link DexConnectionVariables} of an environment: each one trimmed, and absent when it is unset or
+ * empty after trimming.
+ *
+ * @param environment - The variables, such as `process.env`.
+ * @returns The Dex connection variables.
+ * @since 0.6.3
+ */
+export function readDexConnectionVariables(environment: NodeJS.ProcessEnv): DexConnectionVariables {
+  const variables: Record<string, string> = {};
+  for (const name of dexConnectionVariableNames) {
+    const value = (environment[name] ?? "").trim();
+    if (value !== "") {
+      variables[name] = value;
+    }
+  }
+  return variables;
 }
 
 /**
@@ -90,6 +161,7 @@ export function readCliEnvironment(environment: NodeJS.ProcessEnv): CliEnvironme
     dexcliDevWebPort: readPort(environment, "DEX_AGENTS_WEB_PORT", defaultDexcliDevWebPort),
     dexcliDownloadUrl: nonEmpty(environment.DEX_AGENTS_DEXCLI_DOWNLOAD_URL) ?? defaultDexcliDownloadUrl,
     isBrowserOpeningEnabled: !["0", "false"].includes((environment.DEX_AGENTS_OPEN_BROWSER ?? "").trim().toLowerCase()),
+    dexConnectionVariables: readDexConnectionVariables(environment),
     childProcessVariables: { ...environment, HOME: homeDirectory },
   };
 }

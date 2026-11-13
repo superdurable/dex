@@ -14,12 +14,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { WorkerHostProcess } from "../worker-host/worker-host-process.js";
 import type { WorkerHostReady, WorkerHostStartRequest } from "../worker-host/worker-host-protocol.js";
 import { cleanUpWorkerHostRecord } from "../worker-host/leftover-worker-hosts.js";
-import { chatLaunchDocument, launchAuth, noticeText } from "./launch-document.js";
+import { readDexConnectionVariables } from "../cli-environment.js";
+import { chatLaunchDocument, noticeText, terminalUiAuthOf } from "./launch-document.js";
 import { LocalRequestRelay, refusal, type LocalRequestMethod } from "./local-request-relay.js";
 import type { LocalRequestOutcome } from "./request-outcome-table.js";
 import { isOpenUrlAllowed } from "./open-url-policy.js";
 import { TerminalUiChannel, type ChannelMessage } from "./terminal-ui-channel.js";
-import { buildTerminalUiEnvironment } from "./terminal-ui-environment.js";
+import { buildTerminalUiEnvironment, terminalUiAuthVariables } from "./terminal-ui-environment.js";
 import { LauncherOutputRedirect, TerminalModeGuard } from "./terminal-mode.js";
 
 /** How long the terminal UI has, from its spawn, to send `ready`. */
@@ -349,12 +350,16 @@ class TerminalUiHandoff {
       }
     }
     methods.set("open_url", (params) => this.openUrl(params));
+    const connectionAuth = launch.start.connection.auth;
+    const terminalUiAuth = terminalUiAuthOf(connectionAuth);
+    const authVariables = terminalUiAuthVariables(connectionAuth, readDexConnectionVariables(launch.environment));
     const document = chatLaunchDocument({
       commandName: launch.commandName,
       harnessName: launch.harnessName,
       commandVersion: launch.commandVersion,
       serverAddress: launch.start.server.serverAddress,
-      isTls: launch.start.server.isTls,
+      tls: launch.start.connection.tls,
+      auth: terminalUiAuth,
       webUrl: launch.start.server.webUrl,
       flowType: ready.flowType,
       sessionId: ready.sessionId,
@@ -376,7 +381,7 @@ class TerminalUiHandoff {
     });
     this.child = spawn(launch.dexcli, ["agents-tui", "--channel-fd", String(channelFdInChild)], {
       stdio: ["inherit", "inherit", "inherit", "pipe"],
-      env: buildTerminalUiEnvironment(launch.environment, launchAuth),
+      env: buildTerminalUiEnvironment({ ...launch.environment, ...authVariables }, terminalUiAuth),
     });
     // A failed spawn emits "error" and "close" but no "exit"; either ends the handoff, once.
     this.child.once("exit", (code, signal) => this.end({ code, signal }));

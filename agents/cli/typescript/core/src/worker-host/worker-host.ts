@@ -111,6 +111,7 @@ class WorkerHost {
         start.effective,
         { effective: start.effective, configPath: start.configPath, isFromFile: start.isFromFile },
         start.server,
+        start.connection,
         {
           resumeSessionId: start.resumeSessionId ?? undefined,
           isOpeningConnectorsPage: true,

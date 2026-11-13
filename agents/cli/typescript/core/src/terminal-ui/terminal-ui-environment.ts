@@ -6,6 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { DexConnectionVariables } from "../cli-environment.js";
+import type { DexAuthSettings } from "../dex-connection.js";
+
 /** How the terminal UI authenticates to the Dex server: the launch document's `dex.auth`. */
 export type TerminalUiAuth =
   | { readonly mode: "none" }
@@ -36,6 +39,26 @@ export function terminalUiAuthVariable(auth: TerminalUiAuth): string | undefined
     default:
       return undefined;
   }
+}
+
+/**
+ * Returns the value of the one auth variable a command's auth settings name: the trimmed secret, or the token file's
+ * absolute path, which may have come from the configuration file.
+ */
+export function terminalUiAuthVariables(
+  auth: DexAuthSettings,
+  variables: DexConnectionVariables,
+): Readonly<Record<string, string>> {
+  if (auth.mode === "api_key" && variables.DEX_API_KEY !== undefined) {
+    return { DEX_API_KEY: variables.DEX_API_KEY };
+  }
+  if (auth.mode === "bearer" && auth.source === "env" && variables.DEX_CREDENTIAL !== undefined) {
+    return { DEX_CREDENTIAL: variables.DEX_CREDENTIAL };
+  }
+  if (auth.mode === "bearer" && auth.source === "file") {
+    return { DEX_CREDENTIAL_FILE: auth.file };
+  }
+  return {};
 }
 
 /**

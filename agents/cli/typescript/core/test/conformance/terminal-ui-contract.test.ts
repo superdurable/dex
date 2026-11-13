@@ -14,7 +14,13 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { chatLaunchDocument, maxLaunchNoticeBytes, noticeText } from "../../src/terminal-ui/launch-document.js";
+import type { DexAuthSettings } from "../../src/dex-connection.js";
+import {
+  chatLaunchDocument,
+  maxLaunchNoticeBytes,
+  noticeText,
+  terminalUiAuthOf,
+} from "../../src/terminal-ui/launch-document.js";
 import { LocalRequestRelay, refusal } from "../../src/terminal-ui/local-request-relay.js";
 import { isOpenUrlAllowed } from "../../src/terminal-ui/open-url-policy.js";
 import { candidateSessionIds, idempotencyKeyTimeMs } from "../../src/terminal-ui/request-keys.js";
@@ -24,7 +30,11 @@ import {
   type RequestOutcomeEntry,
 } from "../../src/terminal-ui/request-outcome-table.js";
 import type { ChannelMessage } from "../../src/terminal-ui/terminal-ui-channel.js";
-import { buildTerminalUiEnvironment, type TerminalUiAuth } from "../../src/terminal-ui/terminal-ui-environment.js";
+import {
+  buildTerminalUiEnvironment,
+  terminalUiAuthVariables,
+  type TerminalUiAuth,
+} from "../../src/terminal-ui/terminal-ui-environment.js";
 import { chooseContract, launcherContractVersions, parseDescription } from "../../src/terminal-ui/terminal-ui-negotiation.js";
 import { terminalUiChannelValidator, terminalUiSchemaValidator } from "../../src/terminal-ui/terminal-ui-schemas.js";
 import { isTerminalUiSelected } from "../../src/terminal-ui/terminal-ui-selection.js";
@@ -327,7 +337,8 @@ describe("terminal UI contract 1: the launch document", () => {
     harnessName: "scripted",
     commandVersion: "0.6.0",
     serverAddress: "127.0.0.1:18801",
-    isTls: false,
+    tls: { enabled: false, ca_file: null, server_name: null },
+    auth: { mode: "none" } as const,
     webUrl: "http://127.0.0.1:18802",
     flowType: "DexAgentsCliScriptedSession-ab12cd",
     sessionId: "scripted-20261111-142233-a1b2c3",
@@ -347,6 +358,36 @@ describe("terminal UI contract 1: the launch document", () => {
     logPath: "/home/user/.dex/agents/scripted.log",
     homeDirectory: "/home/user",
   };
+
+  test("dex.tls and dex.auth come from the command's connection settings, without the token file", () => {
+    const tls = { enabled: true, ca_file: "/home/user/certs/ca.pem", server_name: "dex.internal" };
+    const validate = terminalUiSchemaValidator("launch");
+    const settings: readonly DexAuthSettings[] = [
+      { mode: "api_key", token_url: "https://auth.example.com/token", server_id: "dex-prod" },
+      { mode: "bearer", source: "env" },
+      { mode: "bearer", source: "file", file: "/run/dex/token" },
+    ];
+    const variables = { DEX_API_KEY: "dex_key_1", DEX_CREDENTIAL: "token-1", DEX_CREDENTIAL_FILE: "/other/token" };
+    const expected = [
+      { auth: { mode: "api_key", token_url: "https://auth.example.com/token", server_id: "dex-prod" }, variable: { DEX_API_KEY: "dex_key_1" } },
+      { auth: { mode: "bearer", source: "env" }, variable: { DEX_CREDENTIAL: "token-1" } },
+      { auth: { mode: "bearer", source: "file" }, variable: { DEX_CREDENTIAL_FILE: "/run/dex/token" } },
+    ];
+    settings.forEach((auth, index) => {
+      const document = chatLaunchDocument({
+        ...launchDetails,
+        serverAddress: "dex.example.com:443",
+        tls,
+        auth: terminalUiAuthOf(auth),
+        startedDexcliDevLines: [],
+        workerHostStartupLines: [],
+      });
+      assert.equal(validate(document), true, JSON.stringify(validate.errors));
+      assert.deepEqual((document.dex as { tls: unknown; auth: unknown }).tls, tls);
+      assert.deepEqual((document.dex as { auth: unknown }).auth, expected[index]?.auth);
+      assert.deepEqual(terminalUiAuthVariables(auth, variables), expected[index]?.variable);
+    });
+  });
 
   test("display.models lists the configured model, the harness default, then its suggestions, each once", () => {
     const document = chatLaunchDocument({ ...launchDetails, startedDexcliDevLines: [], workerHostStartupLines: [] });
