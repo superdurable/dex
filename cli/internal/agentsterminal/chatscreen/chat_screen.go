@@ -1426,7 +1426,7 @@ func (screen *ChatScreen) printRecordedUserMessage(recorded sessionfeed.UserMess
 		screen.printedSequences[recorded.Sequence] = true
 	}
 	screen.flushAllReplies()
-	screen.printUserMessage(userMessageBlock{text: recorded.Text, origin: recorded.Origin, images: recorded.Images})
+	screen.printUserMessage(userMessageBlock{text: recorded.Text, origin: recorded.Origin, senderName: recorded.SenderName, images: recorded.Images})
 }
 
 func (screen *ChatScreen) printUserMessage(block userMessageBlock) {
