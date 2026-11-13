@@ -25,6 +25,8 @@ type AnalyzeOptions struct {
 	PythonPath    string
 	SchemaVersion string
 	Lint          string
+	// TypeScriptCompilerDirectory is the trusted typescript package directory; empty resolves from the source project.
+	TypeScriptCompilerDirectory string
 }
 
 func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*Graph, error) {
@@ -55,7 +57,7 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 	case "python":
 		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, schemaVersion)
 	case "typescript":
-		graph, err = analyzeTypeScript(ctx, absolutePath, data, schemaVersion)
+		graph, err = analyzeTypeScript(ctx, absolutePath, data, schemaVersion, options.TypeScriptCompilerDirectory)
 	default:
 		panic("validated language was not handled")
 	}
