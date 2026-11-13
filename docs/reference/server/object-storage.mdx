@@ -420,9 +420,11 @@ must fail, or startup fails.
 
 COS shows an empty object at a key while an append creates it. An append that
 is interrupted, such as by a crash or a timeout, can leave that empty object
-behind. The server writes only non-empty objects, so it treats every empty
-object as absent and creates its object over it. Do not edit or delete these
-empty objects.
+behind. The server writes only non-empty objects. It treats every empty object
+as absent and replaces it when it creates an object at that key. An empty object
+that the server never replaces stays in the bucket. You can delete the empty
+objects under the prefix safely while every node that uses the prefix is
+stopped. A running node may be appending to one of them.
 
 The server stores its mutable metadata objects as a series of versions, as it
 does on OSS. These are the cluster manifest, the Attribute index registry, node
