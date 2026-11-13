@@ -2,25 +2,16 @@
 title: Dex vs. Temporal
 sidebar_label: Dex vs. Temporal
 slug: /intro/compared-to-durable-execution
-description: Dex 和 Temporal 在一个设计选择上不同：保存每个 Step 的结果，而不是重放 workflow 代码。本页说明这个选择对代码、变更、长时间运行和恢复意味着什么，后面是术语对照和其他 durable execution 工具。
+description: Dex 和 Temporal 的区别：Dex 保存每个 Step 的结果，而不是重放 workflow 代码，并且以一个二进制运行在对象存储上。本页说明这些选择对代码变更、长时间运行、恢复和并发意味着什么，后面是术语对照和其他 durable execution 工具。
 ---
 
 import RecoveryModelDiagram from '@site/src/components/diagrams/RecoveryModelDiagram';
 
 # Dex vs. Temporal
 
-Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续运行。它们在一个设计选择上不同：Temporal 通过重放 workflow 代码来重建一次运行，Dex 保存每个 Step 的结果。本页比较这两种设计，以及各自对你的代码意味着什么。[术语对照](#term-map)和[其他引擎](#other-engines)在后面。
+Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续运行。它们在两个设计选择上不同。Temporal 通过重放 workflow 代码来重建一次运行，Dex 保存每个 Step 的结果。Temporal 的服务运行在数据库上，Dex 以一个二进制运行在对象存储上。本页先讲这两点区别，以及它们对你的代码和运维意味着什么。[术语对照](#term-map)和[其他引擎](#other-engines)在后面。
 
 本页关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。关于 Dex 的事实链接到对应的页面。
-
-## 共同点 {#what-they-share}
-
-- 服务器在你的进程之外记录每次运行的进度。崩溃之后，运行从这份记录继续。
-- 你自己进程里的 Worker 从服务器拉取任务。你的代码从不在服务器里运行。
-- Timer 是持久化的。等待 Timer 或消息的运行不占用 Worker。
-- 每个工作单元都有 retry 策略和超时。默认 backoff 相同：1 秒，每次翻倍，最多 100 秒，不限次数。
-- 每次运行有一个业务 ID。同一个 ID 同时最多有一个打开的运行，复用策略决定下一次启动怎样处理。
-- 一个工作单元可能运行不止一次。调用其他系统的代码要传入幂等键。
 
 ## 重放与保存的 Step 结果 {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
@@ -32,23 +23,48 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 
 **Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把 Step 的结果、它写入的 Attribute 和这个决定一起保存。要继续一次运行，Worker 只运行下一个 Step。它读取保存的 Attribute。没有任何重放。
 
-下表说明每种设计对核心能力意味着什么。前几行直接来自重放。
+下表列出每种设计对你的代码意味着什么，最重要的在前。
 
 | | Temporal：重放 workflow 代码 | Dex：保存每个 Step 的结果 |
 | --- | --- | --- |
 | 编排代码 | 必须是确定性的。读取时钟、随机值和 I/O 要通过 Temporal 的 API，或者放进 Activity。 | 普通代码。Step 可以读取时钟、使用随机值，调用任何库。 |
-| 你要遵守的规则 | 确定性的 workflow 代码，加上幂等的 Activity | 幂等的外部效果 |
-| Worker 停止后的状态 | 通过重放 Event History 重建，在两次任务之间缓存在 Worker 上 | 从每个 Step 一起保存的 Attribute 读取。Worker 不保留缓存。 |
 | 运行未结束时修改代码 | 改变命令顺序的修改会让重放失败，报非确定性错误。Patching 或 Worker Versioning 让旧的运行走旧路径。 | 未结束的 Flow 从下一个 Step 开始运行新代码。保留旧的 Step 类型直到旧 Flow 结束，并以增量方式修改数据。见[部署代码变更](/concepts/change-flow-code#versioning-flow-code)。 |
 | 持续数月的运行 | Event History 有上限：10,240 个事件或 10 MB 时警告，超过 51,200 个事件或 50 MB 时终止。Continue-As-New 开始一次新的运行。 | Dex 保留每次运行最新的一段事件，默认 50,000 个，并清理更早的事件。Flow 继续运行。见 [History window](/reference/server/configuration#history-window)（英文）。 |
 | 修复 bug 后恢复 | Reset 从较早的事件开始一次新的运行。 | Time Travel 恢复较早时间点的 Attribute、Channel 消息和等待中的 Step，Run ID 不变。 |
-| 代码的形状 | 一个函数，从上往下读，用普通的循环和分支 | 由 Step 组成的图。每个决策指定接下来的 Step。 |
-| 等待 | `await` 一个 Timer，或者等待由 Signal handler 设置的条件 | Step 的 `WaitFor` 返回 Timer、Channel 或 SubFlow 条件，可以单独使用，也可以组合。 |
-| 并行工作 | 在一个 workflow 线程里 await 多个 Activity | `GoToMany` 在不同的 Worker 上并行运行 Step。 |
-| 重试 | Activity 默认重试，workflow 代码不重试。 | 每个 Step 方法默认重试，退避方式相同。 |
-| 失败处理 | 在 workflow 代码里捕获 Activity 的错误。 | Step 上的失败策略把流程交给一个恢复 Step。见[失败处理](/design-patterns/failure-handling)。 |
+| Worker 停止后的状态 | 通过重放 Event History 重建，在两次任务之间缓存在 Worker 上 | 从每个 Step 一起保存的 Attribute 读取。Worker 不保留缓存。 |
 
-### 同一个流程的两种写法 {#the-same-process-in-both-models}
+<a id="capabilities"></a>
+
+## 运行服务器 {#run-the-server}
+
+Temporal 需要一个数据库。Dex 只需要对象存储。
+
+| | Temporal Service | Dex Server |
+| --- | --- | --- |
+| 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。活跃节点停止时，备用节点接管。见 [Dex Server](/components/server)。 |
+| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发。 | 对象存储，例如 Amazon S3，或者用 db9 代替。 |
+| 搜索存储 | Visibility 存储。生产环境推荐 Elasticsearch。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
+
+活跃的 Dex 节点故障转移时，每个进行中的 Step 尝试都会再次运行。见[故障转移和部署](/concepts/failover-and-deploys)。[性能](/intro/performance)给出单个 Dex 节点实测的吞吐量和延迟。
+
+## 并发的默认行为 {#concurrency-defaults}
+
+Temporal 默认每个 Workflow 只有一个写入方。Dex 并行运行一个 Flow 的多个 Step，要求你声明锁。
+
+Temporal Workflow 在单线程上运行。Signal 和 Update handler 仍然可能在每个 `await` 处和主函数交错执行。对于先读、再等待、再写入的 handler，Temporal 建议使用 workflow mutex。
+
+Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。由你选择哪些 Attribute 需要[锁](/concepts/primitives/attribute#locking)。没有锁时，两个先读后写的写入方可能互相覆盖。
+
+## 共同点 {#what-they-share}
+
+- 服务器在你的进程之外记录每次运行的进度。崩溃之后，运行从这份记录继续。
+- 你自己进程里的 Worker 从服务器拉取任务。你的代码从不在服务器里运行。
+- Timer 是持久化的。等待 Timer 或消息的运行不占用 Worker。
+- 每个工作单元都有 retry 策略和超时。默认 backoff 相同：1 秒，每次翻倍，最多 100 秒，不限次数。
+- 每次运行有一个业务 ID。同一个 ID 同时最多有一个打开的运行，复用策略决定下一次启动怎样处理。
+- 一个工作单元可能运行不止一次。调用其他系统的代码要传入幂等键。
+
+## 同一个流程的两种写法 {#the-same-process-in-both-models}
 
 一个提醒循环每隔一段时间发送一次提醒，直到对方选择退出。在 Temporal 里，循环是由引擎重放的普通代码。下面这段代码只是示意，不来自 Dex 示例：
 
@@ -234,26 +250,6 @@ impl Step for ReminderStep {
 提醒不带幂等键，因为多发一次提醒没有坏处。在 Rust 里，`has_any_timer_fired` 询问这个 Wait 中是否有任意一个 Timer 已触发。
 
 Temporal 版本从上往下读。退出是一个设置变量的 Signal handler，重放会重建这个变量。Dex 版本给等待状态起了名字。Timer 和 Channel 是同一个 Wait，由决定选择接下来做什么。
-
-## 并发和服务器 {#capabilities}
-
-### 并发的默认行为 {#concurrency-defaults}
-
-Temporal Workflow 在单线程上运行。Signal 和 Update handler 仍然可能在每个 `await` 处和主函数交错执行。对于先读、再等待、再写入的 handler，Temporal 建议使用 workflow mutex。
-
-Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。由你选择哪些 Attribute 需要[锁](/concepts/primitives/attribute#locking)。没有锁时，两个先读后写的写入方可能互相覆盖。
-
-这个差距比"单线程对多线程"听起来小，但它是真实存在的。Temporal 默认只有一个写入方。Dex 默认并行运行 Step，要求你声明锁。
-
-### 运行服务器 {#run-the-server}
-
-| | Temporal Service | Dex Server |
-| --- | --- | --- |
-| 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。活跃节点停止时，备用节点接管。见 [Dex Server](/components/server)。 |
-| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发。 | 对象存储，例如 Amazon S3，或者用 db9 代替。 |
-| 搜索存储 | Visibility 存储。生产环境推荐 Elasticsearch。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
-
-活跃的 Dex 节点故障转移时，每个进行中的 Step 尝试都会再次运行。见[故障转移和部署](/concepts/failover-and-deploys)。[性能](/intro/performance)给出单个 Dex 节点实测的吞吐量和延迟。
 
 <a id="when-another-tool-is-the-better-fit"></a>
 
