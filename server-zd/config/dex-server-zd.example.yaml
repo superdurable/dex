@@ -18,6 +18,8 @@ objectStore:
   forcePathStyle: false
   credentialsSource: defaultChain
   hardDeleteStore: null
+  # null uses list for aliyunOSS and head for tencentCOS; other providers reject a value.
+  versionDiscovery: null
 localStorage:
   directory: ""
   blockCacheBytes: 268435456

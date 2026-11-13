@@ -64,6 +64,14 @@ async fn assert_waiting_standby_takes_over_without_losing_writes(
         provider.api_dialect(),
     )
     .await;
+    if provider == TestObjectStoreProvider::TencentCos {
+        // Listings repeat for two seconds, as on real COS, so takeover reads stale listings.
+        primary
+            .set_fault_rules(
+                r#"[{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":2000}}]"#,
+            )
+            .await;
+    }
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let serve_config = |name: &str, listen| {

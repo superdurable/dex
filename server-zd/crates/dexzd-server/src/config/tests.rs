@@ -16,13 +16,14 @@ use std::time::Duration;
 
 use dexzd_engine::{EffectsConfig, HistoryUploadLimits, LocalStoreConfig};
 use dexzd_metrics::MetricsLevel;
-use dexzd_object_store::ListingConsistency;
+use dexzd_object_store::{ListingConsistency, VersionDiscovery};
 
 use super::engine_config::SERVE_HISTORY_WINDOW_EVENTS;
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
     DevDurabilityMode, HistoryConfig, LifecycleConfig, ObjectStoreLocationConfig,
-    ObjectStoreProvider, SearchBackend, StandbyMode, StreamStoreBackend, dsn_environment_variable,
+    ObjectStoreProvider, ObjectStoreVersionDiscovery, SearchBackend, StandbyMode,
+    StreamStoreBackend, dsn_environment_variable,
 };
 use crate::DevCommandOptions;
 use crate::component_configs::ComponentConfigs;
@@ -2490,6 +2491,121 @@ fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
             other => panic!("{expected_field} must be rejected, got {other:?}"),
         }
     }
+}
+
+fn aliyun_oss_config() -> Config {
+    let mut configuration = valid_config();
+    configuration.object_store.provider = ObjectStoreProvider::AliyunOss;
+    configuration.object_store.endpoint = "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned();
+    configuration.object_store.region = "cn-hangzhou".to_owned();
+    configuration
+}
+
+#[test]
+fn version_discovery_defaults_to_list_for_aliyun_oss_and_head_for_tencent_cos() {
+    let parsed = Config::parse_yaml("objectStore:\n  versionDiscovery: head\n")
+        .expect("versionDiscovery parses");
+    assert_eq!(
+        parsed.object_store.version_discovery,
+        Some(ObjectStoreVersionDiscovery::Head)
+    );
+    assert!(Config::parse_yaml("objectStore:\n  versionDiscovery: headProbing\n").is_err());
+    let with_discovery = |mut configuration: Config, version_discovery| {
+        configuration.object_store.version_discovery = version_discovery;
+        configuration
+    };
+    for (configuration, provider, expected) in [
+        (
+            aliyun_oss_config(),
+            ObjectStoreProvider::AliyunOss,
+            VersionDiscovery::Listing,
+        ),
+        (
+            with_discovery(aliyun_oss_config(), Some(ObjectStoreVersionDiscovery::List)),
+            ObjectStoreProvider::AliyunOss,
+            VersionDiscovery::Listing,
+        ),
+        (
+            with_discovery(aliyun_oss_config(), Some(ObjectStoreVersionDiscovery::Head)),
+            ObjectStoreProvider::AliyunOss,
+            VersionDiscovery::HeadProbing,
+        ),
+        (
+            tencent_cos_config(),
+            ObjectStoreProvider::TencentCos,
+            VersionDiscovery::HeadProbing,
+        ),
+        (
+            with_discovery(
+                tencent_cos_config(),
+                Some(ObjectStoreVersionDiscovery::Head),
+            ),
+            ObjectStoreProvider::TencentCos,
+            VersionDiscovery::HeadProbing,
+        ),
+    ] {
+        configuration
+            .validate()
+            .expect("the version discovery is valid");
+        assert_eq!(
+            configuration.object_store.version_discovery_for(provider),
+            expected,
+            "{:?}",
+            configuration.object_store.version_discovery
+        );
+    }
+}
+
+#[test]
+fn version_discovery_is_rejected_where_no_store_keeps_versions_and_list_with_tencent_cos() {
+    let message_of = |configuration: Config| match configuration.validate() {
+        Err(ConfigError::Invalid {
+            field: "objectStore.versionDiscovery",
+            message,
+        }) => message,
+        other => panic!("expected an invalid objectStore.versionDiscovery: {other:?}"),
+    };
+    let mut tencent_cos = tencent_cos_config();
+    tencent_cos.object_store.version_discovery = Some(ObjectStoreVersionDiscovery::List);
+    assert!(message_of(tencent_cos).contains("must be head with tencentCOS"));
+    for version_discovery in [
+        ObjectStoreVersionDiscovery::List,
+        ObjectStoreVersionDiscovery::Head,
+    ] {
+        let mut s3 = valid_config();
+        s3.object_store.version_discovery = Some(version_discovery);
+        assert!(message_of(s3).contains("must be unset"));
+    }
+    let mut aliyun_oss_with_tencent_cos_hard_delete = aliyun_oss_config();
+    aliyun_oss_with_tencent_cos_hard_delete
+        .object_store
+        .hard_delete_store = Some(ObjectStoreLocationConfig {
+        provider: Some(ObjectStoreProvider::TencentCos),
+        endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_owned(),
+        region: "ap-guangzhou".to_owned(),
+        bucket: "hard-delete".to_owned(),
+        ..ObjectStoreLocationConfig::default()
+    });
+    aliyun_oss_with_tencent_cos_hard_delete
+        .object_store
+        .version_discovery = Some(ObjectStoreVersionDiscovery::List);
+    assert!(message_of(aliyun_oss_with_tencent_cos_hard_delete).contains("must be head"));
+    let mut s3_with_aliyun_oss_hard_delete = valid_config();
+    s3_with_aliyun_oss_hard_delete
+        .object_store
+        .hard_delete_store = Some(ObjectStoreLocationConfig {
+        provider: Some(ObjectStoreProvider::AliyunOss),
+        endpoint: "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned(),
+        region: "cn-hangzhou".to_owned(),
+        bucket: "hard-delete".to_owned(),
+        ..ObjectStoreLocationConfig::default()
+    });
+    s3_with_aliyun_oss_hard_delete
+        .object_store
+        .version_discovery = Some(ObjectStoreVersionDiscovery::Head);
+    s3_with_aliyun_oss_hard_delete
+        .validate()
+        .expect("an aliyunOSS hardDeleteStore keeps versions");
 }
 
 #[test]

@@ -305,6 +305,27 @@ Every other object keeps its key. Log batches, snapshots, and history segments
 are written once. In the rare case that an uploaded history segment differs from
 committed history, the server deletes it and writes it again.
 
+### Finding the newest version {#version-discovery}
+
+Since 0.1.30, **objectStore.versionDiscovery** selects how the server finds the
+newest version of a key:
+
+| Value | How it works |
+| --- | --- |
+| **list** (default for **aliyunOSS**) | One listing of **K.v/** names the newest version, and a listing after each write confirms it. It needs listings that show every write at once. |
+| **head** (always for **tencentCOS**) | A listing, or a version that the node read in the last 5 minutes, gives a starting version. HEAD requests of the next versions find the newest one, and a read of the next version confirms each write. It needs only reads of single objects to be current, and listings that lag behind writes by less than 5 minutes. It costs about one more request for each read. |
+
+Aliyun documents strong consistency for reads of single objects, but not for
+listings. OSS listings showed every write at once in every test so far, so
+**list** stays the default. Set **head** to depend only on documented
+guarantees. Both values use the same objects, so nodes of 0.1.30 or later with
+different values can share a prefix, including during a rolling upgrade
+between them. Set **head** only once every node that shares the prefix runs
+0.1.29 or later. Older nodes delete replaced versions after 60 seconds, and
+**head** trusts a version it read for up to 5 minutes. The value applies to
+every **aliyunOSS** store of the node, including
+**objectStore.hardDeleteStore**.
+
 Data cannot move between **aliyunOSS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute
 index registry that another provider wrote, startup fails with a message that
@@ -315,7 +336,7 @@ prefix.
 
 ## Tencent COS provider {#tencent-cos}
 
-Since 0.1.29, **serve** can keep its object storage in a Tencent COS bucket.
+Since 0.1.30, **serve** can keep its object storage in a Tencent COS bucket.
 The server uses the S3-compatible endpoint of COS. Every feature works as it
 does on S3, including leases, hot standby, snapshots, history offload, and
 Flow definition uploads.
@@ -373,6 +394,15 @@ versions itself. Do not edit, copy, or delete them, and do not add a lifecycle
 rule that expires them. A version key is 23 bytes longer than **K**, and COS
 allows keys of at most 850 bytes. So **UploadFlowDefinitions** accepts Flow
 types whose object keys are 197 bytes shorter than on S3.
+
+A COS listing can repeat an earlier listing of the same prefix for a few
+seconds. It can miss new objects and still show deleted ones. The server
+therefore always finds the newest version with HEAD requests, as
+**objectStore.versionDiscovery: head** does on OSS, and **list** fails
+validation. See [Finding the newest version](#version-discovery). Log recovery
+and snapshot retention also check single objects where a listing may lag.
+**ListFlowDefinitions** lists the bucket, so it can miss a definition uploaded
+in the last few seconds.
 
 Data cannot move between **tencentCOS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute

@@ -13,10 +13,10 @@ use dexzd_object_store::{
     AliyunOssObjectStore, AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig,
     AzureGcsProvider, Db9ObjectStore, Db9ObjectStoreConfig, GoogleCloudStorageCredentials,
     InstrumentedObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, ObjectStore, S3ApiDialect,
-    S3Credentials, S3ObjectStore, S3ObjectStoreConfig, check_aliyun_oss_create_only_writes,
-    check_no_data_of_another_provider, check_tencent_cos_bucket_versioning,
-    check_tencent_cos_create_only_writes, check_tencent_cos_holds_no_data_of_another_provider,
-    startup_self_check,
+    S3Credentials, S3ObjectStore, S3ObjectStoreConfig, VersionDiscovery,
+    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
+    check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
+    check_tencent_cos_holds_no_data_of_another_provider, startup_self_check,
 };
 
 use crate::ServerError;
@@ -55,6 +55,7 @@ impl ObjectStores {
                     primary_config(config)?,
                     StoreRole::Primary,
                     multipart_threshold_bytes,
+                    config.version_discovery_for(ObjectStoreProvider::AliyunOss),
                     metrics,
                 )
                 .await?
@@ -64,6 +65,7 @@ impl ObjectStores {
                     primary_config(config)?,
                     StoreRole::Primary,
                     multipart_threshold_bytes,
+                    config.version_discovery_for(ObjectStoreProvider::TencentCos),
                     metrics,
                 )
                 .await?
@@ -89,6 +91,7 @@ impl ObjectStores {
                         location_config(location)?,
                         StoreRole::HardDelete,
                         multipart_threshold_bytes,
+                        config.version_discovery_for(ObjectStoreProvider::AliyunOss),
                         metrics,
                     )
                     .await?
@@ -98,6 +101,7 @@ impl ObjectStores {
                         location_config(location)?,
                         StoreRole::HardDelete,
                         multipart_threshold_bytes,
+                        config.version_discovery_for(ObjectStoreProvider::TencentCos),
                         metrics,
                     )
                     .await?
@@ -186,6 +190,7 @@ async fn connect_aliyun_oss_store(
     mut config: S3ObjectStoreConfig,
     role: StoreRole,
     multipart_threshold_bytes: u64,
+    version_discovery: VersionDiscovery,
     metrics: &NodeMetrics,
 ) -> Result<Arc<dyn ObjectStore>, ServerError> {
     config.api_dialect = S3ApiDialect::AliyunOss;
@@ -204,7 +209,7 @@ async fn connect_aliyun_oss_store(
     check_aliyun_oss_create_only_writes(inner.as_ref())
         .await
         .map_err(bucket_check_error)?;
-    connect_versioned_layer(inner, bucket, metrics).await
+    connect_versioned_layer(inner, bucket, version_discovery, metrics).await
 }
 
 /// Connects a Tencent COS bucket and checks it before the server uses it.
@@ -214,6 +219,7 @@ async fn connect_tencent_cos_store(
     mut config: S3ObjectStoreConfig,
     role: StoreRole,
     multipart_threshold_bytes: u64,
+    version_discovery: VersionDiscovery,
     metrics: &NodeMetrics,
 ) -> Result<Arc<dyn ObjectStore>, ServerError> {
     config.api_dialect = S3ApiDialect::TencentCos;
@@ -235,19 +241,21 @@ async fn connect_tencent_cos_store(
     check_tencent_cos_create_only_writes(inner.as_ref())
         .await
         .map_err(bucket_check_error)?;
-    connect_versioned_layer(inner, bucket, metrics).await
+    connect_versioned_layer(inner, bucket, version_discovery, metrics).await
 }
 
 /// Wraps a checked create-only store in the versioning adapter and runs the startup self check.
 async fn connect_versioned_layer(
     inner: Arc<dyn ObjectStore>,
     bucket: String,
+    version_discovery: VersionDiscovery,
     metrics: &NodeMetrics,
 ) -> Result<Arc<dyn ObjectStore>, ServerError> {
-    let adapter = Arc::new(AliyunOssObjectStore::new(
+    let adapter = Arc::new(AliyunOssObjectStore::with_version_discovery(
         inner,
         MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
         metrics.clone(),
+        version_discovery,
     ));
     match adapter.remove_stale_startup_probes().await {
         Ok(0) => {}

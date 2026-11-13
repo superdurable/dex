@@ -33,6 +33,9 @@ const SNAPSHOT_INTERVAL: &str = "1s";
 const LOG_DELETION_DELAY: &str = "1s";
 const CLEANUP_BUDGET: Duration = Duration::from_secs(60);
 const FAILED_STARTUP_BUDGET: Duration = Duration::from_secs(30);
+/// Repeats each listing for two seconds, within the one to three seconds measured on COS.
+const STALE_LISTING_RULES: &str =
+    r#"[{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":2000}}]"#;
 
 /// One serve process per call, all on `local_directory` and the emulator at `endpoint`.
 struct TencentCosServer<'a> {
@@ -68,6 +71,7 @@ impl TencentCosServer<'_> {
 /// Serving appends every create-only object, snapshots without empty write-ahead logs, deletes
 /// snapshots and log batches, and recovers every Flow after a warm and a cold restart.
 ///
+/// Listings repeat for two seconds, as on real COS, from before the first startup check.
 /// Large appends run in the object-store conformance; full-suite load stalls s3local's strict spool.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn tencent_cos_serve_cleans_up_objects_and_recovers_after_warm_and_cold_restarts() {
@@ -77,6 +81,7 @@ async fn tencent_cos_serve_cleans_up_objects_and_recovers_after_warm_and_cold_re
         S3ApiDialect::TencentCos,
     )
     .await;
+    primary.set_fault_rules(STALE_LISTING_RULES).await;
     let endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let server = TencentCosServer {

@@ -176,10 +176,11 @@ async fn check_object_store(bucket: RealBucket) {
     eprintln!("PASS: create-only writes");
     check_concurrent_appends(&inner).await;
     check_listing_matches_reads(&inner).await;
-    let adapter = Arc::new(AliyunOssObjectStore::new(
+    let adapter = Arc::new(AliyunOssObjectStore::with_version_discovery(
         Arc::clone(&inner),
         dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
         NodeMetrics::unregistered(),
+        dexzd_object_store::VersionDiscovery::HeadProbing,
     ));
     adapter
         .remove_stale_startup_probes()

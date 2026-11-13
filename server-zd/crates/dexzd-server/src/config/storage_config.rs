@@ -10,7 +10,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials};
+use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials, VersionDiscovery};
 use serde::{Deserialize, Serialize};
 
 /// Chooses how S3 credentials are supplied without putting secrets in YAML.
@@ -64,6 +64,16 @@ pub enum ObjectStoreProvider {
     /// Google Cloud Storage through its native API.
     #[serde(rename = "googleCloudStorage")]
     GoogleCloudStorage,
+}
+
+/// How an aliyunOSS or tencentCOS store finds the newest version of a replaced object.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ObjectStoreVersionDiscovery {
+    /// A listing names the newest version; it needs listings that show each write at once.
+    List,
+    /// HEAD requests past a listed or recently read version find the newest one.
+    Head,
 }
 
 impl ObjectStoreProvider {
@@ -133,6 +143,13 @@ pub struct ObjectStoreConfig {
     pub credentials_source: CredentialSource,
     /// Defaults to none; when present, hard-delete values use this separate destination instead of the primary bucket and prefix.
     pub hard_delete_store: Option<ObjectStoreLocationConfig>,
+    /// Defaults to none, which means list for aliyunOSS and head for tencentCOS. It selects how
+    /// every aliyunOSS or tencentCOS store of the node, primary or hardDeleteStore, finds the
+    /// newest version of a replaced object. list reads a listing. head starts from a listing or
+    /// a recent read and HEADs the following versions, so a listing that lags behind writes
+    /// does not stall them. tencentCOS rejects list, and other providers reject any value.
+    /// Processes with either value can share a bucket.
+    pub version_discovery: Option<ObjectStoreVersionDiscovery>,
     /// Defaults to none; runtime credentials resolved from environment when credentialsSource is environment, never serialized.
     #[serde(skip)]
     pub credentials: Option<ObjectStoreCredentials>,
@@ -159,9 +176,25 @@ impl Default for ObjectStoreConfig {
             force_path_style: false,
             credentials_source: CredentialSource::DefaultChain,
             hard_delete_store: None,
+            version_discovery: None,
             credentials: None,
             azure_blob_credentials: None,
             google_cloud_storage_credentials: None,
+        }
+    }
+}
+
+impl ObjectStoreConfig {
+    /// Returns how a store of `provider` finds the newest version of a replaced object: head
+    /// for tencentCOS, and the configured value or list for aliyunOSS. Other providers keep no
+    /// versions and get list, which they ignore.
+    pub fn version_discovery_for(&self, provider: ObjectStoreProvider) -> VersionDiscovery {
+        match (provider, self.version_discovery) {
+            (ObjectStoreProvider::TencentCos, _)
+            | (ObjectStoreProvider::AliyunOss, Some(ObjectStoreVersionDiscovery::Head)) => {
+                VersionDiscovery::HeadProbing
+            }
+            _ => VersionDiscovery::Listing,
         }
     }
 }

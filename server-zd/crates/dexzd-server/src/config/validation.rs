@@ -16,7 +16,10 @@ use super::storage_config::{
     MAX_BACKGROUND_JOBS, MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT, MAX_TENCENT_COS_WRITE_BUFFER_BYTES,
     MIN_WRITE_BUFFER_BYTES,
 };
-use super::{Config, ConfigError, CredentialSource, ObjectStoreProvider, SearchBackend};
+use super::{
+    Config, ConfigError, CredentialSource, ObjectStoreProvider, ObjectStoreVersionDiscovery,
+    SearchBackend,
+};
 
 /// Largest encoded log record that the commit log accepts.
 const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
@@ -145,6 +148,7 @@ impl Config {
             self.object_store.provider,
             &self.object_store.azure_account,
         )?;
+        self.validate_version_discovery()?;
         if let Some(hard_delete) = &self.object_store.hard_delete_store {
             let provider = hard_delete.effective_provider(self.object_store.provider);
             match provider {
@@ -276,6 +280,43 @@ impl Config {
             )?;
         }
         Ok(())
+    }
+
+    /// Accepts objectStore.versionDiscovery only where a store keeps versions, and only head
+    /// where a store is tencentCOS.
+    fn validate_version_discovery(&self) -> Result<(), ConfigError> {
+        let Some(version_discovery) = self.object_store.version_discovery else {
+            return Ok(());
+        };
+        let primary = self.object_store.provider;
+        let hard_delete = self
+            .object_store
+            .hard_delete_store
+            .as_ref()
+            .map(|location| location.effective_provider(primary));
+        let providers = [Some(primary), hard_delete];
+        let has_provider = |wanted: &[ObjectStoreProvider]| {
+            providers
+                .iter()
+                .flatten()
+                .any(|provider| wanted.contains(provider))
+        };
+        ensure(
+            has_provider(&[
+                ObjectStoreProvider::AliyunOss,
+                ObjectStoreProvider::TencentCos,
+            ]),
+            "objectStore.versionDiscovery",
+            "must be unset unless objectStore.provider or objectStore.hardDeleteStore.provider \
+             is aliyunOSS or tencentCOS, the providers that keep object versions",
+        )?;
+        ensure(
+            version_discovery == ObjectStoreVersionDiscovery::Head
+                || !has_provider(&[ObjectStoreProvider::TencentCos]),
+            "objectStore.versionDiscovery",
+            "must be head with tencentCOS, because a Tencent COS listing can repeat an earlier \
+             listing for seconds",
+        )
     }
 
     fn validate_commit_and_recovery(&self) -> Result<(), ConfigError> {
