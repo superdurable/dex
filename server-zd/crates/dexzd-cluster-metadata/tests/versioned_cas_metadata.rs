@@ -144,7 +144,8 @@ impl VersionedMetadataStore {
     /// Returns a new adapter over the shared physical store, as one process would hold.
     fn process_store(&self) -> Arc<dyn ObjectStore> {
         Arc::new(AliyunOssObjectStore::new(
-            Arc::clone(&self.physical) as Arc<dyn ObjectStore>
+            Arc::clone(&self.physical) as Arc<dyn ObjectStore>,
+            dexzd_metrics::NodeMetrics::unregistered(),
         ))
     }
 

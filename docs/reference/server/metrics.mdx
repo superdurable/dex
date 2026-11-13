@@ -30,7 +30,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Dropped Step Stream writes | **dexzd_step_stream_writes_dropped_total** with **reason** |
 | Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
 | Commit latency | **dexzd_commit_latency_seconds** |
-| Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
+| Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation**; **dexzd_object_store_versioned_listing_stale_total** with **site** |
 | Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
 | Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode** and **store_source**; **dexzd_takeover_duration_seconds** |
 | Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
@@ -87,6 +87,24 @@ Workers poll over one persistent stream, so there is no count of empty polls.
 **event="delivered"**, it counts every task frame sent, including RPC task
 frames. When Dex hands out a returned attempt again, it counts again. Long-poll
 waits count toward **flow_read** latency.
+
+Since 0.1.29, **dexzd_object_store_versioned_listing_stale_total** counts
+listings that missed a version the node had just written. Only the
+**aliyunOSS** provider writes such versions, so other providers stay at 0. Its
+**site** label is one of:
+
+- **confirm_created_version**: the listing right after a write did not show
+  the new version as the newest. The write fails with an unknown outcome, and
+  the caller reads the key again.
+- **reclamation**: the listing that deletes old versions did not show the
+  version the node had confirmed. The node deletes nothing in that pass. A
+  write that the node confirmed more than an hour after it was replaced can
+  also count here.
+
+Alert on any increase. In every test so far, an OSS listing showed each write
+at once, so an increase means a listing lagged behind a write. Replacements
+stay correct while that lag is shorter than one hour. See
+[Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
 
 Since 0.1.29, the **dexzd_config_** gauges report the values the running node
 uses. They include defaults for keys the configuration leaves unset, and the

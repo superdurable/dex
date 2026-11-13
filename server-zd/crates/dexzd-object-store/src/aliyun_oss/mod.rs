@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use dexzd_metrics::{NodeMetrics, VersionedListingStaleCounters};
 
 use crate::file_download::TemporaryDownloadFile;
 use crate::{
@@ -100,11 +101,12 @@ impl VersionIdSource for SeededVersionIdSourceForTest {
 /// ```no_run
 /// # async fn example(inner: std::sync::Arc<dyn dexzd_object_store::ObjectStore>) {
 /// use bytes::Bytes;
+/// use dexzd_metrics::NodeMetrics;
 /// use dexzd_object_store::{
 ///     AliyunOssObjectStore, MANIFEST_OBJECT_KEY, ObjectStore, WriteCondition, WriteOutcome,
 /// };
 ///
-/// let store = AliyunOssObjectStore::new(inner);
+/// let store = AliyunOssObjectStore::new(inner, NodeMetrics::unregistered());
 /// let created = store
 ///     .put(MANIFEST_OBJECT_KEY, Bytes::from_static(b"v1"), WriteCondition::CreateOnly)
 ///     .await
@@ -127,6 +129,7 @@ pub struct AliyunOssObjectStore {
     inner: Arc<dyn ObjectStore>,
     version_ids: Box<dyn VersionIdSource>,
     reclaimer: VersionReclaimer,
+    listing_stale: VersionedListingStaleCounters,
 }
 
 impl AliyunOssObjectStore {
@@ -136,11 +139,13 @@ impl AliyunOssObjectStore {
     /// The store never sends [`WriteCondition::ReplaceIfEtagMatches`] to `inner`. It starts its
     /// version reclamation task, which stops when the store is dropped.
     ///
+    /// `metrics` counts listings that miss a version this store just created.
+    ///
     /// # Panics
     ///
     /// Panics when called outside a Tokio runtime.
-    pub fn new(inner: Arc<dyn ObjectStore>) -> Self {
-        Self::with_version_id_source(inner, Box::new(RandomVersionIdSource))
+    pub fn new(inner: Arc<dyn ObjectStore>, metrics: NodeMetrics) -> Self {
+        Self::with_version_id_source(inner, Box::new(RandomVersionIdSource), metrics)
     }
 
     /// Wraps `inner` like [`Self::new`], deriving version IDs from `seed` instead of a random
@@ -153,24 +158,32 @@ impl AliyunOssObjectStore {
     ///
     /// Panics when called outside a Tokio runtime.
     #[cfg(feature = "test-util")]
-    pub fn with_seeded_version_ids_for_test(inner: Arc<dyn ObjectStore>, seed: u64) -> Self {
+    pub fn with_seeded_version_ids_for_test(
+        inner: Arc<dyn ObjectStore>,
+        seed: u64,
+        metrics: NodeMetrics,
+    ) -> Self {
         Self::with_version_id_source(
             inner,
             Box::new(SeededVersionIdSourceForTest {
                 seed,
                 issued_ids: std::sync::atomic::AtomicU64::new(0),
             }),
+            metrics,
         )
     }
 
     fn with_version_id_source(
         inner: Arc<dyn ObjectStore>,
         version_ids: Box<dyn VersionIdSource>,
+        metrics: NodeMetrics,
     ) -> Self {
+        let listing_stale = metrics.object_store_versioned_listing_stale;
         Self {
-            reclaimer: VersionReclaimer::start(Arc::clone(&inner)),
+            reclaimer: VersionReclaimer::start(Arc::clone(&inner), listing_stale.clone()),
             inner,
             version_ids,
+            listing_stale,
         }
     }
 
@@ -222,6 +235,7 @@ impl AliyunOssObjectStore {
             inner: self.inner.as_ref(),
             version_ids: self.version_ids.as_ref(),
             reclaimer: &self.reclaimer,
+            listing_stale: &self.listing_stale,
         }
     }
 }

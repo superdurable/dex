@@ -167,7 +167,10 @@ async fn check_object_store(bucket: RealBucket) {
         .await
         .expect("the bucket honors x-oss-forbid-overwrite");
     eprintln!("PASS: create-only writes");
-    let adapter = Arc::new(AliyunOssObjectStore::new(Arc::clone(&inner)));
+    let adapter = Arc::new(AliyunOssObjectStore::new(
+        Arc::clone(&inner),
+        dexzd_metrics::NodeMetrics::unregistered(),
+    ));
     adapter
         .remove_stale_startup_probes()
         .await

@@ -156,6 +156,74 @@ impl EncodeMetric for ObjectRequests {
     }
 }
 
+/// Where a listing of a versioned mutable key missed a version that this process created.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum VersionedListingStaleSite {
+    /// The listing right after a create did not show the created version as the newest.
+    ConfirmCreatedVersion,
+    /// The reclamation listing after a confirmed write did not start at the confirmed version.
+    Reclamation,
+}
+
+label_value!(VersionedListingStaleSite { ConfirmCreatedVersion => "confirm_created_version", Reclamation => "reclamation" });
+
+impl VersionedListingStaleSite {
+    const ALL: [Self; 2] = [Self::ConfirmCreatedVersion, Self::Reclamation];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::ConfirmCreatedVersion => 0,
+            Self::Reclamation => 1,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct VersionedListingStaleLabel {
+    site: VersionedListingStaleSite,
+}
+
+/// Fixed counters of listings that missed a version this process had just created.
+///
+/// Each site always reports a series, so a dashboard sees zero before the first event.
+#[derive(Clone, Debug)]
+pub struct VersionedListingStaleCounters {
+    values: Arc<[Counter; 2]>,
+}
+
+impl Default for VersionedListingStaleCounters {
+    fn default() -> Self {
+        Self {
+            values: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl VersionedListingStaleCounters {
+    /// Counts one listing at `site` that did not show the version this process created.
+    pub fn record(&self, site: VersionedListingStaleSite) {
+        self.values[site.index()].inc();
+    }
+}
+
+impl EncodeMetric for VersionedListingStaleCounters {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for site in VersionedListingStaleSite::ALL {
+            encoder
+                .encode_family(&VersionedListingStaleLabel { site })?
+                .encode_counter::<prometheus_client::encoding::NoLabelSet, _, u64>(
+                    &self.values[site.index()].get(),
+                    None,
+                )?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ObjectKind, classify_object_kind};

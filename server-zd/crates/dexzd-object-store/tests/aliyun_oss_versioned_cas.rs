@@ -14,15 +14,18 @@ mod create_only_store;
 #[path = "aliyun_oss/replacement_history.rs"]
 mod replacement_history;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use dexzd_metrics::{NodeMetrics, encode_registry};
 use dexzd_object_store::{
-    AliyunOssObjectStore, ByteRange, FaultAction, MANIFEST_OBJECT_KEY, ObjectStore,
-    ObjectStoreErrorKind, ObjectStoreOperation, STALE_STARTUP_PROBE_AGE,
-    STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckFailure,
-    WriteCondition, WriteOutcome, startup_self_check,
+    AliyunOssObjectStore, ByteRange, FaultAction, MANIFEST_OBJECT_KEY,
+    MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, ObjectStore, ObjectStoreErrorKind,
+    ObjectStoreOperation, STALE_STARTUP_PROBE_AGE, STARTUP_PROBE_MAXIMUM_LIFETIME,
+    STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckFailure, WriteCondition, WriteOutcome,
+    startup_self_check,
 };
 
 use create_only_store::{
@@ -33,7 +36,13 @@ use replacement_history::{ReplacementWorkload, run_replacement_workload};
 
 const KEY: &str = MANIFEST_OBJECT_KEY;
 /// Longer than the reclamation age, so the next confirmed write may reclaim older versions.
-const RECLAIMABLE_GAP: Duration = Duration::from_secs(61);
+const RECLAIMABLE_GAP: Duration =
+    Duration::from_secs(MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION.as_secs() + 1);
+
+/// Scales `seconds` of a schedule written for a one-minute reclamation age to the real age.
+fn reclamation_scaled(seconds: u32) -> Duration {
+    MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION * seconds / 60
+}
 
 async fn create(store: &dyn ObjectStore, body: &'static str) -> String {
     match store
@@ -121,13 +130,13 @@ async fn racing_replacements_stay_linearizable_while_reclamation_races_stalled_w
             RandomDelays {
                 maximum_delay: Duration::from_millis(50),
                 stall_probability: 0.05,
-                maximum_stall: Duration::from_secs(600),
+                maximum_stall: reclamation_scaled(600),
             },
         );
         let workload = ReplacementWorkload {
             writers: 6,
             attempts: 30,
-            maximum_pause: Duration::from_secs(20),
+            maximum_pause: reclamation_scaled(20),
         };
         let history = run_replacement_workload(&physical, KEY, workload).await;
         history.assert_linearizable();
@@ -141,7 +150,10 @@ async fn racing_creates_of_an_absent_key_have_one_winner() {
     physical
         .faults
         .delay_randomly(7, RandomDelays::uniform(Duration::from_millis(20)));
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     let mut creators = Vec::new();
     for creator in 0..16_u8 {
         let store = Arc::clone(&store);
@@ -172,7 +184,7 @@ async fn racing_creates_of_an_absent_key_have_one_winner() {
 #[tokio::test(start_paused = true)]
 async fn a_stale_replacement_of_a_reclaimed_generation_is_rejected_and_removed() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let first = create(&store, "one").await;
     let second = replace(&store, &first, "two").await;
     let third = replace(&store, &second, "three").await;
@@ -199,14 +211,17 @@ async fn a_stale_replacement_of_a_reclaimed_generation_is_rejected_and_removed()
 #[tokio::test(start_paused = true)]
 async fn a_stale_first_create_after_reclamation_is_rejected_and_removed() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     // The stale creator lists no version, then its create arrives after everything below.
     physical.faults.inject(
         ObjectStoreOperation::Put,
         &version_key(KEY, 1),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(600)),
+        FaultAction::Delay(reclamation_scaled(600)),
     );
     let stale_creator_store = Arc::clone(&store);
     let stale_creator = tokio::spawn(async move {
@@ -239,7 +254,10 @@ async fn a_stale_first_create_after_reclamation_is_rejected_and_removed() {
 #[tokio::test(start_paused = true)]
 async fn a_writer_superseded_before_its_confirmation_still_reports_written() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     let mut etag = create(store.as_ref(), "one").await;
     for body in ["two", "three", "four"] {
         etag = replace(store.as_ref(), &etag, body).await;
@@ -289,7 +307,10 @@ async fn a_writer_superseded_before_its_confirmation_still_reports_written() {
 #[tokio::test(start_paused = true)]
 async fn a_superseded_writer_whose_successor_was_reclaimed_reports_an_unknown_outcome() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     let first = create(store.as_ref(), "one").await;
     physical.faults.inject_after_put(
         &version_key(KEY, 2),
@@ -329,7 +350,7 @@ async fn a_superseded_writer_whose_successor_was_reclaimed_reports_an_unknown_ou
 #[tokio::test(start_paused = true)]
 async fn replacements_with_an_etag_that_was_never_current_change_nothing() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let first = create(&store, "one").await;
     let second = replace(&store, &first, "two").await;
     let before = physical.physical_keys("").await;
@@ -378,7 +399,7 @@ async fn replacements_with_an_etag_that_was_never_current_change_nothing() {
 #[tokio::test(start_paused = true)]
 async fn a_failed_confirmation_reports_an_unknown_outcome_that_callers_reconcile() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let first = create(&store, "one").await;
     physical.faults.inject_after_put(
         &version_key(KEY, 2),
@@ -479,7 +500,7 @@ async fn a_failed_confirmation_reports_an_unknown_outcome_that_callers_reconcile
 #[tokio::test(start_paused = true)]
 async fn reclamation_keeps_two_versions_and_tombstones_after_the_minimum_age() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let mut etag = create(&store, "one").await;
     for body in ["two", "three", "four"] {
         etag = replace(&store, &etag, body).await;
@@ -523,7 +544,7 @@ async fn reclamation_keeps_two_versions_and_tombstones_after_the_minimum_age() {
 #[tokio::test(start_paused = true)]
 async fn failed_reclamation_deletes_never_block_later_replacements() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     physical.faults.fail_every_delete(true);
     let mut etag = create(&store, "one").await;
     for body in ["two", "three", "four", "five"] {
@@ -540,9 +561,210 @@ async fn failed_reclamation_deletes_never_block_later_replacements() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn reclamation_keeps_versions_superseded_for_less_than_the_minimum_age() {
+    let physical = CreateOnlyStore::new();
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+    let first = create(&store, "one").await;
+    let second = replace(&store, &first, "two").await;
+    tokio::time::sleep(MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION - Duration::from_secs(60)).await;
+    let third = replace(&store, &second, "three").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        physical.generations(KEY).await,
+        [3, 2, 1],
+        "generation 1 was superseded 59 minutes before generation 3"
+    );
+    // Longer than the interval between reclamation passes of one key.
+    tokio::time::sleep(Duration::from_secs(10 * 60)).await;
+    replace(&store, &third, "four").await;
+    physical.wait_for_generations(KEY, &[4, 3, 2]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_write_soon_after_a_reclamation_pass_of_its_key_reclaims_nothing() {
+    let physical = CreateOnlyStore::new();
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+    let first = create(&store, "one").await;
+    let second = replace(&store, &first, "two").await;
+    tokio::time::sleep(MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION - Duration::from_secs(60)).await;
+    let third = replace(&store, &second, "three").await;
+    tokio::time::sleep(Duration::from_secs(2 * 60)).await;
+    // Generation 1 is now reclaimable, but the pass after generation 3 was two minutes ago.
+    let fourth = replace(&store, &third, "four").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(physical.generations(KEY).await, [4, 3, 2, 1]);
+    tokio::time::sleep(Duration::from_secs(4 * 60)).await;
+    replace(&store, &fourth, "five").await;
+    physical.wait_for_generations(KEY, &[5, 4, 3, 2]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_listing_that_misses_the_created_version_is_counted_and_leaves_the_outcome_unknown() {
+    let physical = CreateOnlyStore::new();
+    let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+    let inner = Arc::new(StaleListingStore {
+        inner: physical.inner(),
+        hidden_key: version_key(KEY, 2),
+        hides_only_after_start_key: false,
+    });
+    let store = AliyunOssObjectStore::new(inner, metrics);
+    let first = create(&store, "one").await;
+    let error = store
+        .put(
+            KEY,
+            Bytes::from_static(b"two"),
+            WriteCondition::ReplaceIfEtagMatches { etag: first },
+        )
+        .await
+        .expect_err("the listing after the create misses generation 2");
+    assert_eq!(error.kind, ObjectStoreErrorKind::OutcomeUnknown);
+    let encoded = encode_registry(&registry).expect("the registry encodes");
+    assert_eq!(stale_listing_count(&encoded, "confirm_created_version"), 1);
+    assert_eq!(stale_listing_count(&encoded, "reclamation"), 0);
+    assert_eq!(physical.generations(KEY).await, [2, 1]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reclamation_listing_that_misses_the_confirmed_version_is_counted_and_deletes_nothing() {
+    let physical = CreateOnlyStore::new();
+    let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+    let inner = Arc::new(StaleListingStore {
+        inner: physical.inner(),
+        hidden_key: version_key(KEY, 3),
+        hides_only_after_start_key: true,
+    });
+    let store = AliyunOssObjectStore::new(inner, metrics);
+    let first = create(&store, "one").await;
+    let second = replace(&store, &first, "two").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(&store, &second, "three").await;
+    let mut reclamation_count = 0;
+    for _ in 0..100 {
+        let encoded = encode_registry(&registry).expect("the registry encodes");
+        reclamation_count = stale_listing_count(&encoded, "reclamation");
+        if reclamation_count > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(reclamation_count, 1);
+    let encoded = encode_registry(&registry).expect("the registry encodes");
+    assert_eq!(stale_listing_count(&encoded, "confirm_created_version"), 0);
+    assert_eq!(
+        physical.generations(KEY).await,
+        [3, 2, 1],
+        "generation 1 is reclaimable, but the pass stops at the stale listing"
+    );
+}
+
+/// Returns the stale listing count of `site` in an encoded registry.
+fn stale_listing_count(encoded: &str, site: &str) -> u64 {
+    let series = format!("dexzd_object_store_versioned_listing_stale_total{{site=\"{site}\"}} ");
+    encoded
+        .lines()
+        .find_map(|line| line.strip_prefix(&series))
+        .expect("every site has a series")
+        .parse()
+        .expect("a counter value is an integer")
+}
+
+/// Wraps a store and leaves one physical key out of listings, as a stale listing would.
+struct StaleListingStore {
+    inner: Arc<dyn ObjectStore>,
+    hidden_key: String,
+    /// When set, only listings that start after a key leave the hidden key out.
+    hides_only_after_start_key: bool,
+}
+
+#[async_trait::async_trait]
+impl ObjectStore for StaleListingStore {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> dexzd_object_store::ObjectStoreResult<WriteOutcome> {
+        self.inner.put(key, body, condition).await
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: WriteCondition,
+    ) -> dexzd_object_store::ObjectStoreResult<WriteOutcome> {
+        self.inner.put_file(key, path, condition).await
+    }
+
+    async fn get(
+        &self,
+        key: &str,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<dexzd_object_store::ObjectContent>> {
+        self.inner.get(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<dexzd_object_store::ObjectContent>> {
+        self.inner.get_range(key, range).await
+    }
+
+    async fn get_to_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<u64>> {
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(
+        &self,
+        key: &str,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<dexzd_object_store::ObjectMetadata>> {
+        self.inner.head(key).await
+    }
+
+    async fn delete(&self, key: &str) -> dexzd_object_store::ObjectStoreResult<()> {
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> dexzd_object_store::ObjectStoreResult<()> {
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> dexzd_object_store::ObjectStoreResult<dexzd_object_store::ObjectListing> {
+        if self.hides_only_after_start_key && start_after.is_none() {
+            return self.inner.list(prefix, start_after, max_keys).await;
+        }
+        let mut listing = self
+            .inner
+            .list(prefix, start_after, max_keys.saturating_add(1).min(1000))
+            .await?;
+        listing
+            .objects
+            .retain(|object| object.key != self.hidden_key);
+        listing
+            .objects
+            .truncate(usize::try_from(max_keys).expect("max_keys fits in usize"));
+        Ok(listing)
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        false
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn deleting_a_startup_probe_removes_every_version_and_stale_probes_are_removed() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     for key in ["probe/1-1", "probe/2-2"] {
         let WriteOutcome::Written { etag } = store
             .put(
@@ -654,14 +876,17 @@ async fn no_read_returns_a_version_that_a_stale_writer_resurrected() {
         ResurrectionRead::List,
     ] {
         let physical = CreateOnlyStore::new();
-        let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+        let store = Arc::new(AliyunOssObjectStore::new(
+            physical.inner(),
+            NodeMetrics::unregistered(),
+        ));
         // The stale creator lists no version, and its create lands after generation 1 is gone.
         physical.faults.inject(
             ObjectStoreOperation::Put,
             &version_key(KEY, 1),
             0,
             1,
-            FaultAction::Delay(Duration::from_secs(200)),
+            FaultAction::Delay(reclamation_scaled(200)),
         );
         let stale_store = Arc::clone(&store);
         let stale = tokio::spawn(async move {
@@ -681,7 +906,7 @@ async fn no_read_returns_a_version_that_a_stale_writer_resurrected() {
             &version_key(KEY, 1),
             0,
             1,
-            FaultAction::Delay(Duration::from_secs(220)),
+            FaultAction::Delay(reclamation_scaled(220)),
         );
         let reader_store = Arc::clone(&store);
         let download = directory.path().join(format!("{read:?}"));
@@ -698,7 +923,7 @@ async fn no_read_returns_a_version_that_a_stale_writer_resurrected() {
             &format!("{KEY}.v/"),
             0,
             1,
-            FaultAction::Delay(Duration::from_secs(50)),
+            FaultAction::Delay(reclamation_scaled(50)),
         );
         let (etag, bytes) = reader.await.expect("the reader finishes");
         assert_eq!(
@@ -726,13 +951,16 @@ async fn no_read_returns_a_version_that_a_stale_writer_resurrected() {
 #[tokio::test(start_paused = true)]
 async fn a_replacement_of_a_resurrected_version_never_confirms_its_creator() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     physical.faults.inject(
         ObjectStoreOperation::Put,
         &version_key(KEY, 1),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(200)),
+        FaultAction::Delay(reclamation_scaled(200)),
     );
     let stale_store = Arc::clone(&store);
     let stale = tokio::spawn(async move {
@@ -758,14 +986,14 @@ async fn a_replacement_of_a_resurrected_version_never_confirms_its_creator() {
         &format!("{KEY}.v/"),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(100)),
+        FaultAction::Delay(reclamation_scaled(100)),
     );
     for _ in 0..300 {
         let key = version_key(KEY, 1);
         if physical.store.head(&key).await.expect("head").is_some() {
             break;
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(reclamation_scaled(1)).await;
     }
     let resurrected_etag = physical_version_etag(&physical, KEY, 1).await;
     // A successor of the resurrected version, if created, would stay unconfirmed past its creator.
@@ -773,7 +1001,7 @@ async fn a_replacement_of_a_resurrected_version_never_confirms_its_creator() {
         &version_key(KEY, 2),
         ObjectStoreOperation::List,
         &format!("{KEY}.v/"),
-        FaultAction::Delay(Duration::from_secs(200)),
+        FaultAction::Delay(reclamation_scaled(200)),
     );
     let outcome = store
         .put(
@@ -810,8 +1038,8 @@ async fn a_replacement_of_a_resurrected_version_never_confirms_its_creator() {
 #[tokio::test(start_paused = true)]
 async fn a_probe_is_never_swept_while_its_startup_check_may_still_use_it() {
     let physical = CreateOnlyStore::new();
-    let owner = AliyunOssObjectStore::new(physical.inner());
-    let sweeper = AliyunOssObjectStore::new(physical.inner());
+    let owner = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+    let sweeper = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let key = "probe/1-active";
     let WriteOutcome::Written { etag } = owner
         .put(
@@ -850,7 +1078,7 @@ async fn the_probe_sweep_ages_probes_by_the_store_clock_only() {
     // The store clock lags every host clock by decades, as a host clock far ahead would.
     let physical =
         CreateOnlyStore::with_store_clock(TokioWallClock::starting_at(946_684_800_000_000));
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     store
         .put(
             "probe/2-recent",
@@ -870,7 +1098,7 @@ async fn the_probe_sweep_ages_probes_by_the_store_clock_only() {
 #[tokio::test(start_paused = true)]
 async fn a_startup_check_that_stalls_past_its_deadline_fails_before_its_probe_can_be_swept() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     // The correct-ETag replacement is the second probe put; it stalls for over an hour.
     physical.faults.inject(
         ObjectStoreOperation::Put,
@@ -964,8 +1192,8 @@ async fn a_sweep_during_a_suspended_startup_check_touches_only_probes() {
         (ObjectStoreOperation::List, 4),
     ] {
         let physical = CreateOnlyStore::new();
-        let owner = AliyunOssObjectStore::new(physical.inner());
-        let sweeper = AliyunOssObjectStore::new(physical.inner());
+        let owner = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+        let sweeper = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
         let first = create(&owner, "one").await;
         replace(&owner, &first, "two").await;
         for key in ["lease/node-a", "snapshot/node-a/file"] {
@@ -1010,8 +1238,8 @@ async fn a_sweep_during_a_suspended_startup_check_touches_only_probes() {
 #[tokio::test(start_paused = true)]
 async fn a_sweep_whose_clock_probe_another_sweep_removed_skips() {
     let physical = CreateOnlyStore::new();
-    let owner = AliyunOssObjectStore::new(physical.inner());
-    let sweeper = AliyunOssObjectStore::new(physical.inner());
+    let owner = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
+    let sweeper = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     store_stale_probe(&owner).await;
     physical.faults.inject(
         ObjectStoreOperation::Get,
@@ -1159,13 +1387,16 @@ async fn opaque_physical_etags_that_differ_only_in_case_name_different_objects()
     let inner = Arc::new(OpaqueCasePairStore {
         inner: physical.inner(),
     });
-    let store = Arc::new(AliyunOssObjectStore::new(inner));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        inner,
+        NodeMetrics::unregistered(),
+    ));
     physical.faults.inject(
         ObjectStoreOperation::Put,
         &version_key(KEY, 1),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(200)),
+        FaultAction::Delay(reclamation_scaled(200)),
     );
     let stale_store = Arc::clone(&store);
     let stale = tokio::spawn(async move {
@@ -1180,7 +1411,7 @@ async fn opaque_physical_etags_that_differ_only_in_case_name_different_objects()
         &version_key(KEY, 1),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(220)),
+        FaultAction::Delay(reclamation_scaled(220)),
     );
     let reader_store = Arc::clone(&store);
     let reader = tokio::spawn(async move { reader_store.get(KEY).await });
@@ -1194,7 +1425,7 @@ async fn opaque_physical_etags_that_differ_only_in_case_name_different_objects()
         &format!("{KEY}.v/"),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(50)),
+        FaultAction::Delay(reclamation_scaled(50)),
     );
     let observed = reader
         .await
@@ -1222,11 +1453,13 @@ async fn seeded_version_ids_of_different_seeds_never_confirm_a_second_create() {
     let delayed = Arc::new(AliyunOssObjectStore::with_seeded_version_ids_for_test(
         physical.inner(),
         0,
+        NodeMetrics::unregistered(),
     ));
     // This seed's SplitMix stream was the first one shifted by two steps.
     let winner = AliyunOssObjectStore::with_seeded_version_ids_for_test(
         physical.inner(),
         0x9e37_79b9_7f4a_7c15_u64.wrapping_mul(2),
+        NodeMetrics::unregistered(),
     );
     delayed
         .put(
@@ -1241,7 +1474,7 @@ async fn seeded_version_ids_of_different_seeds_never_confirm_a_second_create() {
         &version_key(KEY, 1),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(200)),
+        FaultAction::Delay(reclamation_scaled(200)),
     );
     let delayed_store = Arc::clone(&delayed);
     let stale = tokio::spawn(async move {
@@ -1269,14 +1502,17 @@ async fn seeded_version_ids_of_different_seeds_never_confirm_a_second_create() {
 #[tokio::test(start_paused = true)]
 async fn a_replacement_checked_before_reclamation_cannot_land_afterwards() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     let first = create(store.as_ref(), "one").await;
     physical.faults.inject(
         ObjectStoreOperation::Put,
         &version_key(KEY, 2),
         0,
         1,
-        FaultAction::Delay(Duration::from_secs(200)),
+        FaultAction::Delay(reclamation_scaled(200)),
     );
     let delayed_store = Arc::clone(&store);
     let expected = first.clone();
@@ -1312,7 +1548,10 @@ async fn a_replacement_checked_before_reclamation_cannot_land_afterwards() {
 #[tokio::test(start_paused = true)]
 async fn a_delete_that_loses_its_tombstone_race_deletes_the_newer_version() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     let first = create(store.as_ref(), "one").await;
     physical.faults.inject(
         ObjectStoreOperation::Put,
@@ -1336,7 +1575,10 @@ async fn a_delete_that_loses_its_tombstone_race_deletes_the_newer_version() {
 #[tokio::test(start_paused = true)]
 async fn racing_creates_over_a_tombstone_have_one_winner() {
     let physical = CreateOnlyStore::new();
-    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let store = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     create(store.as_ref(), "one").await;
     store.delete(KEY).await.expect("delete");
     physical

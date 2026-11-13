@@ -59,7 +59,10 @@ impl ObjectStoreInspector {
         );
         Self {
             store: if is_aliyun_oss {
-                Arc::new(AliyunOssObjectStore::new(store))
+                Arc::new(AliyunOssObjectStore::new(
+                    store,
+                    dexzd_metrics::NodeMetrics::unregistered(),
+                ))
             } else {
                 store
             },

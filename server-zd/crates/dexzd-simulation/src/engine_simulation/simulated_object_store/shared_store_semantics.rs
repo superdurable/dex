@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_clock::WallClock;
+use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, FaultAction, FaultInjector, InMemoryObjectStore,
     InMemoryObjectStoreOptions, ObjectStore, ObjectStoreOperation,
@@ -74,5 +75,6 @@ fn versioned_shared_store(seed: u64, clock: Arc<dyn WallClock>) -> Arc<dyn Objec
     Arc::new(AliyunOssObjectStore::with_seeded_version_ids_for_test(
         Arc::new(physical),
         seed ^ VERSION_ID_SEED_SALT,
+        NodeMetrics::unregistered(),
     ))
 }

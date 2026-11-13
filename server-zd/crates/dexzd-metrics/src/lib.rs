@@ -48,7 +48,10 @@ pub use lag_gauges::{
     HistoryUploadOldestSealedAge, SearchOutboxBacklog, SearchOutboxEntries,
     SearchOutboxMaxPartitionEntries, SearchOutboxOldestEntryAge, TimerLag,
 };
-pub use object_requests::{ObjectKind, ObjectOperation, ObjectRequests, classify_object_kind};
+pub use object_requests::{
+    ObjectKind, ObjectOperation, ObjectRequests, VersionedListingStaleCounters,
+    VersionedListingStaleSite, classify_object_kind,
+};
 use prometheus_client::encoding::{EncodeLabelSet, text::encode};
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
@@ -93,6 +96,8 @@ pub struct NodeMetrics {
     pub object_errors: ObjectErrorCounters,
     /// Uploaded object bytes.
     pub object_put_bytes: Counter,
+    /// Listings of versioned mutable keys that missed a version this process had just created.
+    pub object_store_versioned_listing_stale: VersionedListingStaleCounters,
     /// Snapshot attempts.
     pub snapshots: OutcomeCounters,
     /// Duration of the last successful snapshot.
@@ -358,6 +363,11 @@ impl NodeMetrics {
             "dexzd_object_store_put_bytes",
             "Uploaded object bytes.",
             metrics.object_put_bytes.clone(),
+        );
+        registry.register(
+            "dexzd_object_store_versioned_listing_stale",
+            "Listings of versioned keys that missed a version this process had just created.",
+            metrics.object_store_versioned_listing_stale.clone(),
         );
         registry.register(
             "dexzd_snapshots",
@@ -704,6 +714,7 @@ impl NodeMetrics {
             object_requests: ObjectRequests::default(),
             object_errors: ObjectErrorCounters::default(),
             object_put_bytes: Counter::default(),
+            object_store_versioned_listing_stale: VersionedListingStaleCounters::default(),
             snapshots: OutcomeCounters::default(),
             snapshot_last_duration: Gauge::default(),
             snapshot_last_bytes: Gauge::default(),

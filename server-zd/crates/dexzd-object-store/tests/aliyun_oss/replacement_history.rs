@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
+use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, ObjectStore, ObjectStoreError, ObjectStoreErrorKind, WriteCondition,
     WriteOutcome,
@@ -135,7 +136,7 @@ pub(crate) async fn run_replacement_workload(
     });
     let mut tasks = Vec::new();
     for writer in 0..writers {
-        let store = AliyunOssObjectStore::new(physical.inner());
+        let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
         let recorder = Arc::clone(&recorder);
         let task = tokio::spawn(async move {
             for attempt in 0..attempts {
@@ -176,7 +177,7 @@ pub(crate) async fn run_replacement_workload(
         tasks.push(task);
     }
     for _ in 0..READER_COUNT {
-        let store = AliyunOssObjectStore::new(physical.inner());
+        let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
         let recorder = Arc::clone(&recorder);
         let task = tokio::spawn(async move {
             for _ in 0..READS_PER_READER {
@@ -190,7 +191,7 @@ pub(crate) async fn run_replacement_workload(
     for task in tasks {
         task.await.expect("a workload task finishes");
     }
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     recorder
         .read(&store, key)
         .await

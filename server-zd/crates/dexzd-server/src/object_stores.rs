@@ -184,7 +184,7 @@ async fn connect_aliyun_oss_store(
     check_aliyun_oss_create_only_writes(inner.as_ref())
         .await
         .map_err(bucket_check_error)?;
-    let adapter = Arc::new(AliyunOssObjectStore::new(inner));
+    let adapter = Arc::new(AliyunOssObjectStore::new(inner, metrics.clone()));
     match adapter.remove_stale_startup_probes().await {
         Ok(0) => {}
         Ok(removed_probe_keys) => {

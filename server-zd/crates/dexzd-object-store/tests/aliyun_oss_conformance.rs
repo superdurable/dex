@@ -49,7 +49,7 @@ const FLOW_DEFINITION_TYPES_PREFIX: &str = "registry/flow-definitions/0/types/";
 #[tokio::test(start_paused = true)]
 async fn plain_keys_keep_create_only_conformance_and_reject_replacement() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     assert!(store.get("missing").await.expect("get").is_none());
     assert!(store.head("missing").await.expect("head").is_none());
     let missing_range = ByteRange {
@@ -193,7 +193,7 @@ async fn plain_keys_keep_create_only_conformance_and_reject_replacement() {
 #[tokio::test(start_paused = true)]
 async fn mutable_keys_pass_the_full_conformance_set() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     for key in MUTABLE_KEYS {
         check_mutable_key(&store, key).await;
     }
@@ -425,7 +425,7 @@ async fn check_mutable_key(store: &AliyunOssObjectStore, key: &str) {
 #[tokio::test(start_paused = true)]
 async fn listings_collapse_versions_into_logical_keys_in_logical_order() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     for key in [
         "manifest",
         "lease/node-a",
@@ -517,7 +517,7 @@ async fn listings_collapse_versions_into_logical_keys_in_logical_order() {
 #[tokio::test(start_paused = true)]
 async fn keys_that_would_make_the_layout_ambiguous_are_rejected() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let reserved = version_key(MANIFEST_OBJECT_KEY, 1);
     for key in [
         reserved.as_str(),
@@ -560,7 +560,7 @@ async fn keys_that_would_make_the_layout_ambiguous_are_rejected() {
 #[tokio::test(start_paused = true)]
 async fn many_flow_definitions_list_in_logical_order_across_physical_pages() {
     let physical = CreateOnlyStore::new();
-    let store = AliyunOssObjectStore::new(physical.inner());
+    let store = AliyunOssObjectStore::new(physical.inner(), NodeMetrics::unregistered());
     let mut expected = Vec::new();
     for index in 0..520 {
         let segment = match index % 5 {
@@ -636,7 +636,10 @@ async fn many_flow_definitions_list_in_logical_order_across_physical_pages() {
 #[tokio::test(start_paused = true)]
 async fn only_stores_with_replacement_everywhere_report_the_capability() {
     let physical = CreateOnlyStore::new();
-    let adapter: Arc<dyn ObjectStore> = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let adapter: Arc<dyn ObjectStore> = Arc::new(AliyunOssObjectStore::new(
+        physical.inner(),
+        NodeMetrics::unregistered(),
+    ));
     assert!(!adapter.supports_replace_if_etag_matches_on_every_key());
     let instrumented =
         InstrumentedObjectStore::new(Arc::clone(&adapter), NodeMetrics::unregistered());
@@ -718,7 +721,7 @@ async fn the_adapter_keeps_its_guarantees_over_the_s3_aliyun_oss_dialect() {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let (server, s3_store) = start_aliyun_oss_emulator(directory.path(), etag_mode).await;
         let inner: Arc<dyn ObjectStore> = Arc::new(s3_store);
-        let store = AliyunOssObjectStore::new(Arc::clone(&inner));
+        let store = AliyunOssObjectStore::new(Arc::clone(&inner), NodeMetrics::unregistered());
         for key in MUTABLE_KEYS {
             check_mutable_key(&store, key).await;
         }
