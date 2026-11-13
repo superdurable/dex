@@ -1,0 +1,757 @@
+== aliasMutation valid=false
+== aliasPush valid=false
+== arrayDirectAlias valid=false
+== baseline valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== blockShadow valid=false
+== both valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== computedLiteral valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== computedLocal valid=false
+== computedModule valid=false
+== conditionalPush valid=false
+== contextAlias valid=false
+== contextTypeAlias valid=false
+== contextWeakMap valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== destructured valid=false
+== directAliasMutation valid=false
+== directAliasPush valid=false
+== fieldReassigned valid=false
+== hard valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== helperAlias valid=false
+== helperChangedToBuckets valid=false
+== helperInstance valid=false
+== helperNestedBinding valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== helperParameter valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== helperReassign valid=false
+== helperRecursiveResources valid=false
+== innerReturn valid=true
+node decision:rpc:approve:138:9 condition="decision === \"skip\" && !(decision.length > 2)"
+node decision:rpc:approve:140:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:145:12:138:9 condition="decision === \"skip\" && !(decision.length > 2)"
+node decision:rpc:describe:145:12:140:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:155:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge transition decision:rpc:approve:138:9 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:145:12:138:9 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== localAlias valid=false
+== localInstanceComputed valid=false
+== moduleReassigned valid=false
+== moduleReusedWait valid=false
+== nestedHelper valid=true
+node decision:rpc:approve:136:33:139:120:140:81 condition="decision === \"skip\" && !(decision.length)"
+node decision:rpc:approve:136:33:139:81:140:81 condition="decision === \"skip\" && decision.length"
+node decision:rpc:approve:137:9:139:120:140:81 condition="!(decision === \"skip\") && !(decision.length)"
+node decision:rpc:approve:137:9:139:81:140:81 condition="!(decision === \"skip\") && decision.length"
+node decision:rpc:describe:146:12:136:33:139:120:140:81 condition="decision === \"skip\" && !(decision.length)"
+node decision:rpc:describe:146:12:136:33:139:81:140:81 condition="decision === \"skip\" && decision.length"
+node decision:rpc:describe:146:12:137:9:139:120:140:81 condition="!(decision === \"skip\") && !(decision.length)"
+node decision:rpc:describe:146:12:137:9:139:81:140:81 condition="!(decision === \"skip\") && decision.length"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:156:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge transition decision:rpc:approve:136:33:139:120:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:approve:136:33:139:81:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:approve:137:9:139:120:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:approve:137:9:139:81:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:146:12:136:33:139:120:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:146:12:136:33:139:81:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:146:12:137:9:139:120:140:81 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:146:12:137:9:139:81:140:81 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== originalAliasMutation valid=false
+== parameterShadow valid=false
+== passed valid=false
+== r01-alias valid=false
+== r02-spread valid=false
+== r03-void-helper valid=true
+node decision:rpc:approve:30:144 condition="!(decision === \"skip\")"
+node decision:step:FinalStep:20:65 condition=""
+node decision:step:InitialStep:16:66 condition=""
+edge transition decision:rpc:approve:30:144 -> step:FinalStep fan-out
+edge transition decision:step:InitialStep:16:66 -> step:FinalStep goTo
+warning unused_resource channel AlternateApprovals has no direct access in the source file
+warning unused_resource channel Approvals has no direct access in the source file
+warning unused_resource stream Progress has no direct access in the source file
+== r04-this-chain valid=false
+== r05-reassigned-helper valid=false
+== r06-resource-recursion valid=false
+== r07-context-alias valid=false
+== r08-unresolved-computed valid=false
+== r09-writer-computed valid=false
+== r10-weakmap valid=true
+node decision:rpc:approve:30:169 condition=""
+node decision:step:FinalStep:20:65 condition=""
+node decision:step:InitialStep:16:66 condition=""
+edge transition decision:step:InitialStep:16:66 -> step:FinalStep goTo
+warning unused_resource channel AlternateApprovals has no direct access in the source file
+warning unused_resource channel Approvals has no direct access in the source file
+warning unused_resource stream Progress has no direct access in the source file
+== r11-result-list valid=false
+== recursiveHelper valid=false
+== repeatHelper valid=true
+node decision:rpc:approve:136:33:139:81 condition="decision === \"skip\""
+node decision:rpc:approve:137:9:139:81 condition="!(decision === \"skip\")"
+node decision:rpc:describe:145:12:136:33:139:81 condition="decision === \"skip\""
+node decision:rpc:describe:145:12:137:9:139:81 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:155:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge transition decision:rpc:approve:136:33:139:81 -> step:FailingWait fan-out
+edge transition decision:rpc:approve:137:9:139:81 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:145:12:136:33:139:81 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:145:12:137:9:139:81 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== reusedResult valid=false
+== reusedWait valid=true
+node decision:rpc:approve:138:14 condition="decision === \"skip\""
+node decision:rpc:approve:140:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:145:12:138:14 condition="decision === \"skip\""
+node decision:rpc:describe:145:12:140:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:71:12 condition=""
+node decision:step:FailingWait:113:12 condition=""
+node decision:step:ReviewBounds:97:12 condition=""
+node decision:timeout_handler:ApprovalFlow:155:12 condition=""
+node wait:AwaitApproval:55:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:58:37 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal && input.minutes > 1"
+node wait:AwaitApproval:58:53 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal && !(input.minutes > 1)"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:62:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:108:3 condition=""
+node wait:ReviewBounds:87:12 condition=""
+edge cancel decision:rpc:approve:138:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:138:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:145:12:138:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:145:12:138:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:71:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:58:37 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:58:53 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:62:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:62:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:87:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:reviewFlow:92:7 start
+== rpcHelperVoidPath valid=true
+node decision:rpc:approve:136:71 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:136:71 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge transition decision:rpc:approve:136:71 -> step:FailingWait fan-out
+edge transition decision:rpc:describe:144:12:136:71 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== spread valid=false
+== spreadConditional valid=false
+== spreadEmpty valid=false
+== spreadPassed valid=false
+== spreadPush valid=false
+== streamComputedWriter valid=false
+== streamReboundWriter valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+warning unused_resource stream Progress has no direct access in the source file
+== sync valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== thisChainWrong valid=false
+== thisComputed valid=false
+== thisField valid=true
+node decision:rpc:approve:140:14 condition="decision === \"skip\""
+node decision:rpc:approve:142:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:147:12:140:14 condition="decision === \"skip\""
+node decision:rpc:describe:147:12:142:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:71:12 condition=""
+node decision:step:FailingWait:113:12 condition=""
+node decision:step:ReviewBounds:97:12 condition=""
+node decision:timeout_handler:ApprovalFlow:157:12 condition=""
+node wait:AwaitApproval:55:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:58:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:62:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:108:3 condition=""
+node wait:ReviewBounds:87:12 condition=""
+edge cancel decision:rpc:approve:140:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:140:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:147:12:140:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:147:12:140:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:71:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:58:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:62:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:62:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:87:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:this.approvals publish
+edge resource_publish rpc:describe -> resource:channel:this.approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:reviewFlow:92:7 start
+warning unused_resource channel AlternateApprovals has no direct access in the source file
+== typedAlias valid=false
+== unconditionalPush valid=false
+== unreachableAfterEmpty valid=true
+node decision:rpc:approve:140:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:145:12:140:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:155:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+warning unreachable_step Step FailingWait is not reachable from the start Step or an RPC
+== unrelatedMap valid=true
+node decision:rpc:approve:137:14 condition="decision === \"skip\""
+node decision:rpc:approve:139:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:144:12:137:14 condition="decision === \"skip\""
+node decision:rpc:describe:144:12:139:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:70:12 condition=""
+node decision:step:FailingWait:112:12 condition=""
+node decision:step:ReviewBounds:96:12 condition=""
+node decision:timeout_handler:ApprovalFlow:154:12 condition=""
+node wait:AwaitApproval:54:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:57:14 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal"
+node wait:AwaitApproval:60:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:107:3 condition=""
+node wait:ReviewBounds:86:12 condition=""
+edge cancel decision:rpc:approve:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:137:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:144:12:137:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:144:12:137:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:70:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:57:14 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:61:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:86:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:61:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:86:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
+== waitTernary valid=true
+node decision:rpc:approve:138:14 condition="decision === \"skip\""
+node decision:rpc:approve:140:12 condition="!(decision === \"skip\")"
+node decision:rpc:describe:145:12:138:14 condition="decision === \"skip\""
+node decision:rpc:describe:145:12:140:12 condition="!(decision === \"skip\")"
+node decision:step:AwaitApproval:71:12 condition=""
+node decision:step:FailingWait:113:12 condition=""
+node decision:step:ReviewBounds:97:12 condition=""
+node decision:timeout_handler:ApprovalFlow:155:12 condition=""
+node wait:AwaitApproval:55:14 condition="buckets.size(context, \"priority\") > 0"
+node wait:AwaitApproval:58:34 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal && input.minutes > 1"
+node wait:AwaitApproval:58:44 condition="!(buckets.size(context, \"priority\") > 0) && input.useSignal && !(input.minutes > 1)"
+node wait:AwaitApproval:61:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && input.minutes > 10"
+node wait:AwaitApproval:62:9 condition="!(buckets.size(context, \"priority\") > 0) && !(input.useSignal) && !(input.minutes > 10)"
+node wait:FailingWait:108:3 condition=""
+node wait:ReviewBounds:87:12 condition=""
+edge cancel decision:rpc:approve:138:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:approve:138:14 -> step:FailingWait fan-out
+edge cancel decision:rpc:describe:145:12:138:14 -> step:AwaitApproval cancelingSteps
+edge transition decision:rpc:describe:145:12:138:14 -> step:FailingWait fan-out
+edge transition decision:step:AwaitApproval:71:12 -> step:ReviewBounds goTo
+edge resource_read resource:attribute:status -> rpc:approve get
+edge resource_read resource:attribute:status -> rpc:describe get
+edge resource_read resource:channel:approvals -> step:AwaitApproval results
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:58:34 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:58:44 Approvals.for 1
+edge wait_condition resource:channel:approvals -> wait:AwaitApproval:62:9 Approvals.for 2
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.at least 3
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.at most 4
+edge wait_condition resource:channel:approvals -> wait:ReviewBounds:87:12 Approvals.for 2…5
+edge resource_read resource:channel:buckets -> step:AwaitApproval size
+edge wait_condition resource:channel:buckets -> wait:AwaitApproval:62:9 Buckets["priority"].for 1…∞
+edge wait_condition resource:channel:buckets -> wait:ReviewBounds:87:12 Buckets["priority"].for input
+edge resource_lock rpc:approve -> resource:attribute:status lock
+edge resource_publish rpc:approve -> resource:channel:approvals publish
+edge resource_publish rpc:describe -> resource:channel:approvals publish
+edge resource_publish rpc:note -> resource:channel:buckets publish
+edge resource_write step:AwaitApproval -> resource:attribute:status set
+edge resource_write step:AwaitApproval -> resource:stream:progress write
+edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
+edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:reviewFlow:92:7 start

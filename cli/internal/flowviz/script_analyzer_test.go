@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,8 +219,12 @@ func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
 		},
 		"local nextSteps with a push": {
 			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      nextSteps.push(StepMovement.of(ReviewBounds, 1));\n      return { output: decision, nextSteps };"}},
+			codes:        []string{"dynamic_step_target"},
+		},
+		"single-use const nextSteps": {
+			replacements: []replacement{{skipReturn, "      const nextSteps = [StepMovement.of(FailingWait, decision)];\n      return { output: decision, nextSteps };"}},
 			check: func(t *testing.T, graph *Graph) {
-				require.ElementsMatch(t, []string{"step:FailingWait", "step:ReviewBounds"}, rpcTransitionTargets(graph, "rpc:approve", `decision === "skip"`))
+				require.Equal(t, []string{"step:FailingWait"}, rpcTransitionTargets(graph, "rpc:approve", `decision === "skip"`))
 			},
 		},
 		"one helper called on every path": {
@@ -326,6 +331,90 @@ func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The review sources in testdata/typescript/shapes either render the correct graph or are blocked.
+// shapes.golden.txt records each graph's decisions, Waits, and edges; it was checked by hand.
+func TestTypeScriptReviewShapes(t *testing.T) {
+	expectedErrorCodes := map[string][]string{
+		"baseline": nil, "both": nil, "computedLiteral": nil, "contextWeakMap": nil, "hard": nil,
+		"helperNestedBinding": nil, "helperParameter": nil, "innerReturn": nil, "nestedHelper": nil,
+		"r03-void-helper": nil, "r10-weakmap": nil, "repeatHelper": nil, "reusedWait": nil,
+		"rpcHelperVoidPath": nil, "streamReboundWriter": nil, "sync": nil, "thisField": nil,
+		"unreachableAfterEmpty": nil, "unrelatedMap": nil, "waitTernary": nil,
+		"aliasMutation": {"dynamic_step_target"}, "aliasPush": {"dynamic_step_target"},
+		"arrayDirectAlias": {"dynamic_step_target"}, "conditionalPush": {"dynamic_step_target"},
+		"directAliasMutation": {"dynamic_step_target"}, "directAliasPush": {"dynamic_step_target"},
+		"originalAliasMutation": {"dynamic_step_target"}, "passed": {"dynamic_step_target"},
+		"r01-alias": {"dynamic_step_target"}, "r02-spread": {"dynamic_step_target"},
+		"spread": {"dynamic_step_target"}, "spreadConditional": {"dynamic_step_target"},
+		"spreadEmpty": {"dynamic_step_target"}, "spreadPassed": {"dynamic_step_target"},
+		"spreadPush": {"dynamic_step_target"}, "typedAlias": {"dynamic_step_target"},
+		"unconditionalPush": {"dynamic_step_target"},
+		"blockShadow":       {"dynamic_resource_access"}, "computedLocal": {"dynamic_resource_access"},
+		"computedModule": {"dynamic_resource_access"}, "contextAlias": {"dynamic_resource_access"},
+		"contextTypeAlias": {"dynamic_resource_access"}, "fieldReassigned": {"dynamic_resource_access"},
+		"helperAlias": {"dynamic_resource_access"}, "helperChangedToBuckets": {"dynamic_resource_access"},
+		"helperInstance": {"dynamic_resource_access"}, "helperReassign": {"dynamic_resource_access"},
+		"helperRecursiveResources": {"dynamic_resource_access"}, "localAlias": {"dynamic_resource_access"},
+		"localInstanceComputed": {"dynamic_resource_access"}, "parameterShadow": {"dynamic_resource_access"},
+		"r04-this-chain": {"dynamic_resource_access"}, "r05-reassigned-helper": {"dynamic_resource_access"},
+		"r06-resource-recursion": {"dynamic_resource_access"}, "r07-context-alias": {"dynamic_resource_access"},
+		"r08-unresolved-computed": {"dynamic_resource_access"}, "r09-writer-computed": {"dynamic_resource_access"},
+		"streamComputedWriter": {"dynamic_resource_access"}, "thisChainWrong": {"dynamic_resource_access"},
+		"moduleReassigned": {"dynamic_resource_access", "dynamic_wait_condition"},
+		"moduleReusedWait": {"hidden_dex_wait"},
+		"r11-result-list":  {"hidden_dex_decision"},
+		"reusedResult":     {"hidden_dex_decision"},
+		"recursiveHelper":  {"dynamic_resource_access", "hidden_dex_decision"},
+		"destructured":     {"dynamic_class", "dynamic_resource_access", "dynamic_step_target", "unknown_step_target"},
+		"thisComputed":     {"dynamic_class", "dynamic_resource_access", "dynamic_step_target", "unknown_step_target"},
+	}
+	directory := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "shapes")
+	sources, err := filepath.Glob(filepath.Join(directory, "*.ts"))
+	require.NoError(t, err)
+	require.Len(t, sources, len(expectedErrorCodes))
+	var summary strings.Builder
+	for _, sourcePath := range sources {
+		name := strings.TrimSuffix(filepath.Base(sourcePath), ".ts")
+		expected, isListed := expectedErrorCodes[name]
+		require.True(t, isListed, name)
+		graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+		require.NoError(t, err)
+		errorCodes := make([]string, 0)
+		for _, diagnostic := range graph.Diagnostics {
+			if diagnostic.Severity == "error" && !slices.Contains(errorCodes, diagnostic.Code) {
+				errorCodes = append(errorCodes, diagnostic.Code)
+			}
+		}
+		if expected == nil {
+			expected = []string{}
+		}
+		require.Equal(t, expected, errorCodes, "%s: %+v", name, graph.Diagnostics)
+		require.Equal(t, len(expected) == 0, graph.Valid, name)
+		fmt.Fprintf(&summary, "== %s valid=%t\n", name, graph.Valid)
+		if !graph.Valid {
+			continue
+		}
+		for _, node := range graph.Nodes {
+			if node.Kind == "decision" || node.Kind == "wait" {
+				fmt.Fprintf(&summary, "node %s condition=%q\n", node.ID, node.Condition)
+			}
+		}
+		for _, edge := range graph.Edges {
+			fmt.Fprintf(&summary, "edge %s %s -> %s %s\n", edge.Kind, edge.From, edge.To, edge.Label)
+		}
+		for _, diagnostic := range graph.Diagnostics {
+			fmt.Fprintf(&summary, "%s %s %s\n", diagnostic.Severity, diagnostic.Code, diagnostic.Message)
+		}
+	}
+	goldenPath := filepath.Join("testdata", "typescript", "shapes.golden.txt")
+	if os.Getenv("UPDATE_SCRIPT_GOLDENS") == "1" {
+		require.NoError(t, os.WriteFile(goldenPath, []byte(summary.String()), 0o644))
+	}
+	golden, err := os.ReadFile(goldenPath)
+	require.NoError(t, err)
+	require.Equal(t, string(golden), summary.String())
 }
 
 func checkGuardedRPCResult(t *testing.T, graph *Graph) {

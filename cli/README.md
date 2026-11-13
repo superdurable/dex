@@ -436,22 +436,35 @@ usage error. `node` comes from `PATH`, so keep the analyzed tree's directories
 out of `PATH`. The analyzer reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,
 `forceCompleteIfChannelsEmpty`, and cancellation decisions, plus
-`ExecuteFailure.proceedTo` in `getStepOptions`. It also reads `waitFor`
-returns built directly from `Wait` factories with Timer, Channel, ChannelMap,
-Join, and SubFlow conditions; a `waitFor` that only throws; RPC `RPCResult`
-literals with their `nextSteps` and `cancelingSteps`; `handleTimeout`
-decisions; and resource reads, writes, and publishes in handlers and the
-same-file helpers they call. The graph uses the Go analyzer's node IDs and
-Wait types. Every shape it cannot prove is a blocking diagnostic: a Wait
-from a helper reports `hidden_dex_wait`, any other condition, including one on
-an unresolvable local name, reports `dynamic_wait_condition`, an RPC result
-that is not an object literal reports `hidden_dex_decision`, a `nextSteps`
-list it cannot follow reports `dynamic_step_target`, and resource access
-through a computed key, an unresolvable receiver, or an unfollowed function
-reports `dynamic_resource_access`. Several Flows in one file report
-`multiple_flows` with one unknown node per Flow, as in Go and Python. Version
-2.0 Indexed Attributes, Summary, Display, and start-input schemas are not
-analyzed yet. See the [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
+`ExecuteFailure.proceedTo` in `getStepOptions`. For `waitFor`, RPC handlers,
+`handleTimeout`, and resource access it accepts an explicit list of shapes and
+blocks every other shape:
+
+- A Wait is a `Wait` factory call in the `return`, or a `const` declared
+  directly in `waitFor` that is only returned. Each argument is a condition
+  call written in place: `Timer.byDuration`, `SubFlow.run`,
+  `ConditionCombination.of`, or a Channel, ChannelMap, or Join condition on a
+  resource reference. A `waitFor` that only throws is a failure Wait.
+- An RPC returns an `RPCResult` object literal, nothing, or a call to a Flow
+  method or file function. `nextSteps` and `cancelingSteps` are array literals
+  in that object, or a block `const` array literal referenced only there.
+  `handleTimeout` follows the Execute rules.
+- A resource reference is a module-level resource name or a `this` field chain
+  that leads to one. An access calls a method by name or string literal key on
+  it. A `bufferedText` writer is a `const` used only by calling its methods.
+  Helpers in the file are followed six calls deep unless they call themselves
+  or reassign or destructure a parameter.
+- Every `return` ends its path, and unreachable statements add nothing.
+
+Other shapes report `hidden_dex_wait`, `dynamic_wait_condition`,
+`hidden_dex_decision`, `dynamic_step_target`, or `dynamic_resource_access`.
+The last one also covers a resource method called with a Dex `Context` on a
+receiver that is not a resource reference; a provably different receiver, such
+as `new Map()`, is not checked. The graph uses the Go analyzer's node IDs and
+Wait types. Several Flows in one file report `multiple_flows` with one unknown
+node per Flow, as in Go and Python. Version 2.0 Indexed Attributes, Summary,
+Display, and start-input schemas are not analyzed yet. See the
+[Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
 recursive start-input schema. The analyzer follows JSON field names, ignored

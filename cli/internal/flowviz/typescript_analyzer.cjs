@@ -22,6 +22,9 @@ const resourceEdgeKinds = new Map([
   ...["publish","endBranch","reportBranchResult"].map(method => [method,"resource_publish"]),
 ]);
 const maximumHelperDepth = 6;
+const resourceMethodNames = new Set([...resourceEdgeKinds.keys(),"bufferedText","fork","forkWithRoundKey"]);
+const resourceClassNames = new Set(["Attribute","AttributeMap","Channel","ChannelMap","Join","Stream"]);
+const contextTypeNames = new Set(["Context","AsyncContext"]);
 
 class TypeScriptAnalyzer {
   constructor(request) {
@@ -45,7 +48,6 @@ class TypeScriptAnalyzer {
     this.classes = new Map();
     this.functions = new Map();
     this.values = new Map();
-    this.resources = new Map();
     this.registered = new Map();
     this.stepInstances = new Map();
     this.registeredIdentities = new Map();
@@ -180,7 +182,6 @@ class TypeScriptAnalyzer {
     const resourceName = this.staticLiteral(expression.arguments?.[0]);
     if (typeof resourceName !== "string") { this.error("dynamic_resource_name",`resource ${name} must use a static name`,expression); return; }
     const nodeID = `resource:${kind}:${name}`;
-    this.resources.set(name,nodeID);
     this.resourceNodes.set(expression,nodeID);
     for (const call of configuredBy) this.resourceNodes.set(call,nodeID);
     // A Join is a ChannelMap of branch results keyed by round.
@@ -315,10 +316,26 @@ class TypeScriptAnalyzer {
         ...this.waitOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),hiddenWaits),
       ];
     }
-    const call = this.resolvedValue(expression,this.currentFrame).node;
+    const call = this.ts.isIdentifier(expression) ? this.returnedWaitConstInitializer(expression) : expression;
     if (call && this.ts.isCallExpression(call) && this.waitType(call)) return [{call,condition,occurrence:expression}];
     hiddenWaits.push(expression);
     return [];
+  }
+
+  // Supported: a const declared directly in the waitFor body whose every reference is a returned value.
+  returnedWaitConstInitializer(identifier) {
+    const declaration = this.localBindingDeclaration(identifier);
+    const statement = declaration?.parent?.parent;
+    if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer || !statement || !this.ts.isVariableStatement(statement)) return undefined;
+    if (!(statement.declarationList.flags & this.ts.NodeFlags.Const) || !this.ts.isBlock(statement.parent) || !this.ts.isFunctionLike(statement.parent.parent)) return undefined;
+    let isReturnedOnly = true;
+    this.walk(statement.parent,node => {
+      if (!this.ts.isIdentifier(node) || node === declaration.name || node.text !== identifier.text || this.localBindingDeclaration(node) !== declaration) return;
+      let use = node;
+      while (this.isTransparentWrapper(use.parent) || (this.ts.isConditionalExpression(use.parent) && use.parent.condition !== use)) use = use.parent;
+      if (!this.ts.isReturnStatement(use.parent)) isReturnedOnly = false;
+    });
+    return isReturnedOnly ? this.unwrap(declaration.initializer) : undefined;
   }
 
   addHiddenWait(ownerID,stepType,node) {
@@ -355,7 +372,8 @@ class TypeScriptAnalyzer {
 
   // Each argument is one condition at its index; ConditionCombination.of numbers its own arguments, as Go's Combo does.
   collectWaitCondition(waitID,argument,index,conditions) {
-    const call = this.ts.isSpreadElement(argument) ? undefined : this.resolvedValue(argument,this.currentFrame).node;
+    // Supported: the condition call written directly as the argument.
+    const call = this.unwrap(argument);
     const callee = call && this.ts.isCallExpression(call) ? this.unwrap(call.expression) : undefined;
     if (!callee || !this.ts.isPropertyAccessExpression(callee)) { this.addUnknownWaitCondition(argument,index,conditions); return; }
     const owner = this.dexName(callee.expression);
@@ -381,7 +399,7 @@ class TypeScriptAnalyzer {
       conditions.push({index,kind:"subflow",label:name,subFlowId:subFlowID,span});
       return;
     }
-    const resourceID = channelConditionMethods.has(method) ? this.resourceFor(callee.expression) : undefined;
+    const resourceID = channelConditionMethods.has(method) ? this.accessedResource(this.unwrap(callee.expression)) : undefined;
     if (!resourceID?.startsWith("resource:channel:")) { this.addUnknownWaitCondition(argument,index,conditions); return; }
     const {label,expression} = this.channelConditionLabel(resourceID,method,call.arguments);
     conditions.push({index,kind:"channel",label,resourceId:resourceID,...(expression ? {expression} : {}),span});
@@ -464,56 +482,127 @@ class TypeScriptAnalyzer {
     }
   }
 
-  // bindings maps a helper's parameter names to the resources its call site passes.
+  // Supported receivers: a resource that resolvedValue proves, or a parameter of a followed helper bound to one.
+  // Anything else called with a Dex resource method and a Dex Context argument is blocked.
   collectResourceAccesses(handler,ownerClass,helperName,callChain,accesses,depth,bindings=new Map()) {
-    const resourceOf = expression => {
+    const classify = expression => {
       const value = this.unwrap(expression);
-      if (value && this.ts.isIdentifier(value) && bindings.has(value.text) && this.localBindingDeclaration(value)?.parent === handler) return bindings.get(value.text);
-      return this.accessedResource(value);
+      if (value && this.ts.isIdentifier(value) && bindings.has(value.text) && this.localBindingDeclaration(value)?.parent === handler) {
+        const resourceID = bindings.get(value.text);
+        return resourceID ? {resourceID} : {};
+      }
+      const resourceID = this.accessedResource(value);
+      if (resourceID) return {resourceID};
+      return {isNotResource:this.isProvablyNotResource(value)};
     };
-    const streamWriters = new Map();
-    this.walk(handler.body,node => {
-      if (!this.ts.isVariableDeclaration(node) || !this.ts.isIdentifier(node.name)) return;
-      const value = this.unwrap(node.initializer);
-      if (!value || !this.ts.isCallExpression(value) || !this.ts.isPropertyAccessExpression(value.expression) || value.expression.name.text !== "bufferedText") return;
-      const resourceID = resourceOf(value.expression.expression);
-      if (resourceID?.startsWith("resource:stream:")) streamWriters.set(node.name.text,resourceID);
-    });
-    this.walk(handler.body,node => {
+    const streamWriters = this.streamWriters(handler,classify);
+    this.walkReachable(handler.body,node => {
       if (!this.ts.isCallExpression(node)) return;
       const callee = this.unwrap(node.expression);
-      const member = this.memberCall(callee);
-      const helper = depth < maximumHelperDepth ? this.resourceHelper(callee,ownerClass) : undefined;
-      if (member && !helper) {
+      const helper = this.resourceHelper(callee,ownerClass);
+      const member = helper ? undefined : this.memberCall(callee);
+      if (member) {
         const receiver = this.unwrap(member.receiver);
-        const writer = receiver && this.ts.isIdentifier(receiver) ? streamWriters.get(receiver.text) : undefined;
-        const resourceID = writer ? (member.method === "write" ? writer : undefined) : resourceOf(receiver);
-        if (resourceID && member.method === undefined) {
-          this.error("dynamic_resource_access",`${this.lineText(callee)} calls a resource method through a computed key; call the method by name or with a string literal key`,callee);
+        const writer = receiver && this.ts.isIdentifier(receiver) ? streamWriters.get(this.localBindingDeclaration(receiver)) : undefined;
+        if (writer) {
+          if (member.method === undefined) this.blockResourceAccess(callee,"calls a Stream writer method through a computed key");
+          else if (member.method === "write") accesses.push({call:node,method:"write",resourceID:writer,helper:helperName});
           return;
         }
-        if (resourceID) { accesses.push({call:node,method:member.method,resourceID,helper:helperName}); return; }
-        if (!writer && resourceEdgeKinds.has(member.method) && this.isContextArgument(node.arguments[0])) {
-          this.error("dynamic_resource_access",`${this.lineText(node)} calls ${member.method} with the Dex context on a receiver the analyzer cannot resolve; use a resource declared in this file directly, through a Flow or Step field, or as an argument of a helper in this file`,node);
+        const target = classify(receiver);
+        if (target.resourceID) {
+          if (member.method === undefined) this.blockResourceAccess(callee,"calls a resource method through a computed key");
+          else accesses.push({call:node,method:member.method,resourceID:target.resourceID,helper:helperName});
+          return;
+        }
+        const isResourceMethod = member.method === undefined || resourceMethodNames.has(member.method);
+        if (!target.isNotResource && isResourceMethod && node.arguments.some(argument => this.isDexContextValue(argument))) {
+          this.blockResourceAccess(node,`calls ${member.method ?? "a computed method"} with the Dex Context on a receiver that is not provably a resource declared in this file`);
           return;
         }
       }
       if (helper) {
-        if (callChain.has(helper.declaration)) return;
-        const helperBindings = new Map();
-        for (const [index,parameter] of helper.declaration.parameters.entries()) {
-          if (this.ts.isIdentifier(parameter.name)) helperBindings.set(parameter.name.text,node.arguments[index] ? resourceOf(node.arguments[index]) : undefined);
-        }
+        if (callChain.has(helper.declaration)) { this.blockResourceAccess(node,`calls helper ${helper.name} recursively`); return; }
+        if (depth >= maximumHelperDepth) { this.blockResourceAccess(node,`reaches helper ${helper.name} more than ${maximumHelperDepth} calls deep`); return; }
+        const writtenParameter = helper.declaration.parameters.find(parameter => !this.ts.isIdentifier(parameter.name) || this.identifierWrites.some(write => write.name === parameter.name.text && this.isWithin(write.node,helper.declaration)));
+        if (writtenParameter) { this.blockResourceAccess(node,`calls helper ${helper.name}, which destructures or reassigns parameter ${writtenParameter.name.getText(this.tree)}`); return; }
+        const helperBindings = new Map(helper.declaration.parameters.map((parameter,index) => [parameter.name.text,node.arguments[index] ? classify(node.arguments[index]).resourceID : undefined]));
         // As in Go, an access names the helper that contains it.
         this.collectResourceAccesses(helper.declaration,ownerClass,helper.name,new Set([...callChain,helper.declaration]),accesses,depth + 1,helperBindings);
         return;
       }
       if (this.isDexCall(callee)) return;
       for (const argument of node.arguments) {
-        if (!resourceOf(argument)) continue;
-        this.error("dynamic_resource_access",`${this.lineText(node)} passes resource ${this.unwrap(argument).getText(this.tree)} to a function the analyzer does not follow; access it in the handler or in a helper declared in this file`,argument);
+        if (classify(argument).resourceID) this.blockResourceAccess(argument,`is a resource passed to ${callee ? callee.getText(this.tree) : "a call"}, which the analyzer does not follow`);
       }
     });
+  }
+
+  // Supported: const writer = stream.bufferedText(...), then writer.method(...) calls. Any other use is blocked.
+  streamWriters(handler,classify) {
+    const writers = new Map();
+    this.walkReachable(handler.body,node => {
+      if (!this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression) || node.expression.name.text !== "bufferedText") return;
+      if (!classify(node.expression.expression).resourceID?.startsWith("resource:stream:")) return;
+      let declaration = node.parent;
+      while (this.isTransparentWrapper(declaration)) declaration = declaration.parent;
+      const isConst = this.ts.isVariableDeclaration(declaration) && this.ts.isIdentifier(declaration.name) && !!(declaration.parent.flags & this.ts.NodeFlags.Const);
+      if (!isConst) {
+        if (!this.ts.isExpressionStatement(declaration)) this.blockResourceAccess(node,"is a Stream writer that is not bound to a const");
+        return;
+      }
+      writers.set(declaration,classify(node.expression.expression).resourceID);
+    });
+    for (const declaration of writers.keys()) {
+      this.walkReachable(handler.body,node => {
+        if (!this.ts.isIdentifier(node) || node === declaration.name || node.text !== declaration.name.text || this.localBindingDeclaration(node) !== declaration) return;
+        const access = node.parent;
+        const isCalled = (this.ts.isPropertyAccessExpression(access) || this.ts.isElementAccessExpression(access)) && access.expression === node && this.ts.isCallExpression(access.parent) && access.parent.expression === access;
+        if (!isCalled) this.blockResourceAccess(node,"is a Stream writer used other than by calling one of its methods");
+      });
+    }
+    return writers;
+  }
+
+  blockResourceAccess(node,reason) {
+    this.error("dynamic_resource_access",`${this.lineText(node)} ${reason}; access each resource directly by its module const or Flow field, or through a helper in this file`,node);
+  }
+
+  // A literal, a function, a Dex namespace, a Dex Context, or an instance of a class other than a Dex resource class.
+  isProvablyNotResource(expression) {
+    const value = expression && this.resolvedValue(expression,this.currentFrame).node;
+    if (!value) return false;
+    const kinds = this.ts.SyntaxKind;
+    if (this.ts.isLiteralExpression(value) || this.ts.isArrayLiteralExpression(value) || this.ts.isObjectLiteralExpression(value) || this.ts.isFunctionLike(value) || [kinds.TrueKeyword,kinds.FalseKeyword,kinds.NullKeyword].includes(value.kind)) return true;
+    if (this.ts.isNewExpression(value)) return !resourceClassNames.has(this.dexName(value.expression));
+    if (this.ts.isIdentifier(value) && this.dexName(value)) return !resourceClassNames.has(this.dexName(value));
+    return this.isDexContextValue(value);
+  }
+
+  // Supported: a parameter or const typed with the Dex Context or AsyncContext, through renamed imports, type aliases, and const aliases.
+  isDexContextValue(expression) {
+    let value = this.unwrap(expression);
+    for (let remaining = maximumHelperDepth; value && this.ts.isIdentifier(value) && remaining > 0; remaining--) {
+      const declaration = this.localBindingDeclaration(value);
+      if (!declaration) return false;
+      if (declaration.type) return this.isDexContextType(declaration.type,new Set());
+      if (!this.ts.isVariableDeclaration(declaration) || !declaration.initializer) return false;
+      value = this.unwrap(declaration.initializer);
+    }
+    return false;
+  }
+
+  isDexContextType(typeNode,seen) {
+    if (!typeNode || seen.has(typeNode)) return false;
+    seen.add(typeNode);
+    if (this.ts.isParenthesizedTypeNode(typeNode)) return this.isDexContextType(typeNode.type,seen);
+    if (this.ts.isUnionTypeNode(typeNode) || this.ts.isIntersectionTypeNode(typeNode)) return typeNode.types.some(part => this.isDexContextType(part,seen));
+    if (!this.ts.isTypeReferenceNode(typeNode)) return false;
+    const name = typeNode.typeName;
+    if (this.ts.isQualifiedName(name)) return this.imports.get(name.left.getText(this.tree)) === "*" && contextTypeNames.has(name.right.text);
+    if (contextTypeNames.has(this.imports.get(name.text))) return true;
+    const alias = this.inputTypes.get(name.text);
+    return !!alias && this.ts.isTypeAliasDeclaration(alias) && this.isDexContextType(alias.type,seen);
   }
 
   // Returns the receiver and method of obj.method(...) or obj["method"](...); a computed key leaves method undefined.
@@ -526,23 +615,29 @@ class TypeScriptAnalyzer {
     return {receiver:callee.expression,method:isLiteralKey ? key.text : undefined};
   }
 
-  isContextArgument(argument) {
-    const value = this.unwrap(argument);
-    if (!value || !this.ts.isIdentifier(value)) return false;
-    const declaration = this.localBindingDeclaration(value);
-    return !!declaration && this.ts.isParameter(declaration) && !!declaration.type && /\bContext\b/.test(declaration.type.getText(this.tree));
-  }
-
   isDexCall(callee) {
     if (!callee) return false;
     if (this.dexName(callee)) return true;
     return this.ts.isPropertyAccessExpression(callee) && !!this.dexName(callee.expression);
   }
 
+  // Supported: a module-level name, or this.field, this.flow.field, and similar this field chains that resolvedValue proves.
+  isSupportedResourceReference(expression) {
+    if (!expression) return false;
+    if (this.ts.isIdentifier(expression)) return this.bindingScope(expression) === this.tree;
+    for (let current = expression; current; current = this.unwrap(current.expression)) {
+      if (current.kind === this.ts.SyntaxKind.ThisKeyword) return true;
+      if (!this.ts.isPropertyAccessExpression(current)) return false;
+    }
+    return false;
+  }
+
   accessedResource(receiver) {
     if (!receiver) return undefined;
     const isInstanceCall = this.ts.isCallExpression(receiver) && this.ts.isPropertyAccessExpression(receiver.expression) && receiver.expression.name.text === "instance";
-    const resourceID = this.resourceFor(isInstanceCall ? receiver.expression.expression : receiver);
+    const named = this.unwrap(isInstanceCall ? receiver.expression.expression : receiver);
+    if (!this.isSupportedResourceReference(named)) return undefined;
+    const resourceID = this.resourceFor(named);
     return !isInstanceCall || resourceID?.startsWith("resource:attribute:") ? resourceID : undefined;
   }
 
@@ -550,7 +645,7 @@ class TypeScriptAnalyzer {
     if (!callee) return undefined;
     if (this.ts.isIdentifier(callee)) {
       const declaration = this.functions.get(callee.text);
-      return declaration && this.bindingScope(callee) === this.tree ? {declaration,name:callee.text} : undefined;
+      return declaration && this.bindingScope(callee) === this.tree && this.staticBinding(this.tree,callee.text) === declaration ? {declaration,name:callee.text} : undefined;
     }
     if (!this.ts.isPropertyAccessExpression(callee) || !ownerClass || this.selfReferenceClass(this.unwrap(callee.expression)) !== ownerClass) return undefined;
     const declaration = this.method(ownerClass,callee.name.text);
@@ -864,9 +959,7 @@ class TypeScriptAnalyzer {
     const outcomes = [];
     const hiddenDecisions = [];
     this.walkStatements(statements,"",(expression,condition) => {
-      const found = this.decisionOutcomes(expression,condition,locals,hiddenDecisions,phase);
-      outcomes.push(...found);
-      return found.length > 0 || (phase === "rpc" && this.isUndefinedValue(expression));
+      outcomes.push(...this.decisionOutcomes(expression,condition,locals,hiddenDecisions,phase));
     });
     if (!outcomes.length && !hiddenDecisions.length && phase !== "rpc") hiddenDecisions.push(handler);
     for (const hidden of hiddenDecisions) this.addHiddenDecision(ownerID,hidden,phase);
@@ -906,36 +999,39 @@ class TypeScriptAnalyzer {
     this.error("hidden_dex_decision",message,node);
   }
 
+  // Every return ends its path; statements after one that always exits are unreachable and skipped.
+  // Returns whether the statements contain a return.
   walkStatements(statements,condition,visit) {
-    let hasOutcome = false;
+    let hasReturn = false;
     for (const statement of statements) {
       if (this.ts.isReturnStatement(statement)) {
-        // An empty return still ends the path; visit reports whether it counts as an outcome.
-        hasOutcome = visit(statement.expression,condition) || hasOutcome;
+        visit(statement.expression,condition);
+        hasReturn = true;
       } else if (this.ts.isBlock(statement)) {
-        hasOutcome = this.walkStatements(statement.statements,condition,visit) || hasOutcome;
+        hasReturn = this.walkStatements(statement.statements,condition,visit) || hasReturn;
       } else if (this.ts.isIfStatement(statement)) {
         const branch = statement.expression.getText(this.tree);
         const thenStatements = this.blockStatements(statement.thenStatement);
-        const thenHasOutcome = this.walkStatements(thenStatements,this.combine(condition,branch),visit);
-        hasOutcome = thenHasOutcome || hasOutcome;
-        if (statement.elseStatement) hasOutcome = this.walkStatements(this.blockStatements(statement.elseStatement),this.combine(condition,this.negate(branch)),visit) || hasOutcome;
-        else if (thenHasOutcome && this.alwaysExits(thenStatements)) condition = this.combine(condition,this.negate(branch));
+        const thenHasReturn = this.walkStatements(thenStatements,this.combine(condition,branch),visit);
+        hasReturn = thenHasReturn || hasReturn;
+        if (statement.elseStatement) hasReturn = this.walkStatements(this.blockStatements(statement.elseStatement),this.combine(condition,this.negate(branch)),visit) || hasReturn;
+        else if (thenHasReturn && this.alwaysExits(thenStatements)) condition = this.combine(condition,this.negate(branch));
       } else if (this.ts.isSwitchStatement(statement)) {
         const subject = statement.expression.getText(this.tree);
         for (const clause of statement.caseBlock.clauses) {
           const label = this.ts.isCaseClause(clause) ? `${subject} === ${clause.expression.getText(this.tree)}` : "default";
-          hasOutcome = this.walkStatements(clause.statements,this.combine(condition,label),visit) || hasOutcome;
+          hasReturn = this.walkStatements(clause.statements,this.combine(condition,label),visit) || hasReturn;
         }
       } else if (this.ts.isIterationStatement(statement,false) || this.ts.isLabeledStatement(statement)) {
-        hasOutcome = this.walkStatements(this.blockStatements(statement.statement),condition,visit) || hasOutcome;
+        hasReturn = this.walkStatements(this.blockStatements(statement.statement),condition,visit) || hasReturn;
       } else if (this.ts.isTryStatement(statement)) {
-        hasOutcome = this.walkStatements(statement.tryBlock.statements,condition,visit) || hasOutcome;
-        if (statement.catchClause) hasOutcome = this.walkStatements(statement.catchClause.block.statements,this.combine(condition,"exception"),visit) || hasOutcome;
-        if (statement.finallyBlock) hasOutcome = this.walkStatements(statement.finallyBlock.statements,condition,visit) || hasOutcome;
+        hasReturn = this.walkStatements(statement.tryBlock.statements,condition,visit) || hasReturn;
+        if (statement.catchClause) hasReturn = this.walkStatements(statement.catchClause.block.statements,this.combine(condition,"exception"),visit) || hasReturn;
+        if (statement.finallyBlock) hasReturn = this.walkStatements(statement.finallyBlock.statements,condition,visit) || hasReturn;
       }
+      if (this.alwaysExits([statement])) break;
     }
-    return hasOutcome;
+    return hasReturn;
   }
 
   decisionOutcomes(expression,condition,locals,hiddenDecisions,phase,visitedHelpers=new Set()) {
@@ -948,30 +1044,29 @@ class TypeScriptAnalyzer {
         ...this.decisionOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),locals,hiddenDecisions,phase,visitedHelpers),
       ];
     }
-    if (phase === "rpc") return this.rpcResultOutcomes(expression,condition,locals,hiddenDecisions,visitedHelpers);
+    if (phase === "rpc") return this.rpcResultOutcomes(expression,condition,hiddenDecisions,visitedHelpers);
     const decisionType = this.decisionType(expression);
     if (!decisionType) { hiddenDecisions.push(expression); return []; }
     return [{decisionType,condition,transitions:this.parseDecision(expression,locals),checkedChannels:this.checkedChannels(expression),span:this.span(expression)}];
   }
 
   // An RPC returns nothing or an RPCResult; a returned Flow method call contributes that method's results.
-  rpcResultOutcomes(expression,condition,locals,hiddenDecisions,visitedHelpers) {
+  // Supported: an object literal returned directly, nothing, or a call to a non-recursive Flow method or file function.
+  rpcResultOutcomes(expression,condition,hiddenDecisions,visitedHelpers) {
     if (this.isUndefinedValue(expression)) return [];
-    const result = this.resolvedValue(expression,this.currentFrame).node;
-    const helper = result && this.ts.isCallExpression(result) ? this.resourceHelper(this.unwrap(result.expression),this.flowClass) : undefined;
-    if (helper && !visitedHelpers.has(helper.declaration) && visitedHelpers.size < maximumHelperDepth) {
+    const result = this.unwrap(expression);
+    const helper = this.ts.isCallExpression(result) ? this.resourceHelper(this.unwrap(result.expression),this.flowClass) : undefined;
+    if (helper) {
+      if (visitedHelpers.has(helper.declaration) || visitedHelpers.size >= maximumHelperDepth) { hiddenDecisions.push(expression); return []; }
       const helperVisits = new Set([...visitedHelpers,helper.declaration]);
-      const helperLocals = this.localMovements(helper.declaration.body);
       const outcomes = [];
       this.walkStatements(this.handlerStatements(helper.declaration),condition,(returned,returnCondition) => {
-        const found = this.decisionOutcomes(returned,returnCondition,helperLocals,hiddenDecisions,"rpc",helperVisits);
-        outcomes.push(...found);
-        return found.length > 0 || this.isUndefinedValue(returned);
+        outcomes.push(...this.decisionOutcomes(returned,returnCondition,new Map(),hiddenDecisions,"rpc",helperVisits));
       });
       const callSpan = this.span(expression);
       return outcomes.map(outcome => ({...outcome,callSites:[`${callSpan.startLine}:${callSpan.startColumn}`,...(outcome.callSites || [])]}));
     }
-    if (!result || !this.ts.isObjectLiteralExpression(result)) { hiddenDecisions.push(expression); return []; }
+    if (!this.ts.isObjectLiteralExpression(result)) { hiddenDecisions.push(expression); return []; }
     const transitions = [];
     for (const property of result.properties) {
       if (!(this.ts.isPropertyAssignment(property) || this.ts.isShorthandPropertyAssignment(property)) || this.ts.isComputedPropertyName(property.name)) {
@@ -980,47 +1075,43 @@ class TypeScriptAnalyzer {
       }
       const value = this.ts.isShorthandPropertyAssignment(property) ? property.name : property.initializer;
       const name = this.propertyName(property.name);
-      if (name === "nextSteps") transitions.push(...this.rpcNextSteps(value,locals));
-      else if (name === "cancelingSteps") transitions.push(...this.rpcCancelingSteps(value));
+      if (name === "nextSteps") {
+        for (const element of this.rpcListElements(value,"nextSteps")) {
+          const movement = this.parseMovement(element);
+          if (movement) transitions.push(movement);
+          else this.dynamicTarget("each RPCResult nextSteps element must be a StepMovement.of call written in the list",element);
+        }
+      } else if (name === "cancelingSteps") {
+        for (const element of this.rpcListElements(value,"cancelingSteps")) {
+          if (this.ts.isSpreadElement(element)) { this.dynamicTarget("RPCResult cancelingSteps must list each Step target directly",element); continue; }
+          transitions.push({kind:"cancel",target:this.stepTarget(element),targetNode:element,label:"cancelingSteps",span:this.span(element)});
+        }
+      }
     }
     return [{decisionType:"rpcResult",condition,transitions,checkedChannels:[],span:this.span(expression)}];
   }
 
-  rpcNextSteps(expression,locals) {
+  // Supported: an array literal in the result, or a handler const array literal that nothing else references.
+  rpcListElements(expression,property) {
     if (this.isUndefinedValue(expression)) return [];
-    const value = this.unwrap(expression);
-    const elementMovements = element => {
-      const movements = this.movementArgument(element,locals);
-      if (!movements.length) this.dynamicTarget("RPCResult nextSteps movements must be built directly in the handler",element);
-      return movements;
-    };
-    // A local list counts only when every element and every later push is provable and nothing else changes it.
-    const listed = this.ts.isIdentifier(value) ? this.localListMovements(value,value,elementMovements) : undefined;
-    if (listed) {
-      if (!listed.movements) this.dynamicTarget(`RPCResult nextSteps list ${value.text} changes in a way the analyzer cannot follow; build it with literal elements and push calls in the handler`,value);
-      return listed.movements || [];
-    }
-    const list = this.resolvedValue(expression,this.currentFrame).node;
-    if (!list || !this.ts.isArrayLiteralExpression(list)) {
-      this.dynamicTarget("RPCResult nextSteps must be an array of StepMovement.of calls built in the handler",expression);
-      return [];
-    }
-    return list.elements.flatMap(elementMovements);
+    let list = this.unwrap(expression);
+    if (this.ts.isIdentifier(list)) list = this.singleUseConstInitializer(list);
+    if (list && this.ts.isArrayLiteralExpression(list)) return list.elements;
+    this.dynamicTarget(`RPCResult ${property} must be an array literal written in the returned object, or a const array literal used only there`,expression);
+    return [];
   }
 
-  rpcCancelingSteps(expression) {
-    if (this.isUndefinedValue(expression)) return [];
-    const list = this.resolvedValue(expression,this.currentFrame).node;
-    if (!list || !this.ts.isArrayLiteralExpression(list)) {
-      this.dynamicTarget("RPCResult cancelingSteps must be an array literal of Step targets",expression);
-      return [];
-    }
-    const transitions = [];
-    for (const element of list.elements) {
-      if (this.ts.isSpreadElement(element)) { this.dynamicTarget("RPCResult cancelingSteps must list each Step target directly",element); continue; }
-      transitions.push({kind:"cancel",target:this.stepTarget(element),targetNode:element,label:"cancelingSteps",span:this.span(element)});
-    }
-    return transitions;
+  // Returns the initializer of a block-level const when this identifier is its only reference.
+  singleUseConstInitializer(identifier) {
+    const declaration = this.localBindingDeclaration(identifier);
+    const statement = declaration?.parent?.parent;
+    if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer || !statement || !this.ts.isVariableStatement(statement)) return undefined;
+    if (!(statement.declarationList.flags & this.ts.NodeFlags.Const) || !this.ts.isBlock(statement.parent)) return undefined;
+    let references = 0;
+    this.walk(statement.parent,node => {
+      if (this.ts.isIdentifier(node) && node !== declaration.name && node.text === identifier.text && this.localBindingDeclaration(node) === declaration) references++;
+    });
+    return references === 1 ? this.unwrap(declaration.initializer) : undefined;
   }
 
   isUndefinedValue(expression) {
@@ -1155,8 +1246,6 @@ class TypeScriptAnalyzer {
     const parent = identifier.parent;
     if (this.ts.isPropertyAccessExpression(parent) && parent.expression === identifier && parent.name.text === "length") return !this.isWriteTarget(parent);
     if (this.ts.isSpreadElement(parent) && this.ts.isCallExpression(parent.parent) && this.dexName(parent.parent.expression) === "goToMany") return true;
-    const isNextStepsValue = (this.ts.isShorthandPropertyAssignment(parent) && parent.name === identifier) || (this.ts.isPropertyAssignment(parent) && parent.initializer === identifier);
-    if (isNextStepsValue && this.propertyName(parent.name) === "nextSteps" && this.ts.isObjectLiteralExpression(parent.parent) && this.ts.isReturnStatement(parent.parent.parent)) return true;
     return this.isJoinMethodCall(parent,["fork","forkWithRoundKey"]) && parent.arguments[1] === identifier;
   }
 
@@ -1416,20 +1505,8 @@ class TypeScriptAnalyzer {
 
   resourceFor(expression) {
     const resolved = this.resolvedValue(expression,this.currentFrame).node;
-    if (this.resourceNodes.has(resolved)) return this.resourceNodes.get(resolved);
-    // A text fallback is safe only for a module name or a this field chain; a nearer binding hides it.
-    const value = this.unwrap(expression);
-    if (!value) return undefined;
-    if (this.ts.isIdentifier(value)) return this.bindingScope(value) === this.tree ? this.resources.get(value.text) : undefined;
-    if (!this.ts.isPropertyAccessExpression(value) || !this.isThisRooted(value)) return undefined;
-    const name = value.getText(this.tree);
-    return this.resources.get(name) || this.resources.get(`this.${value.name.text}`);
-  }
-
-  isThisRooted(access) {
-    let root = this.unwrap(access);
-    while (root && this.ts.isPropertyAccessExpression(root)) root = this.unwrap(root.expression);
-    return root?.kind === this.ts.SyntaxKind.ThisKeyword;
+    // Only a binding that resolvedValue proves names a resource; there is no fallback by name.
+    return this.resourceNodes.get(resolved);
   }
 
   staticLiteral(expression,frame=this.currentFrame) {
@@ -2273,6 +2350,17 @@ class TypeScriptAnalyzer {
   negate(condition) { return `!(${condition})`; }
   propertyName(name) { return this.ts.isStringLiteral(name) ? name.text : name.getText(this.tree); }
   walk(node,visit) { if (!node) return; visit(node); this.ts.forEachChild(node,child => this.walk(child,visit)); }
+  // Like walk, but skips statements after one that always exits in the same statement list.
+  walkReachable(node,visit) {
+    if (!node) return;
+    visit(node);
+    if (!this.ts.isBlock(node) && !this.ts.isCaseClause(node) && !this.ts.isDefaultClause(node)) { this.ts.forEachChild(node,child => this.walkReachable(child,visit)); return; }
+    if (this.ts.isCaseClause(node)) this.walkReachable(node.expression,visit);
+    for (const statement of node.statements) {
+      this.walkReachable(statement,visit);
+      if (this.alwaysExits([statement])) break;
+    }
+  }
   span(node) {
     if (typeof node?.getStart !== "function" || node.pos < 0) return undefined;
     const start = this.tree.getLineAndCharacterOfPosition(node.getStart(this.tree));
