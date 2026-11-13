@@ -85,14 +85,12 @@ Render the files again after you upgrade the agents packages.
 
 ## Rendered file or uploaded graph {#definition-authority}
 
-A Flow type can have both a rendered file in the directory and a graph that
-Workers upload. Dex Web then shows the directory file, even when that file is
-invalid. The uploaded graph's generation time does not matter. See
+Give each agent one source: a rendered file in the directory, or the graph
+that its Workers upload. When both exist, a rule decides which one Dex Web
+shows. See
 [Definition sources](/reference/web/flow-visualization#definition-sources).
-Among uploads, the Dex Server keeps one graph for each Flow type and replaces
-it only with a later generation time or **force**. See
-[Flow definitions](/reference/server/runtime-client#flow-definitions). Use one
-source for each agent. Remove the directory file to show the uploaded graph.
+For an uploaded graph, a permission change needs one forced upload, as
+described in [Upload the session graph](#upload-the-graph).
 
 ## What Dex Web shows {#what-dex-web-shows}
 

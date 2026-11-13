@@ -141,7 +141,7 @@ For Python, the analyzer recognizes Stream outputs yielded by synchronous Step g
 
 TypeScript analysis requires Node.js and the **typescript** package resolvable from the source project, through **node_modules** or **NODE_PATH**. The analyzer never loads a compiler from the **dexcli** working directory. It reads the compiler AST without importing application modules.
 
-A source project without **node_modules**, such as one in a build environment without network access, can use a separately installed compiler. Install a pinned **typescript** package once in its own directory, and list that directory's **node_modules** in **NODE_PATH**. A **typescript** package installed in the source project still takes precedence. The **dexcli** tests run the analyzer with Node.js 22 and TypeScript 5.9.3. A Flow that calls a Connector factory still needs that Connector package installed under **node_modules** next to the source. See [Connector package manifests](#connector-package-manifests).
+A source project without **node_modules**, such as one in a build environment without network access, can use a separately installed compiler. Install a **typescript** package once in its own directory, and list that directory's **node_modules** in **NODE_PATH**. A **typescript** package installed in the source project still takes precedence. The **dexcli** tests use Node.js 22 and TypeScript 5.9.3. A Flow that calls a Connector factory still needs that Connector package installed under **node_modules** next to the source. See [Connector package manifests](#connector-package-manifests).
 
 ```bash
 # Once, from a local npm cache or registry mirror.
