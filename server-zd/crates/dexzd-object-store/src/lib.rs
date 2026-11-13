@@ -124,6 +124,31 @@ pub struct ObjectListing {
     pub next_start_after: Option<String>,
 }
 
+/// Whether a listing shows every object written before it started.
+///
+/// Callers that must find recent writes, such as log recovery and snapshot retention, receive
+/// it from the server configuration. It is not a method of [`ObjectStore`], because only those
+/// callers need it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum ListingConsistency {
+    /// A listing shows every object written before it started and none deleted before it, as on
+    /// Amazon S3 and Aliyun OSS.
+    #[default]
+    Strong,
+    /// A listing may repeat an earlier listing of the same prefix for a few seconds, as on Tencent
+    /// COS. It can miss new keys, show deleted keys, ignore `start_after`, and report truncation
+    /// with fewer keys than `max_keys`. Reads of single objects stay strongly consistent.
+    Eventual,
+}
+
+impl ListingConsistency {
+    /// Returns whether a listing shows every object written before it started.
+    pub fn is_strong(self) -> bool {
+        self == Self::Strong
+    }
+}
+
 /// Object storage operations used by server-zd.
 ///
 /// Implementations are shared across tasks (`Arc<dyn ObjectStore>`).

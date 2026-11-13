@@ -11,7 +11,10 @@ use std::time::Duration;
 
 use dexzd_clock::WallClock;
 use dexzd_keyspace::validate_node_identifier;
-use dexzd_object_store::{ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome};
+use dexzd_object_store::{
+    ListingConsistency, ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome,
+};
+use futures::future::try_join_all;
 use tokio::time::{Instant, sleep, timeout_at};
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -387,7 +390,10 @@ impl EpochStartWriter<'_> {
         read_ahead: LogReadAheadConfig,
     ) -> Result<StreamRecoveryResult, LogError> {
         let first_seq = next_seq_after(epoch_start_seq)?;
-        let Some(last_seq) = self.last_listed_seq_after(epoch_start_seq).await? else {
+        let Some(last_seq) = self
+            .last_batch_seq_after(epoch_start_seq, read_ahead)
+            .await?
+        else {
             return Ok(StreamRecoveryResult {
                 voided_batches: voided.count,
                 epoch_start_seq,
@@ -488,8 +494,53 @@ impl EpochStartWriter<'_> {
         }
     }
 
+    /// Returns the highest seq of a batch after `seq`, if any.
+    ///
+    /// With a strongly consistent listing, it is the highest listed seq. Otherwise the listing
+    /// may miss the newest batches, so the seqs after it are read until
+    /// `read_ahead.tail_probe_misses` in a row are missing. A writer leaves fewer missing seqs
+    /// below its last batch than it has concurrent batch writes.
+    async fn last_batch_seq_after(
+        &self,
+        seq: u64,
+        read_ahead: LogReadAheadConfig,
+    ) -> Result<Option<u64>, LogError> {
+        let listed = self
+            .last_listed_seq_after(seq, read_ahead.listing_consistency)
+            .await?;
+        if read_ahead.listing_consistency.is_strong() {
+            return Ok(listed);
+        }
+        let misses = u64::try_from(read_ahead.tail_probe_misses.max(1)).unwrap_or(u64::MAX);
+        let mut last_found = listed;
+        let mut probe_after = listed.unwrap_or(seq);
+        loop {
+            let probed: Vec<u64> = (1..=misses)
+                .map_while(|offset| probe_after.checked_add(offset))
+                .filter(|probe_seq| *probe_seq < u64::MAX)
+                .collect();
+            let found = try_join_all(probed.iter().map(|probe_seq| async move {
+                let key = self.stream.batch_key(*probe_seq);
+                Ok::<_, LogError>(self.store.head(&key).await?.map(|_| *probe_seq))
+            }))
+            .await?;
+            let Some(highest_found) = found.into_iter().flatten().max() else {
+                return Ok(last_found);
+            };
+            last_found = Some(highest_found);
+            probe_after = highest_found;
+        }
+    }
+
     /// Returns the highest seq that a listing of the stream shows after `seq`, if any.
-    async fn last_listed_seq_after(&self, seq: u64) -> Result<Option<u64>, LogError> {
+    ///
+    /// An eventually consistent listing may ignore `start_after` and repeat a page, so its keys
+    /// up to `start_after` are skipped and a page without a later key ends the listing.
+    async fn last_listed_seq_after(
+        &self,
+        seq: u64,
+        consistency: ListingConsistency,
+    ) -> Result<Option<u64>, LogError> {
         let start_key = self.stream.batch_key(seq);
         let prefix_length = batch_key_prefix_length(&start_key);
         let mut start_after = start_key.clone();
@@ -504,11 +555,18 @@ impl EpochStartWriter<'_> {
                 )
                 .await?;
             if let Some(object) = page.objects.last() {
+                if !consistency.is_strong() && object.key <= start_after {
+                    break;
+                }
                 last_key = Some(object.key.clone());
             }
             match page.next_start_after {
-                Some(next_start_after) => start_after = next_start_after,
-                None => break,
+                Some(next_start_after)
+                    if consistency.is_strong() || next_start_after > start_after =>
+                {
+                    start_after = next_start_after;
+                }
+                _ => break,
             }
         }
         last_key

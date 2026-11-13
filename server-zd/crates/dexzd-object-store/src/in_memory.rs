@@ -58,6 +58,8 @@ struct State {
     objects: BTreeMap<String, StoredObject>,
     next_etag: u64,
     counts: BTreeMap<(String, String), u64>,
+    /// First listing of each exact prefix, served again while stale listings are on.
+    stale_listings: BTreeMap<String, ObjectListing>,
 }
 
 /// Ordered, fault-injecting object store for deterministic simulation. Exact-key call counters grow with observed keys.
@@ -67,6 +69,7 @@ pub struct InMemoryObjectStore {
     injector: Option<Arc<dyn FaultInjector>>,
     clock: Option<Arc<dyn WallClock>>,
     rejects_replace_if_etag_matches: bool,
+    serves_stale_listings: bool,
 }
 
 /// Construction options of an [`InMemoryObjectStore`].
@@ -117,7 +120,32 @@ impl InMemoryObjectStore {
             injector: options.injector,
             clock: options.clock,
             rejects_replace_if_etag_matches: options.rejects_replace_if_etag_matches,
+            serves_stale_listings: false,
         }
+    }
+
+    /// Creates an empty store whose listings behave like an eventually consistent store, see
+    /// [`crate::ListingConsistency::Eventual`].
+    ///
+    /// The first listing of each exact prefix is returned unchanged by every later listing of
+    /// that prefix, whatever its `start_after` and `max_keys`, until
+    /// [`Self::expire_stale_listings`]. Single-object reads stay current.
+    pub fn with_stale_listings() -> Self {
+        Self {
+            serves_stale_listings: true,
+            ..Self::default()
+        }
+    }
+
+    /// Forgets every cached listing, so the next listing of each prefix reads current objects.
+    ///
+    /// Only a store created by [`Self::with_stale_listings`] caches listings.
+    pub fn expire_stale_listings(&self) {
+        self.state
+            .lock()
+            .expect("in-memory object-store mutex is not poisoned")
+            .stale_listings
+            .clear();
     }
 
     /// Returns the number of calls for an operation whose relative key starts with `prefix`.
@@ -414,10 +442,17 @@ impl ObjectStore for InMemoryObjectStore {
             ));
         }
         let action = self.before_call(ObjectStoreOperation::List, prefix).await?;
-        let state = self
+        let mut state = self
             .state
             .lock()
             .expect("in-memory object-store mutex is not poisoned");
+        if self.serves_stale_listings
+            && let Some(listing) = state.stale_listings.get(prefix)
+        {
+            let listing = listing.clone();
+            drop(state);
+            return self.after_call(action, ObjectStoreOperation::List, prefix, listing);
+        }
         let mut matching = state.objects.iter().filter(|(key, _)| {
             key.starts_with(prefix) && start_after.is_none_or(|after| key.as_str() > after)
         });
@@ -431,15 +466,17 @@ impl ObjectStore for InMemoryObjectStore {
         } else {
             None
         };
-        self.after_call(
-            action,
-            ObjectStoreOperation::List,
-            prefix,
-            ObjectListing {
-                objects,
-                next_start_after,
-            },
-        )
+        let listing = ObjectListing {
+            objects,
+            next_start_after,
+        };
+        if self.serves_stale_listings {
+            state
+                .stale_listings
+                .insert(prefix.to_owned(), listing.clone());
+        }
+        drop(state);
+        self.after_call(action, ObjectStoreOperation::List, prefix, listing)
     }
 
     fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
