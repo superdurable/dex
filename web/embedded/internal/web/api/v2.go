@@ -1,0 +1,1638 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
+)
+
+const (
+	v2DefaultPageSize           = 50
+	v2RPCConcurrency            = 8
+	v2RPCTimeout                = 5 * time.Second
+	v2WorkQueuePermissionsIndex = "DexWorkQueuePermissions"
+	v2ActiveStepTypesIndex      = "ActiveStepTypes"
+	V2DefinitionRevisionHeader  = "X-Dex-Flow-Definition-Revision"
+	v2RPCLocksUnresolvedCode    = "rpc_locks_unresolved"
+	v2RPCLockConflictCode       = "rpc_lock_conflict"
+)
+
+var v2PermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
+
+// V2Definition describes one Flow type's Dex Web v2 contract.
+type V2Definition struct {
+	IndexedAttributes        []V2IndexedAttribute        `json:"indexedAttributes"`
+	Summary                  V2RPCView                   `json:"summary"`
+	Display                  V2RPCView                   `json:"display"`
+	Actions                  []V2Action                  `json:"actions"`
+	Start                    *V2StartDefinition          `json:"start,omitempty"`
+	ConnectorTriggerBindings []V2ConnectorTriggerBinding `json:"connectorTriggerBindings,omitempty"`
+	// RPCLocks is derived from the validated graph's RPC lock edges and is never browser input.
+	RPCLocks map[string]V2RPCLocks `json:"-"`
+	// AgentSession is derived from a validated graph with the Dex Agents session shape; nil otherwise.
+	AgentSession *V2AgentSession `json:"-"`
+}
+
+// V2AgentSession describes the Dex Agents session parts of a Flow Definition Graph.
+type V2AgentSession struct {
+	// StartStepSkipWaitFor is true when the StartAgentSession Start Step has no wait phase.
+	StartStepSkipWaitFor bool
+	// Language is the graph's source language.
+	Language string
+	// HasQuestions is true when the graph declares the AwaitQuestionAnswer Step.
+	HasQuestions bool
+	// RPCNames are the RPCs the graph declares.
+	RPCNames map[string]bool
+}
+
+// V2RPCLocks describes the Attribute locks one RPC declares, as its Flow Definition Graph records them.
+type V2RPCLocks struct {
+	// AttributeKeys are the sorted, unique Attribute names that InvokeRPC must lock.
+	AttributeKeys []string
+	// UnresolvedReason is non-empty when the graph names a lock that Dex Web cannot take.
+	UnresolvedReason string
+}
+
+// V2ConnectorTriggerBinding describes one configurable external Trigger binding.
+type V2ConnectorTriggerBinding struct {
+	ConnectorID          string                      `json:"connectorId"`
+	TriggerName          string                      `json:"triggerName"`
+	ConnectionName       string                      `json:"connectionName"`
+	BindingName          string                      `json:"bindingName"`
+	ModulePath           string                      `json:"modulePath"`
+	ModuleVersion        string                      `json:"moduleVersion"`
+	ReleaseTag           string                      `json:"releaseTag,omitempty"`
+	Package              *V2ConnectorPackageIdentity `json:"package,omitempty"`
+	ConfigurationEnabled bool                        `json:"configurationEnabled"`
+	ConfigurationUI      V2ConnectorConfigurationUI  `json:"configurationUI"`
+}
+
+// V2ConnectorPackageIdentity identifies an installed Connector SDK package independently of its release tag.
+type V2ConnectorPackageIdentity struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+}
+
+// V2ConnectorConfigurationUI declares a Flow-owned composition of Connector UI units.
+type V2ConnectorConfigurationUI struct {
+	Units []V2ConnectorUIUnit `json:"units"`
+}
+
+// V2ConnectorUIUnit describes one reusable Connector UI unit instance.
+type V2ConnectorUIUnit struct {
+	ID          string                 `json:"id"`
+	UnitID      string                 `json:"unitId"`
+	Label       string                 `json:"label"`
+	Description string                 `json:"description,omitempty"`
+	Required    bool                   `json:"required"`
+	Bindings    []V2ConnectorUIBinding `json:"bindings"`
+}
+
+// V2ConnectorUIBinding maps a unit port into the use configuration object.
+type V2ConnectorUIBinding struct {
+	Port        string `json:"port"`
+	JSONPointer string `json:"jsonPointer"`
+}
+
+// V2StartDefinition describes the Start Step and its JSON input.
+type V2StartDefinition struct {
+	StepType string             `json:"stepType"`
+	Input    V2StartInputSchema `json:"input"`
+	// SkipWaitFor is derived from the validated graph's Start Step phase and is never browser input.
+	SkipWaitFor bool `json:"-"`
+}
+
+// V2StartInputSchema describes one recursive JSON input value.
+type V2StartInputSchema struct {
+	Kind        string                  `json:"kind"`
+	Nullable    bool                    `json:"nullable,omitempty"`
+	Format      string                  `json:"format,omitempty"`
+	EnumValues  []V2StartInputEnumValue `json:"enumValues,omitempty"`
+	Minimum     string                  `json:"minimum,omitempty"`
+	Maximum     string                  `json:"maximum,omitempty"`
+	Fields      []V2StartInputField     `json:"fields,omitempty"`
+	Items       *V2StartInputSchema     `json:"items,omitempty"`
+	Values      *V2StartInputSchema     `json:"values,omitempty"`
+	FixedLength *int64                  `json:"fixedLength,omitempty"`
+}
+
+// V2StartInputEnumValue describes one source-named enum option.
+type V2StartInputEnumValue struct {
+	Name  string      `json:"name"`
+	Value interface{} `json:"value"`
+}
+
+// V2StartInputField describes one JSON object field.
+type V2StartInputField struct {
+	Name     string             `json:"name"`
+	Required bool               `json:"required"`
+	Schema   V2StartInputSchema `json:"schema"`
+}
+
+// V2IndexedAttribute describes one searchable Attribute.
+type V2IndexedAttribute struct {
+	AttributeKey string `json:"attributeKey"`
+	IndexKey     string `json:"indexKey"`
+	IndexType    string `json:"indexType"`
+	ValueType    string `json:"valueType"`
+	Description  string `json:"description"`
+}
+
+// V2RPCView describes Summary or Display fields.
+type V2RPCView struct {
+	RPCName string        `json:"rpcName"`
+	Fields  []V2ViewField `json:"fields"`
+}
+
+// V2ViewField describes one ordered RPC output field.
+type V2ViewField struct {
+	AttributeKey string `json:"attributeKey"`
+	ValueType    string `json:"valueType"`
+	Editable     bool   `json:"editable"`
+	Description  string `json:"description"`
+	// UISlot is the named position this field takes in a row or drawer. Empty means the detail list.
+	UISlot string `json:"uiSlot,omitempty"`
+}
+
+// V2Action describes one operator RPC.
+type V2Action struct {
+	RPCName            string `json:"rpcName"`
+	Label              string `json:"label"`
+	RequiredPermission string `json:"requiredPermission"`
+	// Condition is nil for an Action whose RPC checks current state itself.
+	Condition *V2ActionCondition `json:"condition,omitempty"`
+	Input     V2ActionInput      `json:"input"`
+}
+
+// V2ActionCondition describes an Action's visibility predicate.
+type V2ActionCondition struct {
+	AttributeKey string        `json:"attributeKey"`
+	Operator     string        `json:"operator"`
+	Values       []interface{} `json:"values"`
+}
+
+// V2ActionInput describes a none or object RPC input.
+type V2ActionInput struct {
+	Kind   string               `json:"kind"`
+	Fields []V2ActionInputField `json:"fields"`
+}
+
+// V2ActionInputField describes one ordered Action input.
+type V2ActionInputField struct {
+	FieldName    string `json:"fieldName"`
+	ValueType    string `json:"valueType"`
+	Source       string `json:"source"`
+	AttributeKey string `json:"attributeKey,omitempty"`
+	Capture      string `json:"capture,omitempty"`
+	Required     bool   `json:"required"`
+	Description  string `json:"description"`
+}
+
+type v2Handler struct {
+	client                     dexpb.FlowServiceClient
+	loadDefinitions            V2DefinitionLoader
+	loadFlowTypeDefinitions    V2FlowTypeDefinitionLoader
+	checkStartFlowWorkerHealth V2WorkerHealthChecker
+	serverEngine               *ServerEngineResolver
+}
+
+// V2DefinitionSnapshot is one request's immutable catalog revision.
+type V2DefinitionSnapshot struct {
+	Definitions map[string]V2Definition
+	Revision    string
+	// FlowTypeRevisions maps a Flow type to the revision of its own definition. A Flow type that it does not
+	// name uses Revision. A request about some Flow types must send their revisions in the
+	// X-Dex-Flow-Definition-Revision header, separated by commas.
+	FlowTypeRevisions map[string]string
+}
+
+// V2DefinitionLoader loads one validated definition snapshot.
+type V2DefinitionLoader func(context.Context) (V2DefinitionSnapshot, error)
+
+// V2FlowTypeDefinitionLoader loads the definitions of only the given Flow types. A Flow type without a
+// valid definition is left out of the snapshot.
+type V2FlowTypeDefinitionLoader func(ctx context.Context, flowTypes []string) (V2DefinitionSnapshot, error)
+
+// V2WorkerHealthChecker checks whether Dex Web can reach a Worker target.
+type V2WorkerHealthChecker func(context.Context, string) error
+
+// V2HandlerConfig controls server-side v2 behavior.
+type V2HandlerConfig struct {
+	WorkerHealthChecker V2WorkerHealthChecker
+	// FlowTypeDefinitionLoader defaults nil, which makes every route load every definition. When set, routes
+	// about named Flow types load only those, and only GET /api/v2/catalog loads every definition.
+	FlowTypeDefinitionLoader V2FlowTypeDefinitionLoader
+}
+
+// V2CatalogEntry is the JSON that describes one Flow type's v2 contract to the browser.
+type V2CatalogEntry struct {
+	// FlowType is the Flow type the contract belongs to.
+	FlowType string `json:"flowType"`
+	// Definition is the validated v2 contract.
+	Definition V2Definition `json:"definition"`
+	// DefinitionRevision is the revision a request about this Flow type sends; empty when none is checked.
+	DefinitionRevision string `json:"definitionRevision,omitempty"`
+	// AgentSession is set when the Flow type is a Dex Agents session.
+	AgentSession *V2CatalogAgentSession `json:"agentSession,omitempty"`
+}
+
+// V2CatalogAgentSession is the browser's view of a Dex Agents session graph.
+type V2CatalogAgentSession struct {
+	// Language is the source language of the session Flow.
+	Language string `json:"language"`
+	// HasQuestions is true when the graph declares the question Step.
+	HasQuestions bool `json:"hasQuestions"`
+	// RPCNames are the RPCs the graph declares, sorted.
+	RPCNames []string `json:"rpcNames"`
+}
+
+// NewV2CatalogEntry describes definition for the browser, with the revision that requests about it send.
+func NewV2CatalogEntry(flowType string, definition V2Definition, revision string) V2CatalogEntry {
+	entry := V2CatalogEntry{FlowType: flowType, Definition: definition, DefinitionRevision: revision}
+	if definition.AgentSession != nil {
+		rpcNames := make([]string, 0, len(definition.AgentSession.RPCNames))
+		for rpcName := range definition.AgentSession.RPCNames {
+			rpcNames = append(rpcNames, rpcName)
+		}
+		sort.Strings(rpcNames)
+		entry.AgentSession = &V2CatalogAgentSession{
+			Language: definition.AgentSession.Language, HasQuestions: definition.AgentSession.HasQuestions, RPCNames: rpcNames,
+		}
+	}
+	return entry
+}
+
+type v2Filter struct {
+	Field    string        `json:"field"`
+	Operator string        `json:"operator"`
+	Values   []interface{} `json:"values"`
+}
+
+type v2SearchRequest struct {
+	FlowType             string     `json:"flowType"`
+	FlowTypes            []string   `json:"flowTypes"`
+	WorkQueuePermissions []string   `json:"workQueuePermissions"`
+	Filters              []v2Filter `json:"filters"`
+	PageSize             int32      `json:"pageSize"`
+	NextPageToken        string     `json:"nextPageToken"`
+}
+
+type v2SearchResponse struct {
+	Flows         []v2Flow `json:"flows"`
+	NextPageToken string   `json:"nextPageToken"`
+}
+
+type v2Flow struct {
+	FlowID            string                 `json:"flowId"`
+	FlowType          string                 `json:"flowType"`
+	FlowStatus        string                 `json:"flowStatus"`
+	FlowStatusCode    int32                  `json:"flowStatusCode"`
+	StartTime         *string                `json:"startTime"`
+	CloseTime         *string                `json:"closeTime"`
+	IndexedAttributes map[string]interface{} `json:"indexedAttributes"`
+	Summary           map[string]interface{} `json:"summary,omitempty"`
+	SummaryError      string                 `json:"summaryError,omitempty"`
+}
+
+type v2DisplayResponse struct {
+	FlowID            string                 `json:"flowId"`
+	FlowType          string                 `json:"flowType"`
+	FlowStatus        string                 `json:"flowStatus"`
+	FlowStatusCode    int32                  `json:"flowStatusCode"`
+	IsActive          bool                   `json:"isActive"`
+	Display           map[string]interface{} `json:"display"`
+	AttributeSnapshot map[string]interface{} `json:"attributeSnapshot"`
+	EligibleActions   []string               `json:"eligibleActions"`
+}
+
+type v2EditRequest struct {
+	FlowType     string      `json:"flowType"`
+	FlowID       string      `json:"flowId"`
+	AttributeKey string      `json:"attributeKey"`
+	Value        interface{} `json:"value"`
+}
+
+type v2ActionRequest struct {
+	FlowType             string                 `json:"flowType"`
+	FlowID               string                 `json:"flowId"`
+	RPCName              string                 `json:"rpcName"`
+	WorkQueuePermissions []string               `json:"workQueuePermissions"`
+	Input                map[string]interface{} `json:"input"`
+	AttributeSnapshot    map[string]interface{} `json:"attributeSnapshot"`
+}
+
+func RegisterV2Handlers(
+	mux *http.ServeMux,
+	client dexpb.FlowServiceClient,
+	definitions map[string]V2Definition,
+) {
+	RegisterDynamicV2Handlers(
+		mux,
+		client,
+		func(context.Context) (V2DefinitionSnapshot, error) {
+			return V2DefinitionSnapshot{Definitions: definitions}, nil
+		},
+		V2HandlerConfig{},
+	)
+}
+
+// RegisterDynamicV2Handlers registers v2 routes backed by a per-request definition loader.
+func RegisterDynamicV2Handlers(
+	mux *http.ServeMux,
+	client dexpb.FlowServiceClient,
+	loader V2DefinitionLoader,
+	config V2HandlerConfig,
+) {
+	if mux == nil {
+		panic("HTTP mux must not be nil")
+	}
+	if client == nil {
+		panic("Dex FlowService client must not be nil")
+	}
+	handler := &v2Handler{
+		client: client, loadDefinitions: loader, loadFlowTypeDefinitions: config.FlowTypeDefinitionLoader,
+		checkStartFlowWorkerHealth: config.WorkerHealthChecker,
+		serverEngine:               NewServerEngineResolver(client),
+	}
+	if handler.checkStartFlowWorkerHealth == nil {
+		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth
+	}
+	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
+	mux.HandleFunc("POST /api/v2/worker-health", handler.checkWorkerHealth)
+	mux.HandleFunc("POST /api/v2/start", handler.startFlow)
+	mux.HandleFunc("POST /api/v2/search", handler.search)
+	mux.HandleFunc("GET /api/v2/display", handler.display)
+	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)
+	mux.HandleFunc("POST /api/v2/actions", handler.invokeAction)
+	registerAgentSessionHandlers(mux, handler)
+}
+
+func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request) {
+	snapshot, ok := h.loadSnapshot(response, request, nil, false)
+	if !ok {
+		return
+	}
+	flowTypes := make([]string, 0, len(snapshot.Definitions))
+	for flowType := range snapshot.Definitions {
+		flowTypes = append(flowTypes, flowType)
+	}
+	sort.Strings(flowTypes)
+	entries := make([]V2CatalogEntry, 0, len(flowTypes))
+	for _, flowType := range flowTypes {
+		entries = append(entries, NewV2CatalogEntry(flowType, snapshot.Definitions[flowType], snapshot.revisionFor(flowType)))
+	}
+	setDefinitionETag(response, snapshot.Revision)
+	writeJSON(response, http.StatusOK, map[string]interface{}{
+		"enabled":            len(entries) > 0,
+		"flows":              entries,
+		"definitionRevision": snapshot.Revision,
+		"serverEngine":       serverEngineName(h.serverEngine.ResolveServerEngine(request.Context())),
+	})
+}
+
+func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) {
+	var body v2SearchRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	requestedFlowTypes := body.FlowTypes
+	if len(requestedFlowTypes) == 0 {
+		requestedFlowTypes = []string{body.FlowType}
+	}
+	snapshot, ok := h.loadSnapshot(response, request, requestedFlowTypes, true)
+	if !ok {
+		return
+	}
+	permissions, permitted := h.resolvePermissions(response, body.WorkQueuePermissions)
+	if !permitted {
+		return
+	}
+	flowTypes, err := resolveV2SearchFlowTypes(body, snapshot.Definitions)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if body.PageSize < 0 {
+		WriteError(response, http.StatusBadRequest, "pageSize must be non-negative", nil)
+		return
+	}
+	if body.PageSize == 0 || body.PageSize > v2DefaultPageSize {
+		body.PageSize = v2DefaultPageSize
+	}
+	query, err := compileV2Query(flowTypes, permissions, body.Filters, snapshot.Definitions)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	result, err := h.client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{
+		Query:         query,
+		PageSize:      body.PageSize,
+		NextPageToken: body.NextPageToken,
+	})
+	if err != nil {
+		writeGRPCError(response, err, "SearchFlows")
+		return
+	}
+	flowRuns := append([]*dexpb.SearchFlowsResponseEntry(nil), result.GetFlowRuns()...)
+	sort.SliceStable(flowRuns, func(left int, right int) bool {
+		return flowRunStartTime(flowRuns[left]).After(flowRunStartTime(flowRuns[right]))
+	})
+	flows := make([]v2Flow, 0, len(flowRuns))
+	seenFlowIDs := make(map[string]struct{}, len(result.GetFlowRuns()))
+	for _, entry := range flowRuns {
+		if _, seen := seenFlowIDs[entry.GetFlowId()]; seen {
+			continue
+		}
+		seenFlowIDs[entry.GetFlowId()] = struct{}{}
+		// A physical index key means what this row's own Flow type declares.
+		definition := snapshot.Definitions[entry.GetFlowType()]
+		indexedValues := make(map[string]interface{}, len(definition.IndexedAttributes))
+		physicalValues := keyValueMap(entry.GetIndexedAttributes())
+		for _, attribute := range definition.IndexedAttributes {
+			indexedValues[attribute.AttributeKey] = v2ResponseValue(
+				physicalValues[attribute.IndexKey],
+				attribute.ValueType,
+			)
+		}
+		flows = append(flows, v2Flow{
+			FlowID: entry.GetFlowId(), FlowType: entry.GetFlowType(),
+			FlowStatus: flowStatusLabel(entry.GetFlowStatus()), FlowStatusCode: int32(entry.GetFlowStatus()),
+			StartTime: timestamp(entry.GetStartTime()), CloseTime: timestamp(entry.GetCloseTime()),
+			IndexedAttributes: indexedValues,
+		})
+	}
+	h.loadSummaries(request.Context(), snapshot.Definitions, flows)
+	writeJSON(response, http.StatusOK, v2SearchResponse{
+		Flows: flows, NextPageToken: result.GetNextPageToken(),
+	})
+}
+
+func (h *v2Handler) loadSummaries(
+	ctx context.Context,
+	definitions map[string]V2Definition,
+	flows []v2Flow,
+) {
+	semaphore := make(chan struct{}, v2RPCConcurrency)
+	var waitGroup sync.WaitGroup
+	for index := range flows {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			callContext, cancelCall := context.WithTimeout(ctx, v2RPCTimeout)
+			defer cancelCall()
+			definition := definitions[flows[index].FlowType]
+			values, err := h.invokeView(callContext, flows[index].FlowID, definition, definition.Summary)
+			if err != nil {
+				flows[index].SummaryError = publicGRPCErrorMessage(err, "Summary")
+				return
+			}
+			flows[index].Summary = values
+		}()
+	}
+	waitGroup.Wait()
+}
+
+func (h *v2Handler) display(response http.ResponseWriter, request *http.Request) {
+	for parameter, values := range request.URL.Query() {
+		if (parameter != "flowType" && parameter != "flowId") || len(values) != 1 {
+			WriteError(response, http.StatusBadRequest, "display accepts only one flowType and flowId", nil)
+			return
+		}
+	}
+	flowType := request.URL.Query().Get("flowType")
+	flowID := request.URL.Query().Get("flowId")
+	snapshot, ok := h.loadSnapshot(response, request, []string{flowType}, true)
+	if !ok {
+		return
+	}
+	definition, ok := snapshot.Definitions[flowType]
+	if !ok || flowID == "" {
+		WriteError(response, http.StatusBadRequest, "flowType and flowId are required", nil)
+		return
+	}
+	summary, err := h.client.GetFlowSummary(request.Context(), &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	if err != nil {
+		writeGRPCError(response, err, "GetFlowSummary")
+		return
+	}
+	if summary.GetFlowType() != flowType {
+		WriteError(response, http.StatusNotFound, "Flow does not match the requested flowType", nil)
+		return
+	}
+	displayValues, err := h.invokeView(request.Context(), flowID, definition, definition.Display)
+	if err != nil {
+		writeGRPCError(response, err, definition.Display.RPCName)
+		return
+	}
+	snapshotKeys := v2SnapshotKeys(definition)
+	attributeSnapshot := make(map[string]interface{}, len(snapshotKeys))
+	if len(snapshotKeys) > 0 {
+		attributes, attributeErr := h.client.GetAttributes(request.Context(), &dexpb.GetAttributesRequest{
+			FlowId: flowID, Keys: snapshotKeys,
+		})
+		if attributeErr != nil {
+			writeGRPCError(response, attributeErr, "GetAttributes")
+			return
+		}
+		attributeSnapshot = keyValueMap(attributes.GetAttributes())
+	}
+	isActive := summary.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_RUNNING
+	eligibleActions := make([]string, 0, len(definition.Actions))
+	for _, action := range definition.Actions {
+		eligible := isActive
+		if action.Condition != nil {
+			eligible = actionConditionMatches(*action.Condition, attributeSnapshot[action.Condition.AttributeKey])
+		}
+		if eligible {
+			eligibleActions = append(eligibleActions, action.RPCName)
+		}
+	}
+	writeJSON(response, http.StatusOK, v2DisplayResponse{
+		FlowID: flowID, FlowType: flowType,
+		FlowStatus: flowStatusLabel(summary.GetFlowStatus()), FlowStatusCode: int32(summary.GetFlowStatus()),
+		IsActive: isActive, Display: displayValues, AttributeSnapshot: v2ResponseSnapshot(attributeSnapshot),
+		EligibleActions: eligibleActions,
+	})
+}
+
+func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Request) {
+	var body v2EditRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
+	if !ok {
+		return
+	}
+	definition, ok := snapshot.Definitions[body.FlowType]
+	if !ok || body.FlowID == "" || body.AttributeKey == "" {
+		WriteError(response, http.StatusBadRequest, "flowType, flowId, and attributeKey are required", nil)
+		return
+	}
+	field, ok := editableDisplayField(definition.Display.Fields, body.AttributeKey)
+	if !ok {
+		WriteError(response, http.StatusBadRequest, "attribute is not editable", nil)
+		return
+	}
+	if err := h.requireActiveFlow(request.Context(), body.FlowID, body.FlowType); err != nil {
+		writeGRPCError(response, err, "GetFlowSummary")
+		return
+	}
+	value, err := encodeV2Value(body.Value, field.ValueType)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	write := &dexpb.AttributeWrite{Key: body.AttributeKey, Value: value}
+	if indexedAttribute, indexed := findIndexedAttribute(definition, body.AttributeKey); indexed {
+		indexType, mapErr := v2IndexType(indexedAttribute.IndexType)
+		if mapErr != nil {
+			WriteError(response, http.StatusInternalServerError, mapErr.Error(), nil)
+			return
+		}
+		write.IndexConfig = &dexpb.IndexConfig{
+			Enable: true, Type: indexType, IndexKey: indexedAttribute.IndexKey,
+		}
+	}
+	actionPermissionMappings, err := actionPermissionMappingsForAttributeWrite(definition, body.AttributeKey)
+	if err != nil {
+		WriteError(response, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	_, err = h.client.SetAttributes(request.Context(), &dexpb.SetAttributesRequest{
+		FlowId: body.FlowID, Attributes: []*dexpb.AttributeWrite{write}, RequestId: uuid.NewString(),
+		ActionPermissionMappings: actionPermissionMappings,
+	})
+	if err != nil {
+		writeGRPCError(response, err, "SetAttributes")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]interface{}{
+		"attributeKey": body.AttributeKey, "value": body.Value,
+	})
+}
+
+func actionPermissionMappingsForAttributeWrite(
+	definition V2Definition,
+	attributeKey string,
+) (*dexpb.ActionPermissionMappings, error) {
+	isActionSource := false
+	for _, action := range definition.Actions {
+		if action.Condition != nil && action.Condition.AttributeKey == attributeKey {
+			isActionSource = true
+			break
+		}
+	}
+	if !isActionSource {
+		return nil, nil
+	}
+
+	mappings := make([]*dexpb.ActionPermissionMapping, 0, len(definition.Actions))
+	for _, action := range definition.Actions {
+		if action.Condition == nil {
+			continue
+		}
+		equalValues := make([]*dexpb.Value, 0, len(action.Condition.Values))
+		for _, conditionValue := range action.Condition.Values {
+			value, err := encodeActionPermissionConditionValue(conditionValue)
+			if err != nil {
+				return nil, fmt.Errorf("Action %q condition: %w", action.RPCName, err)
+			}
+			equalValues = append(equalValues, value)
+		}
+		mappings = append(mappings, &dexpb.ActionPermissionMapping{
+			AttributeKey:       action.Condition.AttributeKey,
+			EqualValues:        equalValues,
+			RequiredPermission: action.RequiredPermission,
+		})
+	}
+	return &dexpb.ActionPermissionMappings{Mappings: mappings}, nil
+}
+
+func encodeActionPermissionConditionValue(value interface{}) (*dexpb.Value, error) {
+	switch typed := value.(type) {
+	case string:
+		return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: typed}}, nil
+	case bool:
+		return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: typed}}, nil
+	case int, int32, int64, json.Number:
+		if integer, ok := jsonNumberInt64(value); ok {
+			return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: integer}}, nil
+		}
+		if number, ok := jsonNumberFloat64(value); ok {
+			return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: number}}, nil
+		}
+	case float32, float64:
+		if number, ok := jsonNumberFloat64(value); ok {
+			return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: number}}, nil
+		}
+	}
+	return nil, fmt.Errorf("value must be a string, integer, finite double, or boolean")
+}
+
+func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {
+	var body v2ActionRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
+	if !ok {
+		return
+	}
+	permissions, permitted := h.resolvePermissions(response, body.WorkQueuePermissions)
+	if !permitted {
+		return
+	}
+	definition, ok := snapshot.Definitions[body.FlowType]
+	if !ok || body.FlowID == "" || body.RPCName == "" {
+		WriteError(response, http.StatusBadRequest, "flowType, flowId, and rpcName are required", nil)
+		return
+	}
+	action, ok := findV2Action(definition.Actions, body.RPCName)
+	if !ok {
+		WriteError(response, http.StatusBadRequest, "rpcName is not a declared Action", nil)
+		return
+	}
+	if snapshot.revisionFor(body.FlowType) != "" {
+		if !containsPermission(permissions, action.RequiredPermission) {
+			WriteError(response, http.StatusForbidden, "Action permission denied", nil)
+			return
+		}
+	}
+	if err := h.requireActiveFlow(request.Context(), body.FlowID, body.FlowType); err != nil {
+		writeGRPCError(response, err, "GetFlowSummary")
+		return
+	}
+	if action.Condition != nil {
+		conditionAttributes, err := h.client.GetAttributes(request.Context(), &dexpb.GetAttributesRequest{
+			FlowId: body.FlowID, Keys: []string{action.Condition.AttributeKey},
+		})
+		if err != nil {
+			writeGRPCError(response, err, "GetAttributes")
+			return
+		}
+		currentValues := keyValueMap(conditionAttributes.GetAttributes())
+		if !actionConditionMatches(*action.Condition, currentValues[action.Condition.AttributeKey]) {
+			WriteError(response, http.StatusConflict, "Action condition no longer matches the current Flow state", nil)
+			return
+		}
+	}
+	input, err := buildActionInput(action, body.Input, body.AttributeSnapshot)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	invokeRequest, err := newV2InvokeRPCRequest(definition, body.FlowID, action.RPCName, input)
+	if err != nil {
+		WriteCodedError(response, http.StatusUnprocessableEntity, v2RPCLocksUnresolvedCode, err.Error())
+		return
+	}
+	result, err := h.client.InvokeRPC(request.Context(), invokeRequest)
+	if err != nil {
+		writeV2ActionError(response, err, action.RPCName)
+		return
+	}
+	output, err := h.hydrateV2Value(request.Context(), body.FlowID, result.GetOutput())
+	if err != nil {
+		// The RPC already ran, so answer success with the blob reference the caller can load later.
+		output = result.GetOutput()
+	}
+	writeJSON(response, http.StatusOK, v2ResponseSnapshot(map[string]interface{}{
+		"invoked": true, "output": v2DexValue(output),
+	}))
+}
+
+// loadSnapshot loads the definitions of flowTypes, or every definition when flowTypes is nil. With
+// requireRevision, the request must carry the revision of each requested Flow type that has a definition.
+func (h *v2Handler) loadSnapshot(
+	response http.ResponseWriter,
+	request *http.Request,
+	flowTypes []string,
+	requireRevision bool,
+) (V2DefinitionSnapshot, bool) {
+	var snapshot V2DefinitionSnapshot
+	var err error
+	if flowTypes != nil && h.loadFlowTypeDefinitions != nil {
+		snapshot, err = h.loadFlowTypeDefinitions(request.Context(), flowTypes)
+	} else {
+		snapshot, err = h.loadDefinitions(request.Context())
+	}
+	if err != nil {
+		code := "FLOW_DEFINITION_SOURCE_UNAVAILABLE"
+		message := "Flow Definition source is unavailable"
+		var coded interface{ DefinitionErrorCode() string }
+		if errors.As(err, &coded) {
+			code = coded.DefinitionErrorCode()
+			if code == "FLOW_DEFINITION_INVALID" {
+				message = "Flow Definition source is invalid"
+			}
+		}
+		WriteCodedError(response, http.StatusServiceUnavailable, code, message)
+		return V2DefinitionSnapshot{}, false
+	}
+	if requireRevision && !snapshot.matchesRevisionHeader(flowTypes, request.Header.Get(V2DefinitionRevisionHeader)) {
+		WriteCodedError(
+			response,
+			http.StatusConflict,
+			"FLOW_DEFINITION_CHANGED",
+			"Flow Definition updated; reload and confirm the operation again",
+		)
+		return V2DefinitionSnapshot{}, false
+	}
+	return snapshot, true
+}
+
+// revisionFor returns the revision of flowType's definition, or "" when the snapshot checks no revision.
+func (snapshot V2DefinitionSnapshot) revisionFor(flowType string) string {
+	if revision, ok := snapshot.FlowTypeRevisions[flowType]; ok {
+		return revision
+	}
+	return snapshot.Revision
+}
+
+// matchesRevisionHeader reports whether header, a comma-separated revision list, names the revision of every
+// requested Flow type that has a definition. Without requested Flow types it checks the snapshot revision.
+func (snapshot V2DefinitionSnapshot) matchesRevisionHeader(flowTypes []string, header string) bool {
+	sent := make(map[string]bool)
+	for _, revision := range strings.Split(header, ",") {
+		sent[strings.TrimSpace(revision)] = true
+	}
+	if flowTypes == nil {
+		return snapshot.Revision == "" || sent[snapshot.Revision]
+	}
+	for _, flowType := range flowTypes {
+		if _, defined := snapshot.Definitions[flowType]; !defined {
+			continue
+		}
+		if revision := snapshot.revisionFor(flowType); revision != "" && !sent[revision] {
+			return false
+		}
+	}
+	return true
+}
+
+func (h *v2Handler) resolvePermissions(response http.ResponseWriter, permissions []string) ([]string, bool) {
+	if _, err := compileWorkQueuePermissions(permissions); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return nil, false
+	}
+	return permissions, true
+}
+
+func containsPermission(permissions []string, required string) bool {
+	for _, permission := range permissions {
+		if permission == required {
+			return true
+		}
+	}
+	return false
+}
+
+func setDefinitionETag(response http.ResponseWriter, revision string) {
+	if revision != "" {
+		response.Header().Set("ETag", strconv.Quote(revision))
+	}
+}
+
+func (h *v2Handler) invokeView(
+	ctx context.Context,
+	flowID string,
+	definition V2Definition,
+	view V2RPCView,
+) (map[string]interface{}, error) {
+	// The view RPC may only return its declared fields, so a view without fields needs no Worker.
+	if len(view.Fields) == 0 {
+		return map[string]interface{}{}, nil
+	}
+	invokeRequest, err := newV2InvokeRPCRequest(
+		definition, flowID, view.RPCName,
+		&dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}},
+	)
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	result, err := h.client.InvokeRPC(ctx, invokeRequest)
+	if err != nil {
+		return nil, err
+	}
+	output, err := h.hydrateV2Value(ctx, flowID, result.GetOutput())
+	if err != nil {
+		return nil, err
+	}
+	values, ok := v2DexValue(output).(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("%s returned a non-object value", view.RPCName)
+	}
+	if err := validateViewOutput(view, values); err != nil {
+		return nil, err
+	}
+	for _, field := range view.Fields {
+		values[field.AttributeKey] = v2ResponseValue(values[field.AttributeKey], field.ValueType)
+	}
+	return values, nil
+}
+
+// newV2InvokeRPCRequest sends the RPC's declared locks, as the SDK Clients do.
+func newV2InvokeRPCRequest(
+	definition V2Definition,
+	flowID string,
+	rpcName string,
+	input *dexpb.Value,
+) (*dexpb.InvokeRPCRequest, error) {
+	locks := definition.RPCLocks[rpcName]
+	if locks.UnresolvedReason != "" {
+		return nil, fmt.Errorf("Dex Web cannot invoke RPC %s: %s", rpcName, locks.UnresolvedReason)
+	}
+	return &dexpb.InvokeRPCRequest{
+		FlowId: flowID, RpcName: rpcName, Input: input,
+		TimeoutSeconds: int32(v2RPCTimeout.Seconds()), RequestId: uuid.NewString(),
+		LockAttributeKeys: append([]string(nil), locks.AttributeKeys...),
+		// The Server makes a locking RPC transactional; the graph records no other transactional RPC.
+		IsTransactional: len(locks.AttributeKeys) > 0,
+	}, nil
+}
+
+// writeV2ActionError answers a lock conflict with 409 and the code the browser retries on.
+func writeV2ActionError(response http.ResponseWriter, err error, rpcName string) {
+	if status.Code(err) != codes.Aborted {
+		writeGRPCError(response, err, rpcName)
+		return
+	}
+	grpcCode := int32(codes.Aborted)
+	writeJSON(response, http.StatusConflict, errorResponse{
+		Error: publicGRPCErrorMessage(err, rpcName), Code: v2RPCLockConflictCode, GRPCCode: &grpcCode,
+	})
+}
+
+// InvokeRPC leaves large outputs as blob IDs when lazy loading is enabled.
+func (h *v2Handler) hydrateV2Value(
+	ctx context.Context,
+	flowID string,
+	value *dexpb.Value,
+) (*dexpb.Value, error) {
+	blobID := v2BlobID(value)
+	if blobID == "" {
+		return value, nil
+	}
+	result, err := h.client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Entries: []*dexpb.LoadBlobRequestEntry{{FlowId: flowID, BlobValue: value}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	hydrated, ok := result.GetValues()[blobID]
+	if !ok {
+		return nil, fmt.Errorf("value blob unavailable")
+	}
+	return hydrated, nil
+}
+
+func v2BlobID(value *dexpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	switch kind := value.GetKind().(type) {
+	case *dexpb.Value_InternalBlobIdForStringValue:
+		return kind.InternalBlobIdForStringValue
+	case *dexpb.Value_InternalBlobIdForObjValue:
+		return kind.InternalBlobIdForObjValue
+	default:
+		return ""
+	}
+}
+
+func v2DexValue(value *dexpb.Value) interface{} {
+	object, ok := value.GetKind().(*dexpb.Value_ObjValue)
+	if !ok || object.ObjValue.GetEncoding() != "json" {
+		return dexValue(value)
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(object.ObjValue.GetPayload())))
+	decoder.UseNumber()
+	var decoded interface{}
+	if err := decoder.Decode(&decoded); err != nil {
+		return dexValue(value)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return dexValue(value)
+	}
+	return decoded
+}
+
+func (h *v2Handler) requireActiveFlow(ctx context.Context, flowID string, flowType string) error {
+	summary, err := h.client.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	if err != nil {
+		return err
+	}
+	if summary.GetFlowType() != flowType {
+		return status.Error(codes.NotFound, "Flow does not match the requested flowType")
+	}
+	if summary.GetFlowStatus() != dexpb.FlowStatus_FLOW_STATUS_RUNNING {
+		return status.Error(codes.FailedPrecondition, "Flow is not active")
+	}
+	return nil
+}
+
+// resolveV2SearchFlowTypes returns the sorted, distinct Flow types of one search.
+//
+// Sorted so the same selection compiles to the same query: a page token is bound to its query text.
+func resolveV2SearchFlowTypes(
+	body v2SearchRequest,
+	definitions map[string]V2Definition,
+) ([]string, error) {
+	if body.FlowType != "" && len(body.FlowTypes) > 0 {
+		return nil, errors.New("send flowType or flowTypes, not both")
+	}
+	requested := body.FlowTypes
+	if len(requested) == 0 {
+		requested = []string{body.FlowType}
+	}
+	flowTypeSet := make(map[string]struct{}, len(requested))
+	for _, flowType := range requested {
+		if _, ok := definitions[flowType]; !ok {
+			return nil, fmt.Errorf("flowType %q has no valid Flow Definition Graph 2.0 contract", flowType)
+		}
+		flowTypeSet[flowType] = struct{}{}
+	}
+	flowTypes := make([]string, 0, len(flowTypeSet))
+	for flowType := range flowTypeSet {
+		flowTypes = append(flowTypes, flowType)
+	}
+	sort.Strings(flowTypes)
+	return flowTypes, nil
+}
+
+func compileV2Query(
+	flowTypes []string,
+	workQueuePermissions []string,
+	filters []v2Filter,
+	definitions map[string]V2Definition,
+) (string, error) {
+	permissionCondition, err := compileWorkQueuePermissions(workQueuePermissions)
+	if err != nil {
+		return "", err
+	}
+	conditions := compileV2Scope(flowTypes, workQueuePermissions, permissionCondition, definitions)
+	// The same physical index key can mean different things in different Flow types, so an indexed
+	// Attribute filter has a meaning only within one. Built-in fields mean the same everywhere.
+	var definition V2Definition
+	if len(flowTypes) == 1 {
+		definition = definitions[flowTypes[0]]
+	}
+	for _, filter := range filters {
+		if len(filter.Values) == 0 {
+			return "", fmt.Errorf("filter %q must contain at least one value", filter.Field)
+		}
+		physicalKey, valueType, indexType, ok := v2FilterField(filter.Field, definition)
+		if !ok && len(flowTypes) > 1 {
+			return "", fmt.Errorf("filter %q is not a built-in field, and a search of several Flow types accepts only built-in fields", filter.Field)
+		}
+		if !ok {
+			return "", fmt.Errorf("unknown v2 filter field %q", filter.Field)
+		}
+		if !isV2IndexKey(physicalKey) {
+			return "", fmt.Errorf("filter %q maps to an invalid index key", filter.Field)
+		}
+		condition, err := compileV2Filter(physicalKey, valueType, indexType, filter)
+		if err != nil {
+			return "", err
+		}
+		conditions = append(conditions, condition)
+	}
+	return strings.Join(conditions, " AND "), nil
+}
+
+// compileV2Scope returns the Flow type and permission conditions of one search.
+//
+// An Action without a condition is offered on every active run and never enters the projected
+// permission history, so a Flow type that offers a requested permission that way skips the filter.
+func compileV2Scope(
+	flowTypes []string,
+	workQueuePermissions []string,
+	permissionCondition string,
+	definitions map[string]V2Definition,
+) []string {
+	if permissionCondition == "" {
+		return []string{compileV2FlowTypes(flowTypes)}
+	}
+	var unfiltered, filtered []string
+	for _, flowType := range flowTypes {
+		if offersPermissionWithoutCondition(definitions[flowType], workQueuePermissions) {
+			unfiltered = append(unfiltered, flowType)
+		} else {
+			filtered = append(filtered, flowType)
+		}
+	}
+	switch {
+	case len(unfiltered) == 0:
+		return []string{compileV2FlowTypes(filtered), permissionCondition}
+	case len(filtered) == 0:
+		return []string{compileV2FlowTypes(unfiltered)}
+	default:
+		return []string{"(" + compileV2FlowTypes(unfiltered) + " OR (" +
+			compileV2FlowTypes(filtered) + " AND " + permissionCondition + "))"}
+	}
+}
+
+func offersPermissionWithoutCondition(definition V2Definition, permissions []string) bool {
+	for _, action := range definition.Actions {
+		if action.Condition == nil && containsPermission(permissions, action.RequiredPermission) {
+			return true
+		}
+	}
+	return false
+}
+
+// compileV2FlowTypes keeps the single-type query an equality: the builtin search backend reads
+// one pinned Flow type from its per-type index and scans every document for anything else.
+func compileV2FlowTypes(flowTypes []string) string {
+	parts := make([]string, 0, len(flowTypes))
+	for _, flowType := range flowTypes {
+		parts = append(parts, "FlowType = "+quoteVisibilityString(flowType))
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func compileWorkQueuePermissions(permissions []string) (string, error) {
+	permissionSet := make(map[string]struct{}, len(permissions))
+	for _, permission := range permissions {
+		if !v2PermissionPattern.MatchString(permission) {
+			return "", fmt.Errorf("invalid Work Queue permission %q", permission)
+		}
+		permissionSet[permission] = struct{}{}
+	}
+	if len(permissionSet) == 0 {
+		return "", nil
+	}
+	orderedPermissions := make([]string, 0, len(permissionSet))
+	for permission := range permissionSet {
+		orderedPermissions = append(orderedPermissions, permission)
+	}
+	sort.Strings(orderedPermissions)
+	fieldExpression := quoteVisibilityField(v2WorkQueuePermissionsIndex)
+	parts := make([]string, 0, len(orderedPermissions))
+	for _, permission := range orderedPermissions {
+		parts = append(parts, fieldExpression+" = "+quoteVisibilityString(permission))
+	}
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", nil
+}
+
+func v2FilterField(
+	field string,
+	definition V2Definition,
+) (string, string, string, bool) {
+	switch field {
+	case "flowId":
+		return "WorkflowId", "string", "keyword", true
+	case "executionStatus":
+		return "ExecutionStatus", "string", "keyword", true
+	case "startTime":
+		return "StartTime", "datetime", "datetime", true
+	case "closeTime":
+		return "CloseTime", "datetime", "datetime", true
+	case "activeStepTypes":
+		return v2ActiveStepTypesIndex, "string", "keyword", true
+	default:
+		for _, attribute := range definition.IndexedAttributes {
+			if attribute.AttributeKey == field {
+				return attribute.IndexKey, attribute.ValueType, attribute.IndexType, true
+			}
+		}
+		return "", "", "", false
+	}
+}
+
+func compileV2Filter(
+	physicalKey string,
+	valueType string,
+	indexType string,
+	filter v2Filter,
+) (string, error) {
+	fieldExpression := quoteVisibilityField(physicalKey)
+	operator := strings.ToLower(filter.Operator)
+	if operator == "" {
+		operator = "eq"
+	}
+	if operator == "in" || len(filter.Values) > 1 {
+		if operator != "in" && operator != "eq" {
+			return "", fmt.Errorf("filter %q does not support multiple values with %q", filter.Field, operator)
+		}
+		parts := make([]string, 0, len(filter.Values))
+		for _, value := range filter.Values {
+			literal, err := visibilityLiteral(value, valueType)
+			if err != nil {
+				return "", fmt.Errorf("filter %q: %w", filter.Field, err)
+			}
+			parts = append(parts, fieldExpression+" = "+literal)
+		}
+		return "(" + strings.Join(parts, " OR ") + ")", nil
+	}
+	literal, err := visibilityLiteral(filter.Values[0], valueType)
+	if err != nil {
+		return "", fmt.Errorf("filter %q: %w", filter.Field, err)
+	}
+	switch operator {
+	case "eq":
+		return fieldExpression + " = " + literal, nil
+	case "gt", "gte", "lt", "lte":
+		if indexType != "int" && indexType != "double" && indexType != "datetime" {
+			return "", fmt.Errorf("filter %q does not support ordered comparison", filter.Field)
+		}
+		operators := map[string]string{"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
+		return fieldExpression + " " + operators[operator] + " " + literal, nil
+	case "contains":
+		if indexType != "fulltext" {
+			return "", fmt.Errorf("contains requires a fulltext index")
+		}
+		value, ok := filter.Values[0].(string)
+		if !ok {
+			return "", fmt.Errorf("contains requires a string value")
+		}
+		return fieldExpression + " = " + quoteVisibilityString(value), nil
+	default:
+		return "", fmt.Errorf("unsupported filter operator %q", filter.Operator)
+	}
+}
+
+func visibilityLiteral(value interface{}, valueType string) (string, error) {
+	switch valueType {
+	case "string", "datetime":
+		text, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("value must be a string")
+		}
+		if valueType == "datetime" {
+			if _, err := time.Parse(time.RFC3339Nano, text); err != nil {
+				return "", fmt.Errorf("value must be RFC3339 datetime")
+			}
+		}
+		return quoteVisibilityString(text), nil
+	case "int64":
+		integer, ok := v2RequestInt64(value)
+		if !ok {
+			return "", fmt.Errorf("value must be an int64")
+		}
+		return strconv.FormatInt(integer, 10), nil
+	case "double":
+		number, ok := jsonNumberFloat64(value)
+		if !ok {
+			return "", fmt.Errorf("value must be a finite number")
+		}
+		return strconv.FormatFloat(number, 'g', -1, 64), nil
+	case "bool":
+		boolean, ok := value.(bool)
+		if !ok {
+			return "", fmt.Errorf("value must be a boolean")
+		}
+		return strconv.FormatBool(boolean), nil
+	case "string-array":
+		text, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("value must be a string")
+		}
+		return quoteVisibilityString(text), nil
+	default:
+		return "", fmt.Errorf("unsupported value type %q", valueType)
+	}
+}
+
+// quoteVisibilityString escapes the backslash first: the query lexer reads it as an escape, so
+// a value ending in one would otherwise swallow the closing quote.
+func quoteVisibilityString(value string) string {
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	return "'" + strings.ReplaceAll(escaped, "'", "''") + "'"
+}
+
+func quoteVisibilityField(value string) string {
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' {
+			continue
+		}
+		return "`" + value + "`"
+	}
+	return value
+}
+
+func isV2IndexKey(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, character := range value {
+		isLetter := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
+		isLaterCharacter := index > 0 && (character >= '0' && character <= '9' || character == '-' || character == '.')
+		if isLetter || character == '_' || isLaterCharacter {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func flowRunStartTime(entry *dexpb.SearchFlowsResponseEntry) time.Time {
+	if entry == nil || entry.GetStartTime() == nil {
+		return time.Time{}
+	}
+	return entry.GetStartTime().AsTime()
+}
+
+func validateViewOutput(view V2RPCView, values map[string]interface{}) error {
+	if len(values) != len(view.Fields) {
+		return fmt.Errorf("%s returned %d fields; contract declares %d", view.RPCName, len(values), len(view.Fields))
+	}
+	for _, field := range view.Fields {
+		value, exists := values[field.AttributeKey]
+		if !exists {
+			return fmt.Errorf("%s omitted declared field %q", view.RPCName, field.AttributeKey)
+		}
+		if value != nil && !isV2ValueType(value, field.ValueType) {
+			return fmt.Errorf("%s field %q does not match %s", view.RPCName, field.AttributeKey, field.ValueType)
+		}
+	}
+	return nil
+}
+
+func v2ResponseValue(value interface{}, valueType string) interface{} {
+	if value == nil || valueType != "int64" {
+		return value
+	}
+	integer, ok := jsonNumberInt64(value)
+	if !ok {
+		return value
+	}
+	return strconv.FormatInt(integer, 10)
+}
+
+func v2ResponseSnapshot(snapshot map[string]interface{}) map[string]interface{} {
+	response := make(map[string]interface{}, len(snapshot))
+	for key, value := range snapshot {
+		if integer, ok := value.(int64); ok {
+			response[key] = strconv.FormatInt(integer, 10)
+			continue
+		}
+		response[key] = value
+	}
+	return response
+}
+
+func isV2ValueType(value interface{}, valueType string) bool {
+	switch valueType {
+	case "string", "datetime":
+		text, ok := value.(string)
+		if !ok {
+			return false
+		}
+		if valueType == "datetime" {
+			_, err := time.Parse(time.RFC3339Nano, text)
+			return err == nil
+		}
+		return true
+	case "int64":
+		_, ok := jsonNumberInt64(value)
+		return ok
+	case "double":
+		_, ok := jsonNumberFloat64(value)
+		return ok
+	case "bool":
+		_, ok := value.(bool)
+		return ok
+	case "string-array":
+		values, ok := value.([]interface{})
+		if !ok {
+			return false
+		}
+		for _, item := range values {
+			if _, ok := item.(string); !ok {
+				return false
+			}
+		}
+		return true
+	case "object", "attribute-map":
+		_, ok := value.(map[string]interface{})
+		return ok
+	case "array":
+		_, ok := value.([]interface{})
+		return ok
+	case "json":
+		return true
+	default:
+		return false
+	}
+}
+
+func encodeV2Value(value interface{}, valueType string) (*dexpb.Value, error) {
+	if valueType == "int64" {
+		integer, ok := v2RequestInt64(value)
+		if !ok {
+			return nil, fmt.Errorf("value does not match %s", valueType)
+		}
+		return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: integer}}, nil
+	}
+	if !isV2ValueType(value, valueType) {
+		return nil, fmt.Errorf("value does not match %s", valueType)
+	}
+	switch valueType {
+	case "string", "datetime":
+		return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value.(string)}}, nil
+	case "double":
+		number, _ := jsonNumberFloat64(value)
+		return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: number}}, nil
+	case "bool":
+		return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: value.(bool)}}, nil
+	default:
+		payload, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: "json", Payload: payload,
+		}}}, nil
+	}
+}
+
+func buildActionInput(
+	action V2Action,
+	userInput map[string]interface{},
+	attributeSnapshot map[string]interface{},
+) (*dexpb.Value, error) {
+	if action.Input.Kind == "none" {
+		if len(userInput) != 0 || len(action.Input.Fields) != 0 {
+			return nil, fmt.Errorf("no-input Action must not receive input")
+		}
+		return &dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}, nil
+	}
+	input := make(map[string]interface{}, len(action.Input.Fields))
+	userFields := make(map[string]struct{}, len(action.Input.Fields))
+	for _, field := range action.Input.Fields {
+		var value interface{}
+		var exists bool
+		if field.Source == "attribute" {
+			value, exists = attributeSnapshot[field.AttributeKey]
+		} else {
+			userFields[field.FieldName] = struct{}{}
+			value, exists = userInput[field.FieldName]
+		}
+		if !exists || value == nil {
+			if field.Required {
+				return nil, fmt.Errorf("Action input %q is required", field.FieldName)
+			}
+			input[field.FieldName] = nil
+			continue
+		}
+		if field.ValueType == "int64" {
+			integer, validInteger := v2RequestInt64(value)
+			if !validInteger {
+				return nil, fmt.Errorf("Action input %q does not match %s", field.FieldName, field.ValueType)
+			}
+			input[field.FieldName] = integer
+			continue
+		}
+		if !isV2ValueType(value, field.ValueType) {
+			return nil, fmt.Errorf("Action input %q does not match %s", field.FieldName, field.ValueType)
+		}
+		input[field.FieldName] = value
+	}
+	for fieldName := range userInput {
+		if _, ok := userFields[fieldName]; !ok {
+			return nil, fmt.Errorf("unknown Action input %q", fieldName)
+		}
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+		Encoding: "json", Payload: payload,
+	}}}, nil
+}
+
+func actionConditionMatches(condition V2ActionCondition, currentValue interface{}) bool {
+	if condition.Operator != "in" {
+		return false
+	}
+	currentJSON, err := json.Marshal(currentValue)
+	if err != nil {
+		return false
+	}
+	for _, expected := range condition.Values {
+		expectedJSON, marshalErr := json.Marshal(expected)
+		if marshalErr == nil && string(currentJSON) == string(expectedJSON) {
+			return true
+		}
+	}
+	return false
+}
+
+func v2SnapshotKeys(definition V2Definition) []string {
+	seen := make(map[string]struct{})
+	keys := make([]string, 0)
+	for _, action := range definition.Actions {
+		if action.Condition != nil {
+			if _, exists := seen[action.Condition.AttributeKey]; !exists {
+				seen[action.Condition.AttributeKey] = struct{}{}
+				keys = append(keys, action.Condition.AttributeKey)
+			}
+		}
+		for _, field := range action.Input.Fields {
+			if field.Source == "attribute" {
+				if _, exists := seen[field.AttributeKey]; !exists {
+					seen[field.AttributeKey] = struct{}{}
+					keys = append(keys, field.AttributeKey)
+				}
+			}
+		}
+	}
+	return keys
+}
+
+func keyValueMap(values []*dexpb.KV) map[string]interface{} {
+	mapped := make(map[string]interface{}, len(values))
+	for _, value := range values {
+		mapped[value.GetKey()] = dexValue(value.GetValue())
+	}
+	return mapped
+}
+
+func editableDisplayField(fields []V2ViewField, attributeKey string) (V2ViewField, bool) {
+	for _, field := range fields {
+		if field.AttributeKey == attributeKey && field.Editable {
+			return field, true
+		}
+	}
+	return V2ViewField{}, false
+}
+
+func findIndexedAttribute(
+	definition V2Definition,
+	attributeKey string,
+) (V2IndexedAttribute, bool) {
+	for _, attribute := range definition.IndexedAttributes {
+		if attribute.AttributeKey == attributeKey {
+			return attribute, true
+		}
+	}
+	return V2IndexedAttribute{}, false
+}
+
+func findV2Action(actions []V2Action, rpcName string) (V2Action, bool) {
+	for _, action := range actions {
+		if action.RPCName == rpcName {
+			return action, true
+		}
+	}
+	return V2Action{}, false
+}
+
+func v2IndexType(indexType string) (dexpb.IndexType, error) {
+	switch indexType {
+	case "keyword":
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD, nil
+	case "fulltext":
+		return dexpb.IndexType_INDEX_TYPE_TEXT, nil
+	case "keyword-array":
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY, nil
+	case "int":
+		return dexpb.IndexType_INDEX_TYPE_INT, nil
+	case "double":
+		return dexpb.IndexType_INDEX_TYPE_DOUBLE, nil
+	case "bool":
+		return dexpb.IndexType_INDEX_TYPE_BOOL, nil
+	case "datetime":
+		return dexpb.IndexType_INDEX_TYPE_DATETIME, nil
+	default:
+		return dexpb.IndexType_INDEX_TYPE_UNSPECIFIED, fmt.Errorf("unsupported index type %q", indexType)
+	}
+}
+
+func jsonNumberInt64(value interface{}) (int64, bool) {
+	switch number := value.(type) {
+	case int:
+		return int64(number), true
+	case int32:
+		return int64(number), true
+	case int64:
+		return number, true
+	case json.Number:
+		integer, err := number.Int64()
+		return integer, err == nil
+	case float64:
+		if math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number ||
+			number < math.MinInt64 || number > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(number), true
+	default:
+		return 0, false
+	}
+}
+
+func v2RequestInt64(value interface{}) (int64, bool) {
+	if text, ok := value.(string); ok {
+		integer, err := strconv.ParseInt(text, 10, 64)
+		return integer, err == nil
+	}
+	return jsonNumberInt64(value)
+}
+
+func jsonNumberFloat64(value interface{}) (float64, bool) {
+	var number float64
+	switch typed := value.(type) {
+	case int:
+		number = float64(typed)
+	case int32:
+		number = float64(typed)
+	case int64:
+		number = float64(typed)
+	case float32:
+		number = float64(typed)
+	case float64:
+		number = typed
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return 0, false
+		}
+		number = parsed
+	default:
+		return 0, false
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return 0, false
+	}
+	return number, true
+}
