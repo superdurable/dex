@@ -21,6 +21,8 @@ use super::*;
 const BASIC_SERIES_CAP: usize = 72;
 const ADVANCED_SERIES_CAP: usize = 158;
 const VERBOSE_SERIES_CAP: usize = 210;
+/// How long a stopped Worker's poll stream may take to be counted.
+const WORKER_STREAM_CLOSE_BUDGET: Duration = Duration::from_secs(10);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn basic_metrics_level_exports_only_basic_families() {
@@ -193,7 +195,7 @@ async fn metrics_level_scenario(level: MetricsLevel) {
     assert_eq!(failed.flow_status, FlowStatus::Failed as i32);
     worker.stop().await;
 
-    let after = scrape(metrics_address, "/metrics").await;
+    let after = scrape_after_worker_stream_closes(metrics_address, level).await;
     let body = http_body(&after);
     let before_body = http_body(&before);
     assert_exported_families(body, level);
@@ -444,6 +446,31 @@ fn series_cap(level: MetricsLevel) -> usize {
         dexzd_series_cap + 4
     } else {
         dexzd_series_cap
+    }
+}
+
+/// Scrapes until the stopped Worker's poll stream is counted; the server counts it after the
+/// stream ends.
+async fn scrape_after_worker_stream_closes(
+    metrics_address: SocketAddr,
+    level: MetricsLevel,
+) -> String {
+    let deadline = tokio::time::Instant::now() + WORKER_STREAM_CLOSE_BUDGET;
+    loop {
+        let response = scrape(metrics_address, "/metrics").await;
+        let body = http_body(&response);
+        let is_stream_counted = body.contains("rpc_class=\"worker_poll\"")
+            && (level < MetricsLevel::Verbose
+                || sample_with_label(body, "dexzd_worker_stream_events_total", "event", "closed")
+                    > 0.0);
+        if is_stream_counted {
+            return response;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the stopped Worker's poll stream was not counted: {body}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
