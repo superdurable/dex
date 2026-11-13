@@ -579,16 +579,18 @@ export class AgentCliCommand {
     // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
     const unanswered = new Set<string>();
     this.unansweredSessionLeases = { takeover, sessionIds: unanswered };
-    const trackUnanswered = async (id: string, call: () => ReturnType<typeof acquireSessionLease>): ReturnType<typeof acquireSessionLease> => {
+    type LeaseCall = ReturnType<typeof acquireSessionLease>;
+    const trackUnanswered = async (id: string, call: () => LeaseCall): LeaseCall => {
       unanswered.add(id);
       const result = await call();
       unanswered.delete(id);
       return result;
     };
-    const acquireFor = (id: string): ReturnType<typeof acquireSessionLease> =>
+    const acquireFor = (id: string): LeaseCall =>
       trackUnanswered(id, () => acquireSessionLease(opened.client, opened.flow, id, holder, ttlSeconds));
     this.listenForTerminationSignals();
-    if ((await this.waitForPlainChatLease(sessionId, () => trackUnanswered(sessionId, () => takeover.attempt(sessionId)))) === "interrupted") {
+    const attemptTakeover = (): LeaseCall => trackUnanswered(sessionId, () => takeover.attempt(sessionId));
+    if ((await this.waitForPlainChatLease(sessionId, attemptTakeover)) === "interrupted") {
       return interruptedExitCode;
     }
     for (const line of await takeover.completeTakeover(sessionId)) {
