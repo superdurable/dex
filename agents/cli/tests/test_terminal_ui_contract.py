@@ -97,6 +97,7 @@ CONTRACT_1_TYPES = {
     "request",
     "cancel",
     "result",
+    "switch_session",
 }
 REJECTION_EXIT_CODES: dict[str, int] = load_fixture("launch.json")["rejection_codes"]
 # Checks that run after the launch line passed, so a line alone cannot show them.
@@ -488,6 +489,10 @@ class TranscriptChecker:
             assert message["id"] in self.pending, "cancel only a request still waiting"
         elif message["type"] == "result":
             assert self.launch["mode"] == "sessions" and self.transcript["tui_exit"] == 0
+            self.has_result = True
+        elif message["type"] == "switch_session":
+            assert self.launch["mode"] == "chat" and self.transcript["tui_exit"] == 0
+            assert self.launch["capabilities"].get("launcher_session_switch") is True
             self.has_result = True
         else:
             assert message["type"] not in CONTRACT_1_TYPES, f"{message['type']} after ready"

@@ -113,6 +113,7 @@ type ChatScreen struct {
 	isTicking                 bool
 	helpScrollFromTop         int
 	exitReason                string
+	handedOffSessionID        string
 	// openedSession is the first SessionOpened, which the welcome area shows
 	// with the newest model.
 	openedSession    sessionfeed.SessionOpened
@@ -297,8 +298,12 @@ func (screen *ChatScreen) welcome() welcomeBlock {
 }
 
 // ExitSummary is the line printed after the full screen closes: where the
-// session stays.
+// session stays. It is empty after SessionSwitchHandedOff, because the
+// launcher opens the next session.
 func (screen *ChatScreen) ExitSummary() string {
+	if screen.handedOffSessionID != "" {
+		return ""
+	}
 	if screen.session.SessionID == "" {
 		return screen.exitReason
 	}
@@ -1350,6 +1355,9 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		screen.attachments = append(screen.attachments, typed.Attachment)
 	case sessionfeed.SessionStartChanged:
 		screen.isSessionStartWaiting = typed.IsWaiting
+	case sessionfeed.SessionSwitchHandedOff:
+		screen.handedOffSessionID = typed.SessionID
+		screen.exit(0)
 	case sessionfeed.SessionStartFinished:
 		if screen.isSessionStartWaiting {
 			// The user still waits for /new: switch now.

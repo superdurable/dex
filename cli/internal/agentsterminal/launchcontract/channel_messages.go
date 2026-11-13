@@ -26,11 +26,12 @@ const (
 	MessageTypeRequest        = "request"
 	MessageTypeCancel         = "cancel"
 	MessageTypeResult         = "result"
+	MessageTypeSwitchSession  = "switch_session"
 )
 
 var (
 	launcherMessageTypes    = []string{MessageTypeResponse, MessageTypeNotice, MessageTypeWorker}
-	terminalUIMessageTypes  = []string{MessageTypeReady, MessageTypeLaunchRejected, MessageTypeRequest, MessageTypeCancel, MessageTypeResult}
+	terminalUIMessageTypes  = []string{MessageTypeReady, MessageTypeLaunchRejected, MessageTypeRequest, MessageTypeCancel, MessageTypeResult, MessageTypeSwitchSession}
 	contractOneMessageTypes = append(append([]string{MessageTypeLaunch}, launcherMessageTypes...), terminalUIMessageTypes...)
 )
 
@@ -214,6 +215,11 @@ func checkSideMessage(object map[string]any, sideTypes []string) *SchemaViolatio
 	case MessageTypeResult:
 		if rules.required("", object, "resume_session_id") {
 			rules.string("/resume_session_id", object["resume_session_id"], 1)
+		}
+	case MessageTypeSwitchSession:
+		if rules.required("", object, "session_id", "is_resumed") {
+			rules.string("/session_id", object["session_id"], 1)
+			rules.boolean("/is_resumed", object["is_resumed"])
 		}
 	}
 	return rules.violation

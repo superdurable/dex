@@ -245,6 +245,9 @@ func checkChatSession(rules *jsonRules, value any) {
 	rules.string("/session/flow_type", session["flow_type"], 1)
 	rules.string("/session/session_id", session["session_id"], 1)
 	rules.boolean("/session/is_resumed", session["is_resumed"])
+	if previous, exists := session["previous_session_id"]; exists {
+		rules.string("/session/previous_session_id", previous, 1)
+	}
 }
 
 func checkDisplay(rules *jsonRules, value any) {
@@ -324,7 +327,7 @@ func checkCapabilities(rules *jsonRules, value any) {
 			rules.integer("/capabilities/images/max_bytes", limits["max_bytes"], 1, 1<<62)
 		}
 	}
-	for _, name := range []string{"plan_mode", "turn_control"} {
+	for _, name := range []string{"plan_mode", "turn_control", "launcher_session_switch"} {
 		if flag, exists := capabilities[name]; exists {
 			rules.boolean("/capabilities/"+name, flag)
 		}

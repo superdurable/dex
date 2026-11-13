@@ -11,12 +11,20 @@ import { constants } from "node:os";
 import type { Duplex } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { WorkerHostProcess } from "../worker-host/worker-host-process.js";
+import type { SessionTerminalLease } from "@superdurable/dex-agents";
+
+import {
+  describeLeaseHolder,
+  isAnimatedWaitingOutput,
+  leaseLostLine,
+  waitForSessionLease,
+} from "../session-terminal-lease.js";
+import { SessionUnavailableError, WorkerHostProcess } from "../worker-host/worker-host-process.js";
 import type { WorkerHostReady, WorkerHostStartRequest } from "../worker-host/worker-host-protocol.js";
 import { cleanUpWorkerHostRecord } from "../worker-host/leftover-worker-hosts.js";
 import type { DexConnectionVariables } from "../cli-environment.js";
 import { chatLaunchDocument, noticeText, terminalUiAuthOf } from "./launch-document.js";
-import { LocalRequestRelay, refusal, type LocalRequestMethod } from "./local-request-relay.js";
+import { LocalRequestRelay, WorkerHostStoppedError, refusal, type LocalRequestMethod } from "./local-request-relay.js";
 import type { LocalRequestOutcome } from "./request-outcome-table.js";
 import { isOpenUrlAllowed } from "./open-url-policy.js";
 import { TerminalUiChannel, type ChannelMessage } from "./terminal-ui-channel.js";
@@ -72,6 +80,20 @@ export interface TerminalUiChatLaunch {
 export type TerminalUiChatOutcome =
   | { readonly kind: "exited"; readonly exitCode: number }
   | { readonly kind: "plain"; readonly resumeSessionId: string };
+
+/** How one terminal UI run ended: the chat's outcome, or a switch to another session. */
+type TerminalUiRunOutcome =
+  | { readonly kind: "done"; readonly outcome: TerminalUiChatOutcome }
+  | { readonly kind: "switch"; readonly sessionId: string; readonly isResumed: boolean };
+
+/** A session switch that the terminal UI handed to the launcher. */
+interface SessionSwitchRequest {
+  readonly sessionId: string;
+  readonly isResumed: boolean;
+}
+
+/** The exit codes of SIGINT, SIGTERM, and SIGHUP while the launcher waits for a lease. */
+const leaseWaitSignalExitCodes = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 } as const;
 
 /** How the terminal UI process ended. */
 interface TerminalUiExit {
@@ -133,13 +155,97 @@ export class TerminalUiChatLauncher {
       await this.stopHost();
       return { kind: "exited", exitCode: 1 };
     }
+    const leaseExitCode = await this.waitForLease(host, startup.sessionId);
+    if (leaseExitCode !== undefined) {
+      await this.stopHost();
+      return { kind: "exited", exitCode: leaseExitCode };
+    }
     if (startup.isResumed) {
       this.writeLine(`Resumed session ${startup.sessionId}.`);
     }
-    return this.handOff(host, startup);
+    let ready: WorkerHostReady = startup;
+    let previousSessionId: string | undefined;
+    for (;;) {
+      const run = await this.handOff(host, ready, previousSessionId);
+      if (run.kind === "done") {
+        return run.outcome;
+      }
+      const switchExitCode = await this.switchLease(host, ready.sessionId, run.sessionId);
+      if (switchExitCode !== undefined) {
+        await this.stopHost();
+        return { kind: "exited", exitCode: switchExitCode };
+      }
+      previousSessionId = ready.sessionId;
+      ready = { ...ready, sessionId: run.sessionId, isResumed: run.isResumed };
+    }
   }
 
-  private async handOff(host: WorkerHostProcess, ready: WorkerHostReady): Promise<TerminalUiChatOutcome> {
+  /**
+   * Takes the session's lease through the Worker host, waiting while another terminal has the session open.
+   * @returns `undefined` once this command holds the lease, else the exit code after Ctrl-C, a signal, or an
+   * unavailable session.
+   */
+  private async waitForLease(host: WorkerHostProcess, sessionId: string): Promise<number | undefined> {
+    this.launch.commandSignals.release();
+    const interrupt = new AbortController();
+    let exitCode: number = leaseWaitSignalExitCodes.SIGINT;
+    const listeners = (["SIGINT", "SIGTERM", "SIGHUP"] as const).map((signal) => {
+      const listener = (): void => {
+        exitCode = leaseWaitSignalExitCodes[signal];
+        interrupt.abort();
+      };
+      process.on(signal, listener);
+      return [signal, listener] as const;
+    });
+    try {
+      const outcome = await waitForSessionLease({
+        sessionId,
+        attempt: () => host.acquireSessionLease(sessionId),
+        output: process.stderr,
+        isAnimated: isAnimatedWaitingOutput(process.stderr, this.launch.environment.TERM),
+        interruptSignal: interrupt.signal,
+        isFinalFailure: isFinalLeaseFailure,
+      });
+      return outcome === "acquired" ? undefined : exitCode;
+    } catch (error: unknown) {
+      if (!isFinalLeaseFailure(error)) {
+        throw error;
+      }
+      const reason = error instanceof WorkerHostStoppedError ? workerHostStoppedLine : error.message;
+      this.writeLine(`${this.launch.commandName}: ${reason}`);
+      return 1;
+    } finally {
+      for (const [signal, listener] of listeners) {
+        process.off(signal, listener);
+      }
+      this.launch.commandSignals.reclaim();
+    }
+  }
+
+  /**
+   * Moves the lease from the session the terminal UI left to the one it chose, waiting like at startup.
+   * @returns `undefined` once the new lease is held, else the exit code.
+   */
+  private async switchLease(host: WorkerHostProcess, fromSessionId: string, toSessionId: string): Promise<number | undefined> {
+    // Released first, so two terminals that switch to each other's sessions never wait on each other.
+    await host.releaseSessionLease(fromSessionId);
+    const exitCode = await this.waitForLease(host, toSessionId);
+    if (exitCode !== undefined) {
+      this.writeResumeLine(fromSessionId);
+    }
+    return exitCode;
+  }
+
+  /**
+   * Hands the terminal to one terminal UI run.
+   * @param previousSessionId - The session a handed-back switch left, which the run shows first, or `undefined`.
+   */
+  private async handOff(
+    host: WorkerHostProcess,
+    ready: WorkerHostReady,
+    previousSessionId: string | undefined,
+  ): Promise<TerminalUiRunOutcome> {
+    const isFirstRun = previousSessionId === undefined;
     const terminalMode = new TerminalModeGuard();
     this.launch.commandSignals.release();
     const signals = new LauncherSignals();
@@ -147,7 +253,16 @@ export class TerminalUiChatLauncher {
       const redirect = await LauncherOutputRedirect.start(this.launch.logFilePath);
       let handoff: TerminalUiHandoff;
       try {
-        handoff = new TerminalUiHandoff(this.launch, host, ready, signals, this.workerHostStartupLines);
+        // The startup notices were shown once; a relaunch after a switch has none.
+        handoff = new TerminalUiHandoff(
+          this.launch,
+          host,
+          ready,
+          signals,
+          isFirstRun ? this.launch.startedDexcliDevLines : [],
+          isFirstRun ? this.workerHostStartupLines : [],
+          previousSessionId,
+        );
       } catch (error: unknown) {
         // No terminal UI started, so nothing else stops the Worker host.
         redirect.close();
@@ -172,17 +287,46 @@ export class TerminalUiChatLauncher {
     ready: WorkerHostReady,
     terminalMode: TerminalModeGuard,
     signals: LauncherSignals,
-  ): Promise<TerminalUiChatOutcome> {
+  ): Promise<TerminalUiRunOutcome> {
     const exit = handoff.exit;
     const isAbnormalEnd =
       exit.error !== undefined || exit.signal !== null || ![0, 1, 2, 3, 130, 143].includes(exit.code ?? -1);
+    const lostLease = handoff.lostLease;
     if (!signals.isHangUp) {
-      terminalMode.restore(isAbnormalEnd || handoff.wasStoppedByLauncher, (text) => process.stdout.write(text));
+      terminalMode.restore(isAbnormalEnd || handoff.wasStoppedByLauncher || lostLease !== undefined, (text) =>
+        process.stdout.write(text),
+      );
     }
     const hasHostStoppedDuringChat = handoff.hostExitCode !== undefined;
+    const switchRequest = handoff.switchRequest;
+    if (
+      switchRequest !== undefined &&
+      lostLease === undefined &&
+      handoff.isReady &&
+      handoff.contractEnd === undefined &&
+      exit.code === 0 &&
+      !hasHostStoppedDuringChat &&
+      !this.isStoppedByUser(handoff, signals)
+    ) {
+      return { kind: "switch", ...switchRequest };
+    }
+    return { kind: "done", outcome: await this.finishChat(handoff, ready, signals, hasHostStoppedDuringChat) };
+  }
+
+  private async finishChat(
+    handoff: TerminalUiHandoff,
+    ready: WorkerHostReady,
+    signals: LauncherSignals,
+    hasHostStoppedDuringChat: boolean,
+  ): Promise<TerminalUiChatOutcome> {
+    const exit = handoff.exit;
     const sessionId = ready.sessionId;
     const isFallback = !handoff.isReady && handoff.failure !== undefined;
     await this.stopHost();
+    if (handoff.lostLease !== undefined) {
+      this.writeLine(leaseLostLine(sessionId, describeLeaseHolder(handoff.lostLease)));
+      return { kind: "exited", exitCode: 1 };
+    }
     // A signal may also arrive while the Worker host stops; it decides the outcome then.
     if (isFallback && !this.isStoppedByUser(handoff, signals)) {
       this.writeLine(`Plain chat: ${handoff.failure}.`);
@@ -339,12 +483,19 @@ class TerminalUiHandoff {
   private hasEnded = false;
   private resolveFinished: () => void = () => undefined;
 
+  /** The session the terminal UI chose to switch to, when it handed the switch back. */
+  public switchRequest: SessionSwitchRequest | undefined;
+  /** The other holder's lease, when another terminal took this session and the launcher stopped the terminal UI. */
+  public lostLease: SessionTerminalLease | undefined;
+
   public constructor(
     private readonly launch: TerminalUiChatLaunch,
     host: WorkerHostProcess,
     ready: WorkerHostReady,
     signals: LauncherSignals,
+    startedDexcliDevLines: readonly string[],
     workerHostStartupLines: readonly string[],
+    previousSessionId: string | undefined,
   ) {
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
@@ -367,16 +518,18 @@ class TerminalUiHandoff {
       flowType: ready.flowType,
       sessionId: ready.sessionId,
       isResumed: ready.isResumed,
+      previousSessionId,
       model: launch.start.effective.model,
       harnessDefaultModel: launch.harnessDefaultModel,
       suggestedModels: launch.suggestedModels,
       workspace: ready.workspace,
       configPath: launch.configPath,
       methods: [...methods.keys(), "get_request_result"],
-      capabilities: ready.capabilities,
+      // The launcher takes the lease of a session the terminal UI switches to; see switch_session.
+      capabilities: { ...ready.capabilities, launcher_session_switch: true },
       logPath: launch.logFilePath,
       homeDirectory: launch.homeDirectory,
-      startedDexcliDevLines: launch.startedDexcliDevLines,
+      startedDexcliDevLines,
       workerHostStartupLines,
     });
     this.finished = new Promise((resolve) => {
@@ -419,6 +572,12 @@ class TerminalUiHandoff {
           this.sendWhenReady({ type: "worker", state: "stopped", exit_code: exitCode });
         },
       });
+      host.whenSessionLeaseLost((sessionId, lease) => {
+        if (sessionId === ready.sessionId) {
+          this.lostLease = lease;
+          void this.stop();
+        }
+      });
       signals.whenTerminated(() => {
         this.wasStoppedByLauncher = true;
         void this.stop();
@@ -448,7 +607,20 @@ class TerminalUiHandoff {
       }
       return;
     }
+    if (message.type === "switch_session") {
+      this.receiveSwitchSession(message);
+      return;
+    }
     this.relay.handleMessage(message);
+  }
+
+  /** Keeps a well-formed `switch_session`; the launcher acts on it after the terminal UI exits with 0. */
+  private receiveSwitchSession(message: ChannelMessage): void {
+    const sessionId = message.session_id;
+    const isResumed = message.is_resumed;
+    if (typeof sessionId === "string" && sessionId !== "" && typeof isResumed === "boolean") {
+      this.switchRequest ??= { sessionId, isResumed };
+    }
   }
 
   /**
@@ -566,4 +738,12 @@ function describeExit(exit: TerminalUiExit): string {
 /** Returns a message without its final period, so it fits after `Plain chat:`. */
 function sentence(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().replace(/\.$/, "") : undefined;
+}
+
+/** The line after a Worker host that stopped while the command waited for the lease; Python prints it too. */
+const workerHostStoppedLine = "The Worker host stopped.";
+
+/** Reports whether a lease attempt failed for good: the session cannot open, or the Worker host is gone. */
+function isFinalLeaseFailure(error: unknown): error is SessionUnavailableError | WorkerHostStoppedError {
+  return error instanceof SessionUnavailableError || error instanceof WorkerHostStoppedError;
 }

@@ -131,6 +131,9 @@ type LaunchSession struct {
 	SessionID string `json:"session_id"`
 	// IsResumed asks the chat to load the history.
 	IsResumed bool `json:"is_resumed"`
+	// PreviousSessionID is the session a handed-back switch left, or "".
+	// The chat then shows it first, as an in-place switch would.
+	PreviousSessionID string `json:"previous_session_id,omitempty"`
 }
 
 // LaunchDisplay is text to show and never log.
@@ -157,6 +160,9 @@ type LaunchCapabilities struct {
 	// ReasoningEffort holds the reasoning effort values, or nil when the
 	// command has no reasoning effort setting.
 	ReasoningEffort *ReasoningEffortValues `json:"reasoning_effort"`
+	// HasLauncherSessionSwitch makes a session switch end dexcli with a
+	// switch_session message, so the launcher opens that session.
+	HasLauncherSessionSwitch bool `json:"launcher_session_switch"`
 }
 
 // ReasoningEffortValues lists the reasoning_effort session setting values a

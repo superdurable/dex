@@ -650,6 +650,56 @@ narrowed by the session settings of the call's turn. A call whose tool group,
 connection, or operation is off there, or that now needs an approval it did
 not get, records **failed** and does not run.
 
+### One terminal per session {#one-terminal-per-session}
+
+Since 0.6.3. A session is open in at most one command at a time. A command
+that opens a session, with **--resume**, **/sessions**, or **/new**, takes the
+session's terminal lease first. A second command that opens the same session
+waits, and takes the session over as soon as the first one exits. There is no
+way to take a session from a command that still has it open.
+
+While it waits, the command shows one status line on standard error that
+updates in place: a spinner, who has the session open, how long it has
+waited, and how to quit.
+
+```text
+⠹ Session builtin-20261113-203123-3efeb4 is open in another terminal (host-a, pid 4242, since 20:31) · waiting 0:12 · Ctrl-C to quit
+```
+
+- When it gets the session, the command clears the line and prints
+  **Took over session SESSION_ID.**, then starts the chat.
+- A command that gets the session at once prints neither line.
+- When standard error is not a terminal, or **TERM** is **dumb**, the command
+  prints the waiting line once, without the spinner and the time, and the
+  **Took over** line once.
+- The line is cut to the terminal width.
+- Ctrl-C while waiting exits with code 130. SIGTERM and SIGHUP exit with 128
+  plus the signal number.
+
+The lease lasts 15 seconds, and the command renews it every 5 seconds. A
+command that exits releases it at once. A command that was killed, or paused
+for longer than the lease, such as with Ctrl-Z, frees the session when its
+lease expires. When a paused command continues and finds that another command
+took its session, its chat stops with one line and exit code 1:
+
+```text
+Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
+```
+
+The lease is stored in the session, in the **SessionTerminalLease**
+Attribute. Sessions that an earlier release started take it the first time a
+0.6.3 command opens them.
+
+- Commands of earlier releases take no lease. They do not wait for a 0.6.3
+  command, and a 0.6.3 command does not wait for them.
+- In the terminal UI, **/sessions** and **/new** wait for the lease with
+  **dexcli** 1.47.2 or later. The terminal UI hands the switch to the command,
+  which waits with the same status line and opens the terminal UI again on the
+  new session. An earlier **dexcli** switches in place, without the lease.
+- The lease marks which terminal shows a session. It does not keep a Worker
+  from running the session's Steps: two commands in the same environment still
+  share them.
+
 ## Workspace and local tools {#local-tools}
 
 The local tools work in the workspace. Each call is its own Dex tool Step,

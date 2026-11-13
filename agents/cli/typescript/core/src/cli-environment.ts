@@ -9,6 +9,8 @@
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
+import { readSessionLeaseTtlSeconds } from "./session-terminal-lease.js";
+
 /**
  * The Dex gRPC port of `dexcli dev` when `DEX_AGENTS_DEX_PORT` is not set.
  *
@@ -75,6 +77,15 @@ export interface CliEnvironment {
    * @since 0.6.2
    */
   readonly dexConnectionVariables?: DexConnectionVariables;
+  /**
+   * How many seconds a session's terminal lease lasts unless the command renews it; the command renews it every
+   * third of that. `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, an integer from 1 to 3600, overrides it for tests; any
+   * other value is ignored. {@link readCliEnvironment} always sets it. An environment built by hand may omit it,
+   * which means 15.
+   *
+   * @since 0.6.3
+   */
+  readonly sessionLeaseTtlSeconds?: number;
   /**
    * The variables that child processes, such as `dexcli dev`, inherit.
    *
@@ -199,6 +210,7 @@ export function readCliEnvironment(environment: NodeJS.ProcessEnv): CliEnvironme
     dexcliDownloadUrl: nonEmpty(environment.DEX_AGENTS_DEXCLI_DOWNLOAD_URL) ?? defaultDexcliDownloadUrl,
     isBrowserOpeningEnabled: !["0", "false"].includes((environment.DEX_AGENTS_OPEN_BROWSER ?? "").trim().toLowerCase()),
     dexConnectionVariables: readDexConnectionVariables(environment),
+    sessionLeaseTtlSeconds: readSessionLeaseTtlSeconds(environment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS),
     childProcessVariables: { ...withoutDexSecretVariables(environment), HOME: homeDirectory },
   };
 }

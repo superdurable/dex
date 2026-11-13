@@ -46,6 +46,9 @@
           "$ref": "#/$defs/result_message"
         },
         {
+          "$ref": "#/$defs/switch_session_message"
+        },
+        {
           "$ref": "#/$defs/later_message"
         }
       ]
@@ -340,6 +343,27 @@
         "resume_session_id": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "switch_session_message": {
+      "type": "object",
+      "description": "Chat mode, only when the launch document sets capabilities.launcher_session_switch: the session the user switched to. dexcli sends it once, right before it closes the channel and exits 0.",
+      "required": [
+        "type",
+        "session_id",
+        "is_resumed"
+      ],
+      "properties": {
+        "type": {
+          "const": "switch_session"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "is_resumed": {
+          "type": "boolean"
         }
       }
     },
@@ -746,7 +770,8 @@
               "launch_rejected",
               "request",
               "cancel",
-              "result"
+              "result",
+              "switch_session"
             ]
           }
         }

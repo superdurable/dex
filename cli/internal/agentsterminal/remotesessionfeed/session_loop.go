@@ -100,6 +100,8 @@ type sessionLoop struct {
 	loadFailures      int
 	isLoadNoticeShown bool
 	isUnreachable     bool
+	// pendingSwitch is the launch session, opened once the previous one loaded.
+	pendingSwitch *sessionSwitchRequested
 }
 
 func newSessionLoop(feed *RemoteSessionFeed) *sessionLoop {
@@ -110,7 +112,13 @@ func (loop *sessionLoop) run(ctx context.Context) error {
 	loop.ctx = ctx
 	loop.refreshTimer = time.NewTimer(0)
 	defer loop.refreshTimer.Stop()
-	loop.openSession(loop.feed.SessionID(), 0, loop.feed.launch.Session.IsResumed)
+	if previous := loop.feed.launch.Session.PreviousSessionID; previous != "" {
+		// A relaunch after a handed-back switch shows the switch as an in-place one would.
+		loop.pendingSwitch = &sessionSwitchRequested{sessionID: loop.feed.SessionID(), isResumed: loop.feed.launch.Session.IsResumed}
+		loop.openSession(previous, 0, true)
+	} else {
+		loop.openSession(loop.feed.SessionID(), 0, loop.feed.launch.Session.IsResumed)
+	}
 	for _, notice := range loop.feed.launch.Notices {
 		loop.feed.notice(noticeSeverity(notice.Level), notice.Text)
 	}
@@ -193,6 +201,18 @@ func (loop *sessionLoop) handleInput(input loopInput) {
 	}
 }
 
+// switchToPendingSession opens the launch session after the previous one
+// loaded or failed to; it reports whether it switched.
+func (loop *sessionLoop) switchToPendingSession() bool {
+	pending := loop.pendingSwitch
+	if pending == nil {
+		return false
+	}
+	loop.pendingSwitch = nil
+	loop.handleInput(*pending)
+	return true
+}
+
 func (loop *sessionLoop) scheduleRefresh(delay time.Duration) {
 	if loop.isFetching {
 		loop.isRefreshAgain = loop.isRefreshAgain || delay == 0
@@ -261,6 +281,11 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	if !wasLoaded && fetched.history != nil {
 		model.emitHistory(*fetched.history, fetched.snapshot.State.ActiveTurnID, fetched.cancelledTurns)
 	}
+	// The left session is only replayed: no state, and no SessionLoaded that
+	// would release held messages to it.
+	if loop.switchToPendingSession() {
+		return
+	}
 	model.applySnapshot(fetched.snapshot)
 	if !wasLoaded {
 		loop.loadFailures = 0
@@ -290,6 +315,9 @@ func (loop *sessionLoop) applyFetchFailure(err error) {
 	}
 	if model.isLoaded {
 		loop.scheduleRefresh(loop.feed.timings.RunningPoll)
+		return
+	}
+	if loop.switchToPendingSession() {
 		return
 	}
 	if !loop.isLoadNoticeShown && !isServerDown {

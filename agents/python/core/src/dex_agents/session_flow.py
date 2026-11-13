@@ -121,6 +121,7 @@ from dex_agents.persistence import (
     PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
     SESSION_SETTINGS,
+    SESSION_TERMINAL_LEASE,
     STEERED_USER_MESSAGES,
     TOOL_CALL_CANCELLATIONS,
     TOOL_CALL_RESULTS,
@@ -186,6 +187,7 @@ from dex_agents.spend_limit import (
 )
 from dex_agents.tracing import AgentTracingOptions
 from dex_agents.values import (
+    AcquireSessionTerminalLeaseRequest,
     AgentEvent,
     AgentImageReference,
     AgentInterrupt,
@@ -220,7 +222,10 @@ from dex_agents.values import (
     PlanStatus,
     QuestionAnswer,
     QuestionResolution,
+    ReleaseSessionTerminalLeaseRequest,
     ResolveInterruptRequest,
+    SessionTerminalLease,
+    SessionTerminalLeaseResult,
     SteerUserMessageRequest,
     ToolCallCancellation,
     ToolCallCancellationReason,
@@ -254,6 +259,10 @@ BLANK_TOOL_TASK_ID = "the tool started a task without a task ID"
 INVALID_TOOL_TASK_POLL_INTERVAL = "the tool task's poll interval is not a number"
 # Longest wait between two polls of a tool task; a longer interval is shortened to it.
 _MAXIMUM_TOOL_TASK_POLL_INTERVAL_SECONDS = 86_400
+SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS = 3_600
+SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH = 255
+# Short, so a call stuck on a paused Worker frees the lease lock soon.
+_SESSION_TERMINAL_LEASE_RPC_TIMEOUT = timedelta(seconds=5)
 # server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and
 # text: "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ..."
 # since the limit counts only active state.
@@ -586,6 +595,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             the next turn starts with.
         turn_session_settings: The ``TurnSessionSettings`` Attribute: the
             settings the active turn started with.
+        session_terminal_lease: The ``SessionTerminalLease`` Attribute: the
+            terminal that has the session open. Since 0.6.3.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -613,6 +624,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     context_summary = CONTEXT_SUMMARY
     session_settings = SESSION_SETTINGS
     turn_session_settings = TURN_SESSION_SETTINGS
+    session_terminal_lease = SESSION_TERMINAL_LEASE
 
     def __init__(
         self,
@@ -739,7 +751,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         ``AgentTraceContext`` and ``ContextSummary`` are always registered, so
         Workers with and without tracing or compaction can serve the same Flow
         type. ``SessionSettings`` and ``TurnSessionSettings`` hold the
-        per-session settings.
+        per-session settings, and ``SessionTerminalLease`` the terminal that
+        has the session open.
 
         Returns:
             The persistence schema shared by every agent session Flow type.
@@ -768,6 +781,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             CONTEXT_SUMMARY,
             SESSION_SETTINGS,
             TURN_SESSION_SETTINGS,
+            SESSION_TERMINAL_LEASE,
             *(
                 (AGENT_SESSION_TITLE, AGENT_SESSION_LAST_ACTIVITY_AT, AGENT_SESSION_TURN_COUNT)
                 if self._options.summary_attributes_indexed
@@ -1006,6 +1020,108 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             SESSION_SETTINGS.set(context, input.session_settings)
         elif _session_settings(context) is not None:
             SESSION_SETTINGS.delete(context)
+        return RPCResult(True)
+
+    @rpc(
+        timeout=_SESSION_TERMINAL_LEASE_RPC_TIMEOUT,
+        lock_attributes=(SESSION_TERMINAL_LEASE.lock(),),
+    )
+    def acquire_session_terminal_lease(
+        self,
+        context: Context,
+        input: AcquireSessionTerminalLeaseRequest,
+    ) -> RPCResult[SessionTerminalLeaseResult]:
+        """Acquire or renew the lease that marks which terminal has the session open.
+
+        A chat client, such as a CLI command, calls it before it shows the
+        session and again before the lease expires. The call succeeds when no
+        one holds the lease, when ``holder_id`` already holds it, or when the
+        lease expired. Otherwise it changes nothing and returns the other
+        holder's lease, so the caller can say who has the session open and
+        try again later. Dex itself never enforces the lease: sending messages
+        or resolving interrupts works without it.
+
+        The RPC locks ``SessionTerminalLease``, so two callers never both
+        acquire it. It can raise ``RpcLockConflictError`` while another lease
+        call runs, which is safe to retry;
+        ``AgentSessionClient.acquire_session_terminal_lease`` retries it. Time
+        comes from the Worker's clock. Call the RPC only after every Worker of
+        the Flow type runs dex-agents 0.6.3 or later.
+
+        .. versionadded:: 0.6.3
+
+        Example:
+            >>> result = await client.invoke_rpc(
+            ...     flow.acquire_session_terminal_lease, "session-42",
+            ...     AcquireSessionTerminalLeaseRequest(
+            ...         holder_id=holder_id, host_name="host-a", process_id=4242, ttl_seconds=15))
+            >>> if not result.is_acquired and result.lease is not None:
+            ...     print(f"open on {result.lease.host_name}")
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: The holder and how long the lease lasts.
+
+        Returns:
+            ``is_acquired`` with the caller's lease when it holds the lease now,
+            keeping ``opened_at`` on a renewal. ``is_acquired`` ``False`` with
+            the other holder's lease when someone else holds an unexpired one.
+            ``is_acquired`` ``False`` with no lease, and no change, when
+            ``holder_id`` is blank, ``host_name`` has more than 255 code
+            points, ``process_id`` is negative, or ``ttl_seconds`` is outside 1
+            to 3600.
+        """
+        if (
+            not input.holder_id.strip()
+            or len(input.host_name) > SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH
+            or input.process_id < 0
+            or not 1 <= input.ttl_seconds <= SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS
+        ):
+            return RPCResult(SessionTerminalLeaseResult(is_acquired=False))
+        now = datetime.now(UTC)
+        current = cast(SessionTerminalLease | None, SESSION_TERMINAL_LEASE.get(context))
+        is_renewal = current is not None and current.holder_id == input.holder_id
+        if current is not None and not is_renewal and not _is_lease_expired(current, now):
+            return RPCResult(SessionTerminalLeaseResult(is_acquired=False, lease=current))
+        lease = SessionTerminalLease(
+            holder_id=input.holder_id,
+            host_name=input.host_name,
+            process_id=input.process_id,
+            opened_at=current.opened_at if current is not None and is_renewal else _rfc3339(now),
+            expires_at=_rfc3339(now + timedelta(seconds=input.ttl_seconds)),
+        )
+        SESSION_TERMINAL_LEASE.set(context, lease)
+        return RPCResult(SessionTerminalLeaseResult(is_acquired=True, lease=lease))
+
+    @rpc(
+        timeout=_SESSION_TERMINAL_LEASE_RPC_TIMEOUT,
+        lock_attributes=(SESSION_TERMINAL_LEASE.lock(),),
+    )
+    def release_session_terminal_lease(
+        self,
+        context: Context,
+        input: ReleaseSessionTerminalLeaseRequest,
+    ) -> RPCResult[bool]:
+        """Release the terminal lease of ``holder_id``, so a waiting client can open the session.
+
+        The RPC locks ``SessionTerminalLease`` and can raise
+        ``RpcLockConflictError``, which is safe to retry. Releasing a lease
+        that already expired or that another holder took changes nothing.
+
+        .. versionadded:: 0.6.3
+
+        Args:
+            context: RPC Context supplied by Dex.
+            input: The holder that releases the lease.
+
+        Returns:
+            ``True`` when ``holder_id`` held the lease and it is released;
+            ``False`` when the session has no lease or another holder has it.
+        """
+        current = cast(SessionTerminalLease | None, SESSION_TERMINAL_LEASE.get(context))
+        if current is None or current.holder_id != input.holder_id:
+            return RPCResult(False)
+        SESSION_TERMINAL_LEASE.delete(context)
         return RPCResult(True)
 
     # PendingInterrupts orders it with ResumeTurn, and TurnCancellationRequest with turn starts.
@@ -3920,6 +4036,17 @@ def _is_tool_question_unraised(
         and _pending_interrupt(context, interrupt_id) is None
         and INTERRUPT_RESOLUTIONS.size(context, interrupt_id) == 0
     )
+
+
+def _is_lease_expired(lease: SessionTerminalLease, now: datetime) -> bool:
+    """Return whether the lease ended; an ``expires_at`` that does not parse counts as ended."""
+    try:
+        expires_at = datetime.fromisoformat(lease.expires_at)
+    except ValueError:
+        return True
+    if expires_at.tzinfo is None:
+        return True
+    return expires_at <= now
 
 
 def _timer_until(rfc3339_time: str) -> Condition:

@@ -31,18 +31,22 @@ var conformanceDir = filepath.Join("..", "..", "..", "conformance")
 
 // The Go types of the conformance suite's RPC input and output type names.
 var conformanceGoTypes = map[string]reflect.Type{
-	"AgentUserMessage":             reflect.TypeFor[dexagents.AgentUserMessage](),
-	"SteerUserMessageRequest":      reflect.TypeFor[dexagents.SteerUserMessageRequest](),
-	"DeleteQueuedMessageRequest":   reflect.TypeFor[dexagents.DeleteQueuedMessageRequest](),
-	"CancelTurnRequest":            reflect.TypeFor[dexagents.CancelTurnRequest](),
-	"ResolveInterruptRequest":      reflect.TypeFor[dexagents.ResolveInterruptRequest](),
-	"AnswerQuestionRequest":        reflect.TypeFor[dexagents.AnswerQuestionRequest](),
-	"ExecutePlanRequest":           reflect.TypeFor[dexagents.ExecutePlanRequest](),
-	"UpdateSessionSettingsRequest": reflect.TypeFor[dexagents.UpdateSessionSettingsRequest](),
-	"ListAgentMessagesRequest":     reflect.TypeFor[dexagents.ListAgentMessagesRequest](),
-	"AgentSnapshot":                reflect.TypeFor[dexagents.AgentSnapshot](),
-	"AgentMessagesPage":            reflect.TypeFor[dexagents.AgentMessagesPage](),
-	"bool":                         reflect.TypeFor[bool](),
+	"AgentUserMessage":                   reflect.TypeFor[dexagents.AgentUserMessage](),
+	"SteerUserMessageRequest":            reflect.TypeFor[dexagents.SteerUserMessageRequest](),
+	"DeleteQueuedMessageRequest":         reflect.TypeFor[dexagents.DeleteQueuedMessageRequest](),
+	"CancelTurnRequest":                  reflect.TypeFor[dexagents.CancelTurnRequest](),
+	"ResolveInterruptRequest":            reflect.TypeFor[dexagents.ResolveInterruptRequest](),
+	"AnswerQuestionRequest":              reflect.TypeFor[dexagents.AnswerQuestionRequest](),
+	"ExecutePlanRequest":                 reflect.TypeFor[dexagents.ExecutePlanRequest](),
+	"UpdateSessionSettingsRequest":       reflect.TypeFor[dexagents.UpdateSessionSettingsRequest](),
+	"ListAgentMessagesRequest":           reflect.TypeFor[dexagents.ListAgentMessagesRequest](),
+	"AgentSnapshot":                      reflect.TypeFor[dexagents.AgentSnapshot](),
+	"AgentMessagesPage":                  reflect.TypeFor[dexagents.AgentMessagesPage](),
+	"AcquireSessionTerminalLeaseRequest": reflect.TypeFor[dexagents.AcquireSessionTerminalLeaseRequest](),
+	"ReleaseSessionTerminalLeaseRequest": reflect.TypeFor[dexagents.ReleaseSessionTerminalLeaseRequest](),
+	"SessionTerminalLeaseResult":         reflect.TypeFor[dexagents.SessionTerminalLeaseResult](),
+	"SessionTerminalLease":               reflect.TypeFor[dexagents.SessionTerminalLease](),
+	"bool":                               reflect.TypeFor[bool](),
 }
 
 // A fast precheck against names.json; the cross-language tests in ../integ are the real proof.

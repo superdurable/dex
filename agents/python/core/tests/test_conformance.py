@@ -33,7 +33,13 @@ from dex_agents import (
 )
 from dex_agents.builtin_loop import DEFAULT_MAX_MODEL_CALLS_PER_TURN
 from dex_agents.builtin_loop.runner import _read_tool_source_envelope, _write_tool_source_envelope
-from dex_agents.session_flow import ALL_PENDING_MESSAGES, MESSAGE_PAGE_LIMIT, SNAPSHOT_MESSAGE_LIMIT
+from dex_agents.session_flow import (
+    ALL_PENDING_MESSAGES,
+    MESSAGE_PAGE_LIMIT,
+    SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH,
+    SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS,
+    SNAPSHOT_MESSAGE_LIMIT,
+)
 from dex_agents.session_settings import (
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
     check_stored_session_settings,
@@ -172,6 +178,10 @@ def test_limits_and_final_statuses_match_the_python_constants() -> None:
         "message_rollover_max_chunks_per_commit": MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
         "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
         "default_retained_message_limit": AgentSessionOptions().retained_message_limit,
+        "session_terminal_lease_maximum_ttl_seconds": SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS,
+        "session_terminal_lease_maximum_host_name_length": (
+            SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH
+        ),
     }
     assert names["final_tool_call_statuses"] == [
         str(status) for status in ToolCallStatus if status.is_final

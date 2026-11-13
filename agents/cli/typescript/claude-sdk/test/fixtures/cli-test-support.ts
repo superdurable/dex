@@ -192,6 +192,8 @@ export class TestHome {
   public readonly directory: string;
   /** The Claude variables every process gets: the mock URL and, unless a test removes it, the mock key. */
   public readonly claudeEnvironment: Record<string, string>;
+  /** More variables of every command process, applied last, such as a short session lease. */
+  public readonly extraEnvironment: Record<string, string> = {};
 
   /**
    * Creates the home.
@@ -269,6 +271,7 @@ export class TestHome {
       HTTP_PROXY: this.proxyUrl,
       NO_PROXY: "127.0.0.1,localhost",
       ...this.claudeEnvironment,
+      ...this.extraEnvironment,
     };
   }
 

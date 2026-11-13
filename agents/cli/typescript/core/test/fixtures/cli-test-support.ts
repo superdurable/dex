@@ -174,6 +174,14 @@ export class CliProcess {
     return new CliProcess(child);
   }
 
+  /** The command's process ID; the pseudo-terminal relay's for {@link startInTerminal}. */
+  public get pid(): number {
+    if (this.child.pid === undefined) {
+      throw new Error("the command did not start");
+    }
+    return this.child.pid;
+  }
+
   /** Types Ctrl-C on the pseudo-terminal of {@link startInTerminal}. */
   public typeCtrlC(): void {
     this.child.stdin?.write("\x03");
@@ -193,6 +201,11 @@ export class CliProcess {
    */
   public writeLine(line: string): void {
     this.child.stdin?.write(`${line}\n`);
+  }
+
+  /** Ends stdin, as Ctrl-D at a terminal does. */
+  public endInput(): void {
+    this.child.stdin?.end();
   }
 
   /** Sends SIGINT, as Ctrl-C does. */

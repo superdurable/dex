@@ -68,6 +68,7 @@ class CliHome:
         messages_api: The scripted Messages API the Claude Code CLI calls.
         claude_environment: The Claude variables every process gets: the mock
             URL and, unless a test removes it, the mock API key.
+        extra_environment: More variables of every process, applied last.
     """
 
     home: Path
@@ -76,6 +77,7 @@ class CliHome:
     messages_api: MockMessagesApi
     claude_environment: dict[str, str]
     children: list[pexpect.spawn] = field(default_factory=list)
+    extra_environment: dict[str, str] = field(default_factory=dict)
 
     @property
     def config_path(self) -> Path:
@@ -124,6 +126,7 @@ class CliHome:
             TERM="dumb",
         )
         environment.update(self.claude_environment)
+        environment.update(self.extra_environment)
         return environment
 
     def spawn(self, *arguments: str) -> pexpect.spawn:

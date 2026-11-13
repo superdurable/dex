@@ -150,3 +150,24 @@ func TestLateImageDoesNotReachTheNewSession(t *testing.T) {
 	harness.press(key(tea.KeyEnter))
 	require.Equal(t, sessionfeed.SendUserMessage{Text: "hello"}, harness.lastAction())
 }
+
+// A message typed while a relaunched chat replays the left session waits,
+// and goes to the launch session once that one loaded.
+func TestMessageTypedDuringTheLeftSessionReplayGoesToTheLaunchSession(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100, skipIntro: true})
+	source := &targetRecordingSource{}
+	harness.screen.source = source
+	// The feed replays the left session without SessionLoaded.
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1"})
+	harness.typeText("typed during the replay")
+	harness.press(key(tea.KeyEnter))
+	require.Empty(t, source.recordedActions(), "nothing is sent while the left session replays")
+
+	harness.feed(
+		sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "── session openai-sdk-2 ──"},
+		sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-2"},
+		sessionfeed.SessionLoaded{},
+	)
+	require.Equal(t, []sessionfeed.UserAction{sessionfeed.SendUserMessage{Text: "typed during the replay"}}, source.recordedActions())
+	require.Equal(t, []string{"openai-sdk-2"}, source.targets)
+}

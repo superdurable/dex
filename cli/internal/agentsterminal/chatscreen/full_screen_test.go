@@ -169,6 +169,14 @@ func TestExitSummary(t *testing.T) {
 	require.True(t, strings.HasPrefix(harness.screen.ExitSummary(), "The Worker stopped (exit 137). Session openai-sdk-"))
 }
 
+func TestSessionSwitchHandedOffExitsWithoutSummary(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	harness.feed(sessionfeed.SessionSwitchHandedOff{SessionID: "openai-sdk-20261111-150000-ffffff"})
+	require.True(t, harness.screen.isExiting)
+	require.Equal(t, 0, harness.screen.ExitCode())
+	require.Empty(t, harness.screen.ExitSummary(), "the launcher says how to resume")
+}
+
 func TestCopyLastReply(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 100})
 	harness.typeText("/copy")

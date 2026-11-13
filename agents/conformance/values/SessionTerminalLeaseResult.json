@@ -1,0 +1,31 @@
+{
+  "type": "SessionTerminalLeaseResult",
+  "wire_kind": "json",
+  "description": "Output of the acquire_session_terminal_lease RPC.",
+  "cases": [
+    {
+      "name": "acquired",
+      "description": "The caller holds the lease.",
+      "wire": "{\"is_acquired\":true,\"lease\":{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":4242}}",
+      "canonical": "{\"is_acquired\":true,\"lease\":{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":4242}}"
+    },
+    {
+      "name": "refused",
+      "description": "Another holder has the lease.",
+      "wire": "{\"is_acquired\":false,\"lease\":{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"other-holder\",\"host_name\":\"host-a\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":77}}",
+      "canonical": "{\"is_acquired\":false,\"lease\":{\"expires_at\":\"2026-11-02T09:30:15.000Z\",\"holder_id\":\"other-holder\",\"host_name\":\"host-a\",\"opened_at\":\"2026-11-02T09:30:00.000Z\",\"process_id\":77}}"
+    },
+    {
+      "name": "invalid",
+      "description": "A request that is not valid.",
+      "wire": "{\"is_acquired\":false,\"lease\":null}",
+      "canonical": "{\"is_acquired\":false,\"lease\":null}"
+    },
+    {
+      "name": "without-lease",
+      "description": "A result without the lease field reads as no lease.",
+      "wire": "{\"is_acquired\":false}",
+      "canonical": "{\"is_acquired\":false,\"lease\":null}"
+    }
+  ]
+}

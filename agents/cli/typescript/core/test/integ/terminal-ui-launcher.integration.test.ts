@@ -1175,6 +1175,7 @@ function comparingModelsAndReasoningEffort(
       capabilities: {
         ...message.capabilities,
         ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort }),
+        launcher_session_switch: true,
       },
     },
     ignore: [

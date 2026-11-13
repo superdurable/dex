@@ -332,6 +332,11 @@
         "is_resumed": {
           "type": "boolean",
           "description": "true for --resume: the terminal UI loads the history."
+        },
+        "previous_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The session a switch_session left, when the launcher launches the terminal UI again after it. The terminal UI shows that session's history first, then switches to session_id as an in-place switch does."
         }
       }
     },
@@ -425,6 +430,10 @@
               "description": "The reasoning_effort values the command accepts, from least to most effort, such as low, medium, high. default is reserved: the terminal UI's /effort default removes the setting. An empty list offers none."
             }
           }
+        },
+        "launcher_session_switch": {
+          "type": "boolean",
+          "description": "Chat mode: a session switch (/sessions or /new) ends dexcli with a switch_session message instead of switching in place, and the launcher opens that session."
         }
       }
     },

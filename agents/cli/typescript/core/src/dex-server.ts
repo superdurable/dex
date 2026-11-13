@@ -206,6 +206,20 @@ export class StartedDexcliDevProcess {
     this.listenForTerminationSignals();
   }
 
+  /**
+   * Kills the started server's process group at once, removes its record, and exits, as a second signal during
+   * the stop does.
+   * @param exitCode - The process exit code.
+   */
+  public killAndExit(exitCode: number): never {
+    const pid = this.child?.pid;
+    if (pid !== undefined) {
+      this.killGroupWhileLeaderRuns();
+      removeRecordOf(this.environment, pid);
+    }
+    process.exit(exitCode);
+  }
+
   /** Leaves Ctrl-C to the terminal chat, which cancels a turn on the first one. */
   public releaseInterrupt(): void {
     this.removeSignalListener("SIGINT");

@@ -106,6 +106,9 @@ var (
 	// copied from SessionSettingsAttribute when the turn began. A copy from an earlier turn reads
 	// as no settings.
 	TurnSessionSettingsAttribute = dex.DefineAttribute[TurnSessionSettings]("TurnSessionSettings")
+	// SessionTerminalLeaseAttribute holds the lease of the one terminal that has the session open;
+	// unset when no terminal holds it. Since 0.6.3.
+	SessionTerminalLeaseAttribute = dex.DefineAttribute[SessionTerminalLease]("SessionTerminalLease")
 )
 
 const (
@@ -428,6 +431,7 @@ func (flow *AgentSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			ContextSummaryAttribute,
 			SessionSettingsAttribute,
 			TurnSessionSettingsAttribute,
+			SessionTerminalLeaseAttribute,
 		},
 		Channels: []dex.ChannelDef{
 			QueuedUserMessagesChannel,

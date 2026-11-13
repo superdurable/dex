@@ -370,6 +370,8 @@ async def test_an_approved_call_is_checked_again_by_the_worker_that_runs_it(
     cli_home: CliHome,
 ) -> None:
     cli_home.write_config(NO_CONNECTORS)
+    # The killed command cannot release its lease, so a short one lets the next command in soon.
+    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = "3"
     first = cli_home.spawn()
     session_id = await read_session_id(first)
     await expect(first, "> ")

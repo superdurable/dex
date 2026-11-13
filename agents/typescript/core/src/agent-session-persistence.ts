@@ -33,6 +33,7 @@ import {
   planExecutionRequestCodec,
   contextSummaryCodec,
   sessionSettingsCodec,
+  sessionTerminalLeaseCodec,
   turnSessionSettingsCodec,
   turnReplySequenceCodec,
   toolCallCancellationCodec,
@@ -55,6 +56,7 @@ import type {
   PlanExecutionRequest,
   ContextSummary,
   SessionSettings,
+  SessionTerminalLease,
   TurnReplySequence,
   TurnSessionSettings,
   ToolCallCancellation,
@@ -181,6 +183,13 @@ export interface AgentSessionPersistence {
    */
   readonly turnReplySequence: Attribute<TurnReplySequence>;
   /**
+   * The `SessionTerminalLease` Attribute: the terminal that has the session open, unset while none does. Only
+   * `acquire_session_terminal_lease` and `release_session_terminal_lease` write it.
+   *
+   * @since 0.6.3
+   */
+  readonly sessionTerminalLease: Attribute<SessionTerminalLease>;
+  /**
    * The `AgentSessionTitle` Attribute: the session's first user message with each run of spaces, tabs, and line
    * breaks made one space, cut to the first 80 Unicode code points; see `buildSessionTitle`. Only the session's first
    * turn sets it, so a session whose first turn ran without the option never has one. Indexed as `FULL_TEXT` under `text1`; see
@@ -237,6 +246,7 @@ export function createAgentSessionPersistence(
     sessionSettings: new Attribute("SessionSettings", sessionSettingsCodec),
     turnSessionSettings: new Attribute("TurnSessionSettings", turnSessionSettingsCodec),
     turnReplySequence: new Attribute("TurnReplySequence", turnReplySequenceCodec),
+    sessionTerminalLease: new Attribute("SessionTerminalLease", sessionTerminalLeaseCodec),
     agentSessionTitle: new Attribute("AgentSessionTitle", stringCodec, {
       type: IndexType.FULL_TEXT,
       indexKey: sessionSummaryIndexKeys.title,

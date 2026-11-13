@@ -66,6 +66,12 @@ const (
 	AnswerQuestionRPCName = "answer_question"
 	// ExecutePlanRPCName is the protocol name of RemoteSessionFlow.ExecutePlan.
 	ExecutePlanRPCName = "execute_plan"
+	// AcquireSessionTerminalLeaseRPCName is the protocol name of
+	// RemoteSessionFlow.AcquireSessionTerminalLease. Since 0.6.3.
+	AcquireSessionTerminalLeaseRPCName = "acquire_session_terminal_lease"
+	// ReleaseSessionTerminalLeaseRPCName is the protocol name of
+	// RemoteSessionFlow.ReleaseSessionTerminalLease. Since 0.6.3.
+	ReleaseSessionTerminalLeaseRPCName = "release_session_terminal_lease"
 )
 
 // RemoteSessionFlow is the client-only description of one agent session Flow type.
@@ -154,6 +160,7 @@ func (flow *RemoteSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			dexagents.ContextSummaryAttribute,
 			dexagents.SessionSettingsAttribute,
 			dexagents.TurnSessionSettingsAttribute,
+			dexagents.SessionTerminalLeaseAttribute,
 		},
 		Channels: []dex.ChannelDef{
 			dexagents.QueuedUserMessagesChannel,
@@ -209,6 +216,24 @@ func (flow *RemoteSessionFlow) AnswerQuestion(dex.Context, dexagents.AnswerQuest
 // ExecutePlan types the execute_plan RPC. It never runs; it returns an error.
 func (flow *RemoteSessionFlow) ExecutePlan(dex.Context, dexagents.ExecutePlanRequest) (*dex.RPCResult[bool], error) {
 	return nil, flow.clientOnlyError(ExecutePlanRPCName)
+}
+
+// AcquireSessionTerminalLease types the acquire_session_terminal_lease RPC. It never runs; it
+// returns an error. Since 0.6.3.
+func (flow *RemoteSessionFlow) AcquireSessionTerminalLease(
+	dex.Context,
+	dexagents.AcquireSessionTerminalLeaseRequest,
+) (*dex.RPCResult[dexagents.SessionTerminalLeaseResult], error) {
+	return nil, flow.clientOnlyError(AcquireSessionTerminalLeaseRPCName)
+}
+
+// ReleaseSessionTerminalLease types the release_session_terminal_lease RPC. It never runs; it
+// returns an error. Since 0.6.3.
+func (flow *RemoteSessionFlow) ReleaseSessionTerminalLease(
+	dex.Context,
+	dexagents.ReleaseSessionTerminalLeaseRequest,
+) (*dex.RPCResult[bool], error) {
+	return nil, flow.clientOnlyError(ReleaseSessionTerminalLeaseRPCName)
 }
 
 // UpdateSessionSettings types the update_session_settings RPC. It never runs; it returns an error.

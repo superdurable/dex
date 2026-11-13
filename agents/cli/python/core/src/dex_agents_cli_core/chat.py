@@ -18,14 +18,20 @@ import signal
 import stat
 import sys
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, TypeVar
 
-from dex import AsyncClient, LongPollTimeoutError
+from dex import (
+    AsyncClient,
+    DexServiceError,
+    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
+    LongPollTimeoutError,
+)
 
 from dex_agents import (
     MAX_IMAGE_BYTES,
@@ -52,6 +58,10 @@ _POLL_INTERVAL_SECONDS = 0.3
 _EVENT_LONG_POLL = timedelta(seconds=5)
 _MAX_SHOWN_ARGUMENT_CHARACTERS = 2000
 _KIB = 1024
+# A Worker of the shared Flow type may be briefly unreachable when a chat starts.
+_CHAT_START_RETRY_SECONDS = 10.0
+_CHAT_START_RETRY_INTERVAL_SECONDS = 0.5
+_Read = TypeVar("_Read")
 
 
 class TerminalSignal(Enum):
@@ -209,10 +219,13 @@ class TerminalChat:
             f"Type a message; {IMAGE_COMMAND} <path> attaches an image to the next one; "
             f"{EXIT_COMMAND} quits. Ctrl-C cancels a turn, and again exits.\n"
         )
-        snapshot = await self._sessions.get_agent_snapshot(self._session_id)
+        snapshot = await _retry_at_chat_start(
+            lambda: self._sessions.get_agent_snapshot(self._session_id)
+        )
         if snapshot.state is not None and snapshot.state.active_turn_id is not None:
             self._terminal.write("A turn is running; following it.\n")
-            await self._follow_turn(snapshot.state.turn_count, await self._event_tail())
+            tail = await _retry_at_chat_start(self._event_tail)
+            await self._follow_turn(snapshot.state.turn_count, tail)
         while not self._is_exit_requested:
             self._terminal.write("\n> ")
             line = await self._next_line()
@@ -488,6 +501,25 @@ class TerminalChat:
             self._session_id, self._sessions.flow.agent_events, 1
         )
         return page.messages[0].resume_token if page.messages else ""
+
+
+async def _retry_at_chat_start(read: Callable[[], Awaitable[_Read]]) -> _Read:
+    """Retry a read that failed for a reason other than a missing session, for a few seconds.
+
+    Raises:
+        DexServiceError: The last failure, once ``_CHAT_START_RETRY_SECONDS`` passed.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CHAT_START_RETRY_SECONDS
+    while True:
+        try:
+            return await read()
+        except (FlowNotFoundError, FlowNotActiveOrNotFoundError):
+            raise
+        except DexServiceError:
+            if loop.time() >= deadline:
+                raise
+        await asyncio.sleep(_CHAT_START_RETRY_INTERVAL_SECONDS)
 
 
 def _read_image_file(path: Path) -> bytes:
