@@ -66,12 +66,21 @@ class SessionLeaseWaitInterrupted(Exception):
     """Ctrl-C while the command waited for a session; the command exits 130."""
 
 
+#: Separates the holder's execution environment from the random part of a holder ID.
+HOLDER_ID_ENVIRONMENT_SEPARATOR = "/"
+#: How long a lease lasts when a command leaves another environment's session.
+HAND_BACK_TTL_SECONDS = 1
+
+
 @dataclass(frozen=True)
 class SessionLeaseHolder:
-    """Who holds a lease: one random ID per process, and what a waiting terminal shows.
+    """Who holds a lease: one ID per process, and what a waiting terminal shows.
 
     Attributes:
-        holder_id: Random 128-bit lowercase hex.
+        holder_id: The session Flow type of the process's own execution
+            environment, ``HOLDER_ID_ENVIRONMENT_SEPARATOR``, and 128 random
+            bits in lowercase hex, so every Worker can tell which environment
+            holds a session.
         host_name: This host's name, cut to 255 code points.
         process_id: The process ID of the command the user ran.
         ttl_seconds: How long the lease lasts without a renewal.
@@ -84,16 +93,18 @@ class SessionLeaseHolder:
 
     @classmethod
     def for_this_process(
-        cls, ttl_seconds: int, process_id: int | None = None
+        cls, ttl_seconds: int, *, environment_flow_type: str, process_id: int | None = None
     ) -> SessionLeaseHolder:
         """Return a new holder for this process.
 
         Args:
             ttl_seconds: How long the lease lasts without a renewal.
+            environment_flow_type: The session Flow type of this process's own
+                execution environment.
             process_id: The pid to show; ``None`` uses this process's.
         """
         return cls(
-            holder_id=uuid.uuid4().hex,
+            holder_id=f"{environment_flow_type}{HOLDER_ID_ENVIRONMENT_SEPARATOR}{uuid.uuid4().hex}",
             host_name=socket.gethostname()[:_HOST_NAME_LIMIT],
             process_id=os.getpid() if process_id is None else process_id,
             ttl_seconds=ttl_seconds,
@@ -104,14 +115,74 @@ class SessionLeaseHolder:
         """Return how often the holder renews: a third of the lease."""
         return self.ttl_seconds / 3
 
-    def acquire_request(self) -> AcquireSessionTerminalLeaseRequest:
-        """Return the RPC request that acquires or renews this holder's lease."""
+    def acquire_request(self, ttl_seconds: int | None = None) -> AcquireSessionTerminalLeaseRequest:
+        """Return the RPC request that acquires or renews this holder's lease.
+
+        Args:
+            ttl_seconds: How long the lease lasts; ``None`` uses the holder's TTL.
+        """
         return AcquireSessionTerminalLeaseRequest(
             holder_id=self.holder_id,
             host_name=self.host_name,
             process_id=self.process_id,
-            ttl_seconds=self.ttl_seconds,
+            ttl_seconds=self.ttl_seconds if ttl_seconds is None else ttl_seconds,
         )
+
+
+def lease_holder_environment(holder_id: str) -> str | None:
+    """Return the session Flow type of the execution environment a holder ID names.
+
+    Returns:
+        The environment's session Flow type, or ``None`` for a holder ID
+        without one, as 0.6.3 wrote: such a holder ran in the session's own
+        environment.
+    """
+    environment, separator, _ = holder_id.rpartition(HOLDER_ID_ENVIRONMENT_SEPARATOR)
+    return environment if separator and environment else None
+
+
+def session_owner_environment(session_flow_type: str, stored: SessionTerminalLease | None) -> str:
+    """Return the execution environment that runs a session's model and tool calls.
+
+    It is the stored lease holder's, else the session's own, which its Flow type names.
+    """
+    holder_environment = None if stored is None else lease_holder_environment(stored.holder_id)
+    return session_flow_type if holder_environment is None else holder_environment
+
+
+def is_session_call_allowed_here(
+    *,
+    session_flow_type: str,
+    home_flow_type: str,
+    holder_id: str,
+    stored: SessionTerminalLease | None,
+) -> bool:
+    """Return whether a Worker may run a session's model and tool calls.
+
+    A Worker that polls its own environment's Flow type acts unless another
+    environment holds the session, so the processes of one environment still
+    share their sessions' calls. A Worker that polls another environment's
+    Flow type acts only for the sessions its own process holds. Expiry plays
+    no part, because two hosts' clocks differ.
+
+    Args:
+        session_flow_type: The session's Flow type, which the Worker polls.
+        home_flow_type: The session Flow type of this process's own environment.
+        holder_id: This process's holder ID.
+        stored: The stored lease, or ``None`` when none is stored.
+    """
+    if session_flow_type == home_flow_type:
+        return session_owner_environment(session_flow_type, stored) == home_flow_type
+    return stored is not None and stored.holder_id == holder_id
+
+
+def is_lease_expired_here(lease: SessionTerminalLease, now: datetime) -> bool:
+    """Return whether a stored lease has expired by this host's clock."""
+    try:
+        expires_at = datetime.fromisoformat(lease.expires_at)
+    except ValueError:
+        return True
+    return expires_at <= now
 
 
 class HeldSessionLease:
@@ -120,18 +191,31 @@ class HeldSessionLease:
     It holds at most one session's lease. ``lost`` completes with the other
     holder's lease when a renewal finds that another terminal took it. A try
     that did not answer, such as one Ctrl-C cancelled, may still have taken
-    the lease, so ``release`` releases that session too.
+    the lease, so ``release`` releases that session too. For another execution
+    environment's session, ``release`` renews the lease for
+    ``HAND_BACK_TTL_SECONDS`` instead, so the stored holder keeps naming this
+    environment and the session's own environment runs none of the calls
+    approved here until a command takes the session over.
     """
 
-    def __init__(self, sessions: AgentSessionClient, holder: SessionLeaseHolder) -> None:
+    def __init__(
+        self,
+        sessions: AgentSessionClient,
+        holder: SessionLeaseHolder,
+        *,
+        is_other_environment_session: bool = False,
+    ) -> None:
         """Hold leases through a session client.
 
         Args:
             sessions: The session client.
             holder: This process's holder.
+            is_other_environment_session: Whether the sessions are another
+                execution environment's, which ``release`` hands back by expiry.
         """
         self._sessions = sessions
         self._holder = holder
+        self._is_other_environment_session = is_other_environment_session
         self._session_id: str | None = None
         self._unanswered_session_ids: set[str] = set()
         self._renewing: asyncio.Task[None] | None = None
@@ -185,6 +269,11 @@ class HeldSessionLease:
 
     async def _release_one(self, session_id: str) -> None:
         try:
+            if self._is_other_environment_session:
+                await self._sessions.acquire_session_terminal_lease(
+                    session_id, self._holder.acquire_request(HAND_BACK_TTL_SECONDS)
+                )
+                return
             await self._sessions.release_session_terminal_lease(session_id, self._holder.holder_id)
         except DexServiceError as error:
             _LOGGER.warning("cannot release the session lease: session=%s: %s", session_id, error)

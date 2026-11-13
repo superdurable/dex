@@ -48,6 +48,7 @@ from dex_agents_cli_core.terminal_ui.contract import (
     LAUNCHER_CONTRACTS,
     OPEN_URL,
     READY_TIMEOUT_SECONDS,
+    START_SESSION,
     TERMINAL_UI_MINIMUM_DEXCLI_VERSION,
     ChannelProtocolError,
     DescribeOutputError,
@@ -338,25 +339,45 @@ def _report_left_session(
 async def _wait_for_hosted_session_lease(
     launch: TerminalUiLaunch, worker_host: WorkerHostProcess, session_id: str
 ) -> None:
-    """Wait until the Worker host holds the session's lease, showing who has it meanwhile."""
+    """Wait until the Worker host holds the session's lease, showing who has it meanwhile.
+
+    Then it prints the lines of a takeover from another execution environment.
+    """
+    takeover_lines: list[str] = []
+
+    async def attempt() -> SessionTerminalLeaseResult:
+        result, lines = await worker_host.acquire_session_lease(session_id)
+        takeover_lines[:] = lines
+        return result
+
     await wait_for_session_lease(
         session_id,
-        lambda: worker_host.acquire_session_lease(session_id),
+        attempt,
         sys.stderr,
         is_animated=launch.is_waiting_line_animated,
         columns=lambda: terminal_columns(sys.stderr),
     )
+    for line in takeover_lines:
+        print(line, file=sys.stderr)
 
 
 @dataclass(frozen=True)
 class WorkerReady:
-    """The Worker host's ``worker_ready``."""
+    """The Worker host's ``worker_ready``.
+
+    Attributes:
+        is_other_environment_session: Whether the session started in another
+            execution environment, whose Flow type the Worker host polls. The
+            launch document then offers no ``start_session``: a new session
+            belongs to this environment.
+    """
 
     session_id: str
     flow_type: str
     capabilities: Mapping[str, Any]
     notices: Sequence[Mapping[str, str]]
     connectors_page_url: str | None
+    is_other_environment_session: bool = False
 
 
 class WorkerHostProcess:
@@ -464,8 +485,14 @@ class WorkerHostProcess:
         finally:
             self._calls.pop(call_id, None)
 
-    async def acquire_session_lease(self, session_id: str) -> SessionTerminalLeaseResult:
+    async def acquire_session_lease(
+        self, session_id: str
+    ) -> tuple[SessionTerminalLeaseResult, list[str]]:
         """Ask the Worker host once for the session's terminal lease.
+
+        Returns:
+            The result, and the lines to print once a takeover from another
+            execution environment is done.
 
         Raises:
             SessionUnavailableError: If the session cannot be opened, or the
@@ -482,10 +509,11 @@ class WorkerHostProcess:
             raise LeaseCallError(message)
         result = outcome.result or {}
         lease = result.get("lease")
+        takeover_lines = result.get("takeover_lines")
         return SessionTerminalLeaseResult(
             is_acquired=bool(result.get("is_acquired")),
             lease=SessionTerminalLease(**lease) if isinstance(lease, dict) else None,
-        )
+        ), [str(line) for line in takeover_lines] if isinstance(takeover_lines, list) else []
 
     async def release_session_lease(self, session_id: str) -> None:
         """Ask the Worker host to release the session's lease, so another terminal can open it."""
@@ -575,6 +603,9 @@ class WorkerHostProcess:
                                 for notice in message["notices"]
                             ],
                             connectors_page_url=message.get("connectors_page_url"),
+                            is_other_environment_session=bool(
+                                message.get("is_other_environment_session")
+                            ),
                         )
                     )
             case "startup_failed":
@@ -888,7 +919,12 @@ class _Handoff:
                 ),
             },
             "display": dict(launch.display),
-            "methods": list(CHAT_METHODS),
+            # A new session belongs to this environment, not to the Flow type the host polls.
+            "methods": [
+                method
+                for method in CHAT_METHODS
+                if method != START_SESSION or not self._ready.is_other_environment_session
+            ],
             "capabilities": {**self._ready.capabilities, _LAUNCHER_SESSION_SWITCH: True},
             "notices": [dict(notice) for notice in self._notices],
             "log_path": launch.log_path_shown,

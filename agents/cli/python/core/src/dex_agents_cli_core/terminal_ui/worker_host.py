@@ -164,6 +164,11 @@ class HostedRun(Protocol):
         ...
 
     @property
+    def is_other_environment_session(self) -> bool:
+        """Return whether the session started in another environment, whose Flow type it polls."""
+        ...
+
+    @property
     def capabilities(self) -> Mapping[str, Any]:
         """Return the launch document's ``capabilities``."""
         ...
@@ -301,6 +306,7 @@ class _WorkerHost:
                 "type": "worker_ready",
                 "session_id": hosted.session_id,
                 "flow_type": hosted.flow_type,
+                "is_other_environment_session": hosted.is_other_environment_session,
                 "capabilities": dict(hosted.capabilities),
                 "notices": reports.startup_notices,
                 "connectors_page_url": reports.connectors_page_url,

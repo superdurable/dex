@@ -249,7 +249,7 @@ async def test_resume_continues_the_conversation(cli_home: CliHome) -> None:
     assert await wait_for_exit(second) == 0
 
 
-async def test_resume_with_another_workspace_fails_with_a_hint(
+async def test_resume_with_another_workspace_takes_the_session_over(
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
@@ -258,10 +258,11 @@ async def test_resume_with_another_workspace_fails_with_a_hint(
     await expect(first, "> ")
     first.sendeof()
     assert await wait_for_exit(first) == 0
+    # Another workspace is another environment; see test_session_environments.
     cli_home.write_config(config_yaml({**NO_CONNECTORS, "workspace": str(tmp_path / "other")}))
     completed = await asyncio.to_thread(cli_home.run, "--resume", session_id)
-    assert completed.returncode == 2
-    assert "with the configuration file and workspace, that started it" in completed.stderr
+    assert completed.returncode == 0, completed.stderr
+    assert f"Session {session_id} was last open in execution environment " in completed.stderr
 
 
 async def test_resume_of_an_unknown_session_fails(cli_home: CliHome) -> None:

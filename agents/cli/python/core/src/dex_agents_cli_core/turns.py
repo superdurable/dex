@@ -28,7 +28,7 @@ from dex_agents_cli_core.config import EffectiveConfig, resolve_turn_config
 
 _CURRENT_TURN: ContextVar[ResolvedTurn] = ContextVar("dex_agents_cli_turn")
 # Optional runner members the session finds with isinstance checks; a wrapper must keep them.
-_OPTIONAL_RUNNER_METHODS = (
+OPTIONAL_RUNNER_METHODS = (
     "build_unfinished_turn_messages",
     "build_user_message_with_images",
     "tool_call_step_options",
@@ -241,7 +241,7 @@ def _wrap_runner(inner: Any, resolver: TurnConfigResolver) -> Any:
     """Build a wrapper class with exactly the optional members the inner runner has."""
     namespace: dict[str, Any] = {
         name: _forwarding_method(name)
-        for name in _OPTIONAL_RUNNER_METHODS
+        for name in OPTIONAL_RUNNER_METHODS
         if callable(getattr(inner, name, None))
     }
     if hasattr(inner, "supports_plan_mode"):

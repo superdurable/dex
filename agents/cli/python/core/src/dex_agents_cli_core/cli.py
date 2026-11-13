@@ -125,6 +125,14 @@ from dex_agents_cli_core.harness import (
 )
 from dex_agents_cli_core.local_tools import LocalToolSource
 from dex_agents_cli_core.local_tools.shell import ShellProcessGroups
+from dex_agents_cli_core.session_environments import (
+    SessionEnvironmentFence,
+    SessionTakeover,
+    SessionWorkerStartError,
+    build_other_harness_error,
+    is_harness_session_flow_type,
+    with_session_environment_fence,
+)
 from dex_agents_cli_core.session_lease import (
     HeldSessionLease,
     SessionLeaseHolder,
@@ -469,6 +477,9 @@ async def _open_hosted_run(
                 open_connectors_page=reports.open_connectors_page,
                 log_path=log_path,
             ),
+            resume_session_id=start.resume_session_id,
+            # The launcher is the Worker host's parent: its pid is the one a waiting terminal shows.
+            lease_holder_process_id=os.getppid(),
             process_groups=process_groups,
         )
         try:
@@ -490,46 +501,44 @@ async def _open_hosted_run(
         connectors_mcp_url=_connectors_mcp_url(inputs.config, endpoint),
         web_url=endpoint.web_url,
     )
-    # The launcher is the Worker host's parent: its pid is the one a waiting terminal shows.
-    holder = SessionLeaseHolder.for_this_process(
-        environment.session_lease_ttl_seconds, process_id=os.getppid()
-    )
-    lease = HeldSessionLease(session_worker.sessions, holder)
     return _HostedCliRun(
         session_worker,
         session_id,
         hosted,
         declared_reasoning_efforts(harness),
-        _HostedSessionLease(session_worker, lease, reports),
+        _HostedSessionLease(session_worker, reports),
     )
 
 
 class _HostedSessionLease:
     """The Worker host's side of the session lease: the launcher's requests and lost leases."""
 
-    def __init__(
-        self,
-        session_worker: _SessionWorker,
-        lease: HeldSessionLease,
-        reports: WorkerHostReports,
-    ) -> None:
+    def __init__(self, session_worker: _SessionWorker, reports: WorkerHostReports) -> None:
         self._session_worker = session_worker
-        self._lease = lease
+        self._lease = session_worker.lease
         self._reports = reports
-        lease.lost.add_done_callback(self._report_lost)
+        self._lease.lost.add_done_callback(self._report_lost)
 
     async def acquire(self, params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
-        """Try once for ``params.session_id``'s lease after checking that the session can open."""
+        """Try once for ``params.session_id``'s lease after checking that the session can open.
+
+        Once acquired, the result's ``takeover_lines`` are the lines to print
+        for a takeover from another execution environment.
+        """
         session_id = params.get("session_id")
         if not isinstance(session_id, str) or not session_id:
             return RequestOutcome.failed(
                 "invalid_params", "session_id must be a session ID.", is_remembered=False
             )
+        takeover = self._session_worker.takeover
         try:
             if session_id != self._lease.session_id:
                 await self._session_worker.open_session(session_id)
-            result = await self._lease.try_acquire(session_id)
-        except (CommandError, DexServerError) as error:
+            result = await takeover.attempt(session_id)
+            takeover_lines = (
+                await takeover.complete_takeover(session_id) if result.is_acquired else []
+            )
+        except (CommandError, DexServerError, SessionWorkerStartError) as error:
             return RequestOutcome.failed(SESSION_UNAVAILABLE, str(error), is_remembered=False)
         except (DexServiceError, TimeoutError) as error:
             return RequestOutcome.failed("lease_call_failed", str(error), is_remembered=False)
@@ -537,6 +546,7 @@ class _HostedSessionLease:
             {
                 "is_acquired": result.is_acquired,
                 "lease": None if result.lease is None else dataclasses.asdict(result.lease),
+                "takeover_lines": takeover_lines,
             }
         )
 
@@ -593,6 +603,10 @@ class _HostedCliRun:
     @property
     def flow_type(self) -> str:
         return self._session_worker.flow_type
+
+    @property
+    def is_other_environment_session(self) -> bool:
+        return self._session_worker.takeover.is_other_environment_session
 
     @property
     def capabilities(self) -> Mapping[str, Any]:
@@ -944,15 +958,15 @@ async def _run_plain_chat(
             open_connectors_page=_open_connectors_page_if_interactive(environment),
             log_path=log_path,
         ),
+        resume_session_id=arguments.resume_session_id,
     )
     terminal = Terminal()
-    lease = HeldSessionLease(
-        session_worker.sessions,
-        SessionLeaseHolder.for_this_process(environment.session_lease_ttl_seconds),
-    )
+    lease = session_worker.lease
     try:
         session_id = await session_worker.open_session(arguments.resume_session_id)
-        await _wait_for_session_lease(session_id, lease, environment)
+        await _wait_for_session_lease(session_id, session_worker.takeover, environment)
+        for line in await session_worker.takeover.complete_takeover(session_id):
+            print(line, file=sys.stderr)
         print(f"Session {session_id}")
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
@@ -977,16 +991,19 @@ async def _run_plain_chat(
 
 
 async def _wait_for_session_lease(
-    session_id: str, lease: HeldSessionLease, environment: CommandEnvironment
+    session_id: str, takeover: SessionTakeover, environment: CommandEnvironment
 ) -> None:
     """Wait until this command holds the session's lease, showing who has it meanwhile."""
-    await wait_for_session_lease(
-        session_id,
-        lambda: lease.try_acquire(session_id),
-        sys.stderr,
-        is_animated=is_waiting_line_animated(sys.stderr, environment.terminal_type),
-        columns=lambda: terminal_columns(sys.stderr),
-    )
+    try:
+        await wait_for_session_lease(
+            session_id,
+            lambda: takeover.attempt(session_id),
+            sys.stderr,
+            is_animated=is_waiting_line_animated(sys.stderr, environment.terminal_type),
+            columns=lambda: terminal_columns(sys.stderr),
+        )
+    except SessionWorkerStartError as error:
+        raise DexServerError(str(error)) from error
 
 
 async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) -> bool:
@@ -1052,18 +1069,47 @@ class _SessionWorker:
         local_tools: LocalToolSource | None,
         connection: DexConnection,
         address: str,
+        *,
+        lease_reader: AsyncClient,
+        holder: SessionLeaseHolder,
+        fence: SessionEnvironmentFence,
+        home_flow_type: str,
+        workspace: str,
+        dex_server: str,
     ) -> None:
         self.harness = harness
         self.flow = flow
         self.identity = identity
         self.client = client
         self.sessions = AgentSessionClient(client, flow)
+        self.holder = holder
         self._worker = worker
         self._blob_cache = blob_cache
         self._local_tools = local_tools
         self._connection = connection
         self._address = address
-        self._serving = asyncio.create_task(worker.start())
+        self._lease_reader = lease_reader
+        self._dex_server = dex_server
+        self._serving: asyncio.Task[None] | None = None
+        self._registration: asyncio.Task[None] | None = None
+        self._start_failure: BaseException | None = None
+        self._is_serving = False
+        is_other_environment_session = flow.get_flow_type() != home_flow_type
+        self.lease = HeldSessionLease(
+            self.sessions, holder, is_other_environment_session=is_other_environment_session
+        )
+        self.takeover = SessionTakeover(
+            client=client,
+            sessions=self.sessions,
+            fence=fence,
+            lease=self.lease,
+            holder_id=holder.holder_id,
+            session_flow_type=flow.get_flow_type(),
+            home_flow_type=home_flow_type,
+            workspace=workspace,
+            start_worker=self._start_serving_described,
+            is_worker_started=lambda: self._is_serving,
+        )
 
     @classmethod
     async def start(
@@ -1075,9 +1121,33 @@ class _SessionWorker:
         endpoint: DexServerEndpoint,
         *,
         reports: _SessionWorkerReports,
+        resume_session_id: str | None,
+        lease_holder_process_id: int | None = None,
         process_groups: ShellProcessGroups | None = None,
     ) -> _SessionWorker:
-        """Build the session Flow, start the Worker, and upload the session graph."""
+        """Build the session Flow, start the Worker, and upload the session graph.
+
+        A resumed session that another execution environment started keeps its
+        Flow type: the Worker polls that Flow type instead of this
+        environment's, and starts only when ``SessionTakeover.attempt`` finds
+        the session free.
+
+        Args:
+            environment: The command's environment.
+            harness: The harness.
+            loaded: The configuration file.
+            inputs: The run's prepared inputs.
+            endpoint: The Dex server.
+            reports: Where the run reports to the user.
+            resume_session_id: The session to resume, or ``None`` for a new one.
+            lease_holder_process_id: The pid a waiting terminal shows; ``None``
+                uses this process's.
+            process_groups: The Worker host's shell process groups, or ``None``.
+
+        Raises:
+            CommandError: If the session to resume does not exist, is closed,
+                or belongs to another harness.
+        """
         config = inputs.config
         connectors = await _connect_connectors(
             config,
@@ -1095,7 +1165,45 @@ class _SessionWorker:
             source for source in (connectors, local_tools) if source is not None
         ]
         identity = current_session_environment_identity(loaded.path, inputs.workspace)
-        flow_type = namespace_session_flow_type(harness.flow_type, identity)
+        home_flow_type = namespace_session_flow_type(harness.flow_type, identity)
+        cache_directory = environment.agents_directory / "cache" / harness.name
+        cache_directory.mkdir(parents=True, exist_ok=True)
+        blob_cache = open_blob_cache(BlobCacheConfig(str(cache_directory), _BLOB_CACHE_BYTES))
+        connection = _open_connection(inputs.connection, environment)
+        try:
+            # Describes the session to resume before its Flow exists; it needs no Flows.
+            describing_client = AsyncClient(
+                Registry([], allow_async_handlers=True),
+                blob_cache,
+                connection.client_options(endpoint.address),
+            )
+        except ValueError as error:
+            connection.close()
+            blob_cache.close()
+            raise CommandError(connection.describe_setup_error(error)) from error
+        try:
+            if connection.settings.mode != "none":
+                await _check_dex_credential(
+                    describing_client, connection, config.dex.server, endpoint.address
+                )
+            flow_type = (
+                home_flow_type
+                if resume_session_id is None
+                else await _read_resumed_session_flow_type(
+                    describing_client, resume_session_id, harness, connection, endpoint.address
+                )
+            )
+        except BaseException:
+            connection.close()
+            blob_cache.close()
+            raise
+        finally:
+            await describing_client.close()
+        holder = SessionLeaseHolder.for_this_process(
+            environment.session_lease_ttl_seconds,
+            environment_flow_type=home_flow_type,
+            process_id=lease_holder_process_id,
+        )
         context = HarnessContext(
             flow_type=flow_type,
             config=config,
@@ -1109,31 +1217,42 @@ class _SessionWorker:
         )
         harness_flow = harness.create_session_flow(context)
         _require_session_summary_setting(harness_flow, context.is_session_summary_indexed)
-        flow = with_turn_config(harness_flow, inputs.resolver)
-        _require_session_summary_setting(flow, context.is_session_summary_indexed)
-        if flow.get_flow_type() != flow_type:
+        if harness_flow.get_flow_type() != flow_type:
+            connection.close()
+            blob_cache.close()
             raise CommandError(
-                f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}"
+                f"the harness built Flow type {harness_flow.get_flow_type()}, not {flow_type}"
             )
-        registry = Registry([flow], allow_async_handlers=True)
-        cache_directory = environment.agents_directory / "cache" / harness.name
-        cache_directory.mkdir(parents=True, exist_ok=True)
-        blob_cache = open_blob_cache(BlobCacheConfig(str(cache_directory), _BLOB_CACHE_BYTES))
-        connection = _open_connection(inputs.connection, environment)
         try:
-            client = AsyncClient(registry, blob_cache, connection.client_options(endpoint.address))
+            # The fence reads stored leases through it; the Python Client reads only the
+            # Attributes of a registered Flow.
+            lease_reader = AsyncClient(
+                Registry([harness_flow], allow_async_handlers=True),
+                blob_cache,
+                connection.client_options(endpoint.address),
+            )
         except ValueError as error:
             connection.close()
             blob_cache.close()
             raise CommandError(connection.describe_setup_error(error)) from error
-        if connection.settings.mode != "none":
-            try:
-                await _check_dex_credential(client, connection, config.dex.server, endpoint.address)
-            except BaseException:
-                await client.close()
-                connection.close()
-                blob_cache.close()
-                raise
+        fence = SessionEnvironmentFence(
+            lease_reader,
+            session_flow_type=flow_type,
+            home_flow_type=home_flow_type,
+            holder_id=holder.holder_id,
+        )
+        flow = with_session_environment_fence(
+            with_turn_config(harness_flow, inputs.resolver), fence
+        )
+        _require_session_summary_setting(flow, context.is_session_summary_indexed)
+        registry = Registry([flow], allow_async_handlers=True)
+        try:
+            client = AsyncClient(registry, blob_cache, connection.client_options(endpoint.address))
+        except ValueError as error:
+            await lease_reader.close()
+            connection.close()
+            blob_cache.close()
+            raise CommandError(connection.describe_setup_error(error)) from error
         worker = AsyncWorker(
             registry,
             blob_cache,
@@ -1151,9 +1270,17 @@ class _SessionWorker:
             local_tools,
             connection,
             endpoint.address,
+            lease_reader=lease_reader,
+            holder=holder,
+            fence=fence,
+            home_flow_type=home_flow_type,
+            workspace=str(inputs.workspace.resolve()),
+            dex_server=config.dex.server,
         )
         try:
-            await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
+            # Another environment's session waits to poll until no other terminal holds it.
+            if flow_type == home_flow_type:
+                await session_worker.start_serving()
             await _upload_session_flow_definition(client, flow_type)
         except BaseException as failure:
             await session_worker.close(startup_failure=failure)
@@ -1167,8 +1294,36 @@ class _SessionWorker:
 
     @property
     def flow_type(self) -> str:
-        """Return the session Flow type."""
+        """Return the session Flow type, which the Worker polls: this environment's or another's."""
         return self.flow.get_flow_type()
+
+    async def start_serving(self) -> None:
+        """Start the Worker once and wait until it polls; later calls wait for the first."""
+        if self._registration is None:
+            self._serving = asyncio.create_task(self._worker.start())
+            self._registration = asyncio.create_task(
+                self._worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
+            )
+        try:
+            await asyncio.shield(self._registration)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as failure:
+            self._start_failure = failure
+            raise
+        self._is_serving = True
+
+    async def _start_serving_described(self) -> None:
+        """Start the deferred Worker; a refused credential or an unreachable server is one line."""
+        try:
+            await self.start_serving()
+        except asyncio.CancelledError:
+            raise
+        except Exception as failure:
+            described = _describe_dex_failure(
+                failure, self._connection, self._dex_server, self._address
+            )
+            raise SessionWorkerStartError(described or str(failure)) from failure
 
     async def open_session(self, resume_session_id: str | None) -> str:
         """Check and return the resumed session, or start a new one and return its ID."""
@@ -1199,16 +1354,18 @@ class _SessionWorker:
                 task raises the same error again, and it is not raised twice.
         """
         await self._worker.stop()
-        try:
-            await self._serving
-        except asyncio.CancelledError:
-            pass
-        except Exception as error:
-            if error is not startup_failure:
-                raise
+        if self._serving is not None:
+            try:
+                await self._serving
+            except asyncio.CancelledError:
+                pass
+            except Exception as error:
+                if error is not startup_failure and error is not self._start_failure:
+                    raise
         if self._local_tools is not None:
             await self._local_tools.browser.close()
         await self.client.close()
+        await self._lease_reader.close()
         self._connection.close()
         self._blob_cache.close()
 
@@ -1477,6 +1634,43 @@ def _describe_upload_error(error: BaseException) -> str:
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
 
+async def _read_resumed_session_flow_type(
+    client: AsyncClient,
+    resume_session_id: str,
+    harness: AgentHarness,
+    connection: DexConnection,
+    address: str,
+) -> str:
+    """Return the Flow type of the session to resume, which may be another environment's.
+
+    Raises:
+        CommandError: If the session does not exist, is closed, or belongs to
+            another harness.
+        DexServerError: If Dex rejects the credential.
+    """
+    try:
+        info = await client.describe_flow(resume_session_id)
+    except FlowNotFoundError as error:
+        raise CommandError(
+            f"session {resume_session_id} does not exist; list sessions with "
+            f"{command_name(harness)} sessions"
+        ) from error
+    except Exception as failure:
+        rejected = describe_rejected_dex_credential(failure, connection.settings, address)
+        if rejected is None:
+            raise
+        raise DexServerError(rejected) from failure
+    if not is_harness_session_flow_type(harness.flow_type, info.flow_type):
+        raise CommandError(
+            build_other_harness_error(resume_session_id, info.flow_type, command_name(harness))
+        )
+    if info.status is not FlowStatus.RUNNING:
+        raise CommandError(
+            f"session {resume_session_id} is {info.status.value}, so it cannot continue"
+        )
+    return info.flow_type
+
+
 async def _open_session(
     client: AsyncClient,
     sessions: AgentSessionClient,
@@ -1495,8 +1689,7 @@ async def _open_session(
             ) from error
         if info.flow_type != flow_type:
             raise CommandError(
-                f"session {resume_session_id} is a {info.flow_type} session, not {flow_type}; "
-                "resume it as the user, with the configuration file and workspace, that started it"
+                f"session {resume_session_id} is a {info.flow_type} session, not {flow_type}"
             )
         if info.status is not FlowStatus.RUNNING:
             raise CommandError(
