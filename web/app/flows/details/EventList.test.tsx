@@ -12,7 +12,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { EventList } from './EventList';
+import { EventList, eventBarsOf } from './EventList';
 
 afterEach(cleanup);
 
@@ -49,5 +49,25 @@ describe('event list', () => {
     );
     const link = screen.getByRole('link', { name: /child/ });
     expect(link.closest('[data-event-id]')?.getAttribute('data-event-id')).toBe('10');
+  });
+
+  it('draws a Step from its first event on the page to this one, on the page\'s own time axis', () => {
+    const at = (eventId: number, type: FlowHistoryEvent['type'], seconds: number, executionId?: string): FlowHistoryEvent => ({
+      eventId, type, eventTime: new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString(),
+      payload: executionId ? { context: { stepExecutionId: executionId } } : {},
+    });
+    const bars = eventBarsOf([
+      at(1, 'FlowStartedOrContinued', 0),
+      at(2, 'StepWaitForCompleted', 2, 'PickItems-1'),
+      at(3, 'StepExecuteCompleted', 6, 'PickItems-1'),
+      at(4, 'FlowClosed', 10),
+    ]);
+    expect(bars.get(1)).toEqual({ left: 0, width: 0 });
+    expect(bars.get(3)).toEqual({ left: 20, width: 40 });
+    expect(bars.get(4)).toEqual({ left: 100, width: 0 });
+  });
+
+  it('draws no bars for a page that spans no time', () => {
+    expect(eventBarsOf([event(1, 'FlowStartedOrContinued'), event(2, 'FlowClosed')]).size).toBe(0);
   });
 });

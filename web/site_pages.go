@@ -27,6 +27,7 @@ const (
 	basePathMetaName = "dex-web-base-path"
 	hostNameMetaName = "dex-web-host-name"
 	hostURLMetaName  = "dex-web-host-url"
+	hostPageMetaName = "dex-web-host-page"
 )
 
 // HostLink names the host page that serves a Dex Web, which the page's trail starts from.
@@ -35,21 +36,45 @@ type HostLink struct {
 	Name string
 	// URL is the host page, an http or https URL or a path starting with "/".
 	URL string
+	// Pages defaults empty. Otherwise each is another page of the host that the rail lists under Name.
+	Pages []HostPage
+}
+
+// HostPage is one more page of the host, which the rail links to under the host's name.
+type HostPage struct {
+	// Name is the page's label. It must not be blank.
+	Name string
+	// URL is the page, an http or https URL or a path starting with "/".
+	URL string
 }
 
 // ValidateHostLink returns an error when link has a blank name or a URL that is neither http(s) nor rooted.
+// Each of its Pages must pass the same checks.
 func ValidateHostLink(link HostLink) error {
 	if strings.TrimSpace(link.Name) == "" {
 		return fmt.Errorf("host link name must not be blank")
 	}
-	if strings.HasPrefix(link.URL, "/") && !strings.HasPrefix(link.URL, "//") {
-		return nil
-	}
-	parsed, err := url.Parse(link.URL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+	if !isSafeHostURL(link.URL) {
 		return fmt.Errorf("host link URL must be http, https or a rooted path: %q", link.URL)
 	}
+	for _, page := range link.Pages {
+		if strings.TrimSpace(page.Name) == "" {
+			return fmt.Errorf("host page name must not be blank")
+		}
+		if !isSafeHostURL(page.URL) {
+			return fmt.Errorf("host page URL must be http, https or a rooted path: %q", page.URL)
+		}
+	}
 	return nil
+}
+
+// isSafeHostURL reports whether value is an http(s) URL with a host or a rooted path, so it can never run script.
+func isSafeHostURL(value string) bool {
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 // sitePages serves the embedded SPA; it is immutable after construction, so many targets may share it.
@@ -135,6 +160,10 @@ func renderIndexForBasePath(indexTemplate string, basePath string, hostLink *Hos
 	meta := metaTag(basePathMetaName, basePath)
 	if hostLink != nil {
 		meta += "\n  " + metaTag(hostNameMetaName, hostLink.Name) + "\n  " + metaTag(hostURLMetaName, hostLink.URL)
+		for _, page := range hostLink.Pages {
+			meta += "\n  " + `<meta name="` + hostPageMetaName + `" content="` + html.EscapeString(page.Name) +
+				`" data-url="` + html.EscapeString(page.URL) + `" />`
+		}
 	}
 	return []byte(strings.Replace(index, "</head>", meta+"\n  </head>", 1))
 }

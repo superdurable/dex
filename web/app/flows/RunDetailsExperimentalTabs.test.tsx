@@ -216,6 +216,20 @@ function tabLabels(): string[] {
   return [...group.querySelectorAll('button')].map((button) => button.getAttribute('data-tab') ?? '');
 }
 
+/** The views in the More menu, read by opening it and closing it again. */
+function moreLabels(): string[] {
+  const more = screen.getByRole('tab', { name: /More|Streams|Actions/ });
+  fireEvent.click(more);
+  const labels = screen.getAllByRole('menuitem').map((item) => item.getAttribute('data-tab') ?? '');
+  fireEvent.click(more);
+  return labels;
+}
+
+function openMoreView(name: string) {
+  fireEvent.click(screen.getByRole('tab', { name: /^More/ }));
+  fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${name}`) }));
+}
+
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
   return {
@@ -245,13 +259,13 @@ afterEach(() => {
 });
 
 describe('Run page experimental tabs', () => {
-  it('shows Design after Streams for a run whose Flow type has a loaded definition', async () => {
+  it('offers Design as a Graph view for a run whose Flow type has a loaded definition', async () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
-    renderRun();
-    await waitFor(() => expect(tabLabels()).toContain('design'));
-    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
-    const design = screen.getByRole('tab', { name: /^Design/ });
-    expect(design.querySelector('.experimental-dot')?.getAttribute('aria-label')).toBe('Experimental');
+    renderRun('/v1/flows/run-flow/run-1?view=steps');
+    expect(await screen.findByRole('radio', { name: 'Design' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'This run' }).getAttribute('aria-checked')).toBe('true');
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'more']);
+    expect(moreLabels()).toEqual(['stream']);
   });
 
   it('reads only the definitions of the run Flow type, never every definition', async () => {
@@ -259,8 +273,8 @@ describe('Run page experimental tabs', () => {
       flowType: 'OrderFlow',
       definitions: [definitionEntry('order', 'OrderFlow', plainGraph), definitionEntry('other', 'OtherFlow', plainGraph)],
     });
-    renderRun();
-    await waitFor(() => expect(tabLabels()).toContain('design'));
+    renderRun('/v1/flows/run-flow/run-1?view=steps');
+    await screen.findByRole('radio', { name: 'Design' });
     const definitionRequests = requests.filter((path) => path.includes('definition') || path === '/api/v2/catalog');
     expect(definitionRequests).toEqual(['/api/flow-definition-types', '/api/flow-definitions/by-type']);
   });
@@ -273,7 +287,8 @@ describe('Run page experimental tabs', () => {
     expect(requests).toContain('/api/flows/summary');
     expect(runDataRequests(requests)).toEqual([]);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Execution graph' }));
+    expect(screen.getByRole('tab', { name: 'Graph' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('radio', { name: 'This run' }));
     await waitFor(() => expect(runDataRequests(requests)).toEqual(expect.arrayContaining([
       '/api/flows/history',
       '/api/flows/state',
@@ -304,7 +319,7 @@ describe('Run page experimental tabs', () => {
     const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?view=steps');
     await waitFor(() => expect(requests).toContain('/api/flows/wait'));
-    fireEvent.click(await screen.findByRole('tab', { name: /^Design/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Design' }));
     await screen.findByTestId('design-graph');
     await settle();
     const opened = requests.length;
@@ -332,22 +347,24 @@ describe('Run page experimental tabs', () => {
   it('keeps the clicked tab in the URL and follows a later view change', async () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?runAttempt=1', '/v1/flows/run-flow/run-1?view=overview');
-    fireEvent.click(await screen.findByRole('tab', { name: /^Design/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Graph' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Design' }));
     await waitFor(() => expect(screen.getByLabelText('location').textContent)
       .toBe('/v1/flows/run-flow/run-1?runAttempt=1&view=design'));
     expect(JSON.parse(window.localStorage.getItem('dex.run.selected-tab') ?? '')).toEqual({ flowId: 'run-flow', tab: 'design' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'State' }).getAttribute('aria-selected')).toBe('true'));
     expect(screen.queryByTestId('design-graph')).toBeNull();
   });
 
   it('hides Design when no loaded definition matches the Flow type', async () => {
     stubDexWeb({ flowType: 'RefundFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
-    renderRun();
+    renderRun('/v1/flows/run-flow/run-1?view=steps');
     await screen.findByText('Running');
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'more']);
+    expect(screen.queryByRole('radio', { name: 'Design' })).toBeNull();
   });
 
   it('falls back to the Timeline for a remembered tab that does not apply', async () => {
@@ -380,15 +397,33 @@ describe('Run page experimental tabs', () => {
     });
     renderRun('/v1/flows/run-flow/run-1?view=session');
     expect((await screen.findByTestId('session-view')).getAttribute('data-flow-id')).toBe('run-flow');
-    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'session', 'actions', 'design']);
+    expect(tabLabels()).toEqual(['session', 'timeline', 'steps', 'overview', 'more']);
+    expect(screen.getByRole('tab', { name: /^Conversation/ }).textContent).toContain('Experimental');
+    expect(moreLabels()).toEqual(['stream', 'actions']);
+  });
+
+  it('opens an agent session on its Conversation when no tab is remembered', async () => {
+    window.localStorage.removeItem('dex.run.selected-tab');
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: graph.v2 as FlowV2Definition }],
+    });
+    renderRun();
+    expect(await screen.findByTestId('session-view')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /^Conversation/ }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('hides Agent session and Actions without the operator API', async () => {
     const graph = sessionGraph();
     stubDexWeb({ flowType: graph.flow.name, definitions: [definitionEntry('session', graph.flow.name, graph)] });
     renderRun('/v1/flows/run-flow/run-1?view=session');
-    await waitFor(() => expect(tabLabels()).toContain('design'));
-    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
+    await screen.findByText('Running');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'more']);
+    expect(moreLabels()).toEqual(['stream']);
     expect(screen.queryByTestId('session-view')).toBeNull();
   });
 
@@ -408,7 +443,7 @@ describe('Run page experimental tabs', () => {
     fireEvent.change(sessionWorkingAs, { target: { value: permission } });
     expect(screen.getByTestId('session-view').getAttribute('data-permissions')).toBe(permission);
 
-    fireEvent.click(screen.getByRole('tab', { name: /^Actions/ }));
+    openMoreView('Actions');
     await screen.findByRole('region', { name: 'Actions' });
     expect((screen.getByRole('combobox', { name: 'Working as' }) as HTMLSelectElement).value).toBe(permission);
   });
@@ -429,7 +464,7 @@ describe('Run page experimental tabs', () => {
     renderRun(`/v1/flows/run-flow/run-1?view=actions${search}`);
     const currentRunLink = await screen.findByRole('link', { name: 'Open the current run' });
     expect(currentRunLink.getAttribute('href')).toBe('/v1/flows/run-flow?view=actions');
-    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'stream', 'design']);
+    expect(tabLabels()).toEqual(['timeline', 'steps', 'overview', 'more']);
     await settle();
     expect(screen.queryByRole('region', { name: 'Actions' })).toBeNull();
     expect(screen.queryByTestId('session-view')).toBeNull();

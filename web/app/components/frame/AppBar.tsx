@@ -6,59 +6,19 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
-import { readResponseJSON } from '@/lib/http';
-import { webURL } from '@/lib/basePath';
-import { readLastFlowsSearch, rememberFlowsSearch } from './lastFlowsSearch';
+import { Menu } from 'lucide-react';
 import { readHostLink } from '@/lib/hostLink';
-import type { FlowDefinitionTypeList } from '@/lib/types';
-import { isWorkQueueApplicable } from '../../catalog/applicability';
-import { useWebCatalog } from '../../catalog/WebCatalogProvider';
-import { FLOWS_PATH } from '../../routes';
-import { DexMark } from '../DexMark';
 import { AppBarSlotTarget } from './AppBarSlots';
-import {
-  CONNECTORS_SECTION, DESIGNS_SECTION, FLOWS_SECTION, SectionMenu, WORK_QUEUE_SECTION, type AppSection,
-} from './SectionMenu';
+import { AppRail, useRailExpanded } from './AppRail';
+import { FLOWS_SECTION, sectionOf, useAppSections, type AppSection } from './appSections';
 import { SettingsMenu } from './SettingsMenu';
 import { JumpTo } from './JumpTo';
 import { useServerReachability } from './useServerReachability';
 import './frame.css';
 
-/** Designs has something to show only when a directory file or an upload declares at least one Flow type. */
-export function hasLoadedFlowDefinitions(flowTypes: FlowDefinitionTypeList | null): boolean {
-  return flowTypes?.configured === true && flowTypes.flowTypes.length > 0;
-}
-
-/**
- * The Flow type list, which reads no definition.
- * It rereads the list on every route change, so a failed read or a new definition recovers on the next navigation.
- */
-function useFlowDefinitionTypes(pathname: string): FlowDefinitionTypeList | null {
-  const [flowTypes, setFlowTypes] = useState<FlowDefinitionTypeList | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch(webURL('/api/flow-definition-types'), { signal: controller.signal })
-      .then((response) => readResponseJSON<FlowDefinitionTypeList>(response))
-      .then(setFlowTypes)
-      // A failed read keeps the last known answer; the next navigation retries.
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [pathname]);
-  return flowTypes;
-}
-
-/** The Flows link returns to the last Flows search, which the Flows page records as it searches. */
-function useFlowsHref(pathname: string, search: string): string {
-  const [lastSearch, setLastSearch] = useState(readLastFlowsSearch);
-  useEffect(() => {
-    if (pathname === FLOWS_PATH && search) rememberFlowsSearch(search);
-    setLastSearch(readLastFlowsSearch());
-  }, [pathname, search]);
-  return `${FLOWS_PATH}${lastSearch}`;
-}
+export { hasLoadedFlowDefinitions } from './appSections';
 
 // Later tabs lose their names first; the active tab keeps its name.
 const COMPACT_VIEW_LEVELS = ['tail', 'all'] as const;
@@ -70,7 +30,7 @@ function useCompactViews(bar: HTMLElement | null) {
     // Without ResizeObserver, as in some test environments, the views keep their names.
     if (!bar || !views || typeof ResizeObserver === 'undefined') return undefined;
     const update = () => {
-      const tabs = views.firstElementChild as HTMLElement | null;
+      const tabs = views.querySelector<HTMLElement>('.run-tabs') ?? views.firstElementChild as HTMLElement | null;
       if (!tabs) return;
       delete bar.dataset.compactViews;
       for (const level of COMPACT_VIEW_LEVELS) {
@@ -100,48 +60,59 @@ function useCompactViews(bar: HTMLElement | null) {
   }, [bar]);
 }
 
-/** The one bar of every page: the trail, the page's slots, then settings. */
-export function AppBar() {
-  const { canUseV2, hasConnectorSetup } = useWebCatalog();
+/** The rail and the bar around a page; both share one reading of the sections. */
+export function AppFrame({ children }: { children: ReactNode }) {
   const { pathname, search } = useLocation();
-  const flowTypes = useFlowDefinitionTypes(pathname);
-  const flowsHref = useFlowsHref(pathname, search);
+  const { sections, flowsHref } = useAppSections(pathname, search);
   const hostLink = useMemo(readHostLink, []);
   const reachability = useServerReachability(pathname);
+  const [isRailExpanded, setIsRailExpanded] = useRailExpanded();
+  const [isPhoneRailOpen, setIsPhoneRailOpen] = useState(false);
+  // Following a link closes the phone menu.
+  useEffect(() => setIsPhoneRailOpen(false), [pathname]);
+  return (
+    <div className={`app-shell${isRailExpanded ? ' has-expanded-rail' : ''}`}>
+      <AppRail
+        flowsHref={flowsHref}
+        hostLink={hostLink}
+        isExpanded={isRailExpanded}
+        isPhoneOpen={isPhoneRailOpen}
+        onExpandedChange={setIsRailExpanded}
+        onPhoneClose={() => setIsPhoneRailOpen(false)}
+        reachability={reachability}
+        sections={sections}
+      />
+      <div className="app-column">
+        <AppBar flowsHref={flowsHref} onOpenPhoneRail={() => setIsPhoneRailOpen(true)} sections={sections} />
+        <main className="app-main">{children}</main>
+      </div>
+    </div>
+  );
+}
+
+/** The one bar of every page: the section, the page's slots, then settings. */
+export function AppBar({
+  sections,
+  flowsHref,
+  onOpenPhoneRail,
+}: {
+  sections: readonly AppSection[];
+  flowsHref: string;
+  onOpenPhoneRail: () => void;
+}) {
+  const { pathname } = useLocation();
   const [bar, setBar] = useState<HTMLElement | null>(null);
   useCompactViews(bar);
-  const hasFlowDefinitions = hasLoadedFlowDefinitions(flowTypes);
-  const hasWorkQueue = isWorkQueueApplicable(flowTypes, canUseV2);
-  const sections: AppSection[] = [
-    FLOWS_SECTION,
-    ...(hasWorkQueue ? [WORK_QUEUE_SECTION] : []),
-    ...(hasFlowDefinitions ? [DESIGNS_SECTION] : []),
-    ...(hasConnectorSetup ? [CONNECTORS_SECTION] : []),
-  ];
+  const current = sectionOf(pathname, sections);
   return (
     <header className="app-bar v1-page" ref={setBar}>
       <nav aria-label="Trail" className="app-bar-trail">
-        {hostLink ? (
-          // The host page replaces the whole window, not just the frame Dex Web runs in.
-          <a className="app-bar-root app-bar-root--host" href={hostLink.url} target="_top">
-            <ChevronLeft aria-hidden="true" size={16} strokeWidth={2.25} />
-            <span>{hostLink.name}</span>
-          </a>
-        ) : (
-          <Link aria-label="Dex home" className="app-bar-root" to={FLOWS_PATH}>
-            <DexMark size={22} />
-          </Link>
-        )}
-        {reachability !== 'checking' && (
-          <span
-            aria-label={reachability === 'reachable' ? 'Dex Server reachable' : 'Dex Web cannot reach the Dex Server'}
-            className={`app-bar-reach-dot is-${reachability}`}
-            role="img"
-            title={reachability === 'reachable' ? 'Dex Server reachable' : 'Dex Web cannot reach the Dex Server'}
-          />
-        )}
-        <span aria-hidden="true" className="app-bar-separator">/</span>
-        <SectionMenu flowsHref={flowsHref} sections={sections} />
+        <button aria-label="Open navigation" className="app-bar-icon-button app-bar-rail-button" onClick={onOpenPhoneRail} type="button">
+          <Menu aria-hidden="true" size={18} strokeWidth={2} />
+        </button>
+        <Link className="app-bar-section-link" to={current === FLOWS_SECTION ? flowsHref : current.path}>
+          {current.label}
+        </Link>
         <AppBarSlotTarget className="app-bar-page" name="page" />
       </nav>
       <AppBarSlotTarget className="app-bar-views" name="views" />

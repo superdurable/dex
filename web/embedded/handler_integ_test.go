@@ -168,6 +168,11 @@ func newHostApplication(t *testing.T, cfg *embedded.Config) *hostApplication {
 		case "linked":
 			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/linked", HostLink: &embedded.HostLink{
 				Name: `test <b>`, URL: "/servers/test?tab=overview&x=1",
+				Pages: []embedded.HostPage{{Name: "Settings", URL: "https://console.example/servers/test/settings?a=1&b=2"}},
+			}}, nil
+		case "bad-host-page":
+			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/bad-host-page", HostLink: &embedded.HostLink{
+				Name: "test", URL: "/servers/test", Pages: []embedded.HostPage{{Name: "Settings", URL: "javascript:alert(1)"}},
 			}}, nil
 		case "bad-host-link":
 			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/bad-host-link", HostLink: &embedded.HostLink{
@@ -293,7 +298,8 @@ func TestHandlerRecordsTheHostLinkForTheTrail(t *testing.T) {
 	linked := host.send(t, http.MethodGet, "/dex-web/linked/v1/flows", "", nil)
 	if linked.status != http.StatusOK ||
 		!strings.Contains(linked.body, `<meta name="dex-web-host-name" content="test &lt;b&gt;" />`) ||
-		!strings.Contains(linked.body, `<meta name="dex-web-host-url" content="/servers/test?tab=overview&amp;x=1" />`) {
+		!strings.Contains(linked.body, `<meta name="dex-web-host-url" content="/servers/test?tab=overview&amp;x=1" />`) ||
+		!strings.Contains(linked.body, `<meta name="dex-web-host-page" content="Settings" data-url="https://console.example/servers/test/settings?a=1&amp;b=2" />`) {
 		t.Fatalf("linked page = %d %s", linked.status, linked.body)
 	}
 	plain := host.send(t, http.MethodGet, "/dex-web/server-a/v1/flows", "", nil)
@@ -303,6 +309,10 @@ func TestHandlerRecordsTheHostLinkForTheTrail(t *testing.T) {
 	if bad := host.send(t, http.MethodGet, "/dex-web/bad-host-link/v1/flows", "", nil); bad.status != http.StatusInternalServerError ||
 		strings.Contains(bad.body, "javascript") {
 		t.Fatalf("page with an unsafe host link = %d %s", bad.status, bad.body)
+	}
+	if bad := host.send(t, http.MethodGet, "/dex-web/bad-host-page/v1/flows", "", nil); bad.status != http.StatusInternalServerError ||
+		strings.Contains(bad.body, "javascript") {
+		t.Fatalf("page with an unsafe host page = %d %s", bad.status, bad.body)
 	}
 }
 

@@ -117,6 +117,21 @@ type HostLink struct {
 	Name string
 	// URL is where the name links: an http or https URL, or a path starting with "/".
 	URL string
+	// Pages defaults empty. Otherwise Dex Web's rail lists each under Name, such as the Dex Server's settings
+	// page in your console. Each page follows the same rules as Name and URL.
+	//
+	// Since 1.45.3.
+	Pages []HostPage
+}
+
+// HostPage is another page of the host that Dex Web's rail links to, under the host link's name.
+//
+// Since 1.45.3.
+type HostPage struct {
+	// Name is the page's label in the rail. It must not be blank.
+	Name string
+	// URL is where the label links: an http or https URL, or a path starting with "/".
+	URL string
 }
 
 // TargetResolver returns the Dex Server that a request reaches.
@@ -206,7 +221,11 @@ func webHostLink(link *HostLink) *web.HostLink {
 	if link == nil {
 		return nil
 	}
-	return &web.HostLink{Name: link.Name, URL: link.URL}
+	pages := make([]web.HostPage, 0, len(link.Pages))
+	for _, page := range link.Pages {
+		pages = append(pages, web.HostPage{Name: page.Name, URL: page.URL})
+	}
+	return &web.HostLink{Name: link.Name, URL: link.URL, Pages: pages}
 }
 
 func (handler *dexWebHandler) writeResolveError(response http.ResponseWriter, request *http.Request, err error) {

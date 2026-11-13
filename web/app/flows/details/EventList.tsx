@@ -40,6 +40,28 @@ function executionIdOf(event: FlowHistoryEvent): string {
   return typeof id === 'string' ? id : '';
 }
 
+/** Where each event's bar sits on the page's own time axis, in percent; empty when the page spans no time. */
+export function eventBarsOf(events: readonly FlowHistoryEvent[]): Map<number, { left: number; width: number }> {
+  const bars = new Map<number, { left: number; width: number }>();
+  const timed = events
+    .map((event) => ({ event, ms: event.eventTime ? Date.parse(event.eventTime) : Number.NaN }))
+    .filter(({ ms }) => Number.isFinite(ms))
+    .sort((left, right) => left.event.eventId - right.event.eventId);
+  if (timed.length < 2) return bars;
+  const startMs = Math.min(...timed.map(({ ms }) => ms));
+  const spanMs = Math.max(...timed.map(({ ms }) => ms)) - startMs;
+  if (spanMs <= 0) return bars;
+  // A Step's bar runs from its execution's first event on this page to this event.
+  const firstMsOfExecution = new Map<string, number>();
+  for (const { event, ms } of timed) {
+    const executionId = executionIdOf(event);
+    const fromMs = executionId ? firstMsOfExecution.get(executionId) ?? ms : ms;
+    if (executionId && !firstMsOfExecution.has(executionId)) firstMsOfExecution.set(executionId, ms);
+    bars.set(event.eventId, { left: ((fromMs - startMs) / spanMs) * 100, width: ((ms - fromMs) / spanMs) * 100 });
+  }
+  return bars;
+}
+
 /** One page of events as one-line rows, newest first, for scanning beside the selected event. */
 export function EventList({
   events,
@@ -77,6 +99,7 @@ export function EventList({
     }
     return children;
   }, [childFlows, events, flowId]);
+  const barOf = useMemo(() => eventBarsOf(events), [events]);
   const listRef = useRef<HTMLDivElement>(null);
   const startMs = runStartTime ? Date.parse(runStartTime) : Number.NaN;
   const selectedIndex = selectedEvent ? rows.findIndex((event) => event.eventId === selectedEvent.eventId) : -1;
@@ -131,7 +154,7 @@ export function EventList({
     <div
       aria-activedescendant={selectedEvent ? `event-row-${selectedEvent.eventId}` : undefined}
       aria-label="Events, newest first. Arrow keys or J and K move; T time travels from the selected event."
-      className="event-list"
+      className={`event-list${barOf.size > 0 ? ' has-bars' : ''}`}
       onKeyDown={moveWithKeys}
       ref={listRef}
       role="listbox"
@@ -178,6 +201,13 @@ export function EventList({
                 </Link>
               )}
             </span>
+            {barOf.size > 0 && (
+              <span aria-hidden="true" className="event-list-bar">
+                {barOf.has(event.eventId) && (
+                  <i style={{ left: `${barOf.get(event.eventId)!.left}%`, width: `${barOf.get(event.eventId)!.width}%` }} />
+                )}
+              </span>
+            )}
             <span className="event-list-offset">{offset}</span>
             {onTimeTravelFromEvent && eventTimeTravelTarget(event) && (
               <button

@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { FlowExecution } from '@/lib/types';
-import { selectVisibleIndexedAttributeKeys } from './FlowSearchPage';
+import { flowGroupCountsLabel, flowsByType, selectVisibleIndexedAttributeKeys } from './FlowSearchPage';
 
 describe('Flow Search Indexed Attribute columns', () => {
   it('shows application attributes without duplicate or internal columns', () => {
@@ -52,5 +52,22 @@ describe('Flow Search Indexed Attribute columns', () => {
       'customer-email',
       'registration-state',
     ]);
+  });
+});
+
+describe('Flows grouped by type', () => {
+  const run = (flowId: string, flowType: string, flowStatus: string) => ({ flowId, flowType, flowStatus } as FlowExecution);
+
+  it('keeps the order in which each Flow type first appears', () => {
+    const groups = flowsByType([run('a', 'OrderFlow', 'Completed'), run('b', 'SyncFlow', 'Running'), run('c', 'OrderFlow', 'Failed')]);
+    expect(groups.map((group) => [group.flowType, group.flows.map((flow) => flow.flowId)])).toEqual([
+      ['OrderFlow', ['a', 'c']],
+      ['SyncFlow', ['b']],
+    ]);
+  });
+
+  it('counts a group by status, busiest first', () => {
+    expect(flowGroupCountsLabel([run('a', 'F', 'Failed'), run('b', 'F', 'Completed'), run('c', 'F', 'Completed'), run('d', 'F', 'Timed out')]))
+      .toBe('2 completed · 1 failed · 1 timed out');
   });
 });

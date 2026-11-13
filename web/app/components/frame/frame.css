@@ -250,27 +250,12 @@ body {
   transform: scaleX(1);
 }
 
-.experimental-dot {
-  display: inline-block;
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-left: 2px;
-  border-radius: 50%;
-  vertical-align: middle;
-  background: #8b5cf6;
-}
 
 .app-bar-actions {
   flex: none;
   gap: 4px;
 }
 
-.app-bar .live-toggle {
-  margin-right: 2px;
-  padding: 5px 10px 5px 9px;
-  transition: background-color 150ms ease, color 150ms ease;
-}
 
 .operate-menu-button {
   padding: 0 10px 0 12px;
@@ -924,10 +909,6 @@ body {
   padding-left: 8px;
 }
 
-.app-bar .live-toggle {
-  min-width: 84px;
-  justify-content: center;
-}
 
 /* The Flow ID is what gives way first, down to a readable stub. */
 .app-bar-page > .run-facts-menu {
@@ -1414,10 +1395,6 @@ body {
     display: inline;
   }
 
-  .app-bar .live-toggle {
-    min-width: 0;
-    padding: 0 9px;
-  }
 
   .app-bar-icon-button.app-bar-jump-button {
     padding: 0 4px;
@@ -1479,9 +1456,498 @@ body {
 }
 
 /* An early tab's marker is a quiet dot, not an unread badge. */
-.app-bar.v1-page .run-tabs .experimental-dot {
-  width: 5px;
-  height: 5px;
-  background: var(--ui-ink-3);
-  opacity: 0.6;
+
+/* -------------------------------------------------------------- left rail */
+
+/* The rail and the page column; the rail starts collapsed to its icons. */
+.app-shell {
+  --rail-w: 56px;
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-shell.has-expanded-rail {
+  --rail-w: 200px;
+}
+
+.app-column {
+  min-width: 0;
+}
+
+.app-rail {
+  position: sticky;
+  z-index: 32;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: var(--rail-w);
+  height: 100vh;
+  padding: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ui-surface) 70%, var(--ui-page));
+  box-shadow: 1px 0 0 var(--ui-hairline);
+  transition: width 150ms ease;
+}
+
+.app-rail-server,
+.app-rail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-rail-server {
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  box-shadow: 0 1px 0 var(--ui-hairline);
+}
+
+.app-rail-sections {
+  flex: 1;
+  min-height: 0;
+}
+
+.app-rail-item {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-rail-item:hover {
+  background: var(--ui-hover);
+  color: var(--ui-ink);
+}
+
+.app-rail-item:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: -2px;
+}
+
+.app-rail-item[aria-current='page'] {
+  color: var(--ui-ink);
+  background: var(--tone-accent-soft);
+}
+
+.app-rail-icon {
+  flex: none;
+}
+
+.app-rail-mark {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -2px;
+}
+
+.app-rail-host {
+  height: 42px;
+  color: var(--ui-ink);
+}
+
+.app-rail-host-page {
+  height: 32px;
+  font-weight: 500;
+}
+
+.app-rail-reach {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone-done);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-surface) 70%, var(--ui-page));
+}
+
+.app-rail-reach.is-unreachable {
+  background: var(--tone-fail);
+}
+
+.app-rail-label {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.app-rail.is-expanded .app-rail-label,
+.app-rail.is-phone-open .app-rail-label {
+  opacity: 1;
+}
+
+/* Collapsed, the Experimental heading is a dashed divider; expanded, it is a word. */
+.app-rail-heading {
+  height: 18px;
+  margin: 10px 10px 2px;
+  border-top: 1px dashed var(--ui-hairline);
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app-rail.is-expanded .app-rail-heading,
+.app-rail.is-phone-open .app-rail-heading {
+  height: auto;
+  margin: 14px 10px 4px;
+  border-top: 0;
+}
+
+.app-rail-toggle {
+  color: var(--ui-ink-3);
+}
+
+.app-bar-rail-button,
+.app-rail-backdrop {
+  display: none;
+}
+
+/* The word that marks an early feature, everywhere it appears. */
+.experimental-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--tone-wait) 45%, transparent);
+  border-radius: 4px;
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+/* A phone has no room for a rail: it opens over the page from the bar's menu button. */
+@media (max-width: 720px) {
+  .app-shell,
+  .app-shell.has-expanded-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-rail {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: min(280px, 85vw);
+    height: auto;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+  }
+
+  .app-rail.is-phone-open {
+    transform: none;
+    box-shadow: 0 0 40px rgb(0 0 0 / 25%);
+  }
+
+  .app-rail-toggle {
+    display: none;
+  }
+
+  .app-bar-rail-button {
+    display: inline-flex;
+  }
+
+  .app-rail-backdrop {
+    position: fixed;
+    z-index: 31;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 30%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-rail,
+  .app-rail-label {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------- run views, round 2 */
+
+/* The tab list scrolls; its More menu hangs from the wrapper, so the list never clips it. */
+.run-views {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.app-bar.v1-page .run-tabs .experimental-tag {
+  margin-left: 0;
+}
+
+.run-tabs-more-popover {
+  min-width: 220px;
+}
+
+.run-tabs-more-group {
+  display: grid;
+  gap: 2px;
+}
+
+.run-tabs-more-group + .run-tabs-more-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  box-shadow: inset 0 1px 0 var(--ui-hairline);
+}
+
+.run-tabs-more-heading {
+  padding: 6px 10px 2px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.run-tabs-more-popover .app-bar-menu-item[aria-current='true'] {
+  background: var(--tone-accent-soft);
+}
+
+.run-tabs-more-popover .app-bar-menu-words b {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Graph's This run | Design switch heads the canvas it switches. */
+.graph-view-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  margin: 0 0 10px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.graph-view-switch button {
+  height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.graph-view-switch button[aria-checked='true'] {
+  color: var(--ui-ink);
+  background: var(--ui-surface);
+  box-shadow: 0 1px 2px rgb(15 23 36 / 12%), 0 0 0 1px var(--ui-hairline);
+}
+
+.graph-view-switch button:focus-visible,
+.live-status:focus-visible,
+.run-io-button:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
+}
+
+/* Live is the event list's own status, beside its pager, never in the bar. */
+.live-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.live-status.is-on {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.live-status b {
+  color: var(--ui-ink);
+}
+
+.live-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-accent) 22%, transparent);
+  animation: live-status-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-status-pulse {
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone-accent) 8%, transparent); }
+}
+
+.run-events-line .live-status {
+  align-self: center;
+  margin-left: 4px;
+}
+
+.run-events-controls .graph-view-switch {
+  margin: 0 0 0 auto;
+}
+
+/* Input and Result sit on the run line, before its jump to the event that matters. */
+.run-io {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-context + .run-io,
+.run-state-message + .run-io,
+.run-failure-message + .run-io {
+  margin-left: auto;
+}
+
+.run-io-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.run-io-button:hover {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.run-io-button[aria-pressed='true'] {
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-status-dot {
+    animation: none;
+  }
+}
+
+/* Each row's bar on the page's own time axis: where the time went, without opening anything. */
+.v1-page .event-list-bar {
+  display: none;
+}
+
+@media (min-width: 1440px) {
+  .v1-page .event-list.has-bars .event-list-row {
+    grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) 76px 120px 64px 26px;
+  }
+
+  .v1-page .event-list.has-bars .event-list-bar {
+    position: relative;
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--ui-hairline) 60%, transparent);
+  }
+
+  .v1-page .event-list-bar i {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    min-width: 2px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--tone-done) 75%, transparent);
+  }
+
+  .v1-page .event-list-row.tone-failed .event-list-bar i { background: var(--tone-fail); }
+  .v1-page .event-list-row.tone-waiting .event-list-bar i { background: var(--tone-wait); }
+  .v1-page .event-list-row.tone-fork .event-list-bar i { background: var(--tone-accent); }
+}
+
+/* Grouped by Flow type, each group opens with its name, its counts on this page, and its design. */
+.v1-page .flow-group-toggle[aria-pressed='true'] {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.v1-page .flow-table .flow-group-row td {
+  padding-top: 14px;
+  padding-bottom: 8px;
+  background: color-mix(in srgb, var(--ui-chip) 60%, transparent);
+  font-size: var(--ui-text-sm);
+}
+
+.flow-group-name {
+  color: var(--ui-ink);
+  font-weight: 700;
+}
+
+.flow-group-counts {
+  margin-left: 10px;
+  color: var(--ui-ink-3);
+}
+
+.flow-group-design {
+  float: right;
+  color: var(--tone-accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.flow-group-design:hover {
+  text-decoration: underline;
+}
+
+/* On a phone the run line's message takes its own row, and its buttons wrap under it. */
+@media (max-width: 760px) {
+  .run-failure-line,
+  .run-state-line {
+    flex-wrap: wrap;
+  }
+
+  .run-failure-message,
+  .run-state-message {
+    flex-basis: calc(100% - 30px);
+  }
+
+  .run-failure-line .run-io,
+  .run-state-line .run-io {
+    margin-left: 0;
+  }
 }

@@ -12,7 +12,7 @@ description: "dexcli visualize turns one Go, Python, or TypeScript Flow source f
 dexcli visualize ./order_flow.go
 ```
 
-The default schema version is 1.0. Go, Python, and TypeScript sources can produce Version 2.0 for the Dex Web **Design** tab and **Designs**:
+The default schema version is 1.0. Go, Python, and TypeScript sources can produce Version 2.0 for the **Design** view of a Dex Web run's **Graph** and **Designs**:
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0
@@ -40,7 +40,7 @@ dexcli dev --flow-rendering-dir ./build
 
 Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41.0: the page was called **Flow Rendering**. The menu links to it only while at least one Flow type has a definition. The header checks again on every page change. Without definitions, the page explains how to load them. Since 1.45.0, each definition in the list shows its source, and an uploaded one also shows when it was generated and uploaded. A definition that Dex Web rejected shows why instead of a graph. The page does not use Flow search or run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41.0: one Flow design graph draws Version 1.0 and Version 2.0 files. For a Version 2.0 file, its diagnostics follow the graph. See [Dex Web](/reference/web/dex-web#flow-canvas).
 
-The **Design** tab of a run also renders the definition of the run's Flow type, and **Work Queue** uses the definitions to list runs. See [Dex Web](/reference/web/dex-web).
+The **Design** view of a run's **Graph** also renders the definition of the run's Flow type, and **Work Queue** uses the definitions to list runs. See [Dex Web](/reference/web/dex-web).
 
 ### Definition sources {#definition-sources}
 
@@ -60,7 +60,7 @@ Dex Web loads definitions only where they are used:
 | Page or route | What it reads |
 | --- | --- |
 | The header and **/readyz** | The Flow types that have a definition, without their content. |
-| A run page, its **Design**, **Actions**, and **Agent session** tabs, and the v2 routes for one Flow type | The definitions of that one Flow type, through **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. The Flow type is a query parameter, so Flow types such as **.** work. The browser keeps the answer and asks again with its revision, so an unchanged definition is not sent again. The route answers 304 to an **If-None-Match** that names the revision, weak or strong, or **\***. |
+| A run page, its **Design** view, **Actions**, and **Conversation**, and the v2 routes for one Flow type | The definitions of that one Flow type, through **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. The Flow type is a query parameter, so Flow types such as **.** work. The browser keeps the answer and asks again with its revision, so an unchanged definition is not sent again. The route answers 304 to an **If-None-Match** that names the revision, weak or strong, or **\***. |
 | **Designs** | Every definition without its graph, through **GET /api/flow-definitions**, then the graph of the selected one. |
 | **Work Queue** and **New session** | Every Version 2.0 contract, through **GET /api/v2/catalog**, and the graphs of the Flow types being searched. |
 | **Connectors** | Every definition, to find the connections that Flows use. The app asks for the Connectors listing once when it loads, not on every page. |

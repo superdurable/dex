@@ -38,8 +38,11 @@ export function RunEventsTile({
   paging,
   pageSize,
   onPageSizeChange,
+  status,
   children,
 }: {
+  /** The page's own status, such as Live, which follows the event count. */
+  status?: ReactNode;
   /** Controls of the view the tile heads, after the page controls. */
   children?: ReactNode;
   latestEventId: number | null;
@@ -59,6 +62,7 @@ export function RunEventsTile({
           </span>
         )}
         <span className="run-events-latest">{latestEventId === null ? 'None yet' : `Latest #${latestEventId}`}</span>
+        {status}
       </div>
       <div className="run-events-controls">
         {paging && hasOtherPages(paging) && <RunEventsPager paging={paging} />}

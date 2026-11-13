@@ -71,14 +71,14 @@ Check who may approve before you call the RPC. The example routes accept only a 
 
 ## Approve in Dex Web {#approve-in-dex-web}
 
-You can also approve a call in Dex Web. Dex Web shows the **Agent session** tab for a Flow type whose session graph the server holds.
+You can also approve a call in Dex Web. Dex Web shows the **Conversation** tab for a Flow type whose session graph the server holds.
 
 The [Agent Quick Start](/agent-frameworks/quick-start) program uploads that graph itself, in Python and in TypeScript: its Worker passes the graph in its Worker options (`flow_definitions` in Python, `flowDefinitions` in TypeScript) when it starts. So with plain **dexcli dev**, Dex Web already shows the tab. The upload needs recent Dex Agents and Dex Server releases; [Upload the session graph from the Worker](/reference/agents/dex-web#upload-the-graph) has the details.
 
 Then approve the call:
 
 1. Open the session's run. Its Flow ID is the session ID.
-2. Select the **Agent session** tab.
+2. Select the **Conversation** tab, where a session's run opens.
 3. Set **Working as** to `agent-quick-start.operate`, the permission in the graph.
 4. Select **Approve** or **Reject** on the `cancel_order` card. Dex Web calls `resolve_interrupt` for you.
 
