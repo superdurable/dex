@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dex_agents_cli_core.dex_connection import DexConnectionSettings
 from dex_agents_cli_core.terminal_ui.channel import MessageChannel
 from dex_agents_cli_core.terminal_ui.child_process import ChildProcess
 from dex_agents_cli_core.terminal_ui.contract import (
@@ -559,7 +560,7 @@ class _Handoff:
         """Return dexcli's exit status after ``ready``, or a fallback kind before it."""
         channel_socket, terminal_ui_socket = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         child_fd = terminal_ui_socket.fileno()
-        auth = {"mode": "none"}
+        auth = DexConnectionSettings.from_json(self._launch.start.dex_connection).launch_auth()
         environment = build_terminal_ui_environment(self._launch.terminal_variables, auth)
         standard_output, standard_error = terminal_output
         try:
@@ -702,6 +703,7 @@ class _Handoff:
 
     def _launch_document(self) -> dict[str, Any]:
         launch = self._launch
+        connection = DexConnectionSettings.from_json(launch.start.dex_connection)
         return {
             "type": "launch",
             "contract": launch.contract,
@@ -714,8 +716,8 @@ class _Handoff:
             },
             "dex": {
                 "server_address": launch.start.server_address,
-                "tls": {"enabled": launch.start.is_tls, "ca_file": None, "server_name": None},
-                "auth": {"mode": "none"},
+                "tls": connection.launch_tls(),
+                "auth": connection.launch_auth(),
                 "web_url": launch.start.web_url,
             },
             "session": {

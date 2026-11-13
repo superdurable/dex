@@ -72,6 +72,9 @@ class WorkerHostStart:
         is_tls: Whether the Dex server uses TLS.
         web_url: Dex Web's URL, or ``None``.
         connectors_mcp_url: The ``dexcli dev`` connectors MCP endpoint, or ``None``.
+        dex_connection: The resolved Dex connection settings, as
+            ``DexConnectionSettings.to_json`` returns them. They hold no secret;
+            the Worker host reads it from its own environment.
     """
 
     config_path: str | None
@@ -81,6 +84,7 @@ class WorkerHostStart:
     is_tls: bool
     web_url: str | None
     connectors_mcp_url: str | None
+    dex_connection: Mapping[str, Any]
 
     def to_message(self) -> dict[str, Any]:
         """Return the ``start`` message."""

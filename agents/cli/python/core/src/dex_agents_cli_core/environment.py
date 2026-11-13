@@ -43,6 +43,18 @@ DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 #:
 #: .. versionadded:: 0.6.0
 OPEN_BROWSER_ENVIRONMENT_VARIABLE = "DEX_AGENTS_OPEN_BROWSER"
+#: The variables that may give the Dex connection settings, with ``dexcli``'s names.
+#:
+#: .. versionadded:: 0.6.3
+DEX_CONNECTION_ENVIRONMENT_NAMES = (
+    "DEX_API_KEY",
+    "DEX_TOKEN_URL",
+    "DEX_SERVER_ID",
+    "DEX_CREDENTIAL",
+    "DEX_CREDENTIAL_FILE",
+    "DEX_TLS_CA_FILE",
+    "DEX_TLS_SERVER_NAME",
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +84,12 @@ class CommandEnvironment:
             terminal, locale, and Dex auth variables that are set.
 
             .. versionadded:: 0.6.0
+        dex_connection_variables: The Dex connection variables that are set
+            and not empty after trimming, trimmed. Only the ``dex.auth`` mode
+            of the configuration decides which of them a command uses. See
+            ``resolve_dex_connection_settings``.
+
+            .. versionadded:: 0.6.3
     """
 
     home: Path
@@ -85,6 +103,7 @@ class CommandEnvironment:
     is_browser_opening_enabled: bool = True
     terminal_type: str | None = None
     terminal_variables: Mapping[str, str] = field(default_factory=dict)
+    dex_connection_variables: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> CommandEnvironment:
@@ -123,6 +142,11 @@ class CommandEnvironment:
                 name: values[name]
                 for name in (*TERMINAL_ENVIRONMENT_NAMES, *AUTH_ENVIRONMENT_NAMES)
                 if name in values
+            },
+            dex_connection_variables={
+                name: values[name].strip()
+                for name in DEX_CONNECTION_ENVIRONMENT_NAMES
+                if values.get(name, "").strip()
             },
         )
 
