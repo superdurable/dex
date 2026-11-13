@@ -16,7 +16,7 @@ and upgrade steps.
 
 ## 0.6 {#v0-6}
 
-Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2).
+Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3).
 
 ### Breaking
 
@@ -33,6 +33,20 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
 - Python and TypeScript CLI commands run against a remote Dex server that requires TLS and a credential. The new **dex.auth** section of the configuration file selects **api_key**, with the key in **DEX_API_KEY**, or **bearer**, with the token in **DEX_CREDENTIAL** or a token file. **dex.tls** adds a CA file or a server name for an **https** **dex.server**. The Worker, every Client, and the terminal UI use them. A missing setting stops the command at startup with a message that names it, and a rejected credential says whether the token endpoint or the server refused it. Shell commands, the browser, and **dexcli dev** never see the credential variables. Without **dex.auth**, the command reads none of these variables, so existing configurations keep working. [Reference](/reference/agents/cli#remote-server). Since 0.6.2.
 - A user message can carry a self-declared sender name, **sender_name**, on **send_user_message** and **steer_user_message**. The model sees the message as **Alice: text**, and Dex Web and dexcli agents-tui show the name. The name is not authenticated. [Reference](/reference/agents/dex-web#sender-names). Since 0.6.2.
 - Python and TypeScript CLI commands: the new **reasoning_effort** session setting picks the reasoning effort of every model call from the next turn. **dex-agents-claude-sdk** offers **low** to **max**; the built-in, OpenAI Agents SDK, Pydantic AI, Vercel AI SDK, and Pi commands offer **low**, **medium**, and **high**. In the terminal UI, with dexcli 1.47.0, **/effort** changes it and **/model** lists the command's suggested models. [Reference](/reference/agents/cli#model-and-effort). Since 0.6.2.
+- Python and TypeScript CLI commands: a session is open in at most one command
+  at a time. A command that opens a session another command has open, with
+  **--resume**, **/sessions**, or **/new**, waits, and takes the session over
+  as soon as the other command exits. While it waits it shows one status line
+  that updates in place, with who has the session open, how long it has
+  waited, and Ctrl-C to quit. A killed or paused command frees the session
+  after 15 seconds; a paused command that continues after another took its
+  session stops its chat with one line. In the terminal UI, **/sessions** and
+  **/new** wait the same way with dexcli 1.47.2. Commands of earlier releases
+  take no lease. [Reference](/reference/agents/cli#one-terminal-per-session). Since 0.6.3.
+- Python and TypeScript cores: the session Flow has the
+  **acquire_session_terminal_lease** and **release_session_terminal_lease**
+  RPCs and the **SessionTerminalLease** Attribute, which mark the terminal that
+  has the session open. Since 0.6.3.
 
 ### Changed
 
@@ -57,6 +71,11 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
 - Python and TypeScript Claude Agent SDK adapters: when the user rejects a call of a Claude Code tool, such as **Write** or **Bash**, the model sees "The user rejected this Write call: not now" instead of a PreToolUse hook error. Deadline, planning-turn, and cancellation rejections keep their recorded text, and the session still records the call as rejected.
 - Python and TypeScript Claude Agent SDK adapters: an approved Claude Code tool call writes one **tool_call_started**, from its tool Step, and one **tool_call_finished**, from the Claude Code run in the resumed turn. The finish is **failed** when that run fails, such as a **Bash** command that exits with an error, and **outcome_unknown** when the turn segment ends without its result. The **dex-agents-claude-sdk** commands no longer print each approved call twice.
 - **dex-agents-claude-sdk** (Python): Claude Code's standard error goes to the command's log file without terminal control sequences, so the chat no longer shows the cursor control code that Claude Code writes when it exits.
+- Python and TypeScript CLI commands: when the Dex server cannot reach a
+  Worker of the session as the chat starts, such as "Worker stream
+  disconnected", the chat's first reads retry for 10 seconds. A Python command
+  no longer stops with a traceback: a Dex error that remains prints one line
+  and exits with code 1. Since 0.6.3.
 
 ## 0.5 {#v0-5}
 
