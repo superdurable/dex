@@ -328,6 +328,29 @@ DescribeFlow does not wait for the Flow to finish. Use it for a one-off status c
 after a read-only RPC returns a non-terminal business state. A missing ID, or an
 ID that does not belong to a Flow, returns a typed Flow-not-found error.
 
+## Read open Step executions {#read-open-step-executions}
+
+**GetFlowState** reads the open Step executions of the current or latest Flow
+run. It reads committed state once and does not wait.
+
+- Each open Step execution reports its Step type, Step execution ID, and
+  whether a WaitFor or Execute call is open or the Step waits for its
+  conditions.
+- An open call reports its attempt and whether it is pending, running, or
+  waiting for its retry backoff.
+- While a Step method retries, the open call reports its latest failed
+  attempt: the attempt number, the Worker error type, the message, and the
+  stack trace when the Worker sent one. A Step that has not failed reports no
+  failure.
+- A closed run reports no open Step executions.
+- A missing Flow returns a typed Flow-not-found error.
+
+Use it to tell a Flow that is still running from one whose active Step keeps
+failing and retrying, for example in a test harness.
+
+The TypeScript Client exposes it as **getFlowState** since 1.45.1. Other SDKs
+reach it through their generated FlowService client.
+
 <a id="搜索-flow"></a>
 
 ## Search Flows {#search-flows}
