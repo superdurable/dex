@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { flowIdPrefixQuery, linkedRunPathOf } from '../../components/frame/JumpTo';
 import { OperateMenu } from './OperateMenu';
+import { barFlowIdOf } from './RunFactsMenu';
 import { runFailureOf, runStateOf } from './RunFailureLine';
 
 afterEach(cleanup);
@@ -64,6 +65,14 @@ describe('run failure line', () => {
   });
 });
 
+describe('bar Flow ID', () => {
+  it("drops a SubFlow's parent prefix only for the named parent", () => {
+    expect(barFlowIdOf('SubFlow:order-1-CreateShipment-1-0', 'order-1')).toBe('CreateShipment-1-0');
+    expect(barFlowIdOf('SubFlow:order-1-CreateShipment-1-0', 'order-2')).toBe('SubFlow:order-1-CreateShipment-1-0');
+    expect(barFlowIdOf('order-1')).toBe('order-1');
+  });
+});
+
 describe('run state line', () => {
   it('names the newest event and the newest Step, whatever order events arrive in', () => {
     const events = [
@@ -72,6 +81,18 @@ describe('run state line', () => {
     ];
     expect(runStateOf(events, true)).toEqual({ isOpen: true, title: 'Waiting for conditions', stepType: 'AwaitNextWindow', eventId: 9 });
     expect(runStateOf([], false)).toBeNull();
+  });
+
+  it('names the soonest timer the newest WaitFor set', () => {
+    const wait = {
+      ...event(9, 'StepWaitForCompleted', { output: { waitForCondition: { timerConditions: [
+        { conditionId: 'later', durationSeconds: 600 },
+        { conditionId: 'sooner', durationSeconds: 60 },
+      ] } } }),
+      eventTime: '2026-01-01T00:00:00Z',
+    };
+    expect(runStateOf([wait], true)?.timer).toEqual({ conditionId: 'sooner', firesAtMs: Date.parse('2026-01-01T00:01:00Z') });
+    expect(runStateOf([wait], false)?.timer).toBeUndefined();
   });
 });
 

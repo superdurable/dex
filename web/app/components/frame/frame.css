@@ -1423,3 +1423,29 @@ body {
     padding: 0 4px;
   }
 }
+
+/* Run details shows IDs whole, wrapping instead of cutting them. */
+.run-facts-ids code {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.run-facts-children .mono {
+  overflow-wrap: anywhere;
+}
+
+.v1-page .event-list-child-status {
+  width: 7px;
+  height: 7px;
+  margin-left: 3px;
+  border-radius: 999px;
+  background: var(--tone-done);
+}
+
+.v1-page .event-list-child-status:is(.status-running) { background: var(--tone-accent); }
+.v1-page .event-list-child-status:is(.status-failed, .status-timedout, .status-terminated) { background: var(--tone-fail); }
+
+.v1-page .run-state-timer {
+  font-weight: 500;
+}

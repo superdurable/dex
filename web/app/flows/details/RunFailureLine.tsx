@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Activity, ArrowRight, CircleCheck, CircleX } from 'lucide-react';
+import { formatTimelineOffset } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { eventTitle } from './EventDetails';
 
@@ -53,6 +54,8 @@ export interface RunState {
   title: string;
   stepType: string;
   eventId: number;
+  /** The soonest timer the newest WaitFor set, when the run waits on one. */
+  timer?: { conditionId: string; firesAtMs: number };
 }
 
 /** Returns the newest event of a run that did not fail, described for the state line; null without events. */
@@ -61,7 +64,24 @@ export function runStateOf(events: readonly FlowHistoryEvent[], isOpen: boolean)
   if (!latest) return null;
   const lastStep = newestOf(events.filter((event) => typeof contextOf(event).stepType === 'string'));
   const stepType = lastStep ? String(contextOf(lastStep).stepType) : '';
-  return { isOpen, title: eventTitle(latest), stepType, eventId: latest.eventId };
+  const timer = isOpen ? soonestTimerOf(latest) : undefined;
+  return { isOpen, title: eventTitle(latest), stepType, eventId: latest.eventId, ...(timer ? { timer } : {}) };
+}
+
+function soonestTimerOf(event: FlowHistoryEvent): RunState['timer'] {
+  if (event.type !== 'StepWaitForCompleted' || !event.eventTime) return undefined;
+  const output = event.payload.output as Record<string, unknown> | undefined;
+  const condition = output?.waitForCondition as Record<string, unknown> | undefined;
+  const timers = Array.isArray(condition?.timerConditions) ? condition.timerConditions as Record<string, unknown>[] : [];
+  const startMs = Date.parse(event.eventTime);
+  let soonest: RunState['timer'];
+  for (const timer of timers) {
+    const seconds = Number(timer.durationSeconds);
+    if (!Number.isFinite(seconds) || !Number.isFinite(startMs)) continue;
+    const firesAtMs = startMs + seconds * 1000;
+    if (!soonest || firesAtMs < soonest.firesAtMs) soonest = { conditionId: String(timer.conditionId ?? ''), firesAtMs };
+  }
+  return soonest;
 }
 
 function newestOf(events: readonly FlowHistoryEvent[]): FlowHistoryEvent | null {
@@ -86,6 +106,14 @@ export function RunStateBody({ state }: { state: RunState }) {
       <span className="run-state-message">
         {state.title}
         {state.stepType && <span className="mono"> · {state.stepType}</span>}
+        {state.timer && (
+          <span className="run-state-timer">
+            {' · '}timer {state.timer.conditionId && <span className="mono">{state.timer.conditionId}</span>}
+            {state.timer.firesAtMs > Date.now()
+              ? ` fires in ${formatTimelineOffset((state.timer.firesAtMs - Date.now()) / 1000)}`
+              : ' is due'}
+          </span>
+        )}
       </span>
     </>
   );

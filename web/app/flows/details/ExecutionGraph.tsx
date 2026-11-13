@@ -496,6 +496,18 @@ export function ExecutionGraph({
   }, [edges, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
+  // The graph opens framed on the selected Step, such as the failed or waiting one, once per mount.
+  const hasFramedSelection = useRef(false);
+  useEffect(() => {
+    if (hasFramedSelection.current || !flowInstance || !selectedEvent) return;
+    const node = graphCanvas.current?.querySelector<HTMLElement>('.graph-method.is-selected');
+    if (!node) return;
+    hasFramedSelection.current = true;
+    const rect = node.getBoundingClientRect();
+    if (rect.top < 120 || rect.bottom > window.innerHeight) {
+      window.scrollBy({ top: rect.top - window.innerHeight / 2 + rect.height / 2 });
+    }
+  }, [flowInstance, nodes, selectedEvent]);
 
   useEffect(() => {
     const canvas = graphCanvas.current;
@@ -580,11 +592,6 @@ export function ExecutionGraph({
           </div>
         </ReactFlow>
       </div>
-      {selectedEvent && (
-        <div className="graph-selection">
-          Selected {selectedEvent.type}
-        </div>
-      )}
     </div>
   );
 }

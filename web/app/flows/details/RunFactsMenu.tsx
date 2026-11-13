@@ -22,6 +22,12 @@ export interface RunFact {
   icon: 'started' | 'closed' | 'duration' | 'attempt' | 'events' | 'type';
 }
 
+/** The Flow ID the bar shows: a SubFlow of the named parent keeps only the part after its parent's prefix. */
+export function barFlowIdOf(flowId: string, parentFlowId?: string): string {
+  const prefix = parentFlowId ? `SubFlow:${parentFlowId}-` : '';
+  return prefix && flowId.startsWith(prefix) && flowId.length > prefix.length ? flowId.slice(prefix.length) : flowId;
+}
+
 /** Shortens a long ID in the middle, so the distinguishing tail stays visible. */
 export function middleTruncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
@@ -40,7 +46,10 @@ export function RunFactsMenu({
   hasMoreChildFlows = false,
   childFlowsHref,
   attemptControl,
+  parentFlowId,
 }: {
+  /** The parent's Flow ID; a SubFlow ID drops its "SubFlow:<parent>-" prefix in the bar, which the run line names. */
+  parentFlowId?: string;
   /** The attempt picker, repeated in the popover for when the bar hides it. */
   attemptControl?: ReactNode;
   flowId: string;
@@ -67,7 +76,7 @@ export function RunFactsMenu({
         type="button"
       >
         <span className="run-facts-name mono">
-          {middleTruncate(flowId, 24)}
+          {middleTruncate(barFlowIdOf(flowId, parentFlowId), 26)}
         </span>
         <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
       </button>
@@ -91,7 +100,7 @@ export function RunFactsMenu({
               {childFlows.slice(0, 5).map((child) => (
                 <Link key={child.flowId} title={child.flowId} to={runPath(child.flowId, child.runId)}>
                   <CornerDownRight aria-hidden="true" size={13} strokeWidth={2} />
-                  <span className="mono">{middleTruncate(child.flowId, 40)}</span>
+                  <span className="mono">{barFlowIdOf(child.flowId, flowId)}</span>
                   <StatusBadge status={child.flowStatus} />
                 </Link>
               ))}

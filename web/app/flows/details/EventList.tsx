@@ -173,7 +173,8 @@ export function EventList({
                   to={runPath(child.flowId, child.runId)}
                 >
                   <CornerDownRight aria-hidden="true" size={12} strokeWidth={2.25} />
-                  child · {child.flowStatus}
+                  child
+                  <span aria-label={child.flowStatus} className={`event-list-child-status status-${child.flowStatus.toLowerCase()}`} role="img" />
                 </Link>
               )}
             </span>

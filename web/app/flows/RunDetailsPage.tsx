@@ -969,6 +969,7 @@ export function RunDetailsPage({
           </span>
         )}
         <RunFactsMenu
+          parentFlowId={relations?.parentFlowId}
           childFlows={relations?.children}
           childFlowsHref={childFlowsHref}
           facts={runFacts}
