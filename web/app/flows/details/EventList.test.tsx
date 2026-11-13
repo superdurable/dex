@@ -67,6 +67,13 @@ describe('event list', () => {
     expect(bars.get(4)).toEqual({ left: 100, width: 0 });
   });
 
+  it('draws no bars when every bar would be a tick', () => {
+    const at = (eventId: number, seconds: number): FlowHistoryEvent => ({
+      eventId, type: 'StepExecuteCompleted', eventTime: new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString(), payload: {},
+    });
+    expect(eventBarsOf([at(1, 0), at(2, 1), at(3, 60)]).size).toBe(0);
+  });
+
   it('draws no bars for a page that spans no time', () => {
     expect(eventBarsOf([event(1, 'FlowStartedOrContinued'), event(2, 'FlowClosed')]).size).toBe(0);
   });

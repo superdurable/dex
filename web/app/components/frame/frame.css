@@ -1868,12 +1868,12 @@ body {
   }
 }
 
-/* Each row's bar on the page's own time axis: where the time went, without opening anything. */
+/* Each row's bar on the page's own time axis; it starts where step names keep their full width. */
 .v1-page .event-list-bar {
   display: none;
 }
 
-@media (min-width: 1440px) {
+@media (min-width: 1600px) {
   .v1-page .event-list.has-bars .event-list-row {
     grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) 76px 120px 64px 26px;
   }

@@ -105,7 +105,7 @@ function newFilter(field = 'ExecutionStatus'): BasicFilter {
 /** A SubFlow reads as a child in the list: its name without the "SubFlow:" prefix, after a child mark. */
 function listFlowIdOf(flowId: string): string {
   return flowId.startsWith('SubFlow:') && flowId.length > 'SubFlow:'.length
-    ? `↳ ${middleTruncate(flowId.slice('SubFlow:'.length), 40)}`
+    ? `↳ ${middleTruncate(flowId.slice('SubFlow:'.length), 26)}`
     : flowId;
 }
 

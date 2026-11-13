@@ -994,6 +994,8 @@ export function RunDetailsPage({
     ? [...history].reverse().find((event) => event.type === 'FlowClosed') ?? null
     : null;
   const isEventListShown = shownTab === 'timeline' || shownTab === 'steps';
+  // Result already selects the close event, so the line's jump appears only when it goes elsewhere.
+  const lineJumpEventId = runFailure ? runFailure.eventId : runState?.eventId ?? 0;
   const liveStatus = isRunOpen ? <LiveStatus isLive={isLive} onChange={resumeOrPauseLive} /> : null;
   const inputOutputButtons = (
     <RunInputOutputButtons
@@ -1059,9 +1061,9 @@ export function RunDetailsPage({
           {runContext}
           {inputOutputButtons}
           {!isEventListShown && liveStatus}
-          {(runFailure || (isRunStateShown && runState)) && (
+          {(runFailure || (isRunStateShown && runState)) && lineJumpEventId !== closeEvent?.eventId && (
             <RunLineJump
-              eventId={runFailure ? runFailure.eventId : runState?.eventId ?? 0}
+              eventId={lineJumpEventId}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
             />
           )}
@@ -1276,7 +1278,8 @@ export function RunDetailsPage({
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
               isJumpDisabled={runHistory.isLoadingTimelinePage}
-              onTimeTravelFromEvent={openTimeTravel}
+              // The bar's Operate already time travels from the failed event.
+              onTimeTravelFromEvent={failedEvent && selected?.eventId === failedEvent.eventId ? undefined : openTimeTravel}
             />
           </aside>
         )}

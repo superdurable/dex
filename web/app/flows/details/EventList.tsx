@@ -40,7 +40,9 @@ function executionIdOf(event: FlowHistoryEvent): string {
   return typeof id === 'string' ? id : '';
 }
 
-/** Where each event's bar sits on the page's own time axis, in percent; empty when the page spans no time. */
+const MINIMUM_TELLING_BAR_PERCENT = 4;
+
+/** Where each event's bar sits on the page's own time axis, in percent; empty when no bar is longer than a tick. */
 export function eventBarsOf(events: readonly FlowHistoryEvent[]): Map<number, { left: number; width: number }> {
   const bars = new Map<number, { left: number; width: number }>();
   const timed = events
@@ -59,7 +61,8 @@ export function eventBarsOf(events: readonly FlowHistoryEvent[]): Map<number, { 
     if (executionId && !firstMsOfExecution.has(executionId)) firstMsOfExecution.set(executionId, ms);
     bars.set(event.eventId, { left: ((fromMs - startMs) / spanMs) * 100, width: ((ms - fromMs) / spanMs) * 100 });
   }
-  return bars;
+  // Bars that are all ticks carry no more than the offsets do, so the page shows none.
+  return [...bars.values()].some((bar) => bar.width >= MINIMUM_TELLING_BAR_PERCENT) ? bars : new Map();
 }
 
 /** One page of events as one-line rows, newest first, for scanning beside the selected event. */
