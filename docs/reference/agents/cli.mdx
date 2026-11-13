@@ -232,7 +232,105 @@ which needs **dexcli** 1.46.0 or later. A **DEXCLI** that points at an older
 
 Any other **dex.server** value is the URL of a Dex server. The command
 connects to it and starts nothing. See [dexcli dev](/reference/cli/#start-locally)
-for the local server itself.
+for the local server itself, and
+[Run against a remote Dex server](#remote-server) for a server that requires
+TLS or a credential.
+
+### Run against a remote Dex server {#remote-server}
+
+Since 0.6.3. A command can keep its sessions on a shared Dex server that
+requires TLS and a credential. Set **dex.server** to the server's URL and add
+**dex.auth**:
+
+```yaml
+dex:
+  server: https://dex.example.com
+  auth:
+    mode: api_key
+    token_url: https://auth.example.com/oauth/token
+    server_id: dex-prod
+  tls:
+    ca_file: ~/certs/dex-ca.pem
+connectors:
+  enabled: []
+```
+
+```bash
+export DEX_API_KEY=...   # never in the configuration file
+dex-agents-claude-sdk
+```
+
+The Worker, every Client of the command, and the [terminal UI](#terminal-ui)
+use these settings.
+
+| **dex.auth.mode** | The secret | The other settings |
+| --- | --- | --- |
+| **none**, the default | None | None |
+| **api_key** | **DEX_API_KEY** | **token_url** and **server_id**, both required. The command exchanges the key at **token_url** for short-lived access tokens scoped to **server_id**. |
+| **bearer** with **source: env** | **DEX_CREDENTIAL** | None |
+| **bearer** with **source: file** | The content of **file** | **file**, required. The command reads the file again for each call, so a token that another process rotates needs no restart. |
+
+The secret comes only from the environment. The schema rejects
+**api_key**, **token**, **credential**, and **access_token** under
+**dex.auth**.
+
+**dex.auth** alone turns authentication on. Without it, or with
+**mode: none**, the command reads none of **DEX_API_KEY**, **DEX_TOKEN_URL**,
+**DEX_SERVER_ID**, **DEX_CREDENTIAL**, and **DEX_CREDENTIAL_FILE**. So these
+variables, exported for **dexcli**, never change a configuration that does not
+ask for them. Any mode other than **none** needs a **dex.server** URL: the
+local **dexcli dev** takes no credential, and **auto** with **dex.auth** stops
+the command with **auth_needs_server_url**.
+
+Environment variables use the names that [dexcli](/reference/cli/#authentication)
+uses. Each one is trimmed, and one that is empty after trimming is not set. A
+variable that is set overrides the matching field of the file:
+
+| Variable | Overrides |
+| --- | --- |
+| **DEX_TOKEN_URL** | **dex.auth.token_url**, with **mode: api_key** |
+| **DEX_SERVER_ID** | **dex.auth.server_id**, with **mode: api_key** |
+| **DEX_CREDENTIAL_FILE** | **dex.auth.file**, with **mode: bearer** and **source: file** |
+| **DEX_TLS_CA_FILE** | **dex.tls.ca_file**, with an **https** **dex.server** |
+| **DEX_TLS_SERVER_NAME** | **dex.tls.server_name**, with an **https** **dex.server** |
+
+The token URL must be **https**, or **http** on **localhost**, **127.0.0.0/8**,
+or **[::1]**. The command rejects any other with **insecure_token_url**. A
+credential may also go to an **http** **dex.server**; it then crosses the
+network in clear text, so use one only on a trusted network.
+
+An **https** **dex.server** turns TLS on. The command verifies the server
+against the default trust store and the URL's host. **dex.tls.ca_file** adds
+the root CAs of a PEM file, such as a private CA. **dex.tls.server_name** sets
+the name the certificate must match, when it differs from the host. Both need
+an **https** **dex.server**; otherwise the command stops with
+**tls_needs_https_server**. The URL scheme decides TLS, so the command never
+reads **DEX_TLS** or **DEX_FLOW_SERVICE_ADDRESS**.
+
+In the file, a leading **~** in **dex.auth.file** and **dex.tls.ca_file** is
+the home directory, and a relative path is relative to the file's directory.
+In a variable, a relative path is relative to the working directory.
+
+A missing or invalid setting stops the command at startup with exit code 2. The
+message names the setting, such as
+**DEX_API_KEY is not set; dex.auth mode api_key needs it.** A rejected
+credential stops the command with exit code 1 and one line that says which part
+refused it:
+
+- the token endpoint did not exchange **DEX_API_KEY**: the line starts with
+  **could not exchange DEX_API_KEY for an access token**;
+- the server answered **UNAUTHENTICATED** or **PERMISSION_DENIED**: the line
+  names the server, the credential, and the server's reason.
+
+Messages name settings and variables, never their values.
+
+With **dex.server** set to a URL, **connectors.mcp: auto** has no Connectors
+MCP server, so Connector tools are off; see [Connectors](#connectors).
+**sessions.summary: auto** is off too. Sessions on a shared server resume only
+from the host, user, configuration file, and workspace that started them; see
+[Resume a session](#resume). See
+[Authentication](/reference/server/authentication) for how the server checks
+credentials.
 
 ## The configuration file {#configuration}
 
@@ -275,6 +373,10 @@ claude: {}
 | **system_prompt** | The harness's instructions | The agent's instructions. |
 | **system_prompt_file** | None | A UTF-8 file whose text is the instructions. Set either this or **system_prompt**, not both. |
 | **dex.server** | **auto** | **auto** reuses or starts the local **dexcli dev**. Otherwise an http or https URL of a Dex server. See [The local Dex server](#dex-server). |
+| **dex.auth.mode** | **none** | Since 0.6.3. How the command authenticates to the Dex server: **none**, **api_key**, or **bearer**. See [Run against a remote Dex server](#remote-server). |
+| **dex.auth.token_url**, **dex.auth.server_id** | None | Since 0.6.3. With **api_key**: the token endpoint that exchanges **DEX_API_KEY**, and the server ID of the access tokens. |
+| **dex.auth.source**, **dex.auth.file** | None | Since 0.6.3. With **bearer**: **env** reads the token from **DEX_CREDENTIAL**; **file** reads it from the file that **file** names. |
+| **dex.tls.ca_file**, **dex.tls.server_name** | None | Since 0.6.3. With an **https** **dex.server**: a PEM file of root CAs to trust as well, and the name the server certificate must match. |
 | **connectors.mcp** | **auto** | The Connectors MCP server. **auto** uses the one **dexcli dev** serves. Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. |
 | **connectors.enabled** | Every authorized connection | The connections, and their operations, that the agent may call. See [Connectors](#connectors). |
 | **approval.always** | Empty | Tool names, as the agent sees them, whose every call waits for approval. They add to the approvals the tools already require. |
@@ -309,7 +411,9 @@ When the command cannot reach the Dex server at all, it stops with one line
 that names the server's address and says how to fix it: run **dexcli dev**
 for **auto**, or start the server that **dex.server** names. A server that
 answers but reports **UNAVAILABLE** is named with its details and a hint to
-try again. Changed in 0.6.0: these lines replace the raw gRPC error.
+try again. Changed in 0.6.0: these lines replace the raw gRPC error. A server
+that rejects the credential is named the same way; see
+[Run against a remote Dex server](#remote-server).
 
 ### Harness options {#harness-options}
 
@@ -467,7 +571,9 @@ same session in the plain chat.
 
 **NO_COLOR** removes the colors and keeps the bold and dim styles. The
 terminal UI never gets the provider keys: the command passes it only the
-terminal, locale, and Dex credential variables.
+terminal and locale variables, and the one Dex credential variable that
+**dex.auth** needs. Since 0.6.3, it connects with the same **dex.auth** and
+**dex.tls** as the Worker; see [Run against a remote Dex server](#remote-server).
 
 ### The plain chat {#plain-chat}
 
