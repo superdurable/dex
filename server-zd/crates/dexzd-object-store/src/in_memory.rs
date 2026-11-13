@@ -124,12 +124,9 @@ impl InMemoryObjectStore {
         }
     }
 
-    /// Creates an empty store whose listings behave like an eventually consistent store, see
-    /// [`crate::ListingConsistency::Eventual`].
+    /// Creates an empty store whose listings repeat the first listing of each exact prefix.
     ///
-    /// The first listing of each exact prefix is returned unchanged by every later listing of
-    /// that prefix, whatever its `start_after` and `max_keys`, until
-    /// [`Self::expire_stale_listings`]. Single-object reads stay current.
+    /// Later listings ignore `start_after` and `max_keys` until [`Self::expire_stale_listings`].
     pub fn with_stale_listings() -> Self {
         Self {
             serves_stale_listings: true,
@@ -158,6 +155,19 @@ impl InMemoryObjectStore {
             .filter(|((name, key), _)| name == &operation.to_string() && key.starts_with(prefix))
             .map(|(_, count)| count)
             .sum()
+    }
+
+    /// Returns the cached listing of `prefix` when this store serves stale listings.
+    fn stale_listing(&self, prefix: &str) -> Option<ObjectListing> {
+        if !self.serves_stale_listings {
+            return None;
+        }
+        self.state
+            .lock()
+            .expect("in-memory object-store mutex is not poisoned")
+            .stale_listings
+            .get(prefix)
+            .cloned()
     }
 
     async fn before_call(
@@ -442,17 +452,15 @@ impl ObjectStore for InMemoryObjectStore {
             ));
         }
         let action = self.before_call(ObjectStoreOperation::List, prefix).await?;
+        if let Some(listing) = self.stale_listing(prefix) {
+            // A caller that relists in a loop still lets its timeouts fire.
+            tokio::task::yield_now().await;
+            return self.after_call(action, ObjectStoreOperation::List, prefix, listing);
+        }
         let mut state = self
             .state
             .lock()
             .expect("in-memory object-store mutex is not poisoned");
-        if self.serves_stale_listings
-            && let Some(listing) = state.stale_listings.get(prefix)
-        {
-            let listing = listing.clone();
-            drop(state);
-            return self.after_call(action, ObjectStoreOperation::List, prefix, listing);
-        }
         let mut matching = state.objects.iter().filter(|(key, _)| {
             key.starts_with(prefix) && start_after.is_none_or(|after| key.as_str() > after)
         });

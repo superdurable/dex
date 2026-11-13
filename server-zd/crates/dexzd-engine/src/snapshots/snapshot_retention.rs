@@ -29,8 +29,7 @@ pub(crate) struct SnapshotRetention {
     pub(crate) node_id: String,
     pub(crate) retained_count: usize,
     pub(crate) deletion_delay: Duration,
-    /// With an eventually consistent listing, a manifest leaves the catalog only once a read
-    /// misses it too.
+    /// When eventual, a manifest leaves the catalog only once a HEAD misses it.
     pub(crate) listing_consistency: ListingConsistency,
 }
 
@@ -373,8 +372,7 @@ impl SnapshotRetention {
         Ok(true)
     }
 
-    /// Reads each manifest of this node that the cluster manifest points to and the catalog
-    /// lacks, so an eventually consistent listing cannot hide a published snapshot's files.
+    /// Reads referenced manifests of this node that the catalog lacks, as listings can hide them.
     async fn read_unlisted_referenced_manifests(
         &self,
         catalog: &mut SnapshotCatalog,

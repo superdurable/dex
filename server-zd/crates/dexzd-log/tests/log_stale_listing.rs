@@ -360,8 +360,7 @@ async fn a_strong_listing_keeps_the_request_pattern() {
     assert_eq!(count(&recovered), STRONG_RECOVERY_REQUESTS);
 }
 
-/// LIST, GET, HEAD, and PUT calls of the strong-listing reads above, including the test's own
-/// writes, measured on the code before eventually consistent listings were supported.
+/// LIST, GET, HEAD, and PUT calls above, test writes included, measured before eventual listings.
 const STRONG_CLOSED_STREAM_REQUESTS: [u64; 4] = [1, 4, 0, 8];
 const STRONG_OPEN_STREAM_REQUESTS: [u64; 4] = [1, 8, 0, 8];
 const STRONG_RECOVERY_REQUESTS: [u64; 4] = [3, 8, 0, 10];

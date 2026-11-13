@@ -532,10 +532,8 @@ impl EpochStartWriter<'_> {
         }
     }
 
-    /// Returns the highest seq that a listing of the stream shows after `seq`, if any.
-    ///
-    /// An eventually consistent listing may ignore `start_after` and repeat a page, so its keys
-    /// up to `start_after` are skipped and a page without a later key ends the listing.
+    /// Returns the highest seq that a listing of the stream shows after `seq`, if any. An
+    /// eventually consistent listing ends at a page without a key after `start_after`.
     async fn last_listed_seq_after(
         &self,
         seq: u64,

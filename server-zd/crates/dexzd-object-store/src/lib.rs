@@ -126,19 +126,16 @@ pub struct ObjectListing {
 
 /// Whether a listing shows every object written before it started.
 ///
-/// Callers that must find recent writes, such as log recovery and snapshot retention, receive
-/// it from the server configuration. It is not a method of [`ObjectStore`], because only those
-/// callers need it.
+/// The server configuration passes it to callers that must find recent writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ListingConsistency {
-    /// A listing shows every object written before it started and none deleted before it, as on
-    /// Amazon S3 and Aliyun OSS.
+    /// A listing shows exactly the objects present when it started, as on Amazon S3.
     #[default]
     Strong,
-    /// A listing may repeat an earlier listing of the same prefix for a few seconds, as on Tencent
-    /// COS. It can miss new keys, show deleted keys, ignore `start_after`, and report truncation
-    /// with fewer keys than `max_keys`. Reads of single objects stay strongly consistent.
+    /// A listing may repeat an earlier listing of its prefix for seconds, as on Tencent COS.
+    ///
+    /// Reads of single objects stay strongly consistent.
     Eventual,
 }
 

@@ -39,11 +39,9 @@ impl StaleListingCache {
 }
 
 impl Controls {
-    /// Serves the cached response of the first successful listing of `prefix` until `ttl` passes.
-    ///
-    /// Later listings of the same bucket and exact prefix receive that response unchanged, so
-    /// they ignore `max-keys`, `start-after`, and continuation tokens. Hits do not extend the
-    /// lifetime. Returns `list` when nothing is cached, caching its response when it succeeds.
+    /// Returns the cached response of the first successful listing of `bucket` and `prefix`
+    /// while it is younger than `ttl`, whatever the query asks. Otherwise returns the result of
+    /// `list`, and caches its response when it succeeds. Hits do not extend the lifetime.
     pub(crate) async fn serve_stale_listing(
         &self,
         bucket: &str,

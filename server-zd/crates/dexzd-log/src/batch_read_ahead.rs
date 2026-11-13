@@ -311,9 +311,8 @@ impl ListedObjectSizes {
     }
 
     /// Returns whether a seq that the listing lacks is read before it counts as missing: with an
-    /// eventually consistent listing, in a bounded read or below a listed seq.
-    ///
-    /// An unbounded read stops past the listing instead; its callers then read that seq.
+    /// eventually consistent listing, in a bounded read or below a listed seq. Unbounded reads
+    /// past the listing return the seq as missing, and their callers read it.
     fn should_read_unlisted(&self, seq: u64, last_seq: u64) -> bool {
         !self.consistency.is_strong() && (last_seq != u64::MAX || seq < self.highest_listed_seq)
     }
@@ -372,8 +371,7 @@ impl ListedObjectSizes {
         Ok(())
     }
 
-    /// Keeps a page that may repeat an earlier listing: the position only moves forward, and a
-    /// truncated page without a new seq ends listing, so reads find the remaining seqs.
+    /// Keeps a page that may repeat an earlier one; a page without a new seq ends listing.
     fn keep_eventual_page(
         &mut self,
         sizes: Vec<(u64, usize)>,
