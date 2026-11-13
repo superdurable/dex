@@ -38,9 +38,7 @@ use signed_request::{EMPTY_PAYLOAD_SHA256_HEX, SignedRequest, SignedRequestSende
 /// Largest appendable object Tencent COS stores: 5 GiB.
 pub const MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
-/// Longest time a Tencent COS listing may repeat an earlier listing of its prefix: 5 seconds.
-///
-/// Measured listing caches last 1 to 3 seconds.
+/// Longest time a Tencent COS listing may repeat an earlier one: 5 seconds; measured caches last 1 to 3.
 pub const TENCENT_COS_STALE_LISTING_BOUND: Duration = Duration::from_secs(5);
 
 /// First wait before a replayed listing page is requested again.

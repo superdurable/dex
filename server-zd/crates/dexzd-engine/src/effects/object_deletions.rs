@@ -164,11 +164,8 @@ async fn delete_hard_delete_objects(
     Ok(())
 }
 
-/// Deletes every object under the run's hard-delete prefix until listings show none.
-///
-/// With a strong listing, one empty listing ends it. With an eventual listing, two empty
-/// listings `empty_listing_confirmation_delay` apart end it, and a listing that shows a key
-/// already deleted waits with backoff, since it repeats an earlier listing.
+/// Deletes the run's hard-delete prefix; an eventual listing needs two empty listings, the
+/// confirmation delay apart.
 async fn delete_run_hard_delete_prefix(
     context: &EffectContext,
     owner: HardDeleteObjectOwner,
@@ -206,9 +203,12 @@ async fn delete_run_hard_delete_prefix(
             continue;
         }
         has_empty_listing = false;
+        // A listing that repeats a deleted key is stale, so the next one waits.
         let is_replay = keys.iter().any(|key| deleted_keys.contains(key));
         deleted_keys.extend(keys);
-        if is_replay && !replay_backoff.wait(&context.shutdown).await {
+        if !is_replay {
+            replay_backoff = context.retry_backoff();
+        } else if !replay_backoff.wait(&context.shutdown).await {
             return Err(EffectError::Stopped);
         }
     }

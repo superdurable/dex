@@ -16,7 +16,8 @@ use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, ByteRange, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, ObjectStore,
     ObjectStoreError, ObjectStoreErrorKind, S3ApiDialect, S3Credentials, S3ObjectStore,
-    S3ObjectStoreConfig, VersionDiscovery, WriteCondition, WriteOutcome,
+    S3ObjectStoreConfig, TENCENT_COS_STALE_LISTING_BOUND, VersionDiscovery, WriteCondition,
+    WriteOutcome,
 };
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 use tempfile::TempDir;
@@ -543,6 +544,80 @@ async fn tencent_cos_head_probing_reads_past_an_interrupted_replacement() {
         .expect("the lease reads")
         .expect("the lease exists");
     assert_eq!(newest.bytes, Bytes::from_static(b"taken"));
+    emulator.shutdown().await;
+}
+
+/// A takeover read without a hint lists a residue at the newest generation through a warm cache.
+#[tokio::test]
+async fn tencent_cos_head_probing_reads_past_a_residue_that_a_stale_listing_replays() {
+    let emulator = TencentCosEmulator::start().await;
+    let inner: Arc<dyn ObjectStore> = Arc::new(
+        emulator
+            .object_store_with_stale_listing_retry_window(SHORT_RETRY_WINDOW)
+            .await,
+    );
+    let default_window_inner: Arc<dyn ObjectStore> = Arc::new(emulator.object_store().await);
+    let writer = versioned_store(&inner);
+    let WriteOutcome::Written { etag: first_etag } = writer
+        .put(
+            LEASE_KEY,
+            Bytes::from_static(b"v1"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the lease is created")
+    else {
+        panic!("the first lease version is written");
+    };
+    let WriteOutcome::Written { etag: second_etag } = writer
+        .put(
+            LEASE_KEY,
+            Bytes::from_static(b"v2"),
+            WriteCondition::ReplaceIfEtagMatches { etag: first_etag },
+        )
+        .await
+        .expect("the lease is renewed")
+    else {
+        panic!("the second lease version is written");
+    };
+    set_s3local_fault(
+        emulator.address(),
+        &append_fault(&format!("{LEASE_KEY}.v/"), INTERRUPTED_APPEND),
+    )
+    .await;
+    writer
+        .put(
+            LEASE_KEY,
+            Bytes::from_static(b"lost"),
+            WriteCondition::ReplaceIfEtagMatches {
+                etag: second_etag.clone(),
+            },
+        )
+        .await
+        .expect_err("the interrupted renewal fails");
+    set_s3local_fault(emulator.address(), "").await;
+    assert_eq!(emulator.record(&version_object_key(3)).size, 0);
+
+    // A cache that outlives the retry window fails the read as retryable, never with v1.
+    set_s3local_fault(emulator.address(), STALE_LISTING).await;
+    let error = versioned_store(&inner)
+        .get(LEASE_KEY)
+        .await
+        .expect_err("a listing stuck on the residue fails the hintless read");
+    assert_eq!(error.kind, ObjectStoreErrorKind::Transient, "{error}");
+
+    // A cache shorter than the bound only delays the read.
+    set_s3local_fault(emulator.address(), SHORT_STALE_LISTING).await;
+    let started = tokio::time::Instant::now();
+    let newest = versioned_store(&default_window_inner)
+        .get(LEASE_KEY)
+        .await
+        .expect("the lease reads once the cache expires")
+        .expect("the lease exists");
+    assert_eq!(newest.bytes, Bytes::from_static(b"v2"));
+    assert_eq!(newest.etag, second_etag);
+    assert!(started.elapsed() < TENCENT_COS_STALE_LISTING_BOUND);
+    set_s3local_fault(emulator.address(), "").await;
     emulator.shutdown().await;
 }
 

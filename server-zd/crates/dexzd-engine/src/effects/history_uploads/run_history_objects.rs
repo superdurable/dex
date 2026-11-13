@@ -85,8 +85,7 @@ fn history_catalog_keys(
 
 /// Lists the run's history prefix and deletes what it finds until a listing is empty.
 ///
-/// A listing that shows a key this sweep already deleted repeats an earlier listing, so the
-/// sweep waits with backoff before it lists again.
+/// A listing that repeats a deleted key is stale, so the sweep backs off.
 async fn sweep_run_prefix(
     context: &EffectContext,
     flow: &FlowAddress,
@@ -119,9 +118,9 @@ async fn sweep_run_prefix(
             .into_iter()
             .map(|object| object.key)
             .collect();
-        if keys.iter().any(|key| deleted_keys.contains(key))
-            && !replay_backoff.wait(&context.shutdown).await
-        {
+        if !keys.iter().any(|key| deleted_keys.contains(key)) {
+            replay_backoff = context.retry_backoff();
+        } else if !replay_backoff.wait(&context.shutdown).await {
             return Err(EffectError::Stopped);
         }
         delete_keys(context, run, &keys).await?;
