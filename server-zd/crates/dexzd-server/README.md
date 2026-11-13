@@ -103,14 +103,17 @@ numbers and IDs replaced. These counts only report by default; set
 
 Each run writes under a new prefix, `dexzd-soak/<unix-nanos>/`, and deletes every object under
 it at the end, also after a failure. Cleanup trusts only two listings five seconds apart that
-agree, and fails when objects remain or a listing fails. Set `DEX_SOAK_KEEP_OBJECTS=1` to keep
-the objects; the soak then reports how many stay. Process logs
+agree, and fails when objects remain or a listing fails. On tencentCOS targets, the cleanup
+starts after both processes stopped and lists with the AmazonS3 dialect, which shows the 0-byte
+residues of interrupted appends that the tencentCOS dialect reads as absent. It reports how many
+empty residues it deleted. Set `DEX_SOAK_KEEP_OBJECTS=1` to keep the objects; the soak then
+reports how many stay, and how many of them are empty residues. Process logs
 stay in `DEX_SOAK_LOG_DIR`, by default a new directory under the system temporary directory that
 the soak prints.
 
 | Variable | Meaning |
 | --- | --- |
-| `DEX_SOAK_TARGET` | `tencentCOS` or `aliyunOSS` for a real bucket; `s3local-tencentCOS`, whose listings repeat for two seconds, or `s3local-aliyunOSS` for an emulator in the test |
+| `DEX_SOAK_TARGET` | `tencentCOS` or `aliyunOSS` for a real bucket; `s3local-tencentCOS`, whose listings repeat for two seconds and whose appends show a 200 ms empty placeholder one time in five and are interrupted one time in 2000, or `s3local-aliyunOSS` for an emulator in the test |
 | `DEX_SOAK_VERSION_DISCOVERY` | `list` (default) or `head`, for aliyunOSS targets |
 | `DEX_SOAK_DURATION` | How long the load runs, such as `2h` (default), `30m`, or `1h30m` |
 | `DEX_SOAK_FAULT_INTERVAL` | Time between faults; defaults to a sixth of the duration, from 30 seconds to 4 minutes |
@@ -146,6 +149,11 @@ A five-minute smoke run on the emulator:
 DEX_SOAK_TARGET=s3local-tencentCOS DEX_SOAK_DURATION=5m \
 cargo test -p dexzd-server --test serve_process object_store_soak -- --ignored --nocapture
 ```
+
+On `s3local-tencentCOS`, the summary counts the append placeholders and interrupted appends that
+the emulator's request log showed, a lower bound when the log overflows between samples. Writers
+retry interrupted appends; one that stops a process anyway counts as an UNPLANNED EXIT or a FAILED
+START, which the run absorbs.
 
 Add `DEX_SOAK_LOG_STALL_INTERVAL=2m` to exercise unplanned exits: each stall must end in one
 UNPLANNED EXIT whose reason names the log batch deadline, and the run must still pass.
