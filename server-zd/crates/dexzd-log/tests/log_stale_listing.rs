@@ -9,6 +9,7 @@
 //! Log reads and recovery over a listing that repeats an earlier listing, as on Tencent COS.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -520,34 +521,7 @@ const STRONG_RECOVERY_REQUESTS: [u64; 4] = [3, 8, 0, 10];
 /// The s3local `stale_listing` fault reproduces the closed-stream failure through an S3 client.
 #[tokio::test]
 async fn a_closed_stream_reads_batches_that_an_s3local_stale_listing_misses() {
-    let directory = tempfile::tempdir().expect("the s3local directory is created");
-    let s3local_store = S3LocalStore::open(&StoreConfig {
-        root_directory: directory.path().to_path_buf(),
-        durability: Durability::Relaxed,
-        etag_mode: EtagMode::Opaque,
-    })
-    .expect("the s3local store opens");
-    s3local_store
-        .create_bucket("stale-listing", false)
-        .expect("the s3local bucket is created");
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("the s3local listener binds");
-    let server = s3local_server::start(Arc::new(s3local_store), listener)
-        .expect("the s3local server starts");
-    let mut config = S3ObjectStoreConfig::new("us-east-1", "stale-listing");
-    config.endpoint = Some(format!("http://{}", server.local_address()));
-    config.key_prefix = "dexzd".to_owned();
-    config.force_path_style = true;
-    config.credentials = S3Credentials::Static {
-        access_key_id: "s3local".to_owned(),
-        secret_access_key: "s3local".to_owned(),
-        session_token: None,
-    };
-    let store = S3ObjectStore::new(config)
-        .await
-        .expect("the S3 client is configured");
-    set_stale_listing_fault(server.local_address()).await;
+    let (_directory, server, store) = start_stale_listing_s3local().await;
     write_batches(&store, 1, 1..=2).await;
     list_stream_prefix(&store, 1000).await;
     write_batches(&store, 1, 3..=4).await;
@@ -585,6 +559,43 @@ async fn a_closed_stream_reads_batches_that_an_s3local_stale_listing_misses() {
     server.shutdown().await;
 }
 
+/// Starts s3local with the `stale_listing` fault and returns its directory, server, and client.
+async fn start_stale_listing_s3local() -> (
+    tempfile::TempDir,
+    s3local_server::ServerHandle,
+    S3ObjectStore,
+) {
+    let directory = tempfile::tempdir().expect("the s3local directory is created");
+    let s3local_store = S3LocalStore::open(&StoreConfig {
+        root_directory: directory.path().to_path_buf(),
+        durability: Durability::Relaxed,
+        etag_mode: EtagMode::Opaque,
+    })
+    .expect("the s3local store opens");
+    s3local_store
+        .create_bucket("stale-listing", false)
+        .expect("the s3local bucket is created");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the s3local listener binds");
+    let server = s3local_server::start(Arc::new(s3local_store), listener)
+        .expect("the s3local server starts");
+    let mut config = S3ObjectStoreConfig::new("us-east-1", "stale-listing");
+    config.endpoint = Some(format!("http://{}", server.local_address()));
+    config.key_prefix = "dexzd".to_owned();
+    config.force_path_style = true;
+    config.credentials = S3Credentials::Static {
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
+        session_token: None,
+    };
+    let store = S3ObjectStore::new(config)
+        .await
+        .expect("the S3 client is configured");
+    set_stale_listing_fault(server.local_address()).await;
+    (directory, server, store)
+}
+
 async fn set_stale_listing_fault(address: std::net::SocketAddr) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let body = r#"{"rules":[{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":600000}}]}"#;
@@ -609,4 +620,159 @@ async fn set_stale_listing_fault(address: std::net::SocketAddr) {
         "{}",
         String::from_utf8_lossy(&response)
     );
+}
+
+/// Delays each request by `request_latency` and counts PUTs; test writes go to `inner`.
+struct PutCountingStore<S> {
+    inner: S,
+    request_latency: Duration,
+    puts: AtomicU64,
+}
+
+impl<S> PutCountingStore<S> {
+    fn new(inner: S, request_latency: Duration) -> Self {
+        Self {
+            inner,
+            request_latency,
+            puts: AtomicU64::new(0),
+        }
+    }
+
+    fn puts(&self) -> u64 {
+        self.puts.load(Ordering::Relaxed)
+    }
+
+    async fn wait_for_the_request(&self) {
+        if !self.request_latency.is_zero() {
+            tokio::time::sleep(self.request_latency).await;
+        }
+    }
+}
+
+#[async_trait]
+impl<S: ObjectStore> ObjectStore for PutCountingStore<S> {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.puts.fetch_add(1, Ordering::Relaxed);
+        self.wait_for_the_request().await;
+        self.inner.put(key, body, condition).await
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.puts.fetch_add(1, Ordering::Relaxed);
+        self.wait_for_the_request().await;
+        self.inner.put_file(key, path, condition).await
+    }
+
+    async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.wait_for_the_request().await;
+        self.inner.get(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.wait_for_the_request().await;
+        self.inner.get_range(key, range).await
+    }
+
+    async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
+        self.wait_for_the_request().await;
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
+        self.wait_for_the_request().await;
+        self.inner.head(key).await
+    }
+
+    async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
+        self.wait_for_the_request().await;
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
+        self.wait_for_the_request().await;
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> ObjectStoreResult<ObjectListing> {
+        self.wait_for_the_request().await;
+        self.inner.list(prefix, start_after, max_keys).await
+    }
+}
+
+/// Recovers a stream whose last `unlisted_batches` batches every listing misses.
+///
+/// Returns the recovering PUTs; it asserts that every batch was applied before the EpochStart.
+async fn recover_past_a_repeated_listing<S: ObjectStore>(
+    store: &PutCountingStore<S>,
+    unlisted_batches: u64,
+) -> u64 {
+    write_batches(&store.inner, 1, 1..=3).await;
+    list_stream_prefix(&store.inner, 1000).await;
+    let last_seq = 3 + unlisted_batches;
+    write_batches(&store.inner, 1, 4..=last_seq).await;
+    let stream = stream();
+
+    let (applied, result) = recover(
+        store,
+        &stream,
+        2,
+        LogReadAheadConfig {
+            tail_probe_misses: TENCENT_COS_TAIL_PROBE_MISSES,
+            ..read_ahead(ListingConsistency::Eventual)
+        },
+    )
+    .await;
+    assert_eq!(applied, (1..=last_seq).collect::<Vec<_>>());
+    assert_eq!(result.epoch_start_seq, last_seq + 1);
+    assert_eq!(result.voided_batches, 0);
+    assert_eq!(result.next_seq, last_seq + 2);
+    store.puts()
+}
+
+/// Past a listing that keeps repeating, recovery reads the existing batches instead of writing
+/// at each one. Writing at each used to exhaust the 10 s EpochStart write deadline.
+#[tokio::test(start_paused = true)]
+async fn recovery_reads_a_long_tail_that_a_repeated_listing_misses() {
+    const UNLISTED_BATCHES: u64 = 1_500;
+    let store = PutCountingStore::new(stale_listing_store(), Duration::from_millis(5));
+
+    let puts = recover_past_a_repeated_listing(&store, UNLISTED_BATCHES).await;
+    assert!(
+        puts * 4 < UNLISTED_BATCHES,
+        "recovery wrote {puts} times past {UNLISTED_BATCHES} unlisted batches"
+    );
+}
+
+/// The same recovery through the s3local `stale_listing` fault.
+#[tokio::test]
+async fn recovery_reads_a_tail_that_an_s3local_stale_listing_misses() {
+    const UNLISTED_BATCHES: u64 = 200;
+    let (_directory, server, s3_store) = start_stale_listing_s3local().await;
+    let store = PutCountingStore::new(s3_store, Duration::ZERO);
+
+    let puts = recover_past_a_repeated_listing(&store, UNLISTED_BATCHES).await;
+    assert!(
+        puts * 4 < UNLISTED_BATCHES,
+        "recovery wrote {puts} times past {UNLISTED_BATCHES} unlisted batches"
+    );
+    server.shutdown().await;
 }

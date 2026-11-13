@@ -556,6 +556,19 @@ The time travel target simulation lost every history page that ended at the 4,09
 limit: in 64 seeds, one seed produced all six such pages. Its small response limit is now 1,024 bytes, which ends
 thousands of pages in the default budget at the same cost.
 
+### Recovery read-on digest change
+
+When the EpochStart write of a recovery finds a batch that an older writer stored, recovery now
+reads the next seq instead of writing an EpochStart there. Before, it wrote at every later seq,
+so a listing that missed many batches spent the write deadline on reads. Seed `3856990400`
+reaches that case in a recovery, so the changed object storage requests move its later
+commands. With only that change reverted, every pin keeps its previous digest. No apply pin
+moved. `3856990400` is a historical baseline case, so no regression loses its seed.
+
+| Engine seed | Previous digest | Recovery read-on digest |
+| --- | --- | --- |
+| `3856990400` | `0x3c4188f33600e54921e9771df8cf53d3` | `0x5ad6fd0f1548fcce530b0405931f7ab6` |
+
 ### Running
 
 ```bash

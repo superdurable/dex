@@ -79,7 +79,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990400,
         120,
-        0x3c4188f33600e54921e9771df8cf53d3,
+        0x5ad6fd0f1548fcce530b0405931f7ab6,
     ),
     (
         EngineSimulationProfile::Standard,

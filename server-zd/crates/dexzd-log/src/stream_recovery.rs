@@ -170,7 +170,8 @@ struct VoidedBatches {
 enum RecoveryPhase {
     /// Reading from `from_seq` up to the first missing seq.
     Reading,
-    /// Writing the EpochStart at the first missing seq; a batch found there is examined instead.
+    /// Writing the EpochStart at the first missing seq; a batch found there is examined instead,
+    /// and reading continues after it.
     WritingEpochStart { deadline: Instant },
     /// No step remains.
     Finished,
@@ -259,7 +260,9 @@ impl<'a> StreamRecovery<'a> {
     /// EpochStart write retries transient write errors itself until its deadline and never
     /// returns them; it returns other write errors, and the next call writes again. Once that
     /// deadline passes, it returns [`LogError::Deadline`], and every later call returns it again
-    /// because the write keeps the expired deadline.
+    /// because the write keeps the expired deadline. A batch that another writer stored at the
+    /// seq ends that write: reading continues after the batch, and the next missing seq starts
+    /// a write with a new deadline.
     pub async fn next_step(&mut self) -> Result<StreamRecoveryStep, LogError> {
         loop {
             let accepted = match self.phase {
@@ -300,6 +303,8 @@ impl<'a> StreamRecovery<'a> {
                             if accepted.is_none() {
                                 self.voided.record(seq);
                             }
+                            // An eventually consistent listing reports unread seqs as missing.
+                            self.phase = RecoveryPhase::Reading;
                             accepted
                         }
                     }
