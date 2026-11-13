@@ -171,6 +171,11 @@ from dex_agents.runner import (
     describe_tool_call_outcome,
     resolve_tool_policy,
 )
+from dex_agents.sender_names import (
+    MAX_SENDER_NAME_LENGTH,
+    build_sender_named_text,
+    is_valid_sender_name,
+)
 from dex_agents.session_failure import AgentSessionFailedError, read_agent_snapshot
 from dex_agents.session_flow import (
     BLANK_TOOL_TASK_ID,
@@ -302,6 +307,7 @@ __all__ = [
     "MAX_IMAGES_PER_MESSAGE",
     "MAX_IMAGE_BYTES",
     "MAX_IMAGE_URI_LENGTH",
+    "MAX_SENDER_NAME_LENGTH",
     "MAX_SESSION_SETTINGS_BYTES",
     "MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT",
     "MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT",
@@ -451,6 +457,7 @@ __all__ = [
     "build_image_reference",
     "build_plan_execution_message",
     "build_plan_note",
+    "build_sender_named_text",
     "build_session_title",
     "build_turn_failure_note",
     "collect_turn_images",
@@ -461,6 +468,7 @@ __all__ = [
     "estimate_text_tokens",
     "image_uri",
     "is_credential_like_name",
+    "is_valid_sender_name",
     "list_agent_sessions",
     "load_images",
     "message_sequence_key",

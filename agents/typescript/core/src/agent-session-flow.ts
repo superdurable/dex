@@ -20,6 +20,7 @@ import {
 
 import { builtInToolNames, isBlankText, type BuiltInTool } from "./agent-built-in-tools.js";
 import { areValidImageReferences } from "./agent-media.js";
+import { isValidSenderName } from "./agent-sender-names.js";
 import {
   isContextCompactionRunner,
   resolveCompactionPolicy,
@@ -339,7 +340,8 @@ export interface AgentSessionFlow<
    * @param context - RPC Context supplied by Dex.
    * @param message - Message to queue.
    * @returns `true` when queued; `false` when the text is blank, for a `planMode` message when
-   * {@link AgentSessionOptions.planModeEnabled} is not set, or for `images` that `validateImageReferences` refuses
+   * {@link AgentSessionOptions.planModeEnabled} is not set, for a `senderName` that `isValidSenderName` refuses, or
+   * for `images` that `validateImageReferences` refuses
    * or that the runner cannot take because it does not implement
    * {@link AgentFrameworkRunner.buildUserMessageWithImages}.
    */
@@ -397,8 +399,9 @@ export interface AgentSessionFlow<
    * ```
    * @param context - RPC Context supplied by Dex.
    * @param input - Exactly one of a queued message ID and new text.
-   * @returns `true` when the message is steered, or queued while no turn is active; `false` when both or neither
-   * field is set, the text is blank, the message is no longer queued, or the active turn does not accept steering.
+   * @returns `true` when the message is steered, or queued while no turn is active; `false` when both or neither of
+   * `messageId` and `text` is set, `senderName` is set with `messageId` or is refused by `isValidSenderName`, the
+   * text is blank, the message is no longer queued, or the active turn does not accept steering.
    */
   steerUserMessage(context: Context, input: SteerUserMessageRequest): RPCResult<boolean>;
   /**
@@ -713,6 +716,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       if (isBlankText(message.text) || (planMode && !config.planModeEnabled)) {
         return { output: false };
       }
+      if (message.senderName !== undefined && !isValidSenderName(message.senderName)) {
+        return { output: false };
+      }
       if (images.length > 0 && (runner.buildUserMessageWithImages === undefined || !areValidImageReferences(images))) {
         return { output: false };
       }
@@ -720,6 +726,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
         text: message.text,
         planMode,
         ...(images.length > 0 ? { images } : {}),
+        ...(message.senderName === undefined ? {} : { senderName: message.senderName }),
       });
       return { output: true };
     }
@@ -765,13 +772,18 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       if ((input.messageId === null) === (input.text === null)) {
         return { output: false };
       }
+      const senderName = input.senderName;
+      if (senderName !== undefined && (input.messageId !== null || !isValidSenderName(senderName))) {
+        return { output: false };
+      }
+      const senderNameField = senderName === undefined ? {} : { senderName };
       const state = transitions.readOptionalAgentState(context);
       if (state?.activeTurnId == null) {
         // Any Worker version waits for queued messages while idle; a steer might wait forever.
         if (input.text === null) {
           return { output: findQueuedMessage(context, persistence, input.messageId ?? "") !== undefined };
         }
-        return this.sendUserMessage(context, { text: input.text });
+        return this.sendUserMessage(context, { text: input.text, ...senderNameField });
       }
       if (state.acceptsTurnControl !== true) {
         return { output: false };
@@ -781,7 +793,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
         if (isBlankText(input.text)) {
           return { output: false };
         }
-        steered = { text: input.text };
+        steered = { text: input.text, ...senderNameField };
       } else {
         const queued = findQueuedMessage(context, persistence, input.messageId ?? "");
         if (queued === undefined) {

@@ -25,6 +25,7 @@ import { isContextCompactionRunner, type ResolvedCompactionPolicy } from "./agen
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
 import { encodeAgentInterruptDisplay, encodeAgentMessage } from "./agent-session-codecs.js";
 import { validateImageReferences } from "./agent-media.js";
+import { buildSenderNamedText } from "./agent-sender-names.js";
 import {
   resolveToolPolicy,
   type AgentFrameworkRunner,
@@ -598,7 +599,8 @@ export class AgentSessionTransitions {
    * commit it moves the oldest window messages into archive chunks while the window is over its size and
    * applies retention; it writes `AgentMessageIndex` only when one of them changed it. It requires the whole
    * window to be loaded. With `startsTurn`, `TurnReplySequence` records where the turn's replies begin. A non-null
-   * `origin` marks every appended message as written by the session itself.
+   * `origin` marks every appended message as written by the session itself. `senderNames`, empty or one per message,
+   * holds the declared sender of each message.
    */
   public appendMessages(
     context: Context,
@@ -607,7 +609,11 @@ export class AgentSessionTransitions {
     frameworkMessages: readonly FrameworkMessage[],
     startsTurn = false,
     origin: AgentMessageOrigin | null = null,
+    senderNames: readonly (string | undefined)[] = [],
   ): AgentState {
+    if (senderNames.length > 0 && senderNames.length !== frameworkMessages.length) {
+      throw new TypeError("senderNames must be empty or have one value per message");
+    }
     if (frameworkMessages.length === 0 && !startsTurn) {
       this.writeAgentState(context, state);
       return state;
@@ -630,7 +636,8 @@ export class AgentSessionTransitions {
     const directChunks: AgentMessageChunkRange[] = [];
     let nextMessageSequence = state.nextMessageSequence;
     const createdAt = new Date().toISOString();
-    for (const frameworkMessage of frameworkMessages) {
+    for (const [position, frameworkMessage] of frameworkMessages.entries()) {
+      const senderName = senderNames[position];
       const message: AgentMessage = {
         sequence: nextMessageSequence,
         turnId,
@@ -646,6 +653,7 @@ export class AgentSessionTransitions {
           ? {}
           : { images: frameworkMessage.images }),
         ...(origin === null ? {} : { origin }),
+        ...(senderName === undefined ? {} : { senderName }),
       };
       const key = messageSequenceKey(nextMessageSequence);
       if (messageChunkOverheadBytes + agentMessageBytes(message) > this.config.messageChunkMaxBytes) {
@@ -792,7 +800,15 @@ export class AgentSessionTransitions {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
         const origin = executedPlan === undefined ? null : "plan_execution";
-        const stateWithMessage = this.appendMessages(context, state, turnId, userMessages, true, origin);
+        const stateWithMessage = this.appendMessages(
+          context,
+          state,
+          turnId,
+          userMessages,
+          true,
+          origin,
+          messages.map((message) => message.senderName),
+        );
         this.writeAgentState(context, {
           ...stateWithMessage,
           status: "running_model",
@@ -821,16 +837,23 @@ export class AgentSessionTransitions {
 
   /** Builds the stored item of one user message; the session sets its images itself. */
   private buildStoredUserMessage(message: AgentUserMessage): FrameworkMessage {
+    const built = this.buildUserMessageWithSenderName(message);
+    // The framework item carries the name for the model; the display text stays as sent.
+    return message.senderName === undefined ? built : { ...built, text: message.text };
+  }
+
+  private buildUserMessageWithSenderName(message: AgentUserMessage): FrameworkMessage {
+    const modelText = buildSenderNamedText(message.senderName, message.text);
     const images = message.images ?? [];
     if (images.length === 0) {
-      const { images: _ignored, ...built } = this.runner.buildUserMessage(message.text);
+      const { images: _ignored, ...built } = this.runner.buildUserMessage(modelText);
       return built;
     }
     // A runner redeployed without image support still stores the images, for display.
     const built =
       this.runner.buildUserMessageWithImages === undefined
-        ? this.runner.buildUserMessage(message.text)
-        : this.runner.buildUserMessageWithImages(message.text, images);
+        ? this.runner.buildUserMessage(modelText)
+        : this.runner.buildUserMessageWithImages(modelText, images);
     return { ...built, images };
   }
 

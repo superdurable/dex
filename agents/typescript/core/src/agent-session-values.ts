@@ -308,6 +308,14 @@ export interface AgentMessage extends FrameworkMessage {
    * @since 0.6.0
    */
   readonly origin?: AgentMessageOrigin | (string & {});
+  /**
+   * The display name that the sender of this `user` message declared, from {@link AgentUserMessage.senderName}. The
+   * sender chose it; it is not an authenticated identity. `text` holds the message without the name, and the model saw
+   * it as `"<senderName>: <text>"`. It is absent on every other message. Wire field: `sender_name`, omitted when
+   * absent; `null` reads as absent.
+   * @since 0.6.3
+   */
+  readonly senderName?: string;
 }
 
 /**
@@ -801,6 +809,14 @@ export interface AgentUserMessage {
    * @since 0.5.0
    */
   readonly images?: readonly AgentImageReference[];
+  /**
+   * A display name the sender declared, such as a person who sends from Dex Web. The model sees the message as
+   * `"<senderName>: <text>"`, and UIs show the name next to the message. The sender chooses it: it is not
+   * authenticated. A valid name passes {@link isValidSenderName}; the RPCs refuse any other name. A Worker before
+   * 0.6.3 ignores it. Wire field: `sender_name`, omitted when absent; `null` reads as absent.
+   * @since 0.6.3
+   */
+  readonly senderName?: string;
 }
 
 /**
@@ -815,8 +831,8 @@ export interface PendingUserMessage {
 }
 
 /**
- * Input of the `steer_user_message` RPC. Set exactly one field: `messageId` moves a queued message, and `text`
- * sends a new one.
+ * Input of the `steer_user_message` RPC. Set exactly one of `messageId` and `text`: `messageId` moves a queued
+ * message, and `text` sends a new one.
  *
  * @example
  * ```ts
@@ -832,6 +848,13 @@ export interface SteerUserMessageRequest {
   readonly messageId: string | null;
   /** Text of a new steered message, or `null`. Wire field: `text`. */
   readonly text: string | null;
+  /**
+   * The declared display name of the sender of `text`, as {@link AgentUserMessage.senderName} describes it. The RPC
+   * refuses it together with `messageId`: a queued message keeps its own name. Wire field: `sender_name`, omitted when
+   * absent; `null` reads as absent.
+   * @since 0.6.3
+   */
+  readonly senderName?: string;
 }
 
 /** Input of the `delete_queued_message` RPC. */

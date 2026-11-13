@@ -32,6 +32,18 @@
       "description": "An explicit null plan_mode reads as false.",
       "wire": "{\"text\":\"hello\",\"plan_mode\":null}",
       "canonical": "{\"images\":[],\"plan_mode\":false,\"text\":\"hello\"}"
+    },
+    {
+      "name": "sender-name",
+      "description": "A message whose sender declared a display name.",
+      "wire": "{\"images\":[],\"plan_mode\":false,\"sender_name\":\"\\u00c5sa \\ud83d\\ude00\",\"text\":\"hello\"}",
+      "canonical": "{\"images\":[],\"plan_mode\":false,\"sender_name\":\"\\u00c5sa \\ud83d\\ude00\",\"text\":\"hello\"}"
+    },
+    {
+      "name": "explicit-null-sender-name",
+      "description": "An explicit null sender_name reads as no name, which encoding omits.",
+      "wire": "{\"text\":\"hello\",\"sender_name\":null}",
+      "canonical": "{\"images\":[],\"plan_mode\":false,\"text\":\"hello\"}"
     }
   ]
 }

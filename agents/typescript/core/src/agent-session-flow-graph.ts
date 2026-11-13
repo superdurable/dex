@@ -17,7 +17,7 @@ import sessionFlowGraphTemplate from "./agent-session-flow-graph.json" with { ty
  * changes, to a later one, in the same change as the template, and stays the same otherwise. The conformance suite's
  * `generate.py` refuses a template change that keeps it. The Python core uses the same time.
  */
-export const sessionFlowGraphGeneratedAt = "2026-11-10T07:43:04.000Z";
+export const sessionFlowGraphGeneratedAt = "2026-11-12T18:00:00.000Z";
 
 const actionPermissionPattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 

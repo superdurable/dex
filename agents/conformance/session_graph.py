@@ -87,7 +87,7 @@ SESSION_ACTIONS = (
         "steer_user_message",
         "Steer turn",
         SteerUserMessageRequest,
-        {"message_id": "Queued message ID", "text": "New message"},
+        {"message_id": "Queued message ID", "text": "New message", "sender_name": "Sender name"},
     ),
     SessionAction("cancel_turn", "Stop turn", CancelTurnRequest, {"turn_id": "Turn ID"}),
 )

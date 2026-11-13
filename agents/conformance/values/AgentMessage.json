@@ -64,6 +64,18 @@
       "canonical": "{\"created_at\":\"2026-11-02T09:30:00.000Z\",\"framework_item\":\"{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hello\\\"}\",\"images\":[],\"origin\":\"later_origin\",\"role\":\"user\",\"sequence\":1,\"text\":\"hello\",\"tool_arguments\":null,\"tool_call_id\":null,\"tool_name\":null,\"tool_output\":null,\"turn_id\":\"turn-1\"}"
     },
     {
+      "name": "sender-name",
+      "description": "A user message whose sender declared a name; the framework item carries the prefix.",
+      "wire": "{\"created_at\":\"2026-11-02T09:30:00.000Z\",\"framework_item\":\"{\\\"type\\\":\\\"user_text\\\",\\\"text\\\":\\\"Alice: hello\\\"}\",\"images\":[],\"origin\":null,\"role\":\"user\",\"sender_name\":\"Alice\",\"sequence\":1,\"text\":\"hello\",\"tool_arguments\":null,\"tool_call_id\":null,\"tool_name\":null,\"tool_output\":null,\"turn_id\":\"turn-1\"}",
+      "canonical": "{\"created_at\":\"2026-11-02T09:30:00.000Z\",\"framework_item\":\"{\\\"type\\\":\\\"user_text\\\",\\\"text\\\":\\\"Alice: hello\\\"}\",\"images\":[],\"origin\":null,\"role\":\"user\",\"sender_name\":\"Alice\",\"sequence\":1,\"text\":\"hello\",\"tool_arguments\":null,\"tool_call_id\":null,\"tool_name\":null,\"tool_output\":null,\"turn_id\":\"turn-1\"}"
+    },
+    {
+      "name": "explicit-null-sender-name",
+      "description": "An explicit null sender_name reads as no name, which encoding omits.",
+      "wire": "{\"sequence\":1,\"turn_id\":\"turn-1\",\"role\":\"user\",\"text\":\"hello\",\"tool_call_id\":null,\"tool_name\":null,\"tool_arguments\":null,\"tool_output\":null,\"framework_item\":\"{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hello\\\"}\",\"created_at\":\"2026-11-02T09:30:00.000Z\",\"images\":[],\"origin\":null,\"sender_name\":null}",
+      "canonical": "{\"created_at\":\"2026-11-02T09:30:00.000Z\",\"framework_item\":\"{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hello\\\"}\",\"images\":[],\"origin\":null,\"role\":\"user\",\"sequence\":1,\"text\":\"hello\",\"tool_arguments\":null,\"tool_call_id\":null,\"tool_name\":null,\"tool_output\":null,\"turn_id\":\"turn-1\"}"
+    },
+    {
       "name": "released-0.1.0",
       "description": "As dex-agents 0.1.0 wrote it.",
       "wire": "{\"sequence\":1,\"turn_id\":\"turn-1\",\"role\":\"user\",\"text\":\"hello\",\"tool_call_id\":null,\"tool_name\":null,\"tool_arguments\":null,\"tool_output\":null,\"framework_item\":\"{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hello\\\"}\",\"created_at\":\"2026-11-02T09:30:00.000Z\"}",

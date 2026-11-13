@@ -2178,6 +2178,13 @@
               "source": "user",
               "required": false,
               "description": "New message"
+            },
+            {
+              "fieldName": "sender_name",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "Sender name"
             }
           ]
         }

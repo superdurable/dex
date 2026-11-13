@@ -288,6 +288,47 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     assert.deepEqual(snapshot.queuedMessages, []);
   });
 
+  test("a named message reaches the model with its name and is stored with it", async () => {
+    const sessionId = `sender-name-${newToken()}`;
+    await sessions.startSession(sessionId, "say hi");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const invoke = (input: { text: string; senderName: string }) =>
+      environment.client.invokeRPC(sessions.flow.sendUserMessage, sessionId, input);
+    for (const senderName of ["", " Alice", "Alice ", "A\nB", "A\u2028B", "\u0007", "x".repeat(65)]) {
+      assert.equal(await invoke({ text: "hello", senderName }), false, JSON.stringify(senderName));
+    }
+    assert.equal(
+      await environment.client.invokeRPC(sessions.flow.steerUserMessage, sessionId, {
+        messageId: "msg-1",
+        text: null,
+        senderName: "Alice",
+      }),
+      false,
+    );
+
+    assert.equal(await invoke({ text: "hello there", senderName: "Alice" }), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    let snapshot = await sessions.getAgentSnapshot(sessionId);
+    const named = snapshot.messages.find((message) => message.turnId === "turn-2" && message.role === "user");
+    assert.equal(named?.text, "hello there");
+    assert.equal(named?.senderName, "Alice");
+    assert.equal(snapshot.messages.at(-1)?.text, "heard Alice: hello there");
+    assert.equal(snapshot.messages[0]?.senderName, undefined);
+
+    // Steering while idle queues the text with its name.
+    assert.equal(
+      await environment.client.invokeRPC(sessions.flow.steerUserMessage, sessionId, {
+        messageId: null,
+        text: "what now",
+        senderName: "Bob",
+      }),
+      true,
+    );
+    await sessions.waitForCompletedTurns(sessionId, 3);
+    snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, "heard Bob: what now");
+  });
+
   test("A5-6: steering one queued message twice at once moves it once and the loser commits nothing", async () => {
     const token = newToken();
     const sessionId = `steer-twice-${token}`;

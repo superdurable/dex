@@ -137,6 +137,7 @@ from dex_agents import (
     build_context_summary_prompt,
     build_plan_execution_message,
     build_plan_note,
+    build_sender_named_text,
     build_session_title,
     build_turn_failure_note,
     describe_tool_call_outcome,
@@ -833,6 +834,24 @@ def build_value_documents() -> list[dict[str, Any]]:
         "An origin a later release adds decodes and keeps its value.",
         {**RELEASED_MESSAGE, "images": [], "origin": "later_origin"},
     )
+    messages.value(
+        "sender-name",
+        "A user message whose sender declared a name; the framework item carries the prefix.",
+        replace(
+            user_message(),
+            text="hello",
+            framework_item=json.dumps(
+                {"type": "user_text", "text": build_sender_named_text("Alice", "hello")},
+                separators=(",", ":"),
+            ),
+            sender_name="Alice",
+        ),
+    )
+    messages.wire(
+        "explicit-null-sender-name",
+        "An explicit null sender_name reads as no name, which encoding omits.",
+        {**RELEASED_MESSAGE, "images": [], "origin": None, "sender_name": None},
+    )
     messages.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_MESSAGE)
     documents.append(messages)
 
@@ -993,6 +1012,16 @@ def build_value_documents() -> list[dict[str, Any]]:
             "An explicit null plan_mode reads as false.",
             {"text": "hello", "plan_mode": None},
         )
+        .value(
+            "sender-name",
+            "A message whose sender declared a display name.",
+            AgentUserMessage(text="hello", sender_name="\u00c5sa \U0001f600"),
+        )
+        .wire(
+            "explicit-null-sender-name",
+            "An explicit null sender_name reads as no name, which encoding omits.",
+            {"text": "hello", "sender_name": None},
+        )
     )
 
     documents.append(
@@ -1013,6 +1042,11 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
         .value(
             "by-message-id", "Steer a queued message.", SteerUserMessageRequest(message_id="msg-3")
+        )
+        .value(
+            "by-text-with-sender-name",
+            "A new steered message whose sender declared a display name.",
+            SteerUserMessageRequest(text="stop and summarize", sender_name="Alice"),
         )
     )
 
@@ -1920,6 +1954,17 @@ def build_texts() -> dict[str, Any]:
         "plan_execution_message": [
             {"input": {"revision": revision}, "text": build_plan_execution_message(revision)}
             for revision in (1, 12)
+        ],
+        "sender_named_user_message": [
+            {
+                "input": {"sender_name": name, "text": text},
+                "text": build_sender_named_text(name, text),
+            }
+            for name, text in (
+                ("Alice", "hello"),
+                ("\u00c5sa \U0001f600", TRICKY_TEXT),
+                (None, "hi"),
+            )
         ],
         "plan_note": [
             {

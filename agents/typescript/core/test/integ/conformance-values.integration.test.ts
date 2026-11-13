@@ -43,6 +43,7 @@ import {
   planningTurnInstruction,
   planningTurnToolRejection,
 } from "../../src/agent-plans.js";
+import { buildSenderNamedText, isValidSenderName } from "../../src/agent-sender-names.js";
 import {
   decodeAgentImageReference,
   decodeAgentInterrupt,
@@ -638,6 +639,16 @@ describe("the conformance suite's text table", () => {
     assert.deepEqual(constants, texts.constants);
   });
 
+  test("the sender name rule counts code points and refuses breaks", () => {
+    assert.equal(isValidSenderName("Alice"), true);
+    assert.equal(isValidSenderName("\u{1F600}".repeat(64)), true);
+    assert.equal(isValidSenderName("\uFEFFAlice"), true);
+    assert.equal(isValidSenderName("\u{1F600}".repeat(65)), false);
+    for (const name of ["", " Alice", "Alice ", "A\nB", "A\u2028B", "\u0007", "x".repeat(65)]) {
+      assert.equal(isValidSenderName(name), false, JSON.stringify(name));
+    }
+  });
+
   test("every template renders the same text", () => {
     const records = (input: Readonly<Record<string, unknown>>) => (input["records"] as unknown[]).map(decodeAgentToolCall);
     const renderers: Readonly<Record<string, (input: Readonly<Record<string, unknown>>) => string | null>> = {
@@ -646,6 +657,8 @@ describe("the conformance suite's text table", () => {
       turn_steered_note: (input) => buildToolCallNote(turnSteeredNoteHeader, records(input)),
       turn_cancelled_note: (input) => buildToolCallNote(turnCancelledNoteHeader, records(input)),
       plan_execution_message: (input) => buildPlanExecutionMessage(input["revision"] as number),
+      sender_named_user_message: (input) =>
+        buildSenderNamedText((input["sender_name"] as string | null) ?? undefined, input["text"] as string),
       plan_note: (input) =>
         buildPlanNote(input["plan"] === null ? null : decodeAgentPlan(input["plan"]), input["interaction_mode"] as InteractionMode) ??
         null,
