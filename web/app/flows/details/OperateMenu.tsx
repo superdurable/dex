@@ -26,12 +26,15 @@ export function OperateMenu({
   onStop,
   onTimeTravel,
   onTimeTravelFromFailure,
+  failedEventId,
 }: {
   isRunning: boolean;
   onStop: () => void;
   onTimeTravel: () => void;
   /** Set on a failed run: time travel prefilled at the failed event. */
   onTimeTravelFromFailure?: () => void;
+  /** The failed event's ID, named on the main button. */
+  failedEventId?: number;
 }) {
   const { isOpen, setIsOpen, rootRef } = usePopover<HTMLDivElement>();
   const menuId = useId();
@@ -43,7 +46,7 @@ export function OperateMenu({
     onSelect: onTimeTravel,
   };
   const fromFailure: OperateAction | null = onTimeTravelFromFailure ? {
-    id: 'time-travel', label: 'Time travel', menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
+    id: 'time-travel', label: failedEventId === undefined ? 'Time travel' : `Time travel from #${failedEventId}`, menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
     Icon: History, onSelect: onTimeTravelFromFailure,
   } : null;
   const [primary, ...others] = isRunning ? [stop, timeTravel] : fromFailure ? [fromFailure, timeTravel] : [timeTravel];

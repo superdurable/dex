@@ -164,6 +164,8 @@ export function FlowSearchPage() {
   const generatedQuery = useMemo(() => buildVisibilityQuery(filters), [filters]);
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
   const quickStatus = quickStatusOf(parseVisibilityQuery(searchedQuery));
+  // A search that is just one status chip keeps the card one row; Add filter opens the rows.
+  const isQuickStatusSearch = mode === 'basic' && quickStatus !== null && generatedQuery === searchedQuery;
   const customAttributes = useMemo(() => selectVisibleIndexedAttributeKeys(flows), [flows]);
 
   const executeSearch = useCallback(async (
@@ -345,7 +347,7 @@ export function FlowSearchPage() {
 
   return (
     <div className="page-shell flow-search-page v1-page">
-      <section className="card query-card">
+      <section className={`card query-card${isQuickStatusSearch ? ' is-quick-status' : ''}`}>
         <div className="query-toolbar">
           <div className="segmented" role="tablist" aria-label="Query mode" onKeyDown={handleModeTabKeyDown}>
             <button

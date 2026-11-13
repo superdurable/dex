@@ -58,7 +58,7 @@ export function RunEventsTile({
       </div>
       <div className="run-events-controls">
         {paging && hasOtherPages(paging) && <RunEventsPager paging={paging} />}
-        {pageSize !== undefined && onPageSizeChange && (
+        {pageSize !== undefined && onPageSizeChange && !fitsSmallestPage(latestEventId, paging) && (
           <label className="run-events-page-size">
             Page size
             <select
@@ -77,6 +77,12 @@ export function RunEventsTile({
 /** Page buttons matter only when another page exists or the reader has paged away. */
 function hasOtherPages(paging: RunEventsPaging): boolean {
   return paging.hasOlder || paging.hasNewer || !paging.isNewest || paging.canGoBack;
+}
+
+/** A run whose whole history fits the smallest page has no use for a page size. */
+function fitsSmallestPage(latestEventId: number | null, paging: RunEventsPaging | null): boolean {
+  if (latestEventId === null || (paging && hasOtherPages(paging))) return false;
+  return latestEventId <= Math.min(...HISTORY_PAGE_SIZES);
 }
 
 function pageLabel(paging: RunEventsPaging): string {

@@ -56,7 +56,7 @@ import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
 import { OperateMenu } from './details/OperateMenu';
-import { middleTruncate, RunFactsMenu, type RunFact } from './details/RunFactsMenu';
+import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './details/RunFactsMenu';
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { CopyButton } from '../components/CopyButton';
@@ -112,6 +112,8 @@ const noOperatorDefinitions: FlowV2Definition[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
 /** The horizontal Timeline needs width; narrow screens keep the vertical one. */
 const horizontalTimelineQuery = '(min-width: 761px)';
+/** On desktop the strip gains the event list under it, so events can be scanned as rows. */
+const timelineEventListQuery = '(min-width: 1280px)';
 
 /** Follows a media query; without matchMedia, such as in tests, it reports no match. */
 function useMediaQuery(query: string): boolean {
@@ -258,6 +260,7 @@ export function RunDetailsPage({
   // Design draws only the definition: history, state and blobs wait until the reader leaves it.
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
+  const hasTimelineEventList = useMediaQuery(timelineEventListQuery);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
@@ -879,7 +882,7 @@ export function RunDetailsPage({
           <>
             <Link className="app-bar-parent" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
               <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
-              <span className="mono">{middleTruncate(relations.parentFlowId, 16)}</span>
+              <span className="mono">{middleTruncate(relations.parentFlowId, 24)}</span>
             </Link>
             <span aria-hidden="true" className="app-bar-separator">/</span>
           </>
@@ -946,6 +949,7 @@ export function RunDetailsPage({
         )}
         <OperateMenu
           isRunning={isRunOpen}
+          failedEventId={failedEvent?.eventId}
           onTimeTravelFromFailure={failedEvent ? () => openTimeTravel(failedEvent) : undefined}
           onStop={() => setStopOpen(true)}
           onTimeTravel={() => openTimeTravel(selectedEvent ? selected : null)}
@@ -1018,6 +1022,14 @@ export function RunDetailsPage({
           {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
             <LoadingIndicator className="card page-loading" label="Loading events…" />
           )}
+          {shownTab === 'overview' && summary && relations && (
+            <RunRelations
+              childFlows={relations.children}
+              childFlowsHref={childFlowsHref}
+              hasMoreChildFlows={relations.hasMoreChildren}
+              parentFlowId={relations.parentFlowId}
+            />
+          )}
           {shownTab === 'overview' && summary && (
             <FlowOverview
               summary={summary}
@@ -1056,7 +1068,7 @@ export function RunDetailsPage({
               highlightedEventId={runHistory.highlightedEventId}
             />
           )}
-          {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
+          {shownTab === 'timeline' && !isWaitingForHistory && (!isHorizontalTimeline || hasTimelineEventList) && (
             <Timeline
               flowId={flowId}
               events={displayedTimelineEvents}

@@ -8,7 +8,7 @@
 
 import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, ChevronDown, CornerDownRight, Flag, Layers, ListOrdered, Tag, Timer } from 'lucide-react';
+import { CalendarClock, ChevronDown, CornerDownRight, CornerLeftUp, Flag, Layers, ListOrdered, Tag, Timer } from 'lucide-react';
 import type { FlowExecution } from '@/lib/types';
 import { runPath } from '../../routes';
 import { CopyButton } from '../../components/CopyButton';
@@ -122,4 +122,40 @@ export function RunFactsMenu({
 
 function childFlowCountLabel(count: number, hasMore: boolean): string {
   return `${count}${hasMore ? '+' : ''} ${count === 1 && !hasMore ? 'child' : 'children'}`;
+}
+
+/** The run's parent and child Flows, for Overview. */
+export function RunRelations({
+  parentFlowId,
+  childFlows,
+  hasMoreChildFlows,
+  childFlowsHref,
+}: {
+  parentFlowId?: string;
+  childFlows: readonly FlowExecution[];
+  hasMoreChildFlows: boolean;
+  childFlowsHref: string;
+}) {
+  if (!parentFlowId && childFlows.length === 0) return null;
+  return (
+    <section aria-label="Related Flows" className="card run-relations">
+      <h3>Related Flows</h3>
+      {parentFlowId && (
+        <Link className="run-relation" title={parentFlowId} to={runPath(parentFlowId)}>
+          <CornerLeftUp aria-hidden="true" size={14} strokeWidth={2} />
+          <span className="run-relation-kind">Parent</span>
+          <span className="mono">{middleTruncate(parentFlowId, 60)}</span>
+        </Link>
+      )}
+      {childFlows.map((child) => (
+        <Link className="run-relation" key={child.flowId} title={child.flowId} to={runPath(child.flowId, child.runId)}>
+          <CornerDownRight aria-hidden="true" size={14} strokeWidth={2} />
+          <span className="run-relation-kind">Child</span>
+          <span className="mono">{middleTruncate(child.flowId, 60)}</span>
+          <StatusBadge status={child.flowStatus} />
+        </Link>
+      ))}
+      {hasMoreChildFlows && <Link to={childFlowsHref}>See all {childFlowCountLabel(childFlows.length, true)}</Link>}
+    </section>
+  );
 }

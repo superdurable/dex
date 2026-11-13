@@ -1594,7 +1594,7 @@ body:has(.v1-page) {
 
 .v1-page .selected-event-anchor > h3 {
   margin-bottom: 4px;
-  font-size: var(--ui-text-xl);
+  font-size: var(--ui-text-lg);
   font-weight: 650;
 }
 

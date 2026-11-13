@@ -89,22 +89,22 @@ export function FlowStatePanel({
         <>
           <header aria-label="Selected event" className="selected-event-anchor" data-selected-event-target>
             <h3>{eventTitle(selectedEvent)}</h3>
+            {onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent) && (
+              <button
+                className="button ghost selected-event-time-travel"
+                onClick={() => onTimeTravelFromEvent(selectedEvent)}
+                type="button"
+              >
+                <History aria-hidden="true" size={13} strokeWidth={2.25} />
+                Time travel from here…
+              </button>
+            )}
             <div className="event-meta">
               <span className="mono">#{selectedEvent.eventId}</span>
               <span title={selectedEvent.eventTime ?? undefined}>
                 {selectedEvent.eventTime ? formatDate(selectedEvent.eventTime, timezone) : 'No timestamp'}
               </span>
               {offset && <span>{offset}</span>}
-              {onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent) && (
-                <button
-                  className="button ghost selected-event-time-travel"
-                  onClick={() => onTimeTravelFromEvent(selectedEvent)}
-                  type="button"
-                >
-                  <History aria-hidden="true" size={13} strokeWidth={2.25} />
-                  Time travel from here…
-                </button>
-              )}
             </div>
           </header>
           {relatedEvents.length > 0 && (

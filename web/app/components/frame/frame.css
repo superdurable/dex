@@ -23,7 +23,8 @@ body {
   align-items: center;
   gap: 6px;
   min-height: var(--header-h);
-  padding: 0 16px 0 14px;
+  /* Wide screens line the bar up with the page's 1500px content column. */
+  padding: 0 max(16px, calc((100% - 1500px) / 2)) 0 max(14px, calc((100% - 1500px) / 2));
   background:
     linear-gradient(var(--bar-wash), var(--bar-wash)),
     color-mix(in srgb, var(--ui-surface) 90%, transparent);
@@ -750,8 +751,20 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
   font-size: var(--ui-text-sm);
+}
+
+/* The event's one action sits on its title row. */
+.v1-page .selected-event-anchor:has(> .selected-event-time-travel) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+
+.v1-page .selected-event-anchor > .selected-event-time-travel {
+  grid-row: 1 / span 2;
+  grid-column: 2;
 }
 
 /* The event pager is the head of the view it pages. */
@@ -1058,7 +1071,7 @@ body {
   }
 
   .run-facts-name {
-    max-width: 24ch;
+    max-width: 28ch;
   }
 }
 
@@ -1077,7 +1090,7 @@ body {
   }
 }
 
-@container app-bar (max-width: 1520px) {
+@container app-bar (max-width: 1440px) {
   .run-facts-type {
     display: none;
   }
@@ -1134,7 +1147,7 @@ body {
 }
 
 /* With no filter rows the Flows search is one line: modes, statuses, Add filter, Search. */
-.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)):not(:has(.saved-query-panel)) {
+:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.saved-query-panel)) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1143,14 +1156,71 @@ body {
   padding-bottom: 12px;
 }
 
-.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)):not(:has(.saved-query-panel)) > .query-toolbar {
+:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.saved-query-panel)) > .query-toolbar {
   flex: 1 1 640px;
 }
 
-.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)):not(:has(.saved-query-panel)) > .query-submit {
+:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.saved-query-panel)) > .query-submit {
   margin-top: 0;
 }
 
-.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)) .query-submit > .button.ghost {
+.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)) .query-submit > .button.ghost,
+.v1-page .query-card.is-quick-status .query-submit > .button.ghost,
+.v1-page .query-card.is-quick-status .filter-row,
+.v1-page .query-card.is-quick-status .query-preview {
   display: none;
+}
+
+/* Overview names the run's parent and children, one row each. */
+.v1-page .run-relations {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+}
+
+.v1-page .run-relations h3 {
+  margin: 0 0 6px;
+  font-size: var(--ui-text-md);
+}
+
+.v1-page .run-relation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  text-decoration: none;
+}
+
+.v1-page .run-relation:hover {
+  background: var(--ui-hover);
+}
+
+.v1-page .run-relation-kind {
+  min-width: 48px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .run-relation .mono {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Labels of events just left of the view fade out instead of ending in a hard cut. */
+.v1-page .htl-strip::after {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 34px;
+  background: linear-gradient(to right, var(--ui-well), transparent);
+  content: '';
+  pointer-events: none;
 }
