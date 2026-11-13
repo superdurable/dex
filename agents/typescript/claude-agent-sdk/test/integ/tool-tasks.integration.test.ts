@@ -14,18 +14,48 @@ import { after, afterEach, before, describe, test } from "node:test";
 import {
   outcomeUnknownToolResult,
   turnCancelledNoteHeader,
+  type AgentSnapshot,
   type AgentToolCallRecord,
   type AgentToolCallRecordStatus,
 } from "@superdurable/dex-agents";
 import { PrivateDexEngine, pollUntil } from "@superdurable/dex-agents/testing";
 
 import { ClaudeAgentRunner } from "../../src/index.js";
+import { loadSessionTranscript } from "../../src/claude-transcript.js";
 import { ClaudeAgentTestHarness } from "../fixtures/claude-agent-test-harness.js";
 
 type ToolArguments = Readonly<Record<string, unknown>>;
 
 function callReport(toolArguments: ToolArguments): string {
   return `call report ${JSON.stringify(toolArguments)}`;
+}
+
+/**
+ * Checks the stored Claude transcript, which the next segment resumes from: every `tool_use` has exactly one
+ * `tool_result`, and every `tool_result` answers a stored `tool_use`.
+ * @returns The stored `tool_use` IDs.
+ */
+function assertEveryToolUseAnsweredOnce(snapshot: AgentSnapshot): Set<string> {
+  const blocks = loadSessionTranscript(snapshot.messages).entries.flatMap((entry) => {
+    const message = entry["message"] as { readonly content?: unknown } | undefined;
+    return Array.isArray(message?.content) ? (message.content as Record<string, unknown>[]) : [];
+  });
+  const toolUseCounts = new Map<string, number>();
+  const toolResultCounts = new Map<string, number>();
+  for (const block of blocks) {
+    if (block["type"] === "tool_use") {
+      const id = String(block["id"]);
+      toolUseCounts.set(id, (toolUseCounts.get(id) ?? 0) + 1);
+    }
+    if (block["type"] === "tool_result") {
+      const id = String(block["tool_use_id"]);
+      toolResultCounts.set(id, (toolResultCounts.get(id) ?? 0) + 1);
+    }
+  }
+  const expected = new Map([...toolUseCounts.keys()].map((id) => [id, 1]));
+  assert.deepEqual(toolUseCounts, expected, "each tool_use is stored once");
+  assert.deepEqual(toolResultCounts, expected, "each tool_use has exactly one tool_result");
+  return new Set(toolUseCounts.keys());
 }
 
 describe("tool tasks and questions of a Claude agent's tool source", () => {
@@ -91,6 +121,7 @@ describe("tool tasks and questions of a Claude agent's tool source", () => {
     const snapshot = await agent.waitForTurns(sessionId, 1);
 
     assert.equal(snapshot.messages.at(-1)?.text, "report: report on q1");
+    assert.deepEqual(assertEveryToolUseAnsweredOnce(snapshot), new Set([record.toolCallId]));
     assert.equal(record.status, "succeeded");
     assert.equal(record.output, "report on q1");
     const taskId = `task-${record.toolCallId}`;
@@ -116,6 +147,7 @@ describe("tool tasks and questions of a Claude agent's tool source", () => {
 
     assert.equal(record.status, "failed");
     assert.equal(snapshot.messages.at(-1)?.text, "report: The tool call failed: the report on q2 failed");
+    assert.deepEqual(assertEveryToolUseAnsweredOnce(snapshot), new Set([record.toolCallId]));
   });
 
   test("cancel_turn cancels the source task, and the next turn still answers", async () => {
@@ -140,11 +172,14 @@ describe("tool tasks and questions of a Claude agent's tool source", () => {
       .map((event) => (JSON.parse(event.payload) as { readonly status: string }).status);
     assert.deepEqual(finished, ["outcome_unknown"]);
     assert.ok((await agent.executedStepTypes(sessionId)).includes("CancelToolTask"));
+    // The stored session that the next turn resumes from holds no unanswered tool_use of the cancelled turn.
+    assertEveryToolUseAnsweredOnce(snapshot);
 
     // The resumed Claude session has no tool_use without a tool_result.
     assert.equal(await agent.sessions.sendUserMessage(sessionId, "say after"), true);
     const afterSnapshot = await agent.waitForTurns(sessionId, 2);
     assert.equal(afterSnapshot.messages.at(-1)?.text, "said: after");
+    assertEveryToolUseAnsweredOnce(afterSnapshot);
   });
 
   test("a source call that asks a question waits for the answer, and the resumed session gets the result", async () => {
@@ -162,6 +197,7 @@ describe("tool tasks and questions of a Claude agent's tool source", () => {
     assert.equal(record.status, "succeeded");
     assert.equal(record.output, "account savings");
     assert.equal(snapshot.messages.at(-1)?.text, "choose_account: account savings");
+    assert.deepEqual(assertEveryToolUseAnsweredOnce(snapshot), new Set([record.toolCallId]));
     assert.deepEqual(snapshot.pendingInterrupts, []);
     assert.deepEqual(
       agent.invocations.names().filter((name) => name.startsWith("choose-account ")),
