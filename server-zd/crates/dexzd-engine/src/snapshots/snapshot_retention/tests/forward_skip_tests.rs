@@ -104,9 +104,7 @@ async fn exists(object_store: &InMemoryObjectStore, key: &str) -> bool {
     object_store.get(key).await.expect("read object").is_some()
 }
 
-/// Lineage L has manifests 1 to 5; listings show 1 to 4, and L's manifest listing is empty.
-///
-/// Manifest 1 is obsolete. Its file `only-1-and-5` is also in manifest 5, the newest of L.
+/// Listings never show lineage L's manifest 5. Obsolete manifest 1 shares file `only-1-and-5` with 5.
 struct SkippedNewestManifest {
     object_store: Arc<InMemoryObjectStore>,
     lineage: Uuid,

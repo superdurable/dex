@@ -8,15 +8,20 @@
 
 //! Snapshot retention of a node whose object storage lists eventually, as Tencent COS does.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use dexzd_engine::{EngineNodeConfig, LocalStoreConfig};
 use dexzd_object_store::{ListingConsistency, ObjectStore};
+use tokio::time::Instant;
 
 use crate::harness::TestCluster;
 
 const DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
+/// Virtual time between two reads of the snapshot objects while retention waits.
+const CHECK_STEP: Duration = Duration::from_secs(5 * 60);
+/// How far the paused clock may pass the test's own sleeps before a read.
+const CLOCK_SLACK: Duration = Duration::from_secs(1);
 
 fn eventual_config(cluster: &TestCluster) -> EngineNodeConfig {
     let mut config = cluster.config(LocalStoreConfig::InMemory);
@@ -48,6 +53,15 @@ fn manifest_prefix_of(manifest_key: &str) -> String {
     format!("{lineage_prefix}/manifest/")
 }
 
+fn snapshot_number_of(manifest_key: &str) -> u64 {
+    let (_, snapshot_number) = manifest_key
+        .split_once("/manifest/")
+        .expect("a manifest key has a manifest segment");
+    snapshot_number
+        .parse()
+        .expect("a manifest key ends in its snapshot number")
+}
+
 async fn pointed_manifest_key(cluster: &TestCluster) -> String {
     cluster.cluster_manifest().await.partitions[0]
         .snapshot
@@ -57,10 +71,62 @@ async fn pointed_manifest_key(cluster: &TestCluster) -> String {
         .clone()
 }
 
+/// Objects whose protection ended no earlier than `protected_until_at_least`.
+struct ProtectedGroup {
+    name: &'static str,
+    keys: BTreeSet<String>,
+    protected_until_at_least: Instant,
+}
+
+/// The paused clock of the test, checked against the sleeps the test planned.
+struct VirtualSchedule {
+    started: Instant,
+    planned_elapsed: Duration,
+}
+
+impl VirtualSchedule {
+    async fn sleep(&mut self, duration: Duration) {
+        tokio::time::sleep(duration).await;
+        self.planned_elapsed += duration;
+    }
+
+    /// Fails when the paused clock advanced past the planned sleeps on its own.
+    fn assert_on_schedule(&self, context: &str) {
+        let elapsed = self.started.elapsed();
+        assert!(
+            elapsed >= self.planned_elapsed && elapsed - self.planned_elapsed <= CLOCK_SLACK,
+            "{context}: virtual elapsed {elapsed:?}, planned {:?}",
+            self.planned_elapsed
+        );
+    }
+}
+
+/// Lists the snapshot objects and confirms each tracked key with a HEAD.
+async fn read_snapshot_objects(
+    cluster: &TestCluster,
+    tracked_keys: impl Iterator<Item = &String>,
+) -> BTreeSet<String> {
+    let listed = snapshot_objects(cluster).await;
+    for key in tracked_keys {
+        let is_headed = cluster
+            .object_store
+            .head(key)
+            .await
+            .expect("head a snapshot object")
+            .is_some();
+        assert_eq!(
+            listed.contains(key),
+            is_headed,
+            "the test's LIST and HEAD disagree on {key}"
+        );
+    }
+    listed
+}
+
 /// A restarted owner replaces the former pointer and fails one manifest write before the next.
 #[tokio::test(start_paused = true)]
 async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_for_the_delay() {
-    let started = tokio::time::Instant::now();
+    let started = Instant::now();
     let mut cluster = TestCluster::new();
     let config = eventual_config(&cluster);
     let first = cluster.start_with(&config).await.expect("node starts");
@@ -71,6 +137,7 @@ async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_
 
     let second = cluster.start_with(&config).await.expect("node restores");
     second.commit_prompt("eventual-flow", 1).await;
+    let former_pointer_replaced_after = Instant::now();
     second
         .node
         .take_snapshot()
@@ -81,15 +148,18 @@ async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_
         .difference(&former_objects)
         .cloned()
         .collect();
+    let replaced_pointer = pointed_manifest_key(&cluster).await;
     cluster
         .faults
-        .fail_puts_under(&manifest_prefix_of(&pointed_manifest_key(&cluster).await));
+        .fail_puts_under(&manifest_prefix_of(&replaced_pointer));
     second.commit_prompt("eventual-flow", 1).await;
+    let failing_snapshot_started = Instant::now();
     second
         .node
         .take_snapshot()
         .await
         .expect_err("the manifest write fails");
+    let failure_reported = Instant::now();
     cluster.faults.clear();
     let before_failure: BTreeSet<String> =
         former_objects.union(&replaced_objects).cloned().collect();
@@ -102,37 +172,93 @@ async fn eventual_retention_keeps_a_replaced_startup_pointer_and_a_failed_write_
         !failed_write_files.is_empty(),
         "the failed upload wrote files"
     );
+    assert!(
+        failed_write_files.iter().all(|key| key.contains("/files/")),
+        "the failed manifest write never landed: {failed_write_files:?}"
+    );
     second.commit_prompt("eventual-flow", 1).await;
+    let replaced_pointer_moved_after = Instant::now();
     second
         .node
         .take_snapshot()
         .await
         .expect("snapshot succeeds");
-    assert!(
-        started.elapsed() < DELETION_DELAY / 10,
-        "{:?}",
-        started.elapsed()
+    let newest_pointer = pointed_manifest_key(&cluster).await;
+    // A reused number would let the next upload overwrite the failed write's record.
+    assert_eq!(
+        snapshot_number_of(&newest_pointer),
+        snapshot_number_of(&replaced_pointer) + 2,
+        "the failed write and the next snapshot have distinct manifest keys"
     );
+    let setup_elapsed = started.elapsed();
+    assert!(setup_elapsed < DELETION_DELAY / 10, "{setup_elapsed:?}");
 
-    // Protection lasts the delay; candidacy then lasts it again, so nothing goes before twice the delay.
-    tokio::time::sleep(DELETION_DELAY + DELETION_DELAY / 2).await;
-    let objects = snapshot_objects(&cluster).await;
-    for key in former_objects
+    let groups = [
+        ProtectedGroup {
+            name: "former pointer",
+            keys: former_objects,
+            protected_until_at_least: former_pointer_replaced_after + DELETION_DELAY,
+        },
+        ProtectedGroup {
+            name: "replaced pointer",
+            keys: replaced_objects,
+            protected_until_at_least: replaced_pointer_moved_after + DELETION_DELAY,
+        },
+        ProtectedGroup {
+            name: "failed write",
+            keys: failed_write_files,
+            protected_until_at_least: failing_snapshot_started + DELETION_DELAY,
+        },
+    ];
+    let tracked_keys: BTreeSet<String> = groups
         .iter()
-        .chain(&replaced_objects)
-        .chain(&failed_write_files)
-    {
-        assert!(objects.contains(key), "{key} went before twice the delay");
+        .flat_map(|group| group.keys.iter().cloned())
+        .collect();
+    let mut schedule = VirtualSchedule {
+        started,
+        planned_elapsed: setup_elapsed,
+    };
+    let mut first_missing_at: BTreeMap<String, Duration> = BTreeMap::new();
+    // Protection lasts the delay; candidacy then lasts it again, so nothing goes before twice the delay.
+    while schedule.planned_elapsed < setup_elapsed + DELETION_DELAY * 5 / 2 {
+        schedule.sleep(CHECK_STEP).await;
+        schedule.assert_on_schedule("before reading the snapshot objects");
+        let objects = read_snapshot_objects(&cluster, tracked_keys.iter()).await;
+        let read_at = Instant::now();
+        schedule.assert_on_schedule("after reading the snapshot objects");
+        for group in &groups {
+            let candidate_since = group.protected_until_at_least;
+            for key in &group.keys {
+                if objects.contains(key) {
+                    assert!(
+                        !first_missing_at.contains_key(key),
+                        "{key} came back after it was gone"
+                    );
+                    continue;
+                }
+                first_missing_at
+                    .entry(key.clone())
+                    .or_insert_with(|| read_at - started);
+                assert!(
+                    read_at >= candidate_since + DELETION_DELAY,
+                    "{} object {key} went early: {:?} after the failure was reported, {:?} \
+                     after the failing snapshot started, {:?} after its protection could end \
+                     at the earliest",
+                    group.name,
+                    read_at.saturating_duration_since(failure_reported),
+                    read_at.saturating_duration_since(failing_snapshot_started),
+                    read_at.saturating_duration_since(candidate_since),
+                );
+            }
+        }
     }
 
-    tokio::time::sleep(DELETION_DELAY).await;
     let objects = snapshot_objects(&cluster).await;
-    for key in former_objects
-        .iter()
-        .chain(&replaced_objects)
-        .chain(&failed_write_files)
-    {
-        assert!(!objects.contains(key), "{key} stayed past twice the delay");
+    for key in &tracked_keys {
+        assert!(
+            !objects.contains(key),
+            "{key} stayed past twice the delay; first missing at {first_missing_at:?}"
+        );
     }
     let pointed_key = pointed_manifest_key(&cluster).await;
     assert!(objects.contains(&pointed_key), "{objects:?}");

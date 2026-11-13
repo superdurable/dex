@@ -31,6 +31,9 @@ const CANDIDATES_PER_RUN: usize = 64;
 /// After this, an eventually consistent refresh starts no new page and resumes in the next run.
 const EVENTUAL_LISTING_DURATION_PER_RUN: Duration = Duration::from_secs(10);
 
+/// Manifest GETs and HEADs of one eventually consistent run; later runs read the rest first.
+const EVENTUAL_MANIFEST_READS_PER_RUN: usize = 256;
+
 /// Keeps the newest snapshots of this node across every lineage and deletes the rest.
 pub(crate) struct SnapshotRetention {
     pub(crate) object_store: Arc<dyn ObjectStore>,
@@ -58,6 +61,24 @@ pub(crate) struct SnapshotCatalog {
     candidate_cursor: Option<String>,
     /// What retention keeps when listings are eventually consistent; strong listings leave it empty.
     protection: EventualProtection,
+    /// Listed manifests an eventual run has not read yet; no deletion happens until it is empty.
+    unread_listed_manifest_keys: BTreeSet<String>,
+    /// Known manifests a completed eventual listing lacked and no HEAD checked yet.
+    unchecked_unlisted_manifest_keys: BTreeSet<String>,
+}
+
+/// How many more manifest GETs and HEADs one eventual retention run may send.
+struct ManifestReadBudget {
+    remaining_reads: usize,
+}
+
+impl ManifestReadBudget {
+    /// Returns whether one more read fits, and counts it when it does.
+    fn try_spend_read(&mut self) -> bool {
+        let has_remaining_read = self.remaining_reads > 0;
+        self.remaining_reads = self.remaining_reads.saturating_sub(1);
+        has_remaining_read
+    }
 }
 
 struct OrphanMark {
@@ -116,9 +137,10 @@ impl SnapshotRetention {
                 .run_eventual_once(catalog, referenced_keys, fence)
                 .await;
         }
-        if !self.refresh(catalog).await? {
+        if !self.list_snapshot_objects(catalog).await? {
             return Ok(Self::kept(catalog));
         }
+        self.reconcile_strong_listing(catalog).await?;
         let mut unreferenced_files: BTreeSet<String> = self
             .find_orphan_files(catalog, now_unix_micros)
             .await?
@@ -166,7 +188,10 @@ impl SnapshotRetention {
 
     /// Deletes listed objects that stayed unprotected for the deletion delay on the monotonic clock.
     ///
-    /// Returns the kept snapshots, oldest first.
+    /// A run sends at most [`EVENTUAL_MANIFEST_READS_PER_RUN`] manifest GETs and HEADs. A run
+    /// that leaves a read for a later run starts no timer and deletes nothing, so every object
+    /// stays until the manifests that may list it are read. Returns the kept snapshots, oldest
+    /// first.
     async fn run_eventual_once<'catalog>(
         &self,
         catalog: &'catalog mut SnapshotCatalog,
@@ -184,10 +209,26 @@ impl SnapshotRetention {
             Instant::now(),
             self.deletion_delay,
         );
-        if !self.refresh(catalog).await? {
+        let has_queued_reads = !catalog.unread_listed_manifest_keys.is_empty()
+            || !catalog.unchecked_unlisted_manifest_keys.is_empty();
+        if !has_queued_reads {
+            if !self.list_snapshot_objects(catalog).await? {
+                return Ok(Self::kept(catalog));
+            }
+            Self::queue_eventual_manifest_reads(catalog);
+        }
+        let mut budget = ManifestReadBudget {
+            remaining_reads: EVENTUAL_MANIFEST_READS_PER_RUN,
+        };
+        let has_read_protected = self.read_protected_manifests(catalog, &mut budget).await?;
+        if !has_read_protected || !self.read_queued_manifests(catalog, &mut budget).await? {
+            tracing::debug!(
+                unread_manifests = catalog.unread_listed_manifest_keys.len(),
+                unchecked_manifests = catalog.unchecked_unlisted_manifest_keys.len(),
+                "snapshot retention continues manifest reads in the next run"
+            );
             return Ok(Self::kept(catalog));
         }
-        self.read_protected_manifests(catalog).await?;
         let now = Instant::now();
         let (protected_manifests, protected_files) = catalog
             .protection
@@ -399,8 +440,13 @@ impl SnapshotRetention {
         removed.iter().map(|(key, _)| (*key).clone()).collect()
     }
 
-    /// Reconciles the catalog with a listing and reads only manifests it has not seen.
-    async fn refresh(&self, catalog: &mut SnapshotCatalog) -> Result<bool, SnapshotError> {
+    /// Lists this node's snapshot objects, resuming the previous run's listing.
+    ///
+    /// Returns whether the listing reached its end; its keys then wait in the catalog.
+    async fn list_snapshot_objects(
+        &self,
+        catalog: &mut SnapshotCatalog,
+    ) -> Result<bool, SnapshotError> {
         let prefix = format!("snapshot/{}/", self.node_id);
         let listing_deadline = tokio::time::Instant::now() + EVENTUAL_LISTING_DURATION_PER_RUN;
         for page_index in 0..LISTING_PAGES_PER_RUN {
@@ -442,21 +488,18 @@ impl SnapshotRetention {
             return Ok(false);
         }
         catalog.completed_scan_number = catalog.completed_scan_number.saturating_add(1);
-        let unlisted_manifest_keys: Vec<String> = catalog
-            .manifests
-            .keys()
-            .filter(|key| {
-                !catalog.listed_manifest_keys.contains(*key)
-                    && !catalog.inserted_manifest_keys.contains(*key)
-            })
-            .cloned()
-            .collect();
+        Ok(true)
+    }
+
+    /// Drops manifests a completed strong listing lacks and reads the ones the catalog has not seen.
+    async fn reconcile_strong_listing(
+        &self,
+        catalog: &mut SnapshotCatalog,
+    ) -> Result<(), SnapshotError> {
+        let unlisted_manifest_keys: Vec<String> =
+            Self::unlisted_manifest_keys(catalog).cloned().collect();
         for key in unlisted_manifest_keys {
-            // A stale listing can lack a manifest that still exists; files it uses must stay.
-            if self.listing_consistency.is_strong() || self.object_store.head(&key).await?.is_none()
-            {
-                catalog.manifests.remove(&key);
-            }
+            catalog.manifests.remove(&key);
         }
         let listed_keys = std::mem::take(&mut catalog.listed_manifest_keys);
         for key in listed_keys {
@@ -472,14 +515,73 @@ impl SnapshotRetention {
             catalog.manifests.insert(key, manifest);
         }
         catalog.inserted_manifest_keys.clear();
+        Ok(())
+    }
+
+    /// Queues the manifest reads a completed eventual listing needs, so later runs can finish them.
+    fn queue_eventual_manifest_reads(catalog: &mut SnapshotCatalog) {
+        // A stale listing can lack a manifest that still exists; files it uses must stay.
+        catalog.unchecked_unlisted_manifest_keys =
+            Self::unlisted_manifest_keys(catalog).cloned().collect();
+        let listed_keys = std::mem::take(&mut catalog.listed_manifest_keys);
+        catalog.unread_listed_manifest_keys = listed_keys
+            .into_iter()
+            .filter(|key| !catalog.manifests.contains_key(key))
+            .collect();
+        catalog.inserted_manifest_keys.clear();
+    }
+
+    /// Returns known manifests the completed listing lacks that this process did not just write.
+    fn unlisted_manifest_keys(catalog: &SnapshotCatalog) -> impl Iterator<Item = &String> {
+        catalog.manifests.keys().filter(|key| {
+            !catalog.listed_manifest_keys.contains(*key)
+                && !catalog.inserted_manifest_keys.contains(*key)
+        })
+    }
+
+    /// HEADs queued unlisted manifests, then reads queued listed ones, within `budget`.
+    ///
+    /// Returns whether no queued read remains.
+    async fn read_queued_manifests(
+        &self,
+        catalog: &mut SnapshotCatalog,
+        budget: &mut ManifestReadBudget,
+    ) -> Result<bool, SnapshotError> {
+        // A key leaves its queue only after its read succeeds, so a failed read is retried.
+        while let Some(key) = catalog.unchecked_unlisted_manifest_keys.first().cloned() {
+            if catalog.manifests.contains_key(&key) {
+                if !budget.try_spend_read() {
+                    return Ok(false);
+                }
+                if self.object_store.head(&key).await?.is_none() {
+                    catalog.manifests.remove(&key);
+                }
+            }
+            catalog.unchecked_unlisted_manifest_keys.remove(&key);
+        }
+        while let Some(key) = catalog.unread_listed_manifest_keys.first().cloned() {
+            if !catalog.manifests.contains_key(&key) {
+                if !budget.try_spend_read() {
+                    return Ok(false);
+                }
+                // A concurrent cleanup may have deleted it after the listing.
+                if let Some(manifest) = self.read_manifest(&key).await? {
+                    catalog.manifests.insert(key.clone(), manifest);
+                }
+            }
+            catalog.unread_listed_manifest_keys.remove(&key);
+        }
         Ok(true)
     }
 
     /// Reads pointed manifests and unresolved manifest writes that the catalog lacks, as listings can hide them.
+    ///
+    /// Returns whether every such read fit in `budget`.
     async fn read_protected_manifests(
         &self,
         catalog: &mut SnapshotCatalog,
-    ) -> Result<(), SnapshotError> {
+        budget: &mut ManifestReadBudget,
+    ) -> Result<bool, SnapshotError> {
         let node_prefix = format!("snapshot/{}/", self.node_id);
         let pointed_keys: Vec<String> = catalog
             .protection
@@ -488,11 +590,17 @@ impl SnapshotRetention {
             .cloned()
             .collect();
         for key in pointed_keys {
+            if !budget.try_spend_read() {
+                return Ok(false);
+            }
             if let Some(manifest) = self.read_manifest(&key).await? {
                 catalog.manifests.insert(key, manifest);
             }
         }
         for key in catalog.protection.unresolved_manifest_keys() {
+            if !budget.try_spend_read() {
+                return Ok(false);
+            }
             // A write with a failed upload can land after the failure was reported.
             match self.read_manifest(&key).await? {
                 Some(manifest) => {
@@ -506,7 +614,7 @@ impl SnapshotRetention {
                 ),
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Returns the validated manifest at `key`, or `None` when it does not exist.

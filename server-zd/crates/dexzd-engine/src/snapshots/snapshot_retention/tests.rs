@@ -31,6 +31,7 @@ use super::{CANDIDATES_PER_RUN, SnapshotCatalog, SnapshotRetention};
 
 mod eventual_protection_tests;
 mod forward_skip_tests;
+mod manifest_read_budget_tests;
 mod stale_listing_tests;
 
 struct MetadataWithoutTimestamp {

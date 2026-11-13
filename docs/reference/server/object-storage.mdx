@@ -479,11 +479,16 @@ only the snapshot that the cluster manifest points to, so
 
 A protected object waits twice. Its protection ends first, and its wait as an
 unprotected object starts then. So a replaced pointer, a failed upload, or a
-snapshot beyond **snapshot.retainedCount** stays for up to twice
+snapshot beyond **snapshot.retainedCount** normally stays for about twice
 **snapshot.logDeletionDelay**, which is 48 hours with the **serve** default.
-A restart or a takeover starts every wait again. A server that never runs for
-**snapshot.logDeletionDelay** therefore deletes none of these objects, and the
-next server that does deletes them.
+It can stay longer. A listing can miss the object, each cleanup run checks a
+limited number of objects, and a restart or a takeover starts every wait again.
+
+The server keeps these waits in memory. A server process that runs for less
+than **snapshot.logDeletionDelay** deletes none of these objects. They
+accumulate until a process runs longer than the delay. Keep the serving process
+running longer than **snapshot.logDeletionDelay**, or lower
+**snapshot.logDeletionDelay**.
 
 A run purge first deletes, by key, the hard-delete objects that committed state
 references. It then lists the run's hard-delete prefix twice, at least 5
@@ -525,7 +530,11 @@ that ever had versioning, and COS replication needs versioning. To back up:
 
 1. Stop every node that uses the prefix, or make sure that no server writes to
    it.
-2. Download every object under the prefix.
+2. Wait a few seconds, so that COS stops returning cached listings.
+3. Download every object under the prefix.
+4. Verify the download. List the prefix twice, a few seconds apart, and compare
+   both listings with the downloaded objects. Download what is missing and
+   verify again. Rely on the backup only when both listings match it.
 
 The copy holds the newest version of the cluster manifest, the snapshot that
 it points to, and the log after that snapshot. To restore it, upload every
