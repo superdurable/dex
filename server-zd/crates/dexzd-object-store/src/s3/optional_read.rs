@@ -128,6 +128,7 @@ impl S3ObjectStore {
             ));
         }
         let mut has_retried_after_listing = false;
+        let mut has_reread_after_placeholder = false;
         let response = loop {
             let mut request = self
                 .read_client
@@ -143,8 +144,21 @@ impl S3ObjectStore {
                     let status = error
                         .raw_response()
                         .map(|response| response.status().as_u16());
-                    if status == Some(416) && range.is_some() {
-                        return Ok(self.head(key).await?.map(|metadata| ObjectContent {
+                    if status == Some(416)
+                        && let Some(range) = range
+                    {
+                        let metadata = self.head(key).await?;
+                        // The 416 may have come from an empty placeholder whose append committed since.
+                        if self.api_dialect.reads_empty_objects_as_absent()
+                            && !has_reread_after_placeholder
+                            && metadata
+                                .as_ref()
+                                .is_some_and(|metadata| metadata.size > range.start)
+                        {
+                            has_reread_after_placeholder = true;
+                            continue;
+                        }
+                        return Ok(metadata.map(|metadata| ObjectContent {
                             bytes: Bytes::new(),
                             etag: metadata.etag,
                             object_size: metadata.size,

@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Log reads and recovery over the empty objects that Tencent COS shows during an append to a
-//! missing key and keeps after an interrupted one.
+//! Log reads and recovery over empty Tencent COS objects of appends in flight or interrupted.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

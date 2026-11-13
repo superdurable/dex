@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The `append_placeholder` and `interrupted_append` faults: the empty object that Tencent COS
-//! shows while an AppendObject to a missing key is in flight, and keeps after it is interrupted.
+//! The `append_placeholder` and `interrupted_append` faults: the empty object of a COS append.
 
 use std::sync::Arc;
 
@@ -18,9 +17,7 @@ use s3local::{
 
 use crate::server::run_store_operation;
 
-/// Creates an empty appendable object without metadata at `key` when no object is there.
-///
-/// Errors are logged, because the append that follows reports the store's state itself.
+/// Creates an empty appendable object without metadata at a missing `key`, logging any error.
 pub(crate) async fn create_append_placeholder(store: &Arc<Store>, bucket: &str, key: &str) {
     let (bucket, key) = (bucket.to_owned(), key.to_owned());
     let created = run_store_operation(store, move |store| {

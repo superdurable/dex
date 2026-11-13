@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The empty objects that Tencent COS shows during an append to a missing key and keeps after an
-//! interrupted one read as absent, directly and through the versioned layer.
+//! Empty Tencent COS objects of appends in flight or interrupted read as absent.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -491,4 +490,51 @@ async fn start_emulator(
         .await
         .expect("the S3 client is configured");
     (directory, server, client)
+}
+
+/// A ranged read gets 416 from the placeholder, then its HEAD sees the committed append.
+#[tokio::test]
+async fn tencent_cos_range_read_rereads_an_append_that_commits_after_its_416() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = Arc::new(emulator.object_store().await);
+    let placeholder = append_fault(
+        "racing/",
+        r#"{"type":"append_placeholder","milliseconds":500}"#,
+    );
+    let slow_head = format!(
+        r#"{{"operation":"HeadObject","bucket":"{BUCKET}","key_prefix":"{KEY_PREFIX}/racing/","action":{{"type":"delay","milliseconds":1500}}}}"#
+    );
+    set_s3local_fault(emulator.address(), &format!("{placeholder},{slow_head}")).await;
+    let create = tokio::spawn({
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .put(
+                    "racing/key",
+                    Bytes::from_static(b"header and body"),
+                    WriteCondition::CreateOnly,
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let header = ByteRange {
+        start: 0,
+        end_inclusive: 5,
+    };
+    let content = store
+        .get_range("racing/key", header)
+        .await
+        .expect("the range read succeeds")
+        .expect("the append committed before the HEAD");
+    assert_eq!(content.bytes, Bytes::from_static(b"header"));
+    assert_eq!(content.object_size, 15);
+    assert!(matches!(
+        create
+            .await
+            .expect("the create task completes")
+            .expect("the create reaches the store"),
+        WriteOutcome::Written { .. }
+    ));
+    emulator.shutdown().await;
 }

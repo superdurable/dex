@@ -227,11 +227,7 @@ impl TencentCosAppendClient {
     }
 }
 
-/// Lists up to `max_keys` non-empty objects, which may take several ListObjectsV2 pages.
-///
-/// Empty objects read as absent in this dialect, so the listing omits them. A truncated result
-/// continues after the last key that a page showed, empty or not. A page that repeats keys up to
-/// its start, as a stale COS listing does, ends the call with the objects found so far.
+/// Lists up to `max_keys` non-empty objects; a repeated stale page ends the call early.
 pub(super) async fn list_non_empty_objects(
     store: &S3ObjectStore,
     prefix: &str,

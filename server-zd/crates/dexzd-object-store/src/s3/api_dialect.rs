@@ -64,10 +64,7 @@ impl S3ApiDialect {
         }
     }
 
-    /// Returns whether reads, HEAD, and listings treat an object of 0 bytes as absent.
-    ///
-    /// Tencent COS shows an empty object while an append to a missing key is in flight, and
-    /// keeps it after an interrupted append, so only a non-empty object was ever written.
+    /// Returns whether reads treat a 0-byte object, such as a COS append placeholder, as absent.
     pub(super) fn reads_empty_objects_as_absent(self) -> bool {
         match self {
             Self::AmazonS3 | Self::AliyunOss => false,
