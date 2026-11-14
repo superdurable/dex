@@ -163,8 +163,7 @@ func (c *ConnectorsMCPConfig) validate() error {
 	return nil
 }
 
-// addConnectorsMCPServerFlags defines the flags that choose and restrict the Connectors MCP server, which dexcli dev
-// and dexcli connectors mcp share. Parsing fills cfg and connections.
+// addConnectorsMCPServerFlags defines the Connectors MCP server flags that dexcli dev and dexcli connectors mcp share.
 func addConnectorsMCPServerFlags(flags *flag.FlagSet, cfg *ConnectorsMCPConfig, connections *connectorsMCPConnectionFlag) {
 	flags.StringVar(
 		&cfg.Version,

@@ -134,9 +134,7 @@ func parseConnectorsMCPCommandConfig(args []string, output io.Writer) (*Connecto
 	return cfg, nil
 }
 
-// runConnectorsMCPCommand serves a stable /mcp proxy on a free loopback port in front of a reused or started
-// Connectors MCP server. It prints the ready or error line once the first server is available or the manager gives
-// up, then serves until ctx ends or, with IsExitingOnStdinClose, stdin closes. It stops only a server it started.
+// runConnectorsMCPCommand serves a loopback /mcp proxy, prints one ready or error line, and stops only servers it started.
 func runConnectorsMCPCommand(
 	ctx context.Context,
 	cfg *ConnectorsMCPCommandConfig,
@@ -223,7 +221,6 @@ func writeConnectorsMCPCommandLine(stdout io.Writer, line any) error {
 }
 
 // shutdownConnectorsMCPProxy stops the proxy server, waits for Serve to return, and returns the shutdown error.
-// An unexpected Serve error is reported where the command notices it.
 func shutdownConnectorsMCPProxy(proxyServer *http.Server, serveDone <-chan struct{}, timeout time.Duration) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
