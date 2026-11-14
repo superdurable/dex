@@ -184,8 +184,9 @@ type PullRegistrationError struct {
 	//
 	// Since 1.46.0.
 	TaskQueue string
-	// Err is the non-nil gRPC status error returned by the rejected stream.
-	// A stream that the Server registered on another task queue than TaskQueue has codes.InvalidArgument.
+	// Err is the non-nil gRPC status error of the rejected stream. Usually the Server returned it.
+	// When the Server registered the stream on another task queue than TaskQueue, the SDK closes the
+	// stream and creates this error itself, with codes.InvalidArgument.
 	Err error
 }
 

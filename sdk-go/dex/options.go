@@ -397,7 +397,8 @@ type StartFlowOptions struct {
 	RequestID *string
 	// TaskQueue names the task queue whose pull Workers run this Flow's Steps and RPCs.
 	// Empty, the default, uses the default task queue, which every Worker without
-	// PullWorkerOptions.TaskQueue serves. DefaultTaskQueue means the same.
+	// PullWorkerOptions.TaskQueue serves. DefaultTaskQueue routes the same way, but as a
+	// non-empty name it requires Server protocol version 5 or later.
 	//
 	// Only Workers whose PullWorkerOptions.TaskQueue equals this name receive the Flow's work.
 	// The Flow keeps its task queue for its whole run; a SubFlow inherits it unless

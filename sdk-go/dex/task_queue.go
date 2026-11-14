@@ -17,7 +17,8 @@ import (
 //
 // Use it in SubFlowOptions.TaskQueue to run a SubFlow on the default task queue when its parent
 // runs on a named task queue. An empty SubFlowOptions.TaskQueue keeps the parent's task queue
-// instead. In StartFlowOptions.TaskQueue it means the same as an empty name.
+// instead. In StartFlowOptions.TaskQueue it routes like an empty name, but as a non-empty name
+// it requires Server protocol version 5 or later, while an empty name also works with protocol 4.
 // A Worker cannot register it; leave PullWorkerOptions.TaskQueue empty to serve the default task queue.
 //
 //	return dex.AllOf(dex.SubFlow(auditFlow{}, input, dex.SubFlowOptions{TaskQueue: dex.DefaultTaskQueue})), nil

@@ -18,6 +18,7 @@ them in the [Go SDK API reference](./index.mdx#api-reference).
 | Start a child Flow and wait for it | **SubFlow** in **WaitFor** | [SubFlows](/reference/server/runtime-data#subflows) |
 | Set the child timeout, Attributes, and configuration | **SubFlowOptions** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
 | Choose what happens to an existing child | **ReusePolicy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Run the child on another task queue | **TaskQueue** of **SubFlowOptions**, with **DefaultTaskQueue** | [Task queue](#task-queue) |
 | Read the child result | **SubFlowResult** in **Execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
 | Read the generated child Flow ID | **SubFlowID** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Stop a child that lost an **AnyOf** | **Client.StopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
@@ -39,6 +40,24 @@ response and fails the attempt without retry. Under the default policy, the
 Flow fails. Steps with a dash that never start SubFlows are not affected.
 
 To migrate, rename the Step type to a name without "-".
+
+## Task queue {#task-queue}
+
+A SubFlow runs on its parent's task queue. **SubFlowOptions.TaskQueue** moves
+it to another one. Since 1.46.0.
+
+| **SubFlowOptions.TaskQueue** | Task queue of the child |
+| --- | --- |
+| Empty, the default | The parent's task queue |
+| **DefaultTaskQueue** | The default task queue |
+| Any other name | That named task queue |
+
+Names follow the rules of [**StartFlowOptions.TaskQueue**](./start-flow-options.mdx#task-queue).
+An invalid name fails serialization of the returned **Wait**, like other invalid
+**SubFlowOptions**. A non-empty name requires Server protocol 5 or later.
+Against an older Server, the **WaitFor** attempt fails with
+**TaskQueueUnsupportedError**, and Dex retries it under the Step's retry
+policy. See the [API reference](pathname:///api/go/latest/dex/#type-subflowoptions).
 
 ## Example {#example}
 

@@ -508,6 +508,11 @@ type HealthInfo struct {
 // A lost response can leave start acceptance unknown. Retry with the same RequestID and IgnoreError
 // rather than preflighting with a status read. Use IDReuseDisallow if this logical start must not
 // create another execution after closure; see StartFlowOptions for the retry example.
+// When options set a non-empty TaskQueue and the Server negotiated a protocol older than
+// version 5, StartFlow returns *TaskQueueUnsupportedError before it sends the request.
+//
+// Changed in 1.46.0: StartFlow sends StartFlowOptions.TaskQueue and returns
+// *TaskQueueUnsupportedError when the Server cannot route a named task queue.
 func (client *Client) StartFlow(
 	ctx context.Context,
 	flow Flow,
