@@ -177,6 +177,8 @@ tasks.register('localIntegrationTest', Test) {
         includeTestsMatching 'io.superdurable.dex.FlowDefinitionUploadDeadlineTest'
         includeTestsMatching 'io.superdurable.dex.FlowDefinitionConformanceTest'
         includeTestsMatching 'io.superdurable.dex.HardDeleteAttributeMappingTest'
+        includeTestsMatching 'io.superdurable.dex.TaskQueueOptionsTest'
+        includeTestsMatching 'io.superdurable.dex.ServerProtocolCompatibilityTest'
     }
     useJUnitPlatform()
 }

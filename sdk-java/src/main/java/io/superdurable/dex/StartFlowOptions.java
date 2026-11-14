@@ -60,6 +60,7 @@ public final class StartFlowOptions {
     private final RetryPolicy retryPolicy;
     private final List<AttributeInitialization> attributes;
     private final FlowConfig configOverride;
+    private final String taskQueue;
     private final boolean ignoreAlreadyStarted;
     private final String requestId;
 
@@ -78,6 +79,7 @@ public final class StartFlowOptions {
         this.attributes = Collections.unmodifiableList(
                 new ArrayList<AttributeInitialization>(builder.attributes));
         this.configOverride = builder.configOverride;
+        this.taskQueue = builder.taskQueue;
         this.ignoreAlreadyStarted = builder.ignoreAlreadyStarted;
         this.requestId = builder.requestId;
     }
@@ -123,6 +125,10 @@ public final class StartFlowOptions {
         return configOverride;
     }
 
+    String getTaskQueue() {
+        return taskQueue;
+    }
+
     boolean isIgnoreAlreadyStarted() {
         return ignoreAlreadyStarted;
     }
@@ -142,6 +148,7 @@ public final class StartFlowOptions {
         private final List<AttributeInitialization> attributes =
                 new ArrayList<AttributeInitialization>();
         private FlowConfig configOverride;
+        private String taskQueue = "";
         private boolean ignoreAlreadyStarted;
         private String requestId;
 
@@ -273,6 +280,36 @@ public final class StartFlowOptions {
          */
         public Builder configOverride(final FlowConfig value) {
             configOverride = value;
+            return this;
+        }
+
+        /**
+         * Sets the named task queue whose Workers execute this Flow; empty uses the default task queue.
+         *
+         * <p>Only Workers whose {@link PullWorkerOptions.Builder#taskQueue(String)} equals this name
+         * run the Flow's Steps and RPCs. The Flow keeps its task queue for its whole run;
+         * Client.updateFlowConfig cannot change it. Its SubFlows inherit it unless
+         * {@link SubFlowOptions.Builder#taskQueue(String)} names another one. When no Worker pulls
+         * the task queue, Steps wait durably for one, and RPCs fail after the Server's Worker
+         * dispatch wait.
+         *
+         * <p>A name has 1-63 ASCII letters, digits, periods, underscores, or hyphens. Names
+         * starting with {@code dex.} are reserved; {@code dex.default} explicitly selects the
+         * default task queue. A non-empty name requires Server protocol 5. Client.startFlow throws
+         * IllegalStateException before sending the request to an older Server.
+         *
+         * <pre>{@code
+         * client.startFlow(orderFlow, "order-42", input,
+         *         StartFlowOptions.newBuilder().taskQueue("blue").build());
+         * }</pre>
+         *
+         * @param value the task queue name, {@code dex.default}, or empty for the default task queue
+         * @return this builder
+         * @throws IllegalArgumentException if value is null, reserved, or malformed
+         * @since 1.45.1
+         */
+        public Builder taskQueue(final String value) {
+            taskQueue = TaskQueueNames.validateFlowTaskQueue(value);
             return this;
         }
 

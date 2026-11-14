@@ -385,6 +385,23 @@ registered stream of that kind prevents shutdown. By default such registration
 errors retry; an excessive concurrency setting always fails startup without
 background retry. Both `stop()` and `close()` remain safe after startup fails.
 
+#### Named task queues
+
+`PullWorkerOptions.Builder.taskQueue(name)` makes a Worker pull one named task
+queue, and `StartFlowOptions.Builder.taskQueue(name)` starts a Flow on it. Only
+Workers of that task queue run the Flow's Steps and RPCs. A SubFlow inherits its
+parent's task queue unless `SubFlowOptions.Builder.taskQueue` names another one;
+`dex.default` selects the default task queue. Run one Worker per task queue. A
+named task queue requires Server protocol 5. See
+[Task queues](https://docs.superdurable.io/reference/java/workers#task-queues).
+
+```java
+Worker blueWorker = new Worker(registry, cache, WorkerOptions.newBuilder()
+        .pull(PullWorkerOptions.newBuilder().taskQueue("blue").build()).build());
+client.startFlow(orderFlow, "order-42", input,
+        StartFlowOptions.newBuilder().taskQueue("blue").build());
+```
+
 #### Reserved RPC capacity
 
 `reservedRpcTasks` selects slots that accept only RPCs; the remaining slots

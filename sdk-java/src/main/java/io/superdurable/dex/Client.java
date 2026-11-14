@@ -247,7 +247,9 @@ public final class Client implements AutoCloseable {
      *     an initial value targets a {@link Attribute#hardDeleteOnNull()} Attribute and maps to a
      *     number or a Boolean, or if an initial Attribute's hard-delete setting differs from the
      *     definition registered for the Flow
-     * @throws IllegalStateException if the Dex Server does not support protocol version 4
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4, or
+     *     a task queue is set and the Server protocol is older than 5. Changed in 1.45.1: sends
+     *     {@link StartFlowOptions.Builder#taskQueue(String)} as the Flow's task queue.
      * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
      */
@@ -270,6 +272,10 @@ public final class Client implements AutoCloseable {
                 negotiateServerProtocol();
                 serverProtocol.requireHardDeleteAttributeSupport(initialAttribute.getKey());
             }
+        }
+        if (!startOptions.getTaskQueue().isEmpty()) {
+            negotiateServerProtocol();
+            serverProtocol.requireNamedTaskQueueSupport(startOptions.getTaskQueue(), "startFlow");
         }
         final io.superdurable.gen.FlowTimeoutHandlerOptions timeoutHandlerOptions =
                 mappings.mapFlowTimeoutHandlerOptions(
@@ -1835,7 +1841,8 @@ public final class Client implements AutoCloseable {
         }
         final FlowConfig config = options.getConfigOverride();
         mapped.setFlowConfigOverride(mapFlowConfig(config).toBuilder()
-                .setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder().setIsPullMode(true)));
+                .setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder().setIsPullMode(true)
+                        .setTaskQueue(options.getTaskQueue())));
         return mapped.build();
     }
 

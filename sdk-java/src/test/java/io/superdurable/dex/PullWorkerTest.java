@@ -295,6 +295,105 @@ final class PullWorkerTest {
         }
     }
 
+    @Test
+    void namedTaskQueueRegistersEveryStreamAndReportsItInReadiness() throws Exception {
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 2,
+                Duration.ofSeconds(5), false, 1, 1, "blue", 5)) {
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            assertEquals("blue", pollServer.awaitQueue("PullTestFlow").registration.getTaskQueue());
+            assertEquals("blue", pollServer.awaitQueue("RPC_ONLY").registration.getTaskQueue());
+            final PullRegistrationState state = running.worker.getPullRegistrationState();
+            assertTrue(state.isReady());
+            assertEquals(2, state.getQueues().size());
+            for (PullQueueRegistrationState registration : state.getQueues()) {
+                assertEquals("blue", registration.getTaskQueue());
+                assertTrue(registration.hasRegisteredStream());
+            }
+        }
+        try (RunningWorker running = new RunningWorker(new PollServer(), new TestFlow(), 1)) {
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            assertEquals("", running.worker.getPullRegistrationState().getQueues().get(0).getTaskQueue());
+        }
+    }
+
+    @Test
+    void taskQueueEchoMismatchHalfClosesAsPermanentRejection() throws Exception {
+        for (boolean shouldStopOnRejection : new boolean[] {false, true}) {
+            final TestFlow flow = new TestFlow();
+            final PollServer pollServer = new PollServer();
+            pollServer.registeredTaskQueueEcho = "";
+            pollServer.shouldAssignTaskAfterRegistered = true;
+            try (RunningWorker running = new RunningWorker(pollServer, flow, 1,
+                    Duration.ofMillis(200), shouldStopOnRejection, 1, 0, "blue", 5)) {
+                final PullRegistrationError rejection = assertThrows(PullRegistrationError.class,
+                        () -> running.worker.waitPullRegistered(Duration.ofSeconds(5)));
+                assertEquals("blue", rejection.getTaskQueue());
+                assertTrue(rejection.getMessage().contains("task queue blue"), rejection.getMessage());
+                assertEquals(Status.Code.FAILED_PRECONDITION,
+                        Status.fromThrowable(rejection.getCause()).getCode());
+                final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+                assertEquals("blue", stream.registration.getTaskQueue());
+                assertTrue(stream.closed.await(5, TimeUnit.SECONDS));
+                assertTrue(stream.isHalfClosed);
+                assertTrue(stream.frames.isEmpty());
+                assertEquals(0, flow.executeCalls.get());
+                final PullRegistrationState state = running.worker.getPullRegistrationState();
+                assertFalse(state.isReady());
+                assertEquals("blue", state.getQueues().get(0).getTaskQueue());
+                assertFalse(state.getQueues().get(0).hasRegisteredStream());
+                assertEquals(Status.Code.FAILED_PRECONDITION,
+                        Status.fromThrowable(state.getQueues().get(0).getLastPermanentError()).getCode());
+                if (shouldStopOnRejection) {
+                    running.workerThread.join(5000L);
+                    assertFalse(running.workerThread.isAlive());
+                    assertTrue(running.failure.get() instanceof PullRegistrationError);
+                    assertEquals("blue", ((PullRegistrationError) running.failure.get()).getTaskQueue());
+                } else {
+                    assertTrue(running.workerThread.isAlive());
+                    Thread.sleep(300L);
+                    assertEquals(1, pollServer.allStreams.size(), "a mismatch retries only after the permanent backoff");
+                }
+            }
+        }
+    }
+
+    @Test
+    void namedTaskQueueRefusesProtocolFourBeforeOpeningStreams() throws Exception {
+        final PollServer pollServer = new PollServer();
+        final Server server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0))
+                .addService(new FlowServiceGrpc.FlowServiceImplBase() {
+                    @Override
+                    public void getServerInfo(final Empty request, final StreamObserver<ServerInfo> observer) {
+                        observer.onNext(ServerInfo.newBuilder().setServerVersion("test")
+                                .setMinimumSupportedProtocolVersion(1).setCurrentProtocolVersion(4).build());
+                        observer.onCompleted();
+                    }
+                })
+                .addService(pollServer).build().start();
+        try (Worker worker = new Worker(new Registry(Arrays.<Flow<?>>asList(new TestFlow())), new EmptyBlobCache(),
+                WorkerOptions.newBuilder().serverAddress("127.0.0.1:" + server.getPort())
+                        .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(1).taskQueue("blue").build())
+                        .build())) {
+            final java.util.concurrent.CompletableFuture<Throwable> waiting =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                        try {
+                            worker.waitPullRegistered(Duration.ofSeconds(5));
+                            return null;
+                        } catch (Throwable failure) {
+                            return failure;
+                        }
+                    });
+            final IllegalStateException failure = assertThrows(IllegalStateException.class, worker::start);
+            assertTrue(failure.getMessage().contains("requires Server protocol version 5"), failure.getMessage());
+            assertTrue(waiting.get(5, TimeUnit.SECONDS) == failure);
+            assertTrue(pollServer.allStreams.isEmpty());
+        } finally {
+            server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+            pollServer.shutdown();
+        }
+    }
+
     private static void awaitRegistrationState(final RunningWorker running, final String queue,
             final boolean hasRegisteredStream, final boolean hasPermanentError) throws Exception {
         final PullWorker pull = running.pullWorker();
@@ -1725,6 +1824,7 @@ final class PullWorkerTest {
         private volatile int maxConcurrentTasks;
         private boolean shouldDelayRpcRegistration;
         private volatile boolean shouldAssignTaskAfterRegistered;
+        private volatile String registeredTaskQueueEcho;
         private final java.util.Set<String> acceptEncodings =
                 java.util.concurrent.ConcurrentHashMap.newKeySet();
         private volatile java.util.function.Consumer<PollStream> finalFrameListener;
@@ -1821,6 +1921,8 @@ final class PullWorkerTest {
                             stream.respond(PollWorkerTaskResponse.newBuilder()
                                 .setRegistered(io.superdurable.gen.PollWorkerTaskRegistered
                                         .newBuilder().setMaxConcurrentTasksPerAppWorker(maxConcurrentTasks)
+                                        .setTaskQueue(registeredTaskQueueEcho == null
+                                                ? stream.registration.getTaskQueue() : registeredTaskQueueEcho)
                                         .setSupportsUnknownNameRejection(
                                                 supportsUnknownNameRejection)).build());
                             if (shouldAssignTaskAfterRegistered) {
@@ -2096,6 +2198,14 @@ final class PullWorkerTest {
         private RunningWorker(final PollServer pollServer, final TestFlow flow, final int capacity,
                 final Duration stopTimeout, final boolean shouldStopOnRejection, final int idleStreams,
                 final Integer reservedRpcTasks) throws IOException {
+            this(pollServer, flow, capacity, stopTimeout, shouldStopOnRejection, idleStreams, reservedRpcTasks,
+                    "", 4);
+        }
+
+        private RunningWorker(final PollServer pollServer, final TestFlow flow, final int capacity,
+                final Duration stopTimeout, final boolean shouldStopOnRejection, final int idleStreams,
+                final Integer reservedRpcTasks, final String taskQueue, final int serverProtocolVersion)
+                throws IOException {
             this.pollServer = pollServer;
             this.shouldStopOnRejection = shouldStopOnRejection;
             server = NettyServerBuilder.forAddress(new java.net.InetSocketAddress("127.0.0.1", 0)).flowControlWindow(64 * 1024)
@@ -2106,7 +2216,7 @@ final class PullWorkerTest {
                                 final StreamObserver<ServerInfo> observer) {
                             observer.onNext(ServerInfo.newBuilder().setServerVersion("test")
                                     .setMinimumSupportedProtocolVersion(1)
-                                    .setCurrentProtocolVersion(4).build());
+                                    .setCurrentProtocolVersion(serverProtocolVersion).build());
                             observer.onCompleted();
                         }
 
@@ -2133,6 +2243,7 @@ final class PullWorkerTest {
                     WorkerOptions.newBuilder().serverAddress("127.0.0.1:" + server.getPort())
                             .pull(PullWorkerOptions.newBuilder()
                                     .appWorkerID("pull-java-unit")
+                                    .taskQueue(taskQueue)
                                     .maxConcurrentTasks(capacity)
                                     .reservedRpcTasks(reservedRpcTasks)
                                     .idleStreamsPerQueue(idleStreams)
