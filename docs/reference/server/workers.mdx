@@ -112,7 +112,7 @@ toward the method timeout or the heartbeat timeout. These timeouts start when
 Dex hands the attempt to a Worker. See [Step task queue](#step-task-queue).
 
 An RPC never queues. If no Worker takes it within the dispatch wait, the caller
-receives an **Unavailable** error directly. The default dispatch wait is 10
+receives an **UNAVAILABLE** error directly. The default dispatch wait is 10
 seconds, including up to 5 seconds for a sticky queue with connected streams.
 The wait never extends past the method deadline of the attempt. See
 [Pull Worker dispatch](#pull-worker-dispatch) for the wait settings.
@@ -171,9 +171,9 @@ two applications that use the same Flow type name on one server. Each SDK
 reference lists its option names:
 [Go](/reference/go/workers#task-queue),
 [Python](/reference/python/workers#named-task-queues),
-[Java](/reference/java/workers),
+[Java](/reference/java/workers#task-queues),
 [TypeScript](/reference/typescript/workers#task-queues), and
-[Rust](/reference/rust/workers).
+[Rust](/reference/rust/workers#task-queue).
 
 ### Routing inside a task queue
 
@@ -194,14 +194,14 @@ reference lists its option names:
   the Flow's task queue at once.
 - The Step task queue keeps a separate backlog for each named task queue. A
   Step of a named task queue with no Worker waits there, like any other queued
-  Step. An RPC fails with **Unavailable** after the dispatch wait.
+  Step. An RPC fails with **UNAVAILABLE** after the dispatch wait.
 - **PullRouting.task_queue** records the task queue of each dispatch. An empty
   value means the default task queue.
 
 ### Names
 
 - A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
-  **matching.maxQueueLength** does not change this limit.
+  The limit is fixed, independent of **matching.maxQueueLength**.
 - Names that start with **dex.** are reserved. A Worker cannot register one.
 - In a **WorkerTarget**, **dex.default** selects the default task queue. Dex
   stores it as the empty name.
@@ -228,10 +228,11 @@ reference lists its option names:
 
 ### Metrics
 
-Metrics have no task queue label. **dexzd_step_task_queue_entries**,
+Each metric family covers all task queues together.
+**dexzd_step_task_queue_entries**,
 **dexzd_step_task_queue_oldest_age_seconds**, and
-**dexzd_matching_unserved_task_queues** cover named task queues together with
-the default task queue.
+**dexzd_matching_unserved_task_queues** count named task queues together with
+the default task queue, with no task queue label.
 
 ### Roll back the server {#named-task-queue-rollback}
 
