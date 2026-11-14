@@ -133,8 +133,11 @@ before task queues existed. Since 1.45.1.
   not sent by the Server. Its message names the requested and the registered
   task queue. Other permanent rejections keep the Server's gRPC status.
 - **Worker::task_queue** returns the task queue the Worker pulls. The empty
-  name means the default task queue. For a Worker on a named task queue, the
-  message of a registration error names the task queue.
+  name means the default task queue.
+- For a Worker on a named task queue, the message of the **SdkError** that
+  **wait_pull_registered** or **start** returns names the task queue. The
+  typed **PullRegistrationError** keeps its existing fields, **queue** and
+  **status**, and its own message does not name the task queue.
 
 API reference: [PullWorkerOptions::task_queue](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.PullWorkerOptions.html#method.task_queue),
 [Worker::task_queue](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.Worker.html#method.task_queue), and
