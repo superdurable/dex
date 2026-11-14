@@ -12,7 +12,7 @@ const reservedTaskQueuePrefix = "dex.";
 const defaultTaskQueueAlias = "dex.default";
 const taskQueueNamePattern = /^[A-Za-z0-9._-]{1,63}$/;
 
-/** Throws when a pull Worker may not register `taskQueue`; the empty default queue is valid. */
+// The empty default queue is valid; every "dex." name is reserved.
 export function validatePullWorkerTaskQueue(taskQueue: string): void {
   if (typeof taskQueue !== "string") {
     throw new TypeError("taskQueue must be a string");
@@ -24,13 +24,12 @@ export function validatePullWorkerTaskQueue(taskQueue: string): void {
   requireTaskQueueCharacters(taskQueue);
 }
 
-/** Throws when a Flow's Worker target may not carry `taskQueue`; also accepts `dex.default`. */
+// Accepts the Worker rules plus the explicit default alias.
 export function validateFlowTaskQueue(taskQueue: string): void {
   if (taskQueue === defaultTaskQueueAlias) return;
   validatePullWorkerTaskQueue(taskQueue);
 }
 
-/** Throws when a non-empty task queue would reach a Server that ignores it. */
 export function requireNamedTaskQueueSupport(
   negotiatedServerProtocolVersion: number,
   taskQueue: string,
