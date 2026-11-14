@@ -311,7 +311,7 @@ describe('selected step event details', () => {
     expect(markup).toContain('try again');
     expect(markup).toContain('UNAVAILABLE (14)');
     expect(markup).toContain('java worker stack');
-    expect(markup).toContain('<details class="failure-stack">');
+    expect(markup).toContain('<details class="failure-stack" open="">');
     expect(markup).toContain('semantic-fields-stacked');
     expect(markup).toMatch(/semantic-fields-stacked[^>]*>.*Attempt.*Error type.*Worker error type/s);
     expect(markup).not.toContain('legacy message');

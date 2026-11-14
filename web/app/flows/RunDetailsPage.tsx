@@ -54,7 +54,6 @@ import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialo
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
-import { EventList } from './details/EventList';
 import { OperateMenu } from './details/OperateMenu';
 import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './details/RunFactsMenu';
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
@@ -113,7 +112,6 @@ const runTabStorageKey = 'dex.run.selected-tab';
 /** The horizontal Timeline needs width; narrow screens keep the vertical one. */
 const horizontalTimelineQuery = '(min-width: 761px)';
 /** On desktop the strip gains the event list under it, so events can be scanned as rows. */
-const timelineEventListQuery = '(min-width: 1280px)';
 const RUN_EVENT_PARAM = 'event';
 
 /** Follows a media query; without matchMedia, such as in tests, it reports no match. */
@@ -184,25 +182,6 @@ function storedRunTab(flowId: string): RunTab | null {
   } catch (storageError) {
     console.warn('Unable to read the selected run tab preference.', storageError);
     return null;
-  }
-}
-
-const timelineLaneStorageKey = 'dex.run.timeline-lane';
-
-/** The desktop event list makes the labelled lane optional; it starts hidden. */
-function storedTimelineLaneShown(): boolean {
-  try {
-    return window.localStorage.getItem(timelineLaneStorageKey) === 'shown';
-  } catch {
-    return false;
-  }
-}
-
-function persistTimelineLaneShown(isShown: boolean) {
-  try {
-    window.localStorage.setItem(timelineLaneStorageKey, isShown ? 'shown' : 'hidden');
-  } catch (storageError) {
-    console.warn('Unable to save the Timeline lane preference.', storageError);
   }
 }
 
@@ -288,14 +267,6 @@ export function RunDetailsPage({
   // Design draws only the definition: history, state and blobs wait until the reader leaves it.
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
-  const hasTimelineEventList = useMediaQuery(timelineEventListQuery);
-  const [isTimelineLaneShown, setIsTimelineLaneShown] = useState(storedTimelineLaneShown);
-  const toggleTimelineLane = useCallback(() => {
-    setIsTimelineLaneShown((isShown) => {
-      persistTimelineLaneShown(!isShown);
-      return !isShown;
-    });
-  }, []);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
@@ -1102,16 +1073,6 @@ export function RunDetailsPage({
               status={liveStatus}
             >
               {inputOutputButtons}
-              {shownTab === 'timeline' && isHorizontalTimeline && hasTimelineEventList && (
-                <button
-                  aria-pressed={isTimelineLaneShown}
-                  className="pager-button run-events-lane-toggle"
-                  onClick={() => toggleTimelineLane()}
-                  type="button"
-                >
-                  {isTimelineLaneShown ? 'Hide lane' : 'Show lane'}
-                </button>
-              )}
             </RunEventsTile>
           )}
           {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
@@ -1148,7 +1109,7 @@ export function RunDetailsPage({
             />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
-            <div className={`htl-host${hasTimelineEventList && !isTimelineLaneShown ? ' is-lane-hidden' : ''}`}>
+            <div className="htl-host">
             <HorizontalTimeline
               events={displayedTimelineEvents}
               selectedEvent={selectedRaw}
@@ -1164,19 +1125,9 @@ export function RunDetailsPage({
               highlightedEventId={runHistory.highlightedEventId}
               endNote={timelineEndNote}
               onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
+              onTimeTravelFromEvent={openTimeTravel}
             />
             </div>
-          )}
-          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && hasTimelineEventList && (
-            <EventList
-              childFlows={relations?.children}
-              flowId={flowId}
-              events={displayedTimelineEvents}
-              onSelectEvent={selectTimelineEvent}
-              onTimeTravelFromEvent={openTimeTravel}
-              runStartTime={summary?.startTime}
-              selectedEvent={selectedRaw}
-            />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
             <Timeline

@@ -26,9 +26,16 @@ function canScroll(element: HTMLElement, deltaY: number): boolean {
   return false;
 }
 
+function isScrollContainer(element: HTMLElement): boolean {
+  const overflowY = window.getComputedStyle(element).overflowY;
+  return overflowY === 'auto' || overflowY === 'scroll';
+}
+
 function containSidebarWheel(event: WheelEvent) {
   const sidebar = event.currentTarget;
   if (!(sidebar instanceof HTMLElement) || sidebar.scrollHeight <= sidebar.clientHeight) return;
+  // Below the Timeline the panel is part of the page, so the page's own scroll must take the wheel.
+  if (!isScrollContainer(sidebar)) return;
   const nested = event.target instanceof Element
     ? event.target.closest<HTMLElement>('.raw-event-json, .semantic-value pre, .semantic-alert pre, .json-view pre, .json-view-raw')
     : null;

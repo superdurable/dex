@@ -44,6 +44,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { flowStatusLabel } from '@/lib/semantic';
+import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import { useTimezonePreference } from '../../providers';
 import { eventTitle } from './EventDetails';
 import { executionSummary, type TimelinePaging } from './Timeline';
@@ -448,6 +449,7 @@ export function HorizontalTimeline({
   isFollowingLatest = false,
   endNote,
   onShowEndNoteEvent,
+  onTimeTravelFromEvent,
 }: {
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
@@ -461,6 +463,8 @@ export function HorizontalTimeline({
   /** What the run is doing now, shown at the lane's newest end on the newest page. */
   endNote?: TimelineEndNote | null;
   onShowEndNoteEvent?: (eventId: number) => void;
+  /** Opens time travel at an event; T calls it for the selected event. */
+  onTimeTravelFromEvent?: (event: FlowHistoryEvent) => void;
 }) {
   const shownEndNote = endNote && !paging?.hasNewer ? endNote : null;
   const labelRunWidth = shownEndNote ? horizontalTimelineLayout.endNoteRunWidth : horizontalTimelineLayout.labelRunWidth;
@@ -558,9 +562,12 @@ export function HorizontalTimeline({
     const strip = stripRef.current;
     if (!strip) return undefined;
     const handleWheel = (event: WheelEvent) => {
+      // A vertical wheel scrolls the page past the lane; sideways swipes and Shift+wheel move the lane.
+      const isSideways = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      if (!isSideways && !event.shiftKey) return;
       event.preventDefault();
       event.stopPropagation();
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const delta = isSideways ? event.deltaX : event.deltaY;
       if (delta !== 0) moveWindow(windowStartRef.current + delta / slotWidth);
     };
     strip.addEventListener('wheel', handleWheel, { passive: false });
@@ -597,6 +604,34 @@ export function HorizontalTimeline({
     setRevealRequest((request) => request + 1);
     onSelectEvent(event);
   }, [chronological, onSelectEvent]);
+
+  /** J selects the older neighbour and K the newer one; T time travels from the selection. */
+  const handlePageKey = (key: string): boolean => {
+    if (key === 't') {
+      if (!selectedEvent || !onTimeTravelFromEvent || !eventTimeTravelTarget(selectedEvent)) return false;
+      onTimeTravelFromEvent(selectedEvent);
+      return true;
+    }
+    const activeIndex = selectedIndex >= 0 ? selectedIndex : chronological.length - 1;
+    const target = key === 'j' ? activeIndex - 1 : activeIndex + 1;
+    if (target < 0 || target >= chronological.length) return false;
+    selectIndex(target);
+    return true;
+  };
+  const handlePageKeyRef = useRef(handlePageKey);
+  handlePageKeyRef.current = handlePageKey;
+
+  // J, K and T work from anywhere on the page, except while typing or in a dialog.
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || !['j', 'k', 't'].includes(event.key)) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      if (handlePageKeyRef.current(event.key)) event.preventDefault();
+    };
+    document.addEventListener('keydown', listener);
+    return () => document.removeEventListener('keydown', listener);
+  }, []);
 
   const handleStripKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const activeIndex = selectedIndex >= 0 ? selectedIndex : Math.min(chronological.length - 1, Math.floor(windowStart) + visibleCount - 1);
@@ -786,8 +821,6 @@ export function HorizontalTimeline({
               <ChevronRight aria-hidden="true" size={14} strokeWidth={2.25} />
             </button>
           )}
-          {/* Shown only while the lane is hidden, so the run's state never disappears with it. */}
-          {shownEndNote && <TimelineEndNoteFold className="htl-end-note htl-end-note--head" endNote={shownEndNote} onShowEvent={onShowEndNoteEvent} />}
           <EventKindLegend />
         </span>
       </div>
@@ -1056,7 +1089,7 @@ export function HorizontalTimeline({
 
 
       <p className="sr-only" id={helpId}>
-        Left and Right move the selection; Page Up and Page Down move by a screen.
+        Left and Right, or J and K, move the selection; Page Up and Page Down move by a screen. T time travels from the selected event. A sideways swipe or Shift with the wheel scrolls the lane.
       </p>
       <p className="sr-only" id={overviewHelpId}>
         Left, Right, Page Up, Page Down, Home, and End move the view; Enter selects the event at the center of the brush.

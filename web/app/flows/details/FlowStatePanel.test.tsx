@@ -15,7 +15,6 @@ import { PreferencesProvider } from '@/app/providers';
 import type { TimelineRelatedEvent } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { FlowStatePanel } from './FlowStatePanel';
-import { stepContextSummary } from './StepMethodSections';
 
 afterEach(cleanup);
 
@@ -75,16 +74,14 @@ describe('selected event panel', () => {
     expect(onSelectRelatedEvent).toHaveBeenCalledWith(3096);
   });
 
-  it('leads with Input and Output, and folds Context to one summary line', () => {
+  it('leads with Input and Output, then shows Context in groups', () => {
     renderPanel();
     const headings = [...document.querySelectorAll('.semantic-event h4')].map((heading) => heading.textContent);
     expect(headings).toEqual(['Input', 'Output', 'Context']);
-    const context = document.querySelector<HTMLDetailsElement>('.semantic-context-fold')!;
-    expect(context.open).toBe(false);
-    expect(context.querySelector('summary')?.textContent).toBe('Contextworker-local-1 · sync · attempt 2');
-    const groups = [...context.querySelectorAll('.semantic-context-groups h5')].map((heading) => heading.textContent);
+    const groups = [...document.querySelectorAll('.semantic-context-groups h5')].map((heading) => heading.textContent);
     expect(groups).toEqual(['Attempt', 'Worker and retry']);
   });
+
 
   it('switches the payload to raw JSON from one button in the header', () => {
     renderPanel();
@@ -98,8 +95,4 @@ describe('selected event panel', () => {
     expect(document.querySelector('.raw-event-json')).toBeNull();
   });
 
-  it('summarizes only the Context fields an event has', () => {
-    expect(stepContextSummary({})).toBe('');
-    expect(stepContextSummary({ finalAttempt: 1, duration: '1.5s' })).toBe('attempt 1 · took 1.5s');
-  });
 });

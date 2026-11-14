@@ -174,7 +174,6 @@ body {
   white-space: nowrap;
 }
 
-
 .app-bar .status-badge {
   flex: none;
 }
@@ -250,12 +249,10 @@ body {
   transform: scaleX(1);
 }
 
-
 .app-bar-actions {
   flex: none;
   gap: 4px;
 }
-
 
 .operate-menu-button {
   padding: 0 10px 0 12px;
@@ -803,42 +800,7 @@ body {
   font-weight: 400;
 }
 
-/* Context starts folded to one summary line, so Input and Output lead. */
-.semantic-context-fold > summary {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 10px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.semantic-context-fold > summary::-webkit-details-marker {
-  display: none;
-}
-
-.semantic-context-fold > summary::before {
-  color: var(--ui-ink-3);
-  content: '▸';
-}
-
-.semantic-context-fold[open] > summary::before {
-  content: '▾';
-}
-
-.v1-page .semantic-context-fold > summary > h4 {
-  margin: 0;
-}
-
-.semantic-context-summary {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Context groups its fields into Timing, Attempt, and Worker and retry. */
 .semantic-context-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -863,8 +825,6 @@ body {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
-
-
 
 .htl-legend-fold {
   position: relative;
@@ -930,8 +890,6 @@ body {
   white-space: nowrap;
 }
 
-
-
 .run-facts-children {
   display: grid;
   gap: 4px;
@@ -995,9 +953,6 @@ body {
   color: var(--ui-ink-3);
 }
 
-@container app-bar (max-width: 1100px) {
-}
-
 /* A whole Flows row opens its run; long IDs shorten so every column fits a laptop screen. */
 .v1-page .flow-table .flow-row {
   cursor: pointer;
@@ -1041,7 +996,6 @@ body {
   padding-left: 8px;
 }
 
-
 /* The Flow ID is what gives way first, down to a readable stub. */
 .app-bar-page > .run-facts-menu {
   flex: 0 1 auto;
@@ -1066,7 +1020,6 @@ body {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
 
 .app-bar-jump-list {
   display: grid;
@@ -1120,14 +1073,12 @@ body {
   }
 }
 
-
 @container app-bar (max-width: 1240px) {
   .app-bar.v1-page .run-tabs button {
     gap: 5px;
     padding: 0 8px;
   }
 }
-
 
 /* Page buttons say where they go, so the pager reads without tooltips. */
 .run-events-pager--words .pager-button {
@@ -1239,157 +1190,6 @@ body {
 
 /* ------------------------------------------------ desktop Timeline: event list */
 
-/* With the event list beside the selection, the labelled lane is optional and starts hidden. */
-.v1-page .htl-host.is-lane-hidden .htl-strip {
-  height: 0 !important;
-  min-height: 0;
-  margin: 0;
-  visibility: hidden;
-}
-
-.v1-page .htl-host.is-lane-hidden :is(.htl-legend-fold, .htl-end-note--lane) {
-  display: none;
-}
-
-.v1-page .htl-host.is-lane-hidden .htl-minimap {
-  margin-bottom: 0;
-}
-
-.v1-page .run-events-lane-toggle {
-  margin-left: auto;
-  padding: 0 10px;
-  border-radius: 999px;
-  color: var(--ui-ink-2);
-  background: var(--ui-chip);
-}
-
-.v1-page .run-events-lane-toggle[aria-pressed='true'] {
-  color: var(--tone-accent-ink);
-  background: var(--tone-accent-soft);
-}
-
-/* One line per event, in its own scroll box, so a long run is scanned without growing the page. */
-.v1-page .event-list {
-  position: relative;
-  max-height: calc(100vh - var(--header-h) - 24px);
-  margin-top: 12px;
-  padding: 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-radius: var(--ui-radius-section);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-section-shadow);
-  outline: none;
-}
-
-.v1-page .event-list:focus-visible {
-  box-shadow: var(--ui-section-shadow), 0 0 0 2px var(--ui-focus-outline);
-}
-
-.v1-page .event-list-row {
-  display: grid;
-  grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) auto auto 26px;
-  align-items: center;
-  gap: 10px;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: var(--ui-radius-control);
-  color: var(--ui-ink);
-  cursor: pointer;
-  font-size: var(--ui-text-sm);
-}
-
-.v1-page .event-list-row:hover {
-  background: color-mix(in srgb, var(--ui-hover) 55%, transparent);
-}
-
-.v1-page .event-list-row.is-selected {
-  background: var(--ui-chip);
-  box-shadow: inset 4px 0 0 var(--ui-ink), inset 0 0 0 1px var(--ui-hairline);
-}
-
-/* Selection is neutral; a failed row keeps its own colour in the selection bar. */
-.v1-page .event-list-row.is-selected.tone-failed {
-  background: var(--tone-fail-soft);
-  box-shadow: inset 4px 0 0 var(--tone-fail);
-}
-
-/* A time travel fork marks where the run was replayed, so it reads as a divider. */
-.v1-page .event-list-row.tone-fork {
-  margin: 6px 0;
-  color: var(--tone-wait-ink);
-  background: var(--tone-wait-soft);
-}
-
-.v1-page .event-list-row.tone-fork .event-list-dot {
-  background: var(--tone-wait);
-  opacity: 1;
-}
-
-.v1-page .event-list-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--ui-ink-3);
-  opacity: 0.55;
-}
-
-.v1-page .event-list-row.tone-failed .event-list-dot { background: var(--tone-fail); opacity: 1; }
-.v1-page .event-list-row.tone-waiting .event-list-dot { background: var(--tone-wait); opacity: 1; }
-.v1-page .event-list-row.tone-closed .event-list-dot { background: var(--tone-done); opacity: 1; }
-.v1-page .event-list-row.tone-failed .event-list-title { color: var(--tone-fail-ink); }
-
-.v1-page .event-list-id,
-.v1-page .event-list-offset {
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.v1-page .event-list-title {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.v1-page .event-list-subject {
-  overflow: hidden;
-  color: var(--ui-ink-2);
-  font-size: var(--ui-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.v1-page .event-list-subject small {
-  color: var(--ui-ink-3);
-  font-size: inherit;
-}
-
-.v1-page .event-list-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: var(--ui-radius-control);
-  color: var(--ui-ink-2);
-  background: transparent;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.v1-page .event-list-row:is(:hover, .is-selected) .event-list-action {
-  opacity: 1;
-}
-
-.v1-page .event-list-action:hover {
-  background: var(--ui-chip);
-}
-
-
-
 /* Add filter lines up with the other controls of a one-row search. */
 .v1-page .query-card .filter-list > .text-button {
   margin-top: 0;
@@ -1402,27 +1202,6 @@ body {
   align-items: center;
   margin: 0;
   padding: 0;
-}
-
-/* On the desktop Timeline each row carries time travel, so the panel's copy would repeat it. */
-@media (min-width: 1280px) {
-  .v1-page .run-content--horizontal-timeline .selected-event-time-travel {
-    display: none;
-  }
-}
-
-.v1-page .event-list-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: 8px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  color: var(--tone-accent-ink);
-  background: var(--tone-accent-soft);
-  font-family: var(--ui-font, inherit);
-  font-weight: 600;
-  text-decoration: none;
 }
 
 /* At laptop widths the event toolbar stays one line; the page size keeps its name for screen readers. */
@@ -1511,7 +1290,6 @@ body {
     display: inline;
   }
 
-
   .app-bar-icon-button.app-bar-jump-button {
     padding: 0 4px;
   }
@@ -1528,17 +1306,6 @@ body {
   overflow-wrap: anywhere;
 }
 
-.v1-page .event-list-child-status {
-  width: 7px;
-  height: 7px;
-  margin-left: 3px;
-  border-radius: 999px;
-  background: var(--tone-done);
-}
-
-.v1-page .event-list-child-status:is(.status-running) { background: var(--tone-accent); }
-.v1-page .event-list-child-status:is(.status-failed, .status-timedout, .status-terminated) { background: var(--tone-fail); }
-
 .v1-page .run-state-timer {
   font-weight: 500;
 }
@@ -1553,22 +1320,6 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-/* The event list keeps room for the child mark, so a row with one lines up with its neighbours. */
-.v1-page .event-list-child-cell {
-  min-width: 64px;
-}
-
-/* At laptop widths the event list outranks the event panel: the panel takes less, and rows drop the execution ID. */
-@media (min-width: 1280px) and (max-width: 1439px) {
-  .v1-page .run-content.run-content--horizontal-timeline {
-    grid-template-columns: minmax(560px, 1fr) max(380px, min(var(--run-sidebar-width), 38%));
-  }
-
-  .v1-page .event-list-subject small {
-    display: none;
-  }
 }
 
 /* An early tab's marker is a quiet dot, not an unread badge. */
@@ -1948,38 +1699,6 @@ body {
   .live-status-dot {
     animation: none;
   }
-}
-
-/* Each row's bar on the page's own time axis; it starts where step names keep their full width. */
-.v1-page .event-list-bar {
-  display: none;
-}
-
-@media (min-width: 1600px) {
-  .v1-page .event-list.has-bars .event-list-row {
-    grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) 76px 120px 64px 26px;
-  }
-
-  .v1-page .event-list.has-bars .event-list-bar {
-    position: relative;
-    display: block;
-    height: 6px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--ui-hairline) 60%, transparent);
-  }
-
-  .v1-page .event-list-bar i {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    min-width: 2px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--tone-done) 75%, transparent);
-  }
-
-  .v1-page .event-list-row.tone-failed .event-list-bar i { background: var(--tone-fail); }
-  .v1-page .event-list-row.tone-waiting .event-list-bar i { background: var(--tone-wait); }
-  .v1-page .event-list-row.tone-fork .event-list-bar i { background: var(--tone-accent); }
 }
 
 /* Grouped by Flow type, each group opens with its name, its counts on this page, and its design. */

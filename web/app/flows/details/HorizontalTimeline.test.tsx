@@ -382,31 +382,37 @@ describe('horizontal Timeline', () => {
     expect(screen.queryByText('100 events')).toBeNull();
   });
 
-  it('keeps wheel input over the strip from scrolling the page, even at either end', () => {
+  it('scrolls the lane with sideways swipes and Shift+wheel, and leaves a vertical wheel to the page', () => {
     const onPageWheel = vi.fn();
     render(<div onWheel={onPageWheel}><Harness pageEvents={events(1000)} /></div>);
     document.addEventListener('wheel', onPageWheel);
     const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
     const overview = screen.getByRole('slider', { name: 'Timeline overview' });
-    const wheel = (deltaX: number, deltaY: number) => {
-      const event = new WheelEvent('wheel', { deltaX, deltaY, bubbles: true, cancelable: true });
+    const wheel = (deltaX: number, deltaY: number, shiftKey = false) => {
+      const event = new WheelEvent('wheel', { deltaX, deltaY, shiftKey, bubbles: true, cancelable: true });
       strip.dispatchEvent(event);
       return event;
     };
 
-    // Newest end: scrolling further right is a no-op but still must not reach the page.
+    // The page scrolls past the lane, so a vertical wheel never gets stuck on it.
+    expect(wheel(0, 300).defaultPrevented).toBe(false);
     expect(overview.getAttribute('aria-valuenow')).toBe(String(1000 - visibleCount));
-    expect(wheel(0, 300).defaultPrevented).toBe(true);
+    expect(onPageWheel).toHaveBeenCalled();
+    onPageWheel.mockClear();
+
+    // Newest end: scrolling further right is a no-op but still must not reach the page.
+    expect(wheel(300, 0).defaultPrevented).toBe(true);
     expect(overview.getAttribute('aria-valuenow')).toBe(String(1000 - visibleCount));
 
     fireEvent.keyDown(overview, { key: 'Home' });
-    expect(wheel(0, -300).defaultPrevented).toBe(true);
     expect(wheel(-300, 0).defaultPrevented).toBe(true);
+    expect(wheel(0, -300, true).defaultPrevented).toBe(true);
     expect(overview.getAttribute('aria-valuenow')).toBe('0');
 
-    // Vertical wheel moves the view horizontally.
-    act(() => { wheel(0, horizontalTimelineLayout.slotWidth * 5); });
+    act(() => { wheel(horizontalTimelineLayout.slotWidth * 5, 0); });
     expect(overview.getAttribute('aria-valuenow')).toBe('5');
+    act(() => { wheel(0, horizontalTimelineLayout.slotWidth * 5, true); });
+    expect(overview.getAttribute('aria-valuenow')).toBe('10');
     expect(onPageWheel).not.toHaveBeenCalled();
     document.removeEventListener('wheel', onPageWheel);
   });
@@ -772,8 +778,6 @@ describe('horizontal Timeline', () => {
     const note = document.querySelector<HTMLDetailsElement>('.htl-end-note--lane')!;
     expect(note.querySelector('summary')?.textContent).toBe('Now · waiting · fires in 2d 6h');
     expect(note.open).toBe(false);
-    // The head row keeps a copy for when the lane is hidden.
-    expect(document.querySelector('.htl-head .htl-end-note--head summary')?.textContent).toBe('Now · waiting · fires in 2d 6h');
     fireEvent.click(note.querySelector('button')!);
     expect(onShowEndNoteEvent).toHaveBeenCalledWith(100);
 
@@ -793,4 +797,32 @@ describe('horizontal Timeline', () => {
     expect(labels.map((label) => label.textContent)).toEqual(['Charge ×3', 'AwaitNextWindow']);
     expect(labels[0].getAttribute('title')).toBe('Charge ×3 · #1–#3');
   });
+
+  it('moves the selection with J and K and time travels with T from anywhere on the page', () => {
+    const onTimeTravelFromEvent = vi.fn();
+    render(<div><input aria-label="Notes" /><HarnessWithTimeTravel onTimeTravelFromEvent={onTimeTravelFromEvent} /></div>);
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(9)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(option(10)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 't' });
+    expect(onTimeTravelFromEvent).toHaveBeenCalledWith(expect.objectContaining({ eventId: 10 }));
+    // Typing in a field keeps its letters.
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Notes' }), { key: 'j' });
+    expect(option(10)?.getAttribute('aria-selected')).toBe('true');
+  });
 });
+
+/** Holds the selection, starting on the newest event, and passes time travel through. */
+function HarnessWithTimeTravel({ onTimeTravelFromEvent }: { onTimeTravelFromEvent: (event: FlowHistoryEvent) => void }) {
+  const pageEvents = events(10);
+  const [selected, setSelected] = useState<FlowHistoryEvent | null>(pageEvents[9]);
+  return (
+    <HorizontalTimeline
+      events={pageEvents}
+      onSelectEvent={setSelected}
+      onTimeTravelFromEvent={onTimeTravelFromEvent}
+      selectedEvent={selected}
+    />
+  );
+}

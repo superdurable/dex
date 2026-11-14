@@ -2432,8 +2432,8 @@ html:has(.v1-page .stream-scroll--entries) {
 
 /* ---------------------------------------------------- horizontal Timeline */
 
-/* Below desktop width the event panel sits under the strip; on desktop it stays beside it, like the graph's. */
-@media (min-width: 761px) and (max-width: 1279px) {
+/* The event panel sits under the strip at every desktop width, so the page has one scroll. */
+@media (min-width: 761px) {
   .v1-page .run-content.run-content--horizontal-timeline {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2446,14 +2446,10 @@ html:has(.v1-page .stream-scroll--entries) {
     position: static;
     max-height: none;
     overflow: visible;
+    overscroll-behavior: auto;
   }
 }
 
-@media (min-width: 1280px) {
-  .v1-page .run-content.run-content--horizontal-timeline {
-    grid-template-columns: minmax(560px, 1fr) min(var(--run-sidebar-width), 44%);
-  }
-}
 
 /* The overview is a histogram of the page, like a log explorer's: density, problems, and the view. */
 .htl-minimap {
@@ -2935,19 +2931,6 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-end-note--lane {
   position: absolute;
   top: 34px;
-}
-
-/* The head copy stands in only while the lane is hidden. */
-.htl-end-note--head {
-  display: none;
-}
-
-.htl-host.is-lane-hidden .htl-end-note--head {
-  display: block;
-}
-
-.htl-host.is-lane-hidden .htl-end-jump {
-  display: none;
 }
 
 .htl-end-note > summary {
