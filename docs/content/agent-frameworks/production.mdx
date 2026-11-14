@@ -60,8 +60,8 @@ connects. The session itself loses nothing.
   shows.
 - **resolve_interrupt is safe to retry.** An approval that already went through
   returns **False** the second time, and nothing runs again.
-- **send_user_message can send twice.** Each SDK call sends a new request ID,
-  so calling it again from your code runs it again. If the
+- **send_user_message can send twice.** It sends a new request ID on each
+  call, so calling it again from your code runs it again. If the
   response is lost, a retry can queue the same message twice. Before you resend,
   read the session with `get_agent_snapshot` and look for the message in
   **messages** and `queued_messages`. If it is queued twice, remove the copy

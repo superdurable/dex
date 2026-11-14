@@ -80,8 +80,8 @@ point leaves a Flow that retries its Step.
 Keep retention longer than the client retry window. See
 [Retention and start deduplication](/reference/server/configuration#retention-and-start-deduplication).
 
-Calling an RPC again from your code runs it again. See
-[RPC guarantees](/concepts/primitives/rpc#guarantees).
+Calling an RPC again from your code runs it again, unless both calls pass the
+same request ID. See [RPC guarantees](/concepts/primitives/rpc#guarantees).
 
 ## Dex copies Attributes to your database {#attribute-store-sync}
 

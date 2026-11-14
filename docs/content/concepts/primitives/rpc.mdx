@@ -49,12 +49,15 @@ Attribute in this RPC and in every Step and RPC that writes it. Dex then runs
 them one at a time. If the Flow closes while the handler runs, Dex rejects the
 RPC's changes. The handler's calls to external systems have still happened.
 
-<a id="request-ids"></a>Every SDK call generates a new request ID, so calling
-the RPC again from your code, such as after a lost response, runs the handler
-again and saves its changes a second time, including its Channel publications. Make RPC
-handlers safe to repeat; [Send a command at most once](/concepts/client#inbound-commands)
-gives the pattern. [Request IDs](/reference/server/configuration#limits) covers
-how Dex Server deduplicates a resent request.
+<a id="request-ids"></a>Each RPC call carries a request ID. By default, the SDK
+generates a new one for each call. Calling the RPC again from your code, such as
+after a lost response, then runs the handler again and saves its changes a
+second time, including its Channel publications. Make RPC handlers safe to
+repeat; [Send a command at most once](/concepts/client#inbound-commands) gives
+the pattern. A caller can instead pass the same request ID on every attempt,
+where its SDK accepts one. Dex then saves the RPC's changes at most once.
+[RPC request IDs](/reference/server/runtime-data#rpc-request-ids) covers which
+repeats still run the handler and how long Dex keeps request IDs.
 
 An RPC needs a Worker within 10 seconds. If no Worker of the Flow type takes it in that time,
 the caller gets an **Unavailable** error. A Step waits in a durable queue

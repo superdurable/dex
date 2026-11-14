@@ -46,7 +46,7 @@ Agent Session 和其他所有 Flow 运行在同一个 Dex Server 上。把 Sessi
 
 - **遇到 Unavailable 时重试。** 用 backoff 重试，直到 Worker 恢复。没有 Worker 接手的 RPC 什么都没有改变，但响应丢失的调用也可能以 **Unavailable** 结束，所以请按下一项的方式重试 `send_user_message`。
 - **resolve_interrupt 可以安全重试。** 已经生效的审批第二次会返回 **False**，什么都不会再次运行。
-- **send_user_message 可能发送两次。** 每次 SDK 调用都会发送新的 request ID，所以从你的代码再次调用它，它就会再次运行。如果响应丢失，重试可能把同一条消息排队两次。重新发送之前，用 `get_agent_snapshot` 读取 Session，在 **messages** 和 `queued_messages` 中查找这条消息。如果它排队了两次，用 `delete_queued_message` 删除多出的副本。
+- **send_user_message 可能发送两次。** 它每次调用都会发送新的 request ID，所以从你的代码再次调用它，它就会再次运行。如果响应丢失，重试可能把同一条消息排队两次。重新发送之前，用 `get_agent_snapshot` 读取 Session，在 **messages** 和 `queued_messages` 中查找这条消息。如果它排队了两次，用 `delete_queued_message` 删除多出的副本。
 
 [只发送一次消息](/agent-frameworks/sessions#send-a-message-once)给出了每个 SDK 的辅助函数。
 

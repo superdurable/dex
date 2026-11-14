@@ -70,8 +70,9 @@ As in any durable execution engine, an interrupted Step runs again; see [Idempot
 - **An ASYNC Step can rerun on a new snapshot.** If a server node fails before
   it saves an ASYNC Step's start, the attempt runs again and can read different
   Attribute values. See [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async).
-- **Calling an RPC again runs it again.** Each SDK call sends a new request
-  ID; see [RPC guarantees](/concepts/primitives/rpc#guarantees).
+- **Calling an RPC again runs it again.** By default, each SDK call sends a
+  new request ID. A caller that passes the same request ID on every attempt gets
+  the RPC's changes saved at most once; see [RPC guarantees](/concepts/primitives/rpc#guarantees).
 - **A repeated Channel publish delivers twice.** A `PublishToChannel`
   request sent again after a lost response stores the message a second time.
 - **A retried StopFlow without a run ID can stop a newer run.** Pass the run ID.

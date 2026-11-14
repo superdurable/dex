@@ -26,6 +26,7 @@ them in the [TypeScript SDK API reference](./index.mdx#api-reference).
 | Let a person invoke the RPC from Dex Web | **action** of **RPCOptions**, with **Action** | [Actions](/reference/web/dex-web#actions) |
 | Invoke the RPC from a Client | **Client.invokeRPC** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
 | Lock or load map instances chosen at call time | **RPCInvokeOptions**, with **Client.invokeRPCWithOptions** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+| Make a retried call idempotent with a stable request ID | **requestId** of **RPCInvokeOptions**, with **Client.invokeRPCWithOptions**. Since 1.45.4. | [RPC request IDs](/reference/server/runtime-data#rpc-request-ids) |
 
 **@rpc** and **declareRPCMethod** take the same **RPCOptions**.
 

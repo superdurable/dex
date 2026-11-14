@@ -1419,6 +1419,58 @@ RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trig
 </SdkSnippet>
 </SdkTabs>
 
+### RPC request IDs {#rpc-request-ids}
+
+Every RPC invocation carries a request ID. Dex Server records the reply of a
+successful RPC that it commits under that request ID. A repeat with a recorded
+request ID returns the recorded output. It applies the RPC's Flow changes,
+such as Attribute writes, Channel publications, and next Steps, no second time.
+
+By default, SDKs send a new request ID on each call, so calling an RPC again
+from your code runs it again. To make a retried call idempotent, pass the same
+request ID on every attempt, where the SDK accepts one. The TypeScript SDK
+takes it as **requestId** of **RPCInvokeOptions**. Use an ID that names the
+logical call, such as the ID of an event that is delivered at least once.
+
+How Dex Server answers a repeat depends on the RPC:
+
+| RPC | Repeat with a recorded request ID |
+| --- | --- |
+| Transactional or locking | Answered from the recorded reply before a Worker runs the handler. Concurrent calls with the same request ID share one handler execution and its result. |
+| Any other RPC that changes Flow state | The handler runs again on a Worker. Dex Server discards the new result and returns the recorded reply. The handler's calls to external systems repeat. |
+| Neither transactional nor locking, and changes no Flow state | Not recorded. Each repeat runs the handler again and returns its new output. |
+
+These rules also apply:
+
+- Dex Server compares the whole request: Flow ID, run ID, RPC name, input,
+  timeout, locks, and loads. A different request under a kept request ID fails
+  with INVALID_ARGUMENT and the detail "request ID ... was already used for a
+  different request". The RPC applies none of its changes.
+- Each run keeps its newest request IDs, as many as
+  [**limits.maxRequestIdsPerRun**](/reference/server/configuration#limits).
+  RPC request IDs share this window with the run's other request IDs, such as
+  those of Client Attribute writes. A repeat with an older request ID runs as
+  a new request. A new run of the same Flow ID starts with no request IDs.
+- A failed RPC records nothing. A retry after a Worker error or an
+  [RPC timeout](#rpc-timeout) of the Worker handler runs the handler again.
+- A client-side deadline or cancellation leaves the outcome unknown. The server
+  may still commit the RPC. A retry with the same request ID applies the Flow
+  changes at most once. For a transactional or locking RPC, the retry joins
+  the invocation still in flight, or returns the recorded reply after it
+  commits. Any other RPC runs its handler again.
+- UNAVAILABLE after the server's commit budget also leaves the outcome
+  unknown. A retry with the same request ID can run the handler again, and
+  still applies the Flow changes at most once.
+- After the Flow run closes, a transactional or locking RPC with a recorded
+  request ID returns its recorded reply while the server retains the run. With
+  a new request ID it fails with NOT_FOUND and FLOW_NOT_EXISTS, as described in
+  [Retention](/reference/server/configuration#retention).
+- On a run over its [Flow state budget](/reference/server/configuration#flow-state-budget),
+  an RPC that changes no Flow state keeps no request ID.
+- A request ID must be non-empty. Dex Server sets no other length or character
+  limit. Each kept request ID counts toward the run's Flow state budget, so
+  keep request IDs short.
+
 ## Channels {#channels}
 
 ### Wait conditions {#channel-conditions}

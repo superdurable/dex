@@ -43,7 +43,7 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 和任何持久化执行引擎一样，被中断的 Step 会再次运行；见[幂等键](/concepts/step#idempotency-keys)。下面这些请求也可能重复：
 
 - **ASYNC Step 可能基于新的快照重新运行。** 如果 server 节点在保存 ASYNC Step 的开始之前出故障，这次尝试会再运行一次，读到的 Attribute 值可能不同。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
-- **再次调用 RPC 会再次运行它。** 每次 SDK 调用都会发送新的 request ID；见 [RPC 保证](/concepts/primitives/rpc#guarantees)。
+- **再次调用 RPC 会再次运行它。** 默认情况下，每次 SDK 调用都会发送新的 request ID。调用方在每次尝试时传入同一个 request ID，这个 RPC 的修改就最多保存一次；见 [RPC 保证](/concepts/primitives/rpc#guarantees)。
 - **重复的 Channel 发布会投递两次。** 响应丢失后再次发送的 `PublishToChannel` 请求，会把这条消息再存一次。
 - **重试 StopFlow 时要传入 run ID。** 不带 run ID 的重试可能停掉一个更新的 run。
 

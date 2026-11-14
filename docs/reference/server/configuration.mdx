@@ -812,10 +812,12 @@ oldest request IDs.
 
 Dex Server deduplicates an RPC that reuses a request ID it still keeps: the
 newest 1,000 request IDs per run, set by **limits.maxRequestIdsPerRun**. A
-retry with an older request ID runs as a new request. SDKs send a new request
-ID on each call and reuse one only when they resend a request that never ran,
-such as after an authentication refresh. Calling an RPC again from your code
-therefore runs it again.
+retry with an older request ID runs as a new request. By default, SDKs send a
+new request ID on each call and reuse one only when they resend a request that
+never ran, such as after an authentication refresh. Calling an RPC again from
+your code therefore runs it again, unless your code passes the same request ID
+on each call. [RPC request IDs](/reference/server/runtime-data#rpc-request-ids)
+describes which repeats run the handler again and which RPCs keep no request ID.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
