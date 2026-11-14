@@ -307,7 +307,7 @@ committed history, the server deletes it and writes it again.
 
 ### Finding the newest version {#version-discovery}
 
-Since 0.1.30, **objectStore.versionDiscovery** selects how the server finds the
+Since 0.1.31, **objectStore.versionDiscovery** selects how the server finds the
 newest version of a key:
 
 | Value | How it works |
@@ -351,9 +351,9 @@ So the two never share a prefix:
   earlier can look empty.
 - Nodes check the prefix only at startup. Start every node that shares a
   **head** prefix with **head**.
-- Nodes before 0.1.30 skip this check and delete versions in any order.
-  Every node that shares a **head** prefix must run 0.1.30 or later, and a
-  rollback below 0.1.30 is unsupported once a prefix uses **head**.
+- Nodes before 0.1.31 skip this check and delete versions in any order.
+  Every node that shares a **head** prefix must run 0.1.31 or later, and a
+  rollback below 0.1.31 is unsupported once a prefix uses **head**.
 
 The value applies to every **aliyunOSS** store of the node, including
 **objectStore.hardDeleteStore**, and each prefix gets its own check.
@@ -368,7 +368,7 @@ prefix.
 
 ## Tencent COS provider {#tencent-cos}
 
-Since 0.1.30, **serve** can keep its object storage in a Tencent COS bucket.
+Since 0.1.31, **serve** can keep its object storage in a Tencent COS bucket.
 The server uses the S3-compatible endpoint of COS. Every feature works as it
 does on S3, including leases, hot standby, snapshots, history offload, and
 Flow definition uploads.
