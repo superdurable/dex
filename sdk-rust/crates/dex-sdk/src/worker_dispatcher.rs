@@ -1390,6 +1390,11 @@ fn map_sub_flow_options(
             Ok(write)
         })
         .collect::<HandlerResult<Vec<_>>>()?;
+    crate::client::task_queue_name::validate_flow_task_queue(&options.task_queue)
+        .map_err(|error| HandlerError::new("dex_sdk::HandlerError", error))?;
+    negotiated_protocol_version
+        .require_named_task_queue_support(&options.task_queue, "SubFlow")
+        .map_err(|error| HandlerError::new("dex_sdk::HandlerError", error))?;
     Ok(ProtoSubFlowOptions {
         reuse_policy: match options.reuse_policy {
             SubFlowReusePolicy::Attach => ProtoSubFlowReusePolicy::Attach,
@@ -1409,8 +1414,11 @@ fn map_sub_flow_options(
             .map_err(handler_error)?,
         attributes,
         flow_config_override: Some(
-            crate::client::map_pull_flow_config(options.config_override.as_ref())
-                .map_err(handler_error)?,
+            crate::client::map_pull_flow_config(
+                options.config_override.as_ref(),
+                &options.task_queue,
+            )
+            .map_err(handler_error)?,
         ),
         timeout_handler_options: map_flow_timeout_handler_options(
             target,

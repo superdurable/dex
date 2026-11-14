@@ -45,7 +45,7 @@ impl PullStream {
             }
             let has_permanent_error = result
                 .as_ref()
-                .is_err_and(|status| is_permanent(status.code()));
+                .is_err_and(|status| self.is_permanent_stream_failure(status));
             match &result {
                 Err(status) if status.code() == Code::Unimplemented => {
                     let mut state = self.shared.state.lock().expect("pull state lock");
@@ -59,7 +59,7 @@ impl PullStream {
                     tracing::error!(queue = %self.queue, "Worker task stream authentication rejected");
                     backoff = Duration::from_secs(60);
                 }
-                Err(status) if is_permanent(status.code()) => {
+                Err(status) if self.is_permanent_stream_failure(status) => {
                     tracing::error!(%status, queue = %self.queue, "Worker task stream rejected");
                     backoff = Duration::from_secs(60);
                 }

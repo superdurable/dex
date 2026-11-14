@@ -160,6 +160,11 @@ impl Worker {
     /// `max_concurrent_tasks` exceeds the Server setting `matching.maxConcurrentTasksCap`. The
     /// first registered stream reports that setting; the Worker then half-closes its streams.
     /// Returns a service error exposing [`SdkError::pull_registration_error`] after draining when permanent-rejection shutdown is enabled.
+    ///
+    /// Changed in 1.45.1: with a non-empty [`crate::PullWorkerOptions::task_queue`], startup fails
+    /// with a Service error before Attribute-index synchronization when the Server protocol is
+    /// older than 5. A stream that the Server confirms for a different task queue is a permanent
+    /// rejection with the gRPC code `FAILED_PRECONDITION`.
     pub fn start(&self) -> SdkResult<()> {
         let result = self.start_worker();
         self.pull
@@ -206,6 +211,12 @@ impl Worker {
             })?;
         self.negotiated_protocol_version
             .store(negotiated_protocol_version);
+        self.negotiated_protocol_version
+            .require_named_task_queue_support(&self.pull.task_queue, "pull Worker")
+            .map_err(|error| {
+                self.state.store(STOPPED, Ordering::Release);
+                service_error(error)
+            })?;
         let sync_result = self.runtime.block_on(async {
             tokio::time::timeout(
                 self.attribute_index_sync_timeout,
@@ -287,6 +298,24 @@ impl Worker {
     #[deprecated(note = "reserved slots never decline for capacity; this counter is always zero")]
     pub fn pull_reserved_rpc_declines(&self) -> u64 {
         0
+    }
+
+    /// Returns the task queue this Worker pulls; the empty string means the default task queue.
+    ///
+    /// It is the value of [`crate::PullWorkerOptions::task_queue`] and never changes. Every pull
+    /// stream of this Worker registers it. Use it to label readiness probes and logs when a
+    /// process runs one Worker per task queue.
+    ///
+    /// Since 1.45.1.
+    ///
+    /// ```no_run
+    /// # fn report(worker: &dex_sdk::Worker) {
+    /// let state = worker.pull_registration_state();
+    /// println!("task queue {:?} ready: {}", worker.task_queue(), state.is_ready);
+    /// # }
+    /// ```
+    pub fn task_queue(&self) -> &str {
+        &self.pull.task_queue
     }
 
     /// Returns an independent snapshot of current pull slot-kind registrations.

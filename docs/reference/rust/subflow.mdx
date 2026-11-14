@@ -17,10 +17,27 @@ them in the [Rust SDK API reference](./index.mdx#api-reference).
 | --- | --- | --- |
 | Start a child Flow and wait for it | **SubFlow::run** in **wait_for** | [SubFlows](/reference/server/runtime-data#subflows) |
 | Set the child timeout, Attributes, and configuration | **SubFlowOptions**, with **SubFlow::run_with_options** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Run the child on another task queue | **task_queue** of **SubFlowOptions** | [Task queue](#task-queue) |
 | Choose what happens to an existing child | **reuse_policy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Read the child result | **SubFlow::condition_result** or **SubFlow::condition_result_at** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
 | Read the generated child Flow ID | **SubFlow::flow_id** or **SubFlow::flow_id_at** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Stop a child that lost an **AnyOf** | **Client::stop_flow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Task queue {#task-queue}
+
+A SubFlow runs on its parent's task queue by default. **SubFlowOptions::task_queue**
+picks another one. Since 1.45.1.
+
+- The empty name, the default, keeps the parent's task queue.
+- **dex.default** runs the SubFlow on the default task queue while the parent
+  runs on a named one.
+- Any other name follows the rules of
+  [StartFlowOptions::task_queue](./start-flow-options.mdx#task-queue).
+- The Worker checks the name when **wait_for** returns the **Wait**. An invalid
+  name, or a non-empty name while the Server protocol is older than 5, fails
+  that Step attempt like any other invalid Step result.
+
+API reference: [SubFlowOptions::task_queue](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.SubFlowOptions.html#method.task_queue).
 
 ## Step types that start SubFlows {#step-type-rule}
 

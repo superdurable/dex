@@ -50,6 +50,7 @@ pub struct SubFlowOptions {
     pub(crate) attributes: Vec<InitialAttribute>,
     pub(crate) reuse_policy: SubFlowReusePolicy,
     pub(crate) condition_id: Option<String>,
+    pub(crate) task_queue: String,
 }
 
 impl SubFlowOptions {
@@ -65,6 +66,7 @@ impl SubFlowOptions {
             attributes: Vec::new(),
             reuse_policy: SubFlowReusePolicy::RestartIfPreviousExitsAbnormally,
             condition_id: None,
+            task_queue: String::new(),
         }
     }
 
@@ -109,6 +111,34 @@ impl SubFlowOptions {
     /// Applies fields over the inherited parent Flow configuration.
     pub fn config_override(mut self, value: FlowConfig) -> Self {
         self.config_override = Some(value);
+        self
+    }
+
+    /// Runs the SubFlow on a named task queue instead of the parent's task queue.
+    ///
+    /// The default, and the empty string, keeps the parent's task queue. Set `dex.default` to run
+    /// the SubFlow on the default task queue while the parent runs on a named one. Any other name
+    /// follows the rules of [`crate::StartFlowOptions::task_queue`]: 1 to 63 ASCII letters,
+    /// digits, dots, underscores, or hyphens, and no other name starting with `dex.`. Only
+    /// Workers whose [`crate::PullWorkerOptions::task_queue`] equals the name run the SubFlow's
+    /// Steps and RPCs. The SubFlow keeps this task queue for its whole run.
+    ///
+    /// The Worker checks the name when the Step returns the Wait. An invalid name, or a non-empty
+    /// name while the Server protocol is older than 5, fails that Step attempt like any other
+    /// invalid Step result. Returns these options with the task queue applied.
+    ///
+    /// Since 1.45.1.
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Flow, SdkResult, SubFlow, SubFlowOptions, Wait};
+    /// fn wait_for_report<F: Flow>(flow: &F, input: F::StartInput) -> SdkResult<Wait> {
+    ///     let child = SubFlow::run_with_options(flow, input,
+    ///         SubFlowOptions::new().task_queue("reports"))?;
+    ///     Ok(Wait::until(child))
+    /// }
+    /// ```
+    pub fn task_queue(mut self, value: impl Into<String>) -> Self {
+        self.task_queue = value.into();
         self
     }
 
