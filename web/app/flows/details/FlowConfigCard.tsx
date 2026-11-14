@@ -30,6 +30,8 @@ export const flowConfigFieldHints = {
     + 'Chosen when the run starts and fixed for the run.',
 } as const;
 const SERVER_DEFAULT = 'Server default';
+/** The server's history.windowEvents default, from FlowConfig.history_window_events in protos/dex.proto. */
+const BUILT_IN_DEFAULT_WINDOW_EVENTS = 10_000;
 
 export interface HistorySettings {
   historyWindowEvents: number | undefined;
@@ -159,6 +161,12 @@ export function FlowConfigCard({
   const activeStepSearchMode = enumValue(flowConfig, 'activeStepSearchMode');
   const attributeStoreNames = attributeStoreNamesOf(flowConfig);
 
+  // A new draft clears the last save's error, which named the old value.
+  const changeDraft = (value: string) => {
+    setDraft(value);
+    setError('');
+  };
+
   const startEditing = (field: EditableField) => {
     // Each editor opens on the current value; an unset field opens with nothing chosen.
     const initialDrafts: Record<EditableField, string> = {
@@ -236,8 +244,9 @@ export function FlowConfigCard({
     const invalid = change !== null && 'error' in change ? change.error : '';
     const canSave = !saving && change !== null && !invalid;
     const draftWindow = Number(draft.trim());
+    // An unset window uses the server default, which is 10,000 events unless the server sets another.
     const isShrinkingWindow = field === 'historyWindowEvents' && canSave && Number.isFinite(draftWindow)
-      && (windowEvents === undefined || draftWindow < windowEvents);
+      && draftWindow < (windowEvents ?? BUILT_IN_DEFAULT_WINDOW_EVENTS);
     return (
       <div className="history-settings-form flow-config-editor">
         {field === 'historyWindowEvents' && (
@@ -249,14 +258,14 @@ export function FlowConfigCard({
               inputMode="numeric"
               placeholder="e.g. 10000"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => changeDraft(event.target.value)}
             />
           </label>
         )}
         {(field === 'stepDurability' || field === 'activeStepSearchMode') && (
           <label>
             {label}
-            <select aria-describedby={hintId} value={draft} onChange={(event) => setDraft(event.target.value)}>
+            <select aria-describedby={hintId} value={draft} onChange={(event) => changeDraft(event.target.value)}>
               {draft === '' && <option disabled value="">Choose a value</option>}
               {Object.entries(field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels)
                 .map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
@@ -273,13 +282,16 @@ export function FlowConfigCard({
                 disabled={isTurningSyncOff}
                 placeholder="e.g. primary, audit"
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => changeDraft(event.target.value)}
               />
             </label>
             <label className="flow-config-check">
               <input
                 checked={isTurningSyncOff}
-                onChange={(event) => setIsTurningSyncOff(event.target.checked)}
+                onChange={(event) => {
+                  setIsTurningSyncOff(event.target.checked);
+                  setError('');
+                }}
                 type="checkbox"
               />
               Turn sync off for this run
@@ -291,7 +303,7 @@ export function FlowConfigCard({
           {isShrinkingWindow && (
             <p className="flow-config-warning">
               {windowEvents === undefined
-                ? 'A window smaller than the server default deletes older events for good.'
+                ? `This window is smaller than the built-in server default of ${BUILT_IN_DEFAULT_WINDOW_EVENTS.toLocaleString()} events, so older events may be deleted for good.`
                 : `This window is smaller than ${windowEvents.toLocaleString()} events, so older events are deleted for good.`}
             </p>
           )}

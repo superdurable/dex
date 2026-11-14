@@ -1446,6 +1446,17 @@ body {
   animation: app-rail-reach-text-in 200ms ease-out;
 }
 
+/* In the open rail the red words may wrap, so the home row grows instead of cutting them off. */
+:is(.app-rail.is-expanded, .app-rail.is-phone-open) .app-rail-reach-text {
+  white-space: normal;
+}
+
+:is(.app-rail.is-expanded, .app-rail.is-phone-open) .app-rail-host:has(.app-rail-reach-text) {
+  height: auto;
+  min-height: 42px;
+  padding-block: 4px;
+}
+
 @keyframes app-rail-reach-text-in {
   from { opacity: 0; }
   to { opacity: 1; }
