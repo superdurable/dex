@@ -9,8 +9,6 @@ on:
       - "agents/conformance/session_graph.json"
       - "protos/**"
       - "sdk-go/**"
-      - "blob-cache-go/**"
-      - "agents/go/core/**"
       - "script/release/*embedded_web_module.py"
       - ".github/workflows/web-ci.yml"
       - ".github/workflows/web-embedded-module-release.yml"
