@@ -48,7 +48,7 @@ use backlog_matching::QueueMatching;
 pub use backlog_matching::TaskClaim;
 pub use dispatch_handle::DispatchHandle;
 pub use dispatch_request::{DispatchEvent, DispatchOutcome, DispatchRequest, DispatchTaskPayload};
-use queue_state::{QueueWaiter, QueuedTaskMetric, SearchState};
+use queue_state::{MatchingQueueKey, QueueWaiter, QueuedTaskMetric, SearchState};
 pub use step_reservation::{
     ReservedStepStream, StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle,
     StepTaskSendFailure,
@@ -104,7 +104,7 @@ struct QueueState {
 
 struct QueueLease {
     dispatch: WorkerDispatch,
-    key: (u64, String),
+    key: MatchingQueueKey,
     waiter_sequence: u64,
     wakeup: Arc<Notify>,
     is_waiting: bool,
@@ -116,7 +116,9 @@ struct WorkerStream {
     id: Uuid,
     tenant_id: u64,
     /// Queues this stream serves: its registered queue, or its sticky queue and Flow types.
-    queue_keys: Vec<(u64, String)>,
+    queue_keys: Vec<MatchingQueueKey>,
+    /// The task queue of every queue in `queue_keys`; empty for the default task queue.
+    task_queue: String,
     /// Flow types whose durable queues this stream may claim from.
     backlog_flow_types: Vec<String>,
     app_worker_id: String,
@@ -421,8 +423,10 @@ impl WorkerDispatch {
         {
             return outcome;
         }
-        let is_unsupported_everywhere = search.unknown
-            || self.has_only_unsupported_streams(request.tenant_id, &request.flow_type, &task_type);
+        let flow_type_queue =
+            MatchingQueueKey::new(request.tenant_id, &request.task_queue, &request.flow_type);
+        let is_unsupported_everywhere =
+            search.unknown || self.has_only_unsupported_streams(&flow_type_queue, &task_type);
         let reason = if is_unsupported_everywhere && !search.unavailable {
             DispatchTaskErrorReason::UnknownName
         } else {
@@ -456,7 +460,8 @@ impl WorkerDispatch {
         search: &mut SearchState,
         scheduled_at: &mut Option<Instant>,
     ) -> Option<DispatchOutcome> {
-        let mut queue_lease = QueueLease::new(self, request.tenant_id, queue_name, waiter_sequence);
+        let queue_key = MatchingQueueKey::new(request.tenant_id, &request.task_queue, queue_name);
+        let mut queue_lease = QueueLease::new(self, queue_key, waiter_sequence);
         let wakeup = queue_lease.wakeup.clone();
         let mut queued_task =
             QueuedTaskMetric::new(self.inner.metrics.matching_queued_tasks.clone());
@@ -761,7 +766,7 @@ impl WorkerDispatch {
             && !std::mem::replace(&mut lease.has_picked, true)
             && registry
                 .unsupported_types
-                .contains(task.task_type, &lease.key.1)
+                .contains(task.task_type, &lease.key.queue_name)
         {
             return QueuePick::sticky_declined();
         }
@@ -874,16 +879,15 @@ impl WorkerDispatch {
         }
     }
 
-    /// Returns whether `queue_name` has streams and the unsupported type cache excludes every
-    /// one of them for `task_type`.
+    /// Returns whether `queue` has streams and the unsupported type cache excludes every one
+    /// of them for `task_type`.
     fn has_only_unsupported_streams(
         &self,
-        tenant_id: u64,
-        queue_name: &str,
+        queue: &MatchingQueueKey,
         task_type: &TaskTypeKey,
     ) -> bool {
         self.lock_registry()
-            .has_only_unsupported_streams(tenant_id, queue_name, task_type)
+            .has_only_unsupported_streams(queue, task_type)
     }
 
     /// Returns a stream that finished its task, or was taken without one, to its queues.

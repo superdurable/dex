@@ -94,7 +94,10 @@ pub(crate) fn start_flow_request(
                 ignore_already_started_error: rng.random_bool(0.3),
             }),
             flow_config_override: Some(FlowConfig {
-                worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
                 ..FlowConfig::default()
             }),
             timeout_handler_options: (policy == FlowTimeoutPolicy::Handler)

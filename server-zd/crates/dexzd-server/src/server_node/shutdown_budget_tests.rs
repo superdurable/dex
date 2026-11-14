@@ -86,6 +86,7 @@ async fn an_rpc_waiting_when_matching_removes_its_partition_fails_as_retryable()
                 flow: FlowAddress::new(TenantId::DEFAULT, "order-1"),
                 run_id: RunId([1; 16]),
                 flow_type: "OrderFlow".to_owned(),
+                task_queue: String::new(),
                 sticky_app_worker_id: String::new(),
                 request: InvokeWorkerRpcRequest {
                     flow_type: "OrderFlow".to_owned(),

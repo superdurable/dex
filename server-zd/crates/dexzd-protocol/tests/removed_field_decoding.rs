@@ -26,7 +26,13 @@ fn worker_target_with_removed_address_fields_decodes_as_pull_target() {
     let decoded = WorkerTarget::decode(legacy_worker_target().as_slice())
         .expect("legacy WorkerTarget decodes");
 
-    assert_eq!(decoded, WorkerTarget { is_pull_mode: true });
+    assert_eq!(
+        decoded,
+        WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }
+    );
     assert_eq!(decoded.encode_to_vec(), vec![0x18, 0x01]);
 }
 
@@ -34,7 +40,10 @@ fn worker_target_with_removed_address_fields_decodes_as_pull_target() {
 fn persisted_flow_configs_with_removed_address_fields_decode() {
     let expected_flow_config = FlowConfig {
         step_durability: Some(StepDurability::Async as i32),
-        worker_target: Some(WorkerTarget { is_pull_mode: true }),
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
         ..FlowConfig::default()
     };
     let flow_config_bytes = legacy_flow_config();
@@ -61,7 +70,10 @@ fn persisted_flow_configs_with_removed_address_fields_decode() {
     assert_eq!(start_command.new_run_id, b"run-1".to_vec());
     assert_eq!(
         start_command.worker_target,
-        Some(WorkerTarget { is_pull_mode: true })
+        Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        })
     );
     assert_eq!(
         start_command.effective_flow_config,

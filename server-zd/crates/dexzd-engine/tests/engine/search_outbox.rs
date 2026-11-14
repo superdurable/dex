@@ -241,7 +241,10 @@ async fn start_flow(node: &EngineNode, hasher: &PartitionHasher, number: u8) {
                 offload_history: None,
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowStartCommand::default()
         }),
     )

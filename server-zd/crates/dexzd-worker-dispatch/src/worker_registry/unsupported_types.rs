@@ -23,10 +23,12 @@ pub(super) enum TaskKind {
     Rpc,
 }
 
-/// Names one task type of one tenant and Flow type.
+/// Names one task type of one tenant, task queue, and Flow type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) struct TaskTypeKey {
     pub(super) tenant_id: u64,
+    /// Empty for the default task queue.
+    pub(super) task_queue: String,
     pub(super) flow_type: String,
     pub(super) kind: TaskKind,
     /// Step type or RPC name.
@@ -258,6 +260,7 @@ mod tests {
     fn key(name: &str) -> TaskTypeKey {
         TaskTypeKey {
             tenant_id: 7,
+            task_queue: String::new(),
             flow_type: "Flow".to_owned(),
             kind: TaskKind::Step,
             name: name.to_owned(),

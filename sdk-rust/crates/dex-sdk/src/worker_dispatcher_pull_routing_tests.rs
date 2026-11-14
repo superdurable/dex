@@ -32,7 +32,10 @@ fn sub_flow_without_config_overrides_only_worker_target() {
     assert_eq!(
         options.flow_config_override,
         Some(dex_protocol::dex::FlowConfig {
-            worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(dex_protocol::dex::WorkerTarget {
+                is_pull_mode: true,
+                ..dex_protocol::dex::WorkerTarget::default()
+            }),
             ..Default::default()
         })
     );
@@ -55,7 +58,10 @@ fn sub_flow_config_override_maps_history_window_events() {
     assert_eq!(config.history_window_events, Some(2_500));
     assert_eq!(
         config.worker_target,
-        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+        Some(dex_protocol::dex::WorkerTarget {
+            is_pull_mode: true,
+            ..dex_protocol::dex::WorkerTarget::default()
+        })
     );
 }
 
@@ -76,7 +82,10 @@ fn sub_flow_config_override_maps_offload_history() {
     assert_eq!(config.offload_history, Some(false));
     assert_eq!(
         config.worker_target,
-        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+        Some(dex_protocol::dex::WorkerTarget {
+            is_pull_mode: true,
+            ..dex_protocol::dex::WorkerTarget::default()
+        })
     );
 }
 
@@ -99,6 +108,9 @@ fn sub_flow_config_override_drops_delete_expired_history_objects() {
     assert_eq!(config.delete_expired_history_objects, None);
     assert_eq!(
         config.worker_target,
-        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+        Some(dex_protocol::dex::WorkerTarget {
+            is_pull_mode: true,
+            ..dex_protocol::dex::WorkerTarget::default()
+        })
     );
 }

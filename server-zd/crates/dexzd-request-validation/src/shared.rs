@@ -15,6 +15,8 @@ use dexzd_protocol::dex::{
     StepDurability, StepOptions, Value, WorkerTarget, value,
 };
 
+use dexzd_protocol::task_queue_names::{overridden_task_queue, target_task_queue_name_error};
+
 use crate::keyword_index::{KeywordValueLimit, validate_indexed_keyword};
 
 /// Identifies how the caller handles a validation failure.
@@ -605,7 +607,7 @@ pub(crate) fn validate_flow_config(
         ));
     }
     if should_require_target || flow_config.worker_target.is_some() {
-        validate_and_canonicalize_pull_worker_target(
+        validate_pull_worker_target(
             &format!("{path}.worker_target"),
             flow_config.worker_target.as_ref(),
         )?;
@@ -641,10 +643,11 @@ pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_co
     if override_config.step_durability.is_some() {
         effective.step_durability = override_config.step_durability;
     }
-    if override_config.worker_target.is_some() {
-        effective
-            .worker_target
-            .clone_from(&override_config.worker_target);
+    if let Some(target) = &override_config.worker_target {
+        effective.worker_target = Some(overridden_worker_target(
+            effective.worker_target.as_ref(),
+            target,
+        ));
     }
     if override_config.attribute_store_names.is_some() {
         effective
@@ -660,17 +663,45 @@ pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_co
     }
 }
 
-pub(crate) fn validate_and_canonicalize_pull_worker_target(
+/// Returns `target` applied over `base`: an empty task queue keeps the base's, and
+/// `dex.default` selects the default.
+pub(crate) fn overridden_worker_target(
+    base: Option<&WorkerTarget>,
+    target: &WorkerTarget,
+) -> WorkerTarget {
+    let base_task_queue = base.map_or("", |base| base.task_queue.as_str());
+    WorkerTarget {
+        is_pull_mode: target.is_pull_mode,
+        task_queue: overridden_task_queue(base_task_queue, &target.task_queue),
+    }
+}
+
+pub(crate) fn validate_pull_worker_target(
     path: &str,
     target: Option<&WorkerTarget>,
-) -> Result<WorkerTarget, ValidationError> {
+) -> Result<(), ValidationError> {
     let Some(target) = target else {
         return Err(invalid(path, "worker_target is required"));
     };
     if !target.is_pull_mode {
+        if !target.task_queue.is_empty() {
+            return Err(invalid(
+                format!("{path}.task_queue"),
+                "task_queue requires is_pull_mode",
+            ));
+        }
         return Err(invalid(path, "worker_target is empty"));
     }
-    Ok(WorkerTarget { is_pull_mode: true })
+    if let Some(reason) = target_task_queue_name_error(&target.task_queue) {
+        return Err(invalid(
+            format!("{path}.task_queue"),
+            format!(
+                "invalid task_queue {}: {reason}",
+                quote_go_string(&target.task_queue)
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_start_options(

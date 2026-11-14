@@ -1148,6 +1148,7 @@ impl FakeDispatcher {
             tenant_id: task.queue.tenant_id.0,
             flow_id: task.flow_id.clone(),
             flow_type: task.queue.flow_type.clone(),
+            task_queue: String::new(),
             step_type: task.queue.step_type.clone(),
             sticky_app_worker_id: None,
         };
@@ -1302,6 +1303,7 @@ impl MethodDispatcher for FakeDispatcher {
     fn is_waiting_for_supporting_worker(
         &self,
         _tenant_id: u64,
+        _task_queue: &str,
         _flow_type: &str,
         _step_type: &str,
     ) -> bool {
@@ -1629,7 +1631,10 @@ impl EffectHarness {
                 request: Some(request),
                 settings: Some(settings),
                 resolved_timeout_policy: timeout_policy as i32,
-                worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
                 ..FlowStartCommand::default()
             })),
             ..FlowCommand::default()

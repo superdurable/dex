@@ -87,6 +87,8 @@ pub struct DispatchRequest {
     pub flow_id: String,
     /// Flow type queue used after an optional sticky Worker search.
     pub flow_type: String,
+    /// Task queue of the Flow; empty for the default task queue. Only its Workers are searched.
+    pub task_queue: String,
     /// Worker process ID preferred while the sticky wait lasts.
     pub sticky_app_worker_id: Option<String>,
     /// Worker request sent without modifying its application payload.
@@ -111,6 +113,7 @@ impl DispatchRequest {
         };
         TaskTypeKey {
             tenant_id: self.tenant_id,
+            task_queue: self.task_queue.clone(),
             flow_type: self.flow_type.clone(),
             kind,
             name: name.clone(),

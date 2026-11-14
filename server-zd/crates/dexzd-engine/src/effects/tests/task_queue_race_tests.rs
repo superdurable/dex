@@ -487,7 +487,10 @@ fn start_tenant_flow(harness: &EffectHarness, tenant: TenantId, flow_id: &str, s
             request: Some(request),
             settings: Some(settings()),
             resolved_timeout_policy: dexzd_protocol::dex::FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowStartCommand::default()
         })),
         ..FlowCommand::default()

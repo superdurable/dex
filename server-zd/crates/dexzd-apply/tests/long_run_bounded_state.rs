@@ -222,7 +222,10 @@ impl LongRun {
                 checkpoint_row_write_bytes_threshold: 1 << 20,
                 ..RunSettings::default()
             }),
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowStartCommand::default()
         }));
     }

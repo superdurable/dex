@@ -276,6 +276,7 @@ fn step_request(flow_type: &str, step_type: &str, sticky: Option<&str>) -> StepS
         tenant_id: 0,
         flow_id: "flow-1".to_owned(),
         flow_type: flow_type.to_owned(),
+        task_queue: String::new(),
         step_type: step_type.to_owned(),
         sticky_app_worker_id: sticky.map(str::to_owned),
     }
@@ -339,6 +340,7 @@ fn rpc_request(rpc_name: &str) -> DispatchRequest {
         tenant_id: 0,
         flow_id: "flow-1".to_owned(),
         flow_type: "Flow".to_owned(),
+        task_queue: String::new(),
         sticky_app_worker_id: None,
         payload: DispatchTaskPayload::Rpc(InvokeWorkerRpcRequest {
             flow_type: "Flow".to_owned(),

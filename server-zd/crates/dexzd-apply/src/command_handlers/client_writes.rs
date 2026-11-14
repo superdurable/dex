@@ -12,12 +12,13 @@
 use dexzd_keyspace::row_keys::RequestKind;
 use dexzd_protocol::dex::{
     ChannelExternalDeleteEvent, ChannelExternalPublishEvent, ErrorSubStatus, FlowErrorType,
-    RpcExecutionCompletedEvent, StopType, flow_history_event,
+    RpcExecutionCompletedEvent, StopType, WorkerTarget, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, CommandReply,
     FlowConfigUpdateCommand, FlowStopCommand, RequestDedupRecord,
 };
+use dexzd_protocol::task_queue_names::overridden_task_queue;
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{
@@ -367,6 +368,8 @@ pub(crate) fn apply_flow_stop(
 
 /// Merges FlowConfig field by field; the Worker target and Attribute Store names replace the
 /// whole value (as in the Go Server).
+///
+/// The task queue is fixed when the Flow starts, so an update never changes it.
 pub(crate) fn apply_flow_config_update(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,
@@ -382,14 +385,21 @@ pub(crate) fn apply_flow_config_update(
         .record
         .flow_config
         .get_or_insert_with(Default::default);
+    let worker_target = match update.worker_target.as_ref() {
+        Some(target) => match updated_worker_target(config.worker_target.as_ref(), target) {
+            Ok(updated) => Some(updated),
+            Err(reply) => return Ok(HandlerResult::Rejected(reply)),
+        },
+        None => None,
+    };
     if update.active_step_search_mode.is_some() {
         config.active_step_search_mode = update.active_step_search_mode;
     }
     if update.step_durability.is_some() {
         config.step_durability = update.step_durability;
     }
-    if update.worker_target.is_some() {
-        config.worker_target = update.worker_target;
+    if worker_target.is_some() {
+        config.worker_target = worker_target;
     }
     if update.attribute_store_names.is_some() {
         config.attribute_store_names = update.attribute_store_names;
@@ -408,4 +418,39 @@ pub(crate) fn apply_flow_config_update(
         ok_reply(),
         HistoryKind::BOOKKEEPING,
     )?))
+}
+
+/// Returns the Worker target an update sets: an empty task queue keeps the run's.
+///
+/// Returns the INVALID_ARGUMENT reply when `target` selects another task queue.
+fn updated_worker_target(
+    current: Option<&WorkerTarget>,
+    target: &WorkerTarget,
+) -> Result<WorkerTarget, CommandReply> {
+    let current_task_queue = current.map_or("", |current| current.task_queue.as_str());
+    let task_queue = overridden_task_queue(current_task_queue, &target.task_queue);
+    if task_queue != current_task_queue {
+        return Err(error_reply(
+            grpc_code::INVALID_ARGUMENT,
+            ErrorSubStatus::Uncategorized,
+            format!(
+                "worker_target.task_queue cannot change from {} to {}: the task queue is fixed when the Flow starts",
+                quote_task_queue(current_task_queue),
+                quote_task_queue(&task_queue),
+            ),
+        ));
+    }
+    Ok(WorkerTarget {
+        is_pull_mode: target.is_pull_mode,
+        task_queue,
+    })
+}
+
+/// Returns `task_queue` quoted, or "the default task queue" for the empty name.
+fn quote_task_queue(task_queue: &str) -> String {
+    if task_queue.is_empty() {
+        "the default task queue".to_owned()
+    } else {
+        format!("\"{task_queue}\"")
+    }
 }

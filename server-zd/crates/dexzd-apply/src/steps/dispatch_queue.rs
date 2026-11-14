@@ -27,6 +27,14 @@ use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::{CommandScope, HandlerOutput, HandlerResult};
 use crate::state_access::FlowTransaction;
 
+/// Returns the run's task queue, fixed when the Flow starts; empty for the default task queue.
+pub fn run_task_queue(run: &RunRecord) -> &str {
+    run.flow_config
+        .as_ref()
+        .and_then(|config| config.worker_target.as_ref())
+        .map_or("", |target| target.task_queue.as_str())
+}
+
 /// Returns the DispatchQueue row of the Step's current invocation, whatever its phase.
 ///
 /// Returns `None` when the Step has no invocation.

@@ -31,6 +31,7 @@ private static final long serialVersionUID = 0L;
     stickyAppWorkerId_ = "";
     servedByAppWorkerId_ = "";
     source_ = 0;
+    taskQueue_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -147,6 +148,55 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.PullRoutingSource.UNRECOGNIZED : result;
   }
 
+  public static final int TASK_QUEUE_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object taskQueue_ = "";
+  /**
+   * <pre>
+   * The task queue of the dispatch; empty means the default task queue.
+   * Recorded by Server protocol version 5 or later.
+   * </pre>
+   *
+   * <code>string task_queue = 4;</code>
+   * @return The taskQueue.
+   */
+  @java.lang.Override
+  public java.lang.String getTaskQueue() {
+    java.lang.Object ref = taskQueue_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      taskQueue_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * The task queue of the dispatch; empty means the default task queue.
+   * Recorded by Server protocol version 5 or later.
+   * </pre>
+   *
+   * <code>string task_queue = 4;</code>
+   * @return The bytes for taskQueue.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTaskQueueBytes() {
+    java.lang.Object ref = taskQueue_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      taskQueue_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -170,6 +220,9 @@ private static final long serialVersionUID = 0L;
     if (source_ != io.superdurable.gen.PullRoutingSource.PULL_ROUTING_SOURCE_UNSPECIFIED.getNumber()) {
       output.writeEnum(3, source_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(taskQueue_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, taskQueue_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -183,6 +236,9 @@ private static final long serialVersionUID = 0L;
     if (source_ != io.superdurable.gen.PullRoutingSource.PULL_ROUTING_SOURCE_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(3, source_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(taskQueue_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, taskQueue_);
     }
     return size;
   }
@@ -213,6 +269,8 @@ private static final long serialVersionUID = 0L;
     if (!getServedByAppWorkerId()
         .equals(other.getServedByAppWorkerId())) return false;
     if (source_ != other.source_) return false;
+    if (!getTaskQueue()
+        .equals(other.getTaskQueue())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -230,6 +288,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getServedByAppWorkerId().hashCode();
     hash = (37 * hash) + SOURCE_FIELD_NUMBER;
     hash = (53 * hash) + source_;
+    hash = (37 * hash) + TASK_QUEUE_FIELD_NUMBER;
+    hash = (53 * hash) + getTaskQueue().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -364,6 +424,7 @@ private static final long serialVersionUID = 0L;
       stickyAppWorkerId_ = "";
       servedByAppWorkerId_ = "";
       source_ = 0;
+      taskQueue_ = "";
       return this;
     }
 
@@ -406,6 +467,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000004) != 0)) {
         result.source_ = source_;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.taskQueue_ = taskQueue_;
+      }
     }
 
     @java.lang.Override
@@ -432,6 +496,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.source_ != 0) {
         setSourceValue(other.getSourceValue());
+      }
+      if (!other.getTaskQueue().isEmpty()) {
+        taskQueue_ = other.taskQueue_;
+        bitField0_ |= 0x00000008;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -474,6 +543,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 24
+            case 34: {
+              taskQueue_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -683,6 +757,103 @@ private static final long serialVersionUID = 0L;
     public Builder clearSource() {
       bitField0_ = (bitField0_ & ~0x00000004);
       source_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object taskQueue_ = "";
+    /**
+     * <pre>
+     * The task queue of the dispatch; empty means the default task queue.
+     * Recorded by Server protocol version 5 or later.
+     * </pre>
+     *
+     * <code>string task_queue = 4;</code>
+     * @return The taskQueue.
+     */
+    public java.lang.String getTaskQueue() {
+      java.lang.Object ref = taskQueue_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        taskQueue_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * The task queue of the dispatch; empty means the default task queue.
+     * Recorded by Server protocol version 5 or later.
+     * </pre>
+     *
+     * <code>string task_queue = 4;</code>
+     * @return The bytes for taskQueue.
+     */
+    public com.google.protobuf.ByteString
+        getTaskQueueBytes() {
+      java.lang.Object ref = taskQueue_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        taskQueue_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * The task queue of the dispatch; empty means the default task queue.
+     * Recorded by Server protocol version 5 or later.
+     * </pre>
+     *
+     * <code>string task_queue = 4;</code>
+     * @param value The taskQueue to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTaskQueue(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      taskQueue_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The task queue of the dispatch; empty means the default task queue.
+     * Recorded by Server protocol version 5 or later.
+     * </pre>
+     *
+     * <code>string task_queue = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTaskQueue() {
+      taskQueue_ = getDefaultInstance().getTaskQueue();
+      bitField0_ = (bitField0_ & ~0x00000008);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The task queue of the dispatch; empty means the default task queue.
+     * Recorded by Server protocol version 5 or later.
+     * </pre>
+     *
+     * <code>string task_queue = 4;</code>
+     * @param value The bytes for taskQueue to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTaskQueueBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      taskQueue_ = value;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }

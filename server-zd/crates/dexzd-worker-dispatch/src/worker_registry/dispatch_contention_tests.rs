@@ -32,16 +32,17 @@ fn connect_stream(
 ) -> (Arc<WorkerStream>, WorkerResponses) {
     let (output, responses) = mpsc::unbounded_channel();
     let (close, _) = watch::channel(false);
-    let mut queue_keys = vec![(TENANT_ID, app_worker_id.to_owned())];
+    let mut queue_keys = vec![MatchingQueueKey::new(TENANT_ID, "", app_worker_id)];
     queue_keys.extend(
         FLOW_TYPES
             .iter()
-            .map(|flow_type| (TENANT_ID, (*flow_type).to_owned())),
+            .map(|flow_type| MatchingQueueKey::new(TENANT_ID, "", flow_type)),
     );
     let worker = Arc::new(WorkerStream {
         id: Uuid::now_v7(),
         tenant_id: TENANT_ID,
         queue_keys,
+        task_queue: String::new(),
         backlog_flow_types: FLOW_TYPES
             .iter()
             .map(|flow_type| (*flow_type).to_owned())
@@ -83,6 +84,7 @@ fn rpc_request(index: usize, sticky_app_worker_id: Option<String>) -> DispatchRe
         tenant_id: TENANT_ID,
         flow_id: format!("flow-{index}"),
         flow_type: flow_type.to_owned(),
+        task_queue: String::new(),
         sticky_app_worker_id,
         payload: DispatchTaskPayload::Rpc(InvokeWorkerRpcRequest {
             flow_type: flow_type.to_owned(),
@@ -472,10 +474,8 @@ async fn wait_until(description: &str, mut condition: impl FnMut() -> bool) {
 
 /// Returns whether request `request_index`'s RPC waits in its Flow type queue.
 fn is_rpc_waiting(dispatch: &WorkerDispatch, request_index: usize) -> bool {
-    let queue_key = (
-        TENANT_ID,
-        FLOW_TYPES[request_index % FLOW_TYPES.len()].to_owned(),
-    );
+    let queue_key =
+        MatchingQueueKey::new(TENANT_ID, "", FLOW_TYPES[request_index % FLOW_TYPES.len()]);
     dispatch
         .lock_registry()
         .queues

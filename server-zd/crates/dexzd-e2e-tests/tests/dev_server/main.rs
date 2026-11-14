@@ -19,6 +19,7 @@ mod harness;
 mod history_paging;
 mod history_segment_reads;
 mod history_uploads;
+mod named_task_queues;
 mod queued_state;
 mod queued_time_travel;
 mod reserved_slots;
@@ -65,7 +66,7 @@ async fn pull_worker_completes_a_single_step_flow() {
         .into_inner();
     assert_eq!(server_info.server_engine, ServerEngine::Zd as i32);
     assert_eq!(server_info.minimum_supported_protocol_version, 1);
-    assert_eq!(server_info.current_protocol_version, 4);
+    assert_eq!(server_info.current_protocol_version, 5);
     flow_client
         .sync_attribute_indexes(SyncAttributeIndexRequest {
             attribute_indexes: BTreeMap::from([(
@@ -101,7 +102,10 @@ async fn pull_worker_completes_a_single_step_flow() {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -171,7 +175,10 @@ async fn the_largest_valid_partition_count_starts() {
             start_step_type: "GreetStep".to_owned(),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

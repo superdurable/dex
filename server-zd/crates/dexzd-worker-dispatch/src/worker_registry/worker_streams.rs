@@ -52,6 +52,10 @@ impl StreamSlot {
 
 /// Returns the Flow types whose durable queues a registration may claim from.
 pub(super) fn backlog_flow_types(registration: &PollWorkerTaskRegister) -> Vec<String> {
+    // Durable queue rows name no task queue yet, so only default-queue streams claim them.
+    if !registration.task_queue.is_empty() {
+        return Vec::new();
+    }
     if !registration.supports_reserved_slot_dispatch {
         return (registration.queue != registration.app_worker_id)
             .then(|| registration.queue.clone())
@@ -325,6 +329,7 @@ mod tests {
             id: Uuid::now_v7(),
             tenant_id: 7,
             queue_keys: Vec::new(),
+            task_queue: String::new(),
             backlog_flow_types: Vec::new(),
             app_worker_id: app_worker_id.to_owned(),
             slot: StreamSlot::ReservedStepAndRpc,
@@ -351,6 +356,7 @@ mod tests {
         let dispatch = WorkerDispatch::new(config, Arc::new(SystemWallClock));
         let task_type = TaskTypeKey {
             tenant_id: 7,
+            task_queue: String::new(),
             flow_type: "Flow".to_owned(),
             kind: TaskKind::Step,
             name: "Missing".to_owned(),

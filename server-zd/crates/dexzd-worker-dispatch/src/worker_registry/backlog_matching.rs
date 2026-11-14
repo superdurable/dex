@@ -368,17 +368,20 @@ impl WorkerDispatch {
     pub fn is_waiting_for_supporting_worker(
         &self,
         tenant_id: u64,
+        task_queue: &str,
         flow_type: &str,
         step_type: &str,
     ) -> bool {
         let task_type = TaskTypeKey {
             tenant_id,
+            task_queue: task_queue.to_owned(),
             flow_type: flow_type.to_owned(),
             kind: TaskKind::Step,
             name: step_type.to_owned(),
         };
+        let flow_type_queue = MatchingQueueKey::new(tenant_id, task_queue, flow_type);
         self.lock_registry()
-            .has_only_unsupported_streams(tenant_id, flow_type, &task_type)
+            .has_only_unsupported_streams(&flow_type_queue, &task_type)
     }
 
     /// Refreshes the gauges of queues with backlog: the oldest pending time and the queues no
@@ -462,7 +465,7 @@ impl Registry {
             return;
         }
         // The Flow type's queue holds every idle stream that may claim its backlog.
-        let flow_type_key = (name.tenant_id.0, name.flow_type.clone());
+        let flow_type_key = MatchingQueueKey::new(name.tenant_id.0, "", &name.flow_type);
         loop {
             let Some(queue) = self.queues.get(&flow_type_key) else {
                 return;
@@ -569,6 +572,7 @@ impl Registry {
 fn step_type_key(name: &DispatchQueueName) -> TaskTypeKey {
     TaskTypeKey {
         tenant_id: name.tenant_id.0,
+        task_queue: String::new(),
         flow_type: name.flow_type.clone(),
         kind: TaskKind::Step,
         name: name.step_type.clone(),

@@ -22,7 +22,10 @@ use dexzd_request_validation::{
 
 fn config() -> ValidationConfig {
     let mut config = ValidationConfig::default();
-    config.default_flow_config.worker_target = Some(WorkerTarget { is_pull_mode: true });
+    config.default_flow_config.worker_target = Some(WorkerTarget {
+        is_pull_mode: true,
+        ..WorkerTarget::default()
+    });
     config
 }
 
@@ -394,6 +397,7 @@ fn client_request_variants_preserve_go_messages() {
         flow_config: Some(FlowConfig {
             worker_target: Some(WorkerTarget {
                 is_pull_mode: false,
+                ..WorkerTarget::default()
             }),
             ..FlowConfig::default()
         }),
@@ -800,6 +804,7 @@ fn subflow_target_rejection_does_not_reject_nested_failure_policy() {
         flow_config_override: Some(FlowConfig {
             worker_target: Some(WorkerTarget {
                 is_pull_mode: false,
+                ..WorkerTarget::default()
             }),
             ..FlowConfig::default()
         }),
@@ -1071,7 +1076,10 @@ fn subflow_inherits_parent_effective_flow_config() {
     let mut config = ValidationConfig::default();
     config.attribute_store_names.insert("parent-store".into());
     let parent_flow_config = FlowConfig {
-        worker_target: Some(WorkerTarget { is_pull_mode: true }),
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
         attribute_store_names: Some(dex::AttributeStoreNames {
             names: vec!["parent-store".into()],
         }),
@@ -1138,7 +1146,10 @@ fn default_heartbeat_minimum_matches_go_server() {
         ..StepOptions::default()
     });
     let mut request_config = zero_minimum;
-    request_config.default_flow_config.worker_target = Some(WorkerTarget { is_pull_mode: true });
+    request_config.default_flow_config.worker_target = Some(WorkerTarget {
+        is_pull_mode: true,
+        ..WorkerTarget::default()
+    });
     assert_invalid(
         validate_client_request(ClientRequest::StartFlow(&request), &request_config),
         "heartbeat timeout must be zero or at least 0s",

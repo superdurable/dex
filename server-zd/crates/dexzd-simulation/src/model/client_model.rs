@@ -146,7 +146,10 @@ pub(crate) fn start_flow(
         request: Some(request),
         settings: Some(run_settings()),
         resolved_timeout_policy: resolved_timeout_policy as i32,
-        worker_target: Some(WorkerTarget { is_pull_mode: true }),
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
         hard_delete_objects: Vec::new(),
         ..FlowStartCommand::default()
     })

@@ -11,6 +11,26 @@
 use super::*;
 use prometheus_client::metrics::gauge::Gauge;
 
+/// One matching queue: a sticky queue or a Flow type queue inside one task queue of a tenant.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct MatchingQueueKey {
+    pub(super) tenant_id: u64,
+    /// The task queue; empty for the default task queue.
+    pub(super) task_queue: String,
+    /// The app Worker ID of a sticky queue, or the Flow type.
+    pub(super) queue_name: String,
+}
+
+impl MatchingQueueKey {
+    pub(super) fn new(tenant_id: u64, task_queue: &str, queue_name: &str) -> Self {
+        Self {
+            tenant_id,
+            task_queue: task_queue.to_owned(),
+            queue_name: queue_name.to_owned(),
+        }
+    }
+}
+
 /// A dispatch waiting for an idle stream, with the streams it must not be offered.
 pub(super) struct QueueWaiter {
     pub(super) wakeup: Arc<Notify>,
@@ -97,13 +117,12 @@ impl QueueLease {
     /// Starts one queue search without locking; it counts as a queue user only while it waits.
     pub(super) fn new(
         dispatch: &WorkerDispatch,
-        tenant_id: u64,
-        queue_name: &str,
+        key: MatchingQueueKey,
         waiter_sequence: u64,
     ) -> Self {
         Self {
             dispatch: dispatch.clone(),
-            key: (tenant_id, queue_name.to_owned()),
+            key,
             waiter_sequence,
             wakeup: Arc::new(Notify::new()),
             is_waiting: false,
@@ -253,7 +272,7 @@ mod tests {
     #[tokio::test]
     async fn empty_queue_leases_and_absent_sticky_queues_are_removed() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
-        let mut lease = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut lease = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
         let queue_count = || {
             dispatch
                 .inner
@@ -286,6 +305,7 @@ mod tests {
                     tenant_id: 0,
                     flow_id: format!("flow-{index}"),
                     flow_type: "Flow".to_owned(),
+                    task_queue: String::new(),
                     sticky_app_worker_id: Some(format!("absent-{index}")),
                     payload: DispatchTaskPayload::WaitFor(InvokeWaitForMethodRequest::default()),
                     deadline: SystemTime::now() + Duration::from_secs(1),
@@ -321,7 +341,8 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queue_keys: vec![(7, "Flow".to_owned())],
+            queue_keys: vec![MatchingQueueKey::new(7, "", "Flow")],
+            task_queue: String::new(),
             backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: "worker".to_owned(),
             slot: StreamSlot::Legacy,
@@ -333,7 +354,7 @@ mod tests {
             let mut registry = dispatch.inner.registry.lock().expect("registry lock");
             let queue = registry
                 .queues
-                .entry((7, "Flow".to_owned()))
+                .entry(MatchingQueueKey::new(7, "", "Flow"))
                 .or_insert_with(QueueState::new);
             queue.stream_ids.insert(worker.id);
             queue.users += 1;
@@ -371,7 +392,8 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queue_keys: vec![(7, "Flow".to_owned())],
+            queue_keys: vec![MatchingQueueKey::new(7, "", "Flow")],
+            task_queue: String::new(),
             backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: app_worker_id.to_owned(),
             slot: StreamSlot::Legacy,
@@ -385,7 +407,7 @@ mod tests {
         let mut registry = dispatch.inner.registry.lock().expect("registry lock");
         let queue = registry
             .queues
-            .entry((7, "Flow".to_owned()))
+            .entry(MatchingQueueKey::new(7, "", "Flow"))
             .or_insert_with(QueueState::new);
         queue.stream_ids.insert(worker.id);
         queue.users += 1;
@@ -440,6 +462,7 @@ mod tests {
     fn step_task_type() -> TaskTypeKey {
         TaskTypeKey {
             tenant_id: 7,
+            task_queue: String::new(),
             flow_type: "Flow".to_owned(),
             kind: TaskKind::Step,
             name: "WorkStep".to_owned(),
@@ -455,8 +478,8 @@ mod tests {
     fn a_stream_idle_before_the_wait_wakes_only_the_oldest_waiter() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut newer = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         // The stream goes idle after the waiter registers but before it awaits its wakeup.
@@ -473,8 +496,8 @@ mod tests {
     fn a_waiter_that_ends_after_its_wakeup_passes_it_on() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut cancelled = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut waiting = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut cancelled = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut waiting = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
         assert_eq!(pick(&dispatch, &mut cancelled, "cancelled", &[]), None);
         assert_eq!(pick(&dispatch, &mut waiting, "waiting", &[]), None);
         dispatch.make_idle(&worker);
@@ -493,16 +516,16 @@ mod tests {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let first = register_busy_stream(&dispatch, "first");
         let second = register_busy_stream(&dispatch, "second");
-        let mut affine = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut excluding = QueueLease::new(&dispatch, 7, "Flow", 2);
-        let mut eligible = QueueLease::new(&dispatch, 7, "Flow", 3);
+        let mut affine = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut excluding = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
+        let mut eligible = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 3);
         dispatch
             .inner
             .registry
             .lock()
             .expect("registry lock")
             .queues
-            .get_mut(&(7, "Flow".to_owned()))
+            .get_mut(&MatchingQueueKey::new(7, "", "Flow"))
             .expect("queue exists")
             .remember("affine", "second", Duration::from_secs(30));
         assert_eq!(pick(&dispatch, &mut affine, "affine", &[]), None);
@@ -538,8 +561,8 @@ mod tests {
         let backoff_stream = register_busy_stream(&dispatch, "a");
         let woken_stream = register_busy_stream(&dispatch, "b");
         dispatch.make_idle(&backoff_stream);
-        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut newer = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
         let backoff = HashMap::from([(
             backoff_stream.id,
             Instant::now() + Duration::from_secs(3600),
@@ -568,8 +591,8 @@ mod tests {
     fn a_woken_waiter_that_takes_nothing_passes_its_wakeup_on() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut newer = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         dispatch.make_idle(&worker);
@@ -588,8 +611,8 @@ mod tests {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let first = register_busy_stream(&dispatch, "first");
         let second = register_busy_stream(&dispatch, "second");
-        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut newer = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         dispatch.disconnect(first.id);
@@ -599,7 +622,7 @@ mod tests {
         dispatch.disconnect(second.id);
         assert!(has_pending_wakeup(&older));
         assert!(has_pending_wakeup(&newer));
-        let mut sticky = QueueLease::new(&dispatch, 7, "Flow", 3);
+        let mut sticky = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 3);
         let picked = dispatch.pick_worker(
             &mut sticky,
             &TaskSearch {
@@ -619,6 +642,7 @@ mod tests {
     fn pick_rpc(dispatch: &WorkerDispatch, lease: &mut QueueLease) -> Option<Arc<WorkerStream>> {
         let task_type = TaskTypeKey {
             tenant_id: 7,
+            task_queue: String::new(),
             flow_type: "Flow".to_owned(),
             kind: TaskKind::Rpc,
             name: "getStatus".to_owned(),
@@ -643,7 +667,8 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queue_keys: vec![(7, "Flow".to_owned())],
+            queue_keys: vec![MatchingQueueKey::new(7, "", "Flow")],
+            task_queue: String::new(),
             backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: "worker".to_owned(),
             slot: StreamSlot::Legacy,
@@ -658,14 +683,14 @@ mod tests {
             let mut registry = dispatch.lock_registry();
             let queue = registry
                 .queues
-                .entry((7, "Flow".to_owned()))
+                .entry(MatchingQueueKey::new(7, "", "Flow"))
                 .or_insert_with(QueueState::new);
             queue.stream_ids.insert(worker.id);
             queue.users += 1;
             registry.streams.insert(worker.id, worker.clone());
         }
-        let mut first = QueueLease::new(&dispatch, 7, "Flow", 1);
-        let mut second = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut first = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
+        let mut second = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 2);
         assert!(pick_rpc(&dispatch, &mut first).is_none());
         assert!(pick_rpc(&dispatch, &mut second).is_none());
         dispatch.make_idle(&worker);

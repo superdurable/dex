@@ -173,7 +173,10 @@ async fn start_flow_with_retained_values(flow_client: &mut FlowServiceClient<Cha
                     },
                 ],
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

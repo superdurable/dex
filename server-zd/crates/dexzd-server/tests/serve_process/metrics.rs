@@ -134,7 +134,10 @@ async fn metrics_level_scenario(level: MetricsLevel) {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -173,7 +176,10 @@ async fn metrics_level_scenario(level: MetricsLevel) {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

@@ -456,6 +456,7 @@ impl PullStream {
             flow_types: self.flow_types.clone(),
             sdk_name: "rust".to_string(),
             sdk_version: env!("CARGO_PKG_VERSION").to_string(),
+            task_queue: String::new(),
         };
         if sender
             .as_ref()

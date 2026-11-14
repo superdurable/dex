@@ -1008,7 +1008,10 @@ async fn start_flow_with_id(channel: Channel, durability: StepDurability, flow_i
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..Default::default()
                 }),
                 ..Default::default()

@@ -36,12 +36,14 @@ impl PullWorkerRpcInvoker {
             .deadline
             .saturating_duration_since(tokio::time::Instant::now());
         let sticky_app_worker_id = invocation.sticky_app_worker_id;
+        let task_queue = invocation.task_queue;
         let mut handle = self
             .dispatch
             .dispatch(DispatchRequest {
                 tenant_id: invocation.flow.tenant_id.0,
                 flow_id: invocation.flow.flow_id,
                 flow_type: invocation.flow_type,
+                task_queue: task_queue.clone(),
                 sticky_app_worker_id: Some(sticky_app_worker_id.clone())
                     .filter(|worker| !worker.is_empty()),
                 payload: DispatchTaskPayload::Rpc(invocation.request),
@@ -61,7 +63,7 @@ impl PullWorkerRpcInvoker {
                     | DispatchEvent::Output(_),
                 ) => {}
                 Some(DispatchEvent::Completed(outcome)) => {
-                    return rpc_result(outcome, &sticky_app_worker_id);
+                    return rpc_result(outcome, &task_queue, &sticky_app_worker_id);
                 }
                 None => {
                     return Err(RpcInvokeError::WorkerDisconnected {
@@ -84,6 +86,7 @@ impl RpcWorkerInvoker for PullWorkerRpcInvoker {
 
 fn rpc_result(
     outcome: DispatchOutcome,
+    task_queue: &str,
     sticky_app_worker_id: &str,
 ) -> Result<WorkerRpcResult, RpcInvokeError> {
     match outcome {
@@ -93,7 +96,11 @@ fn rpc_result(
         } => match frame.output {
             Some(poll_worker_task_frame::Output::Rpc(response)) => Ok(WorkerRpcResult {
                 response,
-                pull_routing: Some(pull_routing(sticky_app_worker_id, &app_worker_id)),
+                pull_routing: Some(pull_routing(
+                    task_queue,
+                    sticky_app_worker_id,
+                    &app_worker_id,
+                )),
                 app_worker_id,
             }),
             _ => Err(RpcInvokeError::WorkerError {
@@ -132,7 +139,11 @@ fn rpc_result(
 }
 
 /// Uses the same source rule as Step dispatch: a sticky hit when the sticky Worker served it.
-fn pull_routing(sticky_app_worker_id: &str, served_by_app_worker_id: &str) -> PullRouting {
+fn pull_routing(
+    task_queue: &str,
+    sticky_app_worker_id: &str,
+    served_by_app_worker_id: &str,
+) -> PullRouting {
     let source = if served_by_app_worker_id.is_empty() {
         PullRoutingSource::Unspecified
     } else if served_by_app_worker_id == sticky_app_worker_id {
@@ -144,5 +155,6 @@ fn pull_routing(sticky_app_worker_id: &str, served_by_app_worker_id: &str) -> Pu
         sticky_app_worker_id: sticky_app_worker_id.to_owned(),
         served_by_app_worker_id: served_by_app_worker_id.to_owned(),
         source: source.into(),
+        task_queue: task_queue.to_owned(),
     }
 }
