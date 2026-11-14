@@ -36,6 +36,7 @@ import {
   monotonicNowMs,
   releaseSessionLease,
   renewalSafetyMarginRatio,
+  withinTimeout,
   type SessionLeaseHolder,
 } from "./session-terminal-lease.js";
 import {
@@ -65,6 +66,8 @@ const turnEndTimeoutMs = 10_000;
 const turnEndPollIntervalMs = 100;
 /** How long the read of a stored lease may take after a renewal could not confirm it. */
 const storedLeaseReadTimeoutMs = 2_000;
+/** How long the read of a stored lease before pulling may take. */
+const leaseReadTimeoutMs = 5_000;
 
 /**
  * Returns `dex-agents-<harness>-<host>-<pid>`, plus `-<suffix>` when given, cutting the host name so the ID has at
@@ -101,6 +104,110 @@ export class UnopenableSessionError extends Error {}
 export class SessionWorkerStartError extends Error {}
 
 /**
+ * The session's pull permit expired before an acquire or renewal confirmed the lease, so the session Worker stopped
+ * pulling. Waiting for the session goes on: the next attempt pulls again and needs a new confirmation.
+ */
+export class PullPermitExpiredError extends Error {
+  public constructor(sessionId: string) {
+    super(`the pull permit of session ${sessionId} expired before its lease was confirmed`);
+  }
+}
+
+/**
+ * The time a session Worker may pull a session's task queue without a confirmed lease: from the start of pulling,
+ * then from the send of each acquire or renewal that the session confirmed, plus the TTL minus the safety margin.
+ *
+ * When the permit expires, it stops pulling first, then tells its listeners. Nothing extends an expired permit.
+ */
+export class SessionPullPermit {
+  private deadlineMs: number;
+  private timer: NodeJS.Timeout | undefined;
+  private isExpiredState = false;
+  private readonly expiryListeners: (() => void)[] = [];
+
+  /**
+   * Arms the permit.
+   * @param ttlMs - The lease's TTL.
+   * @param startedAtMs - The {@link monotonicNowMs} time pulling started, or the first acquire was sent.
+   * @param stopPulling - Stops the session Worker, when it still pulls this session's task queue.
+   */
+  public constructor(
+    private readonly ttlMs: number,
+    startedAtMs: number,
+    private readonly stopPulling: () => void,
+  ) {
+    this.deadlineMs = startedAtMs + this.validMs();
+    this.schedule();
+  }
+
+  /** Whether the permit expired, so the Worker no longer pulls and no answer grants the session. */
+  public get isExpired(): boolean {
+    return this.isExpiredState;
+  }
+
+  /** Milliseconds left before the permit expires, at least 0. */
+  public remainingMs(): number {
+    return Math.max(0, this.deadlineMs - monotonicNowMs());
+  }
+
+  /**
+   * Extends the permit to the TTL minus the safety margin after a request that the session confirmed.
+   * @param sentAtMs - The {@link monotonicNowMs} time the confirmed acquire or renewal was sent.
+   * @returns Whether the permit was still valid, so the confirmation counts.
+   */
+  public confirm(sentAtMs: number): boolean {
+    if (this.isExpiredState) {
+      return false;
+    }
+    this.deadlineMs = Math.max(this.deadlineMs, sentAtMs + this.validMs());
+    this.schedule();
+    return true;
+  }
+
+  /**
+   * Calls `listener` once when the permit expires; at once when it expired already.
+   * @param listener - Ends the chat, or tells the launcher.
+   */
+  public whenExpired(listener: () => void): void {
+    if (this.isExpiredState) {
+      listener();
+      return;
+    }
+    this.expiryListeners.push(listener);
+  }
+
+  /** Disarms the permit without stopping pulling or telling its listeners; the caller stops the Worker. */
+  public cancel(): void {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.expiryListeners.length = 0;
+  }
+
+  private validMs(): number {
+    return this.ttlMs * (1 - renewalSafetyMarginRatio);
+  }
+
+  private schedule(): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.expire(), this.remainingMs());
+    this.timer.unref();
+  }
+
+  private expire(): void {
+    if (this.isExpiredState) {
+      return;
+    }
+    this.isExpiredState = true;
+    this.timer = undefined;
+    // Pulling stops before anything else, so no Step of the session runs here past the lease.
+    this.stopPulling();
+    for (const listener of this.expiryListeners.splice(0)) {
+      listener();
+    }
+  }
+}
+
+/**
  * The Worker that pulls the task queue of the one session this command opens. One app Worker serves one task
  * queue, so each queue gets a new Worker with a new app Worker ID.
  */
@@ -129,9 +236,11 @@ export class SessionQueueWorker {
   /**
    * Pulls a task queue from now on, instead of any other one.
    * @param taskQueue - The session's task queue.
+   * @param sessionId - The session, for the error when the Worker stopped while it started.
    * @throws {SessionWorkerStartError} When the Worker did not start.
+   * @throws {PullPermitExpiredError} When the Worker was stopped while it started.
    */
-  public async pull(taskQueue: string): Promise<void> {
+  public async pull(taskQueue: string, sessionId: string): Promise<void> {
     if (this.current?.taskQueue !== taskQueue) {
       this.stop();
       this.incarnation += 1;
@@ -142,13 +251,17 @@ export class SessionQueueWorker {
     try {
       await current?.started;
     } catch (error: unknown) {
-      if (this.current === current) {
-        this.stop();
+      if (this.current !== current) {
+        throw new PullPermitExpiredError(sessionId);
       }
+      this.stop();
       if (error instanceof SessionWorkerStartError) {
         throw error;
       }
       throw new SessionWorkerStartError(describeFailureWithoutDexDetails(error), { cause: error });
+    }
+    if (this.current !== current) {
+      throw new PullPermitExpiredError(sessionId);
     }
   }
 
@@ -283,10 +396,8 @@ interface PendingTakeover {
 export class SessionOpener {
   private readonly openedSessions = new Map<string, OpenableSession>();
   private readonly pendingTakeovers = new Map<string, PendingTakeover>();
-  /** The send time of the acquire that took each session's lease, from {@link monotonicNowMs}. */
-  private readonly acquireSentAtMs = new Map<string, number>();
-  /** The timers that stop the session Worker while an acquire's outcome stays unknown. */
-  private readonly unknownOwnershipGuards = new Map<string, NodeJS.Timeout>();
+  /** The pull permit of each session this command pulls or holds; see {@link SessionPullPermit}. */
+  private readonly permits = new Map<string, SessionPullPermit>();
 
   public constructor(private readonly options: SessionOpenerOptions) {}
 
@@ -341,34 +452,42 @@ export class SessionOpener {
    * Tries once to take a session's lease, as `waitForSessionLease` asks.
    *
    * For a session on its own task queue, it reads the stored lease first. While another terminal's lease has not
-   * expired, it returns that lease and pulls nothing. Otherwise the session Worker pulls the session's task queue,
-   * and the acquire RPC runs on it; a refused acquire stops the pulling again. When the acquire's answer never
-   * arrives, the stored lease decides: this command's holder means acquired, and the Worker keeps pulling.
+   * expired, it returns that lease and pulls nothing. Otherwise the session Worker pulls the session's task queue
+   * under a pull permit armed at the start of pulling, and the acquire RPC runs on it; a refused acquire stops the
+   * pulling. When the acquire's answer never arrives, the stored lease decides: this command's holder counts as
+   * the acquire's confirmation. Only a confirmation within the permit grants the session.
    * @param session - The session.
    * @returns The lease RPC's result, or a refusal that names the stored holder.
    * @throws {SessionWorkerStartError} When the session Worker did not start.
+   * @throws {PullPermitExpiredError} When the permit expired before a confirmation; the next attempt pulls again.
    */
   public async attempt(session: OpenableSession): Promise<SessionTerminalLeaseResult> {
     const { client, sessionFlow, holder, ttlSeconds, environment, sessionWorker, turnRefusal } = this.options;
-    this.openedSessions.set(session.sessionId, session);
+    const { sessionId } = session;
+    this.openedSessions.set(sessionId, session);
     if (!session.hasSessionTaskQueue) {
+      // The shared Worker of earlier sessions keeps pulling; the permit only ends the chat.
+      const permit = this.activePermit(sessionId) ?? this.armPermit(sessionId, monotonicNowMs());
       const legacySentAtMs = monotonicNowMs();
-      const legacyResult = await acquireSessionLease(client, session.flow, session.sessionId, holder, ttlSeconds, environment);
-      if (legacyResult.isAcquired) {
-        this.acquireSentAtMs.set(session.sessionId, legacySentAtMs);
-      }
-      return legacyResult;
+      const legacyResult = await withinTimeout(
+        acquireSessionLease(client, session.flow, sessionId, holder, ttlSeconds, environment),
+        permit.remainingMs(),
+      );
+      return this.grantedWithin(sessionId, permit, legacyResult, legacySentAtMs);
     }
-    const [lease, lastEnvironment, state] = await client.getAttributes(
-      session.sessionId,
-      sessionFlow.sessionTerminalLease,
-      sessionFlow.sessionLastTerminalEnvironment,
-      sessionFlow.agentState,
+    const [lease, lastEnvironment, state] = await withinTimeout(
+      client.getAttributes(
+        sessionId,
+        sessionFlow.sessionTerminalLease,
+        sessionFlow.sessionLastTerminalEnvironment,
+        sessionFlow.agentState,
+      ),
+      this.activePermit(sessionId)?.remainingMs() ?? leaseReadTimeoutMs,
     );
     const isHeldHere = lease?.holderId === holder.holderId;
     if (lease !== undefined && !isHeldHere && !isLeaseExpiredHere(lease, new Date())) {
       // A Worker that an attempt with an unknown outcome kept stops here.
-      this.leave(session.sessionId);
+      this.leave(sessionId);
       return { isAcquired: false, lease };
     }
     const isTakeover =
@@ -376,105 +495,134 @@ export class SessionOpener {
     const takenOverTurnId = isTakeover ? (state?.activeTurnId ?? null) : null;
     if (takenOverTurnId !== null) {
       // Refused before the Worker pulls, so none of that turn's calls runs here.
-      turnRefusal.refuseTurn(session.sessionId, takenOverTurnId);
+      turnRefusal.refuseTurn(sessionId, takenOverTurnId);
     }
-    await sessionWorker.pull(sessionTaskQueue(session.sessionId));
+    // Armed before the Worker starts, so every moment of pulling counts against the permit.
+    const permit = this.activePermit(sessionId) ?? this.armPermit(sessionId, monotonicNowMs());
+    await sessionWorker.pull(sessionTaskQueue(sessionId), sessionId);
     const sentAtMs = monotonicNowMs();
     let result: SessionTerminalLeaseResult;
     try {
-      result = await acquireSessionLease(client, sessionFlow, session.sessionId, holder, ttlSeconds, environment);
+      result = await withinTimeout(
+        acquireSessionLease(client, sessionFlow, sessionId, holder, ttlSeconds, environment),
+        permit.remainingMs(),
+      );
     } catch (error: unknown) {
-      result = await this.resolveUnknownAcquisition(session.sessionId, error, sentAtMs);
+      result = await this.resolveUnknownAcquisition(sessionId, error, permit);
     }
+    const granted = this.grantedWithin(sessionId, permit, result, sentAtMs);
+    if (granted.isAcquired && isTakeover) {
+      this.pendingTakeovers.set(sessionId, { previousEnvironment: lastEnvironment, takenOverTurnId });
+    }
+    return granted;
+  }
+
+  /**
+   * Calls `listener` once when the pull permit of a session this command holds expires: the session Worker
+   * stopped pulling first. At once when it expired already.
+   * @param sessionId - A session that {@link attempt} acquired.
+   * @param listener - Ends the chat, or tells the launcher.
+   */
+  public whenPermitExpires(sessionId: string, listener: () => void): void {
+    const permit = this.permits.get(sessionId);
+    if (permit === undefined) {
+      listener();
+      return;
+    }
+    permit.whenExpired(listener);
+  }
+
+  /** Returns the result of an attempt, or throws when its permit expired before the confirmation. */
+  private grantedWithin(
+    sessionId: string,
+    permit: SessionPullPermit,
+    result: SessionTerminalLeaseResult,
+    sentAtMs: number,
+  ): SessionTerminalLeaseResult {
     if (!result.isAcquired) {
-      this.clearUnknownOwnershipGuard(session.sessionId);
-      sessionWorker.stop();
+      this.leave(sessionId);
       return result;
     }
-    this.clearUnknownOwnershipGuard(session.sessionId);
-    this.acquireSentAtMs.set(session.sessionId, sentAtMs);
-    if (isTakeover) {
-      this.pendingTakeovers.set(session.sessionId, { previousEnvironment: lastEnvironment, takenOverTurnId });
+    if (!permit.confirm(sentAtMs)) {
+      // A late answer grants nothing: the Worker stopped, and the next attempt pulls and confirms again.
+      throw new PullPermitExpiredError(sessionId);
     }
     return result;
   }
 
   /**
-   * Returns the {@link monotonicNowMs} time the acquire that took a session's lease was sent, from which the lease
-   * counts as confirmed for the TTL.
-   * @param sessionId - A session that {@link attempt} acquired.
-   */
-  public acquireSentAt(sessionId: string): number {
-    const sentAtMs = this.acquireSentAtMs.get(sessionId);
-    if (sentAtMs === undefined) {
-      throw new Error(`session ${sessionId} was not acquired by this command`);
-    }
-    return sentAtMs;
-  }
-
-  /**
    * Decides an acquire whose answer never arrived, such as after a timeout: the RPC may have taken the lease, and
-   * only this command's session Worker serves its release. Until the outcome is known, a guard stops the Worker at
-   * the safety margin before the TTL from the send, so a hanging read cannot keep it pulling past the lease.
+   * only this command's session Worker serves its release. The read is bounded by the permit, which stops the
+   * Worker on its own when no confirmation comes.
    * @param sessionId - The session.
    * @param error - The acquire's failure.
-   * @param sentAtMs - The {@link monotonicNowMs} time the acquire was sent.
+   * @param permit - The session's pull permit.
    * @returns The stored lease as acquired when this command holds it.
    * @throws The acquire's failure otherwise: after stopping the Worker when the read shows another holder or no
-   * lease, and keeping it, with the guard, when the read fails too, so the next attempt decides.
+   * lease, and keeping it, within its permit, when the read fails too, so the next attempt decides.
    */
   private async resolveUnknownAcquisition(
     sessionId: string,
     error: unknown,
-    sentAtMs: number,
+    permit: SessionPullPermit,
   ): Promise<SessionTerminalLeaseResult> {
-    const { client, sessionFlow, holder, sessionWorker } = this.options;
-    this.guardUnknownOwnership(sessionId, sentAtMs);
+    const { client, sessionFlow, holder } = this.options;
     let stored;
     try {
-      [stored] = await client.getAttributes(sessionId, sessionFlow.sessionTerminalLease);
+      [stored] = await withinTimeout(client.getAttributes(sessionId, sessionFlow.sessionTerminalLease), permit.remainingMs());
     } catch {
       throw error;
     }
     if (stored?.holderId === holder.holderId) {
       return { isAcquired: true, lease: stored };
     }
-    this.clearUnknownOwnershipGuard(sessionId);
-    sessionWorker.stop();
+    this.leave(sessionId);
     throw error;
   }
 
-  /** Stops the session Worker at the safety margin before `sentAtMs` plus the TTL, unless an acquire confirms it. */
-  private guardUnknownOwnership(sessionId: string, sentAtMs: number): void {
-    const { ttlSeconds, sessionWorker } = this.options;
-    if (this.unknownOwnershipGuards.has(sessionId)) {
-      return;
+  /**
+   * Renews the lease of a session that {@link attempt} acquired, within its permit, and extends the permit when the
+   * session confirms it.
+   * @param sessionId - The session.
+   * @param timeoutMs - The longest the call may take; the permit's remaining time bounds it too.
+   * @returns The lease RPC's result.
+   * @throws {PullPermitExpiredError} When the permit expired already.
+   */
+  public async renew(sessionId: string, timeoutMs: number): Promise<SessionTerminalLeaseResult> {
+    const { client, holder, ttlSeconds, environment } = this.options;
+    const permit = this.activePermit(sessionId);
+    if (permit === undefined) {
+      throw new PullPermitExpiredError(sessionId);
     }
-    const delayMs = Math.max(0, sentAtMs + ttlSeconds * 1_000 * (1 - renewalSafetyMarginRatio) - monotonicNowMs());
-    const guard = setTimeout(() => {
-      this.unknownOwnershipGuards.delete(sessionId);
+    const sentAtMs = monotonicNowMs();
+    const result = await withinTimeout(
+      acquireSessionLease(client, this.flowOf(sessionId), sessionId, holder, ttlSeconds, environment),
+      Math.min(timeoutMs, permit.remainingMs()),
+    );
+    if (result.isAcquired) {
+      permit.confirm(sentAtMs);
+    }
+    return result;
+  }
+
+  /** Returns a session's pull permit while it has not expired. */
+  private activePermit(sessionId: string): SessionPullPermit | undefined {
+    const permit = this.permits.get(sessionId);
+    return permit?.isExpired === false ? permit : undefined;
+  }
+
+  /** Arms a new pull permit for a session, which stops its pulling and logs when it expires. */
+  private armPermit(sessionId: string, startedAtMs: number): SessionPullPermit {
+    const { ttlSeconds, sessionWorker, writeLogLine } = this.options;
+    this.permits.get(sessionId)?.cancel();
+    const permit = new SessionPullPermit(ttlSeconds * 1_000, startedAtMs, () => {
       if (sessionWorker.taskQueue === sessionTaskQueue(sessionId)) {
         sessionWorker.stop();
-        this.options.writeLogLine(`session Worker stopped: an acquire's outcome stayed unknown: session=${sessionId}`);
       }
-    }, delayMs);
-    guard.unref();
-    this.unknownOwnershipGuards.set(sessionId, guard);
-  }
-
-  private clearUnknownOwnershipGuard(sessionId: string): void {
-    clearTimeout(this.unknownOwnershipGuards.get(sessionId));
-    this.unknownOwnershipGuards.delete(sessionId);
-  }
-
-  /**
-   * Renews the lease of a session that {@link attempt} acquired.
-   * @param sessionId - The session.
-   * @returns The lease RPC's result.
-   */
-  public renew(sessionId: string): Promise<SessionTerminalLeaseResult> {
-    const { client, holder, ttlSeconds, environment } = this.options;
-    return acquireSessionLease(client, this.flowOf(sessionId), sessionId, holder, ttlSeconds, environment);
+      writeLogLine(`session pull permit expired; stopped pulling its task queue: session=${sessionId}`);
+    });
+    this.permits.set(sessionId, permit);
+    return permit;
   }
 
   /**
@@ -559,7 +707,9 @@ export class SessionOpener {
    */
   public leave(sessionId: string): void {
     const { sessionWorker } = this.options;
-    this.clearUnknownOwnershipGuard(sessionId);
+    // The permit is disarmed without its listeners: the caller is ending the session on purpose.
+    this.permits.get(sessionId)?.cancel();
+    this.permits.delete(sessionId);
     const session = this.openedSessions.get(sessionId);
     if (session?.hasSessionTaskQueue === true && sessionWorker.taskQueue === sessionTaskQueue(sessionId)) {
       sessionWorker.stop();

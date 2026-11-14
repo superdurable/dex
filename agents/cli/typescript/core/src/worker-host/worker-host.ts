@@ -214,8 +214,9 @@ class WorkerHost {
       if (!result.isAcquired) {
         return { result: { is_acquired: false, lease: result.lease } };
       }
-      // Guarded from the acquire's send, before a takeover's cancellation, which may take seconds.
-      this.renewedLeases(opened).renew(sessionId, opened.opener.acquireSentAt(sessionId));
+      this.renewedLeases(opened).renew(sessionId);
+      // The permit stopped pulling already; this only tells the launcher, also while a takeover cancels a turn.
+      opened.opener.whenPermitExpires(sessionId, () => void this.endUnconfirmedLease(opened, sessionId));
       const notices = await opened.opener.completeTakeover(sessionId);
       return { result: { is_acquired: true, lease: result.lease, flow_type: session.flowType, notices } };
     } catch (error: unknown) {
@@ -230,23 +231,24 @@ class WorkerHost {
     this.leaseRenewal ??= new SessionLeaseRenewal(
       opened.opener.holderId,
       this.leaseTtlSeconds,
-      (sessionId) => opened.opener.renew(sessionId),
+      (sessionId, timeoutMs) => opened.opener.renew(sessionId, timeoutMs),
       (sessionId, lease) => {
         // The other terminal runs the session now, so this host stops pulling its task queue at once.
         opened.opener.leave(sessionId);
         this.send({ type: "session_lease_lost", sessionId, lease });
       },
-      (sessionId) => void this.endUnconfirmedLease(opened, sessionId),
     );
     return this.leaseRenewal;
   }
 
   /**
-   * Stops pulling a session whose lease no renewal confirmed, before the lease can expire, then tells the launcher:
-   * as lost when another terminal already holds the session, else as unconfirmed.
+   * Tells the launcher that a session's pull permit expired, after it stopped pulling: as lost when another terminal
+   * already holds the session, else as unconfirmed.
    */
   private async endUnconfirmedLease(opened: OpenedSessionWorker, sessionId: string): Promise<void> {
-    opened.opener.leave(sessionId);
+    if (this.leaseRenewal?.currentSessionId === sessionId) {
+      this.leaseRenewal.stop();
+    }
     const lease = await opened.opener.readStoredLease(sessionId);
     if (lease !== undefined && lease.holderId !== opened.opener.holderId) {
       this.send({ type: "session_lease_lost", sessionId, lease });

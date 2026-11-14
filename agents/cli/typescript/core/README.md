@@ -108,24 +108,29 @@ Opening a session of the harness's Flow type follows these steps:
    acquire the lease through the RPC, which that Worker serves.
 4. When the acquire fails because another terminal won, stop the session
    Worker and wait again. When its answer never arrives, read the stored
-   lease: this command's holder counts as acquired and the Worker keeps
-   pulling; another holder or none stops the Worker; a failed read keeps the
-   Worker until the next attempt decides.
+   lease: this command's holder counts as the acquire's confirmation; another
+   holder or none stops the Worker; a failed read keeps the Worker within its
+   pull permit, below, until the next attempt decides.
 5. On exit or on a terminal UI switch, release the lease while the session
    Worker still serves the RPC, then stop it.
 
-A held lease counts as confirmed until the time its last successful acquire or
-renewal was sent, plus the TTL, on a monotonic clock. The guard starts as soon
-as the acquire succeeds, before a takeover cancels a turn, and each renewal
-call counts as failed after one renewal interval. When no renewal confirms the
-lease before that time minus a fifth of the TTL, the command stops pulling the
-session's task queue and ends the chat with one line and exit code 1, so the
-lease expires before another terminal can take the session. While an
-acquire's outcome stays unknown because the read of the stored lease failed
-too, a separate guard stops the session Worker at the same point from that
-acquire's send. The line is the lease lost line when
-the stored lease already names another holder. In the terminal UI the Worker
-host tells the launcher, which stops the terminal UI the same way.
+One pull permit, `SessionPullPermit`, bounds how long the session Worker pulls
+without a confirmed lease. It is armed when the Worker starts pulling, before
+the first acquire is sent, and runs until that moment plus the TTL minus a
+fifth of the TTL, on a monotonic clock. Only an acquire or renewal that the
+session confirmed extends it, to that request's send time plus the same span.
+Every lease read, acquire, and renewal is bounded by the time the permit has
+left, and a renewal also by one renewal interval. When the permit expires,
+whatever is in progress, the session Worker stops pulling first. Before the
+lease is held, the command then waits and tries again: an acquire answer that
+arrives after the permit expired grants nothing, and the next attempt pulls
+and confirms again. Once the lease is held, the chat ends with one line and
+exit code 1, so the lease expires before another terminal can take the
+session; this also applies while a takeover cancels a turn. The line is the
+lease lost line when the stored lease already names another holder. In the
+terminal UI the Worker host tells the launcher, which stops the terminal UI
+the same way. A session from before 0.6.7 gets the same permit, armed at its
+first acquire; its expiry ends the chat, and the shared Worker keeps pulling.
 
 The acquire request carries this command's environment: the `startEnvironment`
 values below. When the call gives the lease to a new holder, the session

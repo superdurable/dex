@@ -734,11 +734,14 @@ took its session, its chat stops with one line and exit code 1:
 Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
 ```
 
-Since 0.6.7, a command that cannot renew its lease, such as when it loses its
-connection to Dex, stops its chat before the lease expires. It stops pulling
-the session's task queue 3 seconds, a fifth of the lease, before its last
-confirmed renewal runs out, prints one line, and exits with code 1. Another
-command can then take the session without both running it:
+Since 0.6.7, a command pulls a session's task queue only while Dex has
+recently confirmed its lease. Each confirmed acquire or renewal allows it to
+pull until 12 seconds, the lease minus a fifth, after that request was sent;
+the time also starts when it begins to pull. When the time runs out, such as
+when the command loses its connection to Dex, it stops pulling first. Before
+the chat starts, it then waits and tries again, and a late answer from Dex
+grants nothing. During the chat, it prints one line and exits with code 1.
+Another command can then take the session without both running it:
 
 ```text
 Session builtin-20261113-203123-3efeb4 could not renew its lease in time; this chat stopped so that another terminal can take the session.

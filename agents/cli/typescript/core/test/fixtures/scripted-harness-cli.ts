@@ -8,7 +8,7 @@
 
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
-import { existsSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -113,15 +113,20 @@ if (leaseGateDirectory !== undefined) {
 }
 
 // Lease faults: fail-acquire fails every acquire before it is sent; lose-next-acquire loses one answer and, with
-// the text then-fail-lease-reads, creates fail-lease-read; fail-lease-read fails every read of the lease;
-// slow-next-acquire delays one answer by its milliseconds; fail-cancel fails every cancel_turn.
+// the text then-fail-lease-reads or then-hang-lease-reads, creates fail-lease-read or hang-lease-read, which fail
+// or hold every read of the lease while they exist; slow-next-acquire delays one answer by its milliseconds;
+// fail-cancel fails every cancel_turn. Each acquire answer appends a line to acquire-answers.
 const leaseFaultDirectory = process.env.DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR;
 if (leaseFaultDirectory !== undefined) {
   const getAttributes = Client.prototype.getAttributes;
   Client.prototype.getAttributes = async function faultyGetAttributes(this: Client, ...callArguments: unknown[]): Promise<unknown> {
     const reads = callArguments.slice(1) as readonly { readonly name?: string }[];
-    if (reads.some((read) => read.name === "SessionTerminalLease") && existsSync(join(leaseFaultDirectory, "fail-lease-read"))) {
+    const isLeaseRead = reads.some((read) => read.name === "SessionTerminalLease");
+    if (isLeaseRead && existsSync(join(leaseFaultDirectory, "fail-lease-read"))) {
       throw new Error("injected lease read failure");
+    }
+    while (isLeaseRead && existsSync(join(leaseFaultDirectory, "hang-lease-read"))) {
+      await delay(50);
     }
     return (getAttributes as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
   } as typeof getAttributes;
@@ -139,10 +144,12 @@ if (leaseFaultDirectory !== undefined) {
     const output: unknown = await (invokeRPC as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
     const lostAnswer = join(leaseFaultDirectory, "lose-next-acquire");
     if (isAcquire && existsSync(lostAnswer)) {
-      const isFollowedByFailedReads = readFileSync(lostAnswer, "utf8").trim() === "then-fail-lease-reads";
+      const afterwards = readFileSync(lostAnswer, "utf8").trim();
       rmSync(lostAnswer);
-      if (isFollowedByFailedReads) {
+      if (afterwards === "then-fail-lease-reads") {
         writeFileSync(join(leaseFaultDirectory, "fail-lease-read"), "");
+      } else if (afterwards === "then-hang-lease-reads") {
+        writeFileSync(join(leaseFaultDirectory, "hang-lease-read"), "");
       }
       throw new Error("no answer within 5000 ms");
     }
@@ -151,6 +158,9 @@ if (leaseFaultDirectory !== undefined) {
       const delayMs = Number(readFileSync(slowAnswer, "utf8").trim());
       rmSync(slowAnswer);
       await delay(delayMs);
+    }
+    if (isAcquire) {
+      appendFileSync(join(leaseFaultDirectory, "acquire-answers"), `${new Date().toISOString()}\n`);
     }
     return output;
   } as typeof invokeRPC;

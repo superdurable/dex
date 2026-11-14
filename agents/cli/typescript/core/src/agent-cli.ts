@@ -626,28 +626,22 @@ export class AgentCliCommand {
     }
     let lostLeaseLine: Promise<string> | undefined;
     let chat: TerminalChat | undefined;
-    const renewFor = (id: string): Promise<SessionTerminalLeaseResult> => tracked(id, () => opener.renew(id));
-    const renewal = new SessionLeaseRenewal(
-      opener.holderId,
-      ttlSeconds,
-      renewFor,
-      (lostSessionId, lease) => {
-        lostLeaseLine = Promise.resolve(leaseLostLine(lostSessionId, describeLeaseHolder(lease)));
-        // The other terminal runs the session now, so this command stops pulling its task queue at once.
-        opener.leave(lostSessionId);
-        chat?.stop();
-      },
-      (unconfirmedSessionId) => {
-        // Stopped before the lease can expire, so no other terminal pulls the queue while this one does.
-        opener.leave(unconfirmedSessionId);
-        this.writeLogLine(`session lease unconfirmed; stopped pulling its task queue: session=${unconfirmedSessionId}`);
-        lostLeaseLine = describeEndedLease(opener, unconfirmedSessionId);
-        chat?.stop();
-      },
-    );
+    const renewFor = (id: string, timeoutMs: number): Promise<SessionTerminalLeaseResult> =>
+      tracked(id, () => opener.renew(id, timeoutMs));
+    const renewal = new SessionLeaseRenewal(opener.holderId, ttlSeconds, renewFor, (lostSessionId, lease) => {
+      lostLeaseLine = Promise.resolve(leaseLostLine(lostSessionId, describeLeaseHolder(lease)));
+      // The other terminal runs the session now, so this command stops pulling its task queue at once.
+      opener.leave(lostSessionId);
+      chat?.stop();
+    });
     this.heldSessionLease = { opener, sessionId, renewal };
-    // Guarded from the acquire's send, before a takeover's cancellation, which may take seconds.
-    renewal.renew(sessionId, opener.acquireSentAt(sessionId));
+    renewal.renew(sessionId);
+    // The permit stopped pulling already; this only ends the chat, also while a takeover cancels a turn.
+    opener.whenPermitExpires(sessionId, () => {
+      renewal.stop();
+      lostLeaseLine = describeEndedLease(opener, sessionId);
+      chat?.stop();
+    });
     for (const line of await opener.completeTakeover(sessionId)) {
       this.log(line);
     }

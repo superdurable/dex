@@ -279,35 +279,29 @@ class SessionLeaseWaitingDisplay {
 
 /**
  * Renews the lease of the current session every third of its TTL. A refusal that names another holder ends it as
- * lost. Failed renewals are tried again at the next tick, but only until the lease's confirmed expiry, minus
- * {@link renewalSafetyMarginRatio} of the TTL: then it ends as unconfirmed, before another terminal can take the
- * session.
+ * lost. Failed renewals are tried again at the next tick. The session's pull permit, which only confirmed renewals
+ * extend, decides when an unconfirmed lease ends the chat; see `SessionPullPermit`.
  */
 export class SessionLeaseRenewal {
   private sessionId: string | undefined;
   private timer: NodeJS.Timeout | undefined;
-  private expiryTimer: NodeJS.Timeout | undefined;
   private isRenewing = false;
-  private readonly ttlMs: number;
 
   /**
    * Creates the renewal; {@link renew} starts it.
    * @param holderId - This process's holder ID.
    * @param ttlSeconds - The lease's TTL.
-   * @param attemptFor - Takes or renews the lease of one session.
+   * @param attemptFor - Renews the lease of one session within the given milliseconds.
    * @param onLost - Called once when another holder took the lease.
-   * @param onUnconfirmed - Called once when no renewal confirmed the lease before its safety margin.
+   * @param intervalMs - How often it renews, and how long one renewal may take.
    */
   public constructor(
     private readonly holderId: string,
     ttlSeconds: number,
-    private readonly attemptFor: (sessionId: string) => Promise<SessionTerminalLeaseResult>,
+    private readonly attemptFor: (sessionId: string, timeoutMs: number) => Promise<SessionTerminalLeaseResult>,
     private readonly onLost: (sessionId: string, lease: SessionTerminalLease) => void,
-    private readonly onUnconfirmed: (sessionId: string) => void,
     private readonly intervalMs = (ttlSeconds * 1_000) / 3,
-  ) {
-    this.ttlMs = ttlSeconds * 1_000;
-  }
+  ) {}
 
   /** The session whose lease this process holds, or `undefined`. */
   public get currentSessionId(): string | undefined {
@@ -317,12 +311,9 @@ export class SessionLeaseRenewal {
   /**
    * Renews the lease of `sessionId` from now on, instead of any other session's.
    * @param sessionId - The session whose lease was just acquired.
-   * @param acquireSentAtMs - The {@link monotonicNowMs} time the acquire that took the lease was sent; the lease
-   * counts as confirmed until then plus the TTL.
    */
-  public renew(sessionId: string, acquireSentAtMs: number): void {
+  public renew(sessionId: string): void {
     this.sessionId = sessionId;
-    this.confirmUntil(sessionId, acquireSentAtMs + this.ttlMs);
     this.timer ??= setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
   }
@@ -330,9 +321,7 @@ export class SessionLeaseRenewal {
   /** Stops renewing; the caller releases the lease. */
   public stop(): void {
     clearInterval(this.timer);
-    clearTimeout(this.expiryTimer);
     this.timer = undefined;
-    this.expiryTimer = undefined;
     this.sessionId = undefined;
   }
 
@@ -343,39 +332,22 @@ export class SessionLeaseRenewal {
     }
     this.isRenewing = true;
     try {
-      const sentAt = monotonicNowMs();
-      // Bounded by the interval, so one lost answer leaves time for the next renewal before the deadline.
-      const result = await attemptQuietly(() => withinTimeout(this.attemptFor(sessionId), this.intervalMs));
+      // Bounded by the interval, so one lost answer leaves time for the next renewal before the permit expires.
+      const result = await attemptQuietly(() => this.attemptFor(sessionId, this.intervalMs));
       const lease = result?.lease;
-      if (this.sessionId !== sessionId) {
-        return;
-      }
-      if (result?.isAcquired === true) {
-        // The lease lasts the TTL from the Worker's handling, which follows the send.
-        this.confirmUntil(sessionId, sentAt + this.ttlMs);
-      } else if (result?.isAcquired === false && lease !== null && lease !== undefined && lease.holderId !== this.holderId) {
+      if (
+        this.sessionId === sessionId &&
+        result?.isAcquired === false &&
+        lease !== null &&
+        lease !== undefined &&
+        lease.holderId !== this.holderId
+      ) {
         this.stop();
         this.onLost(sessionId, lease);
       }
     } finally {
       this.isRenewing = false;
     }
-  }
-
-  /**
-   * Ends the renewal as unconfirmed at the safety margin before `confirmedUntilMs`, a {@link monotonicNowMs} time,
-   * unless a renewal confirms it.
-   */
-  private confirmUntil(sessionId: string, confirmedUntilMs: number): void {
-    clearTimeout(this.expiryTimer);
-    const delayMs = Math.max(0, confirmedUntilMs - this.ttlMs * renewalSafetyMarginRatio - monotonicNowMs());
-    this.expiryTimer = setTimeout(() => {
-      if (this.sessionId === sessionId) {
-        this.stop();
-        this.onUnconfirmed(sessionId);
-      }
-    }, delayMs);
-    this.expiryTimer.unref();
   }
 }
 
@@ -472,7 +444,8 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | typ
   });
 }
 
-function withinTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+/** Rejects when `promise` does not settle within `timeoutMs`; a negative bound counts as 0. */
+export function withinTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), Math.max(0, timeoutMs));

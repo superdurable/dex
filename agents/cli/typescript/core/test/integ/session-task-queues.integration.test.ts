@@ -259,7 +259,7 @@ describe("session task queues", () => {
     assert.ok(leftLease !== undefined, "the stopped chat released nothing");
     const logLine = readFileSync(join(homeA.directory, ".dex", "agents", "scripted.log"), "utf8")
       .split("\n")
-      .find((line) => line.includes(`session lease unconfirmed; stopped pulling its task queue: session=${sessionId}`));
+      .find((line) => line.includes(`session pull permit expired; stopped pulling its task queue: session=${sessionId}`));
     const stoppedAt = Date.parse(logLine?.split(" ", 1)[0] ?? "");
     assert.ok(stoppedAt < Date.parse(leftLease.expiresAt), `stopped pulling at ${logLine ?? "never"}, lease ${leftLease.expiresAt}`);
 
@@ -298,39 +298,53 @@ describe("session task queues", () => {
     return Date.parse(line?.split(" ", 1)[0] ?? "");
   }
 
-  test("an acquire answer slower than the safety margin ends the chat before the lease expires", async () => {
-    const home = newEnvironment();
-    const faults = faultDirectory(home);
-    // With a 3-second lease, 2.7 seconds leave less than the 0.6-second margin.
-    writeFileSync(join(faults, "slow-next-acquire"), "2700");
-    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
-    assert.equal(await cli.waitForExit(30_000), 1, cli.stderr.all);
-    const sessionId = /Session (\S+) could not renew its lease in time/.exec(cli.stderr.all)?.[1];
-    assert.ok(sessionId !== undefined, cli.stderr.all);
-    const lease = await readLease(home, sessionId);
-    assert.ok(lease !== undefined, "the stopped chat released nothing");
-    const stoppedAt = loggedAt(home, `session lease unconfirmed; stopped pulling its task queue: session=${sessionId}`);
-    assert.ok(stoppedAt < Date.parse(lease.expiresAt), `stopped pulling at ${stoppedAt}, lease ${lease.expiresAt}`);
-  });
+  /** The log line of a pull permit that expired, after its session Worker stopped pulling. */
+  const permitExpiredLine = "session pull permit expired; stopped pulling its task queue: session=";
 
-  test("after an acquire whose answer was lost, failing lease reads stop the session Worker before the lease expires", async () => {
-    const home = newEnvironment();
-    const faults = faultDirectory(home);
-    writeFileSync(join(faults, "lose-next-acquire"), "then-fail-lease-reads");
-    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
-    const stopLine = "session Worker stopped: an acquire's outcome stayed unknown: session=";
-    await pollUntil(() => (Number.isNaN(loggedAt(home, stopLine)) ? undefined : true), {
+  /** Waits for the first permit expiry in `home`'s log and returns its session and time. */
+  async function waitForPermitExpiry(home: TestHome): Promise<{ sessionId: string; stoppedAt: number }> {
+    await pollUntil(() => (Number.isNaN(loggedAt(home, permitExpiredLine)) ? undefined : true), {
       timeoutMs: 30_000,
-      description: "the guard to stop the session Worker",
+      description: "the pull permit to expire",
     });
     const logPath = join(home.directory, ".dex", "agents", "scripted.log");
-    const sessionId = readFileSync(logPath, "utf8").split(stopLine)[1]?.split("\n", 1)[0] ?? "";
+    const sessionId = readFileSync(logPath, "utf8").split(permitExpiredLine)[1]?.split("\n", 1)[0] ?? "";
+    return { sessionId, stoppedAt: loggedAt(home, permitExpiredLine) };
+  }
+
+  test("an acquire answer slower than the lease stops pulling before the lease expires, and the late grant opens nothing", async () => {
+    const home = newEnvironment();
+    const faults = faultDirectory(home);
+    // Dex grants the lease at once; its answer arrives after the whole 3-second lease.
+    writeFileSync(join(faults, "slow-next-acquire"), "4000");
+    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const { sessionId, stoppedAt } = await waitForPermitExpiry(home);
+    const grantedLease = await readLease(home, sessionId);
+    assert.ok(grantedLease !== undefined, "Dex granted the lease before the slow answer");
+    assert.ok(stoppedAt < Date.parse(grantedLease.expiresAt), `stopped at ${stoppedAt}, lease ${grantedLease.expiresAt}`);
+
+    // The command waits, pulls again, and opens the session only on a second, confirmed acquire.
+    assert.equal(await cli.waitForSession(), sessionId);
+    const answers = readFileSync(join(faults, "acquire-answers"), "utf8").trim().split("\n").map((line) => Date.parse(line));
+    assert.ok(answers.some((answeredAt) => answeredAt > stoppedAt), `acquire answers before the chat: ${answers.join(", ")}`);
+    cli.writeLine("hello after the late grant");
+    await cli.stdout.waitFor("echo: hello after the late grant");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("after an acquire whose answer was lost, a hanging lease read cannot keep the Worker pulling past the lease", async () => {
+    const home = newEnvironment();
+    const faults = faultDirectory(home);
+    writeFileSync(join(faults, "lose-next-acquire"), "then-hang-lease-reads");
+    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const { sessionId, stoppedAt } = await waitForPermitExpiry(home);
     const lease = await readLease(home, sessionId);
     assert.ok(lease !== undefined, "the acquire whose answer was lost took the lease");
-    assert.ok(loggedAt(home, stopLine) < Date.parse(lease.expiresAt), `stopped at ${loggedAt(home, stopLine)}, lease ${lease.expiresAt}`);
+    assert.ok(stoppedAt < Date.parse(lease.expiresAt), `stopped at ${stoppedAt}, lease ${lease.expiresAt}`);
 
-    // Once the lease reads work again, the command opens the session.
-    rmSync(join(faults, "fail-lease-read"));
+    // Once the lease reads answer again, the command opens the session.
+    rmSync(join(faults, "hang-lease-read"));
     assert.equal(await cli.waitForSession(), sessionId);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
