@@ -1080,6 +1080,8 @@ interface HistorySettingsDex {
   heldConfigUpdates: Array<() => void>;
   heldBlobLoads: Array<() => void>;
   configUpdates: unknown[];
+  /** Fields that replace the summary's, such as a closed status. */
+  summaryOverride: Partial<FlowSummary>;
 }
 
 function historySettingsDex(): HistorySettingsDex {
@@ -1092,6 +1094,7 @@ function historySettingsDex(): HistorySettingsDex {
     heldConfigUpdates: [],
     heldBlobLoads: [],
     configUpdates: [],
+    summaryOverride: {},
   };
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
   const stateResponse = (reply: StateReply) => {
@@ -1104,7 +1107,7 @@ function historySettingsDex(): HistorySettingsDex {
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://dex.test');
     const runId = url.searchParams.get('runId') ?? 'run-1';
-    if (url.pathname === '/api/flows/summary') return json({ ...summary(dex.runAttempt), runId });
+    if (url.pathname === '/api/flows/summary') return json({ ...summary(dex.runAttempt), runId, ...dex.summaryOverride });
     if (url.pathname === '/api/flows/state') {
       const runReply = dex.stateReplyByRunId[runId];
       if (runReply) return stateResponse(runReply);
@@ -1158,6 +1161,20 @@ function settleStateLoads() {
 }
 
 describe('history settings on the run page', () => {
+  it('shows a closed run\'s config read failure in the Configuration card and retries it', async () => {
+    const dex = historySettingsDex();
+    dex.summaryOverride = { flowStatus: 'Completed', flowStatusCode: 2, closeTime: '2026-10-24T18:00:00Z' };
+    dex.immediateStateReply = 'fail';
+    renderRun();
+    const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    expect((await within(card).findByRole('alert')).textContent).toBe('GetFlowState failed');
+
+    dex.immediateStateReply = { historyWindowEvents: 300 };
+    fireEvent.click(within(card).getByRole('button', { name: 'Retry' }));
+    expect(await within(card).findByText('Last 300 events')).toBeTruthy();
+    expect(within(card).queryByRole('alert')).toBeNull();
+  });
+
   it('keeps saved values when a state load started before the save resolves after it', async () => {
     const dex = historySettingsDex();
     renderRun();

@@ -259,10 +259,7 @@ export function brushPixelSpan(
 
 /** The widest slot: a short page spreads its events up to this width. */
 export const LANE_SLOT_MAX_WIDTH = 120;
-/**
- * The narrowest slot: labels slanted at 30 degrees stay one 18 px line apart, since 36 * sin(30°) = 18.
- * A page with more events than fit at this width scrolls, and the overview window moves it.
- */
+/** Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll. */
 export const LANE_SLOT_MIN_WIDTH = 36;
 
 /** Returns the lane's width per event: the whole page when it fits, from 120 px down to 36 px each, else 36 px. */

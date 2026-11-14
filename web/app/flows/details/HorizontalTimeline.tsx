@@ -78,9 +78,35 @@ const labelCharacterWidth = 7;
  * labelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
  */
 export function timelineStripHeight(subjects: readonly string[]): number {
-  const longest = subjects.reduce((max, subject) => Math.max(max, subject.length), 0);
+  const longest = subjects.reduce((max, subject) => Math.max(max, labelWidthUnits(subject)), 0);
   const labelWidth = Math.min(labelMaxWidth, longest * labelCharacterWidth + 8);
   return Math.ceil(labelWidth * Math.sin(labelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
+
+/** East Asian wide and fullwidth ranges, which take about two label characters each. */
+const wideCodePointRanges: readonly (readonly [number, number])[] = [
+  [0x1100, 0x115f],
+  [0x2e80, 0x303e],
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf],
+  [0xac00, 0xd7a3],
+  [0xf900, 0xfaff],
+  [0xfe30, 0xfe4f],
+  [0xff00, 0xff60],
+  [0xffe0, 0xffe6],
+  [0x20000, 0x3fffd],
+];
+
+/** Returns the label's width in label characters, counting each wide or fullwidth character as 2. */
+export function labelWidthUnits(subject: string): number {
+  let units = 0;
+  for (const character of subject) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    units += wideCodePointRanges.some(([low, high]) => codePoint >= low && codePoint <= high) ? 2 : 1;
+  }
+  return units;
 }
 
 /** The strip geometry: slanted labels on top, then dots, event numbers, and link arcs. */

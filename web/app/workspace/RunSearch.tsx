@@ -68,7 +68,7 @@ export function RunSearch({
   busy,
   permissionControl,
   onChange,
-  onApply,
+  onApplyChip,
   onSubmit,
   onClear,
 }: {
@@ -84,8 +84,8 @@ export function RunSearch({
   /** Which permission scopes the Work Queue. Drawn beside the time chip. */
   permissionControl?: ReactNode;
   onChange: (query: RunQuery) => void;
-  /** Sets the query and searches with it at once. */
-  onApply: (query: RunQuery) => void;
+  /** Changes one chip of the last searched query and searches with it at once. */
+  onApplyChip: (chip: Pick<Partial<RunQuery>, 'status' | 'since'>) => void;
   onSubmit: () => void;
   onClear: () => void;
 }) {
@@ -122,7 +122,7 @@ export function RunSearch({
             key={label}
             role="radio"
             type="button"
-            onClick={() => onApply({ ...query, status: value })}
+            onClick={() => onApplyChip({ status: value })}
           >
             <Icon aria-hidden="true" size={14} strokeWidth={2.2} />
             {label}
@@ -143,7 +143,7 @@ export function RunSearch({
           <select
             aria-label={`${SEARCH_COPY.statusLabel}: ${WORK_QUEUE_COPY.moreStatuses}`}
             value={isMoreStatus ? query.status : ''}
-            onChange={(event) => onApply({ ...query, status: event.target.value })}
+            onChange={(event) => onApplyChip({ status: event.target.value })}
           >
             <option disabled value="">{WORK_QUEUE_COPY.moreStatuses}</option>
             {moreStatuses.map((status) => (
@@ -160,7 +160,7 @@ export function RunSearch({
             aria-label={SEARCH_COPY.sinceLabel}
             className="wq-chip-select"
             value={query.since}
-            onChange={(event) => onApply({ ...query, since: event.target.value as SinceWindow })}
+            onChange={(event) => onApplyChip({ since: event.target.value as SinceWindow })}
           >
             {SINCE_WINDOWS.map((window) => (
               <option key={window.value || 'any'} value={window.value}>{window.label}</option>

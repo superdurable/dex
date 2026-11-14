@@ -122,6 +122,17 @@ describe('Flow config card', () => {
     expect(screen.getByText(/configuration is not loaded/)).toBeTruthy();
   });
 
+  it('shows why the config could not be loaded, with Retry', () => {
+    const onRetryLoad = vi.fn();
+    render(
+      <FlowConfigCard summary={runningSummary} flowConfig={undefined} loadError="GetFlowState failed" onRetryLoad={onRetryLoad} />,
+    );
+    expect(screen.getByRole('alert').textContent).toBe('GetFlowState failed');
+    expect(screen.queryByText(/configuration is not loaded/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetryLoad).toHaveBeenCalledTimes(1);
+  });
+
   it('sends only the edited window and refreshes the run state', async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
       JSON.stringify({ updated: true }),
@@ -272,6 +283,48 @@ describe('Flow config card', () => {
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('closes an open editor and drops its draft when the run stops running', () => {
+    const onSaved = vi.fn(async () => {});
+    const { rerender } = render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: '800' } });
+
+    const completed: FlowSummary = { ...runningSummary, flowStatus: 'Completed', flowStatusCode: 2 };
+    rerender(<FlowConfigCard summary={completed} flowConfig={{}} onSaved={onSaved} />);
+    expect(screen.queryByRole('textbox', { name: 'Retention window' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull();
+
+    rerender(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={onSaved} />);
+    expect(screen.queryByRole('textbox', { name: 'Retention window' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit Retention window' })).toBeTruthy();
+  });
+
+  it('opens the Attribute stores editor of a run with sync off on Turn sync off, without an error', () => {
+    render(<FlowConfigCard summary={runningSummary} flowConfig={{ attributeStoreNames: { names: [] } }} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Attribute stores' }));
+    expect((screen.getByLabelText('Turn sync off for this run') as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText('Enter at least one store name, or choose Turn sync off.')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows an enum value with no matching option as Unknown and lets another be chosen', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ updated: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onSaved = vi.fn(async () => {});
+    render(<FlowConfigCard summary={runningSummary} flowConfig={{ stepDurability: 7 }} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Step durability' }));
+    const select = screen.getByLabelText('Step durability') as HTMLSelectElement;
+    expect(select.value).toBe('7');
+    const unknown = screen.getByRole('option', { name: 'Unknown (7)' }) as HTMLOptionElement;
+    expect(unknown.disabled).toBe(true);
+    expect(unknown.selected).toBe(true);
+    fireEvent.change(select, { target: { value: '1' } });
+    expect(select.value).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ stepDurability: 1 }, runningSummary));
   });
 });
 

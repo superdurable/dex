@@ -352,6 +352,30 @@ describe('Work Queue search', () => {
     expect(searches).toHaveLength(6);
   });
 
+  it('searches a chip with the applied query and leaves a half-typed Advanced field out', async () => {
+    const searches = stubServer(() => []);
+    renderQueue();
+    const advanced = await openAdvanced();
+    await waitFor(() => expect(searches).toHaveLength(1));
+
+    const flowIdInput = within(advanced).getByLabelText(SEARCH_COPY.flowIdLabel) as HTMLInputElement;
+    fireEvent.change(flowIdInput, { target: { value: 'refund-' } });
+    const statuses = screen.getByRole('radiogroup', { name: SEARCH_COPY.statusLabel });
+    fireEvent.click(within(statuses).getByRole('radio', { name: 'Failed' }));
+    await waitFor(() => expect(lastSearch(searches).filters)
+      .toContainEqual({ field: 'executionStatus', operator: 'eq', values: ['Failed'] }));
+    fireEvent.change(screen.getByLabelText(SEARCH_COPY.sinceLabel), { target: { value: '24h' } });
+    await waitFor(() => expect(searches).toHaveLength(3));
+    expect(lastSearch(searches).filters.map((filter) => filter.field)).toEqual(['executionStatus', 'startTime']);
+    expect(flowIdInput.value).toBe('refund-');
+
+    // Search then applies the draft together with the chips.
+    await submit();
+    await waitFor(() => expect(lastSearch(searches).filters)
+      .toContainEqual({ field: 'flowId', operator: 'eq', values: ['refund-'] }));
+    expect(lastSearch(searches).filters).toContainEqual({ field: 'executionStatus', operator: 'eq', values: ['Failed'] });
+  });
+
   it('names the Flow type instead of repeating the page title, and guides the empty panel', async () => {
     stubServer(() => [run('refund-1', 'RefundFlow', { 'case-title': 'Damaged item' })]);
     renderQueue();

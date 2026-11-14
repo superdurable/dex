@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Info, Pencil } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
@@ -79,6 +79,10 @@ const activeStepSearchModeLabels: Record<number, string> = {
   3: 'Off',
 };
 
+function enumLabels(field: 'stepDurability' | 'activeStepSearchMode'): Record<number, string> {
+  return field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels;
+}
+
 function windowLabel(windowEvents: number | undefined): string {
   return windowEvents === undefined ? SERVER_DEFAULT : `Last ${windowEvents.toLocaleString()} events`;
 }
@@ -130,11 +134,16 @@ const fieldLabels: Record<EditableField, string> = {
 export function FlowConfigCard({
   summary,
   flowConfig,
+  loadError,
+  onRetryLoad,
   onSaved,
 }: {
   summary: FlowSummary;
   /** The run's flowConfig, or undefined while it is not loaded. */
   flowConfig: Record<string, unknown> | undefined;
+  /** Why the flowConfig could not be loaded; shown with Retry while flowConfig is undefined. */
+  loadError?: string;
+  onRetryLoad?: () => void;
   /** Receives the changed fields and the run they were saved to. */
   onSaved?: (saved: FlowConfigChange, savedRun: FlowSummary) => Promise<void>;
 }) {
@@ -149,11 +158,25 @@ export function FlowConfigCard({
   const isRunning = summary.flowStatus === 'Running';
   const canEdit = isRunning && flowConfig !== undefined && onSaved !== undefined;
 
+  // A run that stops running drops any open editor and its draft.
+  useEffect(() => {
+    if (!canEdit) setEditing(null);
+  }, [canEdit]);
+
   if (!flowConfig) {
     return (
       <section className="overview-section history-settings-card">
         <header className="overview-section-head"><h2>Configuration</h2></header>
-        <p className="overview-quiet">The run&apos;s configuration is not loaded.</p>
+        {loadError ? (
+          <>
+            <div className="error-banner" role="alert">{loadError}</div>
+            {onRetryLoad && (
+              <div className="history-settings-actions">
+                <button className="button ghost" onClick={onRetryLoad} type="button">Retry</button>
+              </div>
+            )}
+          </>
+        ) : <p className="overview-quiet">The run&apos;s configuration is not loaded.</p>}
       </section>
     );
   }
@@ -178,7 +201,7 @@ export function FlowConfigCard({
       attributeStoreNames: attributeStoreNames?.join(', ') ?? '',
     };
     setDraft(initialDrafts[field]);
-    setIsTurningSyncOff(false);
+    setIsTurningSyncOff(attributeStoreNames?.length === 0);
     setError('');
     setEditing(field);
   };
@@ -243,7 +266,7 @@ export function FlowConfigCard({
   const editor = (field: EditableField, currentValue: string) => {
     const change = pendingChange(field);
     const invalid = change !== null && 'error' in change ? change.error : '';
-    const canSave = !saving && change !== null && !invalid;
+    const canSave = canEdit && !saving && change !== null && !invalid;
     const draftWindow = Number(draft.trim());
     // An unset window uses the server default, which is 10,000 events unless the server sets another.
     const isShrinkingWindow = field === 'historyWindowEvents' && canSave && Number.isFinite(draftWindow)
@@ -269,7 +292,10 @@ export function FlowConfigCard({
             onChange={(event) => changeDraft(event.target.value)}
           >
             {draft === '' && <option disabled value="">Choose a value</option>}
-            {Object.entries(field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels)
+            {draft !== '' && !(draft in enumLabels(field)) && (
+              <option disabled value={draft}>Unknown ({draft})</option>
+            )}
+            {Object.entries(enumLabels(field))
               .map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
           </select>
         )}
@@ -329,7 +355,7 @@ export function FlowConfigCard({
   const row = (field: EditableField | 'offloadHistory', value: string, hint?: string) => {
     const label = field === 'offloadHistory' ? 'Offload history' : fieldLabels[field];
     const isEditable = field !== 'offloadHistory' && canEdit;
-    const isEditing = field !== 'offloadHistory' && editing === field;
+    const isEditing = field !== 'offloadHistory' && canEdit && editing === field;
     return (
       <div className={isEditing ? 'is-editing' : undefined} key={field}>
         <dt><span id={nameIdOf(field)}>{label}</span>{hint && <> <InfoHint text={hint} /></>}</dt>

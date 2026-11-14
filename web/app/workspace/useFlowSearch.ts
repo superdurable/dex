@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
 import type { V2Flow, V2SearchResult } from '@/lib/types';
@@ -45,12 +45,16 @@ export function useFlowSearch(
   const [nextPageToken, setNextPageToken] = useState('');
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
   const [page, setPage] = useState(0);
+  const latestSearchSequenceRef = useRef(0);
 
   const flowTypesKey = flowTypes.join('\n');
   const workQueuePermissionsKey = workQueuePermissions.join('\n');
 
   const executeSearch = useCallback(async (token = '', nextPage = 0) => {
     if (flowTypes.length === 0 || !definition) return;
+    // Only the newest search may write state, so an older reply never overwrites it.
+    const searchSequence = ++latestSearchSequenceRef.current;
+    const isNewestSearch = () => searchSequence === latestSearchSequenceRef.current;
     setLoading(true);
     try {
       const response = await fetch(webURL('/api/v2/search'), {
@@ -72,10 +76,12 @@ export function useFlowSearch(
         }),
       });
       const result = await readResponseJSON<V2SearchResult>(response);
+      if (!isNewestSearch()) return;
       setHeld((prior) => absorb(prior, { state: 'ok', value: result.flows }));
       setNextPageToken(result.nextPageToken);
       setPage(nextPage);
     } catch (failedSearch) {
+      if (!isNewestSearch()) return;
       if (handleDefinitionError(failedSearch)) {
         setHeld(nothingHeld<V2Flow[]>());
         return;
@@ -86,13 +92,17 @@ export function useFlowSearch(
         reason: readFailureReason(failedSearch),
       }));
     } finally {
-      setLoading(false);
+      if (isNewestSearch()) setLoading(false);
     }
   }, [definitionRevision, definition, definitionUpdateKey, filters, flowTypesKey, handleDefinitionError, workQueuePermissions]);
 
   // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {
-    if (flowTypes.length > 0 && definition) void executeSearch();
+    if (flowTypes.length === 0 || !definition) return;
+    setPageTokens(['']);
+    setPage(0);
+    setNextPageToken('');
+    void executeSearch();
   }, [definition, filters, flowTypesKey, workQueuePermissionsKey]);
 
   const runSearch = useCallback(() => {

@@ -89,6 +89,8 @@ export function FlowOverview({
   onOpenStateWrite,
   savedHistorySettings,
   closedFlowConfig,
+  closedFlowConfigError,
+  onRetryClosedFlowConfig,
   onHistorySettingsSaved,
 }: {
   summary: FlowSummary;
@@ -100,6 +102,9 @@ export function FlowOverview({
   savedHistorySettings?: FlowConfigChange;
   /** A closed run's Flow config, read once since live state is not loaded for it. */
   closedFlowConfig?: Record<string, unknown>;
+  /** Why reading the closed run's Flow config failed. */
+  closedFlowConfigError?: string;
+  onRetryClosedFlowConfig?: () => void;
   onHistorySettingsSaved?: (saved: FlowConfigChange, savedRun: FlowSummary) => Promise<void>;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
@@ -279,6 +284,8 @@ export function FlowOverview({
         <FlowConfigCard
           summary={summary}
           flowConfig={state ? { ...(state.flowConfig ?? {}), ...savedHistorySettings } : closedFlowConfig}
+          loadError={state ? undefined : closedFlowConfigError}
+          onRetryLoad={onRetryClosedFlowConfig}
           onSaved={onHistorySettingsSaved}
         />
 

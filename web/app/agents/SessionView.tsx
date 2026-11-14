@@ -211,16 +211,6 @@ function workingAsChoiceOptions(schema: AgentSessionSchema, declared: readonly s
     .filter((permission): permission is string => typeof permission === 'string' && permission !== '');
 }
 
-/** The permission of the session's Actions when Working as does not include it yet. */
-export function sessionPermissionToChoose(
-  schema: AgentSessionSchema,
-  workQueuePermissions: readonly string[],
-): string | null {
-  const actions = [schema.resolveInterrupt, schema.answerQuestion, schema.steerUserMessage, schema.cancelTurn];
-  const missing = actions.find((action) => action && !workQueuePermissions.includes(action.requiredPermission));
-  return missing?.requiredPermission ?? null;
-}
-
 function turnOf(item: ConversationItem | undefined): string | undefined {
   if (!item || item.kind === 'missing') return undefined;
   return item.kind === 'message' ? item.message.turnId : item.call.turnId;

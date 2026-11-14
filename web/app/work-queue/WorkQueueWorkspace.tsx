@@ -180,7 +180,7 @@ function RunQueueWorkspace() {
                 runQuery.query.activeStepTypes,
               )}
               query={runQuery.query}
-              onApply={runQuery.apply}
+              onApplyChip={runQuery.applyChip}
               onChange={runQuery.setQuery}
               onClear={runQuery.clear}
               onSubmit={runQuery.submit}

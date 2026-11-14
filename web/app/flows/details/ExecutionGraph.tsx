@@ -561,7 +561,7 @@ export function ExecutionGraph({
     return () => observer.disconnect();
   }, []);
 
-  // The first viewport is set once per mount; later events, layouts and resizes never undo a reader's zoom or pan.
+  // The first viewport is set once; later events, layouts and resizes keep a reader's zoom and pan.
   const hasAppliedInitialViewport = useRef(false);
   useEffect(() => {
     if (hasAppliedInitialViewport.current || !flowInstance || canvasWidth <= 0) return;
@@ -590,7 +590,8 @@ export function ExecutionGraph({
       ? !isWholeGraphShown
       : !isNodeInView(flowInstance.getViewport(), canvasSize, node.position, { width, height });
     if (!shouldCenter) return undefined;
-    // Pan the graph, not the page; a frame later, after the first viewport.
+    // Pan the graph, not the page, so the bar and the run line stay in view.
+    // A frame later, so the initial viewport above has been set first.
     const frame = window.requestAnimationFrame(() => {
       void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: flowInstance.getZoom() });
     });

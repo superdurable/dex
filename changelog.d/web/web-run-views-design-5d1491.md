@@ -26,6 +26,8 @@ section: Changed
   the value changes. A smaller retention window warns before it deletes older
   events, and Attribute sync turns off only through an explicit choice.
   **Start input** no longer repeats the start-time Flow configuration.
+- Dex Web adds the **PUT /api/flows/config** route for **Configuration** edits.
+  An embedding page that allowlists Dex Web writes must allow it.
 - The rail's Dex mark says **Dex Server unreachable** in red when Dex Web cannot
   reach the server, and keeps a faint dot otherwise.
 - The **Conversation** tab drops its Working as banner and selector. Controls

@@ -262,7 +262,9 @@ export function RunDetailsPage({
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
-  const [closedFlowConfig, setClosedFlowConfig] = useState<{ runIdentity: string; value: Record<string, unknown> } | null>(null);
+  const [closedFlowConfig, setClosedFlowConfig] = useState<
+    { runIdentity: string; value: Record<string, unknown> } | { runIdentity: string; error: string } | null
+  >(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
   const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
   const [eventsTab, setEventsTab] = useState<RunTab>(storedEventsTab);
@@ -858,6 +860,10 @@ export function RunDetailsPage({
       .catch((configError: unknown) => {
         if (controller.signal.aborted) return;
         console.warn('Unable to read the closed run\'s Flow config.', configError);
+        setClosedFlowConfig({
+          runIdentity,
+          error: configError instanceof Error ? configError.message : 'Configuration query failed',
+        });
       });
     return () => controller.abort();
   }, [closedFlowConfig?.runIdentity, isClosedRunShown, runIdentity, shownTab, stateURL]);
@@ -1245,7 +1251,13 @@ export function RunDetailsPage({
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
               savedHistorySettings={displayedHistorySettings}
-              closedFlowConfig={closedFlowConfig?.runIdentity === runIdentity ? closedFlowConfig.value : undefined}
+              closedFlowConfig={closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
+                ? closedFlowConfig.value
+                : undefined}
+              closedFlowConfigError={closedFlowConfig?.runIdentity === runIdentity && 'error' in closedFlowConfig
+                ? closedFlowConfig.error
+                : undefined}
+              onRetryClosedFlowConfig={() => setClosedFlowConfig(null)}
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}

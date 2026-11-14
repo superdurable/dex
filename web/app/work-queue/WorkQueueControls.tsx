@@ -35,7 +35,7 @@ export function WorkQueueModeSwitch({ mode, hasAgents }: { mode: 'runs' | 'agent
 /**
  * The "Working as" picker, for the permissions the searched Flow types declare.
  *
- * A chip in the filter row; what the chosen permission includes reads on its own line below it.
+ * A filter-row chip; what the chosen permission includes reads on its own line below.
  */
 export function WorkingAsControl({ definitions, workingAs }: {
   definitions: readonly FlowV2Definition[];

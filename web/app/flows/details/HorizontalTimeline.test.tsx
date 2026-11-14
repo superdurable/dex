@@ -14,7 +14,13 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay, timelineStripHeight } from './HorizontalTimeline';
+import {
+  HorizontalTimeline,
+  horizontalTimelineLayout,
+  isSameCalendarDay,
+  labelWidthUnits,
+  timelineStripHeight,
+} from './HorizontalTimeline';
 import { timelineSlotWidth } from './timelineOverview';
 
 /** Events in view at the 1200 px jsdom fallback width, for a page of eventCount events. */
@@ -888,6 +894,16 @@ describe('horizontal Timeline layout', () => {
       expect(height).toBe(`${timelineStripHeight(['Charge'])}px`);
       fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
       expect(strip.style.height).toBe(height);
+    });
+
+    it('counts each East Asian wide or fullwidth character as two label characters', () => {
+      expect(labelWidthUnits('Review')).toBe(6);
+      expect(labelWidthUnits('审核步骤')).toBe(8);
+      expect(labelWidthUnits('Ｒｅｖｉｅｗ')).toBe(12);
+      expect(labelWidthUnits('\uAC80\uD1A0-1')).toBe(6);
+      expect(labelWidthUnits('𠀀')).toBe(2);
+      expect(timelineStripHeight(['审核步骤'])).toBe(timelineStripHeight(['ReviewSt']));
+      expect(timelineStripHeight(['审核步骤'])).toBeGreaterThan(timelineStripHeight(['Revi']));
     });
 
     it('spreads a short page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {

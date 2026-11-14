@@ -154,7 +154,7 @@ export function FlowStatePanel({
   );
 }
 
-/** The selected event's relations under its title: From the event that led here, To the events it led to. */
+/** The selected event's relations as one line under its title: From the event that led here, To the events it led to; each target is its own link. */
 function RelatedEvents({
   relatedEvents,
   isJumpDisabled,

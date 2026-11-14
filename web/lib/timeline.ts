@@ -145,7 +145,7 @@ export function timelineRelatedEventGroup(related: TimelineRelatedEvent): 'From'
   return related.direction === 'older' ? 'From' : 'To';
 }
 
-/** Names only the related event, such as "Review-3 · WaitFor completed · #8 · 44ms before". */
+/** Describes a related event for a stub or a list entry, without its group, such as "Review-3 · WaitFor completed · #8 · 44ms before". */
 export function timelineRelatedEventLabel(related: TimelineRelatedEvent): string {
   const elapsed = relatedElapsedPhrase(related);
   const elapsedPart = elapsed ? ` · ${elapsed}` : '';

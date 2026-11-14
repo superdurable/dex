@@ -18,11 +18,7 @@ const COMPLETED_FLOW_STATUS_CODE = 2;
 const FAILED_FLOW_STATUS_CODE = 3;
 const TIMED_OUT_FLOW_STATUS_CODE = 4;
 
-/**
- * Closed runs take their tone from the execution status; open runs from their reported status.
- *
- * Open runs reuse the status chip's word rules, so row and panel agree.
- */
+/** Closed runs tone by execution status; open runs by the status chip's rules, so row and panel agree. */
 export function runRowTone(flowStatusCode: number | undefined, statusText: string): RunRowTone {
   if (isOpenFlowStatusCode(flowStatusCode)) {
     const tone = statusTone(statusText);
