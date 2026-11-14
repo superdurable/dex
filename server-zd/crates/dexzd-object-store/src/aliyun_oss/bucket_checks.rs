@@ -44,7 +44,7 @@ pub enum VersionDiscoveryCheckError {
     /// A store with [`VersionDiscovery::HeadProbing`] found versions written without the marker.
     #[error(
         "the prefix holds the version {version_key} but not {marker_key}, so it was written with \
-         objectStore.versionDiscovery: list or by a release before 0.1.30; head starts only on a \
+         objectStore.versionDiscovery: list or by a release before 0.1.31; head starts only on a \
          prefix without such versions, so keep list here or start head on an empty prefix"
     )]
     VersionsWithoutHeadProbingMarker {
@@ -75,7 +75,7 @@ pub enum VersionDiscoveryCheckError {
 /// cannot see a listing node that is already running, so stop every node before changing the
 /// discovery of a prefix.
 ///
-/// Since 0.1.30.
+/// Since 0.1.31.
 ///
 /// # Errors
 ///

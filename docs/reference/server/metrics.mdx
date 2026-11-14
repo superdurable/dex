@@ -91,7 +91,7 @@ label's values.
 
 Since 0.1.29, **dexzd_object_store_versioned_listing_stale_total** counts
 listings of versioned objects that did not show the newest version. Only the
-**aliyunOSS** provider and, since 0.1.30, **tencentCOS** write such versions,
+**aliyunOSS** provider and, since 0.1.31, **tencentCOS** write such versions,
 so other providers stay at 0. Its **site** label is one of:
 
 - **confirm_created_version**: the listing right after a write did not show
@@ -101,7 +101,7 @@ so other providers stay at 0. Its **site** label is one of:
   version the node had confirmed, and no version two or more generations newer
   exists that could have deleted it. The node deletes nothing in that pass;
   the key's next write tries again.
-- **newest_version_lookup**, since 0.1.30, with
+- **newest_version_lookup**, since 0.1.31, with
   **objectStore.versionDiscovery: head** only, as on **tencentCOS**: a read
   started from the newest version that a listing showed, and that version was
   not the newest or was gone. The read then looks for the newest version with

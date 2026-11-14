@@ -185,7 +185,7 @@ impl AliyunOssObjectStore {
     /// probing must start on a prefix without versions; run
     /// [`crate::check_version_discovery_marker`] first. See the example of [`VersionDiscovery`].
     ///
-    /// Since 0.1.30.
+    /// Since 0.1.31.
     ///
     /// # Panics
     ///
