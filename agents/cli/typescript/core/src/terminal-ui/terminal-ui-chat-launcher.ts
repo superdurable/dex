@@ -19,7 +19,11 @@ import {
   leaseLostLine,
   waitForSessionLease,
 } from "../session-terminal-lease.js";
-import { SessionUnavailableError, WorkerHostProcess } from "../worker-host/worker-host-process.js";
+import {
+  SessionUnavailableError,
+  WorkerHostProcess,
+  type WorkerHostLeaseResult,
+} from "../worker-host/worker-host-process.js";
 import type { WorkerHostReady, WorkerHostStartRequest } from "../worker-host/worker-host-protocol.js";
 import { cleanUpWorkerHostRecord } from "../worker-host/leftover-worker-hosts.js";
 import type { DexConnectionVariables } from "../cli-environment.js";
@@ -155,37 +159,44 @@ export class TerminalUiChatLauncher {
       await this.stopHost();
       return { kind: "exited", exitCode: 1 };
     }
-    const leaseExitCode = await this.waitForLease(host, startup.sessionId);
-    if (leaseExitCode !== undefined) {
+    const firstLease = await this.waitForLease(host, startup.sessionId);
+    if ("exitCode" in firstLease) {
       await this.stopHost();
-      return { kind: "exited", exitCode: leaseExitCode };
+      return { kind: "exited", exitCode: firstLease.exitCode };
     }
     if (startup.isResumed) {
       this.writeLine(`Resumed session ${startup.sessionId}.`);
     }
     let ready: WorkerHostReady = startup;
-    let previousSessionId: string | undefined;
+    let isFirstRun = true;
+    let takeoverLines = firstLease.acquired.notices;
     for (;;) {
-      const run = await this.handOff(host, ready, previousSessionId);
+      const run = await this.handOff(host, ready, isFirstRun, takeoverLines);
       if (run.kind === "done") {
         return run.outcome;
       }
-      const switchExitCode = await this.switchLease(host, ready.sessionId, run.sessionId);
-      if (switchExitCode !== undefined) {
+      const switched = await this.switchLease(host, ready.sessionId, run.sessionId);
+      if ("exitCode" in switched) {
         await this.stopHost();
-        return { kind: "exited", exitCode: switchExitCode };
+        return { kind: "exited", exitCode: switched.exitCode };
       }
-      previousSessionId = ready.sessionId;
-      ready = { ...ready, sessionId: run.sessionId, isResumed: run.isResumed };
+      isFirstRun = false;
+      takeoverLines = switched.acquired.notices;
+      // dexcli registers exactly the launch document's Flow type, so it must be the new session's own.
+      const flowType = switched.acquired.flowType ?? ready.flowType;
+      ready = { ...ready, sessionId: run.sessionId, isResumed: run.isResumed, flowType };
     }
   }
 
   /**
    * Takes the session's lease through the Worker host, waiting while another terminal has the session open.
-   * @returns `undefined` once this command holds the lease, else the exit code after Ctrl-C, a signal, or an
-   * unavailable session.
+   * @returns The Worker host's answer once this command holds the lease, else the exit code after Ctrl-C, a signal,
+   * or an unavailable session.
    */
-  private async waitForLease(host: WorkerHostProcess, sessionId: string): Promise<number | undefined> {
+  private async waitForLease(
+    host: WorkerHostProcess,
+    sessionId: string,
+  ): Promise<{ readonly acquired: WorkerHostLeaseResult } | { readonly exitCode: number }> {
     this.launch.commandSignals.release();
     const interrupt = new AbortController();
     let exitCode: number = leaseWaitSignalExitCodes.SIGINT;
@@ -197,23 +208,27 @@ export class TerminalUiChatLauncher {
       process.on(signal, listener);
       return [signal, listener] as const;
     });
+    let lastResult: WorkerHostLeaseResult | undefined;
     try {
       const outcome = await waitForSessionLease({
         sessionId,
-        attempt: () => host.acquireSessionLease(sessionId),
+        attempt: async () => {
+          lastResult = await host.acquireSessionLease(sessionId);
+          return lastResult;
+        },
         output: process.stderr,
         isAnimated: isAnimatedWaitingOutput(process.stderr, this.launch.environment.TERM),
         interruptSignal: interrupt.signal,
         isFinalFailure: isFinalLeaseFailure,
       });
-      return outcome === "acquired" ? undefined : exitCode;
+      return outcome === "acquired" && lastResult !== undefined ? { acquired: lastResult } : { exitCode };
     } catch (error: unknown) {
       if (!isFinalLeaseFailure(error)) {
         throw error;
       }
       const reason = error instanceof WorkerHostStoppedError ? workerHostStoppedLine : error.message;
       this.writeLine(`${this.launch.commandName}: ${reason}`);
-      return 1;
+      return { exitCode: 1 };
     } finally {
       for (const [signal, listener] of listeners) {
         process.off(signal, listener);
@@ -224,28 +239,36 @@ export class TerminalUiChatLauncher {
 
   /**
    * Moves the lease from the session the terminal UI left to the one it chose, waiting like at startup.
-   * @returns `undefined` once the new lease is held, else the exit code.
+   * @returns The Worker host's answer once the new lease is held, else the exit code.
    */
-  private async switchLease(host: WorkerHostProcess, fromSessionId: string, toSessionId: string): Promise<number | undefined> {
+  private async switchLease(
+    host: WorkerHostProcess,
+    fromSessionId: string,
+    toSessionId: string,
+  ): Promise<{ readonly acquired: WorkerHostLeaseResult } | { readonly exitCode: number }> {
     // Released first, so two terminals that switch to each other's sessions never wait on each other.
     await host.releaseSessionLease(fromSessionId);
-    const exitCode = await this.waitForLease(host, toSessionId);
-    if (exitCode !== undefined) {
+    const outcome = await this.waitForLease(host, toSessionId);
+    if ("exitCode" in outcome) {
       this.writeResumeLine(fromSessionId);
     }
-    return exitCode;
+    return outcome;
   }
 
   /**
    * Hands the terminal to one terminal UI run.
-   * @param previousSessionId - The session a handed-back switch left, which the run shows first, or `undefined`.
+   *
+   * A run after a switch names no `previous_session_id`: the Worker host stopped serving the session it left, so
+   * the terminal UI could not load that session's history.
+   * @param isFirstRun - Whether this is the command's first run, which shows the startup notices.
+   * @param takeoverLines - The lines about a takeover of the session from another place.
    */
   private async handOff(
     host: WorkerHostProcess,
     ready: WorkerHostReady,
-    previousSessionId: string | undefined,
+    isFirstRun: boolean,
+    takeoverLines: readonly string[],
   ): Promise<TerminalUiRunOutcome> {
-    const isFirstRun = previousSessionId === undefined;
     const terminalMode = new TerminalModeGuard();
     this.launch.commandSignals.release();
     const signals = new LauncherSignals();
@@ -261,7 +284,7 @@ export class TerminalUiChatLauncher {
           signals,
           isFirstRun ? this.launch.startedDexcliDevLines : [],
           isFirstRun ? this.workerHostStartupLines : [],
-          previousSessionId,
+          takeoverLines,
         );
       } catch (error: unknown) {
         // No terminal UI started, so nothing else stops the Worker host.
@@ -495,7 +518,7 @@ class TerminalUiHandoff {
     signals: LauncherSignals,
     startedDexcliDevLines: readonly string[],
     workerHostStartupLines: readonly string[],
-    previousSessionId: string | undefined,
+    takeoverLines: readonly string[],
   ) {
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
@@ -518,7 +541,6 @@ class TerminalUiHandoff {
       flowType: ready.flowType,
       sessionId: ready.sessionId,
       isResumed: ready.isResumed,
-      previousSessionId,
       model: launch.start.effective.model,
       harnessDefaultModel: launch.harnessDefaultModel,
       suggestedModels: launch.suggestedModels,
@@ -531,6 +553,7 @@ class TerminalUiHandoff {
       homeDirectory: launch.homeDirectory,
       startedDexcliDevLines,
       workerHostStartupLines,
+      takeoverLines,
     });
     this.finished = new Promise((resolve) => {
       this.resolveFinished = resolve;

@@ -108,6 +108,11 @@ export interface AgentHarness {
    * Steps of sessions started in the same execution environment, so an approved write or shell command runs
    * where it was approved. Processes in the same environment share their sessions' Steps. `--resume` and the
    * `sessions` subcommand see only the sessions of the same environment.
+   *
+   * Changed in 0.6.7: every new session has this Flow type itself and runs on its own task queue, which only the
+   * command that has the session open pulls. `--resume` opens a session of this Flow type from any execution
+   * environment, and the `sessions` subcommand lists them all. The CLI core still registers `<flowType>-<suffix>` for
+   * the sessions that releases before 0.6.7 started; they still resume only in their own execution environment.
    */
   readonly flowType: string;
   /** The model when the file sets none, or `null` when the command must refuse to run without one. */
@@ -228,7 +233,13 @@ export interface AgentHarness {
  * @since 0.5.0
  */
 export interface HarnessContext {
-  /** The Flow type to build: {@link AgentHarness.flowType} with the execution environment hash. */
+  /**
+   * The Flow type to build: {@link AgentHarness.flowType} with the execution environment hash.
+   *
+   * Changed in 0.6.7: the CLI core calls {@link AgentHarness.createSessionFlow} twice, once with
+   * {@link AgentHarness.flowType} itself for new sessions and once with the hashed Flow type for sessions from before
+   * 0.6.7. Each call must build a new Flow.
+   */
   readonly flowType: string;
   /** The file's effective configuration, after command-line overrides. */
   readonly config: EffectiveConfig;

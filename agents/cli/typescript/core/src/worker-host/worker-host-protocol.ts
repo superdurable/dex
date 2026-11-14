@@ -45,8 +45,9 @@ export interface WorkerHostExecuteRequest {
 
 /**
  * The launcher's own requests, sent as {@link WorkerHostExecuteRequest}s but never offered to the terminal UI:
- * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, and `release_session_lease {session_id}`
- * answers `{}`.
+ * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, plus `flow_type` and `notices` once
+ * acquired: the session's Flow type and the lines about a takeover from another place. `release_session_lease
+ * {session_id}` answers `{}`.
  */
 export const workerHostLeaseMethods = {
   acquire: "acquire_session_lease",

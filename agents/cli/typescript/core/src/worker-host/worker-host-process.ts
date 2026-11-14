@@ -30,6 +30,16 @@ import {
 /** The session to open does not exist, has another Flow type, or does not run. */
 export class SessionUnavailableError extends Error {}
 
+/** One answer of the Worker host to a lease attempt. */
+export interface WorkerHostLeaseResult {
+  readonly isAcquired: boolean;
+  readonly lease: SessionTerminalLease | null;
+  /** The session's Flow type, once acquired. */
+  readonly flowType: string | undefined;
+  /** The lines about a takeover from another place, once acquired; often none. */
+  readonly notices: readonly string[];
+}
+
 /** How long each step of a Worker host shutdown waits for the host to exit. */
 export interface WorkerHostStopBounds {
   /** After asking it to shut down, before SIGTERM. */
@@ -184,9 +194,7 @@ export class WorkerHostProcess {
    * @throws {SessionUnavailableError} When the session does not run with this command's Flow type.
    * @throws {WorkerHostStoppedError} When the Worker host is gone, so no later attempt can succeed.
    */
-  public async acquireSessionLease(
-    sessionId: string,
-  ): Promise<{ readonly isAcquired: boolean; readonly lease: SessionTerminalLease | null }> {
+  public async acquireSessionLease(sessionId: string): Promise<WorkerHostLeaseResult> {
     const outcome = await this.execute(workerHostLeaseMethods.acquire, { session_id: sessionId }, "");
     if ("error" in outcome) {
       if (outcome.error.code === "host_stopped") {
@@ -196,8 +204,18 @@ export class WorkerHostProcess {
         ? new SessionUnavailableError(outcome.error.message)
         : new Error(outcome.error.message);
     }
-    const result = outcome.result as { is_acquired?: unknown; lease?: SessionTerminalLease | null };
-    return { isAcquired: result.is_acquired === true, lease: result.lease ?? null };
+    const result = outcome.result as {
+      is_acquired?: unknown;
+      lease?: SessionTerminalLease | null;
+      flow_type?: unknown;
+      notices?: unknown;
+    };
+    return {
+      isAcquired: result.is_acquired === true,
+      lease: result.lease ?? null,
+      flowType: typeof result.flow_type === "string" ? result.flow_type : undefined,
+      notices: Array.isArray(result.notices) ? result.notices.filter((notice) => typeof notice === "string") : [],
+    };
   }
 
   /**

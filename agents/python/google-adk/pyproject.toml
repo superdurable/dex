@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "dex-agents==0.1.0",
-    "dex-python-sdk==1.45.0",
+    "dex-python-sdk==1.45.1",
     "google-adk>=2.13,<3",
     "pydantic>=2.11,<3",
 ]

@@ -109,6 +109,43 @@ describe("session terminal lease", () => {
     assert.notEqual(next.lease?.openedAt, first.lease?.openedAt);
   });
 
+  test("a new holder's environment stays as the last terminal environment after its release", async () => {
+    const sessionId = await startedSession();
+    const environmentA = { host_name: "host-a", workspace: "/work/a" };
+    const environmentB = { host_name: "host-b", workspace: "/work/b" };
+    const readLastEnvironment = async (): Promise<Readonly<Record<string, string>> | undefined> =>
+      (await environment.client.getAttributes(sessionId, flow.sessionLastTerminalEnvironment))[0];
+
+    await environment.client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, request("holder-a"));
+    assert.equal(await readLastEnvironment(), undefined);
+    await environment.client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId: "holder-a" });
+
+    await environment.client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+      ...request("holder-a"),
+      environment: environmentA,
+    });
+    assert.deepEqual(await readLastEnvironment(), environmentA);
+    await environment.client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+      ...request("holder-a"),
+      environment: environmentB,
+    });
+    assert.deepEqual(await readLastEnvironment(), environmentA, "a renewal keeps the stored environment");
+    const refused = await environment.client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+      ...request("holder-b"),
+      environment: environmentB,
+    });
+    assert.equal(refused.isAcquired, false);
+    assert.deepEqual(await readLastEnvironment(), environmentA, "a refused call keeps the stored environment");
+
+    await environment.client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId: "holder-a" });
+    assert.deepEqual(await readLastEnvironment(), environmentA, "a release keeps the stored environment");
+    await environment.client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
+      ...request("holder-b"),
+      environment: environmentB,
+    });
+    assert.deepEqual(await readLastEnvironment(), environmentB);
+  });
+
   test("an invalid request returns no lease and writes nothing", async () => {
     const sessionId = await startedSession();
     for (const invalid of [

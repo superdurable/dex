@@ -17,7 +17,7 @@ classifiers = [
 dependencies = [
     "claude-agent-sdk>=0.2.176,<0.3",
     "dex-agents==0.1.0",
-    "dex-python-sdk==1.45.0",
+    "dex-python-sdk==1.45.1",
     "jsonschema>=4,<5",
     "mcp>=2.3,<3",
 ]

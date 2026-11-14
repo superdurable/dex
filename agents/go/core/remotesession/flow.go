@@ -161,6 +161,7 @@ func (flow *RemoteSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			dexagents.SessionSettingsAttribute,
 			dexagents.TurnSessionSettingsAttribute,
 			dexagents.SessionTerminalLeaseAttribute,
+			dexagents.SessionLastTerminalEnvironmentAttribute,
 		},
 		Channels: []dex.ChannelDef{
 			dexagents.QueuedUserMessagesChannel,

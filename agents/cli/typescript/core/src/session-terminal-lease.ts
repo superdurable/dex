@@ -335,6 +335,7 @@ export class SessionLeaseRenewal {
 
 /**
  * Takes or renews a session's lease through the session Flow's RPC, within 5 s.
+ * @param environment - This command's environment, which the session keeps as where it was last open.
  * @returns The RPC's result.
  */
 export function acquireSessionLease(
@@ -343,6 +344,7 @@ export function acquireSessionLease(
   sessionId: string,
   holder: SessionLeaseHolder,
   ttlSeconds: number,
+  environment: Readonly<Record<string, string>> | null = null,
 ): Promise<SessionTerminalLeaseResult> {
   return withinTimeout(
     client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
@@ -350,9 +352,20 @@ export function acquireSessionLease(
       hostName: holder.hostName,
       processId: holder.processId,
       ttlSeconds,
+      environment,
     }),
     leaseCallTimeoutMs,
   );
+}
+
+/**
+ * Returns whether a stored lease expired by this host's clock; an expiry that does not parse counts as expired.
+ * @param lease - The stored lease.
+ * @param now - This host's current time.
+ */
+export function isLeaseExpiredHere(lease: SessionTerminalLease, now: Date): boolean {
+  const expiresAt = Date.parse(lease.expiresAt);
+  return Number.isNaN(expiresAt) || expiresAt <= now.getTime();
 }
 
 /**

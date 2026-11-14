@@ -18,6 +18,10 @@ const describeTimeoutMs = 5_000;
 /** The first `dexcli` release whose `agents-tui` speaks contract 1. */
 export const terminalUiMinimumDexcliVersion = "1.46.0";
 const newerDexcliHint = `The terminal UI needs dexcli ${terminalUiMinimumDexcliVersion} or later; point DEXCLI at one`;
+/** The capability a chat needs: each session runs on its own task queue, so the launcher must open a switch. */
+const launcherSessionSwitchCapability = "launcher_session_switch";
+/** The first `dexcli` release that hands session switches back to the launcher. */
+const launcherSessionSwitchMinimumDexcliVersion = "1.47.2";
 
 /** A mode of the terminal UI. */
 export type TerminalUiMode = "chat" | "sessions" | "connectors";
@@ -25,13 +29,40 @@ export type TerminalUiMode = "chat" | "sessions" | "connectors";
 /** The `--describe` output of a `dexcli`, after it passed its schema. */
 export interface TerminalUiDescription {
   readonly dexcli_version: string;
-  readonly contracts: Readonly<Record<string, { readonly modes: Readonly<Record<string, unknown>> }>>;
+  readonly contracts: Readonly<
+    Record<string, { readonly modes: Readonly<Record<string, unknown>>; readonly capabilities?: readonly string[] }>
+  >;
 }
 
 /** The contract to hand off with, or the plain reason of the contract. */
 export type ContractChoice =
   | { readonly contract: number }
-  | { readonly plainReason: "describe_failed" | "no_common_contract" | "mode_missing"; readonly detail: string };
+  | {
+      readonly plainReason: "describe_failed" | "no_common_contract" | "mode_missing" | "capability_missing";
+      readonly detail: string;
+    };
+
+/**
+ * Returns the choice for a chat, which needs `launcher_session_switch`: a `dexcli` without it switches sessions in
+ * place, onto a session task queue that no Worker of this command pulls.
+ * @param description - A `--describe` document that passed its schema.
+ * @param choice - The contract {@link chooseContract} chose.
+ */
+export function requireChatCapabilities(description: TerminalUiDescription, choice: ContractChoice): ContractChoice {
+  if (!("contract" in choice)) {
+    return choice;
+  }
+  const capabilities = description.contracts[String(choice.contract)]?.capabilities ?? [];
+  if (capabilities.includes(launcherSessionSwitchCapability)) {
+    return choice;
+  }
+  return {
+    plainReason: "capability_missing",
+    detail:
+      `dexcli ${description.dexcli_version} cannot hand session switches back to this command. ` +
+      `The terminal UI needs dexcli ${launcherSessionSwitchMinimumDexcliVersion} or later; point DEXCLI at one`,
+  };
+}
 
 /**
  * Returns the highest contract both sides support whose modes include `mode`.
@@ -77,7 +108,8 @@ export async function negotiateTerminalUi(dexcli: string, mode: TerminalUiMode):
   if (typeof output !== "object") {
     return { plainReason: "describe_failed", detail: `${dexcli} has no terminal UI (${output}). ${newerDexcliHint}` };
   }
-  return chooseContract(launcherContractVersions, output, mode);
+  const choice = chooseContract(launcherContractVersions, output, mode);
+  return mode === "chat" ? requireChatCapabilities(output, choice) : choice;
 }
 
 /**

@@ -8,6 +8,12 @@
       "description": "Acquire or renew for 15 seconds.",
       "wire": "{\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"process_id\":4242,\"ttl_seconds\":15}",
       "canonical": "{\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"process_id\":4242,\"ttl_seconds\":15}"
+    },
+    {
+      "name": "with-environment",
+      "description": "Acquire with the caller's environment, which a new holder stores.",
+      "wire": "{\"environment\":{\"config_identity\":\"/home/ada/.dex/agents/builtin.yaml\",\"host_name\":\"host-a\",\"user_id\":\"501\",\"user_name\":\"ada\",\"workspace\":\"/home/ada/dex-agent-workspace\"},\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"process_id\":4242,\"ttl_seconds\":15}",
+      "canonical": "{\"environment\":{\"config_identity\":\"/home/ada/.dex/agents/builtin.yaml\",\"host_name\":\"host-a\",\"user_id\":\"501\",\"user_name\":\"ada\",\"workspace\":\"/home/ada/dex-agent-workspace\"},\"holder_id\":\"5f0c9a7e2b1d4c3f8e6a9b0c1d2e3f40\",\"host_name\":\"host-a\",\"process_id\":4242,\"ttl_seconds\":15}"
     }
   ]
 }

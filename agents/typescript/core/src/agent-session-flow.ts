@@ -485,6 +485,11 @@ export interface AgentSessionFlow<
    * caller can say which terminal has the session and try again later. A lease only coordinates callers that
    * take it: older commands and other clients still read and write the session.
    *
+   * When the call gives the lease to a holder that did not hold it and carries an `environment`, it also stores
+   * that map in `SessionLastTerminalEnvironment`. A renewal and a refused call leave that Attribute unchanged.
+   *
+   * Changed in 0.6.7: stores the request's `environment`.
+   *
    * The RPC locks `SessionTerminalLease` and can fail with `RpcLockConflictError`, which is safe to retry. A
    * lock conflict never means another holder took the lease.
    *
@@ -681,6 +686,11 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly turnSessionSettings = persistence.turnSessionSettings;
     /** The `SessionTerminalLease` Attribute; see {@link AgentSessionPersistence.sessionTerminalLease}. */
     public readonly sessionTerminalLease = persistence.sessionTerminalLease;
+    /**
+     * The `SessionLastTerminalEnvironment` Attribute; see
+     * {@link AgentSessionPersistence.sessionLastTerminalEnvironment}. Since 0.6.7.
+     */
+    public readonly sessionLastTerminalEnvironment = persistence.sessionLastTerminalEnvironment;
     /** The `TurnReplySequence` Attribute; see {@link AgentSessionPersistence.turnReplySequence}. */
     public readonly turnReplySequence = persistence.turnReplySequence;
     /** The `AgentSessionTitle` Attribute; see {@link AgentSessionPersistence.agentSessionTitle}. */
@@ -744,6 +754,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.turnSessionSettings,
           persistence.turnReplySequence,
           persistence.sessionTerminalLease,
+          persistence.sessionLastTerminalEnvironment,
           ...(config.summaryAttributesIndexed
             ? [persistence.agentSessionTitle, persistence.agentSessionLastActivityAt, persistence.agentSessionTurnCount]
             : []),
@@ -955,14 +966,15 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       context: Context,
       input: AcquireSessionTerminalLeaseRequest,
     ): RPCResult<SessionTerminalLeaseResult> {
-      // Dex does not replay handlers, and a CLI Flow type's Workers share one host clock.
-      const acquisition = decideSessionTerminalLeaseAcquisition(
-        persistence.sessionTerminalLease.get(context),
-        input,
-        new Date(),
-      );
+      // Dex does not replay handlers, and a session's Workers on different hosts must keep their clocks close.
+      const current = persistence.sessionTerminalLease.get(context);
+      const acquisition = decideSessionTerminalLeaseAcquisition(current, input, new Date());
       if (acquisition.leaseToWrite !== null) {
         persistence.sessionTerminalLease.set(context, acquisition.leaseToWrite);
+      }
+      const environment = input.environment ?? null;
+      if (acquisition.result.isAcquired && environment !== null && current?.holderId !== input.holderId) {
+        persistence.sessionLastTerminalEnvironment.set(context, environment);
       }
       return { output: acquisition.result };
     }

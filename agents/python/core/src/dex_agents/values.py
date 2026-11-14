@@ -1081,17 +1081,31 @@ class AcquireSessionTerminalLeaseRequest:
 
     .. versionadded:: 0.6.3
 
+    .. versionchanged:: 0.6.7
+       Added ``environment``.
+
     Attributes:
         holder_id: The holder's random ID. It must not be blank.
         host_name: The holder's host name, at most 255 Unicode code points.
         process_id: The process ID to show to a waiting client; not negative.
         ttl_seconds: How long the lease lasts from now, from 1 to 3600 seconds.
+        environment: The caller's execution environment as text pairs, such
+            as its host name and workspace, or ``None`` for none. When the
+            call gives the lease to a holder that did not hold it, the session
+            stores this map in the ``SessionLastTerminalEnvironment``
+            Attribute. A renewal and a refused call leave that Attribute
+            unchanged. A session list can then show where each session was
+            last open. The session never reads the keys. Workers before 0.6.7
+            ignore the field. The wire field is left out when ``None``.
     """
 
     holder_id: str
     host_name: str
     process_id: int
     ttl_seconds: int
+    environment: dict[str, str] | None = field(
+        default=None, metadata={"dex_json_omit_default": True}
+    )
 
 
 @dataclass(frozen=True, kw_only=True)

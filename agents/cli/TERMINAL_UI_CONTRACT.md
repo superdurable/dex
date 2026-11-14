@@ -200,11 +200,11 @@ right after the spawn. It holds no secret.
 | `dex.tls` | `enabled`, plus a CA bundle path and a server name, each `null` for the default. |
 | `dex.auth` | How to authenticate, as in the table above. A launch document whose `auth` carries `credential`, `api_key`, `token`, or `access_token` fails the schema. |
 | `dex.web_url` | The Dex Web base URL, or `null`. `open_url` only opens URLs under it. |
-| `session` | chat: `flow_type`, `session_id`, and `is_resumed` (`true` loads the history), plus `previous_session_id` after a [Session switch](#session-switch). sessions: `flow_type`. |
+| `session` | chat: `flow_type`, `session_id`, and `is_resumed` (`true` loads the history), plus `previous_session_id` after a [Session switch](#session-switch). sessions: `flow_type`. `flow_type` is the session's own Flow type. `dexcli` registers only it, and `/sessions` lists only sessions of it. Since agents 0.6.7, a new CLI session has the harness's Flow type, such as `DexAgentsOpenAISdkCliSession`, and its own task queue. A session from an earlier release has the environment-hashed Flow type of the example. |
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. `models` lists the model IDs `/model` offers: the configured model first, then the harness command's suggestions. See [Model and reasoning effort](#model-and-reasoning-effort). |
 | `methods` | The local requests the launcher side serves. |
 | `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. `reasoning_effort` is present only when the harness command maps the `reasoning_effort` session setting to its SDK, with the `values` it accepts, from least to most effort. `launcher_session_switch` is `true` when the launcher opens the session a switch names (see [Session switch](#session-switch)). An absent boolean is `false`. |
-| `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
+| `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the lines about a takeover of the session from another place, as `info` (since agents 0.6.7), then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
 
@@ -395,15 +395,22 @@ place:
 3. The launcher acts on it only when it read a complete `switch_session` and
    the exit code is 0. It releases the old session, waits until it can take
    the new one, and launches `dexcli` again with a chat launch document for
-   that session (`session_id`, and `is_resumed` from the message), with
-   `previous_session_id` set to the session it left and no notices. It
-   prints nothing on the terminal for the switch except the lines of the
-   wait. A `switch_session` followed by any other exit is ignored, and the
-   exit counts as usual.
+   that session (`session_id`, and `is_resumed` from the message, and the new
+   session's own `flow_type`), with `previous_session_id` set to the session
+   it left and no notices. It prints nothing on the terminal for the switch
+   except the lines of the wait. A `switch_session` followed by any other exit
+   is ignored, and the exit counts as usual.
 4. A terminal UI whose launch document has `previous_session_id` shows that
    session's history first, then switches to `session_id` as an in-place
    switch does: the `── session <id> ──` notice, then that session's history.
    So the switch looks the same as without the capability.
+
+Since agents 0.6.7, the CLI cores leave out `previous_session_id`. Each
+session runs on its own task queue, and the Worker host stops pulling the
+session it left, so no Worker would answer the snapshot of that session's
+history. The relaunched terminal UI starts with the new session's history.
+Its notices are the lines about a takeover of the new session from another
+place, when there are any (see `cli_session_task_queues.json`).
 
 `switch_session` is the last message `dexcli` sends. Without the capability,
 `dexcli` switches in place as before.
@@ -411,7 +418,9 @@ place:
 dexcli 1.47.2 is the first release that sends `switch_session` and lists
 `launcher_session_switch` in `--describe`. An older `dexcli` ignores the
 capability and switches in place, so the launcher's lease stays on the
-session the chat started in.
+session the chat started in. Since agents 0.6.7, the CLI cores use the plain
+chat when `--describe` lacks `launcher_session_switch`, because an in-place
+switch would show a session whose task queue no Worker pulls.
 
 ## Requests
 
@@ -550,6 +559,9 @@ harmless.
 
 **`start_session`** starts a new session of the launch document's Flow type
 and returns its ID once the session is ready, as the command does at startup.
+Since agents 0.6.7 the new session has the harness's Flow type and its own
+task queue, even when the launch document names an environment-hashed Flow
+type, and no Worker pulls that queue until a `switch_session` opens it.
 
 1. It derives two candidate session IDs from the key:
    `<harness>-<YYYYMMDD>-<HHMMSS>-<hex6>` and the same with `<hex12>`. The

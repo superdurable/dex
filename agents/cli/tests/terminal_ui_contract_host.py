@@ -95,7 +95,7 @@ DEFAULT_DESCRIBE: Final[dict[str, Any]] = {
                 "sessions": {"uses_methods": []},
                 "connectors": {"uses_methods": ["list_connectors", "open_url"]},
             },
-            "capabilities": ["images", "plan_mode", "turn_control"],
+            "capabilities": ["images", "plan_mode", "turn_control", "launcher_session_switch"],
         }
     },
 }

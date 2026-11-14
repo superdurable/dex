@@ -140,6 +140,13 @@ SESSION_TERMINAL_LEASE: Attribute[SessionTerminalLease] = Attribute(
     "SessionTerminalLease", SessionTerminalLease
 )
 
+#: The ``environment`` of the latest ``acquire_session_terminal_lease`` call that gave the
+#: lease to a new holder. It stays after a release, so it says where the session was last
+#: open. Unset until such a call carries an ``environment``. Since 0.6.7.
+SESSION_LAST_TERMINAL_ENVIRONMENT: Attribute[dict[str, str]] = Attribute(
+    "SessionLastTerminalEnvironment", dict[str, str]
+)
+
 #: The settings a turn started with, tagged with its turn, copied from ``SessionSettings``
 #: when the turn began. A copy from an earlier turn reads as no settings.
 TURN_SESSION_SETTINGS: Attribute[TurnSessionSettings] = Attribute(

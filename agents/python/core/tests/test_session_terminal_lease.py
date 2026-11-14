@@ -11,11 +11,16 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
 
-from dex_agents import SESSION_TERMINAL_LEASE, AcquireSessionTerminalLeaseRequest
+from dex_agents import (
+    SESSION_LAST_TERMINAL_ENVIRONMENT,
+    SESSION_TERMINAL_LEASE,
+    AcquireSessionTerminalLeaseRequest,
+)
 from tests.conftest import ScriptedAgentHarness
 
 
@@ -99,6 +104,46 @@ async def test_release_frees_the_lease_only_for_its_holder(harness: ScriptedAgen
     assert (
         await harness.sessions.acquire_session_terminal_lease(session_id, _request("b"))
     ).is_acquired
+
+
+async def test_a_new_holders_environment_stays_as_the_last_terminal_environment(
+    harness: ScriptedAgentHarness,
+) -> None:
+    session_id = await _started_session(harness)
+    sessions = harness.sessions
+    environment_a = {"host_name": "host-a", "workspace": "/work/a"}
+    environment_b = {"host_name": "host-b", "workspace": "/work/b"}
+
+    async def last_environment() -> dict[str, str] | None:
+        stored = await harness.stack.client.get_attributes(
+            session_id, SESSION_LAST_TERMINAL_ENVIRONMENT
+        )
+        return stored.get(SESSION_LAST_TERMINAL_ENVIRONMENT)
+
+    await sessions.acquire_session_terminal_lease(session_id, _request("a"))
+    assert await last_environment() is None
+    await sessions.release_session_terminal_lease(session_id, "a")
+
+    await sessions.acquire_session_terminal_lease(
+        session_id, replace(_request("a"), environment=environment_a)
+    )
+    assert await last_environment() == environment_a
+    await sessions.acquire_session_terminal_lease(
+        session_id, replace(_request("a"), environment=environment_b)
+    )
+    assert await last_environment() == environment_a, "a renewal keeps the stored environment"
+    refused = await sessions.acquire_session_terminal_lease(
+        session_id, replace(_request("b"), environment=environment_b)
+    )
+    assert not refused.is_acquired
+    assert await last_environment() == environment_a, "a refused call keeps it"
+
+    await sessions.release_session_terminal_lease(session_id, "a")
+    assert await last_environment() == environment_a, "a release keeps it"
+    await sessions.acquire_session_terminal_lease(
+        session_id, replace(_request("b"), environment=environment_b)
+    )
+    assert await last_environment() == environment_b
 
 
 @pytest.mark.parametrize(

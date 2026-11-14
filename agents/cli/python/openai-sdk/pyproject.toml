@@ -18,7 +18,7 @@ dependencies = [
     "dex-agents==0.1.0",
     "dex-agents-cli-core==0.1.0",
     "dex-agents-openai-agents==0.1.0",
-    "dex-python-sdk==1.45.0",
+    "dex-python-sdk==1.45.1",
     "openai-agents>=0.24,<0.25",
 ]
 

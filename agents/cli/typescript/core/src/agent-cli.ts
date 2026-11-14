@@ -14,7 +14,18 @@ import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { format, parseArgs } from "node:util";
 
-import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
+import {
+  Attribute,
+  Client,
+  Registry,
+  StepList,
+  Worker,
+  jsonCodec,
+  openBlobCache,
+  type BlobCache,
+  type Flow,
+  type PersistenceSchema,
+} from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
   listAgentSessions,
@@ -23,8 +34,10 @@ import {
   startAgentSession,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
+  type AgentSessionSummary,
   type DeferredToolOutcome,
   type MediaStore,
+  type SessionTerminalLeaseResult,
   type ToolSource,
   type TurnSessionSettings,
 } from "@superdurable/dex-agents";
@@ -93,16 +106,28 @@ import {
 import { waitForQueuedOutput } from "./queued-output.js";
 import { collectSessionsForList } from "./session-list-pages.js";
 import {
+  SessionOpener,
+  SessionQueueWorker,
+  SessionWorkerStartError,
+  TakenOverTurnRefusal,
+  UnopenableSessionError,
+  cliAppWorkerId,
+  type OpenableSession,
+} from "./session-opener.js";
+import {
+  describeSessionEnvironment,
+  isNamedTaskQueueProtocolError,
+  namedTaskQueueServerError,
+  sessionTaskQueue,
+} from "./session-task-queues.js";
+import {
   SessionLeaseRenewal,
-  acquireSessionLease,
   defaultSessionLeaseTtlSeconds,
   describeLeaseHolder,
   isAnimatedWaitingOutput,
   leaseLostLine,
   newSessionLeaseHolder,
-  releaseSessionLease,
   waitForSessionLease,
-  type SessionLeaseHolder,
 } from "./session-terminal-lease.js";
 import { commandPackageVersion } from "./terminal-ui/command-package-version.js";
 import { TerminalUiChatLauncher, type TerminalUiChatOutcome } from "./terminal-ui/terminal-ui-chat-launcher.js";
@@ -290,14 +315,23 @@ interface ParsedArguments {
 /** A command-line or configuration error: the command exits with 2. */
 export class UsageError extends Error {}
 
-/** The Worker half of a chat: the session Flow, its Worker and Client, and the session. */
+/** The Worker half of a chat: the session Flows, their Workers and Client, and the session. */
 export interface OpenedSessionWorker {
-  /** The Client, whose Registry contains {@link flow}. */
+  /** The Client, whose Registry contains {@link flow} and {@link sessionFlow}. */
   readonly client: Client;
-  /** The session Flow. */
+  /** The session Flow of the opened session's Flow type. */
   readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
-  /** The session Flow type of this execution environment. */
+  /**
+   * The opened session's Flow type: the harness's Flow type, or this execution environment's environment-hashed one
+   * for a session from a release before 0.6.7.
+   */
   readonly flowType: string;
+  /** The session Flow of the harness's Flow type, which every new session uses. */
+  readonly sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  /** Opens, renews, and leaves sessions, and moves the session Worker between task queues. */
+  readonly opener: SessionOpener;
+  /** The opened session. */
+  readonly session: OpenableSession;
   /** The session. */
   readonly sessionId: string;
   /** Whether the session was resumed rather than started. */
@@ -314,18 +348,14 @@ export interface OpenedSessionWorker {
 
 /** The lease the plain chat holds, with what releases it. */
 interface HeldSessionLease {
-  readonly client: Client;
-  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  readonly opener: SessionOpener;
   readonly sessionId: string;
-  readonly holder: SessionLeaseHolder;
   readonly renewal: SessionLeaseRenewal;
 }
 
 /** The sessions whose lease call got no answer; releasing them by holder ID is harmless. */
 interface UnansweredSessionLeases {
-  readonly client: Client;
-  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
-  readonly holderId: string;
+  readonly opener: SessionOpener;
   readonly sessionIds: Set<string>;
 }
 
@@ -345,7 +375,10 @@ export class AgentCliCommand {
   private input: TerminalInput | undefined;
   private isInitInterrupted = false;
   private linesTypedAhead: readonly string[] = [];
+  /** The Worker of this execution environment's environment-hashed sessions, on the default task queue. */
   private worker: Worker | undefined;
+  /** The Worker of the one session this command has open, on that session's task queue. */
+  private sessionWorker: SessionQueueWorker | undefined;
   private client: Client | undefined;
   private blobCache: BlobCache | undefined;
   private blobCacheDirectory: string | undefined;
@@ -496,7 +529,7 @@ export class AgentCliCommand {
     await this.releaseHeldSessionLease();
     this.input?.close();
     await this.client?.close().catch(() => undefined);
-    await this.worker?.close().catch(() => undefined);
+    await Promise.all([this.worker?.close().catch(() => undefined), this.sessionWorker?.close()]);
     await this.localTools?.close().catch(() => undefined);
     this.mediaStore?.close?.();
     this.blobCache?.close();
@@ -570,35 +603,42 @@ export class AgentCliCommand {
       resumeSessionId,
       isOpeningConnectorsPage,
       toolProcessGroups: undefined,
+      leaseHolderProcessId: process.pid,
     });
-    const sessionId = opened.sessionId;
+    const { opener, session, sessionId } = opened;
     // From here Ctrl-C ends the wait for the lease, and then the chat handles it.
     this.startedDexcliDev.releaseInterrupt();
-    const holder = newSessionLeaseHolder(process.pid);
     const ttlSeconds = this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
     // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
     const unanswered = new Set<string>();
-    this.unansweredSessionLeases = { client: opened.client, flow: opened.flow, holderId: holder.holderId, sessionIds: unanswered };
-    const acquireFor = async (id: string): ReturnType<typeof acquireSessionLease> => {
+    this.unansweredSessionLeases = { opener, sessionIds: unanswered };
+    const tracked = async (id: string, call: () => Promise<SessionTerminalLeaseResult>): Promise<SessionTerminalLeaseResult> => {
       unanswered.add(id);
-      const result = await acquireSessionLease(opened.client, opened.flow, id, holder, ttlSeconds);
+      const result = await call();
       unanswered.delete(id);
       return result;
     };
     this.listenForTerminationSignals();
-    if ((await this.waitForPlainChatLease(sessionId, () => acquireFor(sessionId))) === "interrupted") {
+    const waited = await this.waitForPlainChatLease(sessionId, () => tracked(sessionId, () => opener.attempt(session)));
+    if (waited === "interrupted") {
       return interruptedExitCode;
+    }
+    for (const line of await opener.completeTakeover(sessionId)) {
+      this.log(line);
     }
     let lostLeaseLine: string | undefined;
     const chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
       mediaStore: opened.mediaStore,
       homeDirectory: this.environment.homeDirectory,
     });
-    const renewal = new SessionLeaseRenewal(holder.holderId, ttlSeconds, acquireFor, (lostSessionId, lease) => {
+    const renewFor = (id: string): Promise<SessionTerminalLeaseResult> => tracked(id, () => opener.renew(id));
+    const renewal = new SessionLeaseRenewal(opener.holderId, ttlSeconds, renewFor, (lostSessionId, lease) => {
       lostLeaseLine = leaseLostLine(lostSessionId, describeLeaseHolder(lease));
+      // The other terminal runs the session now, so this command stops pulling its task queue at once.
+      opener.leave(lostSessionId);
       chat.stop();
     });
-    this.heldSessionLease = { client: opened.client, flow: opened.flow, sessionId, holder, renewal };
+    this.heldSessionLease = { opener, sessionId, renewal };
     renewal.renew(sessionId);
     if (opened.isResumed) {
       this.io.stdout.write(`Resumed session ${sessionId}.\n`);
@@ -631,7 +671,7 @@ export class AgentCliCommand {
   /** Waits for the session's lease; Ctrl-C ends the wait. */
   private async waitForPlainChatLease(
     sessionId: string,
-    attempt: () => ReturnType<typeof acquireSessionLease>,
+    attempt: () => Promise<SessionTerminalLeaseResult>,
   ): Promise<"acquired" | "interrupted"> {
     const interrupt = new AbortController();
     const onInterrupt = (): void => interrupt.abort();
@@ -643,6 +683,7 @@ export class AgentCliCommand {
         output: this.io.stderr,
         isAnimated: isAnimatedWaitingOutput(this.io.stderr, this.io.environment.TERM),
         interruptSignal: interrupt.signal,
+        isFinalFailure: (error) => error instanceof SessionWorkerStartError,
       });
     } finally {
       process.off("SIGINT", onInterrupt);
@@ -658,11 +699,11 @@ export class AgentCliCommand {
     held?.renewal.stop();
     const releases: Promise<void>[] = [];
     if (held !== undefined) {
-      releases.push(releaseSessionLease(held.client, held.flow, held.sessionId, held.holder.holderId));
+      releases.push(held.opener.release(held.sessionId));
     }
     for (const sessionId of unanswered?.sessionIds ?? []) {
       if (unanswered !== undefined && sessionId !== held?.sessionId) {
-        releases.push(releaseSessionLease(unanswered.client, unanswered.flow, sessionId, unanswered.holderId));
+        releases.push(unanswered.opener.release(sessionId));
       }
     }
     if (releases.length > 0) {
@@ -789,17 +830,23 @@ export class AgentCliCommand {
   }
 
   /**
-   * Opens the Worker half of a chat: the media store, the connectors, the local tools, the session Flow, the Worker,
-   * the session graph upload, and the new or resumed session. The plain chat and the Worker host both call it.
+   * Opens the Worker half of a chat: the media store, the connectors, the local tools, the session Flows, their
+   * Workers, the session graph upload, and the new or resumed session. The plain chat and the Worker host both call
+   * it.
+   *
+   * A new session uses the harness's Flow type and its own task queue. The session Worker pulls that queue only
+   * once {@link SessionOpener.attempt} finds the session free. The other Worker always pulls the default task queue
+   * for this execution environment's environment-hashed sessions from before 0.6.7.
    *
    * @param effective - The effective configuration.
    * @param loaded - The loaded configuration file.
    * @param server - The Dex server.
    * @param connection - How to verify and authenticate to the Dex server.
-   * @param options - The session to resume, whether to open the Connectors page, and the tool process group
-   * registry of a Worker host.
-   * @returns The opened session; {@link close} releases it.
-   * @throws {UsageError} When the session to resume does not exist or belongs to another environment.
+   * @param options - The session to resume, whether to open the Connectors page, the tool process group registry of
+   * a Worker host, and the process ID that the lease shows to a waiting terminal.
+   * @returns The opened session, whose lease is not taken yet; {@link close} releases it.
+   * @throws {UsageError} When the session to resume does not exist, does not run, or belongs to another harness or
+   * to another execution environment's environment-hashed Flow type.
    * @throws {DexConnectionSettingsError} When the CA file or the bearer token file is unusable.
    */
   public async openSessionWorker(
@@ -811,6 +858,7 @@ export class AgentCliCommand {
       readonly resumeSessionId: string | undefined;
       readonly isOpeningConnectorsPage: boolean;
       readonly toolProcessGroups: ToolProcessGroupRegistry | undefined;
+      readonly leaseHolderProcessId: number;
     },
   ): Promise<OpenedSessionWorker> {
     const connectionOptions = this.dexConnectionOptions(server, connection);
@@ -824,7 +872,7 @@ export class AgentCliCommand {
     );
     const workspace = this.prepareWorkspace(effective, loaded);
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);
-    const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
+    const legacyFlowType = namespaceSessionFlowType(this.harness.flowType, identity);
     const mediaStore = this.mediaStore;
     // Both sources stay registered even when switched off, so they refuse calls another process requested.
     const connectorsSource = await this.connectConnectors(effective, server, turns, options.isOpeningConnectorsPage, mediaStore);
@@ -838,60 +886,99 @@ export class AgentCliCommand {
     );
     const mcpServersSource = await this.connectMcpServers(effective, turns, mediaStore);
     const toolSources: ToolSource[] = [connectorSource, mcpServersSource, this.localTools];
-    const context: HarnessContext = {
-      flowType,
-      config: effective,
-      workspace,
-      instructions: turns.currentTurn().instructions,
-      harnessOptions: effective.harness_options,
-      toolSources,
-      mediaStore,
-      isSessionSummaryIndexed: isSessionSummaryIndexed(effective),
-      resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
-      currentTurn: () => turns.currentTurn(),
-      resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
+    const buildSessionFlow = (flowType: string): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> => {
+      const context: HarnessContext = {
+        flowType,
+        config: effective,
+        workspace,
+        instructions: turns.currentTurn().instructions,
+        harnessOptions: effective.harness_options,
+        toolSources,
+        mediaStore,
+        isSessionSummaryIndexed: isSessionSummaryIndexed(effective),
+        resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
+        currentTurn: () => turns.currentTurn(),
+        resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
+      };
+      const flow = this.harness.createSessionFlow(context);
+      requireSessionSummarySetting(flow, context.isSessionSummaryIndexed === true);
+      if (flow.getFlowType() !== flowType) {
+        throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
+      }
+      turns.installOn(flow.runner);
+      return flow;
     };
-    const flow = this.harness.createSessionFlow(context);
-    requireSessionSummarySetting(flow, context.isSessionSummaryIndexed === true);
-    if (flow.getFlowType() !== flowType) {
-      throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
-    }
-    turns.installOn(flow.runner);
-    this.sessionFlow = flow;
-    const registry = new Registry([flow]);
+    const sessionFlow = buildSessionFlow(this.harness.flowType);
+    const legacySessionFlow = buildSessionFlow(legacyFlowType);
+    const turnRefusal = new TakenOverTurnRefusal();
+    turnRefusal.installOn(sessionFlow.runner);
+    this.sessionFlow = sessionFlow;
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
-    this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
+    const blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
+    this.blobCache = blobCache;
     // The Client exists before the Worker starts, because tool Steps read their turn's settings through it.
-    const client = this.constructDexClient(registry, connectionOptions, connection);
+    const client = this.constructDexClient(new Registry([sessionFlow, legacySessionFlow]), connectionOptions, connection);
     this.client = client;
-    this.worker = new Worker(registry, this.blobCache, {
+    const hostName = hostname();
+    this.worker = new Worker(new Registry([legacySessionFlow]), blobCache, {
       ...connectionOptions,
-      pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
+      pull: { appWorkerID: cliAppWorkerId(this.harness.name, hostName, process.pid), maxConcurrentTasks: 8 },
     });
+    const startPullingWorker = (worker: Worker): Promise<void> =>
+      this.callDex(effective, server, connection, async () => {
+        await worker.start();
+        await worker.waitPullRegistered({ timeoutMs: 30_000 });
+      });
+    const sessionWorker = new SessionQueueWorker(
+      (taskQueue, appWorkerID) =>
+        new Worker(new Registry([sessionFlow]), blobCache, {
+          ...connectionOptions,
+          pull: { appWorkerID, maxConcurrentTasks: 8, taskQueue },
+        }),
+      (incarnation) => cliAppWorkerId(this.harness.name, hostName, process.pid, String(incarnation)),
+      startPullingWorker,
+    );
+    this.sessionWorker = sessionWorker;
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
     this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
-    const worker = this.worker;
-    await this.callDex(effective, server, connection, async () => {
-      await worker.start();
-      await worker.waitPullRegistered({ timeoutMs: 30_000 });
-    });
-    await this.uploadSessionFlowDefinition(client, flowType);
+    await startPullingWorker(this.worker);
+    await this.uploadSessionFlowDefinitions(client, [this.harness.flowType, legacyFlowType]);
     const startEnvironment = sessionStartEnvironment(identity);
+    const opener = new SessionOpener({
+      client,
+      harnessFlowType: this.harness.flowType,
+      sessionFlow,
+      legacySessionFlow,
+      commandName: `dex-agents-${this.harness.name}`,
+      holder: newSessionLeaseHolder(options.leaseHolderProcessId),
+      ttlSeconds: this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds,
+      environment: startEnvironment,
+      sessionWorker,
+      turnRefusal,
+    });
     const resumeSessionId = options.resumeSessionId;
-    const sessionId = await this.callDex(effective, server, connection, async () => {
+    const session = await this.callDex(effective, server, connection, async () => {
       if (resumeSessionId === undefined) {
         const newId = newSessionId(this.harness);
-        await startAgentSession(client, flow, newId, { startEnvironment });
-        return newId;
+        // No Worker pulls the new session's task queue until its lease is taken.
+        await startAgentSession(client, sessionFlow, newId, { startEnvironment }, { taskQueue: sessionTaskQueue(newId) });
+        return opener.startedSession(newId);
       }
-      return this.checkResumedSession(client, flowType, resumeSessionId);
+      try {
+        return await opener.describeOpenableSession(resumeSessionId);
+      } catch (error: unknown) {
+        throw error instanceof UnopenableSessionError ? new UsageError(error.message) : error;
+      }
     });
     const connectorsUrl = effective.connectors.mcp === "auto" ? server.autoConnectorsMcpUrl : effective.connectors.mcp;
     return {
-      client: this.client,
-      flow,
-      flowType,
-      sessionId,
+      client,
+      flow: session.flow,
+      flowType: session.flowType,
+      sessionFlow,
+      opener,
+      session,
+      sessionId: session.sessionId,
       isResumed: resumeSessionId !== undefined,
       startEnvironment,
       mediaStore,
@@ -936,6 +1023,7 @@ export class AgentCliCommand {
         throw error;
       }
       const description =
+        (isNamedTaskQueueProtocolError(error) ? namedTaskQueueServerError(`dex-agents-${this.harness.name}`) : undefined) ??
         describeRefusedDexCredential(error, connection.auth, server.serverAddress) ??
         describeUnavailableDexServer(error, effective.dex.server, server.serverAddress);
       throw description === undefined ? error : new DescribedDexFailure(description, { cause: error });
@@ -947,9 +1035,12 @@ export class AgentCliCommand {
    *
    * The Client uploads it instead of `WorkerOptions.flowDefinitions`, because the Worker's upload writes its outcome
    * and errors to the terminal. The outcome and any failure go to the log file only, as in the Python CLI core.
+   * @param flowTypes - The harness's Flow type and this execution environment's environment-hashed one.
    */
-  private async uploadSessionFlowDefinition(client: Client, flowType: string): Promise<void> {
-    const document = sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission });
+  private async uploadSessionFlowDefinitions(client: Client, flowTypes: readonly string[]): Promise<void> {
+    const documents = flowTypes.map((flowType) =>
+      sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission }),
+    );
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
@@ -957,16 +1048,23 @@ export class AgentCliCommand {
         sessionFlowDefinitionUploadTimeoutMs,
       );
     });
-    let line: string;
+    const lines: string[] = [];
     try {
-      const [result] = await Promise.race([client.uploadFlowDefinitions([document]), timeout]);
-      line = `session Flow definition ${result?.outcome ?? "unspecified"}: flowType=${flowType} storedDigest=${result?.storedDigest ?? ""}`;
+      const results = await Promise.race([client.uploadFlowDefinitions(documents), timeout]);
+      flowTypes.forEach((flowType, index) => {
+        const result = results[index];
+        lines.push(
+          `session Flow definition ${result?.outcome ?? "unspecified"}: flowType=${flowType} storedDigest=${result?.storedDigest ?? ""}`,
+        );
+      });
     } catch (error: unknown) {
-      line = sessionFlowDefinitionUploadFailureLine(flowType, error);
+      lines.push(...flowTypes.map((flowType) => sessionFlowDefinitionUploadFailureLine(flowType, error)));
     } finally {
       clearTimeout(timer);
     }
-    this.writeLogLine(line);
+    for (const line of lines) {
+      this.writeLogLine(line);
+    }
   }
 
   /** Appends one timestamped line to the log file. */
@@ -1005,27 +1103,6 @@ export class AgentCliCommand {
       configIdentity: loaded.isFromFile ? realpathSync(loaded.configPath) : defaultsConfigIdentity,
       workspace,
     };
-  }
-
-  private async checkResumedSession(client: Client, flowType: string, resumeSessionId: string): Promise<string> {
-    let info;
-    try {
-      info = await client.describeFlow(resumeSessionId);
-    } catch (error: unknown) {
-      if (error instanceof FlowNotFoundError) {
-        throw new UsageError(`session ${resumeSessionId} does not exist; list sessions with dex-agents-${this.harness.name} sessions`);
-      }
-      throw error;
-    }
-    if (info.flowType !== flowType) {
-      throw new UsageError(
-        `session ${resumeSessionId} is a ${info.flowType} session, but this user, configuration file, and workspace run ${flowType} sessions; resume it as the user, with the configuration file and workspace, that started it`,
-      );
-    }
-    if (info.status !== "running") {
-      throw new UsageError(`session ${resumeSessionId} is ${info.status}, so it cannot continue`);
-    }
-    return resumeSessionId;
   }
 
   private async connectConnectors(
@@ -1204,19 +1281,32 @@ export class AgentCliCommand {
     const connectionOptions = this.dexConnectionOptions(server, connection);
     const workspace = this.prepareWorkspace(effective, loaded);
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);
-    const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
-    const registry = new Registry([]);
+    const legacyFlowType = namespaceSessionFlowType(this.harness.flowType, identity);
+    const environmentReading = new SessionEnvironmentReadingFlow();
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
-    const client = this.constructDexClient(registry, connectionOptions, connection);
+    const client = this.constructDexClient(new Registry([environmentReading]), connectionOptions, connection);
     this.client = client;
-    const { sessions: loadedSessions, hasMoreSessions } = await this.callDex(effective, server, connection, () =>
-      collectSessionsForList((nextPageToken) => listAgentSessions(client, flowType, { nextPageToken })),
-    );
+    const listed = await this.callDex(effective, server, connection, async () => {
+      const [current, legacy] = await Promise.all(
+        [this.harness.flowType, legacyFlowType].map((flowType) =>
+          collectSessionsForList((nextPageToken) => listAgentSessions(client, flowType, { nextPageToken })),
+        ),
+      );
+      if (current === undefined || legacy === undefined) {
+        throw new Error("two session lists were loaded");
+      }
+      return { current, legacy, environments: await environmentReading.readAll(client, current.sessions) };
+    });
+    const loadedSessions = [...listed.current.sessions, ...listed.legacy.sessions];
+    const hasMoreSessions = listed.current.hasMoreSessions || listed.legacy.hasMoreSessions;
     if (loadedSessions.length === 0 && !hasMoreSessions) {
-      this.io.stdout.write(`No ${flowType} sessions.\n`);
+      this.io.stdout.write(`No ${this.harness.flowType} sessions.\n`);
       return 0;
     }
+    // An environment-hashed session runs only in this execution environment, so that is where it was last open.
+    const thisEnvironment = describeSessionEnvironment(sessionStartEnvironment(identity));
+    const legacySessionIds = new Set(listed.legacy.sessions.map((session) => session.sessionId));
     // A session an earlier release started has no summary fields; "—" stands for each one.
     for (const session of sortAgentSessionsByLastActivity(loadedSessions)) {
       const columns = [
@@ -1225,6 +1315,9 @@ export class AgentCliCommand {
         session.startedAt.toISOString(),
         session.lastActivityAt?.toISOString() ?? "—",
         session.turnCount === null ? "—" : String(session.turnCount),
+        legacySessionIds.has(session.sessionId)
+          ? thisEnvironment
+          : describeSessionEnvironment(listed.environments.get(session.sessionId)),
         session.title ?? "—",
       ];
       this.io.stdout.write(`${columns.join("\t")}\n`);
@@ -1293,6 +1386,59 @@ const mediaDirectoryName = "media";
 
 /** A media store that may hold connections, which `close` releases. */
 type ClosableMediaStore = MediaStore & { close?(): void };
+
+/** How many sessions the `sessions` subcommand reads the last environment of at once. */
+const environmentReadConcurrency = 8;
+
+/**
+ * A Flow that only declares `SessionLastTerminalEnvironment`, so the `sessions` subcommand's Client may read it
+ * without building the harness's session Flow, which can need a provider API key. It has no Steps and never runs.
+ */
+class SessionEnvironmentReadingFlow implements Flow<void> {
+  public readonly lastTerminalEnvironment = new Attribute<Readonly<Record<string, string>>>(
+    "SessionLastTerminalEnvironment",
+    jsonCodec<Readonly<Record<string, string>>>({ typeName: "SessionTerminalEnvironment" }),
+  );
+
+  public getFlowType(): string {
+    return "DexAgentsCliSessionEnvironmentReading";
+  }
+
+  public getSteps(): StepList<void> {
+    return StepList.empty();
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [this.lastTerminalEnvironment] };
+  }
+
+  /**
+   * Reads where each session was last open; a session whose read fails or that has none is left out.
+   * @param client - A Client whose Registry contains this Flow.
+   * @param sessions - The sessions.
+   */
+  public async readAll(
+    client: Client,
+    sessions: readonly AgentSessionSummary[],
+  ): Promise<ReadonlyMap<string, Readonly<Record<string, string>>>> {
+    const environments = new Map<string, Readonly<Record<string, string>>>();
+    const pending = sessions.map((session) => session.sessionId);
+    const readNext = async (): Promise<void> => {
+      for (let sessionId = pending.shift(); sessionId !== undefined; sessionId = pending.shift()) {
+        try {
+          const [environment] = await client.getAttributes(sessionId, this.lastTerminalEnvironment);
+          if (environment !== undefined) {
+            environments.set(sessionId, environment);
+          }
+        } catch {
+          // The row then shows no environment; the list itself still prints.
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: environmentReadConcurrency }, readNext));
+    return environments;
+  }
+}
 
 /** The SDK Worker's task-stream reconnect messages; issue #1657 tracks a logger option to replace this. */
 const workerReconnectMessage =
@@ -1366,6 +1512,9 @@ async function createMediaStore(media: MediaConfig, agentsDirectory: string): Pr
  * The execution environment a session's Steps must run in, as {@link namespaceSessionFlowType} hashes it. The CLI core
  * also records it in each new session's start input.
  *
+ * Changed in 0.6.7: the CLI core also stores it, when it opens a session, as the session's
+ * `SessionLastTerminalEnvironment`. The `sessions` subcommand shows its host name and workspace.
+ *
  * @since 0.5.0
  */
 export interface SessionEnvironmentIdentity {
@@ -1404,6 +1553,10 @@ const flowTypeSuffixCount = 36n ** BigInt(flowTypeSuffixLength);
  * `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8. Read its first 8 bytes as an unsigned
  * big-endian integer, reduce it modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters. Tool
  * settings, such as the shell allow list, are not part of it, so they can change without breaking `--resume`.
+ *
+ * Changed in 0.6.7: only sessions started before 0.6.7 have this Flow type. The CLI core still serves them on the
+ * default task queue, and they still resume only in this execution environment. New sessions use
+ * {@link AgentHarness.flowType} and their own task queue, from {@link sessionTaskQueue}.
  *
  * @example
  * ```ts

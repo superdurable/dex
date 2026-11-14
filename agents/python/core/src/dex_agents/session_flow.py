@@ -120,6 +120,7 @@ from dex_agents.persistence import (
     PENDING_PLAN_EXECUTION,
     PLAN_EXECUTIONS,
     QUEUED_USER_MESSAGES,
+    SESSION_LAST_TERMINAL_ENVIRONMENT,
     SESSION_SETTINGS,
     SESSION_TERMINAL_LEASE,
     STEERED_USER_MESSAGES,
@@ -597,6 +598,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             settings the active turn started with.
         session_terminal_lease: The ``SessionTerminalLease`` Attribute: the
             terminal that has the session open. Since 0.6.3.
+        session_last_terminal_environment: The
+            ``SessionLastTerminalEnvironment`` Attribute: the execution
+            environment of the terminal that last opened the session. Since
+            0.6.7.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -625,6 +630,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     session_settings = SESSION_SETTINGS
     turn_session_settings = TURN_SESSION_SETTINGS
     session_terminal_lease = SESSION_TERMINAL_LEASE
+    session_last_terminal_environment = SESSION_LAST_TERMINAL_ENVIRONMENT
 
     def __init__(
         self,
@@ -782,6 +788,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             SESSION_SETTINGS,
             TURN_SESSION_SETTINGS,
             SESSION_TERMINAL_LEASE,
+            SESSION_LAST_TERMINAL_ENVIRONMENT,
             *(
                 (AGENT_SESSION_TITLE, AGENT_SESSION_LAST_ACTIVITY_AT, AGENT_SESSION_TURN_COUNT)
                 if self._options.summary_attributes_indexed
@@ -1041,6 +1048,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         try again later. Dex itself never enforces the lease: sending messages
         or resolving interrupts works without it.
 
+        When the call gives the lease to a holder that did not hold it and
+        carries an ``environment``, it also stores that map in
+        ``SessionLastTerminalEnvironment``. A renewal and a refused call leave
+        that Attribute unchanged.
+
         The RPC locks ``SessionTerminalLease``, so two callers never both
         acquire it. It can raise ``RpcLockConflictError`` while another lease
         call runs, which is safe to retry;
@@ -1049,6 +1061,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         the Flow type runs dex-agents 0.6.3 or later.
 
         .. versionadded:: 0.6.3
+
+        .. versionchanged:: 0.6.7
+           Stores the request's ``environment``.
 
         Example:
             >>> result = await client.invoke_rpc(
@@ -1091,6 +1106,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             expires_at=_rfc3339(now + timedelta(seconds=input.ttl_seconds)),
         )
         SESSION_TERMINAL_LEASE.set(context, lease)
+        if input.environment is not None and not is_renewal:
+            SESSION_LAST_TERMINAL_ENVIRONMENT.set(context, input.environment)
         return RPCResult(SessionTerminalLeaseResult(is_acquired=True, lease=lease))
 
     @rpc(

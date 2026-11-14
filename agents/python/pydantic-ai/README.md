@@ -18,7 +18,7 @@ unchanged.
 ## Installation
 
 The package needs Python 3.11 or later. It requires `dex-agents` at the same
-version, `dex-python-sdk==1.45.0`, and `pydantic-ai-slim` 2.64 or a later 2.x
+version, `dex-python-sdk==1.45.1`, and `pydantic-ai-slim` 2.64 or a later 2.x
 release. Add the Pydantic AI extras for your model provider:
 
 ```bash

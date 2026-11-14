@@ -17,7 +17,7 @@ classifiers = [
 dependencies = [
     "dex-agents[litellm]==0.1.0",
     "dex-agents-cli-core==0.1.0",
-    "dex-python-sdk==1.45.0",
+    "dex-python-sdk==1.45.1",
     "litellm>=1.104,<1.106",
 ]
 

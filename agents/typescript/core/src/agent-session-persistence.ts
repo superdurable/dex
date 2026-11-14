@@ -33,6 +33,7 @@ import {
   planExecutionRequestCodec,
   contextSummaryCodec,
   sessionSettingsCodec,
+  sessionTerminalEnvironmentCodec,
   sessionTerminalLeaseCodec,
   turnSessionSettingsCodec,
   turnReplySequenceCodec,
@@ -190,6 +191,14 @@ export interface AgentSessionPersistence {
    */
   readonly sessionTerminalLease: Attribute<SessionTerminalLease>;
   /**
+   * The `SessionLastTerminalEnvironment` Attribute: the `environment` of the latest
+   * `acquire_session_terminal_lease` call that gave the lease to a new holder. It stays after the lease is released,
+   * so it says where the session was last open. It is unset until such a call carries an `environment`.
+   *
+   * @since 0.6.7
+   */
+  readonly sessionLastTerminalEnvironment: Attribute<Readonly<Record<string, string>>>;
+  /**
    * The `AgentSessionTitle` Attribute: the session's first user message with each run of spaces, tabs, and line
    * breaks made one space, cut to the first 80 Unicode code points; see `buildSessionTitle`. Only the session's first
    * turn sets it, so a session whose first turn ran without the option never has one. Indexed as `FULL_TEXT` under `text1`; see
@@ -247,6 +256,7 @@ export function createAgentSessionPersistence(
     turnSessionSettings: new Attribute("TurnSessionSettings", turnSessionSettingsCodec),
     turnReplySequence: new Attribute("TurnReplySequence", turnReplySequenceCodec),
     sessionTerminalLease: new Attribute("SessionTerminalLease", sessionTerminalLeaseCodec),
+    sessionLastTerminalEnvironment: new Attribute("SessionLastTerminalEnvironment", sessionTerminalEnvironmentCodec),
     agentSessionTitle: new Attribute("AgentSessionTitle", stringCodec, {
       type: IndexType.FULL_TEXT,
       indexKey: sessionSummaryIndexKeys.title,

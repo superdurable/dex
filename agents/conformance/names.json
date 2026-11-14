@@ -333,6 +333,11 @@
       "value_type": "AgentUserMessage"
     },
     {
+      "name": "SessionLastTerminalEnvironment",
+      "kind": "attribute",
+      "value_type": "SessionTerminalEnvironment"
+    },
+    {
       "name": "SessionSettings",
       "kind": "attribute",
       "value_type": "SessionSettings"

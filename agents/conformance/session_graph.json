@@ -144,6 +144,14 @@
       }
     },
     {
+      "id": "resource:attribute:SessionLastTerminalEnvironment",
+      "kind": "attribute",
+      "name": "SessionLastTerminalEnvironment",
+      "resource": {
+        "valueType": "SessionTerminalEnvironment"
+      }
+    },
+    {
       "id": "resource:attribute:SessionSettings",
       "kind": "attribute",
       "name": "SessionSettings",
