@@ -115,10 +115,15 @@ Opening a session of the harness's Flow type follows these steps:
    Worker still serves the RPC, then stop it.
 
 A held lease counts as confirmed until the time its last successful acquire or
-renewal was sent, plus the TTL. When no renewal confirms it before that time
-minus a fifth of the TTL, the command stops pulling the session's task queue
-and ends the chat with one line and exit code 1, so the lease expires before
-another terminal can take the session. The line is the lease lost line when
+renewal was sent, plus the TTL, on a monotonic clock. The guard starts as soon
+as the acquire succeeds, before a takeover cancels a turn, and each renewal
+call counts as failed after one renewal interval. When no renewal confirms the
+lease before that time minus a fifth of the TTL, the command stops pulling the
+session's task queue and ends the chat with one line and exit code 1, so the
+lease expires before another terminal can take the session. While an
+acquire's outcome stays unknown because the read of the stored lease failed
+too, a separate guard stops the session Worker at the same point from that
+acquire's send. The line is the lease lost line when
 the stored lease already names another holder. In the terminal UI the Worker
 host tells the launcher, which stops the terminal UI the same way.
 

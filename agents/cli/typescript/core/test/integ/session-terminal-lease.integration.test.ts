@@ -191,7 +191,9 @@ describe("one terminal per session", () => {
     await waitForLeaseHolder(home, sessionId, first.pid);
 
     first.signal("SIGSTOP");
-    const second = start(home, ["--resume", sessionId], shortTtl);
+    // The paused command's streams stay registered, so the acquire may wait out Dex's sticky wait first; the
+    // default lease outlasts that wait, while a 3-second lease would count as unconfirmed at once.
+    const second = start(home, ["--resume", sessionId]);
     let secondLease: SessionTerminalLease;
     try {
       // The first lease may expire while the second starts, so it may take over without waiting.
@@ -206,7 +208,7 @@ describe("one terminal per session", () => {
     assert.doesNotMatch(first.stderr.all, /at .*\.js:\d+/);
     assert.equal((await readLease(home, sessionId))?.processId, second.pid, "the stopped chat released nothing");
     second.writeLine("/exit");
-    assert.equal(await second.waitForExit(), 0);
+    assert.equal(await second.waitForExit(), 0, second.stderr.all);
   });
 
   test("the terminal UI launcher waits for the lease before the handoff", async () => {

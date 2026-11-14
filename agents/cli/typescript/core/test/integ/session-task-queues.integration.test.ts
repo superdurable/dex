@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -287,6 +287,53 @@ describe("session task queues", () => {
     writeFileSync(join(faults, "fail-acquire"), "");
     assert.equal(await terminal.waitForExit(30_000), 1, terminal.terminal.all);
     assert.match(terminal.terminal.all, /Session \S+ could not renew its lease in time; this chat stopped so that another terminal can take the session\./);
+  });
+
+  /** Returns the time of the first log line of `home` that contains `text`, or `NaN`. */
+  function loggedAt(home: TestHome, text: string): number {
+    const logPath = join(home.directory, ".dex", "agents", "scripted.log");
+    const line = existsSync(logPath)
+      ? readFileSync(logPath, "utf8").split("\n").find((candidate) => candidate.includes(text))
+      : undefined;
+    return Date.parse(line?.split(" ", 1)[0] ?? "");
+  }
+
+  test("an acquire answer slower than the safety margin ends the chat before the lease expires", async () => {
+    const home = newEnvironment();
+    const faults = faultDirectory(home);
+    // With a 3-second lease, 2.7 seconds leave less than the 0.6-second margin.
+    writeFileSync(join(faults, "slow-next-acquire"), "2700");
+    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    assert.equal(await cli.waitForExit(30_000), 1, cli.stderr.all);
+    const sessionId = /Session (\S+) could not renew its lease in time/.exec(cli.stderr.all)?.[1];
+    assert.ok(sessionId !== undefined, cli.stderr.all);
+    const lease = await readLease(home, sessionId);
+    assert.ok(lease !== undefined, "the stopped chat released nothing");
+    const stoppedAt = loggedAt(home, `session lease unconfirmed; stopped pulling its task queue: session=${sessionId}`);
+    assert.ok(stoppedAt < Date.parse(lease.expiresAt), `stopped pulling at ${stoppedAt}, lease ${lease.expiresAt}`);
+  });
+
+  test("after an acquire whose answer was lost, failing lease reads stop the session Worker before the lease expires", async () => {
+    const home = newEnvironment();
+    const faults = faultDirectory(home);
+    writeFileSync(join(faults, "lose-next-acquire"), "then-fail-lease-reads");
+    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const stopLine = "session Worker stopped: an acquire's outcome stayed unknown: session=";
+    await pollUntil(() => (Number.isNaN(loggedAt(home, stopLine)) ? undefined : true), {
+      timeoutMs: 30_000,
+      description: "the guard to stop the session Worker",
+    });
+    const logPath = join(home.directory, ".dex", "agents", "scripted.log");
+    const sessionId = readFileSync(logPath, "utf8").split(stopLine)[1]?.split("\n", 1)[0] ?? "";
+    const lease = await readLease(home, sessionId);
+    assert.ok(lease !== undefined, "the acquire whose answer was lost took the lease");
+    assert.ok(loggedAt(home, stopLine) < Date.parse(lease.expiresAt), `stopped at ${loggedAt(home, stopLine)}, lease ${lease.expiresAt}`);
+
+    // Once the lease reads work again, the command opens the session.
+    rmSync(join(faults, "fail-lease-read"));
+    assert.equal(await cli.waitForSession(), sessionId);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
   });
 
   test("an acquire whose answer was lost still opens the session and releases it at exit", async () => {

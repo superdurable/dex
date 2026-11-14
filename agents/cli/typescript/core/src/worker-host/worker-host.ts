@@ -214,7 +214,8 @@ class WorkerHost {
       if (!result.isAcquired) {
         return { result: { is_acquired: false, lease: result.lease } };
       }
-      this.renewedLeases(opened).renew(sessionId);
+      // Guarded from the acquire's send, before a takeover's cancellation, which may take seconds.
+      this.renewedLeases(opened).renew(sessionId, opened.opener.acquireSentAt(sessionId));
       const notices = await opened.opener.completeTakeover(sessionId);
       return { result: { is_acquired: true, lease: result.lease, flow_type: session.flowType, notices } };
     } catch (error: unknown) {

@@ -124,6 +124,13 @@ export function leaseUnconfirmedLine(sessionId: string): string {
 /** The share of the TTL before the confirmed expiry at which an unconfirmed lease ends the chat. */
 export const renewalSafetyMarginRatio = 0.2;
 
+/**
+ * Returns milliseconds from a monotonic clock, which a wall clock change never moves. Every lease deadline uses it.
+ */
+export function monotonicNowMs(): number {
+  return performance.now();
+}
+
 /** Cuts a line longer than `columns - 1` code points to `columns - 2` code points and an ellipsis. */
 export function cutToColumns(line: string, columns: number): string {
   const codePoints = [...line];
@@ -310,10 +317,12 @@ export class SessionLeaseRenewal {
   /**
    * Renews the lease of `sessionId` from now on, instead of any other session's.
    * @param sessionId - The session whose lease was just acquired.
+   * @param acquireSentAtMs - The {@link monotonicNowMs} time the acquire that took the lease was sent; the lease
+   * counts as confirmed until then plus the TTL.
    */
-  public renew(sessionId: string): void {
+  public renew(sessionId: string, acquireSentAtMs: number): void {
     this.sessionId = sessionId;
-    this.confirmUntil(sessionId, Date.now() + this.ttlMs);
+    this.confirmUntil(sessionId, acquireSentAtMs + this.ttlMs);
     this.timer ??= setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
   }
@@ -334,8 +343,9 @@ export class SessionLeaseRenewal {
     }
     this.isRenewing = true;
     try {
-      const sentAt = Date.now();
-      const result = await attemptQuietly(() => this.attemptFor(sessionId));
+      const sentAt = monotonicNowMs();
+      // Bounded by the interval, so one lost answer leaves time for the next renewal before the deadline.
+      const result = await attemptQuietly(() => withinTimeout(this.attemptFor(sessionId), this.intervalMs));
       const lease = result?.lease;
       if (this.sessionId !== sessionId) {
         return;
@@ -352,10 +362,13 @@ export class SessionLeaseRenewal {
     }
   }
 
-  /** Ends the renewal as unconfirmed at the safety margin before `confirmedUntilMs`, unless a renewal confirms it. */
+  /**
+   * Ends the renewal as unconfirmed at the safety margin before `confirmedUntilMs`, a {@link monotonicNowMs} time,
+   * unless a renewal confirms it.
+   */
   private confirmUntil(sessionId: string, confirmedUntilMs: number): void {
     clearTimeout(this.expiryTimer);
-    const delayMs = Math.max(0, confirmedUntilMs - this.ttlMs * renewalSafetyMarginRatio - Date.now());
+    const delayMs = Math.max(0, confirmedUntilMs - this.ttlMs * renewalSafetyMarginRatio - monotonicNowMs());
     this.expiryTimer = setTimeout(() => {
       if (this.sessionId === sessionId) {
         this.stop();
@@ -414,10 +427,10 @@ export async function releaseSessionLease(
   sessionId: string,
   holderId: string,
 ): Promise<void> {
-  const deadline = Date.now() + leaseReleaseTimeoutMs;
-  while (Date.now() < deadline) {
+  const deadline = monotonicNowMs() + leaseReleaseTimeoutMs;
+  while (monotonicNowMs() < deadline) {
     try {
-      await withinTimeout(client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId }), deadline - Date.now());
+      await withinTimeout(client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId }), deadline - monotonicNowMs());
       return;
     } catch (error: unknown) {
       if (!(error instanceof RpcLockConflictError)) {

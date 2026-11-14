@@ -1139,6 +1139,11 @@ graph and its Actions.
   session's RPCs. For a session that no command has open, each fails after
   the server's RPC dispatch wait, and nothing is queued. Open the session with
   **--resume** first. See [Sessions in other environments](#other-environments).
+- **Sessions that another client started cannot be opened.** A session of the
+  harness's Flow type that another client started without its own task queue,
+  such as from the Dex Web **Start** dialog, runs on the default task queue,
+  which no command pulls for that Flow type. **--resume** of such a session
+  keeps waiting for its lease. Start sessions with the command instead.
 - **The terminal UI lists one Flow type.** **/sessions** in the terminal UI
   lists only the sessions of the open session's Flow type, without where each
   was last open. Use the **sessions** subcommand to see every session with its

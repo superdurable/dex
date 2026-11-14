@@ -624,14 +624,8 @@ export class AgentCliCommand {
     if (waited === "interrupted") {
       return interruptedExitCode;
     }
-    for (const line of await opener.completeTakeover(sessionId)) {
-      this.log(line);
-    }
     let lostLeaseLine: Promise<string> | undefined;
-    const chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
-      mediaStore: opened.mediaStore,
-      homeDirectory: this.environment.homeDirectory,
-    });
+    let chat: TerminalChat | undefined;
     const renewFor = (id: string): Promise<SessionTerminalLeaseResult> => tracked(id, () => opener.renew(id));
     const renewal = new SessionLeaseRenewal(
       opener.holderId,
@@ -641,18 +635,31 @@ export class AgentCliCommand {
         lostLeaseLine = Promise.resolve(leaseLostLine(lostSessionId, describeLeaseHolder(lease)));
         // The other terminal runs the session now, so this command stops pulling its task queue at once.
         opener.leave(lostSessionId);
-        chat.stop();
+        chat?.stop();
       },
       (unconfirmedSessionId) => {
         // Stopped before the lease can expire, so no other terminal pulls the queue while this one does.
         opener.leave(unconfirmedSessionId);
         this.writeLogLine(`session lease unconfirmed; stopped pulling its task queue: session=${unconfirmedSessionId}`);
         lostLeaseLine = describeEndedLease(opener, unconfirmedSessionId);
-        chat.stop();
+        chat?.stop();
       },
     );
     this.heldSessionLease = { opener, sessionId, renewal };
-    renewal.renew(sessionId);
+    // Guarded from the acquire's send, before a takeover's cancellation, which may take seconds.
+    renewal.renew(sessionId, opener.acquireSentAt(sessionId));
+    for (const line of await opener.completeTakeover(sessionId)) {
+      this.log(line);
+    }
+    if (lostLeaseLine !== undefined) {
+      this.heldSessionLease = undefined;
+      this.log(await lostLeaseLine);
+      return 1;
+    }
+    chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
+      mediaStore: opened.mediaStore,
+      homeDirectory: this.environment.homeDirectory,
+    });
     if (opened.isResumed) {
       this.io.stdout.write(`Resumed session ${sessionId}.\n`);
     }
@@ -968,6 +975,7 @@ export class AgentCliCommand {
       environment: startEnvironment,
       sessionWorker,
       turnRefusal,
+      writeLogLine: (line) => this.writeLogLine(line),
     });
     const resumeSessionId = options.resumeSessionId;
     const session = await this.callDex(effective, server, connection, async () => {

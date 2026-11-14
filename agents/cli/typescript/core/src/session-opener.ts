@@ -33,7 +33,9 @@ import { describeFailureWithoutDexDetails } from "./dex-connection.js";
 import {
   acquireSessionLease,
   isLeaseExpiredHere,
+  monotonicNowMs,
   releaseSessionLease,
+  renewalSafetyMarginRatio,
   type SessionLeaseHolder,
 } from "./session-terminal-lease.js";
 import {
@@ -259,6 +261,8 @@ export interface SessionOpenerOptions {
   readonly environment: Readonly<Record<string, string>>;
   readonly sessionWorker: SessionQueueWorker;
   readonly turnRefusal: TakenOverTurnRefusal;
+  /** Appends one line to the command's log file. */
+  readonly writeLogLine: (line: string) => void;
 }
 
 /** A takeover from another place, which {@link SessionOpener.completeTakeover} finishes. */
@@ -279,6 +283,10 @@ interface PendingTakeover {
 export class SessionOpener {
   private readonly openedSessions = new Map<string, OpenableSession>();
   private readonly pendingTakeovers = new Map<string, PendingTakeover>();
+  /** The send time of the acquire that took each session's lease, from {@link monotonicNowMs}. */
+  private readonly acquireSentAtMs = new Map<string, number>();
+  /** The timers that stop the session Worker while an acquire's outcome stays unknown. */
+  private readonly unknownOwnershipGuards = new Map<string, NodeJS.Timeout>();
 
   public constructor(private readonly options: SessionOpenerOptions) {}
 
@@ -344,7 +352,12 @@ export class SessionOpener {
     const { client, sessionFlow, holder, ttlSeconds, environment, sessionWorker, turnRefusal } = this.options;
     this.openedSessions.set(session.sessionId, session);
     if (!session.hasSessionTaskQueue) {
-      return acquireSessionLease(client, session.flow, session.sessionId, holder, ttlSeconds, environment);
+      const legacySentAtMs = monotonicNowMs();
+      const legacyResult = await acquireSessionLease(client, session.flow, session.sessionId, holder, ttlSeconds, environment);
+      if (legacyResult.isAcquired) {
+        this.acquireSentAtMs.set(session.sessionId, legacySentAtMs);
+      }
+      return legacyResult;
     }
     const [lease, lastEnvironment, state] = await client.getAttributes(
       session.sessionId,
@@ -366,16 +379,20 @@ export class SessionOpener {
       turnRefusal.refuseTurn(session.sessionId, takenOverTurnId);
     }
     await sessionWorker.pull(sessionTaskQueue(session.sessionId));
+    const sentAtMs = monotonicNowMs();
     let result: SessionTerminalLeaseResult;
     try {
       result = await acquireSessionLease(client, sessionFlow, session.sessionId, holder, ttlSeconds, environment);
     } catch (error: unknown) {
-      result = await this.resolveUnknownAcquisition(session.sessionId, error);
+      result = await this.resolveUnknownAcquisition(session.sessionId, error, sentAtMs);
     }
     if (!result.isAcquired) {
+      this.clearUnknownOwnershipGuard(session.sessionId);
       sessionWorker.stop();
       return result;
     }
+    this.clearUnknownOwnershipGuard(session.sessionId);
+    this.acquireSentAtMs.set(session.sessionId, sentAtMs);
     if (isTakeover) {
       this.pendingTakeovers.set(session.sessionId, { previousEnvironment: lastEnvironment, takenOverTurnId });
     }
@@ -383,16 +400,36 @@ export class SessionOpener {
   }
 
   /**
+   * Returns the {@link monotonicNowMs} time the acquire that took a session's lease was sent, from which the lease
+   * counts as confirmed for the TTL.
+   * @param sessionId - A session that {@link attempt} acquired.
+   */
+  public acquireSentAt(sessionId: string): number {
+    const sentAtMs = this.acquireSentAtMs.get(sessionId);
+    if (sentAtMs === undefined) {
+      throw new Error(`session ${sessionId} was not acquired by this command`);
+    }
+    return sentAtMs;
+  }
+
+  /**
    * Decides an acquire whose answer never arrived, such as after a timeout: the RPC may have taken the lease, and
-   * only this command's session Worker serves its release.
+   * only this command's session Worker serves its release. Until the outcome is known, a guard stops the Worker at
+   * the safety margin before the TTL from the send, so a hanging read cannot keep it pulling past the lease.
    * @param sessionId - The session.
    * @param error - The acquire's failure.
+   * @param sentAtMs - The {@link monotonicNowMs} time the acquire was sent.
    * @returns The stored lease as acquired when this command holds it.
    * @throws The acquire's failure otherwise: after stopping the Worker when the read shows another holder or no
-   * lease, and keeping it when the read fails too, so the next attempt decides.
+   * lease, and keeping it, with the guard, when the read fails too, so the next attempt decides.
    */
-  private async resolveUnknownAcquisition(sessionId: string, error: unknown): Promise<SessionTerminalLeaseResult> {
+  private async resolveUnknownAcquisition(
+    sessionId: string,
+    error: unknown,
+    sentAtMs: number,
+  ): Promise<SessionTerminalLeaseResult> {
     const { client, sessionFlow, holder, sessionWorker } = this.options;
+    this.guardUnknownOwnership(sessionId, sentAtMs);
     let stored;
     try {
       [stored] = await client.getAttributes(sessionId, sessionFlow.sessionTerminalLease);
@@ -402,8 +439,32 @@ export class SessionOpener {
     if (stored?.holderId === holder.holderId) {
       return { isAcquired: true, lease: stored };
     }
+    this.clearUnknownOwnershipGuard(sessionId);
     sessionWorker.stop();
     throw error;
+  }
+
+  /** Stops the session Worker at the safety margin before `sentAtMs` plus the TTL, unless an acquire confirms it. */
+  private guardUnknownOwnership(sessionId: string, sentAtMs: number): void {
+    const { ttlSeconds, sessionWorker } = this.options;
+    if (this.unknownOwnershipGuards.has(sessionId)) {
+      return;
+    }
+    const delayMs = Math.max(0, sentAtMs + ttlSeconds * 1_000 * (1 - renewalSafetyMarginRatio) - monotonicNowMs());
+    const guard = setTimeout(() => {
+      this.unknownOwnershipGuards.delete(sessionId);
+      if (sessionWorker.taskQueue === sessionTaskQueue(sessionId)) {
+        sessionWorker.stop();
+        this.options.writeLogLine(`session Worker stopped: an acquire's outcome stayed unknown: session=${sessionId}`);
+      }
+    }, delayMs);
+    guard.unref();
+    this.unknownOwnershipGuards.set(sessionId, guard);
+  }
+
+  private clearUnknownOwnershipGuard(sessionId: string): void {
+    clearTimeout(this.unknownOwnershipGuards.get(sessionId));
+    this.unknownOwnershipGuards.delete(sessionId);
   }
 
   /**
@@ -498,6 +559,7 @@ export class SessionOpener {
    */
   public leave(sessionId: string): void {
     const { sessionWorker } = this.options;
+    this.clearUnknownOwnershipGuard(sessionId);
     const session = this.openedSessions.get(sessionId);
     if (session?.hasSessionTaskQueue === true && sessionWorker.taskQueue === sessionTaskQueue(sessionId)) {
       sessionWorker.stop();
@@ -518,12 +580,12 @@ export class SessionOpener {
    * @returns Whether the turn ended within the wait.
    */
   private async waitForTurnEnd(sessionId: string, turnId: string): Promise<boolean> {
-    const deadline = Date.now() + turnEndTimeoutMs;
+    const deadline = monotonicNowMs() + turnEndTimeoutMs;
     for (;;) {
       if ((await this.readActiveTurnId(sessionId)) !== turnId) {
         return true;
       }
-      if (Date.now() >= deadline) {
+      if (monotonicNowMs() >= deadline) {
         return false;
       }
       await delay(turnEndPollIntervalMs);
@@ -535,8 +597,8 @@ export class SessionOpener {
    * @returns The RPC's result, or `false` when the lock stayed held until the deadline.
    */
   private async cancelTurn(sessionId: string, turnId: string): Promise<boolean> {
-    const deadline = Date.now() + turnCancellationTimeoutMs;
-    while (Date.now() < deadline) {
+    const deadline = monotonicNowMs() + turnCancellationTimeoutMs;
+    while (monotonicNowMs() < deadline) {
       try {
         return await this.options.client.invokeRPC(this.options.sessionFlow.cancelTurn, sessionId, { turnId });
       } catch (error: unknown) {
