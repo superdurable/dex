@@ -153,8 +153,8 @@ stdout and serves until SIGINT or SIGTERM:
 
 **url** is the proxy URL. **pid** is the dexcli process; stop it to stop the
 proxy. When no server can run, such as offline with an empty cache or after
-5 failed starts in a row, it prints
-**{"type":"error","message":"..."}** and exits with code 1. Logs go to stderr.
+5 failed starts in a row, it prints one line with **type** **error** and a
+**message** that says why, and exits with code 1. Logs go to stderr.
 
 On exit it stops a server it started. It never stops a server it reused. A
 **dexcli dev** that reused its server starts its own server after a short
