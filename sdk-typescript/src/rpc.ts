@@ -124,9 +124,10 @@ export interface RPCInvokeOptions {
    *   from the recorded reply before any Worker runs the handler. Concurrent calls with the same
    *   request ID share one handler execution and its result.
    * - Any other RPC runs its handler again on a Worker, and the handler's calls to external
-   *   systems repeat. When this attempt returns Flow changes, Dex discards them and returns the
-   *   recorded reply. When this attempt returns no Flow changes, Dex returns its new output
-   *   without checking the request ID, and records nothing. For example, a handler that marks an
+   *   systems repeat. When this attempt changes Flow state or records an event, Dex discards those
+   *   changes and returns the recorded reply. When this attempt changes no Flow state and records
+   *   no event, Dex returns its new output without checking the request ID, and records nothing.
+   *   For example, a handler that marks an
    *   event processed can return a different output once the mark exists.
    *
    * Use a transactional RPC when callers need the exact recorded reply, or when the handler must
@@ -143,8 +144,8 @@ export interface RPCInvokeOptions {
    *   gRPC `INVALID_ARGUMENT` and whose detail says the request ID "was already used for a
    *   different request". A transactional or locking RPC rejects it before a Worker runs the
    *   handler. Any other RPC rejects it after the handler ran, and applies none of its changes,
-   *   when that attempt returns Flow changes. An attempt that returns none skips this check and
-   *   returns its new output.
+   *   when that attempt changes Flow state or records an event. An attempt that changes no Flow
+   *   state and records no event skips this check and returns its new output.
    * - Each Flow run keeps only its newest request IDs, set by the Server limit
    *   `limits.maxRequestIdsPerRun` (default 1,000). The window is shared with the run's other
    *   requests that carry request IDs, such as Client Attribute writes. A repeat with an older,

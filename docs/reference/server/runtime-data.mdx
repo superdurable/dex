@@ -1439,7 +1439,7 @@ How Dex Server answers a repeat depends on the RPC:
 | RPC | Repeat with a recorded request ID |
 | --- | --- |
 | Transactional or locking | Answered from the recorded reply before a Worker runs the handler. Concurrent calls with the same request ID share one handler execution and its result. |
-| Any other RPC | The handler runs again on a Worker, and its calls to external systems repeat. When this attempt returns Flow changes, Dex Server discards them and returns the recorded reply. When this attempt returns no Flow changes, Dex Server returns its new output without checking the request ID, and records nothing. |
+| Any other RPC | The handler runs again on a Worker, and its calls to external systems repeat. When this attempt changes Flow state or records an event, Dex Server discards those changes and returns the recorded reply. When this attempt changes no Flow state and records no event, Dex Server returns its new output without checking the request ID, and records nothing. |
 
 An RPC that is neither transactional nor locking can therefore return a new
 output to a repeat. For example, a handler that marks an event processed
@@ -1453,7 +1453,7 @@ These rules also apply:
   with INVALID_ARGUMENT and the detail "request ID ... was already used for a
   different request". The RPC applies none of its changes. An attempt of an
   RPC that is neither transactional nor locking skips this check when it
-  returns no Flow changes.
+  changes no Flow state and records no event.
 - Each run keeps its newest request IDs, as many as
   [**limits.maxRequestIdsPerRun**](/reference/server/configuration#limits).
   RPC request IDs share this window with the run's other request IDs, such as
