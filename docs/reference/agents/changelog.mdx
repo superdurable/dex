@@ -22,7 +22,6 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
 
 - **dex-agents-deepagents**: file writes and shell commands no longer wait for approval by default, as in Deep Agents without **interrupt_on**. Name the tool in **approval.always** to make it wait. **local_tools.shell.allow** has no effect on this command, and its file tools are Deep Agents' own, which take absolute paths. [Reference](/reference/agents/cli#harness-tools).
 - **dex-agents-pi**: file writes, edits, and **bash** no longer wait for approval by default, as in Pi. Name the tool in **approval.always** to make it wait. **local_tools.shell.allow** has no effect on this command. The file tools and **bash** have no workspace boundary. Without **workspace** in the file, the workspace is the directory the command starts in. [Reference](/reference/agents/cli#harness-tools).
-- TypeScript Claude Agent SDK adapter: **createClaudeAgentSessionFlow** now returns an **AgentSessionFlow** typed with **ClaudeAgentRunner**, and the runner's **executeDeferredToolCall** returns a **DeferredToolOutcome**. Code that annotates the Flow as a plain **AgentSessionFlow** no longer compiles. Drop the annotation, or type it with **ClaudeAgentRunner** as the built-in agent loop's Flow is typed with **BuiltinLoopAgentRunner**. Since 0.6.6.
 
 ### Added
 
@@ -79,6 +78,8 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
   disconnected", the chat's first reads retry for 10 seconds. A Python command
   no longer stops with a traceback: a Dex error that remains prints one line
   and exits with code 1. Since 0.6.3.
+- TypeScript Claude Agent SDK adapter: **createClaudeAgentSessionFlow** now returns an **AgentSessionFlow** typed with **ClaudeAgentRunner**, as the built-in agent loop's Flow is typed with **BuiltinLoopAgentRunner**, and the runner's **executeDeferredToolCall** returns a **DeferredToolOutcome**, which a tool task or a question needs. Code that annotates the Flow as a plain **AgentSessionFlow** must drop the annotation or type it with **ClaudeAgentRunner**. Since 0.6.6.
+
 
 ## 0.5 {#v0-5}
 
