@@ -19,4 +19,50 @@ public interface WorkerTargetOrBuilder extends
    * @return The isPullMode.
    */
   boolean getIsPullMode();
+
+  /**
+   * <pre>
+   * Names the task queue whose pull Workers run this Flow's Steps and RPCs.
+   * Only Workers registered on this task queue receive the Flow's work, through its sticky
+   * Worker or its Flow type queue inside the task queue.
+   * The task queue is fixed when the Flow starts.
+   * At StartFlow, an empty name selects the default task queue.
+   * In a SubFlow override, an empty name keeps the parent's task queue, and "dex.default"
+   * selects the default task queue.
+   * In UpdateFlowConfig, an empty name keeps the run's task queue, and Dex rejects another task
+   * queue with INVALID_ARGUMENT.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Names starting with "dex." are reserved; only "dex.default" is accepted, and Dex stores it as
+   * the empty default name.
+   * Dex rejects a name with INVALID_ARGUMENT when is_pull_mode is false or the name is invalid.
+   * Requires Server protocol version 5 or later.
+   * </pre>
+   *
+   * <code>string task_queue = 4;</code>
+   * @return The taskQueue.
+   */
+  java.lang.String getTaskQueue();
+  /**
+   * <pre>
+   * Names the task queue whose pull Workers run this Flow's Steps and RPCs.
+   * Only Workers registered on this task queue receive the Flow's work, through its sticky
+   * Worker or its Flow type queue inside the task queue.
+   * The task queue is fixed when the Flow starts.
+   * At StartFlow, an empty name selects the default task queue.
+   * In a SubFlow override, an empty name keeps the parent's task queue, and "dex.default"
+   * selects the default task queue.
+   * In UpdateFlowConfig, an empty name keeps the run's task queue, and Dex rejects another task
+   * queue with INVALID_ARGUMENT.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Names starting with "dex." are reserved; only "dex.default" is accepted, and Dex stores it as
+   * the empty default name.
+   * Dex rejects a name with INVALID_ARGUMENT when is_pull_mode is false or the name is invalid.
+   * Requires Server protocol version 5 or later.
+   * </pre>
+   *
+   * <code>string task_queue = 4;</code>
+   * @return The bytes for taskQueue.
+   */
+  com.google.protobuf.ByteString
+      getTaskQueueBytes();
 }

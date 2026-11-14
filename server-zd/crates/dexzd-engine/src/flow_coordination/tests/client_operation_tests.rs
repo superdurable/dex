@@ -57,7 +57,10 @@ async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
     );
     assert_eq!(
         start.worker_target,
-        Some(WorkerTarget { is_pull_mode: true })
+        Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        })
     );
     assert_eq!(start.settings.unwrap().history_window_events, 10_000);
     assert_eq!(start.request.unwrap(), request);
@@ -66,12 +69,15 @@ async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
 #[tokio::test(start_paused = true)]
 async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
     let mut config = FlowCoordinationConfig::default();
-    let pull_target = WorkerTarget { is_pull_mode: true };
-    config.validation.default_flow_config.worker_target = Some(pull_target);
+    let pull_target = WorkerTarget {
+        is_pull_mode: true,
+        ..WorkerTarget::default()
+    };
+    config.validation.default_flow_config.worker_target = Some(pull_target.clone());
     let expected_default = FlowConfig {
         active_step_search_mode: Some(ActiveStepSearchMode::Disabled as i32),
         step_durability: Some(StepDurability::Sync as i32),
-        worker_target: Some(pull_target),
+        worker_target: Some(pull_target.clone()),
         ..FlowConfig::default()
     };
     let harness = FlowCoordinationHarness::with_config(&config);
@@ -123,7 +129,7 @@ async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
         .flow_config_override = Some(FlowConfig {
         active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
         step_durability: Some(StepDurability::Async as i32),
-        worker_target: Some(pull_target),
+        worker_target: Some(pull_target.clone()),
         ..FlowConfig::default()
     });
     harness
@@ -146,7 +152,7 @@ async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
         Some(FlowConfig {
             active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
             step_durability: Some(StepDurability::Async as i32),
-            worker_target: Some(pull_target),
+            worker_target: Some(pull_target.clone()),
             ..FlowConfig::default()
         })
     );
@@ -190,6 +196,7 @@ async fn invalid_requests_are_rejected_before_proposing() {
         .unwrap()
         .worker_target = Some(WorkerTarget {
         is_pull_mode: false,
+        ..WorkerTarget::default()
     });
     let error = harness
         .registry

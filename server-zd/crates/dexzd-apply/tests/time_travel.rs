@@ -222,7 +222,10 @@ impl Harness {
             request: Some(request),
             settings: Some(self.settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
             ..FlowStartCommand::default()
@@ -4215,7 +4218,10 @@ fn the_timeout_handler_and_a_proceeding_wait_for_failure_have_no_related_ids() {
         }),
         settings: Some(harness.settings),
         resolved_timeout_policy: FlowTimeoutPolicy::Handler as i32,
-        worker_target: Some(WorkerTarget { is_pull_mode: true }),
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
         ..FlowStartCommand::default()
     }));
     if let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply {

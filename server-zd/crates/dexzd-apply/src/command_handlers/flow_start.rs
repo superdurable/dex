@@ -62,7 +62,7 @@ pub(crate) fn apply_flow_start(
             .and_then(|options| options.flow_config_override.clone())
             .unwrap_or_default()
     });
-    flow_config.worker_target = command.worker_target;
+    flow_config.worker_target.clone_from(&command.worker_target);
     let start = RunStart {
         new_run_id: &command.new_run_id,
         request: &request,

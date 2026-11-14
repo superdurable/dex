@@ -33,7 +33,7 @@ func testServerInfo(t *testing.T) {
 	require.NotEmpty(t, serverInfo.GetServerVersion())
 
 	require.Equal(t, uint32(1), serverInfo.GetMinimumSupportedProtocolVersion())
-	require.Equal(t, uint32(4), serverInfo.GetCurrentProtocolVersion())
+	require.Equal(t, uint32(5), serverInfo.GetCurrentProtocolVersion())
 
 	require.Equal(t, dexpb.ServerEngine_SERVER_ENGINE_ZD, serverInfo.GetServerEngine())
 

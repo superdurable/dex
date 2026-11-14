@@ -39,6 +39,7 @@ private static final long serialVersionUID = 0L;
     sdkName_ = "";
     sdkVersion_ = "";
     slotKind_ = 0;
+    taskQueue_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -361,6 +362,67 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.PollWorkerSlotKind.UNRECOGNIZED : result;
   }
 
+  public static final int TASK_QUEUE_FIELD_NUMBER = 8;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object taskQueue_ = "";
+  /**
+   * <pre>
+   * Names the task queue this stream serves; empty serves the default task queue.
+   * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+   * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+   * names another one with INVALID_ARGUMENT.
+   * Requires Server protocol version 5 or later.
+   * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+   * </pre>
+   *
+   * <code>string task_queue = 8;</code>
+   * @return The taskQueue.
+   */
+  @java.lang.Override
+  public java.lang.String getTaskQueue() {
+    java.lang.Object ref = taskQueue_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      taskQueue_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Names the task queue this stream serves; empty serves the default task queue.
+   * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+   * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+   * names another one with INVALID_ARGUMENT.
+   * Requires Server protocol version 5 or later.
+   * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+   * </pre>
+   *
+   * <code>string task_queue = 8;</code>
+   * @return The bytes for taskQueue.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTaskQueueBytes() {
+    java.lang.Object ref = taskQueue_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      taskQueue_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -396,6 +458,9 @@ private static final long serialVersionUID = 0L;
     if (slotKind_ != io.superdurable.gen.PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_UNSPECIFIED.getNumber()) {
       output.writeEnum(7, slotKind_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(taskQueue_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 8, taskQueue_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -427,6 +492,9 @@ private static final long serialVersionUID = 0L;
     if (slotKind_ != io.superdurable.gen.PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(7, slotKind_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(taskQueue_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(8, taskQueue_);
     }
     return size;
   }
@@ -465,6 +533,8 @@ private static final long serialVersionUID = 0L;
     if (getSupportsReservedSlotDispatch()
         != other.getSupportsReservedSlotDispatch()) return false;
     if (slotKind_ != other.slotKind_) return false;
+    if (!getTaskQueue()
+        .equals(other.getTaskQueue())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -493,6 +563,8 @@ private static final long serialVersionUID = 0L;
         getSupportsReservedSlotDispatch());
     hash = (37 * hash) + SLOT_KIND_FIELD_NUMBER;
     hash = (53 * hash) + slotKind_;
+    hash = (37 * hash) + TASK_QUEUE_FIELD_NUMBER;
+    hash = (53 * hash) + getTaskQueue().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -636,6 +708,7 @@ private static final long serialVersionUID = 0L;
       sdkVersion_ = "";
       supportsReservedSlotDispatch_ = false;
       slotKind_ = 0;
+      taskQueue_ = "";
       return this;
     }
 
@@ -691,6 +764,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000040) != 0)) {
         result.slotKind_ = slotKind_;
       }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.taskQueue_ = taskQueue_;
+      }
     }
 
     @java.lang.Override
@@ -740,6 +816,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.slotKind_ != 0) {
         setSlotKindValue(other.getSlotKindValue());
+      }
+      if (!other.getTaskQueue().isEmpty()) {
+        taskQueue_ = other.taskQueue_;
+        bitField0_ |= 0x00000080;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -802,6 +883,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000040;
               break;
             } // case 56
+            case 66: {
+              taskQueue_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 66
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1499,6 +1585,133 @@ private static final long serialVersionUID = 0L;
     public Builder clearSlotKind() {
       bitField0_ = (bitField0_ & ~0x00000040);
       slotKind_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object taskQueue_ = "";
+    /**
+     * <pre>
+     * Names the task queue this stream serves; empty serves the default task queue.
+     * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+     * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+     * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+     * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+     * names another one with INVALID_ARGUMENT.
+     * Requires Server protocol version 5 or later.
+     * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+     * </pre>
+     *
+     * <code>string task_queue = 8;</code>
+     * @return The taskQueue.
+     */
+    public java.lang.String getTaskQueue() {
+      java.lang.Object ref = taskQueue_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        taskQueue_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Names the task queue this stream serves; empty serves the default task queue.
+     * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+     * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+     * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+     * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+     * names another one with INVALID_ARGUMENT.
+     * Requires Server protocol version 5 or later.
+     * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+     * </pre>
+     *
+     * <code>string task_queue = 8;</code>
+     * @return The bytes for taskQueue.
+     */
+    public com.google.protobuf.ByteString
+        getTaskQueueBytes() {
+      java.lang.Object ref = taskQueue_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        taskQueue_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Names the task queue this stream serves; empty serves the default task queue.
+     * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+     * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+     * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+     * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+     * names another one with INVALID_ARGUMENT.
+     * Requires Server protocol version 5 or later.
+     * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+     * </pre>
+     *
+     * <code>string task_queue = 8;</code>
+     * @param value The taskQueue to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTaskQueue(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      taskQueue_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Names the task queue this stream serves; empty serves the default task queue.
+     * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+     * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+     * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+     * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+     * names another one with INVALID_ARGUMENT.
+     * Requires Server protocol version 5 or later.
+     * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+     * </pre>
+     *
+     * <code>string task_queue = 8;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTaskQueue() {
+      taskQueue_ = getDefaultInstance().getTaskQueue();
+      bitField0_ = (bitField0_ & ~0x00000080);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Names the task queue this stream serves; empty serves the default task queue.
+     * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+     * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+     * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+     * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+     * names another one with INVALID_ARGUMENT.
+     * Requires Server protocol version 5 or later.
+     * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+     * </pre>
+     *
+     * <code>string task_queue = 8;</code>
+     * @param value The bytes for taskQueue to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTaskQueueBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      taskQueue_ = value;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }

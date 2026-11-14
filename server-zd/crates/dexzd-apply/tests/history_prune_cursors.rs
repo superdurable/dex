@@ -190,9 +190,15 @@ impl Harness {
             }),
             settings: Some(settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             effective_flow_config: Some(FlowConfig {
-                worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
                 ..FlowConfig::default()
             }),
             ..FlowStartCommand::default()

@@ -28,6 +28,7 @@ impl SlotConnection {
                 frame: Some(ResponseFrame::Registered(PollWorkerTaskRegistered {
                     supports_unknown_name_rejection: true,
                     max_concurrent_tasks_per_app_worker: limit,
+                    ..PollWorkerTaskRegistered::default()
                 })),
             }))
             .await

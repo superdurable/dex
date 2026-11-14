@@ -44,7 +44,8 @@ use crate::{
 /// Oldest client protocol version this server accepts; equal to the Go Server's.
 pub const MINIMUM_SUPPORTED_PROTOCOL_VERSION: u32 = 1;
 /// Newest client protocol version this server implements; version 4 adds reserved-slot Worker dispatch.
-pub const CURRENT_PROTOCOL_VERSION: u32 = 4;
+/// Version 5 adds named task queues.
+pub const CURRENT_PROTOCOL_VERSION: u32 = 5;
 
 /// Components the FlowService endpoint routes requests to.
 pub struct FlowServiceDependencies {

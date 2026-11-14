@@ -458,6 +458,17 @@ export interface PollWorkerTaskRegister {
    * Requires Server protocol version 4 or later.
    */
   slotKind: PollWorkerSlotKind;
+  /**
+   * Names the task queue this stream serves; empty serves the default task queue.
+   * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+   * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+   * names another one with INVALID_ARGUMENT.
+   * Requires Server protocol version 5 or later.
+   * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+   */
+  taskQueue: string;
 }
 
 /** Carries a task's heartbeat, stream write, result, or Worker error. */
@@ -534,6 +545,13 @@ export interface PollWorkerTaskRegistered {
    * A Worker whose configured concurrency exceeds it should fail to start with a clear error.
    */
   maxConcurrentTasksPerAppWorker: number;
+  /**
+   * The task queue Dex registered this stream on; empty means the default task queue.
+   * Reported by Server protocol version 5 or later.
+   * A Worker that asked for a named task queue and reads another value here must close the
+   * stream and treat the registration as rejected: an older Server ignored the request.
+   */
+  taskQueue: string;
 }
 
 /** Assigns one task to this stream until its final result, error, or rejection. */
@@ -851,6 +869,23 @@ export interface AttributeStoreNames {
 export interface WorkerTarget {
   /** Routes work through a connected pull Worker. Dex requires true whenever a target is set. */
   isPullMode: boolean;
+  /**
+   * Names the task queue whose pull Workers run this Flow's Steps and RPCs.
+   * Only Workers registered on this task queue receive the Flow's work, through its sticky
+   * Worker or its Flow type queue inside the task queue.
+   * The task queue is fixed when the Flow starts.
+   * At StartFlow, an empty name selects the default task queue.
+   * In a SubFlow override, an empty name keeps the parent's task queue, and "dex.default"
+   * selects the default task queue.
+   * In UpdateFlowConfig, an empty name keeps the run's task queue, and Dex rejects another task
+   * queue with INVALID_ARGUMENT.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Names starting with "dex." are reserved; only "dex.default" is accepted, and Dex stores it as
+   * the empty default name.
+   * Dex rejects a name with INVALID_ARGUMENT when is_pull_mode is false or the name is invalid.
+   * Requires Server protocol version 5 or later.
+   */
+  taskQueue: string;
 }
 
 export interface StartFlowRequest {
@@ -1233,6 +1268,11 @@ export interface PullRouting {
   stickyAppWorkerId: string;
   servedByAppWorkerId: string;
   source: PullRoutingSource;
+  /**
+   * The task queue of the dispatch; empty means the default task queue.
+   * Recorded by Server protocol version 5 or later.
+   */
+  taskQueue: string;
 }
 
 export interface StepMethodEventContext {
@@ -2346,6 +2386,7 @@ function createBasePollWorkerTaskRegister(): PollWorkerTaskRegister {
     sdkVersion: "",
     supportsReservedSlotDispatch: false,
     slotKind: 0,
+    taskQueue: "",
   };
 }
 
@@ -2371,6 +2412,9 @@ export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
     }
     if (message.slotKind !== 0) {
       writer.uint32(56).int32(message.slotKind);
+    }
+    if (message.taskQueue !== "") {
+      writer.uint32(66).string(message.taskQueue);
     }
     return writer;
   },
@@ -2438,6 +2482,14 @@ export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
           message.slotKind = reader.int32() as any;
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.taskQueue = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2459,6 +2511,7 @@ export const PollWorkerTaskRegister: MessageFns<PollWorkerTaskRegister> = {
     message.sdkVersion = object.sdkVersion ?? "";
     message.supportsReservedSlotDispatch = object.supportsReservedSlotDispatch ?? false;
     message.slotKind = object.slotKind ?? 0;
+    message.taskQueue = object.taskQueue ?? "";
     return message;
   },
 };
@@ -2797,7 +2850,7 @@ export const PollWorkerTaskResponse: MessageFns<PollWorkerTaskResponse> = {
 };
 
 function createBasePollWorkerTaskRegistered(): PollWorkerTaskRegistered {
-  return { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 };
+  return { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" };
 }
 
 export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
@@ -2807,6 +2860,9 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
     }
     if (message.maxConcurrentTasksPerAppWorker !== 0) {
       writer.uint32(16).uint32(message.maxConcurrentTasksPerAppWorker);
+    }
+    if (message.taskQueue !== "") {
+      writer.uint32(26).string(message.taskQueue);
     }
     return writer;
   },
@@ -2834,6 +2890,14 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
           message.maxConcurrentTasksPerAppWorker = reader.uint32();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.taskQueue = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2850,6 +2914,7 @@ export const PollWorkerTaskRegistered: MessageFns<PollWorkerTaskRegistered> = {
     const message = createBasePollWorkerTaskRegistered();
     message.supportsUnknownNameRejection = object.supportsUnknownNameRejection ?? false;
     message.maxConcurrentTasksPerAppWorker = object.maxConcurrentTasksPerAppWorker ?? 0;
+    message.taskQueue = object.taskQueue ?? "";
     return message;
   },
 };
@@ -4922,13 +4987,16 @@ export const AttributeStoreNames: MessageFns<AttributeStoreNames> = {
 };
 
 function createBaseWorkerTarget(): WorkerTarget {
-  return { isPullMode: false };
+  return { isPullMode: false, taskQueue: "" };
 }
 
 export const WorkerTarget: MessageFns<WorkerTarget> = {
   encode(message: WorkerTarget, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.isPullMode !== false) {
       writer.uint32(24).bool(message.isPullMode);
+    }
+    if (message.taskQueue !== "") {
+      writer.uint32(34).string(message.taskQueue);
     }
     return writer;
   },
@@ -4948,6 +5016,14 @@ export const WorkerTarget: MessageFns<WorkerTarget> = {
           message.isPullMode = reader.bool();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.taskQueue = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4963,6 +5039,7 @@ export const WorkerTarget: MessageFns<WorkerTarget> = {
   fromPartial<I extends Exact<DeepPartial<WorkerTarget>, I>>(object: I): WorkerTarget {
     const message = createBaseWorkerTarget();
     message.isPullMode = object.isPullMode ?? false;
+    message.taskQueue = object.taskQueue ?? "";
     return message;
   },
 };
@@ -8877,7 +8954,7 @@ export const StepMethodEventInput: MessageFns<StepMethodEventInput> = {
 };
 
 function createBasePullRouting(): PullRouting {
-  return { stickyAppWorkerId: "", servedByAppWorkerId: "", source: 0 };
+  return { stickyAppWorkerId: "", servedByAppWorkerId: "", source: 0, taskQueue: "" };
 }
 
 export const PullRouting: MessageFns<PullRouting> = {
@@ -8890,6 +8967,9 @@ export const PullRouting: MessageFns<PullRouting> = {
     }
     if (message.source !== 0) {
       writer.uint32(24).int32(message.source);
+    }
+    if (message.taskQueue !== "") {
+      writer.uint32(34).string(message.taskQueue);
     }
     return writer;
   },
@@ -8925,6 +9005,14 @@ export const PullRouting: MessageFns<PullRouting> = {
           message.source = reader.int32() as any;
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.taskQueue = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8942,6 +9030,7 @@ export const PullRouting: MessageFns<PullRouting> = {
     message.stickyAppWorkerId = object.stickyAppWorkerId ?? "";
     message.servedByAppWorkerId = object.servedByAppWorkerId ?? "";
     message.source = object.source ?? 0;
+    message.taskQueue = object.taskQueue ?? "";
     return message;
   },
 };

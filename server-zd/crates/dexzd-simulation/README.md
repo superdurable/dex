@@ -146,7 +146,7 @@ runtime with paused time, and every choice derives from one seed.
   admitted, and the parent's close hold dry-runs it. Ordinary client RPCs alone produced that
   in only a few of the 64 seeds, so the coverage check failed when unrelated changes moved the
   trajectories. The probe draws only from its own seed, which is the simulation seed mixed
-  with a constant. The redeploy and Step failure profiles run no probe.
+  with a constant. The redeploy, Step failure, and named task queue profiles run no probe.
 - **Determinism.** The engine runs frame applies, state reads, and snapshot uploads on the
   calling task (`BlockingWorkPlacement::CallingTaskForTest`), and every engine `select!` is
   biased. Every ID the engine persists comes from one `SeededEngineIdSourceForTest` that all
@@ -338,6 +338,18 @@ disk, outages, redeploys, incarnation changes, standbys that crossed a segment b
 following, twin comparisons right after a warm takeover, checks that saw the standby following
 and restarting, and standbys following at the end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
 other profiles keep their trajectories.
+
+### Named task queue profile
+
+`named_task_queues_keep_every_invariant` runs the `NamedTaskQueues` profile on its own seed
+group: 16 seeds from `2052849664` (`0x7a5c0000`). It uses the fixed set's environment without the
+child-wait probe. Clients start each Flow on the task queue its Flow ID picks: `order-1` on
+`sim-queue-a`, `order-2` on `sim-queue-b`, and `order-3` on the default task queue. The pick draws
+nothing, so the workload draws the same choices as the fixed set. SubFlows inherit their parent's
+task queue. Queued attempts of named task queues use the `NamedDispatchQueue` index, so restarts
+and Claims run over both index kinds, and the DispatchQueue invariant checks each row against its
+run's task queue. The test requires queued and started attempts and restarts. One seed of the
+profile is in the determinism self-test.
 
 ### Create-only object storage
 

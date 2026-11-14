@@ -16,6 +16,7 @@ use dexzd_keyspace::{FlowHash, RunId, TenantId};
 fn queue(step_type: &str) -> DispatchQueueName {
     DispatchQueueName {
         tenant_id: TenantId(7),
+        task_queue: String::new(),
         flow_type: "Order".to_owned(),
         step_type: step_type.to_owned(),
     }
@@ -41,7 +42,7 @@ fn task(partition: u16, step_type: &str, pending_since_micros: i64) -> QueuedTas
 
 fn earliest(backlog: &TaskBacklog) -> Option<(DispatchQueueName, PartitionId)> {
     let flow_types = ["Order".to_owned()];
-    backlog.earliest_claimable(7, flow_types.iter(), |_| true)
+    backlog.earliest_claimable(7, "", flow_types.iter(), |_| true)
 }
 
 fn scan_head(head: Option<QueuedTaskRef>) -> ScannedQueueHead {
@@ -75,7 +76,7 @@ fn a_partition_keeps_its_smallest_ref_and_heads_order_by_pending_time() {
     );
     let flow_types = ["Order".to_owned()];
     assert_eq!(
-        backlog.earliest_claimable(7, flow_types.iter(), |name| name.step_type != "Charge"),
+        backlog.earliest_claimable(7, "", flow_types.iter(), |name| name.step_type != "Charge"),
         None,
         "an ineligible queue is never chosen"
     );

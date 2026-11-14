@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::dispatch_queue_keys::{
-    DispatchQueueEntry, decode_dispatch_queue_key, dispatch_queue_partition_prefix,
+    DispatchQueueEntry, decode_dispatch_queue_key, dispatch_queue_partition_prefixes,
 };
 use dexzd_keyspace::row_keys::{
     AttributeSyncPendingIndexEntry, HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry,
@@ -242,26 +242,27 @@ impl FlowView {
             })
             .collect::<Result<_, _>>()?;
         view.search_order_keys = search_order_keys(state, partition, flow_hash)?;
-        let (start, end) =
-            dexzd_keyspace::row_keys::prefix_range(&dispatch_queue_partition_prefix(partition));
-        let queue_rows = dexzd_apply::FlowStateReader::scan(
-            state,
-            ColumnFamily::PartitionIndex,
-            &start,
-            &end,
-            usize::MAX,
-        )
-        .map_err(|error| StateViewError {
-            what: "DispatchQueue index",
-            key_hex: hex(&start),
-            detail: error.to_string(),
-        })?;
-        for (key, value) in &queue_rows {
-            let entry = decode_dispatch_queue_key(key)
-                .ok_or_else(|| view_error(key, "DispatchQueue index", "malformed key"))?;
-            if entry.position.flow_hash == flow_hash {
-                let record = decode(key, value, "DispatchQueue row")?;
-                view.dispatch_queue_index.push((entry, record));
+        for prefix in dispatch_queue_partition_prefixes(partition) {
+            let (start, end) = dexzd_keyspace::row_keys::prefix_range(&prefix);
+            let queue_rows = dexzd_apply::FlowStateReader::scan(
+                state,
+                ColumnFamily::PartitionIndex,
+                &start,
+                &end,
+                usize::MAX,
+            )
+            .map_err(|error| StateViewError {
+                what: "DispatchQueue index",
+                key_hex: hex(&start),
+                detail: error.to_string(),
+            })?;
+            for (key, value) in &queue_rows {
+                let entry = decode_dispatch_queue_key(key)
+                    .ok_or_else(|| view_error(key, "DispatchQueue index", "malformed key"))?;
+                if entry.position.flow_hash == flow_hash {
+                    let record = decode(key, value, "DispatchQueue row")?;
+                    view.dispatch_queue_index.push((entry, record));
+                }
             }
         }
         let (start, end) = partition_index_range(partition, IndexKind::HistoryUploadPending);

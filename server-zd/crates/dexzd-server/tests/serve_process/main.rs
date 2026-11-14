@@ -137,7 +137,10 @@ async fn sigterm_releases_the_lease_and_a_second_process_takes_over() {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -323,7 +326,10 @@ async fn prefix_confined_missing_key_denials_allow_log_tail_recovery() {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -737,7 +743,10 @@ async fn run_search_finds_flows_with_work_queue_permissions_for_test(
             start_step_type: "IdleStep".to_owned(),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -891,7 +900,10 @@ async fn run_greeting_flow_with_offload(
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     offload_history,
                     ..FlowConfig::default()
                 }),

@@ -60,6 +60,8 @@ pub(crate) struct MethodAttempt {
     pub(crate) durability: dex::StepDurability,
     /// The method's configured timeout in seconds; 0 means the default.
     pub(crate) method_timeout_seconds: i32,
+    /// The run's task queue, recorded in the attempt's routing.
+    pub(crate) task_queue: String,
     pub(crate) scheduled_at: Option<std::time::Instant>,
     /// Canceled by `InvocationCanceled` or node shutdown.
     pub(crate) cancel: CancellationToken,
@@ -853,7 +855,7 @@ impl MethodAttempt {
                 self.key.attempt,
                 app_worker_id.clone(),
                 uploads.references.clone(),
-                pull_routing(&sticky_app_worker_id, &app_worker_id),
+                pull_routing(&self.task_queue, &sticky_app_worker_id, &app_worker_id),
                 self.fence_task_id(),
             ),
         ));
@@ -903,6 +905,7 @@ impl MethodAttempt {
                 server_detail: failure.server_detail,
                 is_non_retryable: failure.is_non_retryable,
                 pull_routing: Some(pull_routing(
+                    &self.task_queue,
                     sticky_app_worker_id,
                     &failure.served_by_app_worker_id,
                 )),

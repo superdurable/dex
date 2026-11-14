@@ -456,7 +456,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     );
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestId, "");
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestTimeoutSeconds, 1);
-    assert.deepEqual(requests.start?.flowStartOptions?.flowConfigOverride?.workerTarget, { isPullMode: true });
+    assert.deepEqual(requests.start?.flowStartOptions?.flowConfigOverride?.workerTarget, { isPullMode: true, taskQueue: "" });
     await client.updateFlowConfig("flow-1", {});
     assert.ok(requests.updateFlowConfig?.flowConfig);
     assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);

@@ -278,6 +278,7 @@ export class PullWorker {
         sdkVersion,
         supportsReservedSlotDispatch: true,
         slotKind: poll.slotKind,
+        taskQueue: "",
       } } });
     } catch (failure) {
       console.error("Worker task registration failed", failure);

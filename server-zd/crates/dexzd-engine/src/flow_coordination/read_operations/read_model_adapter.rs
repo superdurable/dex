@@ -64,6 +64,7 @@ pub(crate) fn read_flow_state(
                 invocation.pending_reason = StepMethodPendingReason::WaitingForLocks as i32;
             } else if step_queues.is_waiting_for_supporting_worker(
                 flow.tenant_id.0,
+                dexzd_apply::run_task_queue(&run.record),
                 &run.record.flow_type,
                 &step.step_type,
             ) {

@@ -16,11 +16,11 @@ use dexzd_protocol::dex::{
     ActiveStepPhase, FlowConfig, FlowStartOptions, GetFlowStateRequest, InvokeExecuteMethodOutput,
     InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodOutput,
     InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, PollWorkerSlotKind, PollWorkerTask,
-    PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject, PollWorkerTaskRejectReason,
-    PollWorkerTaskRequest, PollWorkerTaskResponse, ServiceErrorResponse, StartFlowRequest,
-    StartFlowResponse, StepDecision, StepOptions, Value, WaitingCondition, WorkerTarget,
-    invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
-    poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
+    PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskRegistered, PollWorkerTaskReject,
+    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse,
+    ServiceErrorResponse, StartFlowRequest, StartFlowResponse, StepDecision, StepOptions, Value,
+    WaitingCondition, WorkerTarget, invoke_execute_method_output, invoke_wait_for_method_output,
+    poll_worker_task, poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
 };
 use dexzd_server::{DevCommandOptions, RunningServer};
 use prost::Message;
@@ -42,6 +42,8 @@ const READINESS_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTa
 pub(crate) struct DevServer {
     server: Option<RunningServer>,
     channel: Channel,
+    /// The `--config` override file, kept for a restart on the same data.
+    config: Option<std::path::PathBuf>,
     _data_directory: TempDir,
 }
 
@@ -59,11 +61,22 @@ impl DevServer {
             std::fs::write(&path, yaml).expect("the override file can be written");
             path
         });
+        Self::start_on_data(data_directory, config).await
+    }
+
+    /// Stops the server gracefully and starts it again on the same data and config overrides.
+    pub(crate) async fn restart(mut self) -> Self {
+        let config = self.config.take();
+        let data_directory = self.shutdown_keeping_data().await;
+        Self::start_on_data(data_directory, config).await
+    }
+
+    async fn start_on_data(data_directory: TempDir, config: Option<std::path::PathBuf>) -> Self {
         let server = dexzd_server::start_dev_server(&DevCommandOptions {
             data_dir: data_directory.path().to_path_buf(),
             listen: Some(free_loopback_address()),
             log_dir: None,
-            config,
+            config: config.clone(),
             attribute_store_config: None,
             // Per-test servers skip fsync for speed; strict is the dev default.
             durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
@@ -81,6 +94,7 @@ impl DevServer {
         Self {
             server: Some(server),
             channel,
+            config,
             _data_directory: data_directory,
         }
     }
@@ -180,7 +194,7 @@ impl PullWorker {
         flow_type: &str,
         handler: ExecuteHandler,
     ) -> Self {
-        let (frames, mut incoming) =
+        let (frames, mut incoming, _) =
             register_pull_stream(client, queue_registration(flow_type, "smoke-worker")).await;
         let replies = frames.clone();
         let task = tokio::spawn(async move {
@@ -210,6 +224,8 @@ pub(crate) struct ScriptedWorker {
     frames: mpsc::UnboundedSender<PollWorkerTaskRequest>,
     tasks: mpsc::UnboundedReceiver<PollWorkerTask>,
     task: JoinHandle<()>,
+    /// The server's answer to the registration.
+    registered: PollWorkerTaskRegistered,
 }
 
 impl ScriptedWorker {
@@ -236,11 +252,37 @@ impl ScriptedWorker {
         .await
     }
 
+    /// Registers one reserved Step-and-RPC slot of `app_worker_id` on `task_queue` and waits for
+    /// `registered`.
+    pub(crate) async fn start_reserved_slot_on_task_queue(
+        client: WorkerTaskServiceClient<Channel>,
+        flow_type: &str,
+        app_worker_id: &str,
+        task_queue: &str,
+    ) -> Self {
+        Self::register(
+            client,
+            PollWorkerTaskRegister {
+                queue: String::new(),
+                supports_reserved_slot_dispatch: true,
+                slot_kind: PollWorkerSlotKind::StepAndRpc.into(),
+                task_queue: task_queue.to_owned(),
+                ..queue_registration(flow_type, app_worker_id)
+            },
+        )
+        .await
+    }
+
+    /// Returns the server's answer to the registration.
+    pub(crate) fn registered(&self) -> &PollWorkerTaskRegistered {
+        &self.registered
+    }
+
     async fn register(
         client: WorkerTaskServiceClient<Channel>,
         registration: PollWorkerTaskRegister,
     ) -> Self {
-        let (frames, mut incoming) = register_pull_stream(client, registration).await;
+        let (frames, mut incoming, registered) = register_pull_stream(client, registration).await;
         let (task_sender, tasks) = mpsc::unbounded_channel();
         // A weak sender lets the test half-close the stream while pings still get answers.
         let pongs = frames.downgrade();
@@ -272,6 +314,7 @@ impl ScriptedWorker {
             frames,
             tasks,
             task,
+            registered,
         }
     }
 
@@ -349,7 +392,7 @@ impl ScriptedWorker {
 }
 
 /// The registration of a stream on the queue `queue` that serves the Flow type `queue`.
-fn queue_registration(queue: &str, app_worker_id: &str) -> PollWorkerTaskRegister {
+pub(crate) fn queue_registration(queue: &str, app_worker_id: &str) -> PollWorkerTaskRegister {
     PollWorkerTaskRegister {
         queue: queue.to_owned(),
         app_worker_id: app_worker_id.to_owned(),
@@ -362,14 +405,35 @@ fn queue_registration(queue: &str, app_worker_id: &str) -> PollWorkerTaskRegiste
 
 /// Opens PollWorkerTask with `registration` and waits for `registered`.
 ///
-/// Returns the sender of outgoing frames and the incoming frames after the registration.
+/// Returns the sender of outgoing frames, the incoming frames after the registration, and the
+/// registration answer.
 async fn register_pull_stream(
-    mut client: WorkerTaskServiceClient<Channel>,
+    client: WorkerTaskServiceClient<Channel>,
     registration: PollWorkerTaskRegister,
 ) -> (
     mpsc::UnboundedSender<PollWorkerTaskRequest>,
     tonic::Streaming<PollWorkerTaskResponse>,
+    PollWorkerTaskRegistered,
 ) {
+    try_register_pull_stream(client, registration)
+        .await
+        .expect("the registration succeeds")
+}
+
+/// Opens PollWorkerTask with `registration` and waits for its answer.
+///
+/// Returns what [`register_pull_stream`] returns, or the status that rejected the registration.
+pub(crate) async fn try_register_pull_stream(
+    mut client: WorkerTaskServiceClient<Channel>,
+    registration: PollWorkerTaskRegister,
+) -> Result<
+    (
+        mpsc::UnboundedSender<PollWorkerTaskRequest>,
+        tonic::Streaming<PollWorkerTaskResponse>,
+        PollWorkerTaskRegistered,
+    ),
+    tonic::Status,
+> {
     let (frames, outgoing) = mpsc::unbounded_channel();
     frames
         .send(PollWorkerTaskRequest {
@@ -378,22 +442,16 @@ async fn register_pull_stream(
         .expect("the outgoing stream is open");
     let mut incoming = client
         .poll_worker_task(UnboundedReceiverStream::new(outgoing))
-        .await
-        .expect("PollWorkerTask opens")
+        .await?
         .into_inner();
     let first = incoming
         .next()
         .await
-        .expect("the server answers the registration")
-        .expect("the registration succeeds");
-    assert!(
-        matches!(
-            first.frame,
-            Some(poll_worker_task_response::Frame::Registered(_))
-        ),
-        "the first frame is registered, got {first:?}"
-    );
-    (frames, incoming)
+        .expect("the server answers the registration")?;
+    let Some(poll_worker_task_response::Frame::Registered(registered)) = first.frame else {
+        panic!("the first frame is registered, got {first:?}");
+    };
+    Ok((frames, incoming, registered))
 }
 
 fn reply_to(
@@ -455,7 +513,10 @@ pub(crate) fn force_complete(output: dexzd_protocol::dex::Value) -> StepDecision
 pub(crate) fn pull_mode_start_options() -> FlowStartOptions {
     FlowStartOptions {
         flow_config_override: Some(FlowConfig {
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowConfig::default()
         }),
         ..FlowStartOptions::default()

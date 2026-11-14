@@ -213,7 +213,10 @@ impl Harness {
                 ..RunSettings::default()
             }),
             resolved_timeout_policy: resolved_timeout_policy as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowStartCommand::default()
         }))
     }

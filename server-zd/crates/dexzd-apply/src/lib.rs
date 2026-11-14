@@ -48,7 +48,9 @@ pub use history_offload::segmented_history::{
     LoadedHistorySegments, MissingHistorySegments, SegmentCheckpoint,
 };
 pub use state_access::{BoundedRowSeek, FlowStateReader, StateReadError, StateRow};
-pub use steps::dispatch_queue::{dispatch_queue_entry, effective_pending_since_micros};
+pub use steps::dispatch_queue::{
+    dispatch_queue_entry, effective_pending_since_micros, run_task_queue,
+};
 
 use dexzd_protocol::dexzd::v1::FlowCommand;
 

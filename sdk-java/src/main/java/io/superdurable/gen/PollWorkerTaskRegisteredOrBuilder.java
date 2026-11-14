@@ -34,4 +34,30 @@ public interface PollWorkerTaskRegisteredOrBuilder extends
    * @return The maxConcurrentTasksPerAppWorker.
    */
   int getMaxConcurrentTasksPerAppWorker();
+
+  /**
+   * <pre>
+   * The task queue Dex registered this stream on; empty means the default task queue.
+   * Reported by Server protocol version 5 or later.
+   * A Worker that asked for a named task queue and reads another value here must close the
+   * stream and treat the registration as rejected: an older Server ignored the request.
+   * </pre>
+   *
+   * <code>string task_queue = 3;</code>
+   * @return The taskQueue.
+   */
+  java.lang.String getTaskQueue();
+  /**
+   * <pre>
+   * The task queue Dex registered this stream on; empty means the default task queue.
+   * Reported by Server protocol version 5 or later.
+   * A Worker that asked for a named task queue and reads another value here must close the
+   * stream and treat the registration as rejected: an older Server ignored the request.
+   * </pre>
+   *
+   * <code>string task_queue = 3;</code>
+   * @return The bytes for taskQueue.
+   */
+  com.google.protobuf.ByteString
+      getTaskQueueBytes();
 }

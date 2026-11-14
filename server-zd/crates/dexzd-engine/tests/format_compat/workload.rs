@@ -1590,9 +1590,12 @@ impl Workload<'_> {
     async fn start_flow(&self, request: StartFlowRequest, settings: RunSettings) -> FlowRun {
         let flow_id = request.flow_id.clone();
         let run_id = self.next_run_id();
-        let pull_target = WorkerTarget { is_pull_mode: true };
+        let pull_target = WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        };
         let mut validation_config = ValidationConfig::default();
-        validation_config.default_flow_config.worker_target = Some(pull_target);
+        validation_config.default_flow_config.worker_target = Some(pull_target.clone());
         validation_config
             .attribute_store_names
             .insert(ATTRIBUTE_STORE_NAME.to_owned());
@@ -1614,7 +1617,7 @@ impl Workload<'_> {
                     request: Some(request),
                     settings: Some(settings),
                     resolved_timeout_policy,
-                    worker_target: Some(pull_target),
+                    worker_target: Some(pull_target.clone()),
                     effective_flow_config: Some(effective_flow_config),
                     hard_delete_objects: Vec::new(),
                 }),
@@ -2296,6 +2299,7 @@ mod load_blobs_purge_tests {
         fn is_waiting_for_supporting_worker(
             &self,
             _tenant_id: u64,
+            _task_queue: &str,
             _flow_type: &str,
             _step_type: &str,
         ) -> bool {

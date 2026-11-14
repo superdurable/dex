@@ -402,7 +402,7 @@ class PollWorkerTaskRequest(_message.Message):
     def __init__(self, register: _Optional[_Union[PollWorkerTaskRegister, _Mapping]] = ..., task_frame: _Optional[_Union[PollWorkerTaskFrame, _Mapping]] = ..., reject: _Optional[_Union[PollWorkerTaskReject, _Mapping]] = ..., pong: _Optional[_Union[PollWorkerTaskPong, _Mapping]] = ...) -> None: ...
 
 class PollWorkerTaskRegister(_message.Message):
-    __slots__ = ("queue", "app_worker_id", "flow_types", "sdk_name", "sdk_version", "supports_reserved_slot_dispatch", "slot_kind")
+    __slots__ = ("queue", "app_worker_id", "flow_types", "sdk_name", "sdk_version", "supports_reserved_slot_dispatch", "slot_kind", "task_queue")
     QUEUE_FIELD_NUMBER: _ClassVar[int]
     APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPES_FIELD_NUMBER: _ClassVar[int]
@@ -410,6 +410,7 @@ class PollWorkerTaskRegister(_message.Message):
     SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
     SUPPORTS_RESERVED_SLOT_DISPATCH_FIELD_NUMBER: _ClassVar[int]
     SLOT_KIND_FIELD_NUMBER: _ClassVar[int]
+    TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
     queue: str
     app_worker_id: str
     flow_types: _containers.RepeatedScalarFieldContainer[str]
@@ -417,7 +418,8 @@ class PollWorkerTaskRegister(_message.Message):
     sdk_version: str
     supports_reserved_slot_dispatch: bool
     slot_kind: PollWorkerSlotKind
-    def __init__(self, queue: _Optional[str] = ..., app_worker_id: _Optional[str] = ..., flow_types: _Optional[_Iterable[str]] = ..., sdk_name: _Optional[str] = ..., sdk_version: _Optional[str] = ..., supports_reserved_slot_dispatch: _Optional[bool] = ..., slot_kind: _Optional[_Union[PollWorkerSlotKind, str]] = ...) -> None: ...
+    task_queue: str
+    def __init__(self, queue: _Optional[str] = ..., app_worker_id: _Optional[str] = ..., flow_types: _Optional[_Iterable[str]] = ..., sdk_name: _Optional[str] = ..., sdk_version: _Optional[str] = ..., supports_reserved_slot_dispatch: _Optional[bool] = ..., slot_kind: _Optional[_Union[PollWorkerSlotKind, str]] = ..., task_queue: _Optional[str] = ...) -> None: ...
 
 class PollWorkerTaskFrame(_message.Message):
     __slots__ = ("task_id", "wait_for", "execute", "rpc", "worker_error")
@@ -460,12 +462,14 @@ class PollWorkerTaskResponse(_message.Message):
     def __init__(self, registered: _Optional[_Union[PollWorkerTaskRegistered, _Mapping]] = ..., task: _Optional[_Union[PollWorkerTask, _Mapping]] = ..., cancel_task: _Optional[_Union[PollWorkerTaskCancelTask, _Mapping]] = ..., reconnect: _Optional[_Union[PollWorkerTaskReconnect, _Mapping]] = ..., ping: _Optional[_Union[PollWorkerTaskPing, _Mapping]] = ...) -> None: ...
 
 class PollWorkerTaskRegistered(_message.Message):
-    __slots__ = ("supports_unknown_name_rejection", "max_concurrent_tasks_per_app_worker")
+    __slots__ = ("supports_unknown_name_rejection", "max_concurrent_tasks_per_app_worker", "task_queue")
     SUPPORTS_UNKNOWN_NAME_REJECTION_FIELD_NUMBER: _ClassVar[int]
     MAX_CONCURRENT_TASKS_PER_APP_WORKER_FIELD_NUMBER: _ClassVar[int]
+    TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
     supports_unknown_name_rejection: bool
     max_concurrent_tasks_per_app_worker: int
-    def __init__(self, supports_unknown_name_rejection: _Optional[bool] = ..., max_concurrent_tasks_per_app_worker: _Optional[int] = ...) -> None: ...
+    task_queue: str
+    def __init__(self, supports_unknown_name_rejection: _Optional[bool] = ..., max_concurrent_tasks_per_app_worker: _Optional[int] = ..., task_queue: _Optional[str] = ...) -> None: ...
 
 class PollWorkerTask(_message.Message):
     __slots__ = ("task_id", "deadline", "wait_for", "execute", "rpc")
@@ -748,10 +752,12 @@ class AttributeStoreNames(_message.Message):
     def __init__(self, names: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class WorkerTarget(_message.Message):
-    __slots__ = ("is_pull_mode",)
+    __slots__ = ("is_pull_mode", "task_queue")
     IS_PULL_MODE_FIELD_NUMBER: _ClassVar[int]
+    TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
     is_pull_mode: bool
-    def __init__(self, is_pull_mode: _Optional[bool] = ...) -> None: ...
+    task_queue: str
+    def __init__(self, is_pull_mode: _Optional[bool] = ..., task_queue: _Optional[str] = ...) -> None: ...
 
 class StartFlowRequest(_message.Message):
     __slots__ = ("flow_id", "flow_type", "flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "flow_start_options", "request_id")
@@ -1276,14 +1282,16 @@ class StepMethodEventInput(_message.Message):
     def __init__(self, unavailable: _Optional[bool] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., condition_results: _Optional[_Union[ConditionResults, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class PullRouting(_message.Message):
-    __slots__ = ("sticky_app_worker_id", "served_by_app_worker_id", "source")
+    __slots__ = ("sticky_app_worker_id", "served_by_app_worker_id", "source", "task_queue")
     STICKY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FIELD_NUMBER: _ClassVar[int]
+    TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
     sticky_app_worker_id: str
     served_by_app_worker_id: str
     source: PullRoutingSource
-    def __init__(self, sticky_app_worker_id: _Optional[str] = ..., served_by_app_worker_id: _Optional[str] = ..., source: _Optional[_Union[PullRoutingSource, str]] = ...) -> None: ...
+    task_queue: str
+    def __init__(self, sticky_app_worker_id: _Optional[str] = ..., served_by_app_worker_id: _Optional[str] = ..., source: _Optional[_Union[PullRoutingSource, str]] = ..., task_queue: _Optional[str] = ...) -> None: ...
 
 class StepMethodEventContext(_message.Message):
     __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "last_failure_info", "pull_routing", "from_event_id", "wait_for_completed_event_id", "wait_for_completed_time", "scheduled_time")

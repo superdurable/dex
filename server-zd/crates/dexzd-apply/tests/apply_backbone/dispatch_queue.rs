@@ -13,7 +13,7 @@ use super::*;
 use dexzd_apply::{dispatch_queue_entry, effective_pending_since_micros};
 use dexzd_keyspace::dispatch_queue_keys::{
     DispatchQueueEntry, TIMEOUT_HANDLER_DISPATCH_PRIORITY, decode_dispatch_queue_key,
-    dispatch_queue_key, dispatch_queue_partition_prefix,
+    dispatch_queue_key, dispatch_queue_partition_prefixes,
 };
 use dexzd_protocol::dexzd::v1::{
     DispatchQueueRecord, StepAttemptQueuedCommand, StepAttemptReturnReason,
@@ -52,10 +52,14 @@ impl Harness {
 
     /// Returns every DispatchQueue row of the harness partition, in key order.
     fn dispatch_queue_rows(&self) -> Vec<(DispatchQueueEntry, DispatchQueueRecord)> {
-        let (start, end) = prefix_range(&dispatch_queue_partition_prefix(self.context.partition));
-        self.state
-            .rows
-            .range((ColumnFamily::PartitionIndex, start)..(ColumnFamily::PartitionIndex, end))
+        dispatch_queue_partition_prefixes(self.context.partition)
+            .into_iter()
+            .flat_map(|prefix| {
+                let (start, end) = prefix_range(&prefix);
+                self.state.rows.range(
+                    (ColumnFamily::PartitionIndex, start)..(ColumnFamily::PartitionIndex, end),
+                )
+            })
             .map(|((_, key), value)| {
                 (
                     decode_dispatch_queue_key(key).expect("DispatchQueue keys decode"),

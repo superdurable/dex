@@ -1192,7 +1192,10 @@ fn start_request(
         step_options: Some(step_options),
         flow_start_options: Some(FlowStartOptions {
             flow_config_override: Some(FlowConfig {
-                worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
                 ..FlowConfig::default()
             }),
             flow_already_started_options: Some(FlowAlreadyStartedOptions {

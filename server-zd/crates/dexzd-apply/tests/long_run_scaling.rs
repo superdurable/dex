@@ -189,7 +189,10 @@ impl ChainRun {
             }),
             settings: Some(settings()),
             resolved_timeout_policy: dexzd_protocol::dex::FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowStartCommand::default()
         }));
         let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply else {

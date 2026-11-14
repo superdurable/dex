@@ -401,7 +401,7 @@ async function startWireHarness(responseEncoding?: "gzip") {
 }
 
 function registeredFrame(): PollWorkerTaskResponse {
-  return { frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } };
+  return { frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } };
 }
 
 function rpcTaskFrame(taskId: string): PollWorkerTaskResponse {

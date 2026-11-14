@@ -130,7 +130,10 @@ pub(super) async fn start_flow_with_hard_delete_attribute(channel: Channel, flow
                 ..AttributeWrite::default()
             }],
             flow_config_override: Some(FlowConfig {
-                worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
                 ..FlowConfig::default()
             }),
             ..FlowStartOptions::default()
@@ -155,7 +158,10 @@ pub(super) async fn start_flow_for_held_rpc(channel: Channel, flow_id: &str) {
         }),
         flow_start_options: Some(FlowStartOptions {
             flow_config_override: Some(FlowConfig {
-                worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
                 ..FlowConfig::default()
             }),
             ..FlowStartOptions::default()

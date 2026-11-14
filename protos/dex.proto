@@ -240,6 +240,15 @@ message PollWorkerTaskRegister {
   // and slot_kind is not UNSPECIFIED.
   // Requires Server protocol version 4 or later.
   PollWorkerSlotKind slot_kind = 7;
+  // Names the task queue this stream serves; empty serves the default task queue.
+  // The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+  // A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+  // Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+  // Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+  // names another one with INVALID_ARGUMENT.
+  // Requires Server protocol version 5 or later.
+  // An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+  string task_queue = 8;
 }
 
 // Selects the tasks accepted by a reserved Worker execution slot.
@@ -323,6 +332,11 @@ message PollWorkerTaskRegistered {
   // Reported by Server protocol version 4 or later.
   // A Worker whose configured concurrency exceeds it should fail to start with a clear error.
   uint32 max_concurrent_tasks_per_app_worker = 2;
+  // The task queue Dex registered this stream on; empty means the default task queue.
+  // Reported by Server protocol version 5 or later.
+  // A Worker that asked for a named task queue and reads another value here must close the
+  // stream and treat the registration as rejected: an older Server ignored the request.
+  string task_queue = 3;
 }
 
 // Assigns one task to this stream until its final result, error, or rejection.
@@ -677,6 +691,21 @@ message WorkerTarget {
   reserved "address", "is_headless_address";
   // Routes work through a connected pull Worker. Dex requires true whenever a target is set.
   bool is_pull_mode = 3;
+  // Names the task queue whose pull Workers run this Flow's Steps and RPCs.
+  // Only Workers registered on this task queue receive the Flow's work, through its sticky
+  // Worker or its Flow type queue inside the task queue.
+  // The task queue is fixed when the Flow starts.
+  // At StartFlow, an empty name selects the default task queue.
+  // In a SubFlow override, an empty name keeps the parent's task queue, and "dex.default"
+  // selects the default task queue.
+  // In UpdateFlowConfig, an empty name keeps the run's task queue, and Dex rejects another task
+  // queue with INVALID_ARGUMENT.
+  // A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+  // Names starting with "dex." are reserved; only "dex.default" is accepted, and Dex stores it as
+  // the empty default name.
+  // Dex rejects a name with INVALID_ARGUMENT when is_pull_mode is false or the name is invalid.
+  // Requires Server protocol version 5 or later.
+  string task_queue = 4;
 }
 
 message StartFlowRequest {
@@ -1097,6 +1126,9 @@ message PullRouting {
   string sticky_app_worker_id = 1;
   string served_by_app_worker_id = 2;
   PullRoutingSource source = 3;
+  // The task queue of the dispatch; empty means the default task queue.
+  // Recorded by Server protocol version 5 or later.
+  string task_queue = 4;
 }
 
 message StepMethodEventContext {

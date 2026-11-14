@@ -245,6 +245,7 @@ impl FlowCoordinatorRegistry {
                 flow: flow.clone(),
                 run_id: run.run_id,
                 flow_type: run.record.flow_type.clone(),
+                task_queue: dexzd_apply::run_task_queue(&run.record).to_owned(),
                 sticky_app_worker_id: run.record.sticky_app_worker_id.clone(),
                 request: worker_request,
                 deadline,

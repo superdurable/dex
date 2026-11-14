@@ -1336,7 +1336,10 @@ impl Client {
 
 pub(crate) fn map_pull_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
     Ok(ProtoFlowConfig {
-        worker_target: Some(ProtoWorkerTarget { is_pull_mode: true }),
+        worker_target: Some(ProtoWorkerTarget {
+            is_pull_mode: true,
+            ..ProtoWorkerTarget::default()
+        }),
         ..map_flow_config(config)?
     })
 }

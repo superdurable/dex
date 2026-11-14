@@ -229,7 +229,10 @@ impl Harness {
                 ..RunSettings::default()
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
             ..FlowStartCommand::default()
         }));
         assert!(outcome.reply.reply.is_some());
@@ -1792,6 +1795,7 @@ fn active_step_keeps_wait_for_routing_until_it_finishes() {
         sticky_app_worker_id: "wait-worker".to_owned(),
         served_by_app_worker_id: "wait-worker".to_owned(),
         source: PullRoutingSource::StickyQueue as i32,
+        task_queue: String::new(),
     };
     harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
         invocation: Some(StepInvocationKey {
@@ -1866,6 +1870,7 @@ fn served_routing(app_worker_id: &str) -> PullRouting {
         sticky_app_worker_id: String::new(),
         served_by_app_worker_id: app_worker_id.to_owned(),
         source: PullRoutingSource::FlowTypeQueue as i32,
+        task_queue: String::new(),
     }
 }
 
@@ -3308,6 +3313,7 @@ fn completed_method_contexts_include_effective_options_and_timing() {
         sticky_app_worker_id: "worker-a".to_owned(),
         served_by_app_worker_id: "worker-a".to_owned(),
         source: PullRoutingSource::StickyQueue as i32,
+        task_queue: String::new(),
     };
     harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
         invocation: Some(StepInvocationKey {
@@ -3329,6 +3335,7 @@ fn completed_method_contexts_include_effective_options_and_timing() {
         sticky_app_worker_id: "worker-a".to_owned(),
         served_by_app_worker_id: "worker-b".to_owned(),
         source: PullRoutingSource::FlowTypeQueue as i32,
+        task_queue: String::new(),
     };
     harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
         invocation: Some(StepInvocationKey {
@@ -3514,6 +3521,7 @@ fn retried_method_contexts_keep_the_previous_failure_and_final_start() {
         sticky_app_worker_id: "worker-a".to_owned(),
         served_by_app_worker_id: served_by.to_owned(),
         source: PullRoutingSource::FlowTypeQueue as i32,
+        task_queue: String::new(),
     };
     let failure_command = |method, attempt, detail: &str| {
         Command::StepAttemptFailed(StepAttemptFailedCommand {

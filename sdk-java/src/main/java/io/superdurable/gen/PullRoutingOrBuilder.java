@@ -44,4 +44,26 @@ public interface PullRoutingOrBuilder extends
    * @return The source.
    */
   io.superdurable.gen.PullRoutingSource getSource();
+
+  /**
+   * <pre>
+   * The task queue of the dispatch; empty means the default task queue.
+   * Recorded by Server protocol version 5 or later.
+   * </pre>
+   *
+   * <code>string task_queue = 4;</code>
+   * @return The taskQueue.
+   */
+  java.lang.String getTaskQueue();
+  /**
+   * <pre>
+   * The task queue of the dispatch; empty means the default task queue.
+   * Recorded by Server protocol version 5 or later.
+   * </pre>
+   *
+   * <code>string task_queue = 4;</code>
+   * @return The bytes for taskQueue.
+   */
+  com.google.protobuf.ByteString
+      getTaskQueueBytes();
 }

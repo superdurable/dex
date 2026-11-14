@@ -14,6 +14,7 @@ use dexzd_metrics::WorkerStreamProtocolError;
 use dexzd_protocol::dex::PollWorkerTask;
 
 use super::backlog_matching::partition_removed;
+use super::task_frames::validate_dispatched_task_queue;
 use super::worker_streams::{record_protocol_error, send_task_frame};
 use dexzd_keyspace::PartitionId;
 use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
@@ -29,6 +30,8 @@ pub struct StepStreamRequest {
     pub flow_id: String,
     /// Flow type queue used after an optional sticky Worker search.
     pub flow_type: String,
+    /// Task queue of the Flow; empty for the default task queue. Only its Workers are searched.
+    pub task_queue: String,
     /// Step type of the attempt; Workers that declined it are skipped.
     pub step_type: String,
     /// Worker process ID preferred while the sticky wait lasts.
@@ -140,12 +143,14 @@ pub(super) async fn reserve_step_stream(
     let partition_search = dispatch.register_partition_search(request.partition);
     let task_type = TaskTypeKey {
         tenant_id: request.tenant_id,
+        task_queue: request.task_queue.clone(),
         flow_type: request.flow_type.clone(),
         kind: TaskKind::Step,
         name: request.step_type.clone(),
     };
     let queue_name = DispatchQueueName {
         tenant_id: dexzd_keyspace::TenantId(request.tenant_id),
+        task_queue: request.task_queue.clone(),
         flow_type: request.flow_type.clone(),
         step_type: request.step_type.clone(),
     };
@@ -222,7 +227,8 @@ async fn reserve_in_queue(
     queue_end: Instant,
     is_sticky: bool,
 ) -> QueueReservation {
-    let mut queue_lease = QueueLease::new(dispatch, request.tenant_id, queue_name, waiter_sequence);
+    let queue_key = MatchingQueueKey::new(request.tenant_id, &request.task_queue, queue_name);
+    let mut queue_lease = QueueLease::new(dispatch, queue_key, waiter_sequence);
     let wakeup = queue_lease.wakeup.clone();
     let _queued_task = QueuedTaskMetric::new(dispatch.inner.metrics.matching_queued_tasks.clone());
     let mut shutdown = dispatch.inner.shutdown.subscribe();
@@ -295,6 +301,11 @@ impl ReservedStepStream {
         &self.worker().app_worker_id
     }
 
+    /// Returns the task queue the reserved slot serves; empty for the default task queue.
+    pub fn task_queue(&self) -> &str {
+        &self.worker().task_queue
+    }
+
     /// Sends the task frame of `task_id` on the reserved slot. The node lease and the stream's
     /// half-close are checked under the stream's lock, with no await before the send.
     ///
@@ -320,6 +331,7 @@ impl ReservedStepStream {
         };
         let task_type = TaskTypeKey {
             tenant_id: worker.tenant_id,
+            task_queue: worker.task_queue.clone(),
             flow_type: flow_type.clone(),
             kind,
             name: step_type.clone(),
@@ -474,6 +486,7 @@ fn validate_step_request(
             "Flow type queue must have a valid length",
         ));
     }
+    validate_dispatched_task_queue(&request.task_queue)?;
     if request
         .sticky_app_worker_id
         .as_ref()
