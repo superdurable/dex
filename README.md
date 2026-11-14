@@ -76,9 +76,7 @@ Java: `io.superdurable:dex-sdk` on [Maven Central](https://central.sonatype.com/
 ## Community
 
 - [Discord](https://discord.gg/V9cMHXts98)
-- **WeChat group**: add **prclqz** (龙全正) or **MUJIzz** (Zane), or scan the QR code.
-
-<img width="180" height="180" alt="QR code to join the Dex WeChat group" src="https://github.com/user-attachments/assets/3069ad7c-a905-4ab6-a174-2005ad8d45d5" />
+- **WeChat group**: add **prclqz** (Long) or **MUJIzz** (Zane), and we will invite you.
 
 ## Contributing
 
