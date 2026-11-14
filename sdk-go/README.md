@@ -1159,11 +1159,14 @@ separate calls. Step completion and Attribute waits accept an optional request
 ID, but the server does not read it.
 
 `RPCInvokeOptions.RequestID` sets a stable request ID for
-`InvokeRPCWithOptions`. A retry with the same request ID on the same Flow run
-returns the recorded reply, so Dex applies the RPC's Flow state changes at most
-once. Use it with a transactional or locking RPC, for example when an event
-that is delivered at least once invokes an RPC. The field's doc comment gives
-the deduplication window and the error for a reused ID.
+`InvokeRPCWithOptions`. With the same request ID on every attempt on the same
+Flow run, Dex applies the RPC's Flow state changes at most once. A repeat of a
+transactional or locking RPC returns the recorded reply without running the
+handler again. A repeat of any other RPC runs the handler again, and returns
+its new output when that attempt changes no Flow state. Use a transactional or
+locking RPC, for example when an event that is delivered at least once invokes
+an RPC. The field's doc comment gives the deduplication window and the error
+for a reused ID.
 
 ```go
 requestID := event.ID + "/IncrementCounter"

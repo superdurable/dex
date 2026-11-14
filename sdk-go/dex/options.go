@@ -610,38 +610,46 @@ type RPCInvokeOptions struct {
 	// the Client returns an error before it sends the request. Dex Server sets no other length or
 	// character rule.
 	//
-	// Dex Server records the request ID and the reply when the RPC's result commits. A later call
-	// with the same request ID on the same Flow run returns the recorded reply and applies no
-	// changes. A call that the Server fails before any commit records nothing, and a retry with
-	// the same request ID runs the RPC again. Such failures include a Worker error, a lock
-	// conflict, and the RPC's handler timeout, RPCOptions.Timeout, expiring while the handler runs.
+	// Dex applies an RPC's Flow state changes at most once per request ID. Dex Server records the
+	// request ID and the reply when an attempt's result commits. What a later attempt with the
+	// same request ID on the same Flow run returns depends on the RPC and on that attempt:
+	//
+	//   - A transactional or locking RPC, registered with RPCOptions.IsTransactional or
+	//     RPCOptions.LockAttributes, returns the recorded reply before a Worker runs the handler.
+	//   - Any other RPC runs its handler on a Worker again. When this attempt's result changes
+	//     Flow state or records an event, Dex discards it and returns the recorded reply. When
+	//     this attempt's result changes no Flow state and records no event, Dex returns its new
+	//     output without looking up the request ID.
+	//
+	// Use a transactional or locking RPC when every repeat must return the recorded reply. For
+	// example, a non-transactional handler that marks an event processed and returns "accepted"
+	// returns "alreadyProcessed" to a repeat that sees the mark and writes nothing.
+	//
+	// A call that the Server fails before any commit records nothing, and a retry with the same
+	// request ID runs the RPC again. Such failures include a Worker error, a lock conflict, and
+	// the RPC's handler timeout, RPCOptions.Timeout, expiring while the handler runs.
 	//
 	// A call that ends on the caller's side has an unknown outcome. This happens when ctx is
 	// canceled or its deadline expires before the reply arrives. The RPC may still commit after
-	// the call returns. Retry it with the same request ID: the retry returns the recorded reply
-	// when the first call committed, and otherwise runs the RPC. For a transactional or locking
-	// RPC, the Server keeps running the first call after the caller leaves. A retry with the same
-	// request ID joins that call while it is in flight, or returns its recorded reply after it
-	// commits.
+	// the call returns. Retry it with the same request ID: when the first call committed, the
+	// retry applies no changes again, and otherwise it runs the RPC. For a transactional or
+	// locking RPC, the Server keeps running the first call after the caller leaves. A retry with
+	// the same request ID joins that call while it is in flight, or returns its recorded reply
+	// after it commits.
 	//
-	// Use a transactional or locking RPC, registered with RPCOptions.IsTransactional or
-	// RPCOptions.LockAttributes, for idempotent writes. For such an RPC, Dex answers a recorded
-	// request ID before it dispatches the call, so the handler does not run again. A concurrent
-	// call with the same request ID waits for the call in flight and returns its result. After an
-	// UNAVAILABLE error whose commit outcome is unknown, a retry can run the handler again. Dex
-	// still commits only the first result, and the retry returns its reply.
-	//
-	// A non-transactional RPC without locks runs its handler on a Worker on every call. When the
-	// result changes Flow state, Dex commits it like a transactional result: for a recorded
-	// request ID, Dex discards the new changes and returns the recorded reply. A non-transactional
-	// result that changes nothing is never recorded or compared. In every case, side effects of
-	// the handler outside Dex, such as an HTTP call, can repeat.
+	// For a transactional or locking RPC, a concurrent call with the same request ID waits for the
+	// call in flight and returns its result. After an UNAVAILABLE error whose commit outcome is
+	// unknown, a retry can run the handler again. Dex still commits only the first result, and the
+	// retry returns its reply. For every RPC, side effects of the handler outside Dex, such as an
+	// HTTP call, can repeat.
 	//
 	// Dex compares the whole request sent under one request ID: the RPC name, the input, and every
 	// registered and invocation option that the Client sends, such as the timeout, locks, and
-	// loads. A call that reuses a recorded request ID for a different request fails with a
-	// *ServiceError whose Code is codes.InvalidArgument. Its Detail says that the request ID was
-	// already used for a different request. Dex applies none of that call's changes.
+	// loads. A different request under a recorded request ID fails with a *ServiceError whose Code
+	// is codes.InvalidArgument when the RPC is transactional or locking, or when the attempt's
+	// result changes Flow state or records an event. Its Detail says that the request ID was
+	// already used for a different request, and Dex applies none of that attempt's changes. Any
+	// other attempt is not compared and returns its new output.
 	//
 	// Each Flow run keeps only its newest request IDs. The Server limit
 	// limits.maxRequestIdsPerRun sets how many, 1000 by default, and each run keeps the value it

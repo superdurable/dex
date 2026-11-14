@@ -1690,9 +1690,9 @@ func (client *Client) InvokeRPC(
 // The input, output, blocking, and error behavior otherwise matches InvokeRPC.
 //
 // options.RequestID sets a caller-chosen request ID, so Dex applies a retried call's changes at
-// most once. A different request under a recorded request ID fails with a *ServiceError whose
-// Code is codes.InvalidArgument. See RPCInvokeOptions.RequestID for the deduplication rules and
-// an example.
+// most once. A repeat of a transactional or locking RPC returns the recorded reply, and other
+// RPCs depend on what the repeated attempt returns. See RPCInvokeOptions.RequestID for the
+// deduplication rules, the codes.InvalidArgument error for a reused request ID, and an example.
 //
 // Changed in 1.45.3: InvokeRPCWithOptions sends RPCInvokeOptions.RequestID when it is non-nil.
 //
