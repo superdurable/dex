@@ -1149,7 +1149,7 @@ function runPage(runId: string) {
 
 async function saveHistoryWindow(windowEvents: string) {
   fireEvent.click(await screen.findByRole('button', { name: 'Edit Retention window' }));
-  fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: windowEvents } });
+  fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: windowEvents } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 }
 

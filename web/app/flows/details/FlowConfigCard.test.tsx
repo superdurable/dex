@@ -34,7 +34,7 @@ afterEach(() => {
 describe('Flow config card', () => {
   it('shows each field in plain words, with unset fields as the server default', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={{ stepDurability: 1 }} onSaved={vi.fn()} />);
-    const value = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling?.textContent;
+    const value = (label: string) => screen.getByText(label, { selector: 'dt > span' }).closest('dt')?.nextElementSibling?.textContent;
     expect(value('Retention window')).toContain('Server default');
     expect(value('Step durability')).toContain('Sync');
     expect(value('Active step search')).toContain('Server default');
@@ -134,7 +134,7 @@ describe('Flow config card', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
     const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '800' } });
+    fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: '800' } });
     fireEvent.click(save);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ historyWindowEvents: 800 }, runningSummary));
@@ -174,7 +174,7 @@ describe('Flow config card', () => {
     await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ activeStepSearchMode: 3 }, runningSummary));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit Attribute stores' }));
-    const names = screen.getByLabelText('Attribute store names (comma-separated)') as HTMLInputElement;
+    const names = screen.getByLabelText('Attribute stores') as HTMLInputElement;
     expect(names.value).toBe('primary');
     expect(save().disabled).toBe(true);
     // Clearing the box is not a way to turn sync off.
@@ -198,7 +198,7 @@ describe('Flow config card', () => {
     );
     const save = () => screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
-    const windowInput = screen.getByLabelText('Retention window (events)') as HTMLInputElement;
+    const windowInput = screen.getByLabelText('Retention window') as HTMLInputElement;
     expect(windowInput.value).toBe('5000');
     expect(save().disabled).toBe(true);
     expect(screen.getByText(/Current value: Last 5,000 events\. A saved value cannot return to Server default later\./)).toBeTruthy();
@@ -219,10 +219,20 @@ describe('Flow config card', () => {
     expect(save().disabled).toBe(true);
   });
 
+  it('labels each editor by its row name alone, with the format in the help line', () => {
+    render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    const editor = document.querySelector('.flow-config-editor')!;
+    expect(editor.querySelector('label')).toBeNull();
+    expect(screen.queryByText('Retention window (events)')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Retention window' })).toBeTruthy();
+    expect(screen.getByText('Number of events.')).toBeTruthy();
+  });
+
   it('lays a row being edited across the card, below its name', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
-    const row = screen.getByLabelText('Retention window (events)').closest('dd')!.parentElement!;
+    const row = screen.getByLabelText('Retention window').closest('dd')!.parentElement!;
     expect(row.className).toBe('is-editing');
     expect(row.querySelector('dt')?.textContent).toContain('Retention window');
   });
@@ -236,12 +246,12 @@ describe('Flow config card', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={onSaved} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
-    fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '900000' } });
+    fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: '900000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('history window exceeds history.maxWindowEvents');
-    expect(screen.getByLabelText('Retention window (events)').getAttribute('aria-invalid')).toBeNull();
+    expect(screen.getByLabelText('Retention window').getAttribute('aria-invalid')).toBeNull();
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
   });
@@ -252,10 +262,10 @@ describe('Flow config card', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
-    fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: '0' } });
 
     expect(screen.getByText('Enter a positive whole number of events.')).toBeTruthy();
-    const windowInput = screen.getByLabelText('Retention window (events)');
+    const windowInput = screen.getByLabelText('Retention window');
     expect(windowInput.getAttribute('aria-invalid')).toBe('true');
     const notes = document.getElementById(windowInput.getAttribute('aria-describedby')!);
     expect(notes?.textContent).toContain('Enter a positive whole number of events.');

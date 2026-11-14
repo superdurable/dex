@@ -144,6 +144,8 @@ export function FlowConfigCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const hintId = useId();
+  const nameIdPrefix = useId();
+  const nameIdOf = (field: EditableField | 'offloadHistory') => `${nameIdPrefix}-${field}`;
   const isRunning = summary.flowStatus === 'Running';
   const canEdit = isRunning && flowConfig !== undefined && onSaved !== undefined;
 
@@ -239,7 +241,6 @@ export function FlowConfigCard({
   }
 
   const editor = (field: EditableField, currentValue: string) => {
-    const label = fieldLabels[field];
     const change = pendingChange(field);
     const invalid = change !== null && 'error' in change ? change.error : '';
     const canSave = !saving && change !== null && !invalid;
@@ -250,41 +251,39 @@ export function FlowConfigCard({
     return (
       <div className="history-settings-form flow-config-editor">
         {field === 'historyWindowEvents' && (
-          <label>
-            Retention window (events)
-            <input
-              aria-describedby={hintId}
-              aria-invalid={invalid ? true : undefined}
-              inputMode="numeric"
-              placeholder="e.g. 10000"
-              value={draft}
-              onChange={(event) => changeDraft(event.target.value)}
-            />
-          </label>
+          <input
+            aria-describedby={hintId}
+            aria-invalid={invalid ? true : undefined}
+            aria-labelledby={nameIdOf(field)}
+            inputMode="numeric"
+            placeholder="e.g. 10000"
+            value={draft}
+            onChange={(event) => changeDraft(event.target.value)}
+          />
         )}
         {(field === 'stepDurability' || field === 'activeStepSearchMode') && (
-          <label>
-            {label}
-            <select aria-describedby={hintId} value={draft} onChange={(event) => changeDraft(event.target.value)}>
-              {draft === '' && <option disabled value="">Choose a value</option>}
-              {Object.entries(field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels)
-                .map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
-            </select>
-          </label>
+          <select
+            aria-describedby={hintId}
+            aria-labelledby={nameIdOf(field)}
+            value={draft}
+            onChange={(event) => changeDraft(event.target.value)}
+          >
+            {draft === '' && <option disabled value="">Choose a value</option>}
+            {Object.entries(field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels)
+              .map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
+          </select>
         )}
         {field === 'attributeStoreNames' && (
           <>
-            <label>
-              Attribute store names (comma-separated)
-              <input
-                aria-describedby={hintId}
-                aria-invalid={invalid ? true : undefined}
-                disabled={isTurningSyncOff}
-                placeholder="e.g. primary, audit"
-                value={draft}
-                onChange={(event) => changeDraft(event.target.value)}
-              />
-            </label>
+            <input
+              aria-describedby={hintId}
+              aria-invalid={invalid ? true : undefined}
+              aria-labelledby={nameIdOf(field)}
+              disabled={isTurningSyncOff}
+              placeholder="e.g. primary, audit"
+              value={draft}
+              onChange={(event) => changeDraft(event.target.value)}
+            />
             <label className="flow-config-check">
               <input
                 checked={isTurningSyncOff}
@@ -299,6 +298,8 @@ export function FlowConfigCard({
           </>
         )}
         <div className="flow-config-editor-notes" id={hintId}>
+          {field === 'historyWindowEvents' && <p className="overview-note">Number of events.</p>}
+          {field === 'attributeStoreNames' && <p className="overview-note">Comma-separated store names.</p>}
           {invalid && <p className="flow-config-invalid">{invalid}</p>}
           {isShrinkingWindow && (
             <p className="flow-config-warning">
@@ -331,7 +332,7 @@ export function FlowConfigCard({
     const isEditing = field !== 'offloadHistory' && editing === field;
     return (
       <div className={isEditing ? 'is-editing' : undefined} key={field}>
-        <dt>{label}{hint && <> <InfoHint text={hint} /></>}</dt>
+        <dt><span id={nameIdOf(field)}>{label}</span>{hint && <> <InfoHint text={hint} /></>}</dt>
         <dd>
           {isEditing ? editor(field, value) : (
             <span className="flow-config-value">
