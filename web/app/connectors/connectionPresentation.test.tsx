@@ -12,6 +12,7 @@ import {
   ConnectionNextStep,
   ConnectorAvatar,
   CredentialExpiry,
+  InSideColumnGuideSlot,
   connectorInitial,
   credentialExpiryLead,
   relativeTimeText,
@@ -46,6 +47,12 @@ describe('Connector presentation helpers', () => {
     expect(connectorInitial('—')).toBe('?');
     expect(renderToStaticMarkup(<ConnectorAvatar name="Slack" size="lg" />))
       .toBe('<span aria-hidden="true" class="connector-avatar" data-size="lg">S</span>');
+  });
+});
+
+describe('Connection side column', () => {
+  it('keeps the guide in place while the detail has no side column', () => {
+    expect(renderToStaticMarkup(<InSideColumnGuideSlot><p>guide</p></InSideColumnGuideSlot>)).toBe('<p>guide</p>');
   });
 });
 

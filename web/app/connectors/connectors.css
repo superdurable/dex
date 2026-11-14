@@ -333,6 +333,108 @@ html .v2-shell.v2-connectors .v2-work-queue-case .v2-case {
   padding: 28px 36px 44px;
 }
 
+/* Wide panels: setup on the left, the guide and connection facts in a sticky column on the right. */
+html .v2-shell.v2-connectors .v2-work-queue-case .connector-detail-layout[data-columns='two'] {
+  display: grid;
+  max-width: 94rem;
+  align-items: start;
+  gap: 26px 56px;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+}
+
+.connector-detail-layout[data-columns='two'] > :not(.connector-detail-main, .connector-detail-side) {
+  grid-column: 1 / -1;
+}
+
+.connector-detail-main {
+  min-width: 0;
+}
+
+html .v2-shell.v2-connectors .connector-detail-layout[data-columns='two'] .connector-detail-main > .connector-next:first-child,
+html .v2-shell.v2-connectors .connector-detail-layout[data-columns='two'] .connector-detail-main > .connector-setup-panel:first-child > :first-child {
+  margin-top: 0;
+}
+
+.connector-detail-side {
+  position: sticky;
+  top: 0;
+  display: grid;
+  min-width: 0;
+  max-height: calc(100dvh - 96px);
+  gap: 32px;
+  grid-template-columns: minmax(0, 1fr);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: connector-reveal var(--cx-medium) var(--cx-ease) 80ms backwards;
+}
+
+.connector-guide-slot:empty {
+  display: none;
+}
+
+html .v2-shell.v2-connectors .connector-detail-side > .sc-block {
+  margin-top: 0;
+}
+
+html .v2-shell.v2-connectors .connector-detail-side .connector-store {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.connector-detail-side .connector-store-entry dt {
+  padding: 6px 0 0;
+}
+
+.connector-detail-side .connector-redirect-uri {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.connector-facts-list {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+}
+
+.connector-facts-list > div {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  min-height: 28px;
+}
+
+.connector-facts-list dt {
+  color: var(--cx-ink-3);
+  font-size: 12px;
+}
+
+.connector-facts-list dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--cx-ink);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.connector-facts-list code {
+  font-family: var(--cx-mono);
+  font-size: 12px;
+}
+
+.connector-facts-copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Prose keeps a comfortable line length however wide the column grows. */
+html .v2-shell.v2-connectors :is(.scx-purpose, .connector-next-body, .connector-auth-method-description, .connector-standalone-note, .connector-field .sc-why, .connector-stepper-text) {
+  max-width: 70ch;
+}
+
+html .v2-shell.v2-connectors .connector-detail-main :is(.connector-field, .connector-studio-field, .connector-segmented) {
+  max-width: 48rem;
+}
+
 /* A newly selected connection fades in, so the switch reads as one motion. */
 .connector-detail {
   animation: connector-reveal var(--cx-medium) var(--cx-ease);

@@ -11,3 +11,6 @@ section: Changed
   Authentication methods are one segmented choice. Copy buttons are icons, and
   selections, buttons, and the guide change smoothly. Reduced motion turns this
   off.
+- In a wide window, the authorization guide, the Redirect URI, the connection
+  details, and the local store stay in a column beside the setup form while you
+  scroll it.

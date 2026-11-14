@@ -11,6 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DexAPIError } from '@/lib/http';
 import {
+  ConnectionFacts,
   ConnectionStatusChip,
   ConnectorForm,
   ConnectorStoreZone,
@@ -24,6 +25,7 @@ import {
   connectionFieldStudioTarget,
   connectionFormInitialValues,
   connectionKey,
+  connectionUsesText,
   connectionDeleteLabel,
   connectionReleaseText,
   connectorDisplayName,
@@ -767,6 +769,23 @@ describe('Connectors page presentation', () => {
     expect(ready).toContain('data-expanded="false"');
     expect(ready).toMatch(/class="connector-guide-body" id="[^"]+" inert=""/);
     expect(ready).toContain('aria-label="Copy Redirect URI"');
+  });
+
+  it('lists the connection facts for the side column, with a copyable module path', () => {
+    const connection = {
+      connectorId: 'gmail', connectionName: 'support', modulePath: 'github.com/superdurable/dex-connectors-library/connectors/google/gmail/go',
+      moduleVersion: 'v0.26.0', status: 'Ready', credentialExpiresAt: '2099-01-01T00:00:00Z',
+      uses: [{}, {}], triggerUses: [{}],
+    } as never;
+    const markup = renderToStaticMarkup(createElement(ConnectionFacts, {connection, now: new Date('2098-12-29T00:00:00Z')}));
+    expect(markup).toContain('<section aria-label="Connection details" class="sc-block connector-facts">');
+    expect(markup).toContain('<dt>Connector</dt><dd><code>gmail</code></dd>');
+    expect(markup).toContain('<dt>Release</dt><dd>v0.26.0</dd>');
+    expect(markup).toContain('aria-label="Copy Module"');
+    expect(markup).toContain('>in 3 days</time>');
+    expect(markup).toContain('<dt>Used by</dt><dd>2 operations · 1 trigger</dd>');
+    expect(connectionUsesText({standalone: true, uses: []})).toBe('No loaded Flow');
+    expect(connectionUsesText({uses: [{}] as never, triggerUses: []})).toBe('1 operation');
   });
 
   it('shortens the guide start link text but keeps the whole URL', () => {

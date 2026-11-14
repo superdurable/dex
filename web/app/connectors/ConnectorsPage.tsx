@@ -29,8 +29,9 @@ import {
 import { CONNECTORS_COPY } from './copy';
 import { ConnectionErrorBoundary } from './ConnectionErrorBoundary';
 import {
-  ConnectionNextStep, ConnectionStatusChip, ConnectorAvatar, CopyButton, CopyValue, CredentialExpiry,
-  focusConnectionSetup, useNow, type ConnectionStatus,
+  CONNECTOR_SIDE_COLUMN_MIN_WIDTH, ConnectionNextStep, ConnectionStatusChip, ConnectorAvatar, ConnectorGuideSlotContext,
+  CopyButton, CopyValue, CredentialExpiry, InSideColumnGuideSlot, focusConnectionSetup, useIsElementAtLeast, useNow,
+  type ConnectionStatus,
 } from './connectionPresentation';
 import './connectors.css';
 import { webURL } from '@/lib/basePath';
@@ -220,6 +221,9 @@ export function ConnectorsPage() {
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
   const now = useNow();
+  const [caseElement, setCaseElement] = useState<HTMLElement | null>(null);
+  const [guideSlot, setGuideSlot] = useState<HTMLElement | null>(null);
+  const hasSideColumn = useIsElementAtLeast(caseElement, CONNECTOR_SIDE_COLUMN_MIN_WIDTH);
   // Each load remounts the connection error boundaries, so a transient render failure recovers.
   const [loadGeneration, setLoadGeneration] = useState(0);
 
@@ -383,25 +387,39 @@ export function ConnectorsPage() {
           <section
             aria-label={isAddingConnection ? CONNECTORS_COPY.addConnection : selected ? connectorDisplayName(selected) : CONNECTORS_COPY.heading}
             className="v2-work-queue-case"
+            ref={setCaseElement}
           >
             {isAddingConnection ? (
-              <div className="v2-case sc">
-                <AddConnectionPanel
-                  catalog={catalog}
-                  onAdded={async (added) => {
-                    setIsAddingConnection(false);
-                    setSelectedSetupTabKey('authorize');
-                    await load(undefined, connectionKey(added));
-                  }}
-                  onCancel={() => setIsAddingConnection(false)}
-                />
-                <ConnectorStoreZone catalog={catalog} />
+              <div className="v2-case sc connector-detail-layout" data-columns={hasSideColumn ? 'two' : 'one'}>
+                <div className="connector-detail-main">
+                  <AddConnectionPanel
+                    catalog={catalog}
+                    onAdded={async (added) => {
+                      setIsAddingConnection(false);
+                      setSelectedSetupTabKey('authorize');
+                      await load(undefined, connectionKey(added));
+                    }}
+                    onCancel={() => setIsAddingConnection(false)}
+                  />
+                  {!hasSideColumn && <ConnectorStoreZone catalog={catalog} />}
+                </div>
+                {hasSideColumn && <aside aria-label={CONNECTORS_COPY.localStoreHeading} className="connector-detail-side">
+                  <ConnectorStoreZone catalog={catalog} />
+                </aside>}
               </div>
             ) : selected ? (
-              <div className="v2-case sc connector-detail" key={connectionKey(selected)}>
+              <div
+                className="v2-case sc connector-detail connector-detail-layout"
+                data-columns={hasSideColumn ? 'two' : 'one'}
+                key={connectionKey(selected)}
+              >
+                <ConnectionErrorBoundary key={`header:${loadGeneration}:${connectionKey(selected)}`}>
+                  <ConnectionHeader connection={selected} now={now} />
+                </ConnectionErrorBoundary>
+                <ConnectorGuideSlotContext.Provider value={hasSideColumn ? guideSlot : null}>
+                <div className="connector-detail-main">
                 {/* The footer stays outside, so a connection that cannot render can still be removed. */}
                 <ConnectionErrorBoundary key={`${loadGeneration}:${connectionKey(selected)}`}>
-                  <ConnectionHeader connection={selected} now={now} />
                   {error && <p className="v2-error" role="alert">{error}</p>}
                   <ConnectionNextStep
                     connectorName={connectorDisplayName(selected)} credentialExpiresAt={selected.credentialExpiresAt} now={now}
@@ -426,7 +444,14 @@ export function ConnectorsPage() {
                   )}
                   <p className="sc-why">{connectorConfigurationEffectText()}</p>
                 </div>
-                <ConnectorStoreZone catalog={catalog} />
+                {!hasSideColumn && <ConnectorStoreZone catalog={catalog} />}
+                </div>
+                {hasSideColumn && <aside aria-label={CONNECTORS_COPY.sideColumnLabel} className="connector-detail-side">
+                  <div className="connector-guide-slot" ref={setGuideSlot} />
+                  <ConnectionFacts connection={selected} now={now} />
+                  <ConnectorStoreZone catalog={catalog} />
+                </aside>}
+                </ConnectorGuideSlotContext.Provider>
               </div>
             ) : (
               <>
@@ -489,6 +514,35 @@ function ConnectionHeader({ connection, now }: { connection: ConnectionView; now
       </p>}
     </div>
   </div>;
+}
+
+/** Counts the Flow operations and Trigger bindings that use a connection, in words. */
+export function connectionUsesText(connection: Pick<ConnectionView, 'standalone' | 'uses' | 'triggerUses'>): string {
+  if (connection.standalone) return 'No loaded Flow';
+  const operations = connection.uses.length;
+  const triggers = connection.triggerUses?.length ?? 0;
+  const parts = [
+    operations > 0 ? `${operations} ${operations === 1 ? 'operation' : 'operations'}` : '',
+    triggers > 0 ? `${triggers} ${triggers === 1 ? 'trigger' : 'triggers'}` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : 'No loaded Flow';
+}
+
+/** The connection's identity and release as quiet facts for the side column. */
+export function ConnectionFacts({ connection, now }: { connection: ConnectionView; now: Date }) {
+  return <section aria-label={CONNECTORS_COPY.factsHeading} className="sc-block connector-facts">
+    <h3 className="sc-blockhead">{CONNECTORS_COPY.factsHeading}</h3>
+    <dl className="connector-facts-list">
+      <div><dt>Connector</dt><dd><code>{connection.connectorId}</code></dd></div>
+      <div><dt>Connection</dt><dd><code>{connection.connectionName || CONNECTORS_COPY.connectionLabel('')}</code></dd></div>
+      <div><dt>Release</dt><dd>{connectionReleaseText(connection)}</dd></div>
+      {connection.modulePath && <div><dt>Module</dt><dd className="connector-facts-copy">
+        <code>{connection.modulePath}</code><CopyButton label="Module" value={connection.modulePath} />
+      </dd></div>}
+      {connection.credentialExpiresAt && <div><dt>Token</dt><dd><CredentialExpiry iso={connection.credentialExpiresAt} now={now} /></dd></div>}
+      <div><dt>Used by</dt><dd>{connectionUsesText(connection)}</dd></div>
+    </dl>
+  </section>;
 }
 
 type ConnectorStoreSummary = Pick<
@@ -1038,9 +1092,10 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         setValues(configurationFormValues);
       }}
     />}
-    {!isMultiple && auth.guide && <AuthorizationGuide
-      guide={auth.guide} isInitiallyExpanded={connection.status !== 'Ready'} redirectURI={oauth ? session.oauthRedirectUri : undefined}
-    />}
+    {!isMultiple && auth.guide && <InSideColumnGuideSlot><AuthorizationGuide
+      guide={auth.guide} isInitiallyExpanded={connection.status !== 'Ready'} key={authMethodId}
+      redirectURI={oauth ? session.oauthRedirectUri : undefined}
+    /></InSideColumnGuideSlot>}
     {isMultiple && <section aria-label={authMethodLabels.plural} className="sc-block connector-auth-method-cards">
       <div className="connector-auth-method-cards-header">
         <h4 className="sc-blockhead">{authMethodLabels.plural}</h4>

@@ -6,7 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext, useContext, useEffect, useLayoutEffect, useState, type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowRight, Ban, Check, CircleCheck, CircleDashed, ClockAlert, Copy, KeyRound, TriangleAlert,
   type LucideIcon,
@@ -186,4 +189,30 @@ export function focusConnectionSetup(root: ParentNode = document) {
     : null;
   (field ?? target).scrollIntoView({ behavior: isReducedMotion ? 'auto' : 'smooth', block: 'center' });
   field?.focus({ preventScroll: true });
+}
+
+/** Detail width, in pixels, from which the side column sits beside the setup. */
+export const CONNECTOR_SIDE_COLUMN_MIN_WIDTH = 940;
+
+/** The side column's slot for the authorization guide, or null while the detail is one column. */
+export const ConnectorGuideSlotContext = createContext<HTMLElement | null>(null);
+
+/** Returns true while the element is at least `minimumWidth` pixels wide, and false without one. */
+export function useIsElementAtLeast(element: HTMLElement | null, minimumWidth: number): boolean {
+  const [isAtLeast, setIsAtLeast] = useState(false);
+  useLayoutEffect(() => {
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setIsAtLeast(element.getBoundingClientRect().width >= minimumWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, minimumWidth]);
+  return isAtLeast;
+}
+
+/** Renders the guide in the side column's slot when there is one, otherwise in place. */
+export function InSideColumnGuideSlot({ children }: { children: ReactNode }) {
+  const slot = useContext(ConnectorGuideSlotContext);
+  return slot ? createPortal(children, slot) : children;
 }

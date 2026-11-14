@@ -26,6 +26,8 @@ export const CONNECTORS_COPY = {
   removePendingConnection: 'Remove connection',
   deleteStandaloneConnection: 'Delete connection',
   localStoreHeading: 'Local store',
+  factsHeading: 'Connection details',
+  sideColumnLabel: 'Guide and connection details',
   expandList: 'Show the connector list',
   resizeList: 'Resize the connector list',
   conflict: 'The same connector and connection name use different module versions. Align the Flow dependencies before configuring.',
