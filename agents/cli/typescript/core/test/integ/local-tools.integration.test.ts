@@ -71,12 +71,17 @@ describe("local tools", () => {
     await engine?.stop();
   });
 
-  function startWith(config: string, commandArguments: readonly string[] = [], home?: TestHome): { cli: CliProcess; home: TestHome } {
+  function startWith(
+    config: string,
+    commandArguments: readonly string[] = [],
+    home?: TestHome,
+    environment: NodeJS.ProcessEnv = {},
+  ): { cli: CliProcess; home: TestHome } {
     const testHome = home ?? new TestHome(enginePorts(engine));
     if (home === undefined) {
       testHome.writeConfig(config);
     }
-    const cli = CliProcess.start(testHome, commandArguments);
+    const cli = CliProcess.start(testHome, commandArguments, environment);
     processes.push(cli);
     return { cli, home: testHome };
   }
@@ -178,7 +183,8 @@ describe("local tools", () => {
   test("a shell command interrupted by a Worker kill is never run again", async () => {
     const command = "echo started >> starts.log && while [ ! -f release ]; do sleep 0.1; done && echo finished";
     const config = `connectors: {enabled: []}\nlocal_tools: {browser: false, shell: {enabled: true, allow: [${JSON.stringify(command)}]}}\n`;
-    const first = startWith(config);
+    // A short lease, so the resumed chat does not wait 600 seconds for the killed command's lease.
+    const first = startWith(config, [], undefined, { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "6" });
     const sessionId = await first.cli.waitForSession();
     first.cli.writeLine(`call run_shell_command ${JSON.stringify({ command })}`);
     const startsLog = join(first.home.workspace, "starts.log");

@@ -75,8 +75,8 @@ describe("terminal chat with connectors and session settings", () => {
     return home;
   }
 
-  function start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
-    const cli = CliProcess.start(home, commandArguments);
+  function start(home: TestHome, commandArguments: readonly string[] = [], environment: NodeJS.ProcessEnv = {}): CliProcess {
+    const cli = CliProcess.start(home, commandArguments, environment);
     processes.push(cli);
     return cli;
   }
@@ -628,7 +628,8 @@ describe("terminal chat with connectors and session settings", () => {
 
   test("a Worker whose file now switches shell off refuses a shell Step that another process requested", async () => {
     const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
-    const first = start(home);
+    // A short lease, so the resumed chat does not wait 600 seconds for the killed command's lease.
+    const first = start(home, [], { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "6" });
     const sessionId = await first.waitForSession();
     first.writeLine('call run_shell_command {"command":"echo ran > ran.txt"}');
     await first.stdout.waitFor("Approve run_shell_command?");

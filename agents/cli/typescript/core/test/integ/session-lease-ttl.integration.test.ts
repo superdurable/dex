@@ -110,11 +110,15 @@ describe("the session lease TTL", () => {
     const fake = new FakeTerminalUi([chatTranscript("chat_holds_the_session", [{ pause_ms: 300_000, role: "tui" }])]);
     const terminal = PseudoTerminalCli.start(home, [], { DEXCLI: fake.executable });
     terminals.push(terminal);
-    const launch = await pollUntil(() => fake.record().find(isReceived("launch")), {
+    await pollUntil(() => fake.record().find(isReceived("launch")), {
       timeoutMs: 60_000,
       description: "the terminal UI launch",
     });
-    const sessionId = (launch.message as { session: { session_id: string } }).session.session_id;
+    // The fake terminal UI records no session ID, so the sessions subcommand names the one session.
+    const listing = start(home, ["sessions"]);
+    assert.equal(await listing.waitForExit(), 0, listing.stderr.all);
+    const [sessionId] = /scripted-\d{8}-\d{6}-[0-9a-f]{6}/.exec(listing.stdout.all) ?? [];
+    assert.ok(sessionId !== undefined, listing.stdout.all);
     const seconds = leaseSeconds(await waitForLease(home, sessionId));
     assert.ok(seconds >= configuredTtlSeconds && seconds < 2 * configuredTtlSeconds, `${seconds} s`);
   });
