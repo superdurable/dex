@@ -50,7 +50,7 @@ Dex runs *any* long-running agent or workflow to completion:
 - **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate with products such as Stripe and Gmail, from prototype to production, through a large and growing library of ready-made Steps, Triggers, and agent tools.
 - **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph: a JSON file describing the Flow is uploaded to the server, and Dex Web draws it.
 
-Dex is built by [the original creator](https://superdurable.io/about/) of [iWF](https://github.com/indeedeng/iwf), with deep, firsthand experience of several generations of durable execution technology.
+Dex is created by [Quanzheng Long](https://superdurable.io/about/), core contributor to Uber Cadence (forked as Temporal), and the original creator of [iWF](https://github.com/indeedeng/iwf).
 
 ## Under the hood
 
