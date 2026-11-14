@@ -283,6 +283,8 @@ export class TestHome {
   public readonly directory: string;
   /** The scripted model's marker directory. */
   public readonly markerDirectory: string;
+  /** When the home was created, in Unix milliseconds; its command's sessions start after it. */
+  public readonly createdAtMs = Date.now();
 
   /**
    * Creates the home.
@@ -323,10 +325,18 @@ export class TestHome {
   }
 
   /**
-   * Returns the session Flow type the command uses with this home's configuration.
+   * Returns the Flow type of the sessions the command starts: the harness's own, in every execution environment.
    * @returns The Flow type.
    */
-  public sessionFlowType(workspace = this.workspace): string {
+  public sessionFlowType(): string {
+    return this.harness.flowType;
+  }
+
+  /**
+   * Returns the environment-hashed Flow type that releases before 0.6.8 gave this home's sessions.
+   * @returns The Flow type.
+   */
+  public legacySessionFlowType(workspace = this.workspace): string {
     mkdirSync(workspace, { recursive: true });
     return namespaceSessionFlowType(this.harness.flowType, {
       hostName: hostname(),
@@ -431,10 +441,22 @@ export class SessionClients {
    * @returns The client.
    */
   public async of(home: TestHome): Promise<AgentSessionTestClient> {
-    const flowType = home.sessionFlowType();
+    return this.ofFlowType(home.sessionFlowType(), home.harness);
+  }
+
+  /**
+   * Returns the client for the environment-hashed sessions that releases before 0.6.8 started for a test home.
+   * @param home - The test home; its configuration file must exist, or the command ran without one.
+   * @returns The client, whose Flow has the hashed Flow type.
+   */
+  public async ofLegacy(home: TestHome): Promise<AgentSessionTestClient> {
+    return this.ofFlowType(home.legacySessionFlowType(), home.harness);
+  }
+
+  private async ofFlowType(flowType: string, harness: AgentHarness): Promise<AgentSessionTestClient> {
     let opened = this.environments.get(flowType);
     if (opened === undefined) {
-      opened = this.open(flowType, home.harness);
+      opened = this.open(flowType, harness);
       this.environments.set(flowType, opened);
     }
     return (await opened).sessions;

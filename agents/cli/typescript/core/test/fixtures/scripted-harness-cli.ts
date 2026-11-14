@@ -8,7 +8,7 @@
 
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
-import { existsSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -107,6 +107,60 @@ if (leaseGateDirectory !== undefined) {
     const output: unknown = await (invokeRPC as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
     if (isAcquire) {
       await passGate("acquire");
+    }
+    return output;
+  } as typeof invokeRPC;
+}
+
+// Lease faults: fail-acquire fails every acquire before it is sent; lose-next-acquire loses one answer and, with
+// the text then-fail-lease-reads or then-hang-lease-reads, creates fail-lease-read or hang-lease-read, which fail
+// or hold every read of the lease while they exist; slow-next-acquire delays one answer by its milliseconds;
+// fail-cancel fails every cancel_turn. Each acquire answer appends a line to acquire-answers.
+const leaseFaultDirectory = process.env.DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR;
+if (leaseFaultDirectory !== undefined) {
+  const getAttributes = Client.prototype.getAttributes;
+  Client.prototype.getAttributes = async function faultyGetAttributes(this: Client, ...callArguments: unknown[]): Promise<unknown> {
+    const reads = callArguments.slice(1) as readonly { readonly name?: string }[];
+    const isLeaseRead = reads.some((read) => read.name === "SessionTerminalLease");
+    if (isLeaseRead && existsSync(join(leaseFaultDirectory, "fail-lease-read"))) {
+      throw new Error("injected lease read failure");
+    }
+    while (isLeaseRead && existsSync(join(leaseFaultDirectory, "hang-lease-read"))) {
+      await delay(50);
+    }
+    return (getAttributes as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
+  } as typeof getAttributes;
+  const invokeRPC = Client.prototype.invokeRPC;
+  Client.prototype.invokeRPC = async function faultyInvokeRPC(this: Client, ...callArguments: unknown[]): Promise<unknown> {
+    const input = callArguments[2];
+    const isAcquire = typeof input === "object" && input !== null && "holderId" in input && "ttlSeconds" in input;
+    if (isAcquire && existsSync(join(leaseFaultDirectory, "fail-acquire"))) {
+      throw new Error("injected acquire failure");
+    }
+    const isCancel = typeof input === "object" && input !== null && Object.keys(input).join() === "turnId";
+    if (isCancel && existsSync(join(leaseFaultDirectory, "fail-cancel"))) {
+      throw new Error("injected cancel_turn failure");
+    }
+    const output: unknown = await (invokeRPC as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
+    const lostAnswer = join(leaseFaultDirectory, "lose-next-acquire");
+    if (isAcquire && existsSync(lostAnswer)) {
+      const afterwards = readFileSync(lostAnswer, "utf8").trim();
+      rmSync(lostAnswer);
+      if (afterwards === "then-fail-lease-reads") {
+        writeFileSync(join(leaseFaultDirectory, "fail-lease-read"), "");
+      } else if (afterwards === "then-hang-lease-reads") {
+        writeFileSync(join(leaseFaultDirectory, "hang-lease-read"), "");
+      }
+      throw new Error("no answer within 5000 ms");
+    }
+    const slowAnswer = join(leaseFaultDirectory, "slow-next-acquire");
+    if (isAcquire && existsSync(slowAnswer)) {
+      const delayMs = Number(readFileSync(slowAnswer, "utf8").trim());
+      rmSync(slowAnswer);
+      await delay(delayMs);
+    }
+    if (isAcquire) {
+      appendFileSync(join(leaseFaultDirectory, "acquire-answers"), `${new Date().toISOString()}\n`);
     }
     return output;
   } as typeof invokeRPC;

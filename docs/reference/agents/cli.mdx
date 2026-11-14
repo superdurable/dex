@@ -622,34 +622,79 @@ default with **dex.server: auto** only. See
 [List sessions](/reference/agents/approvals#list-sessions). A session without
 the summary, such as one that an earlier release started, lists without these
 parts. An earlier session gains the time and the turn count at its next turn,
-and a title only if that turn is its first. The Python commands leave out a missing part,
-and the TypeScript commands print tab-separated columns with a dash for it:
+and a title only if that turn is its first. Since 0.6.8 each line also says
+where the session was last open, as **HOST:WORKSPACE**. The Python commands
+leave out a missing part, and the TypeScript commands print tab-separated
+columns with a dash for it:
 
 ```text
-builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
+builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  on host-a:/home/a/work  Find open issues about flaky tests
 ```
 
-A session belongs to the environment that started it. The command registers
-its sessions under a Flow type made from the harness's Flow type and a
-six-character suffix. The suffix is a hash of the host name, the user, the
-configuration file's real path, and the workspace's real path. Each new
-session records these values in its start input, so its run in Dex Web shows
-where it started.
+### Sessions in other environments {#other-environments}
 
-- **sessions** lists, and **--resume** continues, only sessions of the current
-  environment. Resuming another environment's session exits with code 2 and
+Since 0.6.8. A session can continue in any environment that runs the same
+command. An environment is the host, the user, the configuration file, and the
+workspace. Each new session gets its own task queue, named after the session
+ID, and the harness's Flow type, such as **DexAgentsClaudeSdkCliSession**.
+Only the command that has the session open pulls the session's task queue, so
+the session's model calls and tool calls run there.
+
+- **sessions** lists every session of the harness's Flow type, from every
+  environment, with the host and workspace where each was last open.
+- **--resume SESSION_ID** from another environment takes the session over. Its
+  next tool calls run in this environment's workspace, with this
+  environment's configuration file and permissions. The command prints one
+  line that names both environments, each as user, host, workspace, and
+  configuration file:
+
+  ```text
+  Session builtin-20261113-203123-3efeb4 was last open on alice@host-a:/home/alice/work (defaults); its model and tool calls now run here, on alice@host-b:/srv/work (defaults).
+  ```
+
+- Another environment is another host name, user, configuration file, or
+  workspace. A takeover by the same user on the same host, with the same
+  configuration file and workspace, prints no line.
+- When a turn was still running in the other environment, the command refuses
+  that turn's model and tool calls, so a call approved there never runs in
+  this workspace. It also cancels the turn before the chat starts. Once the
+  turn has ended, it says so. When it cannot confirm that the turn ended, it
+  says that instead and keeps refusing the turn's calls.
+- **--resume** of another command's session, such as a **dex-agents-pi**
+  session in **dex-agents-builtin**, exits with code 2.
+- **--resume** of a session of the harness's Flow type that another client
+  started without its own task queue, such as from the Dex Web **Start**
+  dialog, exits with code 2 at once. No command pulls the task queue it runs
+  on. Start sessions with the command instead.
+- A session that no command has open does not run. A message, an approval, or
+  another session Action sent to it from Dex Web or another client waits for a
+  command to open the session, for at most the server's RPC dispatch wait, 10
+  seconds by default. After that the call fails, and nothing is queued.
+- The command stores where it opened a session in the session, in the
+  **SessionLastTerminalEnvironment** Attribute: the host name, the user, the
+  configuration file, and the workspace. Each new session also records them in
+  its start input, so its run in Dex Web shows where it started.
+
+The task queues need server-zd 0.1.30 or later, which **dexcli** 1.47.5 or
+later runs. With an older server the command stops with one line that says so.
+Stop a **dexcli dev** that an earlier command started, then run the command
+again.
+
+Sessions that releases before 0.6.8 started keep their old Flow type: the
+harness's Flow type with a six-character suffix, a hash of the host name, the
+user, the configuration file's real path, and the workspace's real path. They
+run on the default task queue.
+
+- The command still serves the sessions of its own environment, so they resume
+  as before, and **sessions** lists them with this environment.
+- **--resume** of another environment's earlier session exits with code 2 and
   says to use the user, configuration file, and workspace that started it.
-- Changing the workspace, the configuration file, or the user starts a new
-  Flow type. Changing a tool setting, such as the shell allow list, does not.
-- A Worker takes only the Steps of its own Flow type. So an approved write
-  runs only with the workspace and configuration file it was approved under.
-
-Two commands in the same environment share their sessions' Steps. A tool Step
-may run in another process than the one that built the call. So the Worker
-that runs a tool Step checks the call again with its own configuration file,
-narrowed by the session settings of the call's turn. A call whose tool group,
-connection, or operation is off there, or that now needs an approval it did
-not get, records **failed** and does not run.
+- Two commands in the same environment share these sessions' Steps. A tool
+  Step may run in another process than the one that built the call. So the
+  Worker that runs a tool Step checks the call again with its own
+  configuration file, narrowed by the session settings of the call's turn. A
+  call whose tool group, connection, or operation is off there, or that now
+  needs an approval it did not get, records **failed** and does not run.
 
 ### One terminal per session {#one-terminal-per-session}
 
@@ -658,6 +703,12 @@ that opens a session, with **--resume**, **/sessions**, or **/new**, takes the
 session's terminal lease first. A second command that opens the same session
 waits, and takes the session over as soon as the first one exits. There is no
 way to take a session from a command that still has it open.
+
+Since 0.6.8, a waiting command reads the lease without pulling the session's
+task queue. When the lease is free or expired, it starts to pull the queue and
+takes the lease. When another command took the lease first, it stops pulling
+and waits again. When the chat ends, or the terminal UI switches sessions, the
+command releases the lease and stops pulling.
 
 While it waits, the command shows one status line on standard error that
 updates in place: a spinner, who has the session open, how long it has
@@ -687,6 +738,19 @@ took its session, its chat stops with one line and exit code 1:
 Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
 ```
 
+Since 0.6.8, a command pulls a session's task queue only while Dex has
+recently confirmed its lease. Each confirmed acquire or renewal allows it to
+pull until 12 seconds, the lease minus a fifth, after that request was sent;
+the time also starts when it begins to pull. When the time runs out, such as
+when the command loses its connection to Dex, it stops pulling first. Before
+the chat starts, it then waits and tries again, and a late answer from Dex
+grants nothing. During the chat, it prints one line and exits with code 1.
+Another command can then take the session without both running it:
+
+```text
+Session builtin-20261113-203123-3efeb4 could not renew its lease in time; this chat stopped so that another terminal can take the session.
+```
+
 The lease is stored in the session, in the **SessionTerminalLease**
 Attribute. Sessions that an earlier release started take it the first time a
 0.6.3 command opens them.
@@ -696,10 +760,16 @@ Attribute. Sessions that an earlier release started take it the first time a
 - In the terminal UI, **/sessions** and **/new** wait for the lease with
   **dexcli** 1.47.2 or later. The terminal UI hands the switch to the command,
   which waits with the same status line and opens the terminal UI again on the
-  new session. An earlier **dexcli** switches in place, without the lease.
-- The lease marks which terminal shows a session. It does not keep a Worker
-  from running the session's Steps: two commands in the same environment still
-  share them.
+  new session. Since 0.6.8 the reopened terminal UI starts with the new
+  session's history only, and the command uses the plain chat with an earlier
+  **dexcli**, which would switch in place onto a task queue that no Worker
+  pulls.
+- Two commands that open a free session at almost the same moment may both
+  pull its task queue for a moment, until one of them gets the lease. A Step
+  of the session in that moment runs in either command.
+- For sessions from before 0.6.8, the lease marks which terminal shows a
+  session. It does not keep a Worker from running the session's Steps: two
+  commands in the same environment still share them.
 
 ## Workspace and local tools {#local-tools}
 
@@ -1027,7 +1097,9 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
   Choose it in **Working as** to send the session messages and to answer its
   approvals and questions in Dex Web. Anyone who opens the session in Dex Web
   can do the same, so on a shared Dex server colleagues can take part in the
-  chat.
+  chat. Since 0.6.8 the Actions work only while a command has the session
+  open; Dex Web still shows a session that no command has open. See
+  [Sessions in other environments](#other-environments).
 - The [terminal UI](#terminal-ui) shows each message from Dex Web, or from any
   other client, marked **(another client)**, and asks about the approvals of
   its turn too. Neither the terminal UI nor Dex Web shows who sent a message.
@@ -1064,10 +1136,20 @@ graph and its Actions.
   running until the next terminal UI start of a command stops it. A process
   that left the shell command's process group is never stopped.
 
-- **Sessions stay in their environment.** A session resumes only with the host,
-  user, configuration file, and workspace that started it. Without a
-  **workspace** in the file, **dex-agents-pi** resumes a session only from the
-  directory it started in. See [Resume a session](#resume).
+- **Earlier sessions stay in their environment.** A session that a release
+  before 0.6.8 started resumes only with the host, user, configuration file,
+  and workspace that started it. Without a **workspace** in the file,
+  **dex-agents-pi** resumes such a session only from the directory it started
+  in. See [Sessions in other environments](#other-environments).
+- **A session runs only while a command has it open.** Dex Web sends a
+  message, an approval, **Stop turn**, and a settings change through the
+  session's RPCs. For a session that no command has open, each fails after
+  the server's RPC dispatch wait, and nothing is queued. Open the session with
+  **--resume** first. See [Sessions in other environments](#other-environments).
+- **The terminal UI lists one Flow type.** **/sessions** in the terminal UI
+  lists only the sessions of the open session's Flow type, without where each
+  was last open. Use the **sessions** subcommand to see every session with its
+  environment.
 - **The local tools are not a sandbox.** An approved shell command runs with
   your permissions. See [Workspace and local tools](#local-tools).
 - **Pi's tools reach every file you can.** In **dex-agents-pi**, the file

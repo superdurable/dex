@@ -37,7 +37,7 @@ import pytest
 
 from dex_agents import LocalDirectoryMediaStore
 from dex_agents.testing import find_free_ports, resolve_dexcli_path, resolve_server_zd_path
-from dex_agents_cli_core import cli, session_flow_type
+from dex_agents_cli_core import cli
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import TerminalInterface
 from dex_agents_cli_core.local_tools.shell import run_shell_command
@@ -179,8 +179,7 @@ def assert_replayed(fake: FakeTerminalUi, screen: io.StringIO) -> None:
 
 
 def scripted_flow_type(cli_home: CliHome) -> str:
-    workspace = cli_home.home / "dex-agent-workspace"
-    return session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    return SCRIPTED_FLOW_TYPE
 
 
 async def test_a_chat_hands_off_and_relays_each_local_request(
@@ -319,7 +318,8 @@ async def test_nothing_the_worker_host_writes_reaches_the_terminal(
     log = (cli_home.home / ".dex" / "agents" / f"{HARNESS}.log").read_text()
     assert f"{BUILD_NOISE} on stdout" in log
     assert f"{BUILD_NOISE} on stderr" in log
-    assert log.count(GRANDCHILD_NOISE) == 2
+    # The harness builds one Flow for new sessions and one for older environment-hashed ones.
+    assert log.count(GRANDCHILD_NOISE) == 4
     assert f"{OPEN_DESCRIPTOR} {control_fd}\n" not in log
     # The launcher's own fds 1 and 2 point at the log while dexcli owns the terminal.
     assert trigger.with_suffix(".done").exists()
@@ -380,6 +380,13 @@ NO_CHAT_MODE: dict[str, Any] = {
     "dexcli_version": "1.60.0",
     "contracts": {"1": {"modes": {"sessions": {"uses_methods": []}}, "capabilities": []}},
 }
+# A chat without launcher_session_switch would switch onto a task queue no Worker pulls.
+NO_SESSION_SWITCH: dict[str, Any] = {
+    "dexcli_version": "1.47.1",
+    "contracts": {
+        "1": {"modes": {"chat": {"uses_methods": []}}, "capabilities": ["images", "plan_mode"]}
+    },
+}
 
 
 @pytest.mark.parametrize(
@@ -396,8 +403,13 @@ NO_CHAT_MODE: dict[str, Any] = {
             "Upgrade this command to use it.",
         ),
         (NO_CHAT_MODE, "Plain chat: dexcli 1.60.0 has no chat terminal UI."),
+        (
+            NO_SESSION_SWITCH,
+            "Plain chat: dexcli 1.47.1 cannot hand session switches back to this command. "
+            "The terminal UI needs dexcli 1.47.2 or later; point DEXCLI at one.",
+        ),
     ],
-    ids=["no-agents-tui", "no-common-contract", "mode-missing"],
+    ids=["no-agents-tui", "no-common-contract", "mode-missing", "session-switch-missing"],
 )
 async def test_a_dexcli_that_cannot_show_the_chat_means_the_plain_chat(
     cli_home: CliHome,

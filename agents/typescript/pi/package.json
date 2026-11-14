@@ -35,12 +35,12 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.5.1",
-    "@superdurable/dex": "1.45.1",
+    "@superdurable/dex": "1.45.3",
     "@superdurable/dex-agents": "^0.1.0"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.5.1",
-    "@superdurable/dex": "1.45.1",
+    "@superdurable/dex": "1.45.3",
     "@superdurable/dex-agents": "file:../core",
     "@types/node": "22.20.5",
     "typescript": "5.9.3"

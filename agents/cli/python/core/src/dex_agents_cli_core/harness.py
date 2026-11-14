@@ -156,7 +156,17 @@ class AgentHarness(Protocol):
 
     @property
     def flow_type(self) -> str:
-        """Return the Flow type of the sessions. Keep it stable: sessions resume by it."""
+        """Return the Flow type of the sessions. Keep it stable: sessions resume by it.
+
+        .. versionchanged:: 0.6.8
+           Every new session has this Flow type itself and runs on its own
+           task queue, which only the command that has the session open
+           pulls. ``--resume`` opens a session of this Flow type from any
+           execution environment, and the ``sessions`` subcommand lists them
+           all. The CLI core still registers ``<flow_type>-<suffix>`` for the
+           sessions that releases before 0.6.8 started; they still resume
+           only in their own execution environment.
+        """
         ...
 
     @property
@@ -179,7 +189,10 @@ class AgentHarness(Protocol):
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the agent session Flow from the effective configuration.
 
-        Called once per command run, before the Worker starts. Offer every
+        Called twice per command run, before the Workers start: once with
+        ``context.flow_type`` set to ``flow_type`` for new sessions, and once
+        with the environment-hashed Flow type for sessions from before 0.6.8.
+        Each call must build a new Flow. Offer every
         source in ``context.tool_sources`` to the model; a runner-based
         adapter passes them as ``tool_sources``, and a built-in loop harness puts
         them in ``AgentDefinition.tool_sources``. Choose each model call's
@@ -195,6 +208,9 @@ class AgentHarness(Protocol):
         off, or the other way around. The check verifies what the Flow
         declares; it does not sandbox harness code.
 
+        .. versionchanged:: 0.6.8
+           Called twice per run, once for each Flow type.
+
         Args:
             context: The configuration, workspace, and tool sources.
 
@@ -209,7 +225,12 @@ class HarnessContext:
     """Everything a harness needs to build its session Flow.
 
     Attributes:
-        flow_type: The harness's Flow type.
+        flow_type: The Flow type to build: the harness's ``flow_type`` for new
+            sessions, or this execution environment's environment-hashed Flow
+            type for sessions from before 0.6.8.
+
+            .. versionchanged:: 0.6.8
+               The CLI core builds one Flow of each.
         config: The configuration file's effective configuration, with any
             ``--model`` applied. It bounds every turn.
         workspace: The absolute workspace directory, which exists.
@@ -409,6 +430,12 @@ class SessionEnvironmentIdentity:
     ``namespace_session_flow_type`` hashes it into the session Flow type, and
     the command records it in each new session's start input.
 
+    .. versionchanged:: 0.6.8
+       The command also sends it, when it opens a session, as the lease
+       request's ``environment``, which the session keeps as
+       ``SessionLastTerminalEnvironment``. The ``sessions`` subcommand shows
+       its host name and workspace.
+
     Example:
         >>> identity = current_session_environment_identity(config_path, workspace)
         >>> namespace_session_flow_type("DexAgentsClaudeSdkCliSession", identity)
@@ -482,6 +509,12 @@ def namespace_session_flow_type(
     characters. The file's contents, such as tool settings, do not count, so
     editing them keeps the sessions.
 
+    .. versionchanged:: 0.6.8
+       Only sessions started before 0.6.8 have this Flow type. The CLI core
+       still serves them on the default task queue, and they still resume
+       only in this execution environment. New sessions use the harness's
+       ``flow_type`` and their own task queue, from ``session_task_queue``.
+
     Example:
         >>> identity = SessionEnvironmentIdentity(
         ...     host_name="host", user_id="501", config_identity="defaults", workspace="/home/a/w")
@@ -518,10 +551,14 @@ def session_flow_type(
     *,
     user: str | None = None,
 ) -> str:
-    """Return the Flow type a command registers: the harness's, namespaced by environment.
+    """Return the environment-hashed Flow type of this process: the harness's, namespaced.
 
     It is ``namespace_session_flow_type`` of
     ``current_session_environment_identity``; see there for the rule.
+
+    .. versionchanged:: 0.6.8
+       It names only the sessions that releases before 0.6.8 started. New
+       sessions have the harness's ``flow_type`` itself.
 
     Example:
         >>> session_flow_type("DexAgentsClaudeSdkCliSession", config_path, workspace)

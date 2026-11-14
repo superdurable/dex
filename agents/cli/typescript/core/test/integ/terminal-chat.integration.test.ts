@@ -666,11 +666,11 @@ describe("terminal chat with connectors and session settings", () => {
     assert.equal(await cli.waitForExit(), 0);
   });
 
-  test("commands with different configurations never run each other's Steps", async () => {
+  test("commands with different configurations never run each other's open sessions' Steps", async () => {
     const config = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
     const homeA = newHome(config);
     const homeB = newHome(config);
-    assert.notEqual(homeA.sessionFlowType(), homeB.sessionFlowType());
+    assert.notEqual(homeA.legacySessionFlowType(), homeB.legacySessionFlowType());
     const cliA = start(homeA);
     const cliB = start(homeB);
     const sessionA = await cliA.waitForSession();
@@ -688,19 +688,17 @@ describe("terminal chat with connectors and session settings", () => {
     cliB.writeLine("/exit");
     assert.equal(await cliB.waitForExit(), 0);
 
+    // Since 0.6.8 the other environment takes the session over, and its tool Steps then run there.
     const resumeInB = start(homeB, ["--resume", sessionA]);
-    assert.equal(await resumeInB.waitForExit(), 2);
-    assert.match(resumeInB.stderr.all, /with the configuration file and workspace, that started it/);
-    const sessionsOfB = start(homeB, ["sessions"]);
-    assert.equal(await sessionsOfB.waitForExit(), 0);
-    assert.doesNotMatch(sessionsOfB.stdout.all, new RegExp(sessionA));
-
-    const typeBefore = homeA.sessionFlowType();
-    homeA.writeConfig(`${config}workspace: other-workspace\n`);
-    assert.notEqual(homeA.sessionFlowType(join(homeA.directory, ".dex", "agents", "other-workspace")), typeBefore);
-    const resumeWithOtherWorkspace = start(homeA, ["--resume", sessionA]);
-    assert.equal(await resumeWithOtherWorkspace.waitForExit(), 2);
-    assert.match(resumeWithOtherWorkspace.stderr.all, /with the configuration file and workspace, that started it/);
+    await resumeInB.stdout.waitFor(`Resumed session ${sessionA}.`);
+    resumeInB.writeLine('call write_file {"path":"from-b.txt","content":"b"}');
+    await resumeInB.stdout.waitFor("Approve write_file?");
+    resumeInB.writeLine("y");
+    await resumeInB.stdout.waitFor("result: wrote 1 bytes to from-b.txt");
+    assert.equal(existsSync(join(homeB.workspace, "from-b.txt")), true);
+    assert.equal(existsSync(join(homeA.workspace, "from-b.txt")), false);
+    resumeInB.writeLine("/exit");
+    assert.equal(await resumeInB.waitForExit(), 0);
   });
 });
 

@@ -22,7 +22,7 @@ import pytest
 from dex import AsyncClient
 
 from dex_agents.testing import find_free_ports
-from dex_agents_cli_core.cli import _upload_session_flow_definition
+from dex_agents_cli_core.cli import _upload_session_flow_definitions
 from dex_agents_cli_core.dex_connection import (
     DexConnectionSettings,
     DexRefusalDetailsFilter,
@@ -118,7 +118,8 @@ async def test_a_bearer_token_from_the_environment_lists_sessions(
     remote_home.extra_environment["DEX_CREDENTIAL"] = remote_server.access_token
     listed = await asyncio.to_thread(remote_home.run, "sessions")
     assert listed.returncode == 0, listed.stderr
-    assert "No sessions yet." in listed.stdout
+    # Other tests' sessions of the harness's Flow type, from any home, may be listed too.
+    assert "No sessions yet." in listed.stdout or "Resume one with: " in listed.stdout
 
 
 async def test_a_missing_api_key_stops_the_command_before_any_call(
@@ -305,8 +306,9 @@ async def test_a_refused_session_graph_upload_logs_no_server_details(
 ) -> None:
     secret = "bearer-token-echoed-in-upload-4321"
     with caplog.at_level(logging.WARNING):
-        await _upload_session_flow_definition(
-            cast(AsyncClient, _RefusingUploadClient(status, secret)), "DexAgentsTestSession-abc123"
+        await _upload_session_flow_definitions(
+            cast(AsyncClient, _RefusingUploadClient(status, secret)),
+            ["DexAgentsTestSession-abc123"],
         )
     (record,) = [record for record in caplog.records if "upload failed" in record.getMessage()]
     assert secret not in record.getMessage()

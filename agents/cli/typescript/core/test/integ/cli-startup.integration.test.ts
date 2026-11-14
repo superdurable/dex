@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { createServer as createHttp2Server } from "node:http2";
@@ -573,7 +574,8 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     const list = start(home, ["sessions"]);
     assert.equal(await list.waitForExit(), 0);
     const time = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
-    assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t${time}\\t${time}\\t1\\thello the list$`, "m"));
+    const place = `${hostname()}:${realpathSync.native(home.workspace)}`;
+    assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t${time}\\t${time}\\t1\\t${place}\\thello the list$`, "m"));
   });
 
   for (const [name, server, summary, isIndexed] of [
@@ -603,10 +605,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.equal(await list.waitForExit(), 0);
       const line = list.stdout.all.split("\n").find((candidate) => candidate.startsWith(`${sessionId}\t`));
       assert.ok(line !== undefined, list.stdout.all);
+      // The column before the title is where the session was last open.
       if (isIndexed) {
-        assert.match(line, /\t1\tsummary check$/);
+        assert.match(line, /\t1\t[^\t—]+\tsummary check$/);
       } else {
-        assert.match(line, /\t—\t—\t—$/);
+        assert.match(line, /\t—\t—\t[^\t—]+\t—$/);
       }
     });
   }
@@ -635,9 +638,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
   }
 
   test("the sessions subcommand sorts several pages and says when more exist", async () => {
-    const sessionClients = new SessionClients(engine);
+    // Every environment's sessions share the harness's Flow type, so this test counts on an engine of its own.
+    const ownEngine = await PrivateDexEngine.start();
+    const sessionClients = new SessionClients(ownEngine);
     try {
-      const home = new TestHome(enginePorts(engine));
+      const home = new TestHome(enginePorts(ownEngine));
       home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
       const chat = start(home);
       const oldest = await chat.waitForSession();
@@ -662,7 +667,8 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       const lines = listed.stdout.all.split("\n").filter((line) => line.includes("\trunning\t"));
       assert.equal(lines.length, 61, listed.stdout.all);
       assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
-      assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
+      // No Worker pulls a session that no command opened, so it has no turn count and no last environment.
+      assert.ok(lines.slice(1).every((line) => /\t—\t—\t—$/.test(line)), listed.stdout.all);
       assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
       // The last line shows that the command wrote all of its output before it exited.
       assert.match(listed.stdout.all, /Resume one with: dex-agents-\S+ --resume <session>\n$/);
@@ -682,6 +688,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.match(capped.stdout.all, /Resume one with: dex-agents-\S+ --resume <session>\n$/);
     } finally {
       await sessionClients.close();
+      await ownEngine.stop();
     }
   });
 });

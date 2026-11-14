@@ -29,7 +29,7 @@ from dex import FlowDefinitionDocument
 #: change as the template, and stays the same otherwise. ``generate.py`` of the
 #: conformance suite refuses a template change that keeps it. The TypeScript
 #: core uses the same time.
-SESSION_FLOW_GRAPH_GENERATED_AT = datetime(2026, 11, 13, 12, 0, 0, tzinfo=UTC)
+SESSION_FLOW_GRAPH_GENERATED_AT = datetime(2026, 11, 14, 12, 0, 0, tzinfo=UTC)
 
 _ACTION_PERMISSION_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*")
 

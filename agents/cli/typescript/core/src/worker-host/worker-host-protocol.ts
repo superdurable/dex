@@ -45,8 +45,9 @@ export interface WorkerHostExecuteRequest {
 
 /**
  * The launcher's own requests, sent as {@link WorkerHostExecuteRequest}s but never offered to the terminal UI:
- * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, and `release_session_lease {session_id}`
- * answers `{}`.
+ * `acquire_session_lease {session_id}` answers `{is_acquired, lease}`, plus `flow_type` and `notices` once
+ * acquired: the session's Flow type and the lines about a takeover from another place. `release_session_lease
+ * {session_id}` answers `{}`.
  */
 export const workerHostLeaseMethods = {
   acquire: "acquire_session_lease",
@@ -58,6 +59,12 @@ export interface WorkerHostSessionLeaseLost {
   readonly type: "session_lease_lost";
   readonly sessionId: string;
   readonly lease: SessionTerminalLease;
+}
+
+/** No renewal confirmed the lease of the session the Worker host renews, which then stopped pulling it. */
+export interface WorkerHostSessionLeaseUnconfirmed {
+  readonly type: "session_lease_unconfirmed";
+  readonly sessionId: string;
 }
 
 /** A message from the launcher to the Worker host. */
@@ -88,4 +95,5 @@ export type WorkerHostToLauncherMessage =
   | { readonly type: "log"; readonly text: string }
   | { readonly type: "executed"; readonly requestNumber: number; readonly outcome: LocalRequestOutcome }
   | { readonly type: "worker_state"; readonly state: "stopping" }
-  | WorkerHostSessionLeaseLost;
+  | WorkerHostSessionLeaseLost
+  | WorkerHostSessionLeaseUnconfirmed;

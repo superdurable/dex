@@ -1,0 +1,299 @@
+{
+  "description": "How the CLI cores route sessions to task queues and what they print about where a session runs. Hand-written for the CLI cores. Every new session has the harness's Flow type and runs on its own task queue: s- and the first 20 lowercase hexadecimal characters of the SHA-256 of the session ID in UTF-8. A legacy session has the harness's Flow type, -, and 6 lowercase base36 characters (see cli_session_flow_types.json); it runs on the default task queue. A session environment is the string map the CLI core records as a session's start_environment and sends as the acquire request's environment; its text is host_name, a colon, and workspace, or the em dash when both are empty or missing. Two environments are other environments when host_name, user_id, config_identity, or workspace differ, a missing key counting as empty. The identity text names them: user_name, or user_id without it, then @, host_name, a colon, workspace, a space, and config_identity in parentheses. When a command takes a session whose SessionLastTerminalEnvironment is another environment, it prints takeover_line to standard error, or as an info notice in the terminal UI. When the turn that was in progress there is still active, it refuses that turn's model and tool calls in its own process with taken_over_turn_reason and calls cancel_turn. It prints cancelled_turn_line after takeover_line only when that turn is no longer active within the wait; otherwise it prints turn_not_cancelled_line and keeps refusing the turn's calls. --resume refuses another execution environment's legacy session with other_environment_legacy_session_error and a session of another Flow type with other_harness_session_error. A server whose protocol has no named task queues fails the command with named_task_queue_server_error. app_worker_id is the session Worker's app Worker ID: dex-agents-, the harness name, -, the host name cut so the whole ID has at most 63 characters, -, the process ID, and -suffix when given. Before it opens a session of the harness's Flow type, a command reads the session's task queue with GetFlowState, which needs no Worker; when it is not the session's own task queue, such as for a session that another client started without one, the command fails at once with foreign_task_queue_session_error and exit code 2, without trying the lease.",
+  "harness_flow_type": "DexAgentsBuiltinCliSession",
+  "task_queue_cases": [
+    {
+      "name": "a session ID the CLI core makes",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "task_queue": "s-d62aab3ae1bd8c5cf84f"
+    },
+    {
+      "name": "another harness's session ID",
+      "session_id": "claude-sdk-20261114-090000-a1b2c3",
+      "task_queue": "s-898350ea881b5525b3f5"
+    },
+    {
+      "name": "a start_session key's session ID",
+      "session_id": "pi-k-0123456789abcdef",
+      "task_queue": "s-eb86b8f160cc3ad8c87f"
+    },
+    {
+      "name": "a non-ASCII session ID hashes its UTF-8",
+      "session_id": "sessão-ünïcode",
+      "task_queue": "s-b19e6b2dee6723905f17"
+    },
+    {
+      "name": "a one-character session ID",
+      "session_id": "x",
+      "task_queue": "s-2d711642b726b0440162"
+    }
+  ],
+  "legacy_flow_type_cases": [
+    {
+      "name": "the hashed Flow type",
+      "flow_type": "DexAgentsBuiltinCliSession-ujnoef",
+      "is_legacy": true
+    },
+    {
+      "name": "the hashed Flow type with digits",
+      "flow_type": "DexAgentsBuiltinCliSession-0a9z00",
+      "is_legacy": true
+    },
+    {
+      "name": "the harness's own Flow type",
+      "flow_type": "DexAgentsBuiltinCliSession",
+      "is_legacy": false
+    },
+    {
+      "name": "an uppercase suffix",
+      "flow_type": "DexAgentsBuiltinCliSession-UJNOEF",
+      "is_legacy": false
+    },
+    {
+      "name": "a suffix of 5 characters",
+      "flow_type": "DexAgentsBuiltinCliSession-ujnoe",
+      "is_legacy": false
+    },
+    {
+      "name": "another harness's hashed Flow type",
+      "flow_type": "DexAgentsPiCliSession-ujnoef",
+      "is_legacy": false
+    }
+  ],
+  "environment_cases": [
+    {
+      "name": "host and workspace",
+      "environment": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "defaults",
+        "workspace": "/home/a/work"
+      },
+      "text": "host-a:/home/a/work"
+    },
+    {
+      "name": "no workspace",
+      "environment": {
+        "host_name": "host-a"
+      },
+      "text": "host-a:"
+    },
+    {
+      "name": "nothing known",
+      "environment": {},
+      "text": "—"
+    }
+  ],
+  "templates": {
+    "takeover_line": "Session {session_id} was last open on {previous_environment}; its model and tool calls now run here, on {environment}.",
+    "cancelled_turn_line": "Cancelled the turn that was in progress there; none of its model or tool calls run here.",
+    "taken_over_turn_reason": "its turn started in another place before this command took session {session_id} over",
+    "refused_tool_call_error": "tool {tool_name} did not run: {reason}",
+    "refused_model_call_error": "the model call did not run: {reason}",
+    "other_environment_legacy_session_error": "session {session_id} is a {flow_type} session of another execution environment, from a release before sessions could move; resume it as the user, with the configuration file and workspace, that started it",
+    "other_harness_session_error": "session {session_id} is a {flow_type} session, which {command_name} does not run; resume it with the command that started it",
+    "named_task_queue_server_error": "{command_name} needs a Dex server with named task queues, such as the one dexcli 1.47.5 or later starts; this server is older. Upgrade it, or stop the dexcli dev this command reuses",
+    "turn_not_cancelled_line": "Could not confirm that the turn in progress there was cancelled; this command still refuses its model and tool calls.",
+    "foreign_task_queue_session_error": "session {session_id} was not started by {command_name}, so it runs on another task queue and cannot be opened here"
+  },
+  "template_cases": [
+    {
+      "template": "takeover_line",
+      "values": {
+        "session_id": "builtin-20261113-203123-3efeb4",
+        "previous_environment": "alice@host-a:/home/alice/work (defaults)",
+        "environment": "alice@host-b:/srv/work (defaults)"
+      },
+      "line": "Session builtin-20261113-203123-3efeb4 was last open on alice@host-a:/home/alice/work (defaults); its model and tool calls now run here, on alice@host-b:/srv/work (defaults)."
+    },
+    {
+      "template": "taken_over_turn_reason",
+      "values": {
+        "session_id": "builtin-20261113-203123-3efeb4"
+      },
+      "line": "its turn started in another place before this command took session builtin-20261113-203123-3efeb4 over"
+    },
+    {
+      "template": "refused_tool_call_error",
+      "values": {
+        "tool_name": "shell",
+        "reason": "its turn started in another place before this command took session s over"
+      },
+      "line": "tool shell did not run: its turn started in another place before this command took session s over"
+    },
+    {
+      "template": "refused_model_call_error",
+      "values": {
+        "reason": "r"
+      },
+      "line": "the model call did not run: r"
+    },
+    {
+      "template": "other_environment_legacy_session_error",
+      "values": {
+        "session_id": "builtin-1",
+        "flow_type": "DexAgentsBuiltinCliSession-ujnoef"
+      },
+      "line": "session builtin-1 is a DexAgentsBuiltinCliSession-ujnoef session of another execution environment, from a release before sessions could move; resume it as the user, with the configuration file and workspace, that started it"
+    },
+    {
+      "template": "other_harness_session_error",
+      "values": {
+        "session_id": "pi-1",
+        "flow_type": "DexAgentsPiCliSession",
+        "command_name": "dex-agents-builtin"
+      },
+      "line": "session pi-1 is a DexAgentsPiCliSession session, which dex-agents-builtin does not run; resume it with the command that started it"
+    },
+    {
+      "template": "named_task_queue_server_error",
+      "values": {
+        "command_name": "dex-agents-builtin"
+      },
+      "line": "dex-agents-builtin needs a Dex server with named task queues, such as the one dexcli 1.47.5 or later starts; this server is older. Upgrade it, or stop the dexcli dev this command reuses"
+    },
+    {
+      "template": "foreign_task_queue_session_error",
+      "values": {
+        "session_id": "builtin-web-1",
+        "command_name": "dex-agents-builtin"
+      },
+      "line": "session builtin-web-1 was not started by dex-agents-builtin, so it runs on another task queue and cannot be opened here"
+    }
+  ],
+  "app_worker_id_cases": [
+    {
+      "name": "a short host name",
+      "harness_name": "builtin",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "suffix": null,
+      "app_worker_id": "dex-agents-builtin-host-a-4242"
+    },
+    {
+      "name": "a session Worker",
+      "harness_name": "builtin",
+      "host_name": "host-a",
+      "process_id": 4242,
+      "suffix": "3",
+      "app_worker_id": "dex-agents-builtin-host-a-4242-3"
+    },
+    {
+      "name": "a long host name is cut",
+      "harness_name": "claude-sdk",
+      "host_name": "a-very-long-host-name.with.many.labels.example.internal",
+      "process_id": 98765,
+      "suffix": "12",
+      "app_worker_id": "dex-agents-claude-sdk-a-very-long-host-name.with.many.-98765-12"
+    }
+  ],
+  "other_environment_cases": [
+    {
+      "name": "the same environment",
+      "previous": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "/a.yaml",
+        "workspace": "/w"
+      },
+      "current": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "/a.yaml",
+        "workspace": "/w",
+        "user_name": "alice"
+      },
+      "is_other_environment": false
+    },
+    {
+      "name": "another configuration file",
+      "previous": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "/a.yaml",
+        "workspace": "/w"
+      },
+      "current": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "/b.yaml",
+        "workspace": "/w"
+      },
+      "is_other_environment": true
+    },
+    {
+      "name": "another user",
+      "previous": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "defaults",
+        "workspace": "/w"
+      },
+      "current": {
+        "host_name": "host-a",
+        "user_id": "502",
+        "config_identity": "defaults",
+        "workspace": "/w"
+      },
+      "is_other_environment": true
+    },
+    {
+      "name": "another host",
+      "previous": {
+        "host_name": "host-a",
+        "workspace": "/w"
+      },
+      "current": {
+        "host_name": "host-b",
+        "workspace": "/w"
+      },
+      "is_other_environment": true
+    },
+    {
+      "name": "another workspace",
+      "previous": {
+        "host_name": "host-a",
+        "workspace": "/w"
+      },
+      "current": {
+        "host_name": "host-a",
+        "workspace": "/v"
+      },
+      "is_other_environment": true
+    },
+    {
+      "name": "a missing workspace counts as empty",
+      "previous": {
+        "host_name": "host-a"
+      },
+      "current": {
+        "host_name": "host-a",
+        "workspace": ""
+      },
+      "is_other_environment": false
+    }
+  ],
+  "identity_cases": [
+    {
+      "name": "every part",
+      "environment": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "user_name": "alice",
+        "config_identity": "/home/alice/.dex/agents/builtin.yaml",
+        "workspace": "/home/alice/work"
+      },
+      "text": "alice@host-a:/home/alice/work (/home/alice/.dex/agents/builtin.yaml)"
+    },
+    {
+      "name": "the user ID without a user name",
+      "environment": {
+        "host_name": "host-a",
+        "user_id": "501",
+        "config_identity": "defaults",
+        "workspace": "/w"
+      },
+      "text": "501@host-a:/w (defaults)"
+    }
+  ]
+}

@@ -20,8 +20,10 @@ import {
   formatLeaseHolder,
   formatLeaseSince,
   leaseLostLine,
+  leaseUnconfirmedLine,
   plainWaitingLine,
   readSessionLeaseTtlSeconds,
+  renewalSafetyMarginRatio,
   tookOverLine,
   waitingFrameIntervalMs,
   waitingRedrawPrefix,
@@ -59,6 +61,9 @@ interface SessionLeaseFixture {
   readonly plain_waiting_cases: readonly HolderCase[];
   readonly took_over_cases: readonly { readonly name: string; readonly session_id: string; readonly line: string }[];
   readonly lease_lost_cases: readonly HolderCase[];
+  readonly renewal_safety_margin_ratio: number;
+  readonly lease_unconfirmed_exit_code: number;
+  readonly lease_unconfirmed_cases: readonly { readonly name: string; readonly session_id: string; readonly line: string }[];
   readonly since_cases: readonly {
     readonly name: string;
     readonly opened_at: string;
@@ -68,6 +73,14 @@ interface SessionLeaseFixture {
 }
 
 describe("session terminal lease lines: the shared cases", () => {
+  test("the unconfirmed lease line and its safety margin", () => {
+    assert.equal(renewalSafetyMarginRatio, fixture.renewal_safety_margin_ratio);
+    assert.equal(fixture.lease_unconfirmed_exit_code, 1);
+    for (const testCase of fixture.lease_unconfirmed_cases) {
+      assert.equal(leaseUnconfirmedLine(testCase.session_id), testCase.line, testCase.name);
+    }
+  });
+
   test("the spinner, timings, redraw prefix, and default width match", () => {
     assert.deepEqual(waitingSpinnerFrames, fixture.spinner_frames);
     assert.equal(waitingFrameIntervalMs, fixture.frame_interval_ms);

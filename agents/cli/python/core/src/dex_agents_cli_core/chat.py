@@ -248,9 +248,9 @@ class TerminalChat:
 
     async def _send(self, text: str) -> None:
         snapshot = await self._sessions.get_agent_snapshot(self._session_id)
-        if snapshot.state is None or snapshot.state.status is AgentSessionStatus.FAILED:
-            reason = snapshot.state.last_turn_error if snapshot.state else "it has not started"
-            self._terminal.write(f"[session failed] {reason}\n")
+        # A session whose first Step has not run yet has no state; the message waits in its queue.
+        if snapshot.state is not None and snapshot.state.status is AgentSessionStatus.FAILED:
+            self._terminal.write(f"[session failed] {snapshot.state.last_turn_error}\n")
             self._has_failure = True
             self._is_exit_requested = True
             return
@@ -266,7 +266,7 @@ class TerminalChat:
             else:
                 self._terminal.write("[not sent]\n")
             return
-        await self._follow_turn(snapshot.state.turn_count, tail)
+        await self._follow_turn(0 if snapshot.state is None else snapshot.state.turn_count, tail)
 
     async def _attach_image(self, argument: str) -> None:
         """Copy one image file into the media store and keep it for the next message."""
@@ -314,14 +314,16 @@ class TerminalChat:
             while True:
                 snapshot = await self._sessions.get_agent_snapshot(self._session_id)
                 state = snapshot.state
-                if state is None:
-                    return
-                if state.status is AgentSessionStatus.FAILED:
+                if state is not None and state.status is AgentSessionStatus.FAILED:
                     self._terminal.write(f"\n[session failed] {state.last_turn_error}\n")
                     self._has_failure = True
                     self._is_exit_requested = True
                     return
-                if state.turn_count > turn_count_before and state.active_turn_id is None:
+                if (
+                    state is not None
+                    and state.turn_count > turn_count_before
+                    and state.active_turn_id is None
+                ):
                     await asyncio.sleep(_POLL_INTERVAL_SECONDS)
                     self._finish_turn(snapshot, f"turn-{turn_count_before + 1}", view)
                     return

@@ -116,6 +116,21 @@ export function leaseLostLine(sessionId: string, holder: string): string {
   return `Session ${sessionId} is now open in another terminal (${holder}); this chat stopped.`;
 }
 
+/** Returns the line that ends a chat whose lease no renewal confirmed in time. */
+export function leaseUnconfirmedLine(sessionId: string): string {
+  return `Session ${sessionId} could not renew its lease in time; this chat stopped so that another terminal can take the session.`;
+}
+
+/** The share of the TTL before the confirmed expiry at which an unconfirmed lease ends the chat. */
+export const renewalSafetyMarginRatio = 0.2;
+
+/**
+ * Returns milliseconds from a monotonic clock, which a wall clock change never moves. Every lease deadline uses it.
+ */
+export function monotonicNowMs(): number {
+  return performance.now();
+}
+
 /** Cuts a line longer than `columns - 1` code points to `columns - 2` code points and an ellipsis. */
 export function cutToColumns(line: string, columns: number): string {
   const codePoints = [...line];
@@ -263,8 +278,9 @@ class SessionLeaseWaitingDisplay {
 }
 
 /**
- * Renews the lease of the current session every third of its TTL. Only a refusal that names another holder
- * ends it; failed renewals are tried again at the next tick.
+ * Renews the lease of the current session every third of its TTL. A refusal that names another holder ends it as
+ * lost. Failed renewals are tried again at the next tick. The session's pull permit, which only confirmed renewals
+ * extend, decides when an unconfirmed lease ends the chat; see `SessionPullPermit`.
  */
 export class SessionLeaseRenewal {
   private sessionId: string | undefined;
@@ -275,13 +291,14 @@ export class SessionLeaseRenewal {
    * Creates the renewal; {@link renew} starts it.
    * @param holderId - This process's holder ID.
    * @param ttlSeconds - The lease's TTL.
-   * @param attemptFor - Takes or renews the lease of one session.
+   * @param attemptFor - Renews the lease of one session within the given milliseconds.
    * @param onLost - Called once when another holder took the lease.
+   * @param intervalMs - How often it renews, and how long one renewal may take.
    */
   public constructor(
     private readonly holderId: string,
     ttlSeconds: number,
-    private readonly attemptFor: (sessionId: string) => Promise<SessionTerminalLeaseResult>,
+    private readonly attemptFor: (sessionId: string, timeoutMs: number) => Promise<SessionTerminalLeaseResult>,
     private readonly onLost: (sessionId: string, lease: SessionTerminalLease) => void,
     private readonly intervalMs = (ttlSeconds * 1_000) / 3,
   ) {}
@@ -315,7 +332,8 @@ export class SessionLeaseRenewal {
     }
     this.isRenewing = true;
     try {
-      const result = await attemptQuietly(() => this.attemptFor(sessionId));
+      // Bounded by the interval, so one lost answer leaves time for the next renewal before the permit expires.
+      const result = await attemptQuietly(() => this.attemptFor(sessionId, this.intervalMs));
       const lease = result?.lease;
       if (
         this.sessionId === sessionId &&
@@ -335,6 +353,7 @@ export class SessionLeaseRenewal {
 
 /**
  * Takes or renews a session's lease through the session Flow's RPC, within 5 s.
+ * @param environment - This command's environment, which the session keeps as where it was last open.
  * @returns The RPC's result.
  */
 export function acquireSessionLease(
@@ -343,6 +362,7 @@ export function acquireSessionLease(
   sessionId: string,
   holder: SessionLeaseHolder,
   ttlSeconds: number,
+  environment: Readonly<Record<string, string>> | null = null,
 ): Promise<SessionTerminalLeaseResult> {
   return withinTimeout(
     client.invokeRPC(flow.acquireSessionTerminalLease, sessionId, {
@@ -350,9 +370,20 @@ export function acquireSessionLease(
       hostName: holder.hostName,
       processId: holder.processId,
       ttlSeconds,
+      environment,
     }),
     leaseCallTimeoutMs,
   );
+}
+
+/**
+ * Returns whether a stored lease expired by this host's clock; an expiry that does not parse counts as expired.
+ * @param lease - The stored lease.
+ * @param now - This host's current time.
+ */
+export function isLeaseExpiredHere(lease: SessionTerminalLease, now: Date): boolean {
+  const expiresAt = Date.parse(lease.expiresAt);
+  return Number.isNaN(expiresAt) || expiresAt <= now.getTime();
 }
 
 /**
@@ -368,10 +399,10 @@ export async function releaseSessionLease(
   sessionId: string,
   holderId: string,
 ): Promise<void> {
-  const deadline = Date.now() + leaseReleaseTimeoutMs;
-  while (Date.now() < deadline) {
+  const deadline = monotonicNowMs() + leaseReleaseTimeoutMs;
+  while (monotonicNowMs() < deadline) {
     try {
-      await withinTimeout(client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId }), deadline - Date.now());
+      await withinTimeout(client.invokeRPC(flow.releaseSessionTerminalLease, sessionId, { holderId }), deadline - monotonicNowMs());
       return;
     } catch (error: unknown) {
       if (!(error instanceof RpcLockConflictError)) {
@@ -413,7 +444,8 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | typ
   });
 }
 
-function withinTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+/** Rejects when `promise` does not settle within `timeoutMs`; a negative bound counts as 0. */
+export function withinTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), Math.max(0, timeoutMs));

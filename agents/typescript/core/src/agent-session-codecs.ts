@@ -726,17 +726,43 @@ export function encodeAcquireSessionTerminalLeaseRequest(value: AcquireSessionTe
     host_name: value.hostName,
     process_id: value.processId,
     ttl_seconds: value.ttlSeconds,
+    ...(value.environment === undefined || value.environment === null ? {} : { environment: { ...value.environment } }),
   };
 }
 
 export function decodeAcquireSessionTerminalLeaseRequest(value: unknown): AcquireSessionTerminalLeaseRequest {
   const reader = new WireRecordReader(value, "AcquireSessionTerminalLeaseRequest");
+  const environment = reader.readObject("environment");
   return {
     holderId: reader.readString("holder_id"),
     hostName: reader.readString("host_name"),
     processId: reader.readInteger("process_id"),
     ttlSeconds: reader.readInteger("ttl_seconds"),
+    ...(environment === undefined || environment === null
+      ? {}
+      : { environment: decodeTextMap(environment, "AcquireSessionTerminalLeaseRequest.environment") }),
   };
+}
+
+export function encodeSessionTerminalEnvironment(value: Readonly<Record<string, string>>): unknown {
+  return { ...value };
+}
+
+export function decodeSessionTerminalEnvironment(value: unknown): Readonly<Record<string, string>> {
+  return decodeTextMap(value, "SessionTerminalEnvironment");
+}
+
+function decodeTextMap(value: unknown, typeName: string): Readonly<Record<string, string>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError(`${typeName} must be a JSON object`);
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  for (const [key, entry] of entries) {
+    if (typeof entry !== "string") {
+      throw new TypeError(`${typeName}.${key} must be a string`);
+    }
+  }
+  return Object.fromEntries(entries) as Record<string, string>;
 }
 
 export function encodeSessionTerminalLeaseResult(value: SessionTerminalLeaseResult): unknown {
@@ -1074,6 +1100,11 @@ export const acquireSessionTerminalLeaseRequestCodec = snakeCaseJsonCodec(
   "AcquireSessionTerminalLeaseRequest",
   encodeAcquireSessionTerminalLeaseRequest,
   decodeAcquireSessionTerminalLeaseRequest,
+);
+export const sessionTerminalEnvironmentCodec = snakeCaseJsonCodec(
+  "SessionTerminalEnvironment",
+  encodeSessionTerminalEnvironment,
+  decodeSessionTerminalEnvironment,
 );
 export const sessionTerminalLeaseResultCodec = snakeCaseJsonCodec(
   "SessionTerminalLeaseResult",

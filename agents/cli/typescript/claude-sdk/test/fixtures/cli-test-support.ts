@@ -230,10 +230,18 @@ export class TestHome {
   }
 
   /**
-   * Returns the session Flow type the command uses with this home's configuration.
+   * Returns the Flow type of the sessions the command starts: the harness's own, in every execution environment.
    * @returns The Flow type.
    */
   public sessionFlowType(): string {
+    return claudeSdkHarness.flowType;
+  }
+
+  /**
+   * Returns the environment-hashed Flow type that releases before 0.6.8 gave this home's sessions.
+   * @returns The Flow type.
+   */
+  public legacySessionFlowType(): string {
     mkdirSync(this.workspace, { recursive: true });
     return namespaceSessionFlowType(claudeSdkHarness.flowType, {
       hostName: hostname(),

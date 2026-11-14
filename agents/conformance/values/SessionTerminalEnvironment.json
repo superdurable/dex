@@ -1,0 +1,19 @@
+{
+  "type": "SessionTerminalEnvironment",
+  "wire_kind": "json",
+  "description": "The SessionLastTerminalEnvironment Attribute: text pairs the session never reads.",
+  "cases": [
+    {
+      "name": "cli",
+      "description": "The environment a CLI command records.",
+      "wire": "{\"config_identity\":\"/home/ada/.dex/agents/builtin.yaml\",\"host_name\":\"host-a\",\"user_id\":\"501\",\"user_name\":\"ada\",\"workspace\":\"/home/ada/dex-agent-workspace\"}",
+      "canonical": "{\"config_identity\":\"/home/ada/.dex/agents/builtin.yaml\",\"host_name\":\"host-a\",\"user_id\":\"501\",\"user_name\":\"ada\",\"workspace\":\"/home/ada/dex-agent-workspace\"}"
+    },
+    {
+      "name": "empty",
+      "description": "An environment without pairs.",
+      "wire": "{}",
+      "canonical": "{}"
+    }
+  ]
+}

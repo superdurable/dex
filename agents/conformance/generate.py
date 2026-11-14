@@ -273,6 +273,7 @@ VALUE_TYPES: dict[str, object] = {
     "UpdateSessionSettingsRequest": UpdateSessionSettingsRequest,
     "TurnSessionSettings": TurnSessionSettings,
     "SessionTerminalLease": SessionTerminalLease,
+    "SessionTerminalEnvironment": dict[str, str],
     "AcquireSessionTerminalLeaseRequest": AcquireSessionTerminalLeaseRequest,
     "SessionTerminalLeaseResult": SessionTerminalLeaseResult,
     "ReleaseSessionTerminalLeaseRequest": ReleaseSessionTerminalLeaseRequest,
@@ -1129,15 +1130,42 @@ def build_value_documents() -> list[dict[str, Any]]:
             replace(lease, host_name="büro-mac", process_id=0),
         )
     )
+    terminal_environment = {
+        "host_name": "host-a",
+        "user_id": "501",
+        "user_name": "ada",
+        "config_identity": "/home/ada/.dex/agents/builtin.yaml",
+        "workspace": "/home/ada/dex-agent-workspace",
+    }
+    documents.append(
+        ValueCases(
+            "SessionTerminalEnvironment",
+            "The SessionLastTerminalEnvironment Attribute: text pairs the session never reads.",
+        )
+        .value("cli", "The environment a CLI command records.", terminal_environment)
+        .value("empty", "An environment without pairs.", {})
+    )
     documents.append(
         ValueCases(
             "AcquireSessionTerminalLeaseRequest",
             "Input of the acquire_session_terminal_lease RPC.",
-        ).value(
+        )
+        .value(
             "full",
             "Acquire or renew for 15 seconds.",
             AcquireSessionTerminalLeaseRequest(
                 holder_id=lease.holder_id, host_name="host-a", process_id=4242, ttl_seconds=15
+            ),
+        )
+        .value(
+            "with-environment",
+            "Acquire with the caller's environment, which a new holder stores.",
+            AcquireSessionTerminalLeaseRequest(
+                holder_id=lease.holder_id,
+                host_name="host-a",
+                process_id=4242,
+                ttl_seconds=15,
+                environment=terminal_environment,
             ),
         )
     )

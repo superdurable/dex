@@ -83,9 +83,79 @@ the optional `@aws-sdk/client-s3` peer; without it, or with a store the core
 refuses, the command exits with 2. Connector tool result images go to the same
 store.
 
-### Sessions belong to one execution environment
+### Sessions and execution environments
 
-The CLI core registers the session Flow type `<flowType>-<suffix>`. The suffix
+Since 0.6.8, every new session has the harness's `flowType` itself and its own
+task queue: `s-` and the first 20 lowercase hexadecimal characters of the
+SHA-256 of the session ID in UTF-8, from `sessionTaskQueue`. Only the command
+that has the session open pulls that queue, so the session's Steps and RPCs
+run there, and a session that no command has open does not run. A message
+that Dex Web sends to it waits for a command within the server's RPC dispatch
+wait, then fails.
+
+The command runs two Workers. The session Worker pulls the open session's task
+queue with the harness's Flow type; each queue gets a new app Worker ID,
+`dex-agents-<harness>-<host>-<pid>-<n>`. The other Worker pulls the default
+task queue with this environment's environment-hashed Flow type, so sessions
+that earlier releases started keep running and resuming here. The harness's
+`createSessionFlow` is called once for each Flow type.
+
+Opening a session of the harness's Flow type follows these steps:
+
+1. Read `SessionTerminalLease` with `GetAttributes`, which needs no Worker.
+2. While another terminal's lease has not expired, wait and pull nothing.
+3. Otherwise start the session Worker on the session's task queue, then
+   acquire the lease through the RPC, which that Worker serves.
+4. When the acquire fails because another terminal won, stop the session
+   Worker and wait again. When its answer never arrives, read the stored
+   lease: this command's holder counts as the acquire's confirmation; another
+   holder or none stops the Worker; a failed read keeps the Worker within its
+   pull permit, below, until the next attempt decides.
+5. On exit or on a terminal UI switch, release the lease while the session
+   Worker still serves the RPC, then stop it.
+
+One pull permit, `SessionPullPermit`, bounds how long the session Worker pulls
+without a confirmed lease. It is armed when the Worker starts pulling, before
+the first acquire is sent, and runs until that moment plus the TTL minus a
+fifth of the TTL, on a monotonic clock. Only an acquire or renewal that the
+session confirmed extends it, to that request's send time plus the same span.
+Every lease read, acquire, and renewal is bounded by the time the permit has
+left, and a renewal also by one renewal interval. When the permit expires,
+whatever is in progress, the session Worker stops pulling first. An answer
+that arrives once the deadline passed expires the permit at once, even before
+its timer fires. Each permit gets its own Worker, and leaving a session
+cancels its permit for good, so an old permit never stops a newer Worker.
+Before the lease is held, the command then waits and tries again: an acquire answer that
+arrives after the permit expired grants nothing, and the next attempt pulls
+and confirms again. Once the lease is held, the chat ends with one line and
+exit code 1, so the lease expires before another terminal can take the
+session; this also applies while a takeover cancels a turn. The line is the
+lease lost line when the stored lease already names another holder. In the
+terminal UI the Worker host tells the launcher, which stops the terminal UI
+the same way. A session from before 0.6.8 gets the same permit, armed at its
+first acquire; its expiry ends the chat, and the shared Worker keeps pulling.
+
+The acquire request carries this command's environment: the `startEnvironment`
+values below. When the call gives the lease to a new holder, the session
+stores them in `SessionLastTerminalEnvironment`. A command that takes a
+session whose last environment had another host name, user, configuration
+file, or workspace prints one line that names both environments. When a turn
+was still running there, it refuses that turn's model and tool calls in its
+own process before the session Worker pulls, cancels the turn with
+`cancel_turn`, and waits up to 10 seconds for it to end. It prints that the
+turn was cancelled only once the turn is no longer active; otherwise it prints
+that it could not confirm it and keeps refusing the turn's calls. The lines
+and rules are in
+[`agents/conformance/cli_session_task_queues.json`](../../../conformance/cli_session_task_queues.json).
+`--resume` of another harness's session, or of another environment's
+environment-hashed session, exits with 2. So does `--resume` of a session of the
+harness's Flow type whose task queue, read with `Client.getFlowState` without a
+Worker, is not its own, such as one another client started on the default task
+queue; it fails before any lease call. A server whose protocol has no named
+task queues, older than server-zd 0.1.30, stops the command with one line.
+
+Sessions that releases before 0.6.8 started keep the environment-hashed Flow
+type `<flowType>-<suffix>` on the default task queue. The suffix
 is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
 `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:
 
@@ -108,17 +178,21 @@ hashed values, and `user_name` is the user's name, left out when the system
 cannot tell it. They are not session settings and cannot change.
 
 A Worker takes only the Steps of its own Flow type, so an approved write or
-shell command always runs as the same user, with the same configuration file
-and workspace it was approved under. Tool settings, such as the shell allow
-list, are not part of the suffix, so changing them keeps `--resume` working.
-Changing the workspace, the file, or the user starts a new type: `--resume`
-of an older session then exits with 2 and says to resume it in its original
-environment, and `sessions` lists only the current environment's sessions.
-`sessions` loads up to 250 sessions, sorts them by last activity, and says
-when more sessions exist. It prints one per line with tab-separated
-columns: the ID, the status, the start time, the time of the latest turn, the
-turn count, and the title, the first 80 Unicode code points of the first
-message. `sessions.summary` in the configuration file decides whether the
+shell command of an environment-hashed session always runs as the same user,
+with the same configuration file and workspace it was approved under. Tool
+settings, such as the shell allow list, are not part of the suffix, so
+changing them keeps `--resume` working. Changing the workspace, the file, or
+the user starts a new type: `--resume` of such an older session then exits
+with 2 and says to resume it in its original environment.
+`sessions` lists the sessions of the harness's Flow type and of this
+environment's hashed Flow type. It loads up to 250 sessions of each, sorts
+them by last activity, and says when more sessions exist. It prints one per
+line with tab-separated columns: the ID, the status, the start time, the time
+of the latest turn, the turn count, where the session was last open as
+`<host>:<workspace>`, and the title, the first 80 Unicode code points of the
+first message. The last environment comes from `SessionLastTerminalEnvironment`,
+read for at most 8 sessions at a time; an environment-hashed session shows
+this environment. `sessions.summary` in the configuration file decides whether the
 session Flow keeps that summary: `auto`, the default, keeps it only with
 `dex.server: auto`, because a Dex server URL may be shared; `on` keeps it with
 any server; `off` never. The CLI core passes the result to the harness as
@@ -128,7 +202,7 @@ Flow's persistence schema, or its `options.summaryAttributesIndexed`, differs,
 so a custom harness must honor the field. The check verifies what the Flow
 declares; it does not sandbox harness code. A session that a release before 0.6.0 started shows `—` for the
 title, and for the time and the turn count until its next turn.
-Two processes in the same environment share their sessions' Steps. Because
+Two processes in the same environment share their environment-hashed sessions' Steps. Because
 tool settings may differ between them, the Worker that runs a tool Step
 checks the call again right before it acts, with its own file and the
 settings the call's turn started with. It refuses the call, which then

@@ -20,9 +20,10 @@ import logging
 import os
 import secrets
 import signal
+import socket
 import sys
 import webbrowser
-from collections.abc import Callable, Coroutine, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,10 +36,12 @@ from dex import (
     BlobCache,
     BlobCacheConfig,
     DexServiceError,
+    Flow,
     FlowNotFoundError,
-    FlowStatus,
+    PersistenceSchema,
     PullWorkerOptions,
     Registry,
+    StartFlowOptions,
     open_blob_cache,
 )
 
@@ -46,9 +49,10 @@ from dex_agents import (
     AGENT_SESSION_LAST_ACTIVITY_AT,
     AGENT_SESSION_TITLE,
     AGENT_SESSION_TURN_COUNT,
-    AgentSessionClient,
+    SESSION_LAST_TERMINAL_ENVIRONMENT,
     AgentSessionFlow,
     AgentSessionSummary,
+    AgentSessionSummaryPage,
     LocalDirectoryMediaStore,
     MediaStore,
     SessionTerminalLease,
@@ -121,7 +125,6 @@ from dex_agents_cli_core.harness import (
     declared_reasoning_efforts,
     declared_suggested_models,
     namespace_session_flow_type,
-    session_flow_type,
     session_start_environment,
 )
 from dex_agents_cli_core.local_tools import LocalToolSource
@@ -134,15 +137,32 @@ from dex_agents_cli_core.mcp_servers import (
 )
 from dex_agents_cli_core.session_lease import (
     HeldSessionLease,
+    PullPermitExpiredError,
     SessionLeaseHolder,
     SessionLeaseWaitInterrupted,
     build_lease_lost_line,
+    build_lease_unconfirmed_line,
     format_lease_holder,
     is_waiting_line_animated,
     terminal_columns,
     wait_for_session_lease,
 )
 from dex_agents_cli_core.session_list import collect_sessions_for_list
+from dex_agents_cli_core.session_opener import (
+    OpenableSession,
+    SessionOpener,
+    SessionQueueWorker,
+    SessionWorkerStartError,
+    TakenOverTurnRefusal,
+    UnopenableSessionError,
+)
+from dex_agents_cli_core.session_task_queues import (
+    cli_app_worker_id,
+    describe_session_environment,
+    is_named_task_queue_protocol_error,
+    named_task_queue_server_error,
+    session_task_queue,
+)
 from dex_agents_cli_core.terminal_ui.contract import LIST_CONNECTORS, PUT_IMAGE, START_SESSION
 from dex_agents_cli_core.terminal_ui.hosted_session import (
     HostedChatSession,
@@ -164,6 +184,7 @@ from dex_agents_cli_core.terminal_ui.worker_host import (
     ACQUIRE_SESSION_LEASE,
     RELEASE_SESSION_LEASE,
     SESSION_LEASE_LOST,
+    SESSION_LEASE_UNCONFIRMED,
     SESSION_UNAVAILABLE,
     WORKER_HOST_COMMAND,
     HostedRun,
@@ -192,8 +213,10 @@ _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 _CREDENTIAL_PROBE_FLOW_ID = "dex-agents-cli-credential-probe"
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
-_SESSION_START_TIMEOUT_SECONDS = 60.0
-_SESSION_START_POLL_SECONDS = 0.1
+# How many sessions the sessions subcommand reads the last environment of at once.
+_ENVIRONMENT_READ_CONCURRENCY = 8
+# How long a Worker drains its running tasks when it stops.
+_WORKER_STOP_DRAIN = timedelta(seconds=5)
 # The shell's exit code for a command that Ctrl-C ended.
 _INTERRUPTED_EXIT_CODE = 130
 _LOGGER = logging.getLogger(__name__)
@@ -476,10 +499,14 @@ async def _open_hosted_run(
                 open_connectors_page=reports.open_connectors_page,
                 log_path=log_path,
             ),
+            # The launcher is the Worker host's parent: its pid is the one a waiting terminal shows.
+            holder=SessionLeaseHolder.for_this_process(
+                environment.session_lease_ttl_seconds, process_id=os.getppid()
+            ),
             process_groups=process_groups,
         )
         try:
-            session_id = await session_worker.open_session(start.resume_session_id)
+            session = await session_worker.open_session(start.resume_session_id)
         except BaseException:
             await session_worker.close()
             raise
@@ -497,14 +524,10 @@ async def _open_hosted_run(
         connectors_mcp_url=_connectors_mcp_url(inputs.config, endpoint),
         web_url=endpoint.web_url,
     )
-    # The launcher is the Worker host's parent: its pid is the one a waiting terminal shows.
-    holder = SessionLeaseHolder.for_this_process(
-        environment.session_lease_ttl_seconds, process_id=os.getppid()
-    )
-    lease = HeldSessionLease(session_worker.sessions, holder)
+    lease = HeldSessionLease(session_worker.opener)
     return _HostedCliRun(
         session_worker,
-        session_id,
+        session,
         hosted,
         declared_reasoning_efforts(harness),
         _HostedSessionLease(session_worker, lease, reports),
@@ -524,26 +547,40 @@ class _HostedSessionLease:
         self._lease = lease
         self._reports = reports
         lease.lost.add_done_callback(self._report_lost)
+        lease.unconfirmed.add_done_callback(self._report_unconfirmed)
 
     async def acquire(self, params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
-        """Try once for ``params.session_id``'s lease after checking that the session can open."""
+        """Try once for ``params.session_id``'s lease after checking that the session can open.
+
+        An acquired lease answers with the session's Flow type and the lines
+        about a takeover from another place.
+        """
         session_id = params.get("session_id")
         if not isinstance(session_id, str) or not session_id:
             return RequestOutcome.failed(
                 "invalid_params", "session_id must be a session ID.", is_remembered=False
             )
+        opener = self._session_worker.opener
         try:
-            if session_id != self._lease.session_id:
-                await self._session_worker.open_session(session_id)
-            result = await self._lease.try_acquire(session_id)
-        except (CommandError, DexServerError) as error:
+            session = await opener.describe_openable_session(session_id)
+            result = await self._lease.try_acquire(session)
+        except (UnopenableSessionError, SessionWorkerStartError) as error:
             return RequestOutcome.failed(SESSION_UNAVAILABLE, str(error), is_remembered=False)
-        except (DexServiceError, TimeoutError) as error:
-            return RequestOutcome.failed("lease_call_failed", str(error), is_remembered=False)
+        except (DexServiceError, TimeoutError, PullPermitExpiredError) as error:
+            # Asked again later: an expired pull permit pulls and confirms again on the next try.
+            return RequestOutcome.failed(
+                "lease_call_failed", str(error) or type(error).__name__, is_remembered=False
+            )
+        lease = None if result.lease is None else dataclasses.asdict(result.lease)
+        if not result.is_acquired:
+            return RequestOutcome.succeeded({"is_acquired": False, "lease": lease})
+        notices = await opener.complete_takeover(session_id)
         return RequestOutcome.succeeded(
             {
-                "is_acquired": result.is_acquired,
-                "lease": None if result.lease is None else dataclasses.asdict(result.lease),
+                "is_acquired": True,
+                "lease": lease,
+                "flow_type": session.flow_type,
+                "notices": notices,
             }
         )
 
@@ -569,6 +606,12 @@ class _HostedSessionLease:
             }
         )
 
+    def _report_unconfirmed(self, unconfirmed: asyncio.Future[str]) -> None:
+        if not unconfirmed.cancelled():
+            self._reports.channel.post(
+                {"type": SESSION_LEASE_UNCONFIRMED, "session_id": unconfirmed.result()}
+            )
+
 
 class _HostedCliRun:
     """The Worker host's started Worker, its session, and the requests it serves."""
@@ -576,13 +619,13 @@ class _HostedCliRun:
     def __init__(
         self,
         session_worker: _SessionWorker,
-        session_id: str,
+        session: OpenableSession,
         hosted: HostedChatSession,
         supported_reasoning_efforts: Sequence[str],
         session_lease: _HostedSessionLease,
     ) -> None:
         self._session_worker = session_worker
-        self._session_id = session_id
+        self._session = session
         self._supported_reasoning_efforts = tuple(supported_reasoning_efforts)
         self._session_lease = session_lease
         self._request_handlers: dict[str, RequestHandler] = {
@@ -595,16 +638,16 @@ class _HostedCliRun:
 
     @property
     def session_id(self) -> str:
-        return self._session_id
+        return self._session.session_id
 
     @property
     def flow_type(self) -> str:
-        return self._session_worker.flow_type
+        return self._session.flow_type
 
     @property
     def capabilities(self) -> Mapping[str, Any]:
         return session_flow_capabilities(
-            self._session_worker.flow,
+            self._session.sessions.flow,
             supported_reasoning_efforts=self._supported_reasoning_efforts,
         )
 
@@ -960,22 +1003,28 @@ async def _run_plain_chat(
             open_connectors_page=_open_connectors_page_if_interactive(environment),
             log_path=log_path,
         ),
+        holder=SessionLeaseHolder.for_this_process(environment.session_lease_ttl_seconds),
     )
     terminal = Terminal()
-    lease = HeldSessionLease(
-        session_worker.sessions,
-        SessionLeaseHolder.for_this_process(environment.session_lease_ttl_seconds),
-    )
+    lease = HeldSessionLease(session_worker.opener)
     try:
-        session_id = await session_worker.open_session(arguments.resume_session_id)
-        await _wait_for_session_lease(session_id, lease, environment)
+        session = await session_worker.open_session(arguments.resume_session_id)
+        session_id = session.session_id
+        await _wait_for_session_lease(session, lease, environment)
+        for line in await session_worker.opener.complete_takeover(session_id):
+            print(line, file=sys.stderr)
+        # The pull permit runs from the acquire on; it may end the lease during the takeover.
+        if lease.is_ending:
+            await lease.wait_until_ended()
+            _report_ended_lease(lease)
+            return 1
         print(f"Session {session_id}")
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
         terminal.start()
         chat = TerminalChat(
             session_worker.client,
-            session_worker.sessions,
+            session.sessions,
             session_id,
             terminal,
             command_name(harness),
@@ -993,40 +1042,56 @@ async def _run_plain_chat(
 
 
 async def _wait_for_session_lease(
-    session_id: str, lease: HeldSessionLease, environment: CommandEnvironment
+    session: OpenableSession, lease: HeldSessionLease, environment: CommandEnvironment
 ) -> None:
-    """Wait until this command holds the session's lease, showing who has it meanwhile."""
-    await wait_for_session_lease(
-        session_id,
-        lambda: lease.try_acquire(session_id),
-        sys.stderr,
-        is_animated=is_waiting_line_animated(sys.stderr, environment.terminal_type),
-        columns=lambda: terminal_columns(sys.stderr),
-    )
+    """Wait until this command holds the session's lease, showing who has it meanwhile.
+
+    Raises:
+        CommandFailure: If the session Worker could not start pulling the session's task queue.
+    """
+    try:
+        await wait_for_session_lease(
+            session.session_id,
+            lambda: lease.try_acquire(session),
+            sys.stderr,
+            is_animated=is_waiting_line_animated(sys.stderr, environment.terminal_type),
+            columns=lambda: terminal_columns(sys.stderr),
+        )
+    except SessionWorkerStartError as error:
+        raise CommandFailure(str(error)) from error
 
 
 async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) -> bool:
-    """Run the chat until it ends or another terminal takes the session.
+    """Run the chat until it ends, another terminal takes the session, or its pull permit expires.
 
     Returns:
-        The chat's result, or ``False`` when the lease was lost.
+        The chat's result, or ``False`` when the lease was lost or unconfirmed.
     """
     chatting = asyncio.create_task(chat.run())
     try:
-        waited: set[asyncio.Future[Any]] = {chatting, lease.lost}
+        waited: set[asyncio.Future[Any]] = {chatting, lease.ending}
         await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
-        # A chat whose session was taken may fail at the same time; the lost lease explains it.
-        if not lease.lost.done():
+        # A chat whose lease ended may fail at the same time; the lease explains it.
+        if not lease.is_ending:
             return chatting.result()
     finally:
         chatting.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await _end_cancelled_chat(chatting)
-    session_id, holder = lease.lost.result()
     # The newline ends the prompt line, which is on standard output.
     print(flush=True)
-    print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+    await lease.wait_until_ended()
+    _report_ended_lease(lease)
     return False
+
+
+def _report_ended_lease(lease: HeldSessionLease) -> None:
+    """Print the line of a lease that another terminal took or no renewal confirmed."""
+    if lease.lost.done():
+        session_id, holder = lease.lost.result()
+        print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+    else:
+        print(build_lease_unconfirmed_line(lease.unconfirmed.result()), file=sys.stderr)
 
 
 async def _end_cancelled_chat(chatting: asyncio.Task[bool]) -> None:
@@ -1055,7 +1120,13 @@ class _SessionWorkerReports:
 
 
 class _SessionWorker:
-    """The Worker half of a chat run: tools, the session Flow, the Client, and the Worker."""
+    """The Worker half of a chat run: tools, the session Flows, the Client, and their Workers.
+
+    A new session has the harness's Flow type and its own task queue. The
+    session Worker pulls that queue only once ``SessionOpener.attempt`` finds
+    the session free. The other Worker always pulls the default task queue for
+    this execution environment's environment-hashed sessions from before 0.6.8.
+    """
 
     def __init__(
         self,
@@ -1064,6 +1135,8 @@ class _SessionWorker:
         identity: SessionEnvironmentIdentity,
         client: AsyncClient,
         worker: AsyncWorker,
+        session_queue_worker: SessionQueueWorker,
+        opener: SessionOpener,
         blob_cache: BlobCache,
         local_tools: LocalToolSource | None,
         connection: DexConnection,
@@ -1073,8 +1146,10 @@ class _SessionWorker:
         self.flow = flow
         self.identity = identity
         self.client = client
-        self.sessions = AgentSessionClient(client, flow)
+        self.opener = opener
+        self.sessions = opener.sessions
         self._worker = worker
+        self._session_queue_worker = session_queue_worker
         self._blob_cache = blob_cache
         self._local_tools = local_tools
         self._connection = connection
@@ -1091,9 +1166,21 @@ class _SessionWorker:
         endpoint: DexServerEndpoint,
         *,
         reports: _SessionWorkerReports,
+        holder: SessionLeaseHolder,
         process_groups: ShellProcessGroups | None = None,
     ) -> _SessionWorker:
-        """Build the session Flow, start the Worker, and upload the session graph."""
+        """Build both session Flows, start the default task queue's Worker, and upload the graphs.
+
+        Args:
+            environment: The command's environment.
+            harness: The command's harness.
+            loaded: The configuration file.
+            inputs: What the run read before it builds the Worker.
+            endpoint: The Dex server.
+            reports: Where the Worker half reports to the user.
+            holder: This process's lease holder.
+            process_groups: The Worker host's shell process groups, or ``None``.
+        """
         config = inputs.config
         connectors = await _connect_connectors(
             config,
@@ -1112,33 +1199,43 @@ class _SessionWorker:
             source for source in (connectors, mcp_servers, local_tools) if source is not None
         ]
         identity = current_session_environment_identity(loaded.path, inputs.workspace)
-        flow_type = namespace_session_flow_type(harness.flow_type, identity)
-        context = HarnessContext(
-            flow_type=flow_type,
-            config=config,
-            workspace=inputs.workspace.resolve(),
-            instructions=inputs.resolver.file_instructions,
-            harness_options=config.harness_options,
-            tool_sources=tuple(tool_sources),
-            resolver=inputs.resolver,
-            media_store=inputs.media_store,
-            is_session_summary_indexed=is_session_summary_indexed(config),
-        )
-        harness_flow = harness.create_session_flow(context)
-        _require_session_summary_setting(harness_flow, context.is_session_summary_indexed)
-        flow = with_turn_config(harness_flow, inputs.resolver)
-        _require_session_summary_setting(flow, context.is_session_summary_indexed)
-        if flow.get_flow_type() != flow_type:
-            raise CommandError(
-                f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}"
+        legacy_flow_type = namespace_session_flow_type(harness.flow_type, identity)
+
+        def build_session_flow(flow_type: str) -> AgentSessionFlow:
+            context = HarnessContext(
+                flow_type=flow_type,
+                config=config,
+                workspace=inputs.workspace.resolve(),
+                instructions=inputs.resolver.file_instructions,
+                harness_options=config.harness_options,
+                tool_sources=tuple(tool_sources),
+                resolver=inputs.resolver,
+                media_store=inputs.media_store,
+                is_session_summary_indexed=is_session_summary_indexed(config),
             )
-        registry = Registry([flow], allow_async_handlers=True)
+            harness_flow = harness.create_session_flow(context)
+            _require_session_summary_setting(harness_flow, context.is_session_summary_indexed)
+            flow = with_turn_config(harness_flow, inputs.resolver)
+            _require_session_summary_setting(flow, context.is_session_summary_indexed)
+            if flow.get_flow_type() != flow_type:
+                raise CommandError(
+                    f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}"
+                )
+            return flow
+
+        turn_refusal = TakenOverTurnRefusal()
+        flow = turn_refusal.wrap_flow(build_session_flow(harness.flow_type))
+        legacy_flow = build_session_flow(legacy_flow_type)
         cache_directory = environment.agents_directory / "cache" / harness.name
         cache_directory.mkdir(parents=True, exist_ok=True)
         blob_cache = open_blob_cache(BlobCacheConfig(str(cache_directory), _BLOB_CACHE_BYTES))
         connection = _open_connection(inputs.connection, environment)
         try:
-            client = AsyncClient(registry, blob_cache, connection.client_options(endpoint.address))
+            client = AsyncClient(
+                Registry([flow, legacy_flow], allow_async_handlers=True),
+                blob_cache,
+                connection.client_options(endpoint.address),
+            )
         except ValueError as error:
             connection.close()
             blob_cache.close()
@@ -1151,12 +1248,48 @@ class _SessionWorker:
                 connection.close()
                 blob_cache.close()
                 raise
-        worker = AsyncWorker(
-            registry,
-            blob_cache,
-            connection.worker_options(
-                endpoint.address, PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5))
+        host_name = socket.gethostname()
+
+        def create_worker(
+            session_flow: AgentSessionFlow, app_worker_id: str, task_queue: str = ""
+        ) -> AsyncWorker:
+            pull = PullWorkerOptions(
+                stop_drain_timeout=_WORKER_STOP_DRAIN,
+                app_worker_id=app_worker_id,
+                task_queue=task_queue,
+            )
+            return AsyncWorker(
+                Registry([session_flow], allow_async_handlers=True),
+                blob_cache,
+                connection.worker_options(endpoint.address, pull),
+            )
+
+        def describe_start_failure(failure: BaseException) -> str:
+            if is_named_task_queue_protocol_error(failure):
+                return named_task_queue_server_error(command_name(harness))
+            described = _describe_dex_failure(
+                failure, connection, config.dex.server, endpoint.address
+            )
+            return described or f"the session Worker did not start: {failure}"
+
+        worker = create_worker(legacy_flow, cli_app_worker_id(harness.name, host_name, os.getpid()))
+        session_queue_worker = SessionQueueWorker(
+            lambda task_queue, app_worker_id: create_worker(flow, app_worker_id, task_queue),
+            lambda incarnation: cli_app_worker_id(
+                harness.name, host_name, os.getpid(), str(incarnation)
             ),
+            describe_start_failure,
+        )
+        opener = SessionOpener(
+            client=client,
+            harness_flow_type=harness.flow_type,
+            session_flow=flow,
+            legacy_session_flow=legacy_flow,
+            command_name=command_name(harness),
+            holder=holder,
+            environment=session_start_environment(identity),
+            session_worker=session_queue_worker,
+            turn_refusal=turn_refusal,
         )
         session_worker = cls(
             harness,
@@ -1164,6 +1297,8 @@ class _SessionWorker:
             identity,
             client,
             worker,
+            session_queue_worker,
+            opener,
             blob_cache,
             local_tools,
             connection,
@@ -1171,7 +1306,7 @@ class _SessionWorker:
         )
         try:
             await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
-            await _upload_session_flow_definition(client, flow_type)
+            await _upload_session_flow_definitions(client, [harness.flow_type, legacy_flow_type])
         except BaseException as failure:
             await session_worker.close(startup_failure=failure)
             described = _describe_dex_failure(
@@ -1182,25 +1317,40 @@ class _SessionWorker:
             raise DexServerError(described) from failure
         return session_worker
 
-    @property
-    def flow_type(self) -> str:
-        """Return the session Flow type."""
-        return self.flow.get_flow_type()
+    async def open_session(self, resume_session_id: str | None) -> OpenableSession:
+        """Check and return the resumed session, or start a new one and return it.
 
-    async def open_session(self, resume_session_id: str | None) -> str:
-        """Check and return the resumed session, or start a new one and return its ID."""
+        A new session has the harness's Flow type and its own task queue; no
+        Worker pulls that queue until its lease is taken.
+
+        Raises:
+            CommandError: If the session to resume does not exist, does not
+                run, or belongs to another harness or to another execution
+                environment's environment-hashed Flow type.
+            DexServerError: If the server refused the credential or has no
+                named task queues.
+        """
         try:
-            return await _open_session(
-                self.client,
-                self.sessions,
-                resume_session_id,
-                self.harness,
-                self.flow_type,
-                self.identity,
-            )
+            if resume_session_id is None:
+                session_id = (
+                    f"{self.harness.name}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
+                )
+                await self.sessions.start_session(
+                    session_id,
+                    options=StartFlowOptions(task_queue=session_task_queue(session_id)),
+                    start_environment=session_start_environment(self.identity),
+                )
+                return self.opener.started_session(session_id)
+            return await self.opener.describe_openable_session(resume_session_id)
+        except UnopenableSessionError as error:
+            raise CommandError(str(error)) from error
         except (CommandError, asyncio.CancelledError):
             raise
         except Exception as failure:
+            if is_named_task_queue_protocol_error(failure):
+                raise DexServerError(
+                    named_task_queue_server_error(command_name(self.harness))
+                ) from failure
             rejected = describe_rejected_dex_credential(
                 failure, self._connection.settings, self._address
             )
@@ -1209,13 +1359,13 @@ class _SessionWorker:
             raise DexServerError(rejected) from failure
 
     async def close(self, *, startup_failure: BaseException | None = None) -> None:
-        """Stop the Worker, close the browser pages, the Client, and the blob cache.
+        """Stop both Workers, close the browser pages, the Client, and the blob cache.
 
         Args:
             startup_failure: The error that ended ``start``. The Worker's own
                 task raises the same error again, and it is not raised twice.
         """
-        await self._worker.stop()
+        await asyncio.gather(self._worker.stop(), self._session_queue_worker.close())
         try:
             await self._serving
         except asyncio.CancelledError:
@@ -1485,33 +1635,44 @@ async def _check_dex_credential(
         raise DexServerError(described) from failure
 
 
-async def _upload_session_flow_definition(client: AsyncClient, flow_type: str) -> None:
-    """Upload the session graph so Dex Web shows the session without ``--flow-rendering-dir``.
+async def _upload_session_flow_definitions(client: AsyncClient, flow_types: Sequence[str]) -> None:
+    """Upload the session graphs so Dex Web shows the sessions without ``--flow-rendering-dir``.
 
-    The Client uploads it after the Worker registered, not ``WorkerOptions.flow_definitions``,
-    because the Worker's upload runs inside ``start`` with a two-minute deadline. The outcome
-    and any failure go to the log file only.
+    The Client uploads them after the Worker registered, not
+    ``WorkerOptions.flow_definitions``, because the Worker's upload runs inside
+    ``start`` with a two-minute deadline. The outcome and any failure go to the
+    log file only.
+
+    Args:
+        client: The command's Client.
+        flow_types: The harness's Flow type and this execution environment's
+            environment-hashed one.
     """
-    document = session_flow_definition_document(flow_type, SESSION_ACTION_PERMISSION)
+    documents = [
+        session_flow_definition_document(flow_type, SESSION_ACTION_PERMISSION)
+        for flow_type in flow_types
+    ]
     try:
-        (result,) = await asyncio.wait_for(
-            client.upload_flow_definitions([document]),
+        results = await asyncio.wait_for(
+            client.upload_flow_definitions(documents),
             _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS,
         )
-    except Exception as error:  # Any failure only loses the Dex Web graph of this session.
-        _LOGGER.warning(
-            "session Flow definition upload failed; Dex Web shows this session only with "
-            "--flow-rendering-dir: flowType=%s %s",
-            flow_type,
-            _describe_upload_error(error),
-        )
+    except Exception as error:  # Any failure only loses the Dex Web graph of these sessions.
+        for flow_type in flow_types:
+            _LOGGER.warning(
+                "session Flow definition upload failed; Dex Web shows this session only with "
+                "--flow-rendering-dir: flowType=%s %s",
+                flow_type,
+                _describe_upload_error(error),
+            )
         return
-    _LOGGER.info(
-        "session Flow definition %s: flowType=%s storedDigest=%s",
-        result.outcome.value,
-        flow_type,
-        result.stored_digest,
-    )
+    for flow_type, result in zip(flow_types, results, strict=False):
+        _LOGGER.info(
+            "session Flow definition %s: flowType=%s storedDigest=%s",
+            result.outcome.value,
+            flow_type,
+            result.stored_digest,
+        )
 
 
 def _describe_upload_error(error: BaseException) -> str:
@@ -1523,43 +1684,6 @@ def _describe_upload_error(error: BaseException) -> str:
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
 
-async def _open_session(
-    client: AsyncClient,
-    sessions: AgentSessionClient,
-    resume_session_id: str | None,
-    harness: AgentHarness,
-    flow_type: str,
-    identity: SessionEnvironmentIdentity,
-) -> str:
-    if resume_session_id is not None:
-        try:
-            info = await client.describe_flow(resume_session_id)
-        except FlowNotFoundError as error:
-            raise CommandError(
-                f"session {resume_session_id} does not exist; list sessions with "
-                f"{command_name(harness)} sessions"
-            ) from error
-        if info.flow_type != flow_type:
-            raise CommandError(
-                f"session {resume_session_id} is a {info.flow_type} session, not {flow_type}; "
-                "resume it as the user, with the configuration file and workspace, that started it"
-            )
-        if info.status is not FlowStatus.RUNNING:
-            raise CommandError(
-                f"session {resume_session_id} is {info.status.value}, so it cannot continue"
-            )
-        return resume_session_id
-    session_id = f"{harness.name}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
-    await sessions.start_session(session_id, start_environment=session_start_environment(identity))
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + _SESSION_START_TIMEOUT_SECONDS
-    while (await sessions.get_agent_snapshot(session_id)).state is None:
-        if loop.time() > deadline:
-            raise CommandError(f"session {session_id} did not start; is the Worker running?")
-        await asyncio.sleep(_SESSION_START_POLL_SECONDS)
-    return session_id
-
-
 async def _list_sessions(
     loaded: LoadedConfig,
     environment: CommandEnvironment,
@@ -1569,7 +1693,8 @@ async def _list_sessions(
     settings = _resolve_connection(loaded, environment)
     endpoint = await server.resolve(loaded.config)
     workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
-    flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
+    identity = current_session_environment_identity(loaded.path, workspace)
+    legacy_flow_type = namespace_session_flow_type(harness.flow_type, identity)
     blob_cache = open_blob_cache(
         BlobCacheConfig(str(environment.agents_directory / "cache" / "sessions"), _BLOB_CACHE_BYTES)
     )
@@ -1578,9 +1703,10 @@ async def _list_sessions(
     except CommandError:
         blob_cache.close()
         raise
+    environment_reading = _SessionEnvironmentReadingFlow()
     try:
         client = AsyncClient(
-            Registry([], allow_async_handlers=True),
+            Registry([environment_reading], allow_async_handlers=True),
             blob_cache,
             connection.client_options(endpoint.address),
         )
@@ -1588,12 +1714,19 @@ async def _list_sessions(
         connection.close()
         blob_cache.close()
         raise CommandError(connection.describe_setup_error(error)) from error
+
+    def pages_of(flow_type: str) -> Callable[[str], Awaitable[AgentSessionSummaryPage]]:
+        def load_page(next_page_token: str) -> Awaitable[AgentSessionSummaryPage]:
+            return list_agent_sessions(client, flow_type, next_page_token=next_page_token)
+
+        return load_page
+
     try:
-        collected = await collect_sessions_for_list(
-            lambda next_page_token: list_agent_sessions(
-                client, flow_type, next_page_token=next_page_token
-            )
+        current, legacy = await asyncio.gather(
+            collect_sessions_for_list(pages_of(harness.flow_type)),
+            collect_sessions_for_list(pages_of(legacy_flow_type)),
         )
+        environments = await environment_reading.read_all(client, current.sessions)
     except Exception as failure:
         described = _describe_dex_failure(
             failure, connection, loaded.config.dex.server, endpoint.address
@@ -1605,19 +1738,72 @@ async def _list_sessions(
         await client.close()
         connection.close()
         blob_cache.close()
-    sessions = collected.sessions
-    if not sessions and not collected.has_more_sessions:
+    sessions = [*current.sessions, *legacy.sessions]
+    has_more_sessions = current.has_more_sessions or legacy.has_more_sessions
+    if not sessions and not has_more_sessions:
         print("No sessions yet.")
         return 0
+    # An environment-hashed session runs only in this execution environment, so it was open here.
+    this_environment = describe_session_environment(session_start_environment(identity))
+    legacy_session_ids = {session.session_id for session in legacy.sessions}
     for session in sort_agent_sessions_by_last_activity(sessions):
-        print(_session_line(session))
-    if collected.has_more_sessions:
+        where = (
+            this_environment
+            if session.session_id in legacy_session_ids
+            else describe_session_environment(environments.get(session.session_id))
+        )
+        print(_session_line(session, where))
+    if has_more_sessions:
         print(
             f"More sessions exist; this list sorts the first {len(sessions)} that Dex returns: "
             "running sessions first, then the most recently closed and started."
         )
     print(f"Resume one with: {command_name(harness)} --resume <session-id>")
     return 0
+
+
+class _SessionEnvironmentReadingFlow(Flow[None]):
+    """A Flow that only declares ``SessionLastTerminalEnvironment``.
+
+    The ``sessions`` subcommand's Client may read only registered definitions,
+    and this Flow lets it do so without building the harness's session Flow,
+    which can need a provider API key. It has no Steps and never runs.
+    """
+
+    def get_flow_type(self) -> str:
+        return "DexAgentsCliSessionEnvironmentReading"
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(SESSION_LAST_TERMINAL_ENVIRONMENT)
+
+    async def read_all(
+        self, client: AsyncClient, sessions: Sequence[AgentSessionSummary]
+    ) -> dict[str, dict[str, str]]:
+        """Return where each session was last open; a failed read or none leaves it out.
+
+        Args:
+            client: A Client whose Registry has this Flow.
+            sessions: The sessions.
+        """
+        environments: dict[str, dict[str, str]] = {}
+        limit = asyncio.Semaphore(_ENVIRONMENT_READ_CONCURRENCY)
+
+        async def read(session_id: str) -> None:
+            async with limit:
+                try:
+                    stored = await client.get_attributes(
+                        session_id, SESSION_LAST_TERMINAL_ENVIRONMENT
+                    )
+                except DexServiceError as error:
+                    # The row then shows no environment; the list itself still prints.
+                    _LOGGER.warning("cannot read where session %s was open: %s", session_id, error)
+                    return
+            found = stored.get(SESSION_LAST_TERMINAL_ENVIRONMENT)
+            if found is not None:
+                environments[session_id] = dict(found)
+
+        await asyncio.gather(*(read(session.session_id) for session in sessions))
+        return environments
 
 
 async def _list_connectors(
@@ -1696,8 +1882,14 @@ def _require_session_summary_setting(flow: AgentSessionFlow, is_expected: bool) 
     )
 
 
-def _session_line(session: AgentSessionSummary) -> str:
-    """Return one ``sessions`` line; an earlier release's session lacks the last three parts."""
+def _session_line(session: AgentSessionSummary, where: str) -> str:
+    """Return one ``sessions`` line; an earlier release's session lacks some parts.
+
+    Args:
+        session: The session.
+        where: Where the session was last open, ``<host>:<workspace>``, or
+            ``—`` when unknown, which leaves that part out.
+    """
     line = (
         f"{session.session_id}  {session.status.name.lower()}  "
         f"started {_local_minute(session.started_at)}"
@@ -1706,6 +1898,8 @@ def _session_line(session: AgentSessionSummary) -> str:
         line += f"  updated {_local_minute(session.last_activity_at)}"
     if session.turn_count is not None:
         line += f"  {session.turn_count} {'turn' if session.turn_count == 1 else 'turns'}"
+    if where != "—":
+        line += f"  on {where}"
     if session.title is not None:
         line += f"  {session.title}"
     return line

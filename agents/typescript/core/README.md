@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.1
+npm i @superdurable/dex-agents @superdurable/dex@1.45.3
 ```
 
-`@superdurable/dex` 1.45.1 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.45.3 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -1627,7 +1627,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.1 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.45.3 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or

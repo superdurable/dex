@@ -31,6 +31,7 @@ export {
   type AgentCliIo,
   type SessionEnvironmentIdentity,
 } from "./agent-cli.js";
+export { sessionTaskQueue } from "./session-task-queues.js";
 export {
   ConfigError,
   canonicalOperationName,

@@ -1281,11 +1281,19 @@ type AcquireSessionTerminalLeaseRequest struct {
 	ProcessID int64 `json:"process_id"`
 	// TTLSeconds is how long the lease lasts without renewal, from 1 to 3600.
 	TTLSeconds int64 `json:"ttl_seconds"`
+	// Environment is the caller's execution environment as text pairs, such
+	// as its host name and workspace, or nil for none. When the call gives
+	// the lease to a holder that did not hold it, the session stores it in
+	// SessionLastTerminalEnvironmentAttribute. A renewal and a refused call
+	// leave that Attribute unchanged. The session never reads the keys.
+	// Workers before 0.6.8 ignore it. It is left out of the wire object when
+	// nil. Since 0.6.8.
+	Environment map[string]string `json:"environment,omitempty"`
 }
 
-// UnmarshalJSON decodes the wire object.
+// UnmarshalJSON decodes the wire object; a missing environment decodes as nil.
 //
-// It returns an error for a missing field or a wrong JSON type.
+// It returns an error for a missing required field or a wrong JSON type.
 func (request *AcquireSessionTerminalLeaseRequest) UnmarshalJSON(data []byte) error {
 	type wireAcquireSessionTerminalLeaseRequest AcquireSessionTerminalLeaseRequest
 	var decoded wireAcquireSessionTerminalLeaseRequest

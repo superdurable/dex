@@ -15,6 +15,7 @@ import { detectImageMimeType, maxImageBytes, startAgentSession, type AgentImageR
 import type { OpenedSessionWorker } from "../agent-cli.js";
 import type { ConnectorEntry } from "../cli-config.js";
 import { isConnectorToolEnabledBy } from "../connector-tool-source.js";
+import { sessionTaskQueue } from "../session-task-queues.js";
 import { refusal } from "../terminal-ui/local-request-relay.js";
 import { candidateSessionIds } from "../terminal-ui/request-keys.js";
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
@@ -162,12 +163,13 @@ async function startSession(idempotencyKey: string, context: WorkerHostMethodCon
       },
       start: async (sessionId) => {
         try {
+          // Each candidate ID has its own task queue; the switch to the session then pulls it.
           await startAgentSession(
             opened.client,
-            opened.flow,
+            opened.sessionFlow,
             sessionId,
             { startEnvironment: opened.startEnvironment },
-            { requestId: idempotencyKey, ignoreAlreadyStarted: true },
+            { requestId: idempotencyKey, ignoreAlreadyStarted: true, taskQueue: sessionTaskQueue(sessionId) },
           );
           return "started";
         } catch (error: unknown) {

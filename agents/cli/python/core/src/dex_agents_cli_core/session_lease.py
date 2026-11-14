@@ -22,20 +22,23 @@ import logging
 import os
 import signal
 import socket
+import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
-from typing import TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 from dex import DexServiceError
 
 from dex_agents import (
     AcquireSessionTerminalLeaseRequest,
-    AgentSessionClient,
     SessionTerminalLease,
     SessionTerminalLeaseResult,
 )
+
+if TYPE_CHECKING:
+    from dex_agents_cli_core.session_opener import OpenableSession, SessionOpener
 
 #: The spinner of the waiting line, one frame each ``FRAME_INTERVAL_SECONDS``.
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -51,6 +54,10 @@ DEFAULT_COLUMNS = 80
 LEASE_CALL_TIMEOUT_SECONDS = 5.0
 #: How long the release at exit may take; the lease expires anyway.
 LEASE_RELEASE_TIMEOUT_SECONDS = 2.0
+#: The share of the TTL by which a session's pull permit ends before the lease it confirmed.
+RENEWAL_SAFETY_MARGIN_RATIO = 0.2
+#: The exit code of a chat whose lease no renewal confirmed in time.
+LEASE_UNCONFIRMED_EXIT_CODE = 1
 _HOST_NAME_LIMIT = 255
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +67,21 @@ LeaseAttempt = Callable[[], Awaitable[SessionTerminalLeaseResult]]
 
 class LeaseCallError(Exception):
     """A lease call through another process failed; a waiting command tries again."""
+
+
+class PullPermitExpiredError(Exception):
+    """A session's pull permit expired before its lease was confirmed.
+
+    The session Worker stopped pulling, and a late acquire answer grants
+    nothing. A waiting command tries again: the next try pulls and confirms
+    again.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        """Name the session whose permit expired."""
+        super().__init__(
+            f"the pull permit of session {session_id} expired before its lease was confirmed"
+        )
 
 
 class SessionLeaseWaitInterrupted(Exception):
@@ -104,68 +126,106 @@ class SessionLeaseHolder:
         """Return how often the holder renews: a third of the lease."""
         return self.ttl_seconds / 3
 
-    def acquire_request(self) -> AcquireSessionTerminalLeaseRequest:
-        """Return the RPC request that acquires or renews this holder's lease."""
+    def acquire_request(
+        self, environment: Mapping[str, str] | None = None
+    ) -> AcquireSessionTerminalLeaseRequest:
+        """Return the RPC request that acquires or renews this holder's lease.
+
+        Args:
+            environment: This command's environment, which the session keeps
+                as where it was last open; ``None`` sends none.
+        """
         return AcquireSessionTerminalLeaseRequest(
             holder_id=self.holder_id,
             host_name=self.host_name,
             process_id=self.process_id,
             ttl_seconds=self.ttl_seconds,
+            environment=None if environment is None else dict(environment),
         )
 
 
 class HeldSessionLease:
     """The lease one process holds on the session it shows, renewed in the background.
 
-    It holds at most one session's lease. ``lost`` completes with the other
-    holder's lease when a renewal finds that another terminal took it. A try
-    that did not answer, such as one Ctrl-C cancelled, may still have taken
-    the lease, so ``release`` releases that session too.
+    It holds at most one session's lease and renews it every third of its
+    TTL. ``lost`` completes with the other holder's lease when a renewal finds
+    that another terminal took it; the opener then stops pulling that
+    session's task queue. A try that did not answer, such as one Ctrl-C
+    cancelled, may still have taken the lease, so ``release`` releases that
+    session too.
+
+    The session's pull permit, which only confirmed acquires and renewals
+    extend, decides when an unconfirmed lease ends; see ``SessionPullPermit``.
+    When it expires, the opener has stopped pulling already. ``ending``
+    then completes at once, renewing stops, and ``unconfirmed`` completes
+    with the session ID, or ``lost`` when the stored lease already names
+    another holder. Nothing releases that lease: it expires before another
+    terminal can take the session.
     """
 
-    def __init__(self, sessions: AgentSessionClient, holder: SessionLeaseHolder) -> None:
-        """Hold leases through a session client.
+    def __init__(self, opener: SessionOpener) -> None:
+        """Hold leases through the command's session opener.
 
         Args:
-            sessions: The session client.
-            holder: This process's holder.
+            opener: Opens, renews, and leaves sessions.
         """
-        self._sessions = sessions
-        self._holder = holder
+        self._opener = opener
+        self._holder = opener.holder
         self._session_id: str | None = None
         self._unanswered_session_ids: set[str] = set()
         self._renewing: asyncio.Task[None] | None = None
-        self.lost: asyncio.Future[tuple[str, SessionTerminalLease]] = (
-            asyncio.get_running_loop().create_future()
-        )
+        self._deciding_ending: asyncio.Task[None] | None = None
+        loop = asyncio.get_running_loop()
+        # Completes with the session ID when the lease ends, before ``lost`` or ``unconfirmed``.
+        self.ending: asyncio.Future[str] = loop.create_future()
+        self.lost: asyncio.Future[tuple[str, SessionTerminalLease]] = loop.create_future()
+        self.unconfirmed: asyncio.Future[str] = loop.create_future()
 
     @property
     def session_id(self) -> str | None:
         """Return the session whose lease it holds, or ``None``."""
         return self._session_id
 
-    async def try_acquire(self, session_id: str) -> SessionTerminalLeaseResult:
+    @property
+    def is_ending(self) -> bool:
+        """Return whether the held lease ended: lost, or its pull permit expired."""
+        return self.ending.done()
+
+    async def try_acquire(self, session: OpenableSession) -> SessionTerminalLeaseResult:
         """Ask once for the session's lease; on success, renew it from now on.
 
         Raises:
             DexServiceError: If the call fails.
             TimeoutError: If the call takes longer than ``LEASE_CALL_TIMEOUT_SECONDS``.
+            PullPermitExpiredError: If the pull permit expired before the lease was confirmed.
+            SessionWorkerStartError: If the session Worker did not start pulling.
         """
+        session_id = session.session_id
         self._unanswered_session_ids.add(session_id)
-        result = await self._call_acquire(session_id)
+        result = await self._opener.attempt(session)
         self._unanswered_session_ids.discard(session_id)
         if result.is_acquired:
             self._stop_renewing()
             self._session_id = session_id
             self._renewing = asyncio.create_task(self._renew(session_id))
+            # The permit stopped pulling already; this only ends the chat, also during a takeover.
+            self._opener.when_permit_expires(
+                session_id, lambda: self._end_expired_permit(session_id)
+            )
         return result
+
+    async def wait_until_ended(self) -> None:
+        """Wait until ``lost`` or ``unconfirmed`` completes, once ``is_ending`` is true."""
+        endings: set[asyncio.Future[Any]] = {self.lost, self.unconfirmed}
+        await asyncio.wait(endings, return_when=asyncio.FIRST_COMPLETED)
 
     async def release(self) -> None:
         """Release the held lease, and any a try without an answer may have taken.
 
-        It takes at most ``LEASE_RELEASE_TIMEOUT_SECONDS``. A failed release is
-        only logged: the lease expires anyway. Releasing a lease this holder
-        never got changes nothing.
+        Each release takes at most ``LEASE_RELEASE_TIMEOUT_SECONDS``, while the
+        session Worker still serves it; then the opener stops pulling that
+        session. A failed release is only logged: the lease expires anyway.
+        Releasing a lease this holder never got changes nothing.
         """
         self._stop_renewing()
         session_ids = {*self._unanswered_session_ids}
@@ -173,45 +233,63 @@ class HeldSessionLease:
             session_ids.add(self._session_id)
         self._session_id = None
         self._unanswered_session_ids.clear()
-        if not session_ids:
-            return
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*(self._release_one(session_id) for session_id in session_ids)),
-                LEASE_RELEASE_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
-            _LOGGER.warning("cannot release the session lease in time: sessions=%s", session_ids)
-
-    async def _release_one(self, session_id: str) -> None:
-        try:
-            await self._sessions.release_session_terminal_lease(session_id, self._holder.holder_id)
-        except DexServiceError as error:
-            _LOGGER.warning("cannot release the session lease: session=%s: %s", session_id, error)
-
-    async def _call_acquire(self, session_id: str) -> SessionTerminalLeaseResult:
-        return await asyncio.wait_for(
-            self._sessions.acquire_session_terminal_lease(
-                session_id, self._holder.acquire_request()
-            ),
-            LEASE_CALL_TIMEOUT_SECONDS,
-        )
+        await asyncio.gather(*(self._opener.release(session_id) for session_id in session_ids))
 
     async def _renew(self, session_id: str) -> None:
+        interval = self._holder.renew_interval_seconds
+        next_renewal_at = time.monotonic() + interval
         while True:
-            await asyncio.sleep(self._holder.renew_interval_seconds)
+            await asyncio.sleep(max(0.0, next_renewal_at - time.monotonic()))
+            next_renewal_at = time.monotonic() + interval
             try:
-                result = await self._call_acquire(session_id)
-            except (DexServiceError, TimeoutError) as error:
-                _LOGGER.warning("cannot renew the session lease: session=%s: %s", session_id, error)
+                # Bounded by the interval, so one lost answer leaves time for the next renewal.
+                result = await self._opener.renew(session_id, interval)
+            except Exception as error:  # A failed renewal is tried again; the permit bounds it.
+                _LOGGER.warning(
+                    "cannot renew the session lease: session=%s: %s",
+                    session_id,
+                    error or type(error).__name__,
+                )
                 continue
-            if result.is_acquired or result.lease is None:
-                continue
-            if self._session_id == session_id:
-                self._session_id = None
-            if not self.lost.done():
-                self.lost.set_result((session_id, result.lease))
+            lease = result.lease
+            if (
+                not result.is_acquired
+                and lease is not None
+                and lease.holder_id != self._holder.holder_id
+            ):
+                self._end_held_lease(session_id)
+                self._mark_ending(session_id)
+                if not self.lost.done():
+                    self.lost.set_result((session_id, lease))
+                return
+
+    def _end_expired_permit(self, session_id: str) -> None:
+        """End the held lease whose pull permit expired, after the opener stopped pulling."""
+        if self._session_id != session_id or self.is_ending:
             return
+        self._stop_renewing()
+        self._session_id = None
+        self._mark_ending(session_id)
+        self._deciding_ending = asyncio.create_task(self._decide_expired_ending(session_id))
+
+    def _mark_ending(self, session_id: str) -> None:
+        if not self.ending.done():
+            self.ending.set_result(session_id)
+
+    async def _decide_expired_ending(self, session_id: str) -> None:
+        """End as lost when another terminal already holds the session, such as after a pause."""
+        stored = await self._opener.read_stored_lease(session_id)
+        if stored is not None and stored.holder_id != self._holder.holder_id:
+            if not self.lost.done():
+                self.lost.set_result((session_id, stored))
+        elif not self.unconfirmed.done():
+            self.unconfirmed.set_result(session_id)
+
+    def _end_held_lease(self, session_id: str) -> None:
+        """Forget a lease this process no longer renews, and stop pulling its session's queue."""
+        if self._session_id == session_id:
+            self._session_id = None
+        self._opener.leave(session_id)
 
     def _stop_renewing(self) -> None:
         if self._renewing is not None:
@@ -326,8 +404,8 @@ async def _attempt_quietly(attempt: LeaseAttempt) -> SessionTerminalLeaseResult 
     """Return one try's result, or ``None`` for a failed call or an invalid request."""
     try:
         result = await attempt()
-    except (DexServiceError, TimeoutError, LeaseCallError) as error:
-        _LOGGER.warning("cannot acquire the session lease: %s", error)
+    except (DexServiceError, TimeoutError, LeaseCallError, PullPermitExpiredError) as error:
+        _LOGGER.warning("cannot acquire the session lease: %s", error or type(error).__name__)
         return None
     if not result.is_acquired and result.lease is None:
         _LOGGER.warning("the session refused the lease request as not valid")
@@ -457,4 +535,12 @@ def build_lease_lost_line(session_id: str, holder_text: str) -> str:
     """Return the line written when another terminal took the session from this chat."""
     return (
         f"Session {session_id} is now open in another terminal ({holder_text}); this chat stopped."
+    )
+
+
+def build_lease_unconfirmed_line(session_id: str) -> str:
+    """Return the line written when no renewal confirmed this chat's lease in time."""
+    return (
+        f"Session {session_id} could not renew its lease in time; this chat stopped so that "
+        "another terminal can take the session."
     )

@@ -47,7 +47,7 @@ async def test_a_stalled_upload_logs_a_warning_within_its_timeout(
     try:
         with caplog.at_level(logging.INFO, logger="dex_agents_cli_core.cli"):
             started = loop.time()
-            await cli._upload_session_flow_definition(client, FLOW_TYPE)
+            await cli._upload_session_flow_definitions(client, [FLOW_TYPE])
             elapsed = loop.time() - started
     finally:
         release.set()

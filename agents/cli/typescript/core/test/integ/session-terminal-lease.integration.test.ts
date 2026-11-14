@@ -34,8 +34,11 @@ import {
 } from "../fixtures/terminal-ui-test-support.js";
 
 const quietConfig = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
-/** A short TTL, so the tests that wait for an expiry take seconds. */
-const shortTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3" };
+/**
+ * A short TTL only for a command a test lets expire on purpose, by killing or pausing it or with a fault. Every
+ * other command keeps the default lease, which no slow runner lets lapse by accident.
+ */
+const expiringTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "6" };
 /** An hour-long lease, so only an explicit release frees a session within a test. */
 const longLease = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3600" };
 
@@ -131,16 +134,16 @@ describe("one terminal per session", () => {
 
   test("after the holder is killed, a waiting terminal takes over once the lease expires", async () => {
     const home = newHome();
-    const first = start(home, [], shortTtl);
+    const first = start(home, [], expiringTtl);
     const sessionId = await first.waitForSession();
     await waitForLeaseHolder(home, sessionId, first.pid);
-    const second = start(home, ["--resume", sessionId], shortTtl);
+    const second = start(home, ["--resume", sessionId]);
     await second.stderr.waitFor("is open in another terminal");
 
     await first.kill();
     const killedAt = Date.now();
-    await second.stderr.waitFor(tookOverLine(sessionId), 20_000);
-    assert.ok(Date.now() - killedAt < 10_000, "the expired lease goes to the waiting terminal");
+    await second.stderr.waitFor(tookOverLine(sessionId), 30_000);
+    assert.ok(Date.now() - killedAt < 20_000, "the expired lease goes to the waiting terminal");
     await second.waitForSession();
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
@@ -186,12 +189,14 @@ describe("one terminal per session", () => {
 
   test("a chat whose lease another terminal took while it was paused stops with one line and exits 1", async () => {
     const home = newHome();
-    const first = start(home, [], shortTtl);
+    const first = start(home);
     const sessionId = await first.waitForSession();
     await waitForLeaseHolder(home, sessionId, first.pid);
 
+    // Paused past its default lease. The wait is about as long as Dex takes to stop routing the session's RPCs to
+    // the paused command's streams anyway.
     first.signal("SIGSTOP");
-    const second = start(home, ["--resume", sessionId], shortTtl);
+    const second = start(home, ["--resume", sessionId]);
     let secondLease: SessionTerminalLease;
     try {
       // The first lease may expire while the second starts, so it may take over without waiting.
@@ -206,7 +211,7 @@ describe("one terminal per session", () => {
     assert.doesNotMatch(first.stderr.all, /at .*\.js:\d+/);
     assert.equal((await readLease(home, sessionId))?.processId, second.pid, "the stopped chat released nothing");
     second.writeLine("/exit");
-    assert.equal(await second.waitForExit(), 0);
+    assert.equal(await second.waitForExit(), 0, second.stderr.all);
   });
 
   test("the terminal UI launcher waits for the lease before the handoff", async () => {
@@ -302,7 +307,7 @@ function resumedTranscript(): Transcript {
   const transcript = readTranscript("chat_ready_then_exit");
   const [launch, ...rest] = transcript.steps;
   const message = launch?.message as { session: Record<string, unknown> };
-  // A relaunch after a switch also names the left session, which these tests do not fix.
+  // A relaunch after a switch named the left session before 0.6.8, which these tests do not fix.
   const ignore = [...((launch as { ignore?: string[] }).ignore ?? []), "session.previous_session_id"];
   const resumed = { ...launch, ignore, message: { ...message, session: { ...message.session, is_resumed: true } } };
   return { ...transcript, steps: [resumed, ...rest] };

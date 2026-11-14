@@ -109,6 +109,11 @@ var (
 	// SessionTerminalLeaseAttribute holds the lease of the one terminal that has the session open;
 	// unset when no terminal holds it. Since 0.6.3.
 	SessionTerminalLeaseAttribute = dex.DefineAttribute[SessionTerminalLease]("SessionTerminalLease")
+	// SessionLastTerminalEnvironmentAttribute holds the Environment of the latest
+	// acquire_session_terminal_lease call that gave the lease to a new holder. It
+	// stays after a release, so it says where the session was last open. It is
+	// unset until such a call carries an Environment. Since 0.6.8.
+	SessionLastTerminalEnvironmentAttribute = dex.DefineAttribute[map[string]string]("SessionLastTerminalEnvironment")
 )
 
 const (
@@ -432,6 +437,7 @@ func (flow *AgentSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			SessionSettingsAttribute,
 			TurnSessionSettingsAttribute,
 			SessionTerminalLeaseAttribute,
+			SessionLastTerminalEnvironmentAttribute,
 		},
 		Channels: []dex.ChannelDef{
 			QueuedUserMessagesChannel,

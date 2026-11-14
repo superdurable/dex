@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import stat
 from collections.abc import Mapping, Sequence
@@ -34,11 +33,10 @@ from dex_agents import (
 from dex_agents_cli_core.config import ConnectorsConfig
 from dex_agents_cli_core.connectors import ConnectorsMcpUnavailableError, read_connector_catalog
 from dex_agents_cli_core.dex_connection import describe_dex_refusal_without_details
+from dex_agents_cli_core.session_task_queues import session_task_queue
 from dex_agents_cli_core.terminal_ui.contract import candidate_session_ids
 from dex_agents_cli_core.terminal_ui.local_requests import RequestOutcome
 
-_SESSION_START_TIMEOUT_SECONDS = 30.0
-_SESSION_START_POLL_SECONDS = 0.1
 _CONNECTIONS_TIMEOUT_SECONDS = 10.0
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,7 +84,7 @@ class HostedChatSession:
         Args:
             harness_name: The prefix of session IDs.
             client: The Dex Client, to describe Flows.
-            sessions: The session client of the Flow the Worker serves.
+            sessions: The session client of the harness's Flow type, of every new session.
             media_store: The store ``put_image`` writes to.
             start_environment: The ``start_environment`` of a new session.
             connectors: The configuration file's ``connectors`` section.
@@ -133,16 +131,21 @@ class HostedChatSession:
         server returns the run this key started and refuses a Flow ID another
         request holds. The long candidate is checked first, so a resend never
         starts the short one while the long one already holds this key.
+
+        .. versionchanged:: 0.6.8
+           Each candidate session starts on its own task queue, which no
+           Worker pulls until a ``switch_session`` opens it, so the answer
+           comes once the session started, without waiting for its first state.
         """
         short_id, long_id = candidate_session_ids(self._harness_name, idempotency_key)
         try:
             is_long_taken = await self._flow_exists(long_id)
             if is_long_taken and await self._start_with_key(long_id, idempotency_key):
-                return await self._wait_for_session(long_id)
+                return RequestOutcome.succeeded({"session_id": long_id})
             if await self._start_with_key(short_id, idempotency_key):
-                return await self._wait_for_session(short_id)
+                return RequestOutcome.succeeded({"session_id": short_id})
             if not is_long_taken and await self._start_with_key(long_id, idempotency_key):
-                return await self._wait_for_session(long_id)
+                return RequestOutcome.succeeded({"session_id": long_id})
         except Exception as error:  # Any start failure is reported the same way.
             refused = describe_dex_refusal_without_details(error)
             if refused is None:
@@ -165,7 +168,11 @@ class HostedChatSession:
 
     async def _start_with_key(self, session_id: str, idempotency_key: str) -> bool:
         """Start a session with the key as its request ID; ``False`` when another key holds it."""
-        options = StartFlowOptions(request_id=idempotency_key, ignore_already_started=True)
+        options = StartFlowOptions(
+            request_id=idempotency_key,
+            ignore_already_started=True,
+            task_queue=session_task_queue(session_id),
+        )
         try:
             await self._sessions.start_session(
                 session_id, options=options, start_environment=dict(self._start_environment)
@@ -209,17 +216,6 @@ class HostedChatSession:
         return RequestOutcome.succeeded(
             {"mcp_url": url, "tools": tools, "connections": await self._read_connections()}
         )
-
-    async def _wait_for_session(self, session_id: str) -> RequestOutcome:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + _SESSION_START_TIMEOUT_SECONDS
-        while (await self._sessions.get_agent_snapshot(session_id)).state is None:
-            if loop.time() > deadline:
-                return RequestOutcome.failed(
-                    "start_failed", f"Session {session_id} did not start; is the Worker running?"
-                )
-            await asyncio.sleep(_SESSION_START_POLL_SECONDS)
-        return RequestOutcome.succeeded({"session_id": session_id})
 
     async def _read_connections(self) -> list[dict[str, Any]] | None:
         if self._web_url is None:

@@ -126,8 +126,12 @@ describe("the terminal UI launcher", () => {
 
   async function sessionsOf(home: TestHome): Promise<string[]> {
     const sessions = await sessionClients.of(home);
-    const page = await sessions.client.searchFlows(`FlowType = "${home.sessionFlowType()}"`, 50);
-    return page.flows.map((flow) => flow.flowId).sort();
+    const page = await sessions.client.searchFlows(`FlowType = "${home.sessionFlowType()}"`, 200);
+    // Every home's sessions share the harness's Flow type; the earlier tests' sessions started before this home.
+    return page.flows
+      .filter((flow) => flow.startedAt.getTime() >= home.createdAtMs)
+      .map((flow) => flow.flowId)
+      .sort();
   }
 
   async function onlySession(home: TestHome): Promise<string> {

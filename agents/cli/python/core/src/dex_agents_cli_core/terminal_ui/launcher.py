@@ -26,7 +26,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,7 @@ from dex_agents_cli_core.session_lease import (
     LeaseCallError,
     SessionLeaseWaitInterrupted,
     build_lease_lost_line,
+    build_lease_unconfirmed_line,
     format_lease_holder,
     terminal_columns,
     wait_for_session_lease,
@@ -89,6 +90,8 @@ _HOST_STOPPED_MESSAGE = "The Worker host stopped."
 _TUI_ONLY_TYPES = frozenset({"ready", "launch_rejected", "result", "switch_session"})
 # The launch document capability under which dexcli hands a session switch back.
 _LAUNCHER_SESSION_SWITCH = "launcher_session_switch"
+# The first dexcli release that hands session switches back to the launcher.
+_LAUNCHER_SESSION_SWITCH_MINIMUM_DEXCLI_VERSION = "1.47.2"
 _LAUNCHER_ONLY_TYPES = frozenset({"launch", "response", "notice", "worker"})
 _NEWER_DEXCLI_HINT = (
     f"The terminal UI needs dexcli {TERMINAL_UI_MINIMUM_DEXCLI_VERSION} or later; "
@@ -175,10 +178,27 @@ class SessionUnavailableError(Exception):
 
 @dataclass(frozen=True)
 class _ChatSession:
-    """The session one handoff shows, and whether the terminal UI loads its history."""
+    """The session one handoff shows, whether the terminal UI loads its history, and its Flow type.
+
+    ``flow_type`` is empty for a session a switch named, until its lease is held.
+    """
 
     session_id: str
     is_resumed: bool
+    flow_type: str = ""
+
+
+@dataclass(frozen=True, kw_only=True)
+class HostedSessionLeaseResult(SessionTerminalLeaseResult):
+    """The Worker host's answer to one lease attempt.
+
+    Attributes:
+        flow_type: The session's Flow type, once acquired.
+        notices: The lines about a takeover from another place, once acquired; often none.
+    """
+
+    flow_type: str | None = None
+    notices: tuple[str, ...] = ()
 
 
 async def describe_terminal_ui(
@@ -236,6 +256,15 @@ async def describe_terminal_ui(
             f"Plain chat: dexcli {version} speaks no terminal UI contract this command knows. "
             f"{fix}",
         )
+    # Each session runs on its own task queue, so an in-place switch would show an unserved session.
+    capabilities = describe["contracts"].get(str(choice.contract), {}).get("capabilities", [])
+    if _LAUNCHER_SESSION_SWITCH not in capabilities:
+        return DescribeResult(
+            None,
+            f"Plain chat: dexcli {describe.get('dexcli_version')} cannot hand session switches "
+            "back to this command. The terminal UI needs dexcli "
+            f"{_LAUNCHER_SESSION_SWITCH_MINIMUM_DEXCLI_VERSION} or later; point DEXCLI at one.",
+        )
     return DescribeResult(choice.contract, None)
 
 
@@ -282,15 +311,13 @@ async def run_terminal_ui_chat(
             return PlainFallback(None)
         if ready.connectors_page_url is not None and launch.is_browser_opening_enabled:
             await open_in_browser(ready.connectors_page_url)
-        session = _ChatSession(ready.session_id, launch.is_resumed)
-        notices: Sequence[Mapping[str, str]] = [
-            *({"level": "info", "text": cut_notice_text(text)} for text in launch.startup_notices),
-            *ready.notices,
-        ]
+        session = _ChatSession(ready.session_id, launch.is_resumed, ready.flow_type)
         left_session_id: str | None = None
         while True:
             try:
-                await _wait_for_hosted_session_lease(launch, worker_host, session.session_id)
+                acquired = await _wait_for_hosted_session_lease(
+                    launch, worker_host, session.session_id
+                )
             except SessionUnavailableError as error:
                 print(f"{launch.command_name}: {error}", file=sys.stderr)
                 _report_left_session(launch, report, left_session_id)
@@ -298,28 +325,35 @@ async def run_terminal_ui_chat(
             except SessionLeaseWaitInterrupted:
                 _report_left_session(launch, report, left_session_id)
                 raise
-            # A relaunch after a switch shows it in the terminal UI, as an in-place switch did.
+            # dexcli registers exactly the launch document's Flow type, so it is the session's own.
+            session = replace(session, flow_type=acquired.flow_type or session.flow_type)
+            takeover_notices = [
+                {"level": "info", "text": cut_notice_text(text)} for text in acquired.notices
+            ]
             if left_session_id is None:
                 report(f"Session {session.session_id}")
                 web_url = launch.start.web_url
                 if web_url is not None:
                     report(f"Dex Web: {web_url}/v1/flows/{session.session_id}?view=session")
+                notices: Sequence[Mapping[str, str]] = [
+                    *(
+                        {"level": "info", "text": cut_notice_text(text)}
+                        for text in launch.startup_notices
+                    ),
+                    *takeover_notices,
+                    *ready.notices,
+                ]
+            else:
+                notices = takeover_notices
             handoff = _Handoff(
-                launch,
-                worker_host,
-                ready,
-                report,
-                restore_signal_handlers,
-                session,
-                notices,
-                previous_session_id=left_session_id,
+                launch, worker_host, ready, report, restore_signal_handlers, session, notices
             )
             outcome = await handoff.run()
             if not isinstance(outcome, _ChatSession):
                 return outcome
             # Released first, so two terminals that swap sessions never wait for each other.
             await worker_host.release_session_lease(session.session_id)
-            left_session_id, session, notices = session.session_id, outcome, ()
+            left_session_id, session = session.session_id, outcome
     finally:
         await worker_host.stop()
 
@@ -337,15 +371,26 @@ def _report_left_session(
 
 async def _wait_for_hosted_session_lease(
     launch: TerminalUiLaunch, worker_host: WorkerHostProcess, session_id: str
-) -> None:
-    """Wait until the Worker host holds the session's lease, showing who has it meanwhile."""
+) -> HostedSessionLeaseResult:
+    """Wait until the Worker host holds the session's lease, showing who has it meanwhile.
+
+    Returns:
+        The Worker host's answer that acquired the lease.
+    """
+    answers: list[HostedSessionLeaseResult] = []
+
+    async def attempt() -> SessionTerminalLeaseResult:
+        answers.append(await worker_host.acquire_session_lease(session_id))
+        return answers[-1]
+
     await wait_for_session_lease(
         session_id,
-        lambda: worker_host.acquire_session_lease(session_id),
+        attempt,
         sys.stderr,
         is_animated=launch.is_waiting_line_animated,
         columns=lambda: terminal_columns(sys.stderr),
     )
+    return answers[-1]
 
 
 @dataclass(frozen=True)
@@ -387,6 +432,7 @@ class WorkerHostProcess:
         self._is_channel_ended = False
         self._stopped = asyncio.Event()
         self.lease_lost: asyncio.Future[tuple[str, SessionTerminalLease]] = loop.create_future()
+        self.lease_unconfirmed: asyncio.Future[str] = loop.create_future()
         self._reader = asyncio.create_task(self._read())
         self._watcher = asyncio.create_task(self._watch_exit())
 
@@ -464,8 +510,12 @@ class WorkerHostProcess:
         finally:
             self._calls.pop(call_id, None)
 
-    async def acquire_session_lease(self, session_id: str) -> SessionTerminalLeaseResult:
+    async def acquire_session_lease(self, session_id: str) -> HostedSessionLeaseResult:
         """Ask the Worker host once for the session's terminal lease.
+
+        Returns:
+            Whether the Worker host holds the lease now, the lease, and, once
+            acquired, the session's Flow type and the lines about a takeover.
 
         Raises:
             SessionUnavailableError: If the session cannot be opened, or the
@@ -482,9 +532,17 @@ class WorkerHostProcess:
             raise LeaseCallError(message)
         result = outcome.result or {}
         lease = result.get("lease")
-        return SessionTerminalLeaseResult(
+        flow_type = result.get("flow_type")
+        notices = result.get("notices")
+        return HostedSessionLeaseResult(
             is_acquired=bool(result.get("is_acquired")),
             lease=SessionTerminalLease(**lease) if isinstance(lease, dict) else None,
+            flow_type=flow_type if isinstance(flow_type, str) else None,
+            notices=tuple(
+                notice
+                for notice in (notices if isinstance(notices, list) else [])
+                if isinstance(notice, str)
+            ),
         )
 
     async def release_session_lease(self, session_id: str) -> None:
@@ -601,6 +659,9 @@ class WorkerHostProcess:
                     self.lease_lost.set_result(
                         (str(message["session_id"]), SessionTerminalLease(**lease))
                     )
+            case "session_lease_unconfirmed":
+                if not self.lease_unconfirmed.done():
+                    self.lease_unconfirmed.set_result(str(message["session_id"]))
 
     async def _watch_exit(self) -> None:
         returncode = await self._process.wait()
@@ -632,9 +693,8 @@ class _Handoff:
         restore_signal_handlers: Callable[[], object],
         session: _ChatSession,
         notices: Sequence[Mapping[str, str]],
-        *,
-        previous_session_id: str | None = None,
     ) -> None:
+        # A run after a switch names no previous_session_id: no Worker serves the session it left.
         self._launch = launch
         self._restore_signal_handlers = restore_signal_handlers
         self._worker_host = worker_host
@@ -642,9 +702,9 @@ class _Handoff:
         self._report = report
         self._session = session
         self._notices = notices
-        self._previous_session_id = previous_session_id
         self._switch_request: _ChatSession | None = None
         self._lost_lease: tuple[str, SessionTerminalLease] | None = None
+        self._unconfirmed_session_id: str | None = None
         self._terminal_fd = sys.stdin.fileno()
         self._outbox: list[Mapping[str, Any]] = []
         self._channel: MessageChannel | None = None
@@ -685,6 +745,11 @@ class _Handoff:
             self._restore_terminal(saved_mode, is_reset_written=True)
             session_id, holder = self._lost_lease
             print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+            return 1
+        is_signaled = self._is_terminated or self._is_interrupted
+        if self._unconfirmed_session_id is not None and not is_signaled:
+            self._restore_terminal(saved_mode, is_reset_written=True)
+            print(build_lease_unconfirmed_line(self._unconfirmed_session_id), file=sys.stderr)
             return 1
         if isinstance(outcome, str) and (self._is_terminated or self._is_interrupted):
             self._restore_terminal(saved_mode, is_reset_written=True)
@@ -799,11 +864,15 @@ class _Handoff:
         server = LocalRequestServer(handlers, channel.send)
         reading = asyncio.create_task(self._read_requests(channel, server))
         lease_lost = self._worker_host.lease_lost
+        lease_unconfirmed = self._worker_host.lease_unconfirmed
         try:
-            waited: set[asyncio.Future[Any]] = {reading, exit_task, lease_lost}
+            waited: set[asyncio.Future[Any]] = {reading, exit_task, lease_lost, lease_unconfirmed}
             await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
             if lease_lost.done() and not exit_task.done():
                 self._lost_lease = lease_lost.result()
+                await self._stop_terminal_ui(exit_task, 0.0)
+            elif lease_unconfirmed.done() and not exit_task.done():
+                self._unconfirmed_session_id = lease_unconfirmed.result()
                 await self._stop_terminal_ui(exit_task, 0.0)
         finally:
             if not reading.done():
@@ -878,14 +947,9 @@ class _Handoff:
                 "web_url": launch.start.web_url,
             },
             "session": {
-                "flow_type": self._ready.flow_type,
+                "flow_type": self._session.flow_type or self._ready.flow_type,
                 "session_id": self._session.session_id,
                 "is_resumed": self._session.is_resumed,
-                **(
-                    {}
-                    if self._previous_session_id is None
-                    else {"previous_session_id": self._previous_session_id}
-                ),
             },
             "display": dict(launch.display),
             "methods": list(CHAT_METHODS),

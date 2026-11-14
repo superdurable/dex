@@ -63,6 +63,8 @@ export interface ChatLaunchDetails {
   readonly startedDexcliDevLines: readonly string[];
   /** The Worker host's log lines before its session opened, shown as `warning` notices. */
   readonly workerHostStartupLines: readonly string[];
+  /** The lines about a takeover of the session from another place, shown as `info` notices; none by default. */
+  readonly takeoverLines?: readonly string[];
 }
 
 /** Returns the launch document's `dex.auth` of a command's auth settings: the token file's path stays out. */
@@ -79,8 +81,8 @@ export function terminalUiAuthOf(auth: DexAuthSettings): TerminalUiAuth {
 
 /**
  * Returns the chat launch document of contract 1. It holds no secret, and every path in `display` writes the home
- * directory as `~`. Its `notices` are the `dexcli dev` lines, then the Worker host's startup lines, each cut by
- * {@link noticeText}, within {@link maxLaunchNoticeBytes}.
+ * directory as `~`. Its `notices` are the `dexcli dev` lines, then the takeover lines, then the Worker host's startup
+ * lines, each cut by {@link noticeText}, within {@link maxLaunchNoticeBytes}.
  */
 export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, unknown> {
   const home = (path: string): string => displayPath(path, details.homeDirectory);
@@ -140,6 +142,7 @@ export function noticeText(text: string): string {
 function launchNotices(details: ChatLaunchDetails, logPathShown: string): { level: string; text: string }[] {
   const lines = [
     ...details.startedDexcliDevLines.map((text) => ({ level: "info", text: noticeText(text) })),
+    ...(details.takeoverLines ?? []).map((text) => ({ level: "info", text: noticeText(text) })),
     ...details.workerHostStartupLines.map((text) => ({ level: "warning", text: noticeText(text) })),
   ];
   const notices: { level: string; text: string }[] = [];
