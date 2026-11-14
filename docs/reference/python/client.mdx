@@ -22,7 +22,7 @@ them in the [Python SDK API reference](./index.mdx#api-reference).
 | Wait for a Flow to close | **wait_for_flow** | [Wait for a Flow](/reference/server/runtime-client#wait-for-a-flow) |
 | Wait for a Step execution to complete | **wait_for_step_completion**, with **WaitForStepCompletionOptions** | [Wait for a Step](/reference/server/runtime-client#wait-for-a-step) |
 | Wait until an Attribute matches | **wait_for_attribute_match**, with **WaitForAttributeOptions** | [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match) |
-| Describe a Flow | **describe_flow** | [Describe a Flow](/reference/server/runtime-client#describe-a-flow) |
+| Describe a Flow | **describe_flow**, returning **FlowInfo**. **FlowInfo.task_queue** names the Flow's task queue, empty for the default task queue. Since 1.45.2 | [Describe a Flow](/reference/server/runtime-client#describe-a-flow) |
 | Search Flows | **search_flows** | [Search Flows](/reference/server/runtime-client#search-flows) |
 | Stop a Flow | **stop_flow**, with **StopFlowOptions** | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
 | Skip a Timer | **skip_timer** | [Skip a Timer](/reference/server/runtime-client#skip-a-timer) |

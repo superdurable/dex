@@ -708,12 +708,17 @@ class AsyncClient:
         Args:
             flow_id: The non-empty Flow ID to describe.
 
+        .. versionchanged:: 1.45.2
+            Also returns the Flow's task queue in ``task_queue``. The call now sends
+            a second FlowService request that reads the run's full committed state,
+            including its Attributes and completed Step outputs.
+
         Returns:
-            Flow ID, run ID, Flow type, status, and UTC start time.
+            Flow ID, run ID, Flow type, status, UTC start time, and task queue.
 
         Raises:
             FlowNotFoundError: If ``flow_id`` does not exist.
-            DexServiceError: If FlowService cannot return the summary.
+            DexServiceError: If FlowService cannot return the summary or the state.
             RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = cast(
@@ -726,12 +731,26 @@ class AsyncClient:
                 "existing",
             ),
         )
+        state = cast(
+            pb.GetFlowStateResponse,
+            await self._call(
+                self._service.GetFlowState,
+                pb.GetFlowStateRequest(
+                    flow_id=response.flow_run_id.flow_id,
+                    run_id=response.flow_run_id.run_id,
+                ),
+                "describe_flow",
+                flow_id,
+                "existing",
+            ),
+        )
         return FlowInfo(
             response.flow_run_id.flow_id,
             response.flow_run_id.run_id,
             response.flow_type,
             self._map_flow_status(response.flow_status),
             response.start_time.ToDatetime(tzinfo=timezone.utc),
+            state.flow_config.worker_target.task_queue,
         )
 
     async def get_attributes(

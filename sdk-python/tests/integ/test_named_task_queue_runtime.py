@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 from collections.abc import Iterator
@@ -21,6 +22,7 @@ from uuid import uuid4
 import pytest
 
 from dex import (
+    AsyncClient,
     BlobCacheConfig,
     Client,
     ClientOptions,
@@ -282,3 +284,46 @@ def test_sub_flows_inherit_or_override_the_parent_task_queue() -> None:
             result = client.wait_for_flow(flow_id, WAIT_TIMEOUT)
             assert result.status is FlowStatus.COMPLETED
             assert result.single_output(str) == expected_output
+
+
+def test_describe_flow_reports_the_task_queue_without_a_worker() -> None:
+    queue_d = _unique_task_queue("py-describe")
+    with _client() as (client, step_flow, _, _):
+        started: dict[str, str] = {}
+        for task_queue, expected_task_queue in (
+            (queue_d, queue_d),
+            ("", ""),
+            ("dex.default", ""),
+        ):
+            flow_id = unique_id("named-task-queue-describe")
+            client.start_flow(
+                step_flow, flow_id, None, StartFlowOptions(task_queue=task_queue)
+            )
+            started[flow_id] = expected_task_queue
+        try:
+            for flow_id, expected_task_queue in started.items():
+                info = client.describe_flow(flow_id)
+                assert info.status is FlowStatus.RUNNING
+                assert info.task_queue == expected_task_queue
+            async_task_queues = asyncio.run(_describe_task_queues_async(list(started)))
+            assert async_task_queues == list(started.values())
+        finally:
+            for flow_id in started:
+                client.stop_flow(flow_id)
+
+
+async def _describe_task_queues_async(flow_ids: list[str]) -> list[str]:
+    with TemporaryDirectory(prefix="dex-python-task-queue-async-") as cache_directory:
+        cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
+        client = AsyncClient(
+            Registry(_labeled_flows("async-client")),
+            cache,
+            ClientOptions(_server_address()),
+        )
+        try:
+            return [
+                (await client.describe_flow(flow_id)).task_queue for flow_id in flow_ids
+            ]
+        finally:
+            await client.close()
+            cache.close()
