@@ -4,6 +4,56 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.8 (2026-11-14)
+
+### Added
+
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: every new
+  session has `AgentHarness.flow_type` (`flowType`) itself and its own task
+  queue, from `session_task_queue` (`sessionTaskQueue`): `s-` and the first 20
+  hexadecimal characters of the SHA-256 of the session ID. The command builds
+  the session Flow twice, once with the harness's Flow type and once with the
+  environment-hashed one, and runs two Workers: one for the open session's
+  task queue, which it starts only after reading that the session's terminal
+  lease is free and stops when it releases the lease, and one on the default
+  task queue for this environment's earlier sessions. The acquire request
+  carries the command's environment. The rules, lines, and app Worker IDs are
+  in `agents/conformance/cli_session_task_queues.json`.
+- `dex-agents` and `@superdurable/dex-agents`: the session Flow registers the
+  `SessionLastTerminalEnvironment` Attribute, whose value type
+  `SessionTerminalEnvironment` is a map of text pairs.
+  `AcquireSessionTerminalLeaseRequest` has an optional `environment` map,
+  left out of the wire value when absent. When `acquire_session_terminal_lease`
+  gives the lease to a holder that did not hold it, it stores that map in the
+  Attribute. A renewal, a refused call, and a release leave it unchanged, so it
+  says where the session was last open. A Worker of an earlier release ignores
+  the field. The Go core declares the Attribute and the field, and
+  `remotesession` declares the Attribute. Names and golden values are in
+  `agents/conformance/names.json` and `values/`.
+
+### Changed
+
+- The TypeScript agents packages and CLI commands depend on, and peer-depend
+  on, `@superdurable/dex` 1.45.3, so an application can use
+  `PullWorkerOptions.taskQueue`, `StartFlowOptions.taskQueue`, and
+  `FlowState.taskQueue` from that release.
+- The CLI commands download dexcli 1.47.5 when **DEXCLI** names none.
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: after a
+  terminal UI session switch, the launcher's chat launch document carries the
+  new session's own `flow_type` and no `previous_session_id`, and its notices
+  carry the takeover lines. The terminal UI handoff needs the
+  `launcher_session_switch` capability in `dexcli agents-tui --describe`;
+  without it the command uses the plain chat.
+- The Python agents packages and CLI commands depend on `dex-python-sdk`
+  1.45.2, so an application can use `PullWorkerOptions.task_queue`,
+  `StartFlowOptions.task_queue`, and `FlowState.task_queue` from that release.
+
+### Fixed
+
+- `dex-agents-cli-core`: a chat message sent before the new session's first
+  Step ran is queued and answered, as in `@superdurable/dex-agents-cli-core`.
+  The chat no longer ends with `[session failed] it has not started`.
+
 ## 0.6.7 (2026-11-13)
 
 ### Fixed
