@@ -34,6 +34,7 @@ jobs:
           cache-dependency-path: |
             examples/typescript/package-lock.json
             examples/typescript/quick-start/package-lock.json
+            examples/typescript/slack-thread-agent/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -62,6 +63,12 @@ jobs:
         run: npm ci
       - name: Typecheck Quick Start example
         working-directory: examples/typescript/quick-start
+        run: npm run typecheck
+      - name: Install Slack thread agent example dependencies
+        working-directory: examples/typescript/slack-thread-agent
+        run: npm ci
+      - name: Typecheck Slack thread agent example
+        working-directory: examples/typescript/slack-thread-agent
         run: npm run typecheck
       - name: Unit tests
         run: npm test
@@ -104,6 +111,7 @@ jobs:
           cache-dependency-path: |
             examples/typescript/package-lock.json
             examples/typescript/quick-start/package-lock.json
+            examples/typescript/slack-thread-agent/package-lock.json
             web/package-lock.json
       - uses: actions/setup-go@v7
         with:
@@ -115,6 +123,9 @@ jobs:
         run: npm ci
       - name: Install Quick Start example dependencies
         working-directory: examples/typescript/quick-start
+        run: npm ci
+      - name: Install Slack thread agent example dependencies
+        working-directory: examples/typescript/slack-thread-agent
         run: npm ci
       - name: Integration tests with dexcli dev
         run: ./run-integration-tests.sh

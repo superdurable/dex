@@ -1,0 +1,107 @@
+---
+title: Connector Triggers
+sidebar_label: Connector Triggers
+description: "Connector Triggers can start an agent session and send it user messages, each event once. This page covers the TypeScript packages, the request IDs of both targets, their limits, the Slack Triggers, and tests without a provider."
+---
+
+# Connector Triggers
+
+Connector Triggers can start an agent session and send it user messages.
+[Start and feed sessions from Connector Triggers](/agent-frameworks/sessions#connector-triggers)
+explains the pattern. This page covers the TypeScript packages, the request
+IDs of both targets, their limits, the Slack Triggers, and tests without a
+provider. The
+[Slack thread agent example](https://github.com/superdurable/dex/tree/main/examples/typescript/slack-thread-agent)
+uses everything on this page.
+
+## Packages {#packages}
+
+| Package | Version | What the pattern needs from it |
+| --- | --- | --- |
+| **@superdurable/connectors-sdk** | 0.10.1 or later | **newDexRPCTriggerTarget** sends one request ID for every delivery of an event, and takes **rpcName**. |
+| **@superdurable/dex** | 1.45.4 or later | **requestId** of **RPCInvokeOptions**. See [RPC request IDs](/reference/server/runtime-data#rpc-request-ids). |
+| **@superdurable/dex-agents** | 0.6.7 or later | Accepts **@superdurable/connectors-sdk** 0.10 as a peer. The example is tested with 0.6.8. |
+
+**@superdurable/dex-agents** 0.6.8 depends on **@superdurable/dex** 1.45.3
+exactly. **@superdurable/connector-slack** 0.6.0 depends on
+**@superdurable/connectors-sdk** 0.10.0 exactly. Add npm **overrides** so that
+one copy of each package resolves to the version you declare:
+
+```json
+{
+  "dependencies": {
+    "@superdurable/connector-slack": "0.6.0",
+    "@superdurable/connectors-sdk": "0.10.1",
+    "@superdurable/dex": "1.45.4",
+    "@superdurable/dex-agents": "0.6.8"
+  },
+  "overrides": {
+    "@superdurable/connectors-sdk": "$@superdurable/connectors-sdk",
+    "@superdurable/dex": "$@superdurable/dex"
+  }
+}
+```
+
+Check the result with **npm ls @superdurable/dex @superdurable/connectors-sdk**.
+Each package should appear once, with the others marked **deduped**.
+
+## Start target {#start-target}
+
+**newDexFlowTriggerTarget** starts the session Flow. The session ID is the Flow
+ID, and the event ID is the start's request ID. The target disallows Flow ID
+reuse, so a repeated event starts nothing, even after the session stopped.
+Map the event to **AgentSessionStartInput**, with the message text as
+**initialMessage**.
+
+The target starts the session with **Client.startFlow**, not with
+**startAgentSession**. So the session does not get
+**agentSessionActiveStepSearchMode**, and a search such as
+**ActiveStepTypes = "AwaitToolApproval"** does not find it. To make it
+searchable, pass that mode to **Client.updateFlowConfig** for the session. See
+[Find sessions that need a person](/reference/agents/approvals#find-sessions).
+
+## Reply target {#reply-target}
+
+**newDexRPCTriggerTarget** calls the session's **sendUserMessage** handler, the
+RPC **send_user_message**. Map the event to **AgentUserMessage**, with the
+message text as **text**.
+
+| Behavior | Detail |
+| --- | --- |
+| Request ID | **triggerRPCRequestId(rpcName, event.id)**: **trigger-rpc-** and the first 16 bytes, as unpadded base64url, of the SHA-256 digest of the RPC name, one 0x00 byte, and the event ID. |
+| RPC name | Pass **rpcName: "send_user_message"**. Without it, the target uses the JavaScript method name, **sendUserMessage**, which changes when a build renames or minifies methods. Changing **rpcName** changes the IDs of events that are still being redelivered. |
+| Repeats | **send_user_message** is transactional. Dex answers a repeat from the recorded reply and does not run the handler again. Concurrent deliveries of one event share one handler execution. |
+| How long a repeat is caught | A session run keeps its newest request IDs only, as many as **limits.maxRequestIdsPerRun** allows (1,000 by default). Every request that carries a request ID counts toward it. A redelivery after its ID was dropped queues the message again. See [Limits](/reference/server/configuration#limits). |
+| Different input under one ID | Dex rejects the request as already used for a different request. The target throws **TriggerRPCRequestConflictError**, an **UndeliverableTriggerError**, and the Trigger drops the event. Dex gives the same answer while the first request is still running, so when that request later fails, the event is lost. Keep the input mapping deterministic. |
+| No running session | A reply whose session never started or has closed throws **UndeliverableTriggerError**. The Trigger logs and drops it. Deliver a thread's first message before its replies. |
+| Blank text | **send_user_message** refuses blank text. Skip it in the target's filter. |
+
+## Slack Triggers {#slack}
+
+**@superdurable/connector-slack** 0.6.0 has two message Triggers. Both deliver
+a **MessageEvent** with **teamId**, **channelId**, **timestamp**,
+**threadTimestamp**, **userId**, and **text**. The event ID is Slack's
+**event_id**.
+
+| Trigger | Matches | threadTimestamp |
+| --- | --- | --- |
+| **channelThreadCreated** | A top-level message in the channel. | The message's own timestamp. |
+| **threadReplyCreated** | A reply in a thread of the channel. | The timestamp of the thread's first message. |
+
+- Build the session ID from **teamId**, **channelId**, and **threadTimestamp**.
+  A first message and its replies then resolve to the same session.
+- Both Triggers ignore messages that a bot posts and messages with a subtype.
+  A reply that the agent posts as a bot does not come back as a user message.
+- The **threadReplyCreated** matcher requires at least one poster user ID.
+- Run every Trigger of one Slack connection on one runner, from
+  **newMessageTriggerRunner** or **newProjectMessageTriggerRunner**. Slack sends
+  each event to only one Socket Mode connection.
+
+## Test without a provider {#testing}
+
+Call a target's **handleTrigger** with **newTriggerContext()** and a
+**TriggerEvent**, the way a runner delivers an event. Call it again with the
+same event to test a redelivery. The example's
+[test](https://github.com/superdurable/dex/tree/main/examples/typescript/slack-thread-agent/test)
+does this against a real Dex server, with a scripted model, so it needs no
+Slack workspace and no model key.

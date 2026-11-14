@@ -11,6 +11,7 @@ const sidebars: SidebarsConfig = {
     'session-limits',
     'approvals',
     'connector-tools',
+    'connector-triggers',
     'failures',
     'spend-limits',
     'upgrades',
