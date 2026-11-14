@@ -292,8 +292,8 @@ A permanent rejection before readiness raises `PullRegistrationError`, whose
 Stopping before readiness raises `RuntimeError`.
 
 Use `worker.pull_registration_state()` for subsequent readiness probes. Its
-immutable `queues` expose `queue`, `has_registered_stream`, and
-`last_permanent_error`. After initial registration, `is_ready` stays true across
+immutable `queues` expose `queue`, `has_registered_stream`,
+`last_permanent_error`, and `task_queue`. After initial registration, `is_ready` stays true across
 transient failures, reconnects, and stop. It becomes false only when a required slot kind
 has a permanent error and no registered stream. Re-registration clears the
 error. The startup wait keeps succeeding after initial registration, including
@@ -323,6 +323,24 @@ The Worker never declines a Step for capacity.
 
 ```python
 pull = PullWorkerOptions(max_concurrent_tasks=8, reserved_rpc_tasks=2)
+```
+
+### Named task queues
+
+`PullWorkerOptions(task_queue="gpu")` makes a Worker poll the `gpu` task queue,
+and `StartFlowOptions(task_queue="gpu")` starts a Flow on it. Only Workers on
+that task queue that register the Flow type receive its Steps and RPCs. A Worker
+polls one task queue; run one Worker per task queue to serve several. An empty
+name selects the default task queue. A SubFlow inherits its parent's task queue
+unless `SubFlowOptions.task_queue` names another one or `dex.default`. Named
+task queues need Dex Server protocol version 5; see the `task_queue` doc
+comments for name rules and failure behavior.
+
+```python
+gpu_worker = Worker(
+    registry, cache, WorkerOptions(pull=PullWorkerOptions(task_queue="gpu"))
+)
+client.start_flow(render_flow, "render-7", render_input, StartFlowOptions(task_queue="gpu"))
 ```
 
 The `pull_reserved_rpc_declines` counter is deprecated and always zero. It stays

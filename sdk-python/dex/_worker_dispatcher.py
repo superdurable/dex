@@ -742,8 +742,9 @@ class WorkerDispatcher:
             mapped.flow_config_override.CopyFrom(
                 self._map_sub_flow_config(options.config_override)
             )
+        self._server_protocol.require_named_task_queue_support(options.task_queue)
         mapped.flow_config_override.worker_target.CopyFrom(
-            pb.WorkerTarget(is_pull_mode=True)
+            pb.WorkerTarget(is_pull_mode=True, task_queue=options.task_queue)
         )
         return mapped
 
