@@ -183,11 +183,16 @@ class Worker:
            Uploads the configured Flow definitions before opening task streams.
            An upload failure is logged as a warning and does not fail start.
 
+        .. versionchanged:: 1.45.1
+           Fails before opening task streams when ``PullWorkerOptions.task_queue``
+           names a task queue and the Server protocol is older than version 5.
+
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
             RuntimeError: If lifecycle state is invalid, Server protocol 4 is
-                unsupported, concurrency exceeds matching.maxConcurrentTasksCap,
-                or index synchronization fails.
+                unsupported, a named task queue needs Server protocol 5,
+                concurrency exceeds matching.maxConcurrentTasksCap, or index
+                synchronization fails.
         """
         with self._lock:
             if self._has_start_called or self._state != "created":
@@ -295,6 +300,9 @@ class Worker:
             try:
                 self._server_protocol.record_version(
                     negotiate_server_protocol(server_info, self._sdk_version)
+                )
+                self._server_protocol.require_named_task_queue_support(
+                    self.options.pull.task_queue
                 )
             except RuntimeError:
                 self._state = "stopped"

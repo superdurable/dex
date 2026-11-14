@@ -239,8 +239,13 @@ class AsyncClient:
                 including a numeric or Boolean value for a hard-delete Attribute.
             ValueError: If an initial Attribute uses a different ``hard_delete_on_null``
                 setting than the Flow's registered definition of that name.
-            RuntimeError: If the Server reports a protocol range without protocol 4.
+            RuntimeError: If the Server reports a protocol range without protocol 4,
+                or ``options.task_queue`` is set and the Server protocol is older
+                than version 5. The request is not sent in either case.
             DexServiceError: If FlowService rejects or cannot perform the request.
+
+        .. versionchanged:: 1.45.1
+           Sends ``options.task_queue`` and checks Server protocol 5 first.
         """
         registered = self.registry._flow_for_instance(flow)
         request = pb.StartFlowRequest(
@@ -282,13 +287,16 @@ class AsyncClient:
                 timeout_handler_options
             )
         start_attributes = request.flow_start_options.attributes
-        if any(write.is_hard_delete_on_null for write in start_attributes):
+        if options.task_queue or any(
+            write.is_hard_delete_on_null for write in start_attributes
+        ):
             await self._negotiate_server_protocol_for_operation(
                 "start_flow", flow_id, "none"
             )
             self._server_protocol.require_hard_delete_attribute_support(
                 start_attributes
             )
+            self._server_protocol.require_named_task_queue_support(options.task_queue)
         response = cast(
             pb.StartFlowResponse,
             await self._call(
@@ -1503,7 +1511,7 @@ class AsyncClient:
             self._map_flow_config(options.config_override)
         )
         mapped.flow_config_override.worker_target.CopyFrom(
-            pb.WorkerTarget(is_pull_mode=True)
+            pb.WorkerTarget(is_pull_mode=True, task_queue=options.task_queue)
         )
         return mapped
 

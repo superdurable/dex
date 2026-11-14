@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, TypeVar, overload
 
+from dex._task_queue_names import target_task_queue_name_error
 from dex._utils import require_map_instance
 from dex.attribute import Attribute, AttributeLock, AttributeMap, AttributeMapLoad
 from dex.channel import Channel, ChannelMap, ChannelMapLoad
@@ -81,6 +82,12 @@ def _resolve_flow_timeout_policy(
     if policy is FlowTimeoutPolicy.HANDLER and not has_timeout_handler:
         raise ValueError(f"Flow {flow_name} has no handle_timeout override")
     return policy
+
+
+def _require_valid_target_task_queue(task_queue: str) -> None:
+    task_queue_error = target_task_queue_name_error(task_queue)
+    if task_queue_error is not None:
+        raise ValueError(f"task_queue {task_queue!r} is invalid: {task_queue_error}")
 
 
 @dataclass(frozen=True)
@@ -204,6 +211,31 @@ class StartFlowOptions:
             second run or terminates the run it started. Dex compares only
             request IDs, not input or other options, so never reuse a request
             ID for a different logical start.
+        task_queue: The named task queue that runs this Flow. The empty
+            default uses the default task queue, the same as a start without
+            this option.
+
+            Only Workers whose ``PullWorkerOptions.task_queue`` is this name,
+            and that register this Flow type, receive the Flow's Steps and
+            RPCs. ``dex.default`` is the exception: it selects the default
+            task queue, which Workers with an empty ``task_queue`` serve;
+            Workers cannot register ``dex.default`` itself. Its SubFlows inherit the task queue unless their
+            ``SubFlowOptions.task_queue`` selects another. The task queue is
+            fixed when the Flow starts; ``update_flow_config`` cannot change
+            it. While no Worker polls the task queue, the Flow's Steps wait
+            and RPCs fail once the Server stops waiting for a Worker.
+
+            A name has 1 to 63 ASCII letters, digits, dots, underscores, or
+            hyphens. Names starting with ``dex.`` are reserved, except
+            ``dex.default``, which selects the default task queue explicitly.
+            An invalid name raises ``ValueError`` when the options are
+            constructed.
+
+            A non-empty value requires Dex Server protocol version 5 or later.
+            ``start_flow`` raises ``RuntimeError`` without sending the request
+            when the Server is older.
+
+            .. versionadded:: 1.45.1
 
     Examples:
         >>> options = (
@@ -218,6 +250,9 @@ class StartFlowOptions:
         >>> run_id = client.start_flow(
         ...     order_flow, f"order-{order_id}", order_input, retry_safe_options
         ... )
+        >>> client.start_flow(
+        ...     render_flow, "render-7", render_input, StartFlowOptions(task_queue="gpu")
+        ... )
     """
 
     timeout: timedelta | None = None
@@ -230,6 +265,10 @@ class StartFlowOptions:
     config_override: FlowConfig | None = None
     ignore_already_started: bool = False
     request_id: str | None = None
+    task_queue: str = ""
+
+    def __post_init__(self) -> None:
+        _require_valid_target_task_queue(self.task_queue)
 
     @overload
     def with_attribute(
@@ -329,6 +368,22 @@ class SubFlowOptions:
         reuse_policy: Existing-execution resolution policy.
         condition_id: Stable ID required by ``Wait.any_combination_of``.
             None is sufficient for other Wait forms unless selecting by ID.
+        task_queue: The named task queue that runs the SubFlow. The empty
+            default inherits the parent Flow's task queue. ``dex.default``
+            selects the default task queue. Any other name selects that named
+            task queue. The name rules match ``StartFlowOptions.task_queue``,
+            and an invalid name raises ``ValueError`` when the options are
+            constructed.
+
+            A non-empty value requires Dex Server protocol version 5 or later.
+            Against an older Server, returning the Condition fails the Step
+            attempt with ``RuntimeError``, and Dex retries it under the Step's
+            retry policy.
+
+            Example:
+                >>> SubFlowOptions(task_queue="dex.default")
+
+            .. versionadded:: 1.45.1
     """
 
     timeout: timedelta | None = None
@@ -342,6 +397,10 @@ class SubFlowOptions:
         SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY
     )
     condition_id: str | None = None
+    task_queue: str = ""
+
+    def __post_init__(self) -> None:
+        _require_valid_target_task_queue(self.task_queue)
 
     @overload
     def with_attribute(
