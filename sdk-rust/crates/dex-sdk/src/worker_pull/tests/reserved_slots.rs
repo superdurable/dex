@@ -1015,7 +1015,10 @@ async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
         crate::server_protocol::NegotiatedServerProtocolVersion::default(),
     );
     let shared = Arc::new(PullShared {
-        registration: Arc::new(PullRegistration::new(&["STEP_AND_RPC".to_string()])),
+        registration: Arc::new(PullRegistration::new(
+            &["STEP_AND_RPC".to_string()],
+            String::new(),
+        )),
         state: Mutex::new(PullState {
             streams: HashMap::from([(
                 0,
@@ -1045,6 +1048,7 @@ async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
         dispatcher,
         app_worker_id: "slot-worker".to_string(),
         flow_types: vec!["SlotFlow".to_string()],
+        task_queue: String::new(),
         queue: "STEP_AND_RPC".to_string(),
         slot_kind: PollWorkerSlotKind::StepAndRpc,
         stream_id: 0,
@@ -1053,6 +1057,7 @@ async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
         stop_drain_timeout: Duration::from_millis(200),
         is_registered: false,
         has_recorded_result: false,
+        has_task_queue_mismatch: false,
     };
     let mut polling = tokio::spawn(async move { stream.poll().await });
     let mut slot = timeout(Duration::from_secs(5), opened.recv())

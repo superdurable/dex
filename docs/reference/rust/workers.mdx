@@ -101,6 +101,42 @@ pub fn is_pull_greeting_ready(worker: &Worker) -> bool {
 
 Example: [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/production/pull_workers.rs)
 
+## Task queue {#task-queue}
+
+A Worker pulls exactly one task queue. **PullWorkerOptions::task_queue** names
+it. The default, the empty name, pulls the default task queue, as Workers did
+before task queues existed. Since 1.45.1.
+
+- A Flow started with a task queue runs its Steps and RPCs only on Workers
+  that pull that task queue and register its Flow type. A Flow started without
+  one runs only on Workers of the default task queue. Workers on different
+  task queues never take each other's work, even for the same Flow type. See
+  [Task queue](./start-flow-options.mdx#task-queue) for the start option.
+- To serve several task queues, create one **Worker** per task queue. The
+  Workers can share the **Registry** and **BlobCache**. Give each its own
+  **app_worker_id** when you set one.
+- A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens.
+  Names starting with **dex.** are reserved, including **dex.default**.
+  **Worker::try_new** returns **SdkError::FlowDefinition** for them and for any
+  other invalid name.
+- A named task queue requires Server protocol version 5. **Worker::start**
+  returns a Service error before Attribute index synchronization when the
+  Server is older. A Worker on the default task queue still works with
+  protocol version 4.
+- The Worker checks that Dex registered each stream on the requested task
+  queue. When the Server confirms a different task queue, the Worker
+  half-closes that stream and treats it as a permanent rejection with the gRPC
+  code **FAILED_PRECONDITION**. An older Server that ignored the task queue
+  therefore never receives work for the default task queue from this Worker.
+  [Readiness](#readiness) reports the rejection.
+- Each **PullQueueRegistrationState** in **pull_registration_state** and each
+  **PullRegistrationError** carries the Worker's task queue in **task_queue**.
+  The empty name means the default task queue.
+
+API reference: [PullWorkerOptions::task_queue](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.PullWorkerOptions.html#method.task_queue),
+[PullQueueRegistrationState](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.PullQueueRegistrationState.html), and
+[PullRegistrationError](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.PullRegistrationError.html).
+
 ## Upload Flow definitions {#upload-flow-definitions}
 
 A Worker can upload Flow Definition Graph documents when it starts, so Dex Web

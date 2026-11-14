@@ -1,0 +1,4 @@
+---
+section: Added
+---
+- **PullWorkerOptions::task_queue** makes a **Worker** pull one named task queue, and **StartFlowOptions::task_queue** and **SubFlowOptions::task_queue** run a Flow or SubFlow on one. Workers on different task queues never take each other's work, even for the same Flow type. A SubFlow inherits its parent's task queue unless it names another one, and **dex.default** selects the default task queue. A named task queue requires Server protocol version 5; the Worker and Client refuse it before contacting an older Server, and a stream that Dex confirms for another task queue is a permanent rejection. **PullQueueRegistrationState** and **PullRegistrationError** carry the task queue. The default task queue still works with protocol version 4. [Reference](/reference/rust/workers#task-queue).

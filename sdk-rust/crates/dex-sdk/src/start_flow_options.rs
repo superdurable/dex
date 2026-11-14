@@ -101,6 +101,7 @@ pub struct StartFlowOptions {
     pub(crate) ignore_already_started: bool,
     pub(crate) request_id: Option<String>,
     pub(crate) attributes: Vec<InitialAttribute>,
+    pub(crate) task_queue: String,
 }
 
 #[derive(Clone)]
@@ -172,6 +173,7 @@ impl StartFlowOptions {
             ignore_already_started: false,
             request_id: None,
             attributes: Vec::new(),
+            task_queue: String::new(),
         }
     }
 
@@ -248,6 +250,34 @@ impl StartFlowOptions {
     /// Overrides the registered Flow configuration for this execution.
     pub fn config_override(mut self, value: FlowConfig) -> Self {
         self.config_override = Some(value);
+        self
+    }
+
+    /// Runs the Flow on a named task queue; the default empty name uses the default task queue.
+    ///
+    /// Only Workers whose [`crate::PullWorkerOptions::task_queue`] equals this name, and that
+    /// register the Flow type, run the Flow's Steps and RPCs. Use task queues to route one Flow
+    /// type to different groups of Workers. The Flow keeps its task queue for its whole run;
+    /// [`crate::Client::update_flow_config`] cannot change it. Its SubFlows inherit it unless
+    /// [`crate::SubFlowOptions::task_queue`] names another one. When no Worker pulls the task
+    /// queue, Steps wait durably for one, and RPCs fail after the Server's Worker dispatch wait.
+    ///
+    /// A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens. Names starting
+    /// with `dex.` are reserved; `dex.default` explicitly selects the default task queue.
+    /// [`crate::Client::start_flow_with_options`] returns [`crate::SdkError::InvalidArgument`]
+    /// for an invalid name. A non-empty name requires Server protocol 5. With an older Server,
+    /// the start returns [`crate::SdkError::Service`] before it sends the request. Returns these
+    /// options with the task queue applied.
+    ///
+    /// Since 1.45.1.
+    ///
+    /// ```
+    /// use dex_sdk::StartFlowOptions;
+    ///
+    /// let options = StartFlowOptions::new().task_queue("blue");
+    /// ```
+    pub fn task_queue(mut self, value: impl Into<String>) -> Self {
+        self.task_queue = value.into();
         self
     }
 

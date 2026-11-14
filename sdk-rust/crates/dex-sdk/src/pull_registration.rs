@@ -20,6 +20,10 @@ use crate::{SdkError, SdkResult};
 /// Use [`SdkError::pull_registration_error`] on errors from [`crate::Worker::wait_pull_registered`] or
 /// [`crate::Worker::start`] to inspect the slot kind and original gRPC status.
 ///
+/// Changed in 1.45.1: the error carries the Worker's task queue in `task_queue`. A stream whose
+/// registration the Server confirms for a different task queue is also a permanent rejection.
+/// Its status then has the gRPC code `FAILED_PRECONDITION`.
+///
 /// ```
 /// fn report(error: dex_sdk::SdkError) {
 ///     if let Some(rejection) = error.pull_registration_error() {
@@ -33,15 +37,27 @@ pub struct PullRegistrationError {
     pub queue: String,
     /// Original permanent gRPC rejection, preserving its code and details.
     pub status: Status,
+    /// Task queue the rejected stream tried to register; empty means the default task queue.
+    ///
+    /// See [`crate::PullWorkerOptions::task_queue`]. Since 1.45.1.
+    pub task_queue: String,
 }
 
 impl Display for PullRegistrationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "pull slot kind {} rejected: {}",
-            self.queue, self.status
-        )
+        if self.task_queue.is_empty() {
+            write!(
+                formatter,
+                "pull slot kind {} rejected: {}",
+                self.queue, self.status
+            )
+        } else {
+            write!(
+                formatter,
+                "pull slot kind {} on task queue {} rejected: {}",
+                self.queue, self.task_queue, self.status
+            )
+        }
     }
 }
 
@@ -56,6 +72,11 @@ impl std::error::Error for PullRegistrationError {
 pub struct PullQueueRegistrationState {
     /// Slot kind label: `STEP_AND_RPC` or `RPC_ONLY`; retained field name for source compatibility.
     pub queue: String,
+    /// Task queue the Worker's streams register; empty means the default task queue.
+    ///
+    /// Every entry of one Worker has the same task queue. See
+    /// [`crate::PullWorkerOptions::task_queue`]. Since 1.45.1.
+    pub task_queue: String,
     /// Whether this slot kind currently has an acknowledged stream.
     pub has_registered_stream: bool,
     /// Last permanent rejection, cleared when a stream successfully registers.
@@ -91,16 +112,17 @@ struct RegistrationState {
 pub(crate) struct PullRegistration {
     state: Mutex<RegistrationState>,
     changed: watch::Sender<()>,
+    task_queue: String,
 }
 
 impl Default for PullRegistration {
     fn default() -> Self {
-        Self::new(&[])
+        Self::new(&[], String::new())
     }
 }
 
 impl PullRegistration {
-    pub(crate) fn new(queues: &[String]) -> Self {
+    pub(crate) fn new(queues: &[String], task_queue: String) -> Self {
         Self {
             state: Mutex::new(RegistrationState {
                 queues: queues
@@ -110,6 +132,7 @@ impl PullRegistration {
                 ..RegistrationState::default()
             }),
             changed: watch::channel(()).0,
+            task_queue,
         }
     }
 
@@ -135,6 +158,7 @@ impl PullRegistration {
                 let rejection = PullRegistrationError {
                     queue: queue.to_string(),
                     status: status.clone(),
+                    task_queue: self.task_queue.clone(),
                 };
                 if !state.has_registered_all_queues && state.initial_error.is_none() {
                     state.initial_error = Some(SdkError::from_pull_registration(rejection.clone()));
@@ -169,6 +193,7 @@ impl PullRegistration {
             .iter()
             .map(|(queue, registration)| PullQueueRegistrationState {
                 queue: queue.clone(),
+                task_queue: self.task_queue.clone(),
                 has_registered_stream: registration.registered_streams > 0,
                 last_permanent_error: registration.last_permanent_error.clone(),
             })
@@ -213,7 +238,8 @@ mod tests {
 
     #[tokio::test]
     async fn readiness_latches_and_recovers_from_permanent_rejections() {
-        let registration = PullRegistration::new(&["app".to_string(), "flow".to_string()]);
+        let registration =
+            PullRegistration::new(&["app".to_string(), "flow".to_string()], String::new());
         registration.registered("app");
         assert!(!registration.snapshot().is_ready);
         registration.registered("flow");
@@ -248,7 +274,8 @@ mod tests {
 
     #[tokio::test]
     async fn another_registered_stream_prevents_a_fatal_rejection() {
-        let registration = PullRegistration::new(&["app".to_string(), "flow".to_string()]);
+        let registration =
+            PullRegistration::new(&["app".to_string(), "flow".to_string()], String::new());
         registration.registered("app");
         registration.ended("app", false, Some(&Status::invalid_argument("rejected")));
         assert!(registration.permanent_error().is_none());
@@ -262,8 +289,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn snapshots_and_rejections_carry_the_task_queue() {
+        let registration = PullRegistration::new(&["app".to_string()], "blue".to_string());
+        assert_eq!(registration.snapshot().queues[0].task_queue, "blue");
+        registration.ended(
+            "app",
+            false,
+            Some(&Status::failed_precondition("wrong task queue")),
+        );
+        let rejection = registration.permanent_error().expect("permanent rejection");
+        assert_eq!(rejection.task_queue, "blue");
+        assert!(
+            rejection
+                .to_string()
+                .starts_with("pull slot kind app on task queue blue rejected:"),
+            "{rejection}"
+        );
+        let error = registration
+            .wait()
+            .await
+            .expect_err("rejected before readiness");
+        let reported = error.pull_registration_error().expect("typed rejection");
+        assert_eq!(reported.task_queue, "blue");
+        assert_eq!(reported.status.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
     async fn stopping_before_readiness_wakes_all_waiters() {
-        let registration = std::sync::Arc::new(PullRegistration::new(&["app".to_string()]));
+        let registration =
+            std::sync::Arc::new(PullRegistration::new(&["app".to_string()], String::new()));
         let first = std::sync::Arc::clone(&registration);
         let second = std::sync::Arc::clone(&registration);
         let waiting_first = tokio::spawn(async move { first.wait().await });

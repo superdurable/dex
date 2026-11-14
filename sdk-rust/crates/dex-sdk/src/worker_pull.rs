@@ -78,6 +78,7 @@ pub(crate) struct PullWorker {
     credential: Option<Arc<dyn Credential>>,
     app_worker_id: String,
     flow_types: Vec<String>,
+    pub(crate) task_queue: String,
     max_concurrent_tasks: usize,
     reserved_rpc_tasks: usize,
     stop_drain_timeout: Duration,
@@ -204,6 +205,8 @@ impl PullWorker {
             None => generate_app_worker_id(),
         };
         validate_app_worker_id(&app_worker_id)?;
+        crate::client::task_queue_name::validate_pull_worker_task_queue(&options.task_queue)
+            .map_err(invalid)?;
         let flow_types = dispatcher.flow_types();
         if flow_types
             .iter()
@@ -223,7 +226,11 @@ impl PullWorker {
             channel,
             app_worker_id,
             flow_types,
-            registration: Arc::new(PullRegistration::new(&slot_kinds)),
+            task_queue: options.task_queue.clone(),
+            registration: Arc::new(PullRegistration::new(
+                &slot_kinds,
+                options.task_queue.clone(),
+            )),
             stop_on_permanent_stream_rejection: options.stop_on_permanent_stream_rejection,
             max_concurrent_tasks,
             reserved_rpc_tasks,
@@ -362,6 +369,7 @@ impl PullWorker {
                 dispatcher: self.dispatcher.clone(),
                 app_worker_id: self.app_worker_id.clone(),
                 flow_types: self.flow_types.clone(),
+                task_queue: self.task_queue.clone(),
                 queue,
                 slot_kind,
                 stream_id,
@@ -370,6 +378,7 @@ impl PullWorker {
                 stop_drain_timeout: self.stop_drain_timeout,
                 is_registered: false,
                 has_recorded_result: false,
+                has_task_queue_mismatch: false,
             };
             streams.spawn(async move { worker.run().await });
         }
@@ -382,6 +391,7 @@ struct PullStream {
     dispatcher: WorkerDispatcher,
     app_worker_id: String,
     flow_types: Vec<String>,
+    task_queue: String,
     queue: String,
     slot_kind: PollWorkerSlotKind,
     stream_id: u64,
@@ -390,12 +400,14 @@ struct PullStream {
     stop_drain_timeout: Duration,
     is_registered: bool,
     has_recorded_result: bool,
+    has_task_queue_mismatch: bool,
 }
 
 impl PullStream {
     async fn poll(&mut self) -> (bool, bool, Result<(), Status>) {
         self.is_registered = false;
         self.has_recorded_result = false;
+        self.has_task_queue_mismatch = false;
         self.shared
             .state
             .lock()
@@ -415,6 +427,11 @@ impl PullStream {
         result
     }
 
+    /// Returns whether `status` permanently rejects this stream; a task queue mismatch always does.
+    fn is_permanent_stream_failure(&self, status: &Status) -> bool {
+        self.has_task_queue_mismatch || is_permanent(status.code())
+    }
+
     fn should_defer_stream_rejection(&self, status: &Status) -> bool {
         status.code() == Code::Unauthenticated
             && self
@@ -428,11 +445,10 @@ impl PullStream {
             return;
         }
         self.has_recorded_result = true;
-        self.shared.registration.ended(
-            &self.queue,
-            self.is_registered,
-            failure.filter(|status| is_permanent(status.code())),
-        );
+        let permanent_failure = failure.filter(|status| self.is_permanent_stream_failure(status));
+        self.shared
+            .registration
+            .ended(&self.queue, self.is_registered, permanent_failure);
         self.is_registered = false;
         self.shared
             .state
@@ -456,7 +472,7 @@ impl PullStream {
             flow_types: self.flow_types.clone(),
             sdk_name: "rust".to_string(),
             sdk_version: env!("CARGO_PKG_VERSION").to_string(),
-            task_queue: String::new(),
+            task_queue: self.task_queue.clone(),
         };
         if sender
             .as_ref()
@@ -531,6 +547,14 @@ impl PullStream {
                             if !was_registered {
                                 match response.frame {
                                     Some(ResponseFrame::Registered(registered)) => {
+                                        if registered.task_queue != self.task_queue {
+                                            let status = self.task_queue_mismatch(&registered.task_queue);
+                                            reset_guard.allow_clean_half_close();
+                                            if let Err(drain_status) = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, false, &reset_guard).await {
+                                                tracing::debug!(%drain_status, "drain Worker stream after task queue mismatch");
+                                            }
+                                            return (false, false, Err(status));
+                                        }
                                         if let Err(status) = self.shared.check_registration_limit(registered.max_concurrent_tasks_per_app_worker) {
                                             // Half-close and drop later tasks so Dex returns them without consuming an attempt.
                                             reset_guard.allow_clean_half_close();
@@ -731,6 +755,18 @@ impl PullStream {
                 }
             }
         }
+    }
+
+    // A Server without named task queues ignores the request and registers the default queue.
+    fn task_queue_mismatch(&mut self, registered_task_queue: &str) -> Status {
+        self.has_task_queue_mismatch = true;
+        let message = format!(
+            "Server registered task queue {registered_task_queue:?} instead of {:?}; \
+             it may not support named task queues",
+            self.task_queue
+        );
+        tracing::error!(queue = %self.queue, %message, "Worker task stream registered the wrong task queue");
+        Status::failed_precondition(message)
     }
 
     fn is_task_start_closed(&self) -> bool {
@@ -1102,6 +1138,7 @@ mod tests {
     mod options;
     mod output_lifecycle;
     mod reserved_slots;
+    mod task_queue;
 
     #[derive(Clone)]
     struct RegistrationService {
@@ -2131,6 +2168,7 @@ mod tests {
             dispatcher,
             app_worker_id: "worker".to_string(),
             flow_types: Vec::new(),
+            task_queue: String::new(),
             queue: "STEP_AND_RPC".to_string(),
             slot_kind: PollWorkerSlotKind::StepAndRpc,
             stream_id: 1,
@@ -2139,6 +2177,7 @@ mod tests {
             stop_drain_timeout: Duration::from_secs(30),
             is_registered: false,
             has_recorded_result: false,
+            has_task_queue_mismatch: false,
         };
         for _ in 0..3 {
             let (was_registered, _, result) = timeout(Duration::from_secs(5), stream.poll())

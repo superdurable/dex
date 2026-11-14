@@ -45,6 +45,7 @@ pub struct PullWorkerOptions {
     pub(crate) app_worker_id: Option<String>,
     pub(crate) stop_drain_timeout: Option<Duration>,
     pub(crate) stop_on_permanent_stream_rejection: bool,
+    pub(crate) task_queue: String,
 }
 
 impl PullWorkerOptions {
@@ -111,6 +112,57 @@ impl PullWorkerOptions {
     /// If omitted, the Worker generates a fresh ID during construction.
     pub fn app_worker_id(mut self, value: impl Into<String>) -> Self {
         self.app_worker_id = Some(value.into());
+        self
+    }
+
+    /// Sets the named task queue this Worker pulls; the default empty name pulls the default queue.
+    ///
+    /// A task queue separates which Workers run a Flow from the Flow's type. A Flow started with
+    /// [`crate::StartFlowOptions::task_queue`] runs its Steps and RPCs only on Workers that pull
+    /// that task queue and register its Flow type. A Flow started without one runs only on
+    /// Workers of the default task queue, as before. Workers on different task queues never take
+    /// each other's work, even for the same Flow type. A sticky Worker on another task queue is
+    /// skipped.
+    ///
+    /// One Worker pulls exactly one task queue. To serve several task queues, create one Worker
+    /// per task queue; they can share the Registry and BlobCache. Give each Worker its own
+    /// [`Self::app_worker_id`] when you set one.
+    ///
+    /// A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens. Names starting
+    /// with `dex.` are reserved, including `dex.default`. [`crate::Worker::try_new`] returns
+    /// [`crate::SdkError::FlowDefinition`] for them and for any other invalid name.
+    ///
+    /// A non-empty task queue requires Server protocol 5. [`crate::Worker::start`] returns a
+    /// Service error before it opens task streams when the Server is older. When the Server
+    /// confirms a stream for a different task queue, the Worker half-closes that stream and
+    /// treats it as a permanent rejection with the gRPC code `FAILED_PRECONDITION`.
+    /// [`crate::Worker::wait_pull_registered`], [`crate::Worker::pull_registration_state`], and
+    /// [`Self::stop_on_permanent_stream_rejection`] report it. Returns these options with the
+    /// task queue applied.
+    ///
+    /// Since 1.45.1.
+    ///
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, PullWorkerOptions,
+    ///     Registry, StartFlowOptions, Worker, WorkerOptions};
+    ///
+    /// let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
+    ///     "/tmp/dex-pull-blobs", 64 * 1024 * 1024, 0,
+    /// )?)?);
+    /// let registry = Registry::new();
+    /// let blue_worker = Worker::try_new(registry.clone(), cache.clone(),
+    ///     WorkerOptions::new().pull(PullWorkerOptions::new().task_queue("blue")))?;
+    /// let green_worker = Worker::try_new(registry.clone(), cache.clone(),
+    ///     WorkerOptions::new().pull(PullWorkerOptions::new().task_queue("green")))?;
+    /// // Run each worker.start() on its own thread; only blue_worker runs Flows started with
+    /// // Client::start_flow_with_options(..., StartFlowOptions::new().task_queue("blue")).
+    /// let client = Client::try_new(registry, cache, ClientOptions::new())?;
+    /// let options = StartFlowOptions::new().task_queue("blue");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn task_queue(mut self, value: impl Into<String>) -> Self {
+        self.task_queue = value.into();
         self
     }
 

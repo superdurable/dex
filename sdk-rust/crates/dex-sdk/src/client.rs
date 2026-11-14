@@ -30,6 +30,7 @@ use uuid::Uuid;
 mod attribute_reads;
 mod flow_definitions;
 pub(crate) mod flow_service_tls;
+pub(crate) mod task_queue_name;
 
 pub use flow_service_tls::FlowServiceTlsOptions;
 use flow_service_tls::flow_service_endpoint;
@@ -251,6 +252,11 @@ impl Client {
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
         };
         self.require_server_protocol("start_flow")?;
+        self.negotiated_protocol_version
+            .require_named_task_queue_support(&options.task_queue, "start_flow")
+            .map_err(|error| SdkError::Service {
+                service: ServiceError::local("start_flow", error),
+            })?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             service
@@ -1207,8 +1213,9 @@ impl Client {
         if let Some(write) = attributes.iter().find(|write| write.is_hard_delete_on_null) {
             self.require_hard_delete_attribute_support("start_flow", &write.key)?;
         }
+        task_queue_name::validate_flow_task_queue(&options.task_queue).map_err(invalid)?;
         let config = options.config_override.as_ref();
-        let flow_config_override = Some(map_pull_flow_config(config)?);
+        let flow_config_override = Some(map_pull_flow_config(config, &options.task_queue)?);
         #[expect(
             clippy::needless_update,
             reason = "The test preserves forward-compatible construction of SDK options."
@@ -1334,11 +1341,16 @@ impl Client {
     }
 }
 
-pub(crate) fn map_pull_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
+/// Returns the Flow configuration with a pull Worker target on `task_queue`; empty selects the
+/// default task queue at start and the parent's task queue for a SubFlow.
+pub(crate) fn map_pull_flow_config(
+    config: Option<&FlowConfig>,
+    task_queue: &str,
+) -> SdkResult<ProtoFlowConfig> {
     Ok(ProtoFlowConfig {
         worker_target: Some(ProtoWorkerTarget {
             is_pull_mode: true,
-            ..ProtoWorkerTarget::default()
+            task_queue: task_queue.to_string(),
         }),
         ..map_flow_config(config)?
     })
