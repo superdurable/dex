@@ -157,6 +157,10 @@ async def start_connectors_mcp_command(
             failure=f"dexcli connectors mcp printed no line within "
             f"{_READY_TIMEOUT_SECONDS:.0f} seconds; see {log_path}"
         )
+    except BaseException:
+        # Closing its stdin ends the child, so the readline thread returns and the loop can close.
+        started.stop()
+        raise
     if not line.strip():
         exit_code = await asyncio.to_thread(process.wait)
         if exit_code == _USAGE_EXIT_CODE:

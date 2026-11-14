@@ -86,7 +86,7 @@ class WorkerHostStart:
         server_address: The Dex server's ``host:port`` the launcher resolved.
         is_tls: Whether the Dex server uses TLS.
         web_url: Dex Web's URL, or ``None``.
-        connectors_mcp_url: The ``dexcli dev`` connectors MCP endpoint, or ``None``.
+        connectors_mcp_url: The connectors MCP endpoint the launcher resolved, or ``None``.
         dex_connection: The resolved Dex connection settings, as
             ``DexConnectionSettings.to_json`` returns them. They hold no secret;
             the Worker host reads it from its own environment.
