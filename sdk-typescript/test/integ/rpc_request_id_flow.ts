@@ -11,8 +11,10 @@
 import {
   Attribute,
   StepList,
+  booleanCodec,
   doubleCodec,
   rpc,
+  stringCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -20,9 +22,11 @@ import {
 } from "../../src/index.js";
 
 const total = new Attribute("total", doubleCodec);
+const processed = new Attribute("processed", booleanCodec);
 
 export class RpcRequestIdFlow implements Flow {
   public readonly total = total;
+  public readonly processed = processed;
   public transactionalHandlerCalls = 0;
   public nonTransactionalHandlerCalls = 0;
 
@@ -35,7 +39,7 @@ export class RpcRequestIdFlow implements Flow {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.total] };
+    return { attributes: [this.total, this.processed] };
   }
 
   @rpc({ inputCodec: doubleCodec, outputCodec: doubleCodec, isTransactional: true })
@@ -52,6 +56,24 @@ export class RpcRequestIdFlow implements Flow {
     const next = (this.total.get(context) ?? 0) + amount;
     this.total.set(context, next);
     return { output: next };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public markProcessedNonTransactional(context: Context): RPCResult<string> {
+    return this.markProcessed(context);
+  }
+
+  @rpc({ outputCodec: stringCodec, isTransactional: true })
+  public markProcessedTransactional(context: Context): RPCResult<string> {
+    return this.markProcessed(context);
+  }
+
+  private markProcessed(context: Context): RPCResult<string> {
+    if (this.processed.get(context) === true) {
+      return { output: "alreadyProcessed" };
+    }
+    this.processed.set(context, true);
+    return { output: "accepted" };
   }
 
   @rpc({ outputCodec: doubleCodec })

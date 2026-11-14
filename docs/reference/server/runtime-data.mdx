@@ -1422,9 +1422,11 @@ RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trig
 ### RPC request IDs {#rpc-request-ids}
 
 Every RPC invocation carries a request ID. Dex Server records the reply of a
-successful RPC that it commits under that request ID. A repeat with a recorded
-request ID returns the recorded output. It applies the RPC's Flow changes,
-such as Attribute writes, Channel publications, and next Steps, no second time.
+successful RPC that it commits under that request ID. A repeat that Dex Server
+checks against a recorded request ID returns the recorded output. It applies
+the RPC's Flow changes, such as Attribute writes, Channel publications, and
+next Steps, no second time. Whether Dex Server checks a repeat depends on the
+RPC and on what the repeated attempt returns.
 
 By default, SDKs send a new request ID on each call, so calling an RPC again
 from your code runs it again. To make a retried call idempotent, pass the same
@@ -1437,15 +1439,21 @@ How Dex Server answers a repeat depends on the RPC:
 | RPC | Repeat with a recorded request ID |
 | --- | --- |
 | Transactional or locking | Answered from the recorded reply before a Worker runs the handler. Concurrent calls with the same request ID share one handler execution and its result. |
-| Any other RPC that changes Flow state | The handler runs again on a Worker. Dex Server discards the new result and returns the recorded reply. The handler's calls to external systems repeat. |
-| Neither transactional nor locking, and changes no Flow state | Not recorded. Each repeat runs the handler again and returns its new output. |
+| Any other RPC | The handler runs again on a Worker, and its calls to external systems repeat. When this attempt returns Flow changes, Dex Server discards them and returns the recorded reply. When this attempt returns no Flow changes, Dex Server returns its new output without checking the request ID, and records nothing. |
+
+An RPC that is neither transactional nor locking can therefore return a new
+output to a repeat. For example, a handler that marks an event processed
+returns a different output once the mark exists. Use a transactional RPC when
+callers need the exact recorded reply.
 
 These rules also apply:
 
 - Dex Server compares the whole request: Flow ID, run ID, RPC name, input,
   timeout, locks, and loads. A different request under a kept request ID fails
   with INVALID_ARGUMENT and the detail "request ID ... was already used for a
-  different request". The RPC applies none of its changes.
+  different request". The RPC applies none of its changes. An attempt of an
+  RPC that is neither transactional nor locking skips this check when it
+  returns no Flow changes.
 - Each run keeps its newest request IDs, as many as
   [**limits.maxRequestIdsPerRun**](/reference/server/configuration#limits).
   RPC request IDs share this window with the run's other request IDs, such as

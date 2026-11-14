@@ -115,20 +115,22 @@ export interface RPCInvokeOptions {
    * from it, as the request ID. Reuse the same ID only for the same logical call.
    *
    * Dex Server records the reply of a successful RPC that it commits under its request ID. A
-   * repeat with a recorded request ID returns the recorded output and applies the RPC's Flow
-   * changes, such as Attribute writes, Channel publications, and next Steps, no second time.
-   * How a repeat reaches that reply depends on the RPC:
+   * repeat that Dex checks against a recorded request ID returns the recorded output and applies
+   * the RPC's Flow changes, such as Attribute writes, Channel publications, and next Steps, no
+   * second time. Whether Dex checks a repeat depends on the RPC and on what the repeated attempt
+   * returns:
    *
    * - A transactional RPC (`isTransactional: true`) or an RPC with Attribute locks is answered
    *   from the recorded reply before any Worker runs the handler. Concurrent calls with the same
    *   request ID share one handler execution and its result.
-   * - Any other RPC that writes Flow state runs its handler again on a Worker. Dex then discards
-   *   that new result and returns the recorded reply. The handler's calls to external systems
-   *   repeat.
-   * - An RPC that is neither transactional nor locking and returns no Flow changes is not
-   *   recorded. Each repeat runs the handler again and returns its new output.
+   * - Any other RPC runs its handler again on a Worker, and the handler's calls to external
+   *   systems repeat. When this attempt returns Flow changes, Dex discards them and returns the
+   *   recorded reply. When this attempt returns no Flow changes, Dex returns its new output
+   *   without checking the request ID, and records nothing. For example, a handler that marks an
+   *   event processed can return a different output once the mark exists.
    *
-   * Prefer a transactional or locking RPC when the handler must run at most once per request ID.
+   * Use a transactional RPC when callers need the exact recorded reply, or when the handler must
+   * run at most once per request ID.
    *
    * Traps:
    *
@@ -140,8 +142,9 @@ export interface RPCInvokeOptions {
    *   different request under a kept request ID fails with {@link DexServiceError} whose `code` is
    *   gRPC `INVALID_ARGUMENT` and whose detail says the request ID "was already used for a
    *   different request". A transactional or locking RPC rejects it before a Worker runs the
-   *   handler. Other RPCs that write Flow state reject it after the handler ran, and apply none of
-   *   its changes.
+   *   handler. Any other RPC rejects it after the handler ran, and applies none of its changes,
+   *   when that attempt returns Flow changes. An attempt that returns none skips this check and
+   *   returns its new output.
    * - Each Flow run keeps only its newest request IDs, set by the Server limit
    *   `limits.maxRequestIdsPerRun` (default 1,000). The window is shared with the run's other
    *   requests that carry request IDs, such as Client Attribute writes. A repeat with an older,
@@ -164,18 +167,63 @@ export interface RPCInvokeOptions {
    *
    * @example
    * ```ts
-   * class OrderFlow implements Flow {
-   *   // ...
+   * import { status } from "@grpc/grpc-js";
+   * import {
+   *   Attribute,
+   *   Client,
+   *   DexServiceError,
+   *   StepList,
+   *   doubleCodec,
+   *   rpc,
+   *   type Context,
+   *   type Flow,
+   *   type PersistenceSchema,
+   *   type RPCInvokeOptions,
+   *   type RPCResult,
+   * } from "@superdurable/dex";
+   *
+   * interface Payment {
+   *   readonly paymentId: string;
+   *   readonly amountCents: number;
+   * }
+   *
+   * interface PaymentEvent {
+   *   readonly id: string;
+   *   readonly orderId: string;
+   *   readonly amountCents: number;
+   * }
+   *
+   * const paidCents = new Attribute("paidCents", doubleCodec);
+   *
+   * export class OrderFlow implements Flow {
+   *   public getFlowType(): string {
+   *     return "OrderFlow";
+   *   }
+   *
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [paidCents] };
+   *   }
+   *
+   *   // Transactional, so a repeat returns the recorded total without running the handler.
    *   @rpc({ outputCodec: doubleCodec, isTransactional: true })
    *   public recordPayment(context: Context, payment: Payment): RPCResult<number> {
-   *     const paidCents = (this.paidCents.get(context) ?? 0) + payment.amountCents;
-   *     this.paidCents.set(context, paidCents);
-   *     return { output: paidCents };
+   *     const total = (paidCents.get(context) ?? 0) + payment.amountCents;
+   *     paidCents.set(context, total);
+   *     return { output: total };
    *   }
    * }
    *
+   * // orderFlow is the instance registered in the Client's Registry.
    * // A delivery may arrive more than once, so the event ID identifies the logical call.
-   * async function deliverPayment(client: Client, event: PaymentEvent): Promise<number> {
+   * export async function deliverPayment(
+   *   client: Client,
+   *   orderFlow: OrderFlow,
+   *   event: PaymentEvent,
+   * ): Promise<number> {
    *   const payment: Payment = { paymentId: event.id, amountCents: event.amountCents };
    *   const options: RPCInvokeOptions = { requestId: `payment-${event.id}` };
    *   for (let attempt = 1; ; attempt++) {

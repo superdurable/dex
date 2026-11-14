@@ -91,6 +91,48 @@ test("non-transactional RPC repeated with one request ID reruns the handler and 
   });
 });
 
+// A non-transactional retry that returns no Flow changes gets its new output, not the recorded one.
+test("zero-effect retry returns the recorded reply only for a transactional RPC", async () => {
+  const flow = new RpcRequestIdFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const nonTransactionalId = flowId("rpc-request-id-zero-effect");
+    await client.startFlow(flow, nonTransactionalId, undefined);
+    const nonTransactionalOptions = { requestId: `event-${randomUUID()}` };
+    assert.equal(
+      await client.invokeRPCWithOptions(
+        flow.markProcessedNonTransactional,
+        nonTransactionalId,
+        nonTransactionalOptions,
+      ),
+      "accepted",
+    );
+    assert.equal(
+      await client.invokeRPCWithOptions(
+        flow.markProcessedNonTransactional,
+        nonTransactionalId,
+        nonTransactionalOptions,
+      ),
+      "alreadyProcessed",
+    );
+    await client.stopFlow(nonTransactionalId);
+
+    const transactionalId = flowId("rpc-request-id-zero-effect-transactional");
+    await client.startFlow(flow, transactionalId, undefined);
+    const transactionalOptions = { requestId: `event-${randomUUID()}` };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      assert.equal(
+        await client.invokeRPCWithOptions(
+          flow.markProcessedTransactional,
+          transactionalId,
+          transactionalOptions,
+        ),
+        "accepted",
+      );
+    }
+    await client.stopFlow(transactionalId);
+  });
+});
+
 // A delivery retried after the Flow closed must still get its earlier reply.
 test("transactional RPC repeated after the Flow closes returns the recorded reply", async () => {
   const flow = new RpcRequestIdFlow();
