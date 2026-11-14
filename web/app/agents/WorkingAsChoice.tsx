@@ -24,7 +24,7 @@ const WorkingAsChoiceContext = createContext<WorkingAsChoice | null>(null);
 /** Lets every control in the tab offer Work as where Working as blocks it. */
 export const WorkingAsChoiceProvider = WorkingAsChoiceContext.Provider;
 
-/** The tab's Working as, or null outside the Conversation tab, such as in Work Queue. */
+/** The tab's Working as, or null where no host provides one, such as the run page's Actions tab. */
 export function useWorkingAsChoice(): WorkingAsChoice | null {
   return useContext(WorkingAsChoiceContext);
 }

@@ -94,46 +94,58 @@ html[data-theme='dark'] .v2-shell.wq {
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
+  gap: 4px;
   min-width: 0;
-  margin: 0;
-  color: var(--wq-ink);
-  font-size: 16px;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-}
-
-.wq .wq-flowtype > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-html .wq .wq-flowtype > select:not(#wq-specificity) {
-  max-width: 100%;
   margin: 0 0 0 -8px;
-  padding: 4px 26px 4px 8px;
-  border: 0;
+  padding: 4px 8px;
   border-radius: 8px;
-  background: transparent;
-  box-shadow: none;
-  color: inherit;
-  font: inherit;
-  text-overflow: ellipsis;
-  appearance: none;
-  field-sizing: content;
+  color: var(--wq-ink);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* The whole name, on up to two lines; the tooltip carries it past that. */
+.wq .wq-flowtype-name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.wq label.wq-flowtype {
   cursor: pointer;
   transition: background-color 150ms ease;
 }
 
-.wq .wq-flowtype > select:hover {
+.wq label.wq-flowtype:hover {
   background: var(--wq-hover);
 }
 
-.wq .wq-flowtype > svg {
+.wq label.wq-flowtype:focus-within {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
+}
+
+html .wq .wq-flowtype > select:not(#wq-specificity) {
   position: absolute;
-  right: 6px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  opacity: 0;
+  appearance: none;
+}
+
+.wq .wq-flowtype > svg {
+  flex: none;
   color: var(--wq-ink-3);
-  pointer-events: none;
 }
 
 .wq .wq-live {
@@ -1028,6 +1040,78 @@ html .v2-shell.wq .v2-work-queue-case {
   font-size: 12.5px;
 }
 
+/* ---------------------------------------------------------------- Work as */
+
+/* Where only Working as locks an Action, the card offers Work as, as the Conversation tab does. */
+.wq .ses-workas-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--wq-ink-3);
+  font-size: 12px;
+}
+
+.wq .ses-workas {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fb923c, #ea580c);
+  box-shadow: 0 6px 14px -8px rgba(234, 88, 12, 0.8);
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  transition:
+    filter 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+.wq .ses-workas:hover {
+  filter: brightness(1.08);
+}
+
+.wq .ses-workas:active {
+  transform: scale(0.97);
+}
+
+.wq .ses-acting-as {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 10px;
+  color: var(--wq-ink-3);
+  font-size: 12.5px;
+}
+
+.wq .ses-acting-as-change {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--wq-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html .wq .ses-acting-as select:not(#wq-specificity) {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--wq-chip);
+  color: inherit;
+  font: inherit;
+}
+
 /* ---------------------------------------------------------------- phone */
 
 /* One column: the list, or the selected run with its close button. */
@@ -1062,7 +1146,7 @@ html .v2-shell.wq .v2-work-queue-case {
     animation: none;
   }
 
-  .wq .wq-flowtype > select,
+  .wq label.wq-flowtype,
   .wq .wq-start,
   .wq .wq-modes a,
   .wq .wq-status-chip,
@@ -1078,7 +1162,8 @@ html .v2-shell.wq .v2-work-queue-case {
   .wq .wq-row::before,
   .wq .wq-seemore,
   .wq .wq-seemore > svg,
-  .wq .wq-close {
+  .wq .wq-close,
+  .wq .ses-workas {
     transition: none !important;
   }
 }

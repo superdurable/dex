@@ -18,6 +18,8 @@ import { displayValue } from '@/lib/format';
 import { definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
 import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../catalog/definitionContract';
+import { SESSION_COPY } from '../agents/copy';
+import { ActingAsLine, BlockedReason } from '../agents/WorkingAsChoice';
 import { WORK_QUEUE_COPY } from '../work-queue/copy';
 import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../work-queue/liveness';
 import { RUN_COPY } from './runCopy';
@@ -245,6 +247,7 @@ export function SelectedRunPanel({
         const actionsBlock = definition.actions.length === 0 ? null : (
           <section className="sc-block sc-actions-block" aria-label={RUN_COPY.actions}>
             <h4 className="sc-blockhead">{RUN_COPY.actions}</h4>
+            <ActingAsLine />
             <div className="sc-action-list">
               {definition.actions.map((action) => {
                 const state = actionState(action, eligible, workQueuePermissions, result.isActive);
@@ -262,10 +265,12 @@ export function SelectedRunPanel({
                   >
                     <div className="sc-action-head">
                       <span className="sc-action-icon"><StateIcon aria-hidden="true" size={16} strokeWidth={2} /></span>
-                      <span className="sc-action-words">
+                      <div className="sc-action-words">
                         <b>{action.label}</b>
-                        <small>{state.note}</small>
-                      </span>
+                        {state.kind === 'needs-permission'
+                          ? <BlockedReason reason={state.note} />
+                          : <small>{state.note}</small>}
+                      </div>
                     </div>
                     {state.kind === 'ready' && userFields.map((field) => (
                       <label key={field.fieldName}>
@@ -350,7 +355,7 @@ function actionState(
   if (!isActive) return { kind: 'unavailable', note: 'The run is no longer active' };
   if (!eligible.has(action.rpcName)) return { kind: 'unavailable', note: 'Not offered in the current state' };
   if (!workQueuePermissions.includes(action.requiredPermission)) {
-    return { kind: 'needs-permission', note: `Choose Working as ${action.requiredPermission} to take it` };
+    return { kind: 'needs-permission', note: SESSION_COPY.chooseWorkingAs(action.requiredPermission) };
   }
   return { kind: 'ready', note: `Available to ${action.requiredPermission}` };
 }

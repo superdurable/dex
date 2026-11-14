@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import {
   ChevronDown,
   CircleCheck,
@@ -113,7 +113,10 @@ export function RunList({
         {modeSwitch}
         <div className="wq-head-line">
           {flowTypes.length > 1 ? (
-            <label className="wq-flowtype">
+            // The name wraps in a span; a native select can only truncate, so it sits invisibly on top.
+            <label className="wq-flowtype" title={entry.flowType}>
+              <FlowTypeName flowType={entry.flowType} />
+              <ChevronDown aria-hidden="true" size={16} />
               <select
                 aria-label={SEARCH_COPY.flowTypeLabel}
                 value={entry.flowType}
@@ -123,10 +126,9 @@ export function RunList({
                   <option key={candidate.flowType} value={candidate.flowType}>{candidate.flowType}</option>
                 ))}
               </select>
-              <ChevronDown aria-hidden="true" size={16} />
             </label>
           ) : (
-            <h2 className="wq-flowtype" title={entry.flowType}><span>{entry.flowType}</span></h2>
+            <h2 className="wq-flowtype" title={entry.flowType}><FlowTypeName flowType={entry.flowType} /></h2>
           )}
           {headerNote !== undefined && (
             <span className="wq-live" data-liveness={liveness}>
@@ -187,6 +189,18 @@ export function RunList({
         </>
       )}
     </aside>
+  );
+}
+
+/** A Flow type name that may break between its words, such as `AgenticCustomer` and `RefundFlow`. */
+function FlowTypeName({ flowType }: { flowType: string }) {
+  const words = flowType.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[._-])/);
+  return (
+    <span className="wq-flowtype-name">
+      {words.map((word, index) => (
+        <Fragment key={index}>{index > 0 && <wbr />}{word}</Fragment>
+      ))}
+    </span>
   );
 }
 

@@ -33,7 +33,7 @@ function contract(uiSlotAttribute: string, requiredPermission: string) {
       rpcName: 'GetDexDisplay',
       fields: [{ attributeKey: uiSlotAttribute, valueType: 'string', description: uiSlotAttribute, uiSlot: 'title' }],
     },
-    actions: [{ rpcName: 'Approve', label: 'Approve', requiredPermission }],
+    actions: [{ rpcName: 'Approve', label: 'Approve', requiredPermission, input: { fields: [] } }],
   };
 }
 
@@ -102,6 +102,19 @@ function stubServer(flowsFor: (body: SearchBody) => unknown[], nextPageToken = '
           { flowType: 'PayFlow', definition: contract('payment', 'pay.manage'), definitionRevision: 'r-PayFlow' },
           { flowType: 'RefundFlow', definition: contract('case-title', 'refund.manage'), definitionRevision: 'r-RefundFlow' },
         ],
+      });
+    }
+    if (url.startsWith('/api/v2/display?')) {
+      const params = new URL(url, 'http://dex.test').searchParams;
+      return json({
+        flowId: params.get('flowId'),
+        flowType: params.get('flowType'),
+        flowStatus: 'Running',
+        flowStatusCode: 1,
+        isActive: true,
+        display: {},
+        attributeSnapshot: {},
+        eligibleActions: ['Approve'],
       });
     }
     if (url === '/api/v2/search') {
@@ -360,5 +373,20 @@ describe('Work Queue search', () => {
 
     expect(await screen.findByText(WORK_QUEUE_COPY.noRunsHeading)).toBeTruthy();
     expect(screen.getByText(WORK_QUEUE_COPY.noRunsPrompt)).toBeTruthy();
+  });
+
+  it('offers Work as on an Action that only Working as locks, and then makes it available', async () => {
+    const searches = stubServer(() => [run('refund-1', 'RefundFlow', { 'case-title': 'Damaged item' })]);
+    renderQueue();
+    fireEvent.click((await screen.findByText('Damaged item')).closest('button') as HTMLElement);
+
+    const workAs = await screen.findByRole('button', { name: 'Work as refund.manage' });
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    fireEvent.click(workAs);
+
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeTruthy();
+    expect((screen.getByLabelText('Working as') as HTMLSelectElement).value).toBe('refund.manage');
+    expect(screen.getByText('Acting as refund.manage')).toBeTruthy();
+    await waitFor(() => expect(lastSearch(searches).workQueuePermissions).toEqual(['refund.manage']));
   });
 });

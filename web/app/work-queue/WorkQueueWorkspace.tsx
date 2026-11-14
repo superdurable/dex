@@ -19,6 +19,7 @@ import { useFlowTypesDefinitions, useV2Catalog } from '../catalog/WebCatalogProv
 import { drawableDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { StartFlowDialog } from '../start/StartFlowDialog';
 import { SESSION_COPY } from '../agents/copy';
+import { WorkingAsChoiceProvider } from '../agents/WorkingAsChoice';
 import { agentSessionFlowTypes, NewSessionDialog } from '../agents/NewSessionDialog';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
@@ -210,31 +211,39 @@ function RunQueueWorkspace() {
         <section className="v2-work-queue-case" aria-label={flowId || WORK_QUEUE_COPY.appName}>
           {flowId ? (
             <div className="wq-case-enter" key={flowId}>
-              <SelectedRunPanel
-                definition={entry.definition}
-                flowId={flowId}
-                flowStatusCode={selectedFlow?.flowStatusCode}
-                flowType={entry.flowType}
-                order="evidence-first"
-                onStranded={rememberStranded}
-                workQueuePermissions={workQueuePermissions}
-                footer={(
-                  <>
-                    <Link className="wq-seemore" to={runPath(flowId)}>
-                      {WORK_QUEUE_COPY.seeProcess}
-                      <ArrowUpRight aria-hidden="true" size={14} />
-                    </Link>
-                    <button
-                      aria-label={WORK_QUEUE_COPY.close}
-                      className="wq-close"
-                      onClick={() => navigate(workQueuePath(entry.flowType))}
-                      type="button"
-                    >
-                      <X aria-hidden="true" size={16} />
-                    </button>
-                  </>
-                )}
-              />
+              <WorkingAsChoiceProvider
+                value={{
+                  permission: workingAs.permission,
+                  options: workingAs.permissionOptions,
+                  choose: workingAs.setPermission,
+                }}
+              >
+                <SelectedRunPanel
+                  definition={entry.definition}
+                  flowId={flowId}
+                  flowStatusCode={selectedFlow?.flowStatusCode}
+                  flowType={entry.flowType}
+                  order="evidence-first"
+                  onStranded={rememberStranded}
+                  workQueuePermissions={workQueuePermissions}
+                  footer={(
+                    <>
+                      <Link className="wq-seemore" to={runPath(flowId)}>
+                        {WORK_QUEUE_COPY.seeProcess}
+                        <ArrowUpRight aria-hidden="true" size={14} />
+                      </Link>
+                      <button
+                        aria-label={WORK_QUEUE_COPY.close}
+                        className="wq-close"
+                        onClick={() => navigate(workQueuePath(entry.flowType))}
+                        type="button"
+                      >
+                        <X aria-hidden="true" size={16} />
+                      </button>
+                    </>
+                  )}
+                />
+              </WorkingAsChoiceProvider>
             </div>
           ) : (
             <WorkQueueEmptyState
