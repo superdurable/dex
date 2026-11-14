@@ -29,29 +29,32 @@ dexcli dev                             # starts a local Dex server and web UI
 
 Then follow the [Quick Start](https://docs.superdurable.io/quick-start), or let a coding agent build your first Flow with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill).
 
-> [!TIP]
-> Building an AI agent? Make it durable on the framework you already use (Claude Agent SDK, OpenAI Agents SDK, and more). A session survives a killed instance or a service outage, with durable timers and retries. Start with the **[Agent Quick Start](https://docs.superdurable.io/agent-frameworks/quick-start)**.
+## Durable agents
+
+A common use of Dex is to make AI agents durable. A session survives disruptions such as a killed instance or a service outage, with durable timers and retries. Dex Web shows every step's input and output, with operations like time travel.
+
+Keep your framework (Claude Agent SDK, OpenAI Agents SDK, and more) and start with the **[Agent Quick Start](https://docs.superdurable.io/agent-frameworks/quick-start)**.
 
 ## Why use Dex?
 
 Dex keeps *any* long-running agent or workflow running until it finishes:
 
-- **[No replay](https://docs.superdurable.io/intro/what-is-dex)**: Write ordinary code. Most engines recover a process by running your code again from the top, so the code must behave the same on every run. Dex's structured programming model saves each step's result and continues from the next step, with fewer primitives, less code, and fewer bugs. Without replay, Dex:
+- **[No replay](https://docs.superdurable.io/intro/what-is-dex)**: Write ordinary code. Most engines recover a process by running your code again from the top, so it must behave the same on every run. Dex's structured programming model saves each step's result and continues from the next step, with fewer primitives, less code, and fewer bugs. Without replay, Dex:
   - eliminates non-determinism errors completely: a step can read the clock, use random values, and call any library
   - supports long-running Flows without manual history rollover
   - needs no "sticky cache": Workers keep no workflow state in memory
 - **[Zero dependencies](https://docs.superdurable.io/components/server)**: Run Dex on object storage alone: Amazon S3 or a compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS. With no database, message queue, or coordination service, Dex is:
   - easy to operate: one binary and one bucket, or none with [Dex Cloud](https://docs.superdurable.io/components/dex-cloud)
   - fast: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K Steps/s and 67K read RPCs/s, with reads at about 0.5 ms at half that load
-- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store data in the Flow itself, through an explicit primitive, because no real process runs without data. Use Dex as your key-value store: a whole LLM context or thousands of messages in an agent run needs no other database.
-- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate products such as Stripe and Gmail as Steps or Triggers, through a large and growing library, from prototype to production.
-- **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph: its definition is a JSON file uploaded to the server, and Dex Web draws it. Dex Web also shows the history of every run, with each step's input and output, and operations like time travel.
+- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store and stream data through explicit primitives, because no real process runs without data. An agent keeps its whole LLM context or thousands of messages in Dex, its key-value store, and streams model output as it arrives.
+- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate products such as Stripe and Gmail as Steps, Triggers, or agent tools, through a large and growing library, from prototype to production.
+- **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph. Its definition is a JSON file uploaded to the server, and Dex Web draws it.
 
 [Dex is built](https://superdurable.io/about/) by the original creator of [iWF](https://github.com/indeedeng/iwf), with deep, firsthand experience from generations of durable execution technology.
 
 ## Under the hood
 
-The whole engine is written in Rust, with RocksDB, and built for performance:
+The engine is written in Rust, with RocksDB, and built for performance:
 
 - Every write is committed to object storage first, as a **command log** batched to save PUT costs, and then applied to RocksDB as a local cache.
 - RocksDB snapshots are uploaded in the background. After a crash, a standby or a restarted node loads the latest snapshot, re-applies the log, and rebuilds its state in seconds.
