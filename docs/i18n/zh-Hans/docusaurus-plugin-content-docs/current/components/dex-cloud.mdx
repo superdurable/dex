@@ -20,6 +20,26 @@ description: 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server�
 - key 放在 [API key credential](/reference/server/authentication#sdk-credentials) 里。
 - TLS 用 SDK 的 [TLS 选项](/reference/server/authentication#tls)。
 
+这些值来自 Dex Cloud 中的 Dex Server 页面。打开 **Management**，再打开 **Connect** 标签页。它的 **Connection values** 列出 **Endpoint**、**Server ID** 和 **Token URL**，每项都有 Copy 按钮。**API keys** 标签页用来创建 API key。Dex Cloud 只在创建时显示一次密钥。
+
+Dex Agents CLI 命令（例如 `dex-agents-claude-sdk`）使用同样的值连接。在配置文件中把 `dex.server` 设为 `https://` 加上 endpoint。把 `dex.auth` 设为 `api_key`，并填入你复制的 **Token URL** 和 **Server ID**。把密钥导出为 `DEX_API_KEY`：
+
+```yaml
+dex:
+  server: https://ENDPOINT
+  auth:
+    mode: api_key
+    token_url: TOKEN_URL
+    server_id: SERVER_ID
+```
+
+```bash
+export DEX_API_KEY=...
+dex-agents-claude-sdk
+```
+
+[Run against a remote Dex server](/reference/agents/cli#remote-server) 列出了全部设置，包括可以代替文件字段的 `DEX_TOKEN_URL` 和 `DEX_SERVER_ID`。
+
 ## 各部分由谁运行 {#what-runs-where}
 
 | | 由谁运行 |
