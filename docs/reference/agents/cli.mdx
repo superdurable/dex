@@ -128,8 +128,30 @@ writes **~/.dex/agents/HARNESS.yaml**, such as
 - when shell commands are allowed, the commands that run without approval.
 
 **--yes** writes and uses the defaults without asking. Without a terminal, the
-command runs on the defaults, writes nothing, and says to run **init**. Run
-**init** again at any time to replace the file.
+command runs on the defaults, writes nothing, and says to run **init**.
+
+Run **init** again at any time to update the file. It replaces only the fields
+it asks about: **model**, **system_prompt**, **connectors.enabled**,
+**workspace**, and the switches of **local_tools**. It keeps every other field
+of a valid file as written, such as **dex.server**, **dex.auth**,
+**dex.tls**, **connectors.mcp**, **mcp_servers**, **approval**, **media**,
+**sessions**, and the harness sections. At a terminal, each question offers
+the file's current value as its default. With **--yes**, the asked fields
+take the command's defaults and the rest stays.
+
+- A new system prompt removes **system_prompt_file**. An empty answer keeps
+  either field.
+- **local_tools.shell.allow** stays unless you enter a new list.
+- A section missing from the file gets its default.
+- **init** writes the file again from its values, so comments in the old file
+  are not kept.
+- A file that is not YAML or fails the configuration rules is replaced as if
+  there were none. The old file is copied to **HARNESS.yaml.bak**, and
+  **init** prints one line that says so.
+
+Changed in 0.6.9: **init** keeps the fields it does not ask about. Before, it
+wrote the whole file from its answers, so a configured Dex server and the
+other settings were lost.
 
 ```text
 dex-agents-NAME [run|init|connectors|sessions] [options]

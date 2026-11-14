@@ -332,6 +332,99 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), written);
   });
 
+  const remoteServerConfig = {
+    model: "scripted/old",
+    system_prompt: "Old instructions.",
+    dex: { server: "https://dex.example.com", auth: { mode: "bearer", source: "env" } },
+    connectors: { enabled: ["slack/team"] },
+    mcp_servers: { docs: { url: "https://mcp.example.com/mcp" } },
+    local_tools: { shell: { allow: ["git status"] } },
+    sessions: { summary: "off" },
+    builtin: { temperature: 0.2 },
+  };
+
+  test("init at a terminal offers the file's values and keeps every field it does not ask about", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`${JSON.stringify(remoteServerConfig, null, 2)}\n`);
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const output = new TextCollector(stdout);
+    const run = runAgentCli(scriptedHarness, {
+      argv: ["init"],
+      stdin,
+      stdout,
+      stderr: new PassThrough(),
+      isInteractive: true,
+      environment: home.environment(),
+    });
+    await output.waitFor("Model [scripted/old]: ");
+    stdin.write("scripted/new\n");
+    await output.waitFor("System prompt [the current prompt]: ");
+    stdin.write("\n");
+    await output.waitFor("[slack/team]: ");
+    stdin.write("hackernews\n");
+    await output.waitFor("Workspace");
+    stdin.write("\n");
+    await output.waitFor("Local tools, comma-separated [files, shell, web_fetch, browser]");
+    stdin.write("files, shell, browser\n");
+    assert.equal(await run, 0);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
+      model: "scripted/new",
+      system_prompt: "Old instructions.",
+      dex: remoteServerConfig.dex,
+      connectors: { enabled: ["hackernews"] },
+      mcp_servers: remoteServerConfig.mcp_servers,
+      workspace: "~/dex-agent-workspace",
+      local_tools: { files: true, shell: { enabled: true, allow: ["git status"] }, web_fetch: false, browser: true },
+      media: { store: "auto" },
+      sessions: { summary: "off" },
+      builtin: { temperature: 0.2 },
+    });
+  });
+
+  test("init --yes resets the asked fields to the defaults and keeps every other field", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`${JSON.stringify(remoteServerConfig, null, 2)}\n`);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
+      model: "scripted/default",
+      dex: remoteServerConfig.dex,
+      connectors: {},
+      mcp_servers: remoteServerConfig.mcp_servers,
+      workspace: "~/dex-agent-workspace",
+      local_tools: { files: true, shell: { enabled: true, allow: ["git status"] }, web_fetch: true, browser: true },
+      media: { store: "auto" },
+      sessions: { summary: "off" },
+      builtin: { temperature: 0.2 },
+    });
+  });
+
+  test("init replaces an invalid configuration file with the defaults, keeps a backup, and says so", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const invalidText = "dex:\n  server: https://dex.example.com\nlocal_tools:\n  files: yes\n";
+    home.writeConfig(invalidText);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.ok(
+      init.stderr.all.includes(
+        `${home.configPath} was invalid, so init replaced it; the old file is at ${home.configPath}.bak.`,
+      ),
+      init.stderr.all,
+    );
+    assert.equal(readFileSync(`${home.configPath}.bak`, "utf8"), invalidText);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
+      model: "scripted/default",
+      dex: { server: "auto" },
+      connectors: { mcp: "auto" },
+      workspace: "~/dex-agent-workspace",
+      local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: true, browser: true },
+      media: { store: "auto" },
+      sessions: { summary: "auto" },
+      builtin: {},
+    });
+  });
+
   test("an invalid configuration file stops the command with its error code and JSON Pointer", async () => {
     const home = new TestHome(enginePorts(engine));
     home.writeConfig("local_tools:\n  files: yes\n");

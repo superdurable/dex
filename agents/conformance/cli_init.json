@@ -1,0 +1,126 @@
+{
+  "description": "How init merges its answers into an existing, valid configuration file. existing is the parsed file, init is the document init writes from its answers when no file exists, and expected is the file init writes. Compare parsed values; key order and comments do not matter. Hand-written for the CLI cores; see README.md.",
+  "merge_cases": [
+    {
+      "name": "keeps-every-section-init-does-not-ask-about",
+      "description": "dex, connectors.mcp, mcp_servers, approval, media, sessions, and the harness section stay; the asked fields take the answers.",
+      "existing": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": "Old instructions.",
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": { "mode": "bearer", "source": "env" },
+          "tls": { "server_name": "dex.example.com" }
+        },
+        "connectors": { "mcp": "http://127.0.0.1:9000/mcp", "enabled": ["slack/team"] },
+        "mcp_servers": { "docs": { "url": "https://mcp.example.com/mcp" } },
+        "approval": { "always": ["docs__search"] },
+        "workspace": "~/old-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": true, "allow": ["git status"] }, "web_fetch": true, "browser": true },
+        "media": { "store": "s3://agent-media/sessions", "endpoint": "https://s3.example.com" },
+        "sessions": { "summary": "on" },
+        "builtin": { "temperature": 0.2 }
+      },
+      "init": {
+        "model": "openai/gpt-5",
+        "system_prompt": "New instructions.",
+        "dex": { "server": "auto" },
+        "connectors": { "mcp": "auto", "enabled": ["hackernews"] },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": false, "allow": [] }, "web_fetch": false, "browser": true },
+        "media": { "store": "auto" },
+        "sessions": { "summary": "auto" },
+        "builtin": {}
+      },
+      "expected": {
+        "model": "openai/gpt-5",
+        "system_prompt": "New instructions.",
+        "dex": {
+          "server": "https://dex.example.com",
+          "auth": { "mode": "bearer", "source": "env" },
+          "tls": { "server_name": "dex.example.com" }
+        },
+        "connectors": { "mcp": "http://127.0.0.1:9000/mcp", "enabled": ["hackernews"] },
+        "mcp_servers": { "docs": { "url": "https://mcp.example.com/mcp" } },
+        "approval": { "always": ["docs__search"] },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": false, "allow": ["git status"] }, "web_fetch": false, "browser": true },
+        "media": { "store": "s3://agent-media/sessions", "endpoint": "https://s3.example.com" },
+        "sessions": { "summary": "on" },
+        "builtin": { "temperature": 0.2 }
+      }
+    },
+    {
+      "name": "fills-missing-sections-from-init",
+      "description": "A top-level key the existing file lacks takes init's value.",
+      "existing": { "model": "scripted/old" },
+      "init": {
+        "model": "scripted/default",
+        "dex": { "server": "auto" },
+        "connectors": { "mcp": "auto" },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": true, "allow": [] }, "web_fetch": true, "browser": true },
+        "media": { "store": "auto" },
+        "sessions": { "summary": "auto" }
+      },
+      "expected": {
+        "model": "scripted/default",
+        "dex": { "server": "auto" },
+        "connectors": { "mcp": "auto" },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": true, "allow": [] }, "web_fetch": true, "browser": true },
+        "media": { "store": "auto" },
+        "sessions": { "summary": "auto" }
+      }
+    },
+    {
+      "name": "connectors-enabled-follows-init",
+      "description": "Without enabled in init, the file drops its enabled list and keeps connectors.mcp.",
+      "existing": { "connectors": { "mcp": "http://localhost:9000/mcp", "enabled": ["slack/team", { "github": { "tools": ["list_issues"] } }] } },
+      "init": { "connectors": { "mcp": "auto" } },
+      "expected": { "connectors": { "mcp": "http://localhost:9000/mcp" } }
+    },
+    {
+      "name": "keeps-map-connector-entries-init-passes-through",
+      "description": "init passes the existing entries through when the person keeps them; map entries stay.",
+      "existing": { "connectors": { "enabled": [{ "github": { "tools": ["list_issues"] } }] } },
+      "init": { "connectors": { "mcp": "auto", "enabled": [{ "github": { "tools": ["list_issues"] } }] } },
+      "expected": { "connectors": { "enabled": [{ "github": { "tools": ["list_issues"] } }] } }
+    },
+    {
+      "name": "keeps-system-prompt-file-without-a-system-prompt",
+      "description": "system_prompt_file stays when init writes no system_prompt.",
+      "existing": { "system_prompt_file": "prompt.md" },
+      "init": { "model": "scripted/default" },
+      "expected": { "model": "scripted/default", "system_prompt_file": "prompt.md" }
+    },
+    {
+      "name": "a-new-system-prompt-replaces-system-prompt-file",
+      "description": "The two fields cannot appear together, so a system_prompt from init drops system_prompt_file.",
+      "existing": { "system_prompt_file": "prompt.md" },
+      "init": { "system_prompt": "Answer briefly." },
+      "expected": { "system_prompt": "Answer briefly." }
+    },
+    {
+      "name": "system-prompt-and-model-come-from-init-only",
+      "description": "init owns model, system_prompt, and workspace: one init leaves out is dropped.",
+      "existing": { "model": "scripted/old", "system_prompt": "Old instructions.", "workspace": "~/old" },
+      "init": { "model": "scripted/default" },
+      "expected": { "model": "scripted/default" }
+    },
+    {
+      "name": "a-non-empty-shell-allow-list-replaces-the-file-list",
+      "description": "An allow list from init replaces the file's list.",
+      "existing": { "local_tools": { "shell": { "allow": ["git status"] } } },
+      "init": { "local_tools": { "files": true, "shell": { "enabled": true, "allow": ["ls"] }, "web_fetch": true, "browser": true } },
+      "expected": { "local_tools": { "files": true, "shell": { "enabled": true, "allow": ["ls"] }, "web_fetch": true, "browser": true } }
+    },
+    {
+      "name": "keeps-unknown-sections-whole",
+      "description": "Any other top-level key, such as another harness's section, stays as written.",
+      "existing": { "claude": { "max_turns": 4 }, "sessions": { "summary": "off" } },
+      "init": { "sessions": { "summary": "auto" }, "builtin": {} },
+      "expected": { "claude": { "max_turns": 4 }, "sessions": { "summary": "off" }, "builtin": {} }
+    }
+  ]
+}

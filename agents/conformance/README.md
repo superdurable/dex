@@ -15,7 +15,7 @@ The files are generated from the Python core and checked against the
 TypeScript core, except `connector_tools.json`, `mcp_dex_conventions.json`,
 `images.json`, and `approval_display.json`, which are hand-written and read by
 both cores' connector tool, MCP tool, image, and approval display tests, and `cli_config.json`,
-`cli_session_flow_types.json`, `cli_session_list.json`, and `cli_session_lease.json`, which are hand-written for the CLI cores in
+`cli_init.json`, `cli_session_flow_types.json`, `cli_session_list.json`, and `cli_session_lease.json`, which are hand-written for the CLI cores in
 [`../cli`](../cli), and `terminal_ui/`, which is hand-written for the CLI
 cores and `dexcli agents-tui`. A core passes when it passes all four parts below.
 
@@ -30,6 +30,7 @@ cores and `dexcli agents-tui`. A core passes when it passes all four parts below
 | [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping (with `mayHaveDispatched`, the fence check, when a case sets it), fence observation (the saved markers and earlier checkpoint that decide `mayHaveDispatched` and proof of no send; `<callId>` and `<otherCallId>` stand for the call's Call ID and another call's), default tool names (operation ID to snake case, as connectorctl `lowerCamelToSnake` names Python Step factories), result text, and truncation. Hand-written, not generated |
 | [`mcp_dex_conventions.json`](mcp_dex_conventions.json) | Dex MCP conventions: the `_meta` keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or a JSON-RPC error's outcome key is recorded, with the exact text. Hand-written, not generated |
 | [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, the media store, remote MCP servers and their header variables, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI cores; see [`../cli/README.md`](../cli/README.md) |
+| [`cli_init.json`](cli_init.json) | How `init` merges its answers into an existing, valid configuration file: the fields it replaces, the sections it keeps whole, `connectors.enabled`, `system_prompt_file`, and the shell allow list. Hand-written for the CLI cores |
 | [`cli_session_flow_types.json`](cli_session_flow_types.json) | CLI session Flow types: the 6-character base36 suffix each CLI core derives from the host name, user, configuration identity, and workspace, with ASCII, Windows, Unicode, and left-padded cases. Hand-written for the CLI cores |
 | [`cli_session_list.json`](cli_session_list.json) | How the CLI `sessions` subcommand loads SearchFlows pages: the row and request limits, short and empty pages that still have a next page token, and when the list says more sessions exist. Hand-written for the CLI cores |
 | [`cli_session_lease.json`](cli_session_lease.json) | One terminal per session: the waiting line, its spinner frames and timing, the plain line without a terminal, the line after taking a session over, the line when another terminal took it, and how the holder's time shows. Hand-written for the CLI cores |

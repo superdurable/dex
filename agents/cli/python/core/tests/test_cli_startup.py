@@ -145,6 +145,109 @@ async def test_ctrl_d_at_an_init_question_exits_with_1_and_writes_no_file(
     assert not cli_home.config_path.exists()
 
 
+_REMOTE_SERVER_CONFIG = {
+    "model": "scripted-old",
+    "system_prompt": "Old instructions.",
+    "dex": {"server": "https://dex.example.com", "auth": {"mode": "bearer", "source": "env"}},
+    "connectors": {"enabled": ["slack/team"]},
+    "mcp_servers": {"docs": {"url": "https://mcp.example.com/mcp"}},
+    "local_tools": {"shell": {"allow": ["git status"]}},
+    "sessions": {"summary": "off"},
+    "builtin": {"temperature": 0.2},
+}
+
+
+async def test_init_at_a_terminal_offers_the_file_values_and_keeps_unasked_fields(
+    cli_home: CliHome,
+) -> None:
+    cli_home.write_config(config_yaml(_REMOTE_SERVER_CONFIG))
+    child = cli_home.spawn("init")
+    answers = {
+        "Model [scripted-old]": "scripted-new",
+        "System prompt (empty keeps the current prompt)": "",
+        "Connectors to enable, comma-separated (empty for all authorized) [slack/team]": (
+            "hackernews"
+        ),
+        "Workspace": "",
+        "Allow file tools in the workspace? (y/n) [y]": "",
+        "Allow shell commands? (y/n) [y]": "",
+        "Commands that run without approval, comma-separated [git status]": "",
+        "Allow web fetching": "n",
+        "Allow a local browser": "",
+    }
+    for question, answer in answers.items():
+        await expect(child, question)
+        child.sendline(answer)
+    await expect(child, f"Wrote {cli_home.config_path}.")
+    assert await wait_for_exit(child) == 0
+    assert parse_config_yaml(cli_home.config_path.read_text()) == {
+        "model": "scripted-new",
+        "system_prompt": "Old instructions.",
+        "dex": _REMOTE_SERVER_CONFIG["dex"],
+        "connectors": {"enabled": ["hackernews"]},
+        "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+            "files": True,
+            "shell": {"enabled": True, "allow": ["git status"]},
+            "web_fetch": False,
+            "browser": True,
+        },
+        "media": {"store": "auto"},
+        "sessions": {"summary": "off"},
+        "builtin": {"temperature": 0.2},
+    }
+
+
+def test_init_yes_resets_the_asked_fields_and_keeps_every_other_field(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml(_REMOTE_SERVER_CONFIG))
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert parse_config_yaml(cli_home.config_path.read_text()) == {
+        "model": "scripted-model",
+        "dex": _REMOTE_SERVER_CONFIG["dex"],
+        "connectors": {},
+        "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+            "files": True,
+            "shell": {"enabled": True, "allow": ["git status"]},
+            "web_fetch": True,
+            "browser": True,
+        },
+        "media": {"store": "auto"},
+        "sessions": {"summary": "off"},
+        "builtin": {"temperature": 0.2},
+    }
+
+
+def test_init_replaces_an_invalid_file_keeps_a_backup_and_says_so(cli_home: CliHome) -> None:
+    invalid_text = "dex:\n  server: https://dex.example.com\nlocal_tools:\n  files: yes\n"
+    cli_home.write_config(invalid_text)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    backup_path = cli_home.config_path.with_name(cli_home.config_path.name + ".bak")
+    assert (
+        f"{cli_home.config_path} was invalid, so init replaced it; the old file is at "
+        f"{backup_path}." in completed.stdout
+    )
+    assert backup_path.read_text() == invalid_text
+    assert parse_config_yaml(cli_home.config_path.read_text()) == {
+        "model": "scripted-model",
+        "dex": {"server": "auto"},
+        "connectors": {"mcp": "auto"},
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+            "files": True,
+            "shell": {"enabled": True, "allow": []},
+            "web_fetch": True,
+            "browser": True,
+        },
+        "media": {"store": "auto"},
+        "sessions": {"summary": "auto"},
+    }
+
+
 async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_home: CliHome) -> None:
     completed = cli_home.run(stdin="hello there\n")
     assert completed.returncode == 0, completed.stderr
