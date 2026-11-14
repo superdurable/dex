@@ -133,7 +133,8 @@ class SessionPullPermit:
     listeners hear: the session's lease, which lasts the TTL from the
     Worker's handling of a request sent no earlier, expires only after that,
     so another terminal never pulls the queue while this one does. It runs on
-    the monotonic clock, so a wall clock change never moves it.
+    the monotonic clock, so a wall clock change never moves it. Nothing
+    extends an expired permit, nor one past its deadline, nor a cancelled one.
     """
 
     def __init__(
@@ -145,13 +146,15 @@ class SessionPullPermit:
             ttl_seconds: The lease's TTL.
             started_at: The ``time.monotonic()`` reading taken when pulling
                 started, or when the first acquire was sent.
-            stop_pulling: Stops the session Worker, when it still pulls this
-                session's task queue.
+            stop_pulling: Stops the session Worker, when it still pulls under
+                this permit.
         """
         self._ttl_seconds = ttl_seconds
         self._stop_pulling = stop_pulling
         self._deadline = started_at + self._valid_seconds()
         self._is_expired = False
+        self._is_cancelled = False
+        self._were_listeners_told = False
         self._timer: asyncio.TimerHandle | None = None
         self._expiry_listeners: list[Callable[[], None]] = []
         self._schedule()
@@ -174,23 +177,33 @@ class SessionPullPermit:
 
         Returns:
             Whether it was still valid, so the confirmation counts. An older
-            request's confirmation never shortens it.
+            request's confirmation never shortens it. A confirmation that
+            arrives once the deadline passed expires it at once, even before
+            its timer fires.
         """
-        if self._is_expired:
+        if self._is_cancelled or self._is_expired:
+            return False
+        if time.monotonic() >= self._deadline:
+            self._expire()
             return False
         self._deadline = max(self._deadline, sent_at + self._valid_seconds())
         self._schedule()
         return True
 
     def when_expired(self, listener: Callable[[], None]) -> None:
-        """Call ``listener`` once when it expires; at once when it expired already."""
-        if self._is_expired:
+        """Call ``listener`` once when it expired; at once when its listeners heard already."""
+        if self._were_listeners_told:
             listener()
             return
         self._expiry_listeners.append(listener)
 
     def cancel(self) -> None:
-        """Disarm it without stopping pulling or calling its listeners; the caller stops pulling."""
+        """Disarm it for good without stopping pulling or calling its listeners.
+
+        The caller stops pulling. A later confirmation, such as a renewal's
+        answer, fails and never arms it again.
+        """
+        self._is_cancelled = True
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
@@ -205,12 +218,19 @@ class SessionPullPermit:
         self._timer = asyncio.get_running_loop().call_later(self.remaining_seconds(), self._expire)
 
     def _expire(self) -> None:
-        if self._is_expired:
+        if self._is_cancelled or self._is_expired:
             return
         self._is_expired = True
         self._timer = None
         # Pulling stops before anything else, so no Step of the session runs here past the lease.
         self._stop_pulling()
+        # Queued after the Worker's close, which stops new tasks in its first step.
+        asyncio.get_running_loop().call_soon(self._tell_listeners)
+
+    def _tell_listeners(self) -> None:
+        if self._is_cancelled:
+            return
+        self._were_listeners_told = True
         listeners, self._expiry_listeners = self._expiry_listeners, []
         for listener in listeners:
             listener()
@@ -219,6 +239,7 @@ class SessionPullPermit:
 @dataclass
 class _PullingWorker:
     task_queue: str
+    permit: SessionPullPermit
     worker: AsyncWorker
     serving: asyncio.Task[None]
     started: asyncio.Task[None]
@@ -256,24 +277,31 @@ class SessionQueueWorker:
         """Return the task queue the current Worker pulls, or ``None``."""
         return None if self._current is None else self._current.task_queue
 
-    async def pull(self, task_queue: str, session_id: str) -> None:
-        """Pull a task queue from now on, instead of any other one.
+    async def pull(self, task_queue: str, session_id: str, permit: SessionPullPermit) -> None:
+        """Pull a task queue under a pull permit from now on, instead of any other queue.
+
+        Each permit gets its own Worker, so only that permit's expiry stops it.
 
         Args:
             task_queue: The session's task queue.
             session_id: The session, for the error when the Worker stopped while it started.
+            permit: The session's pull permit.
 
         Raises:
             SessionWorkerStartError: If the Worker did not start pulling.
             PullPermitExpiredError: If the Worker was stopped while it started.
         """
-        if self._current is None or self._current.task_queue != task_queue:
+        if (
+            self._current is None
+            or self._current.task_queue != task_queue
+            or self._current.permit is not permit
+        ):
             self.stop()
             self._incarnation += 1
             worker = self._create_worker(task_queue, self._app_worker_id_for(self._incarnation))
             serving = asyncio.create_task(worker.start())
             started = asyncio.create_task(_wait_until_pulling(worker, serving))
-            self._current = _PullingWorker(task_queue, worker, serving, started)
+            self._current = _PullingWorker(task_queue, permit, worker, serving, started)
         current = self._current
         # Unlike awaiting it, waiting raises nothing when a stop cancels the start.
         await asyncio.wait({current.started})
@@ -285,10 +313,22 @@ class SessionQueueWorker:
             raise SessionWorkerStartError(self._describe_start_failure(error)) from error
 
     def stop(self) -> None:
-        """Stop pulling; the Worker drains in the background, and ``close`` waits for that."""
+        """Stop pulling; the Worker drains in the background, and ``close`` waits for that.
+
+        The close's first step runs before any callback scheduled after this
+        call, and ``AsyncWorker.close`` stops new tasks before it first waits.
+        """
         current, self._current = self._current, None
         if current is not None:
             self._closings.append(asyncio.create_task(_close_pulling_worker(current)))
+
+    def stop_if_pulling_under(self, permit: SessionPullPermit) -> None:
+        """Stop pulling only when the current Worker pulls under ``permit``.
+
+        An older permit therefore never stops a newer Worker.
+        """
+        if self._current is not None and self._current.permit is permit:
+            self.stop()
 
     async def close(self) -> None:
         """Stop pulling and wait until every Worker this holder started has closed."""
@@ -314,7 +354,15 @@ async def _wait_until_pulling(worker: AsyncWorker, serving: asyncio.Task[None]) 
 
 
 async def _close_pulling_worker(pulling: _PullingWorker) -> None:
+    has_pulled = (
+        pulling.started.done()
+        and not pulling.started.cancelled()
+        and pulling.started.exception() is None
+    )
     pulling.started.cancel()
+    if not has_pulled:
+        # A start that resumes after close would still pull; cancelling it prevents that.
+        pulling.serving.cancel()
     try:
         await pulling.worker.close()
     except Exception as error:  # A failed close only loses this Worker's drain.
@@ -617,7 +665,7 @@ class SessionOpener:
             self._turn_refusal.refuse_turn(session_id, taken_over_turn_id)
         # Armed before the Worker starts, so every moment of pulling counts against the permit.
         permit = self._active_permit(session_id) or self._arm_permit(session_id, time.monotonic())
-        await self._session_worker.pull(session_task_queue(session_id), session_id)
+        await self._session_worker.pull(session_task_queue(session_id), session_id, permit)
         sent_at = time.monotonic()
         try:
             result = await self._acquire(self._sessions, session_id, permit.remaining_seconds())
@@ -657,7 +705,8 @@ class SessionOpener:
                 remaining time and ``LEASE_CALL_TIMEOUT_SECONDS`` bound it too.
 
         Raises:
-            PullPermitExpiredError: If the permit expired already.
+            PullPermitExpiredError: If the permit expired already, or before the
+                session confirmed the renewal.
             DexServiceError: If the call failed.
             TimeoutError: If the call took longer than its bound.
         """
@@ -670,8 +719,8 @@ class SessionOpener:
             session_id,
             min(timeout, permit.remaining_seconds()),
         )
-        if result.is_acquired:
-            permit.confirm(sent_at)
+        if result.is_acquired and not permit.confirm(sent_at):
+            raise PullPermitExpiredError(session_id)
         return result
 
     async def read_stored_lease(self, session_id: str) -> SessionTerminalLease | None:
@@ -739,15 +788,10 @@ class SessionOpener:
         """Stop pulling a session's task queue without releasing its lease."""
         # The permit is disarmed without its listeners: the caller ends the session on purpose.
         permit = self._permits.pop(session_id, None)
-        if permit is not None:
-            permit.cancel()
-        session = self._opened_sessions.get(session_id)
-        if (
-            session is not None
-            and session.has_session_task_queue
-            and self._session_worker.task_queue == session_task_queue(session_id)
-        ):
-            self._session_worker.stop()
+        if permit is None:
+            return
+        permit.cancel()
+        self._session_worker.stop_if_pulling_under(permit)
 
     def _granted_within(
         self,
@@ -818,8 +862,7 @@ class SessionOpener:
             previous.cancel()
 
         def stop_pulling() -> None:
-            if self._session_worker.task_queue == session_task_queue(session_id):
-                self._session_worker.stop()
+            self._session_worker.stop_if_pulling_under(permit)
             _LOGGER.warning(
                 "session pull permit expired; stopped pulling its task queue: session=%s",
                 session_id,

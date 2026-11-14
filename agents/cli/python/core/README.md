@@ -87,7 +87,11 @@ confirmed extends it, to that request's send time plus the same span. Every
 lease read, acquire, and renewal is bounded by the time the permit has left,
 and a renewal, sent every third of the TTL, also by one renewal interval.
 When the permit expires, whatever is in progress, the session Worker stops
-pulling first. Before the lease is held, the command then waits and tries
+pulling first, and its listeners hear only after the Worker's close stopped
+new tasks. An answer that arrives once the deadline passed expires the permit
+at once, even before its timer fires. Each permit gets its own Worker, and
+leaving a session cancels its permit for good, so an old permit never stops a
+newer Worker. Before the lease is held, the command then waits and tries
 again: an acquire answer that arrives after the permit expired grants
 nothing, and the next attempt pulls and confirms again. Once the lease is
 held, the chat ends with one line and exit code 1 without releasing the

@@ -118,19 +118,21 @@ export class PullPermitExpiredError extends Error {
  * The time a session Worker may pull a session's task queue without a confirmed lease: from the start of pulling,
  * then from the send of each acquire or renewal that the session confirmed, plus the TTL minus the safety margin.
  *
- * When the permit expires, it stops pulling first, then tells its listeners. Nothing extends an expired permit.
+ * When the permit expires, it stops pulling first, then tells its listeners. Nothing extends an expired permit, nor
+ * one past its deadline, nor a cancelled one.
  */
 export class SessionPullPermit {
   private deadlineMs: number;
   private timer: NodeJS.Timeout | undefined;
   private isExpiredState = false;
+  private isCancelled = false;
   private readonly expiryListeners: (() => void)[] = [];
 
   /**
    * Arms the permit.
    * @param ttlMs - The lease's TTL.
    * @param startedAtMs - The {@link monotonicNowMs} time pulling started, or the first acquire was sent.
-   * @param stopPulling - Stops the session Worker, when it still pulls this session's task queue.
+   * @param stopPulling - Stops the session Worker, when it still pulls under this permit.
    */
   public constructor(
     private readonly ttlMs: number,
@@ -154,10 +156,15 @@ export class SessionPullPermit {
   /**
    * Extends the permit to the TTL minus the safety margin after a request that the session confirmed.
    * @param sentAtMs - The {@link monotonicNowMs} time the confirmed acquire or renewal was sent.
-   * @returns Whether the permit was still valid, so the confirmation counts.
+   * @returns Whether the permit was still valid, so the confirmation counts. A confirmation that arrives once the
+   * deadline passed expires the permit at once, even before its timer fires.
    */
   public confirm(sentAtMs: number): boolean {
-    if (this.isExpiredState) {
+    if (this.isCancelled || this.isExpiredState) {
+      return false;
+    }
+    if (monotonicNowMs() >= this.deadlineMs) {
+      this.expire();
       return false;
     }
     this.deadlineMs = Math.max(this.deadlineMs, sentAtMs + this.validMs());
@@ -177,8 +184,12 @@ export class SessionPullPermit {
     this.expiryListeners.push(listener);
   }
 
-  /** Disarms the permit without stopping pulling or telling its listeners; the caller stops the Worker. */
+  /**
+   * Disarms the permit for good without stopping pulling or telling its listeners; the caller stops the Worker. A
+   * later confirmation, such as a renewal's answer, fails and never arms it again.
+   */
   public cancel(): void {
+    this.isCancelled = true;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.expiryListeners.length = 0;
@@ -195,7 +206,7 @@ export class SessionPullPermit {
   }
 
   private expire(): void {
-    if (this.isExpiredState) {
+    if (this.isCancelled || this.isExpiredState) {
       return;
     }
     this.isExpiredState = true;
@@ -213,7 +224,14 @@ export class SessionPullPermit {
  * queue, so each queue gets a new Worker with a new app Worker ID.
  */
 export class SessionQueueWorker {
-  private current: { readonly taskQueue: string; readonly worker: Worker; readonly started: Promise<void> } | undefined;
+  private current:
+    | {
+        readonly taskQueue: string;
+        readonly permit: SessionPullPermit;
+        readonly worker: Worker;
+        readonly started: Promise<void>;
+      }
+    | undefined;
   private readonly closings: Promise<void>[] = [];
   private incarnation = 0;
 
@@ -235,18 +253,20 @@ export class SessionQueueWorker {
   }
 
   /**
-   * Pulls a task queue from now on, instead of any other one.
+   * Pulls a task queue under a pull permit from now on, instead of any other queue. Each permit gets its own Worker,
+   * so only that permit's expiry stops it.
    * @param taskQueue - The session's task queue.
    * @param sessionId - The session, for the error when the Worker stopped while it started.
+   * @param permit - The session's pull permit.
    * @throws {SessionWorkerStartError} When the Worker did not start.
    * @throws {PullPermitExpiredError} When the Worker was stopped while it started.
    */
-  public async pull(taskQueue: string, sessionId: string): Promise<void> {
-    if (this.current?.taskQueue !== taskQueue) {
+  public async pull(taskQueue: string, sessionId: string, permit: SessionPullPermit): Promise<void> {
+    if (this.current?.taskQueue !== taskQueue || this.current?.permit !== permit) {
       this.stop();
       this.incarnation += 1;
       const worker = this.createWorker(taskQueue, this.appWorkerIdFor(this.incarnation));
-      this.current = { taskQueue, worker, started: this.startWorker(worker) };
+      this.current = { taskQueue, permit, worker, started: this.startWorker(worker) };
     }
     const current = this.current;
     try {
@@ -266,12 +286,25 @@ export class SessionQueueWorker {
     }
   }
 
-  /** Stops pulling; the Worker drains its running tasks in the background, and {@link close} waits for that. */
+  /**
+   * Stops pulling; the Worker drains its running tasks in the background, and {@link close} waits for that. The
+   * Worker takes no new task once this returns: `Worker.close` stops new tasks before its first await.
+   */
   public stop(): void {
     const current = this.current;
     this.current = undefined;
     if (current !== undefined) {
       this.closings.push(current.worker.close().catch(() => undefined));
+    }
+  }
+
+  /**
+   * Stops pulling only when the current Worker pulls under `permit`, so an older permit never stops a newer Worker.
+   * @param permit - The pull permit that expired.
+   */
+  public stopIfPullingUnder(permit: SessionPullPermit): void {
+    if (this.current?.permit === permit) {
+      this.stop();
     }
   }
 
@@ -504,7 +537,7 @@ export class SessionOpener {
     }
     // Armed before the Worker starts, so every moment of pulling counts against the permit.
     const permit = this.activePermit(sessionId) ?? this.armPermit(sessionId, monotonicNowMs());
-    await sessionWorker.pull(sessionTaskQueue(sessionId), sessionId);
+    await sessionWorker.pull(sessionTaskQueue(sessionId), sessionId, permit);
     const sentAtMs = monotonicNowMs();
     let result: SessionTerminalLeaseResult;
     try {
@@ -591,7 +624,7 @@ export class SessionOpener {
    * @param sessionId - The session.
    * @param timeoutMs - The longest the call may take; the permit's remaining time bounds it too.
    * @returns The lease RPC's result.
-   * @throws {PullPermitExpiredError} When the permit expired already.
+   * @throws {PullPermitExpiredError} When the permit expired already, or before the session confirmed the renewal.
    */
   public async renew(sessionId: string, timeoutMs: number): Promise<SessionTerminalLeaseResult> {
     const { client, holder, ttlSeconds, environment } = this.options;
@@ -604,8 +637,8 @@ export class SessionOpener {
       acquireSessionLease(client, this.flowOf(sessionId), sessionId, holder, ttlSeconds, environment),
       Math.min(timeoutMs, permit.remainingMs()),
     );
-    if (result.isAcquired) {
-      permit.confirm(sentAtMs);
+    if (result.isAcquired && !permit.confirm(sentAtMs)) {
+      throw new PullPermitExpiredError(sessionId);
     }
     return result;
   }
@@ -621,9 +654,7 @@ export class SessionOpener {
     const { ttlSeconds, sessionWorker, writeLogLine } = this.options;
     this.permits.get(sessionId)?.cancel();
     const permit = new SessionPullPermit(ttlSeconds * 1_000, startedAtMs, () => {
-      if (sessionWorker.taskQueue === sessionTaskQueue(sessionId)) {
-        sessionWorker.stop();
-      }
+      sessionWorker.stopIfPullingUnder(permit);
       writeLogLine(`session pull permit expired; stopped pulling its task queue: session=${sessionId}`);
     });
     this.permits.set(sessionId, permit);
@@ -711,14 +742,14 @@ export class SessionOpener {
    * @param sessionId - The session.
    */
   public leave(sessionId: string): void {
-    const { sessionWorker } = this.options;
-    // The permit is disarmed without its listeners: the caller is ending the session on purpose.
-    this.permits.get(sessionId)?.cancel();
-    this.permits.delete(sessionId);
-    const session = this.openedSessions.get(sessionId);
-    if (session?.hasSessionTaskQueue === true && sessionWorker.taskQueue === sessionTaskQueue(sessionId)) {
-      sessionWorker.stop();
+    const permit = this.permits.get(sessionId);
+    if (permit === undefined) {
+      return;
     }
+    // The permit is disarmed without its listeners: the caller is ending the session on purpose.
+    permit.cancel();
+    this.permits.delete(sessionId);
+    this.options.sessionWorker.stopIfPullingUnder(permit);
   }
 
   private flowOf(sessionId: string): SessionFlow {

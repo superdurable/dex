@@ -29,6 +29,7 @@ import pexpect
 import pytest
 from dex import (
     AsyncClient,
+    AsyncWorker,
     BlobCacheConfig,
     ClientOptions,
     ErrorSubStatus,
@@ -51,6 +52,7 @@ from dex_agents_cli_core.harness import (
     session_start_environment,
 )
 from dex_agents_cli_core.session_lease import (
+    PullPermitExpiredError,
     SessionLeaseHolder,
     build_lease_unconfirmed_line,
     build_took_over_line,
@@ -894,15 +896,181 @@ async def test_only_a_confirmation_extends_a_pull_permit_from_the_confirmed_send
 
 
 async def test_an_answer_after_a_pull_permit_expired_grants_nothing() -> None:
-    stopped_at: list[float] = []
-    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: stopped_at.append(time.monotonic()))
-    await _wait_for(lambda: stopped_at[0] if stopped_at else None, 1)
+    told_at: list[float] = []
+    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: None)
+    permit.when_expired(lambda: told_at.append(time.monotonic()))
+    await _wait_for(lambda: told_at[0] if told_at else None, 1)
     assert permit.is_expired
     assert not permit.confirm(time.monotonic())
     assert permit.is_expired
     told: list[bool] = []
     permit.when_expired(lambda: told.append(True))
     assert told == [True], "a listener of an expired permit hears at once"
+
+
+async def test_a_confirmation_after_the_deadline_expires_the_pull_permit_before_its_timer() -> None:
+    events: list[str] = []
+    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: events.append("stopped pulling"))
+    permit.when_expired(lambda: events.append("told the chat"))
+    # The timer cannot fire before this synchronous call returns.
+    assert not permit.confirm(time.monotonic())
+    assert permit.is_expired
+    assert events == ["stopped pulling"]
+    await asyncio.sleep(0)
+    assert events == ["stopped pulling", "told the chat"]
+    assert not permit.confirm(time.monotonic())
+
+
+async def test_a_cancelled_pull_permit_takes_no_confirmation_and_never_stops_pulling() -> None:
+    events: list[str] = []
+    # 0.1 s remain before the old deadline.
+    permit = SessionPullPermit(1, time.monotonic() - 0.7, lambda: events.append("stopped pulling"))
+    permit.when_expired(lambda: events.append("told the chat"))
+    permit.cancel()
+    # A renewal in flight when the session was left answers now.
+    assert not permit.confirm(time.monotonic())
+    await asyncio.sleep(0.3)
+    assert events == []
+    assert not permit.is_expired
+
+
+class _RecordingWorker:
+    """A session Worker that only records when it closes."""
+
+    def __init__(self, events: list[str], name: str) -> None:
+        self._events = events
+        self._name = name
+        self._closed = asyncio.Event()
+
+    async def start(self) -> None:
+        await self._closed.wait()
+
+    async def wait_pull_registered(self, timeout: float | None = None) -> None:
+        return None
+
+    async def close(self) -> None:
+        # Like AsyncWorker.close, it stops new tasks before it first waits.
+        self._events.append(f"closed {self._name}")
+        self._closed.set()
+
+
+def _recording_queue_worker(events: list[str]) -> SessionQueueWorker:
+    return SessionQueueWorker(
+        lambda task_queue, app_worker_id: cast(
+            AsyncWorker, _RecordingWorker(events, f"{app_worker_id} of {task_queue}")
+        ),
+        lambda incarnation: f"worker-{incarnation}",
+        str,
+    )
+
+
+async def test_an_older_pull_permits_expiry_never_stops_a_newer_worker_of_the_same_queue() -> None:
+    events: list[str] = []
+    session_worker = _recording_queue_worker(events)
+    # 0.1 s remain; the Worker stops without cancelling the permit, to isolate the Worker check.
+    older_permit = SessionPullPermit(
+        1, time.monotonic() - 0.7, lambda: session_worker.stop_if_pulling_under(older_permit)
+    )
+    await session_worker.pull("s-queue", "session", older_permit)
+    session_worker.stop()
+    newer_permit = SessionPullPermit(
+        60, time.monotonic(), lambda: session_worker.stop_if_pulling_under(newer_permit)
+    )
+    try:
+        await session_worker.pull("s-queue", "session", newer_permit)
+        await _wait_for(lambda: 1.0 if older_permit.is_expired else None, 1)
+        assert older_permit.is_expired
+        assert session_worker.task_queue == "s-queue", "the newer Worker still pulls"
+        assert events == ["closed worker-1 of s-queue"]
+    finally:
+        newer_permit.cancel()
+        await session_worker.close()
+
+
+async def test_a_new_pull_permit_gets_a_new_worker_even_for_the_same_queue() -> None:
+    events: list[str] = []
+    session_worker = _recording_queue_worker(events)
+    first_permit = SessionPullPermit(60, time.monotonic(), lambda: None)
+    second_permit = SessionPullPermit(60, time.monotonic(), lambda: None)
+    try:
+        await session_worker.pull("s-queue", "session", first_permit)
+        await session_worker.pull("s-queue", "session", first_permit)
+        await asyncio.sleep(0)
+        assert events == [], "the same permit keeps its Worker"
+        await session_worker.pull("s-queue", "session", second_permit)
+        await asyncio.sleep(0)
+        assert events == ["closed worker-1 of s-queue"]
+        session_worker.stop_if_pulling_under(first_permit)
+        assert session_worker.task_queue == "s-queue"
+        session_worker.stop_if_pulling_under(second_permit)
+        assert session_worker.task_queue is None
+        await asyncio.sleep(0)
+        assert events == ["closed worker-1 of s-queue", "closed worker-2 of s-queue"]
+    finally:
+        first_permit.cancel()
+        second_permit.cancel()
+        await session_worker.close()
+
+
+class _SlowStartWorker:
+    """A session Worker whose start pulls once its Server answers, even after a close."""
+
+    def __init__(self, events: list[str], server_answered: asyncio.Event) -> None:
+        self._events = events
+        self._server_answered = server_answered
+        self._pulling = asyncio.Event()
+        self._closed = asyncio.Event()
+
+    async def start(self) -> None:
+        await self._server_answered.wait()
+        self._events.append("pulling")
+        self._pulling.set()
+        await self._closed.wait()
+
+    async def wait_pull_registered(self, timeout: float | None = None) -> None:
+        await self._pulling.wait()
+
+    async def close(self) -> None:
+        self._events.append("closed")
+        self._closed.set()
+
+
+async def test_a_worker_stopped_while_it_starts_never_pulls_once_its_server_answers() -> None:
+    events: list[str] = []
+    server_answered = asyncio.Event()
+    session_worker = SessionQueueWorker(
+        lambda task_queue, app_worker_id: cast(
+            AsyncWorker, _SlowStartWorker(events, server_answered)
+        ),
+        lambda incarnation: f"worker-{incarnation}",
+        str,
+    )
+    permit = SessionPullPermit(60, time.monotonic(), lambda: None)
+    try:
+        pulling = asyncio.create_task(session_worker.pull("s-queue", "session", permit))
+        await asyncio.sleep(0)
+        # The permit expires while the Worker still waits for its Server.
+        session_worker.stop()
+        with pytest.raises(PullPermitExpiredError):
+            await pulling
+        server_answered.set()
+        await session_worker.close()
+        assert events == ["closed"]
+    finally:
+        permit.cancel()
+
+
+async def test_a_pull_permits_expiry_stops_new_tasks_before_it_tells_listeners() -> None:
+    events: list[str] = []
+    session_worker = _recording_queue_worker(events)
+    permit = SessionPullPermit(
+        1, time.monotonic() - 0.7, lambda: session_worker.stop_if_pulling_under(permit)
+    )
+    permit.when_expired(lambda: events.append("told the chat"))
+    await session_worker.pull("s-queue", "session", permit)
+    await _wait_for(lambda: 1.0 if "told the chat" in events else None, 1)
+    assert events == ["closed worker-1 of s-queue", "told the chat"]
+    await session_worker.close()
 
 
 async def test_a_pull_permit_runs_on_the_monotonic_clock_so_a_wall_clock_jump_never_moves_it(
