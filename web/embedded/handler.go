@@ -104,7 +104,7 @@ type Target struct {
 	// when your page draws the navigation around Dex Web, such as a Dex Server's own rail in your console: Dex Web
 	// then draws no rail, and its bar starts with the name of the page it shows.
 	//
-	// Since 1.45.3.
+	// Since 1.45.4.
 	HasHostNavigation bool
 }
 
