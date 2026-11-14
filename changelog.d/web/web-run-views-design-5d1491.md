@@ -21,7 +21,7 @@ section: Changed
   window, step durability, active step search, or Attribute stores.
 - The selected event's related events read as **From** and **To**, and each
   link names only the other event, such as
-  `ResumeTurn-1 · WaitFor completed · #8 · 44ms before`.
+  **ResumeTurn-1 · WaitFor completed · #8 · 44ms before**.
 - **Configuration** edits open on the current value and keep **Save** off until
   the value changes. A smaller retention window warns before it deletes older
   events, and Attribute sync turns off only through an explicit choice.
