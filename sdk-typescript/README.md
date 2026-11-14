@@ -460,6 +460,24 @@ capacity but does not guarantee latency when RPCs occupy all slots.
 `pullReservedRpcDeclines` is deprecated and always returns zero. It remains
 available after shutdown for source compatibility.
 
+#### Named task queues
+
+Set `PullWorkerOptions.taskQueue` to make a Worker pull one named task queue,
+and `StartFlowOptions.taskQueue` to start a Flow on it. Only Workers of that
+task queue run the Flow's Steps and RPCs, even when Workers of other task queues
+register the same Flow type. Omitted means the default task queue. A SubFlow
+inherits its parent's task queue unless `SubFlowOptions.taskQueue` names another;
+`dex.default` selects the default task queue. One Worker pulls one task queue, so
+run one Worker per task queue to serve several. A named task queue requires
+Server protocol 5. See the doc comment of `PullWorkerOptions.taskQueue` for the
+name rules and failure behavior.
+
+```ts
+const blueWorker = new Worker(registry, cache, { pull: { taskQueue: "blue" } });
+await blueWorker.start();
+await client.startFlow(orderFlow, "order-42", input, { taskQueue: "blue" });
+```
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with

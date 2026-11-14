@@ -903,6 +903,49 @@ test("Client wait negotiation accepts a request timeout longer than the Node tim
   }
 });
 
+test("Client startFlow sends a task queue only to a Server with protocol 5", async () => {
+  for (const currentProtocolVersion of [4, 5]) {
+    const starts: StartFlowRequest[] = [];
+    const server = new Server();
+    server.addService(FlowServiceService, {
+      getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+        callback(null, { serverVersion: "test", minimumSupportedProtocolVersion: 1, currentProtocolVersion, serverEngine: 0 });
+      },
+      startFlow(call, callback: sendUnaryData<StartFlowResponse>) {
+        starts.push(call.request as StartFlowRequest);
+        callback(null, { runId: "run-1" });
+      },
+    } as Partial<FlowServiceServer> as FlowServiceServer);
+    const port = await bind(server);
+    const flow = new TestFlow();
+    const client = new Client(new Registry([flow]), new MemoryBlobCache(), {
+      serverAddress: `127.0.0.1:${port}`,
+    });
+    try {
+      for (const invalid of ["dex.other", "has space", "q".repeat(64)]) {
+        await assert.rejects(client.startFlow(flow, "flow-1", { message: "hi" }, { taskQueue: invalid }), TypeError);
+      }
+      assert.equal(await client.startFlow(flow, "flow-1", { message: "hi" }), "run-1");
+      assert.deepEqual(starts.at(-1)?.flowStartOptions?.flowConfigOverride?.workerTarget, { isPullMode: true, taskQueue: "" });
+      if (currentProtocolVersion === 4) {
+        await assert.rejects(
+          client.startFlow(flow, "flow-1", { message: "hi" }, { taskQueue: "blue" }),
+          /startFlow with task queue "blue" requires Server protocol version 5 or later; negotiated protocol version is 4/,
+        );
+        assert.equal(starts.length, 1);
+      } else {
+        for (const taskQueue of ["blue", "dex.default"]) {
+          await client.startFlow(flow, "flow-1", { message: "hi" }, { taskQueue });
+          assert.deepEqual(starts.at(-1)?.flowStartOptions?.flowConfigOverride?.workerTarget, { isPullMode: true, taskQueue });
+        }
+      }
+    } finally {
+      await client.close();
+      server.forceShutdown();
+    }
+  }
+});
+
 function serviceError(code: status, subStatus: ErrorSubStatus): ServiceError {
   const response = ServiceErrorResponse.encode({
     detail: "long poll timed out",
