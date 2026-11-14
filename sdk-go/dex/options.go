@@ -586,6 +586,9 @@ type RPCOptions struct {
 // The Client merges these selections with the RPC's registered RPCOptions. Invocation options
 // cannot remove registered locks or loads. AttributeMap locks and loads remain independent; a
 // read-modify-write RPC must include the same instance in both fields.
+//
+// RequestID sets the invocation's request ID, so a retried call applies its Flow state changes
+// at most once.
 type RPCInvokeOptions struct {
 	// LockAttributeMapInstances are acquired with the RPC's registered Attribute locks.
 	// Every lock must be created with LockAttributeMap.
@@ -594,6 +597,78 @@ type RPCInvokeOptions struct {
 	LoadAttributeMapInstances []AttributeMapLoad
 	// LoadChannelMapInstances adds exact ChannelMap instance messages to the RPC snapshot.
 	LoadChannelMapInstances []ChannelMapLoad
+	// RequestID identifies this invocation for Dex request deduplication, so a retried call does
+	// not apply its Flow state changes twice. Nil, the default, sends a new SDK-generated UUID on
+	// every call, so every call runs as a new request.
+	//
+	// Set a stable request ID when one logical call may be sent more than once. Examples are a
+	// retry after a deadline or an UNAVAILABLE error whose outcome is unknown, and a Trigger that
+	// delivers each event at least once and retries a failed delivery. Derive the ID from the
+	// business event. When one event invokes several RPCs on the same Flow run, give each RPC its
+	// own ID, such as the event ID followed by the RPC name. A non-nil RequestID must not be empty;
+	// the Client returns an error before it sends the request. Dex Server sets no other length or
+	// character rule.
+	//
+	// Dex Server records the request ID and the reply when the RPC's result commits. A later call
+	// with the same request ID on the same Flow run returns the recorded reply and applies no
+	// changes. A call that fails, for example with a Worker error, a lock conflict, or a deadline
+	// before the commit, records nothing. A retry with the same request ID then runs the RPC again.
+	//
+	// Use a transactional or locking RPC, registered with RPCOptions.IsTransactional or
+	// RPCOptions.LockAttributes, for idempotent writes. For such an RPC, Dex answers a recorded
+	// request ID before it dispatches the call, so the handler does not run again. A concurrent
+	// call with the same request ID waits for the call in flight and returns its result. After an
+	// UNAVAILABLE error whose commit outcome is unknown, a retry can run the handler again. Dex
+	// still commits only the first result, and the retry returns its reply.
+	//
+	// A non-transactional RPC without locks runs its handler on a Worker on every call. When the
+	// result changes Flow state, Dex commits it like a transactional result: for a recorded
+	// request ID, Dex discards the new changes and returns the recorded reply. A non-transactional
+	// result that changes nothing is never recorded or compared. In every case, side effects of
+	// the handler outside Dex, such as an HTTP call, can repeat.
+	//
+	// Dex compares the whole request sent under one request ID: the RPC name, the input, and every
+	// registered and invocation option that the Client sends, such as the timeout, locks, and
+	// loads. A call that reuses a recorded request ID for a different request fails with a
+	// *ServiceError whose Code is codes.InvalidArgument. Its Detail says that the request ID was
+	// already used for a different request. Dex applies none of that call's changes.
+	//
+	// Each Flow run keeps only its newest request IDs. The Server limit
+	// limits.maxRequestIdsPerRun sets how many, 1000 by default, and each run keeps the value it
+	// started with. Request IDs of other recorded Client requests to the run, such as Attribute
+	// writes, count toward the same limit. A call with an older, forgotten request ID runs as a
+	// new request. A new run of the same Flow ID starts with no recorded request IDs.
+	//
+	// After the Flow closes, a transactional or locking RPC with a recorded request ID still
+	// returns its recorded reply, until Dex deletes the closed run after its retention period.
+	// With a request ID that is not recorded, it returns FlowNotActiveOrNotFoundError.
+	//
+	// A run over its Flow state budget, the Server limit limits.maxFlowStateBytes, keeps no
+	// request ID for a transactional or locking RPC that changes no Flow state. A retry of such an
+	// RPC runs as a new request, and after the Flow closes it returns
+	// FlowNotActiveOrNotFoundError. An RPC that changes Flow state keeps its request ID whenever
+	// it commits.
+	//
+	// Deliver an event to a transactional RPC, retrying until the delivery succeeds:
+	//
+	//	// IncrementCounter is registered with &dex.RPCOptions{IsTransactional: true}.
+	//	func deliverCounterEvent(ctx context.Context, client *dex.Client, event CounterEvent) error {
+	//		requestID := event.ID + "/IncrementCounter"
+	//		var total int
+	//		return client.InvokeRPCWithOptions(
+	//			ctx,
+	//			event.FlowID,
+	//			CounterFlow{}.IncrementCounter,
+	//			event.Delta,
+	//			&total,
+	//			dex.RPCInvokeOptions{RequestID: &requestID},
+	//		)
+	//	}
+	//
+	// Each retry of deliverCounterEvent for the same event adds event.Delta at most once.
+	//
+	// Since 1.45.3.
+	RequestID *string
 }
 
 // WaitForFlowOptions controls Flow-result hydration.

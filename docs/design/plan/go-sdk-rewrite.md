@@ -71,9 +71,9 @@ adding aliases.
   decision returned by RPC.
 - Channel sizes are supplied only to Worker RPC invocations.
 - StartFlow and InvokeRPC require a request ID. The SDK generates it, except
-  that StartFlow may use a caller-supplied business identifier. Durable Step
-  and Attribute waits accept an optional Request ID, which the server does not
-  read.
+  that StartFlow and InvokeRPCWithOptions may use a caller-supplied business
+  identifier. Durable Step and Attribute waits accept an optional Request ID,
+  which the server does not read.
 - StartFlow and SubFlow always set the wire Worker target to pull mode.
   UpdateFlowConfig omits that field to preserve the existing Flow target.
 - Large string/object `Value` arms may contain blob IDs. Phase 4 wires the
@@ -1195,10 +1195,10 @@ known inconsistencies:
    zero as no Dex soft Flow timeout and rejects only negative values. Positive
    values continue to round up to whole seconds.
 2. The current server requires `request_id` for StartFlow and every InvokeRPC.
-   Only StartFlow exposes an override because its request ID may be a business
-   identifier. IDs for InvokeRPC are generated and remain internal. Durable
-   Step and Attribute waits accept optional overrides and otherwise derive IDs
-   on the server.
+   StartFlow and InvokeRPCWithOptions expose an override because their request
+   ID may be a business identifier. Plain InvokeRPC always generates its ID.
+   Durable Step and Attribute waits accept optional overrides and otherwise
+   derive IDs on the server.
 3. `StepExecutionID.ExecutionNumber` remains optional. Nil means execution one.
    SkipTimer keeps the existing proto and server contract; the Client formats
    the effective step execution ID before sending it.
@@ -1408,7 +1408,8 @@ Request ID generation moves out of the Phase 2 pure mappers and into the Client
 entry methods. The Client generates one random UUID for:
 
 - StartFlow, unless `StartFlowOptions.RequestID` is non-nil;
-- every InvokeRPC, whether it is locking or non-locking.
+- every InvokeRPC, whether it is locking or non-locking, unless
+  `RPCInvokeOptions.RequestID` is non-nil.
 
 A non-nil StartFlow override must be non-empty. It may be a stable business
 identifier, supports a logical retry spanning separate Client calls, and is
@@ -1510,7 +1511,8 @@ Before transport, the Client:
 - verifies that `input` is assignable to the method's IN type;
 - requires `outputPtr` to be a non-nil pointer compatible with OUT;
 - uses the descriptor's validated locks and selective loads; and
-- encodes the input and generates one request ID.
+- encodes the input and generates one request ID, unless
+  `RPCInvokeOptions.RequestID` supplies a non-empty one.
 
 The response output is hydrated before it is decoded into `outputPtr`. A nil or
 empty output Value is a response error. The Client can validate method shape

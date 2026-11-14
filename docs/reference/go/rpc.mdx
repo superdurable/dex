@@ -26,6 +26,7 @@ them in the [Go SDK API reference](./index.mdx#api-reference).
 | Let a person invoke the RPC from Dex Web | **Action** of **RPCOptions**, with **DefineAction** | [Actions](/reference/web/dex-web#actions) |
 | Invoke the RPC from a Client | **Client.InvokeRPC** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
 | Lock or load map instances chosen at call time | **RPCInvokeOptions**, with **Client.InvokeRPCWithOptions** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+| Apply a retried call's changes at most once | **RequestID** of **RPCInvokeOptions**, with **Client.InvokeRPCWithOptions**. Since 1.45.3. | [Limits](/reference/server/configuration#limits) |
 
 ## Example {#example}
 

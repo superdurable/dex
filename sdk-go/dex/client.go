@@ -554,7 +554,7 @@ func (client *Client) StartFlow(
 	if err := client.serverProtocol.requireTaskQueueSupport(options.TaskQueue); err != nil {
 		return "", err
 	}
-	requestID, err := resolveStartRequestID(options.RequestID)
+	requestID, err := resolveClientRequestID("StartFlow", options.RequestID)
 	if err != nil {
 		return "", err
 	}
@@ -746,12 +746,12 @@ func validateInitialAttributes(
 	return resolved, nil
 }
 
-func resolveStartRequestID(override *string) (string, error) {
+func resolveClientRequestID(operation string, override *string) (string, error) {
 	if override == nil {
 		return newRequestID()
 	}
 	if *override == "" {
-		return "", fmt.Errorf("dex: StartFlow request ID must not be empty")
+		return "", fmt.Errorf("dex: %s request ID must not be empty", operation)
 	}
 	return *override, nil
 }
@@ -1665,6 +1665,8 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 // Unlike queued Steps, an RPC fails if no Worker accepts it within the Server dispatch wait.
 // Changed in SDK v1.35.0: a registered RPCOptions.Name overrides the Go method name on the wire.
 // An omitted input is accepted as None for an RPC whose input type is None.
+// InvokeRPC sends a new request ID on every call, so calling it again runs the RPC again. To make
+// a retry apply its changes at most once, use InvokeRPCWithOptions with RPCInvokeOptions.RequestID.
 //
 //	var result Quote
 //	err := client.InvokeRPC(ctx, "order-42", quoteRPC, request, &result)
@@ -1686,6 +1688,13 @@ func (client *Client) InvokeRPC(
 // and load the same instance.
 //
 // The input, output, blocking, and error behavior otherwise matches InvokeRPC.
+//
+// options.RequestID sets a caller-chosen request ID, so Dex applies a retried call's changes at
+// most once. A different request under a recorded request ID fails with a *ServiceError whose
+// Code is codes.InvalidArgument. See RPCInvokeOptions.RequestID for the deduplication rules and
+// an example.
+//
+// Changed in 1.45.3: InvokeRPCWithOptions sends RPCInvokeOptions.RequestID when it is non-nil.
 //
 //	options := dex.RPCInvokeOptions{
 //		LockAttributeMapInstances: []dex.AttributeLock{
@@ -1784,7 +1793,7 @@ func (client *Client) doInvokeRPC(
 	if err != nil {
 		return err
 	}
-	requestID, err := newRequestID()
+	requestID, err := resolveClientRequestID("InvokeRPC", options.RequestID)
 	if err != nil {
 		return err
 	}
