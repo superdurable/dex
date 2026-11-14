@@ -138,6 +138,29 @@ type PullWorkerOptions struct {
 	AppWorkerID string
 	// StopDrainTimeout bounds Stop after it begins draining. Zero uses 30 seconds; negative values are invalid.
 	StopDrainTimeout time.Duration
+	// TaskQueue names the one task queue this Worker serves. Empty, the default, serves the default task queue.
+	//
+	// The Worker receives the Steps and RPCs only of Flows started with the same
+	// StartFlowOptions.TaskQueue, or inherited by a SubFlow. A Flow on another task queue
+	// never reaches it, even when the Worker registers that Flow type. To serve several task
+	// queues, run one Worker per task queue, each with its own AppWorkerID; Workers can share
+	// one process and Registry.
+	//
+	// A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'. Names starting with
+	// "dex.", including DefaultTaskQueue, are reserved; NewWorker returns an error for them and
+	// for any other invalid name.
+	// A named task queue requires Server protocol version 5 or later. Start returns
+	// *TaskQueueUnsupportedError for an older Server. When a Server registers a stream on another
+	// task queue, for example after a rollback to an older Server, the Worker closes that stream
+	// and records a permanent rejection with codes.InvalidArgument. PullRegistrationState and
+	// WaitPullRegistered report it like any other permanent rejection.
+	//
+	//	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	//		Pull: &dex.PullWorkerOptions{TaskQueue: "tenant-42"},
+	//	})
+	//
+	// Since 1.46.0.
+	TaskQueue string
 }
 
 // PullRegistrationError identifies a permanent rejection that leaves a slot kind without a registered stream.
@@ -157,13 +180,21 @@ type PullRegistrationError struct {
 	// Queue contains POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY.
 	// It identifies the rejected slot kind; slot streams serve all registered Flow types and have no individual queue.
 	Queue string
+	// TaskQueue is the Worker's PullWorkerOptions.TaskQueue; empty means the default task queue.
+	//
+	// Since 1.46.0.
+	TaskQueue string
 	// Err is the non-nil gRPC status error returned by the rejected stream.
+	// A stream that the Server registered on another task queue than TaskQueue has codes.InvalidArgument.
 	Err error
 }
 
-// Error returns the slot kind and underlying rejection for diagnostics.
+// Error returns the slot kind, the named task queue if any, and the underlying rejection for diagnostics.
 // It does not change the error; concurrent calls are safe on immutable values.
 func (rejection *PullRegistrationError) Error() string {
+	if rejection.TaskQueue != "" {
+		return fmt.Sprintf("dex: pull slot kind %q on task queue %q registration rejected: %v", rejection.Queue, rejection.TaskQueue, rejection.Err)
+	}
 	return fmt.Sprintf("dex: pull slot kind %q registration rejected: %v", rejection.Queue, rejection.Err)
 }
 
@@ -199,6 +230,11 @@ type PullRegistrationState struct {
 type PullQueueRegistrationState struct {
 	// Queue is POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY.
 	Queue string
+	// TaskQueue is the task queue the slot kind serves, from PullWorkerOptions.TaskQueue.
+	// Empty means the default task queue. Every entry of one Worker has the same TaskQueue.
+	//
+	// Since 1.46.0.
+	TaskQueue string
 	// HasRegisteredStream reports whether at least one acknowledged stream is currently held.
 	HasRegisteredStream bool
 	// LastPermanentError is the last permanent gRPC status error, or nil if none remains.
@@ -395,8 +431,10 @@ func validatePlaintextTarget(address string) error {
 // Upgrade the Server before upgrading the SDK; older SDKs can continue using the upgraded Server.
 //
 // Start may be called exactly once. Before serving, it negotiates a Server
-// protocol (exactly version 4), synchronizes Attribute indexes, and waits up to
+// protocol (version 4 or 5), synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
+// With PullWorkerOptions.TaskQueue set, Start returns *TaskQueueUnsupportedError when the
+// negotiated protocol is older than version 5. Since 1.46.0.
 // It then uploads the Flow definitions of WorkerOptions.FlowDefinitionPaths and
 // WorkerOptions.FlowDefinitions whose Flow type is registered in the Registry, and
 // logs the skipped ones. Upload failures, including a Server without the upload API,
@@ -437,6 +475,12 @@ func (worker *Worker) Start() (startErr error) {
 		return err
 	}
 	worker.serverProtocol.version.Store(negotiatedProtocolVersion)
+	if err := worker.serverProtocol.requireTaskQueueSupport(worker.pull.taskQueue); err != nil {
+		worker.state = workerStopped
+		worker.lifecycleMu.Unlock()
+		worker.finish()
+		return err
+	}
 	syncCtx, cancelSync := context.WithTimeout(context.Background(), worker.attributeIndexSyncTimeout)
 	_, err = worker.flowService.SyncAttributeIndexes(syncCtx, &dexpb.SyncAttributeIndexRequest{
 		AttributeIndexes: worker.registry.attributeIndexes,

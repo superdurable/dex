@@ -62,7 +62,7 @@ type ClientOptions struct {
 // A Client is safe for concurrent use. Calls use their context for cancellation and
 // return an error after Close. The Client owns its gRPC connection; callers should
 // close it when the application shuts down. Before its first request of any method, it negotiates
-// Server protocol 4 with one GetServerInfo request, which concurrent first calls share.
+// Server protocol 4 or 5 with one GetServerInfo request, which concurrent first calls share.
 // Each call's context bounds both that negotiation and the request itself.
 // A Server that reports no protocol in common with the SDK returns an upgrade error, which is
 // cached and returned on later calls. A failed GetServerInfo request returns a *ServiceError
@@ -544,6 +544,9 @@ func (client *Client) StartFlow(
 		return "", err
 	}
 	if err := client.requireHardDeleteAttributeSupport(ctx, flowOptions.Attributes); err != nil {
+		return "", err
+	}
+	if err := client.serverProtocol.requireTaskQueueSupport(options.TaskQueue); err != nil {
 		return "", err
 	}
 	requestID, err := resolveStartRequestID(options.RequestID)

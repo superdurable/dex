@@ -395,6 +395,27 @@ type StartFlowOptions struct {
 	// Never reuse a request ID for a different logical start.
 	// See StartFlowOptions for an example that sets both fields.
 	RequestID *string
+	// TaskQueue names the task queue whose pull Workers run this Flow's Steps and RPCs.
+	// Empty, the default, uses the default task queue, which every Worker without
+	// PullWorkerOptions.TaskQueue serves. DefaultTaskQueue means the same.
+	//
+	// Only Workers whose PullWorkerOptions.TaskQueue equals this name receive the Flow's work.
+	// The Flow keeps its task queue for its whole run; a SubFlow inherits it unless
+	// SubFlowOptions.TaskQueue names another one. Work waits in the task queue while no Worker serves it.
+	// Use a task queue to give one Flow type separate Worker pools, for example one per tenant or environment.
+	//
+	// A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'. Names starting with
+	// "dex." are reserved; only DefaultTaskQueue is accepted. StartFlow returns an error for an
+	// invalid name before it sends the request. A named task queue requires Server protocol
+	// version 5 or later; against an older Server, StartFlow returns *TaskQueueUnsupportedError
+	// instead of starting the Flow on the default task queue.
+	//
+	//	_, err := client.StartFlow(ctx, orderFlow, flowID, input, dex.StartFlowOptions{
+	//		TaskQueue: "tenant-42",
+	//	})
+	//
+	// Since 1.46.0.
+	TaskQueue string
 }
 
 // FlowTimeoutPolicy controls how a positive Flow timeout ends or redirects execution.
@@ -456,6 +477,19 @@ type SubFlowOptions struct {
 	ReusePolicy SubFlowReusePolicy
 	// ConditionID assigns the stable ID required by AnyComboOf.
 	ConditionID string
+	// TaskQueue names the task queue whose pull Workers run the SubFlow.
+	// Empty, the default, keeps the parent Flow's task queue. DefaultTaskQueue selects the
+	// default task queue. Any other name selects that named task queue.
+	//
+	// Names follow the rules of StartFlowOptions.TaskQueue. A named task queue requires Server
+	// protocol version 5 or later. Against an older Server, or with an invalid name, the WaitFor
+	// that returns this SubFlow fails with an error, and Dex retries it according to the Step's
+	// retry policy.
+	//
+	//	return dex.AllOf(dex.SubFlow(reportFlow{}, input, dex.SubFlowOptions{TaskQueue: "reports"})), nil
+	//
+	// Since 1.46.0.
+	TaskQueue string
 }
 
 func defaultSubFlowOptions() SubFlowOptions {
