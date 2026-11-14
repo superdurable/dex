@@ -35,6 +35,9 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    SubFlow,
+    SubFlowOptions,
+    Wait,
     Worker,
     WorkerOptions,
     graceful_complete,
@@ -84,6 +87,46 @@ class NamedTaskQueueRpcFlow(Flow[None]):
         return RPCResult(self.worker_label)
 
 
+class StartChildOnTaskQueueStep(Step[str]):
+    """Starts the Step Flow as a SubFlow on the task queue given as input."""
+
+    def __init__(self, child_flow: NamedTaskQueueStepFlow, worker_label: str) -> None:
+        self.child_flow = child_flow
+        self.worker_label = worker_label
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        options = SubFlowOptions(task_queue=input)
+        return Wait.until(SubFlow.run(self.child_flow, None, options))
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        child_label = SubFlow.get_condition_results(context).single_output(str)
+        return graceful_complete(f"{self.worker_label}>{child_label}")
+
+
+class NamedTaskQueueParentFlow(Flow[str]):
+    """Completes with the parent and child Worker labels."""
+
+    def __init__(self, child_flow: NamedTaskQueueStepFlow, worker_label: str) -> None:
+        self.start_child = StartChildOnTaskQueueStep(child_flow, worker_label)
+
+    def get_flow_type(self) -> str:
+        return "PythonNamedTaskQueueParentFlow"
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.start_child)
+
+
+def _labeled_flows(
+    worker_label: str,
+) -> tuple[NamedTaskQueueStepFlow, NamedTaskQueueRpcFlow, NamedTaskQueueParentFlow]:
+    step_flow = NamedTaskQueueStepFlow(worker_label)
+    return (
+        step_flow,
+        NamedTaskQueueRpcFlow(worker_label),
+        NamedTaskQueueParentFlow(step_flow, worker_label),
+    )
+
+
 def _server_address() -> str:
     return os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
 
@@ -95,9 +138,7 @@ def _unique_task_queue(prefix: str) -> str:
 @contextmanager
 def _task_queue_worker(task_queue: str, worker_label: str) -> Iterator[Worker]:
     """Run one Worker that polls ``task_queue`` and reports ``worker_label``."""
-    registry = Registry(
-        (NamedTaskQueueStepFlow(worker_label), NamedTaskQueueRpcFlow(worker_label))
-    )
+    registry = Registry(_labeled_flows(worker_label))
     with TemporaryDirectory(prefix="dex-python-task-queue-cache-") as cache_directory:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
         worker = Worker(
@@ -132,16 +173,20 @@ def _task_queue_worker(task_queue: str, worker_label: str) -> Iterator[Worker]:
 
 
 @contextmanager
-def _client() -> Iterator[tuple[Client, NamedTaskQueueStepFlow, NamedTaskQueueRpcFlow]]:
-    step_flow = NamedTaskQueueStepFlow("client")
-    rpc_flow = NamedTaskQueueRpcFlow("client")
+def _client() -> Iterator[
+    tuple[
+        Client,
+        NamedTaskQueueStepFlow,
+        NamedTaskQueueRpcFlow,
+        NamedTaskQueueParentFlow,
+    ]
+]:
+    flows = _labeled_flows("client")
     with TemporaryDirectory(prefix="dex-python-task-queue-client-") as cache_directory:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
-        client = Client(
-            Registry((step_flow, rpc_flow)), cache, ClientOptions(_server_address())
-        )
+        client = Client(Registry(flows), cache, ClientOptions(_server_address()))
         try:
-            yield client, step_flow, rpc_flow
+            yield client, *flows
         finally:
             client.close()
             cache.close()
@@ -175,7 +220,7 @@ def test_flows_reach_only_workers_of_their_task_queue() -> None:
         worker_a = stack.enter_context(_task_queue_worker(queue_a, "worker-a"))
         stack.enter_context(_task_queue_worker(queue_b, "worker-b"))
         stack.enter_context(_task_queue_worker("", DEFAULT_LABEL))
-        client, step_flow, rpc_flow = stack.enter_context(_client())
+        client, step_flow, rpc_flow, _ = stack.enter_context(_client())
 
         state = worker_a.pull_registration_state()
         assert state.is_ready
@@ -199,7 +244,7 @@ def test_flow_on_unserved_task_queue_waits_for_its_worker() -> None:
         stack.enter_context(
             _task_queue_worker(_unique_task_queue("py-other"), "other-worker")
         )
-        client, step_flow, _ = stack.enter_context(_client())
+        client, step_flow, _, _ = stack.enter_context(_client())
         flow_id = unique_id("named-task-queue-unserved")
         client.start_flow(
             step_flow, flow_id, None, StartFlowOptions(task_queue=queue_c)
@@ -211,3 +256,29 @@ def test_flow_on_unserved_task_queue_waits_for_its_worker() -> None:
         result = client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         assert result.status is FlowStatus.COMPLETED
         assert result.single_output(str) == "worker-c"
+
+
+def test_sub_flows_inherit_or_override_the_parent_task_queue() -> None:
+    queue_a = _unique_task_queue("py-parent-a")
+    queue_b = _unique_task_queue("py-child-b")
+    with ExitStack() as stack:
+        stack.enter_context(_task_queue_worker(queue_a, "worker-a"))
+        stack.enter_context(_task_queue_worker(queue_b, "worker-b"))
+        stack.enter_context(_task_queue_worker("", DEFAULT_LABEL))
+        client, _, _, parent_flow = stack.enter_context(_client())
+
+        for child_task_queue, expected_output in (
+            ("", "worker-a>worker-a"),
+            (queue_b, "worker-a>worker-b"),
+            ("dex.default", f"worker-a>{DEFAULT_LABEL}"),
+        ):
+            flow_id = unique_id("named-task-queue-parent")
+            client.start_flow(
+                parent_flow,
+                flow_id,
+                child_task_queue,
+                StartFlowOptions(task_queue=queue_a),
+            )
+            result = client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+            assert result.status is FlowStatus.COMPLETED
+            assert result.single_output(str) == expected_output

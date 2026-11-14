@@ -217,7 +217,9 @@ class StartFlowOptions:
 
             Only Workers whose ``PullWorkerOptions.task_queue`` is this name,
             and that register this Flow type, receive the Flow's Steps and
-            RPCs. Its SubFlows inherit the task queue unless their
+            RPCs. ``dex.default`` is the exception: it selects the default
+            task queue, which Workers with an empty ``task_queue`` serve;
+            Workers cannot register ``dex.default`` itself. Its SubFlows inherit the task queue unless their
             ``SubFlowOptions.task_queue`` selects another. The task queue is
             fixed when the Flow starts; ``update_flow_config`` cannot change
             it. While no Worker polls the task queue, the Flow's Steps wait

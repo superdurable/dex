@@ -306,7 +306,9 @@ work, start the Flow without a delay and begin the start Step with a durable
 
 Since 1.45.1. **StartFlowOptions.task_queue** names the task queue that runs
 the Flow. Only Workers whose **PullWorkerOptions.task_queue** has the same name
-and that register the Flow type receive its Steps and RPCs. See
+and that register the Flow type receive its Steps and RPCs. **dex.default** is
+the exception: it selects the default task queue, which Workers with an empty
+**task_queue** serve. Workers cannot register **dex.default** itself. See
 [Named task queues](./workers.mdx#named-task-queues) for the Worker side.
 
 | Value | Task queue |
