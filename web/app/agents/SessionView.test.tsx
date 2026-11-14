@@ -141,7 +141,7 @@ describe('SessionView', () => {
     expect(screen.getByTestId('tool-call-call-1').dataset.tone).toBe('attention');
   });
 
-  it('asks for Working as once, at the top of the tab', () => {
+  it('asks for Working as only where it blocks, with no banner at the top', () => {
     const operate = (rpcName: string): FlowV2Action => ({
       rpcName, label: rpcName, requiredPermission: 'coding.operate', input: { kind: 'object', fields: [] },
     });
@@ -160,9 +160,11 @@ describe('SessionView', () => {
       />,
     );
 
-    expect(screen.getAllByText(SESSION_COPY.chooseWorkingAs('coding.operate'))).toHaveLength(1);
-    // One button sits with the hint at the top; the composer offers its own in place of Send.
-    expect(screen.getAllByRole('button', { name: SESSION_COPY.workAs('coding.operate') })).toHaveLength(2);
+    expect(document.querySelector('.ses-permission')).toBeNull();
+    // Each blocked control offers Work as where it is blocked: the composer in place of Send.
+    const workAs = screen.getAllByRole('button', { name: SESSION_COPY.workAs('coding.operate') });
+    expect(workAs.filter((button) => button.closest('.ses-controls') !== null)).toHaveLength(1);
+    expect(screen.queryByText(SESSION_COPY.chooseWorkingAs('coding.operate'))).toBeNull();
     const composer = screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }) as HTMLTextAreaElement;
     expect(composer.disabled).toBe(true);
     expect(composer.placeholder).toBe(SESSION_COPY.composerWorkingAsPlaceholder('coding.operate'));
@@ -190,8 +192,9 @@ describe('SessionView', () => {
       />,
     );
 
-    const composerWorkAs = screen.getByRole('button', { name: SESSION_COPY.workAs('steering.operate') });
-    expect(composerWorkAs.closest('.ses-controls')).not.toBeNull();
+    const composerWorkAs = screen.getAllByRole('button', { name: SESSION_COPY.workAs('steering.operate') })
+      .find((button) => button.closest('.ses-controls') !== null)!;
+    expect(composerWorkAs).toBeTruthy();
     fireEvent.click(composerWorkAs);
     expect(onChooseWorkingAs).toHaveBeenCalledWith('steering.operate');
   });
@@ -247,5 +250,33 @@ describe('SessionView', () => {
       text: 'Please also check the tests',
     });
     expect(await screen.findByText(SESSION_COPY.steered)).toBeTruthy();
+  });
+
+  it('names Working as by the composer once it is set, and Change offers every choice', () => {
+    const operate = (rpcName: string): FlowV2Action => ({
+      rpcName, label: rpcName, requiredPermission: 'coding.operate', input: { kind: 'object', fields: [] },
+    });
+    const actionSchema = { ...schema, steerUserMessage: operate('steer_user_message'), cancelTurn: operate('cancel_turn') };
+    loaded = sessionOf({});
+    const onChooseWorkingAs = vi.fn();
+    render(
+      <SessionView
+        flowId="session-1"
+        flowType="CodingAgent"
+        onChooseWorkingAs={onChooseWorkingAs}
+        reloadKey={0}
+        schema={actionSchema}
+        workingAsOptions={['coding.operate', 'coding.review']}
+        workingAsPermission="coding.operate"
+        workQueuePermissions={['coding.operate']}
+      />,
+    );
+    const line = screen.getByText(SESSION_COPY.actingAs('coding.operate')).closest('p')!;
+    expect(line.closest('.ses-controls')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.changeWorkingAs }));
+    const select = screen.getByRole('combobox', { name: SESSION_COPY.workingAsLabel }) as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual(['Anyone', 'coding.operate', 'coding.review']);
+    fireEvent.change(select, { target: { value: '' } });
+    expect(onChooseWorkingAs).toHaveBeenCalledWith('');
   });
 });

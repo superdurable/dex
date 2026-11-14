@@ -10,6 +10,9 @@ import {
   createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState,
   type CSSProperties, type FormEvent,
 } from 'react';
+import {
+  ChevronDown, CircleCheck, ExternalLink, Info, LoaderCircle, Maximize2, Minimize2, Plus, Sparkles, Trash2,
+} from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import { useTheme, type Theme } from '../theme';
 import '../workspace/css/workspace.css';
@@ -25,13 +28,18 @@ import {
 } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
 import { ConnectionErrorBoundary } from './ConnectionErrorBoundary';
+import {
+  CONNECTOR_SIDE_COLUMN_MIN_WIDTH, ConnectionNextStep, ConnectionStatusChip, ConnectorAvatar, ConnectorGuideSlotContext,
+  CopyButton, CopyValue, CredentialExpiry, InSideColumnGuideSlot, focusConnectionSetup, useIsElementAtLeast, useNow,
+  type ConnectionStatus,
+} from './connectionPresentation';
 import './connectors.css';
 import { webURL } from '@/lib/basePath';
 
 /** The theme every Studio frame paints; the page provides the Dex Web theme. */
 export const ConnectorStudioFrameThemeContext = createContext<Theme>('light');
 
-type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported';
+export { ConnectionStatusChip };
 
 interface ConnectionUse {
   flowName: string;
@@ -212,6 +220,10 @@ export function ConnectorsPage() {
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
+  const now = useNow();
+  const [caseElement, setCaseElement] = useState<HTMLElement | null>(null);
+  const [guideSlot, setGuideSlot] = useState<HTMLElement | null>(null);
+  const hasSideColumn = useIsElementAtLeast(caseElement, CONNECTOR_SIDE_COLUMN_MIN_WIDTH);
   // Each load remounts the connection error boundaries, so a transient render failure recovers.
   const [loadGeneration, setLoadGeneration] = useState(0);
 
@@ -315,9 +327,12 @@ export function ConnectorsPage() {
               </button>
             ) : (
               <>
-                <div className="sq-head">
-                  <span className="sq-title">{CONNECTORS_COPY.heading}</span>
-                  <span className="sq-live">{CONNECTORS_COPY.localNote}</span>
+                <div className="sq-head connector-list-head">
+                  <span className="connector-list-title">{CONNECTORS_COPY.localNote}</span>
+                  {catalog.connections.length > 0 && <span className="connector-list-count">
+                    <span aria-hidden="true">{catalog.connections.length}</span>
+                    <span className="sr-only">{CONNECTORS_COPY.connectionCount(catalog.connections.length)}</span>
+                  </span>}
                   <button
                     aria-label={CONNECTORS_COPY.addConnection}
                     aria-pressed={isAddingConnection}
@@ -325,7 +340,7 @@ export function ConnectorsPage() {
                     onClick={() => setIsAddingConnection(true)}
                     title={CONNECTORS_COPY.addConnection}
                     type="button"
-                  >+ Add</button>
+                  ><Plus aria-hidden="true" size={14} strokeWidth={2.2} />Add</button>
                 </div>
                 {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
                 <div className="rsw-scroll" data-zone="list">
@@ -372,31 +387,47 @@ export function ConnectorsPage() {
           <section
             aria-label={isAddingConnection ? CONNECTORS_COPY.addConnection : selected ? connectorDisplayName(selected) : CONNECTORS_COPY.heading}
             className="v2-work-queue-case"
+            ref={setCaseElement}
           >
             {isAddingConnection ? (
-              <div className="v2-case sc">
-                <AddConnectionPanel
-                  catalog={catalog}
-                  onAdded={async (added) => {
-                    setIsAddingConnection(false);
-                    setSelectedSetupTabKey('authorize');
-                    await load(undefined, connectionKey(added));
-                  }}
-                  onCancel={() => setIsAddingConnection(false)}
-                />
-                <ConnectorStoreZone catalog={catalog} />
+              <div className="v2-case sc connector-detail-layout" data-columns={hasSideColumn ? 'two' : 'one'}>
+                <div className="connector-detail-main">
+                  <AddConnectionPanel
+                    catalog={catalog}
+                    onAdded={async (added) => {
+                      setIsAddingConnection(false);
+                      setSelectedSetupTabKey('authorize');
+                      await load(undefined, connectionKey(added));
+                    }}
+                    onCancel={() => setIsAddingConnection(false)}
+                  />
+                  {!hasSideColumn && <ConnectorStoreZone catalog={catalog} />}
+                </div>
+                {hasSideColumn && <aside aria-label={CONNECTORS_COPY.localStoreHeading} className="connector-detail-side">
+                  <ConnectorStoreZone catalog={catalog} />
+                </aside>}
               </div>
             ) : selected ? (
-              <div className="v2-case sc">
+              <div
+                className="v2-case sc connector-detail connector-detail-layout"
+                data-columns={hasSideColumn ? 'two' : 'one'}
+                key={connectionKey(selected)}
+              >
+                <ConnectionErrorBoundary key={`header:${loadGeneration}:${connectionKey(selected)}`}>
+                  <ConnectionHeader connection={selected} now={now} />
+                </ConnectionErrorBoundary>
+                <ConnectorGuideSlotContext.Provider value={hasSideColumn ? guideSlot : null}>
+                <div className="connector-detail-main">
                 {/* The footer stays outside, so a connection that cannot render can still be removed. */}
                 <ConnectionErrorBoundary key={`${loadGeneration}:${connectionKey(selected)}`}>
-                  <ConnectionHeader connection={selected} />
-                  {selected.standalone && <p className="sc-why connector-standalone-note">{CONNECTORS_COPY.standaloneNote}</p>}
                   {error && <p className="v2-error" role="alert">{error}</p>}
-                  {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
-                  {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
-                  {selected.credentialExpiresAt && <p className="sc-state">Token expires <time>{selected.credentialExpiresAt}</time></p>}
-                  {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
+                  <ConnectionNextStep
+                    connectorName={connectorDisplayName(selected)} credentialExpiresAt={selected.credentialExpiresAt} now={now}
+                    onAct={() => focusConnectionSetup()} status={selected.status}
+                  />
+                  {busy && <p className="sc-state connector-loading" role="status">
+                    <LoaderCircle aria-hidden="true" className="connector-spinner" size={14} />{CONNECTORS_COPY.loadingRelease}
+                  </p>}
                   {selectedSession && activeSetupTab && <ConnectorSetupPanel
                     activeTab={activeSetupTab} catalog={catalog} connection={selected} session={selectedSession}
                     hasSavedSetup={savedSetupConnectionKey === connectionKey(selected)}
@@ -407,13 +438,20 @@ export function ConnectorsPage() {
                 </ConnectionErrorBoundary>
                 <div className="sc-block connector-connection-footer">
                   {isConnectionDeletable(selected) && (
-                    <button className="rhd-stop" disabled={busy} onClick={() => void deleteCredentials()} type="button">
-                      {connectionDeleteLabel(selected)}
+                    <button className="rhd-stop connector-delete" disabled={busy} onClick={() => void deleteCredentials()} type="button">
+                      <Trash2 aria-hidden="true" size={14} strokeWidth={2} />{connectionDeleteLabel(selected)}
                     </button>
                   )}
                   <p className="sc-why">{connectorConfigurationEffectText()}</p>
                 </div>
-                <ConnectorStoreZone catalog={catalog} />
+                {!hasSideColumn && <ConnectorStoreZone catalog={catalog} />}
+                </div>
+                {hasSideColumn && <aside aria-label={CONNECTORS_COPY.sideColumnLabel} className="connector-detail-side">
+                  <div className="connector-guide-slot" ref={setGuideSlot} />
+                  <ConnectionFacts connection={selected} now={now} />
+                  <ConnectorStoreZone catalog={catalog} />
+                </aside>}
+                </ConnectorGuideSlotContext.Provider>
               </div>
             ) : (
               <>
@@ -445,19 +483,66 @@ function ConnectionRow({ connection, isSelected, onSelect }: {
   onSelect: () => void;
 }) {
   return <button aria-current={isSelected ? 'true' : undefined} className="rsw-row connector-row" onClick={onSelect} type="button">
-    <span className="rsw-id" title={connection.connectorId}>{connectorDisplayName(connection)}</span>
+    <ConnectorAvatar name={connectorDisplayName(connection)} />
+    <span className="connector-row-text">
+      <span className="rsw-id" title={connection.connectorId}>{connectorDisplayName(connection)}</span>
+      <ConnectionNameText connectionName={connection.connectionName} />
+    </span>
     <ConnectionStatusChip status={connection.status} />
-    <span className="rsw-state">{CONNECTORS_COPY.connectionLabel(connection.connectionName)}</span>
   </button>;
 }
 
-function ConnectionHeader({ connection }: { connection: ConnectionView }) {
-  return <div className="sc-head">
-    <h2 className="sc-title">{connectorDisplayName(connection)}</h2>
-    <ConnectionStatusChip status={connection.status} />
-    <span className="sc-status">{CONNECTORS_COPY.connectionLabel(connection.connectionName)}</span>
-    <span className="rhd-inspect t-mono" title={connection.modulePath}>{connectionReleaseText(connection)}</span>
+/** The connection name as quiet text; screen readers still hear "Connection". */
+function ConnectionNameText({ connectionName }: { connectionName: string }) {
+  if (!connectionName) return <span className="rsw-state">{CONNECTORS_COPY.connectionLabel(connectionName)}</span>;
+  return <span className="rsw-state"><span className="sr-only">Connection </span>{connectionName}</span>;
+}
+
+function ConnectionHeader({ connection, now }: { connection: ConnectionView; now: Date }) {
+  return <div className="sc-head connector-detail-head">
+    <ConnectorAvatar name={connectorDisplayName(connection)} size="lg" />
+    <div className="connector-detail-title">
+      <h2 className="sc-title">{connectorDisplayName(connection)}</h2>
+      <p className="connector-detail-meta">
+        <ConnectionStatusChip status={connection.status} />
+        <ConnectionNameText connectionName={connection.connectionName} />
+        <span className="connector-release" title={connection.modulePath}>{connectionReleaseText(connection)}</span>
+        {connection.credentialExpiresAt && connection.status !== 'Expired' && <CredentialExpiry iso={connection.credentialExpiresAt} now={now} />}
+      </p>
+      {connection.standalone && <p className="connector-standalone-note">
+        <Info aria-hidden="true" size={13} strokeWidth={2} />{CONNECTORS_COPY.standaloneNote}
+      </p>}
+    </div>
   </div>;
+}
+
+/** Counts the Flow operations and Trigger bindings that use a connection, in words. */
+export function connectionUsesText(connection: Pick<ConnectionView, 'standalone' | 'uses' | 'triggerUses'>): string {
+  if (connection.standalone) return 'No loaded Flow';
+  const operations = connection.uses.length;
+  const triggers = connection.triggerUses?.length ?? 0;
+  const parts = [
+    operations > 0 ? `${operations} ${operations === 1 ? 'operation' : 'operations'}` : '',
+    triggers > 0 ? `${triggers} ${triggers === 1 ? 'trigger' : 'triggers'}` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : 'No loaded Flow';
+}
+
+/** The connection's identity and release as quiet facts for the side column. */
+export function ConnectionFacts({ connection, now }: { connection: ConnectionView; now: Date }) {
+  return <section aria-label={CONNECTORS_COPY.factsHeading} className="sc-block connector-facts">
+    <h3 className="sc-blockhead">{CONNECTORS_COPY.factsHeading}</h3>
+    <dl className="connector-facts-list">
+      <div><dt>Connector</dt><dd><code>{connection.connectorId}</code></dd></div>
+      <div><dt>Connection</dt><dd><code>{connection.connectionName || CONNECTORS_COPY.connectionLabel('')}</code></dd></div>
+      <div><dt>Release</dt><dd>{connectionReleaseText(connection)}</dd></div>
+      {connection.modulePath && <div><dt>Module</dt><dd className="connector-facts-copy">
+        <code>{connection.modulePath}</code><CopyButton label="Module" value={connection.modulePath} />
+      </dd></div>}
+      {connection.credentialExpiresAt && <div><dt>Token</dt><dd><CredentialExpiry iso={connection.credentialExpiresAt} now={now} /></dd></div>}
+      <div><dt>Used by</dt><dd>{connectionUsesText(connection)}</dd></div>
+    </dl>
+  </section>;
 }
 
 type ConnectorStoreSummary = Pick<
@@ -710,7 +795,7 @@ function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
         role="tab"
         type="button"
       >
-        <span aria-hidden="true" className="apg-mark">{tab.configured ? '✓' : index + 1}</span>
+        <span aria-hidden="true" className="connector-step-mark">{tab.configured ? <CircleCheck size={16} strokeWidth={2.2} /> : index + 1}</span>
         <span className="connector-setup-tab-copy"><b>{tab.label}</b><small>{tab.detail}</small></span>
         <span className="sr-only">{tab.configured ? 'Configured' : 'Not configured'}</span>
       </button>;
@@ -765,7 +850,7 @@ function AuthorizationPanel({catalog, connection, hasSavedSetup, session, onConf
   if (isConnectionSetupStudio(session)) {
     return <div className="connector-authorization-summary">
       {hasSavedSetup && <div className="connector-notice connector-authorization-complete" data-tone="done" role="status">
-        <span aria-hidden="true" className="apg-mark">✓</span>
+        <CircleCheck aria-hidden="true" className="connector-done-icon" size={18} strokeWidth={2} />
         <div><h3>Connection saved</h3><p>{CONNECTORS_COPY.setupSaved}</p></div>
       </div>}
       <StudioFrame
@@ -780,7 +865,7 @@ function AuthorizationPanel({catalog, connection, hasSavedSetup, session, onConf
     const studioFields = manifest.spec.configuration.fields.filter((field) => isStudioConnectionField(field, session));
     return <div className="connector-authorization-summary">
       <div className="connector-notice connector-authorization-complete" data-tone="done">
-        <span aria-hidden="true" className="apg-mark">✓</span>
+        <CircleCheck aria-hidden="true" className="connector-done-icon" size={18} strokeWidth={2} />
         <div><h3>Authorization complete</h3><p>{connection.standalone ? CONNECTORS_COPY.standaloneReady : 'This connection is ready. Continue with each Flow operation and trigger.'}</p></div>
         <button className="v2-ghost" onClick={() => setEditing(true)} type="button">
           {isOAuthConnection ? 'Reauthorize' : 'Edit connection'}
@@ -999,23 +1084,18 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       <h3 className="sc-blockhead">{manifest.metadata.displayName || connectorDisplayName(connection)} setup</h3>
       <p className="scx-purpose">{manifest.metadata.description}</p>
     </div>
-    {!isMultiple && (manifest.spec.auth.methods?.length ?? 0) > 1 && <fieldset className="sc-block connector-auth-methods">
-      <legend className="sc-blockhead">Authentication method</legend>
-      {manifest.spec.auth.methods?.map((method) => <label className="connector-option" key={method.id}>
-        <input
-          checked={authMethodId === method.id}
-          name="connector-auth-method"
-          onChange={() => {
-            setAuthMethodId(method.id);
-            setValues(configurationFormValues);
-          }}
-          type="radio"
-          value={method.id}
-        />
-        <span><b>{method.displayName}</b>{method.recommended && <em>Recommended</em>}<small>{method.description}</small></span>
-      </label>)}
-    </fieldset>}
-    {!isMultiple && auth.guide && <AuthorizationGuide guide={auth.guide} redirectURI={oauth ? session.oauthRedirectUri : undefined} />}
+    {!isMultiple && (manifest.spec.auth.methods?.length ?? 0) > 1 && <AuthMethodChoice
+      authMethodId={authMethodId}
+      methods={manifest.spec.auth.methods ?? []}
+      onChoose={(methodId) => {
+        setAuthMethodId(methodId);
+        setValues(configurationFormValues);
+      }}
+    />}
+    {!isMultiple && auth.guide && <InSideColumnGuideSlot><AuthorizationGuide
+      guide={auth.guide} isInitiallyExpanded={connection.status !== 'Ready'} key={authMethodId}
+      redirectURI={oauth ? session.oauthRedirectUri : undefined}
+    /></InSideColumnGuideSlot>}
     {isMultiple && <section aria-label={authMethodLabels.plural} className="sc-block connector-auth-method-cards">
       <div className="connector-auth-method-cards-header">
         <h4 className="sc-blockhead">{authMethodLabels.plural}</h4>
@@ -1065,12 +1145,74 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
   </form>;
 }
 
-function AuthorizationGuide({guide, redirectURI}: {guide: {startURL: string; steps: string[]}; redirectURI?: string}) {
-  return <section aria-label="Authorization guide" className="connector-authorization-guide">
-    <h4 className="rsw-zonehead">Authorization guide</h4>
-    <p>Start at <a href={guide.startURL} rel="noreferrer" target="_blank">{guide.startURL}</a></p>
-    <ol>{(guide.steps ?? []).map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
-    {redirectURI && <div className="connector-redirect-uri"><span className="rsq-label">Redirect URI</span><CopyValue label="Redirect URI" value={redirectURI} /></div>}
+/** Several authentication methods as one segmented radio group; each radio keeps its description. */
+function AuthMethodChoice({authMethodId, methods, onChoose}: {
+  authMethodId: string;
+  methods: ManifestAuthMethod[];
+  onChoose: (methodId: string) => void;
+}) {
+  const choiceId = useId();
+  const activeIndex = Math.max(0, methods.findIndex((method) => method.id === authMethodId));
+  const chosen = methods[activeIndex];
+  const style = {'--option-count': methods.length, '--active-index': activeIndex} as CSSProperties;
+  return <fieldset className="sc-block connector-auth-methods">
+    <legend className="sc-blockhead">Authentication method</legend>
+    <div className="connector-segmented" data-layout={methods.length > 3 ? 'list' : 'segments'} style={style}>
+      <span aria-hidden="true" className="connector-segmented-indicator" />
+      {methods.map((method) => <label className="connector-segment" key={method.id}>
+        <input
+          aria-describedby={`${choiceId}-${method.id}`}
+          checked={authMethodId === method.id}
+          className="connector-segment-input"
+          name="connector-auth-method"
+          onChange={() => onChoose(method.id)}
+          type="radio"
+          value={method.id}
+        />
+        <span className="connector-segment-name">{method.displayName}</span>
+        {method.recommended && <span className="connector-segment-tag"><Sparkles aria-hidden="true" size={11} strokeWidth={2.2} />Recommended</span>}
+      </label>)}
+    </div>
+    {methods.map((method) => <span className="sr-only" id={`${choiceId}-${method.id}`} key={method.id}>{method.description}</span>)}
+    {chosen?.description && <p aria-hidden="true" className="connector-auth-method-description" key={chosen.id}>{chosen.description}</p>}
+  </fieldset>;
+}
+
+/** The URL without its scheme, for link text; the link keeps the whole URL. */
+export function guideStartURLText(startURL: string): string {
+  return startURL.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+function AuthorizationGuide({guide, isInitiallyExpanded = true, redirectURI}: {
+  guide: {startURL: string; steps: string[]};
+  isInitiallyExpanded?: boolean;
+  redirectURI?: string;
+}) {
+  const [isExpanded, setIsExpanded] = useState(isInitiallyExpanded);
+  const bodyId = useId();
+  const steps = guide.steps ?? [];
+  return <section aria-label="Authorization guide" className="connector-authorization-guide" data-expanded={isExpanded}>
+    <div className="connector-guide-head">
+      <button aria-controls={bodyId} aria-expanded={isExpanded} className="connector-guide-toggle" onClick={() => setIsExpanded((current) => !current)} type="button">
+        <ChevronDown aria-hidden="true" className="connector-guide-chevron" size={15} strokeWidth={2.2} />
+        <span className="connector-guide-title">Authorization guide</span>
+        {steps.length > 0 && <span className="connector-guide-count">{steps.length === 1 ? '1 step' : `${steps.length} steps`}</span>}
+      </button>
+      <a className="connector-guide-start" href={guide.startURL} rel="noreferrer" target="_blank" title={guide.startURL}>
+        <span className="connector-guide-start-label">Start at</span>
+        <span className="connector-guide-start-url">{guideStartURLText(guide.startURL)}</span>
+        <ExternalLink aria-hidden="true" size={12} strokeWidth={2.2} />
+      </a>
+    </div>
+    <div className="connector-guide-body" id={bodyId} inert={!isExpanded}>
+      <div className="connector-guide-clip">
+        <ol className="connector-stepper">{steps.map((step, index) => <li key={`${index}:${step}`}>
+          <span aria-hidden="true" className="connector-stepper-mark">{index + 1}</span>
+          <span className="connector-stepper-text">{linkifiedDescription(step)}</span>
+        </li>)}</ol>
+      </div>
+    </div>
+    {redirectURI && <div className="connector-redirect-uri"><span className="connector-redirect-uri-label">Redirect URI</span><CopyValue label="Redirect URI" value={redirectURI} /></div>}
   </section>;
 }
 
@@ -1556,7 +1698,8 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
     role={expanded ? 'dialog' : undefined}
   >
     <div className="connector-studio-toolbar">
-      <button className="v2-ghost" onClick={() => setExpanded((current) => !current)} type="button">
+      <button className="v2-ghost connector-studio-expand" onClick={() => setExpanded((current) => !current)} type="button">
+        {expanded ? <Minimize2 aria-hidden="true" size={13} /> : <Maximize2 aria-hidden="true" size={13} />}
         {expanded ? 'Close expanded setup' : 'Expand setup'}
       </button>
     </div>
@@ -1820,21 +1963,6 @@ function fieldValues(fields: ManifestField[], values: Record<string, string>, pr
   return Object.fromEntries(fields
     .map((field) => [field.name, values[`${prefix}:${field.name}`] ?? ''] as const)
     .filter(([, value]) => value !== ''));
-}
-
-export function ConnectionStatusChip({ status }: { status: ConnectionStatus }) {
-  return <span className="connector-status" data-status={status.toLowerCase()}>{status}</span>;
-}
-
-function CopyValue({ label, value }: { label: string; value: string }) {
-  return <span className="connector-copy-value"><code>{value}</code><CopyButton label={label} value={value} /></span>;
-}
-
-function CopyButton({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  return <button aria-label={`${copied ? 'Copied' : 'Copy'} ${label}`} className="v2-ghost connector-copy" onClick={() => {
-    void navigator.clipboard.writeText(value).then(() => setCopied(true));
-  }} type="button">{copied ? 'Copied' : 'Copy'}</button>;
 }
 
 export function studioState(status: ConnectionStatus) {

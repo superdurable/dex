@@ -36,6 +36,7 @@ import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
 import { SessionSettingsPanel } from './SessionSettingsPanel';
 import { ToolCallCard } from './ToolCallCard';
 import { useAgentSession, type LoadedAgentSession } from './useAgentSession';
+import { WorkingAsChoiceProvider, type WorkingAsChoice } from './WorkingAsChoice';
 import './session.css';
 
 /** The Session tab: one conversation with each tool call inline, and Steer and Stop below. */
@@ -46,14 +47,20 @@ export function SessionView({
   reloadKey,
   workQueuePermissions,
   onChooseWorkingAs,
+  workingAsPermission = '',
+  workingAsOptions = [],
 }: {
   flowType: string;
   flowId: string;
   schema: AgentSessionSchema;
   reloadKey: number;
   workQueuePermissions: readonly string[];
-  /** Sets Working as, so a phone, which hides the run list, can still act. */
+  /** Sets Working as from the controls it blocks, so a phone, which hides the run list, can still act. */
   onChooseWorkingAs?: (permission: string) => void;
+  /** The permission Working as holds, or '' for Anyone; Acting as names it beside the composer. */
+  workingAsPermission?: string;
+  /** Every permission the Flow type declares, which Acting as offers under Change. */
+  workingAsOptions?: readonly string[];
 }) {
   const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
   const { revisionFor } = useWebCatalog();
@@ -114,12 +121,15 @@ export function SessionView({
   );
 
   const { view } = session;
-  const neededPermission = sessionPermissionToChoose(schema, workQueuePermissions);
-  const permissionHint = neededPermission && onChooseWorkingAs ? SESSION_COPY.chooseWorkingAs(neededPermission) : null;
   const settingsBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.updateSessionSettings, controlContext);
   // Sending checks this permission, which can differ from the first one Working as lacks.
   const sendPermission = sessionActionPermission(schema);
+  // Working as is set where it blocks a control; the tab has no banner or selector of its own.
+  const workingAsChoice: WorkingAsChoice | null = onChooseWorkingAs
+    ? { permission: workingAsPermission, options: workingAsChoiceOptions(schema, workingAsOptions), choose: onChooseWorkingAs }
+    : null;
   return (
+    <WorkingAsChoiceProvider value={workingAsChoice}>
     <section className="ses" aria-label={SESSION_COPY.tabSession}>
       <SessionHeader session={session} onReload={reload} />
       {held.liveness === 'stale' && (
@@ -134,19 +144,9 @@ export function SessionView({
           <ul>{view.missing.map((entry) => <li key={entry}>{entry}</li>)}</ul>
         </div>
       )}
-      {neededPermission && onChooseWorkingAs && (
-        <p className="ses-permission">
-          <ShieldAlert aria-hidden="true" size={15} />
-          <span>{permissionHint}</span>
-          <button className="ses-workas" onClick={() => onChooseWorkingAs(neededPermission)} type="button">
-            {SESSION_COPY.workAs(neededPermission)}
-          </button>
-        </p>
-      )}
       {schema.language === 'go' && <SessionNote>{SESSION_COPY.goReduced}</SessionNote>}
       <SessionSettingsPanel
         blockedReason={settingsBlocked}
-        isBlockedReasonShownAbove={settingsBlocked === permissionHint}
         routeContext={routeContext}
         settings={view.sessionSettings}
         onSaved={reload}
@@ -185,7 +185,7 @@ export function SessionView({
       </div>
       <SessionComposer
         context={controlContext}
-        hintShownAbove={permissionHint}
+        hintShownAbove={null}
         invoke={invoke}
         workingAsChoice={sendPermission && onChooseWorkingAs
           ? { permission: sendPermission, choose: () => onChooseWorkingAs(sendPermission) }
@@ -199,17 +199,16 @@ export function SessionView({
         textRef={steerRef}
       />
     </section>
+    </WorkingAsChoiceProvider>
   );
 }
 
-/** The permission of the session's Actions when Working as does not include it yet. */
-export function sessionPermissionToChoose(
-  schema: AgentSessionSchema,
-  workQueuePermissions: readonly string[],
-): string | null {
-  const actions = [schema.resolveInterrupt, schema.answerQuestion, schema.steerUserMessage, schema.cancelTurn];
-  const missing = actions.find((action) => action && !workQueuePermissions.includes(action.requiredPermission));
-  return missing?.requiredPermission ?? null;
+/** The Flow type's permissions, with every permission the session's controls check. */
+function workingAsChoiceOptions(schema: AgentSessionSchema, declared: readonly string[]): string[] {
+  const checked = [schema.resolveInterrupt, schema.answerQuestion, schema.steerUserMessage, schema.cancelTurn]
+    .map((action) => action?.requiredPermission);
+  return [...new Set([...declared, ...checked, sessionActionPermission(schema)])]
+    .filter((permission): permission is string => typeof permission === 'string' && permission !== '');
 }
 
 function turnOf(item: ConversationItem | undefined): string | undefined {

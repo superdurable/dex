@@ -19,7 +19,17 @@ import { FlowDesignCanvas } from './FlowDesignCanvas';
  * It reads only the definition it is given. It never loads history or stored values, so it explains
  * how a Flow is built rather than what one run did.
  */
-export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntry }) {
+export function FlowDesignGraph({
+  definition,
+  opensWholeFlow,
+  zoomsOnGesture,
+}: {
+  definition: FlowDefinitionEntry;
+  /** Opens on, and fits, the whole Flow, such as in a short box above a run's event panel. */
+  opensWholeFlow?: boolean;
+  /** False keeps the zoom fixed under the wheel, so the page scrolls past the drawing. */
+  zoomsOnGesture?: boolean;
+}) {
   const shapeProblem = flowDefinitionShapeProblem(definition.graph);
   if (shapeProblem !== null) {
     return <DesignUnavailable title="This Flow design graph is malformed" detail={shapeProblem} />;
@@ -34,6 +44,8 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
         graph={definition.graph}
         graphKey={definition.id}
         connectorSettingsLink={<Link to={CONNECTORS_PATH}>Configure connection</Link>}
+        opensWholeFlow={opensWholeFlow}
+        zoomsOnGesture={zoomsOnGesture}
       />
     </DesignCanvasErrorBoundary>
   );

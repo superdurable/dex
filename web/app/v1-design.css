@@ -693,7 +693,7 @@ body:has(.v1-page) {
 
 .run-overview {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
   align-items: start;
   gap: 18px;
 }
@@ -862,6 +862,7 @@ body:has(.v1-page) {
 }
 
 .v1-page .run-overview .active-step-heading {
+  min-width: 0;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 10px;
@@ -871,6 +872,7 @@ body:has(.v1-page) {
   font-size: var(--ui-text-xl);
   font-weight: 650;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 
 .active-step-waits {
@@ -2454,7 +2456,7 @@ html:has(.v1-page .stream-scroll--entries) {
 /* The overview is a histogram of the page, like a log explorer's: density, problems, and the view. */
 .htl-minimap {
   position: relative;
-  margin: 6px 0 0;
+  margin: 0 0 6px;
   border-radius: var(--ui-radius-control);
   cursor: pointer;
   touch-action: none;
@@ -2552,23 +2554,29 @@ html:has(.v1-page .stream-scroll--entries) {
   fill: var(--ui-ink);
 }
 
-.htl-overview-brush-fill {
-  fill: color-mix(in srgb, var(--ui-ink) 7%, transparent);
+/* The window: a tinted, accent-bordered span with grips; the page outside it is dimmed. */
+.htl-overview-outside {
+  fill: color-mix(in srgb, var(--ui-page) 62%, transparent);
+  pointer-events: none;
 }
 
-.htl-overview-brush-edge line {
-  stroke: color-mix(in srgb, var(--ui-ink) 45%, transparent);
-  stroke-width: 1px;
+.htl-overview-brush-fill {
+  fill: color-mix(in srgb, var(--tone-accent) 14%, transparent);
+  stroke: var(--tone-accent);
+  stroke-width: 1.5px;
 }
 
 .htl-overview-brush-edge rect {
-  fill: var(--ui-surface);
-  stroke: color-mix(in srgb, var(--ui-ink) 45%, transparent);
-  stroke-width: 1px;
+  fill: var(--tone-accent);
+}
+
+.htl-overview-brush-edge line {
+  stroke: var(--ui-surface);
+  stroke-width: 1.5px;
 }
 
 .htl-minimap:hover .htl-overview-brush-fill {
-  fill: color-mix(in srgb, var(--ui-ink) 10%, transparent);
+  fill: color-mix(in srgb, var(--tone-accent) 20%, transparent);
 }
 
 /* One row over the lane: the page's time range, its span, and the lane's tools. */
@@ -2842,26 +2850,38 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-fail);
 }
 
-/* One flat label per run of events about the same subject, over a hairline that spans the run. */
-.htl-subject {
+/* Each event's own label slants up from its dot, like angled parking, so long names fit side by side. */
+.htl-event {
+  top: 0;
+}
+
+.htl-event .htl-label {
   position: absolute;
-  top: 3px;
+  bottom: 30px;
+  left: calc(50% - 4px);
+  max-width: var(--htl-label-max-width, 280px);
   overflow: hidden;
-  padding-top: 3px;
-  border-top: 2px solid var(--ui-hairline);
   color: var(--ui-ink-2);
-  font-size: var(--ui-text-xs);
-  font-weight: 600;
-  line-height: 14px;
+  cursor: pointer;
+  font-size: var(--ui-text-sm);
+  line-height: 17px;
+  pointer-events: auto;
   text-overflow: ellipsis;
+  transform: rotate(var(--htl-label-angle, -30deg));
+  transform-origin: left bottom;
   white-space: nowrap;
 }
 
-.htl-subject.selected {
-  border-top-color: var(--tone-accent);
+.htl-event:hover .htl-label,
+.htl-event.linked .htl-label {
   color: var(--ui-ink);
 }
 
+/* Only the selection gets the strong label, so it reads apart from linked events. */
+.htl-event.selected .htl-label {
+  color: var(--ui-ink);
+  font-weight: 600;
+}
 
 .htl-event.selected .htl-dot {
   box-shadow: 0 0 0 3px var(--tone-accent);
@@ -2924,7 +2944,8 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-end-note {
   position: absolute;
   z-index: 5;
-  top: 34px;
+  /* Beside the newest dot, below the slanted labels that rise from it. */
+  bottom: 50px;
   max-width: 230px;
   padding: 2px 8px;
   overflow: hidden;
@@ -3174,13 +3195,12 @@ html:has(.v1-page .stream-scroll--entries) {
   --experimental-wash: rgba(167, 139, 250, 0.16);
 }
 
-/* On a tab or a header link the tag sits above the label's top-right corner, so the label stays one word. */
+/* On a header link the tag sits above the label's top-right corner, so the label stays one word. */
 .run-tabs button[data-tab],
 .header-experimental-link {
   position: relative;
 }
 
-.run-tabs button .experimental-badge,
 .header-experimental-link .experimental-badge {
   position: absolute;
   top: -5px;
@@ -3200,7 +3220,6 @@ html:has(.v1-page .stream-scroll--entries) {
   padding-top: 6px;
 }
 
-.run-content--design,
 .run-content--experimental {
   grid-template-columns: minmax(0, 1fr);
 }

@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowDefinitionGraph, FlowV2Definition } from '@superdurable/flow-definition-renderer';
@@ -26,8 +26,17 @@ vi.mock('../design/FlowDesignGraph', () => ({
   ),
 }));
 vi.mock('../agents/SessionView', () => ({
-  SessionView: ({ flowId, workQueuePermissions }: { flowId: string; workQueuePermissions: string[] }) => (
-    <div data-testid="session-view" data-flow-id={flowId} data-permissions={workQueuePermissions.join(',')} />
+  SessionView: ({ flowId, workQueuePermissions, workingAsOptions = [], onChooseWorkingAs }: {
+    flowId: string;
+    workQueuePermissions: string[];
+    workingAsOptions?: readonly string[];
+    onChooseWorkingAs?: (permission: string) => void;
+  }) => (
+    <div data-testid="session-view" data-flow-id={flowId} data-permissions={workQueuePermissions.join(',')}>
+      {workingAsOptions[0] && (
+        <button onClick={() => onChooseWorkingAs?.(workingAsOptions[0])} type="button">{`Work as ${workingAsOptions[0]}`}</button>
+      )}
+    </div>
   ),
 }));
 
@@ -245,13 +254,37 @@ afterEach(() => {
 });
 
 describe('Run page experimental tabs', () => {
-  it('offers no Design switch, while an old Design link still opens the design under Graph', async () => {
+  it('opens an old Design link on Events with the Design view, in the picture above the event panel', async () => {
     stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?view=design');
-    expect((await screen.findByTestId('design-graph')).getAttribute('data-definition')).toBe('order');
+    const design = await screen.findByTestId('design-graph');
+    expect(design.getAttribute('data-definition')).toBe('order');
+    expect(design.closest('.events-picture')?.getAttribute('data-view')).toBe('design');
     expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.queryByRole('radio', { name: 'Design' })).toBeNull();
-    expect(tabLabels()).toEqual(['timeline', 'overview', 'stream']);
+    expect(screen.getByRole('button', { name: 'Design' }).getAttribute('aria-pressed')).toBe('true');
+    expect(tabLabels()).toEqual(['timeline', 'overview', 'session', 'actions', 'stream']);
+    expect(await screen.findByRole('region', { name: 'Selected event details' })).toBeTruthy();
+  });
+
+  it('switches Timeline, Graph and Design in the picture area and keeps the event panel and its event', async () => {
+    stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
+    renderRun('/v1/flows/run-flow/run-1?view=timeline');
+    fireEvent.click(await screen.findByRole('button', { name: 'Design' }));
+    const panel = await screen.findByRole('region', { name: 'Selected event details' });
+    const selectedTitle = panel.querySelector('[data-selected-event-target]')?.textContent;
+    expect(window.localStorage.getItem('dex.run.events-view')).toBe('design');
+    expect(screen.getByTestId('design-graph').closest('.events-picture')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    const graph = await screen.findByTestId('execution-graph');
+    expect(graph.closest('.events-picture')?.getAttribute('data-view')).toBe('graph');
+    expect(screen.queryByTestId('design-graph')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Selected event details' })).toBe(panel);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+    await waitFor(() => expect(document.querySelector('.events-picture')?.getAttribute('data-view')).toBe('timeline'));
+    expect(screen.getByRole('region', { name: 'Selected event details' })).toBe(panel);
+    expect(panel.querySelector('[data-selected-event-target]')?.textContent).toBe(selectedTitle);
   });
 
   it('reads only the definitions of the run Flow type, never every definition', async () => {
@@ -265,16 +298,10 @@ describe('Run page experimental tabs', () => {
     expect(definitionRequests).toEqual(['/api/flow-definition-types', '/api/flow-definitions/by-type']);
   });
 
-  it('opens a running Flow on Design without reading history, state, stored values or waiting', async () => {
+  it('reads the run\'s history and state under Design, since the event panel shows them', async () => {
     const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?view=design');
     expect((await screen.findByTestId('design-graph')).getAttribute('data-definition')).toBe('order');
-    await settle();
-    expect(requests).toContain('/api/flows/summary');
-    expect(runDataRequests(requests)).toEqual([]);
-
-    expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
-    fireEvent.click(screen.getByRole('tab', { name: 'Events' }));
     await waitFor(() => expect(runDataRequests(requests)).toEqual(expect.arrayContaining([
       '/api/flows/history',
       '/api/flows/state',
@@ -282,10 +309,10 @@ describe('Run page experimental tabs', () => {
     ])));
   });
 
-  it('waits for the definitions before reading history when the summary arrives first', async () => {
+  it('shows Loading in the picture while the definitions load, then the Design', async () => {
     let releaseDefinitions = () => {};
     const definitionsReleased = new Promise<void>((resolveDefinitions) => { releaseDefinitions = resolveDefinitions; });
-    const requests = stubDexWeb({
+    stubDexWeb({
       flowType: 'OrderFlow',
       definitions: [definitionEntry('order', 'OrderFlow', plainGraph)],
       definitionsReleased,
@@ -293,24 +320,11 @@ describe('Run page experimental tabs', () => {
     renderRun('/v1/flows/run-flow/run-1?view=design');
     await screen.findByText('Running');
     await settle();
-    expect(runDataRequests(requests)).toEqual([]);
+    expect(document.querySelector('.events-picture')?.getAttribute('data-view')).toBe('design');
+    expect(screen.queryByTestId('design-graph')).toBeNull();
 
     releaseDefinitions();
     expect(await screen.findByTestId('design-graph')).toBeTruthy();
-    await settle();
-    expect(runDataRequests(requests)).toEqual([]);
-  });
-
-  it('stops reading history and waiting while Design is shown', async () => {
-    const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
-    renderRun('/v1/flows/run-flow/run-1?view=steps', '/v1/flows/run-flow/run-1?view=design');
-    await waitFor(() => expect(requests).toContain('/api/flows/wait'));
-    fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
-    await screen.findByTestId('design-graph');
-    await settle();
-    const opened = requests.length;
-    await settle();
-    expect(runDataRequests(requests.slice(opened))).toEqual([]);
   });
 
   it('shows the matched definition\'s diagnostics under the Design graph', async () => {
@@ -348,23 +362,38 @@ describe('Run page experimental tabs', () => {
     expect(screen.queryByTestId('design-graph')).toBeNull();
   });
 
-  it('hides Design when no loaded definition matches the Flow type', async () => {
+  it('always offers Design, and says why when no loaded definition matches the Flow type', async () => {
     stubDexWeb({ flowType: 'RefundFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?view=steps');
     await screen.findByText('Running');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(tabLabels()).toEqual(['timeline', 'overview', 'stream']);
-    expect(screen.queryByRole('radio', { name: 'Design' })).toBeNull();
+    expect(tabLabels()).toEqual(['timeline', 'overview', 'session', 'actions', 'stream']);
+    fireEvent.click(screen.getByRole('button', { name: 'Design' }));
+    const empty = await screen.findByRole('region', { name: 'Design unavailable' });
+    expect(empty.closest('.events-picture')?.getAttribute('data-view')).toBe('design');
+    expect(within(empty).getByRole('heading', { name: 'No design for this Flow type' })).toBeTruthy();
+    expect(empty.textContent).toContain('No usable Flow Definition Graph is loaded for the Flow type RefundFlow.');
+    expect(within(empty).getByRole('link', { name: /Load Flow definitions/ }).getAttribute('href'))
+      .toBe('https://docs.superdurable.io/reference/web/flow-visualization#definition-sources');
+    expect(within(empty).getByRole('link', { name: /Generate a Flow Definition Graph/ }).getAttribute('href'))
+      .toBe('https://docs.superdurable.io/reference/web/flow-visualization');
+    // The event panel below stays.
+    expect(screen.getByRole('region', { name: 'Selected event details' })).toBeTruthy();
   });
 
-  it('falls back to the Timeline for a remembered tab that does not apply', async () => {
+  it('opens an old Design link on Design even when the Flow type has no design', async () => {
+    stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
+    renderRun('/v1/flows/run-flow/run-1?view=design');
+    await screen.findByRole('region', { name: 'Design unavailable' });
+    expect(screen.getByRole('button', { name: 'Design' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('opens a remembered Design view, with its reason, when the Flow type has no design', async () => {
     window.localStorage.setItem('dex.run.selected-tab', 'design');
     stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
     renderRun();
     await screen.findByText('Running');
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true'));
-    // Only loaded history draws an event, so the Timeline really read it.
-    await waitFor(() => expect(document.querySelector('[data-event-id="1"]')).not.toBeNull());
+    await screen.findByRole('region', { name: 'Design unavailable' });
   });
 
   it('opens on the Timeline when no tab is remembered', async () => {
@@ -387,9 +416,11 @@ describe('Run page experimental tabs', () => {
     });
     renderRun('/v1/flows/run-flow/run-1?view=session');
     expect((await screen.findByTestId('session-view')).getAttribute('data-flow-id')).toBe('run-flow');
-    expect(tabLabels()).toEqual(['session', 'timeline', 'overview', 'stream', 'actions']);
-    expect(screen.getByRole('tab', { name: /^Conversation/ }).textContent).toContain('Experimental');
-    expect(screen.getByRole('tab', { name: /^Actions/ }).textContent).toContain('Experimental');
+    expect(tabLabels()).toEqual(['timeline', 'overview', 'session', 'actions', 'stream']);
+    // The tabs carry only their icon and name.
+    expect(screen.getByRole('tab', { name: 'Conversation' }).textContent).toBe('Conversation');
+    expect(screen.getByRole('tab', { name: 'Actions' }).textContent).toBe('Actions');
+    expect(document.querySelector('.run-tabs .experimental-tag')).toBeNull();
   });
 
   it('opens an agent session on its Conversation when no tab is remembered', async () => {
@@ -406,14 +437,63 @@ describe('Run page experimental tabs', () => {
     expect(screen.getByRole('tab', { name: /^Conversation/ }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('hides Agent session and Actions without the operator API', async () => {
+  it('explains Conversation and Actions without the operator API', async () => {
     const graph = sessionGraph();
     stubDexWeb({ flowType: graph.flow.name, definitions: [definitionEntry('session', graph.flow.name, graph)] });
     renderRun('/v1/flows/run-flow/run-1?view=session');
-    await screen.findByText('Running');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(tabLabels()).toEqual(['timeline', 'overview', 'stream']);
+    const conversation = await screen.findByRole('region', { name: 'Conversation unavailable' });
+    expect(conversation.textContent).toContain('no valid Flow Definition Graph 2.0');
+    expect(tabLabels()).toEqual(['timeline', 'overview', 'session', 'actions', 'stream']);
     expect(screen.queryByTestId('session-view')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Actions' }));
+    const actions = await screen.findByRole('region', { name: 'Actions unavailable' });
+    expect(actions.textContent).toContain('is not a valid Flow Definition Graph 2.0');
+  });
+
+  it('shows Conversation and Actions on every run, with the reason and docs when they do not apply', async () => {
+    stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
+    renderRun('/v1/flows/run-flow/run-1?view=session');
+    const conversation = await screen.findByRole('region', { name: 'Conversation unavailable' });
+    expect(conversation.textContent).toContain('This run is not a Dex Agents session.');
+    expect(within(conversation).getByRole('heading', { name: 'No conversation for this run' })).toBeTruthy();
+    const frameworks = within(conversation).getByRole('link', { name: /Supported agent frameworks/ });
+    expect(frameworks.getAttribute('href')).toBe('https://docs.superdurable.io/agent-frameworks/framework-support');
+    expect(frameworks.getAttribute('target')).toBe('_blank');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Actions' }));
+    const actions = await screen.findByRole('region', { name: 'Actions unavailable' });
+    expect(actions.textContent).toContain('No Flow Definition Graph is loaded for the Flow type RefundFlow.');
+    expect(within(actions).getByRole('heading', { name: 'No actions for this run' })).toBeTruthy();
+    expect(within(actions).getByRole('link', { name: /Load Flow definitions/ }).getAttribute('href'))
+      .toBe('https://docs.superdurable.io/reference/web/flow-visualization#definition-sources');
+    expect(within(actions).getByRole('link', { name: /Actions in Dex Web/ }).getAttribute('href'))
+      .toBe('https://docs.superdurable.io/reference/web/dex-web#actions');
+    expect(screen.queryByRole('region', { name: 'Actions' })).toBeNull();
+  });
+
+  it('says when the loaded definition declares no Action', async () => {
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    const v2 = graph.v2 as FlowV2Definition;
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: { ...v2, actions: [], display: { ...v2.display, fields: [] } } }],
+    });
+    renderRun('/v1/flows/run-flow/run-1?view=actions');
+    const actions = await screen.findByRole('region', { name: 'Actions unavailable' });
+    expect(actions.textContent).toContain(`The loaded definition of ${flowType} declares no Action and no Display field.`);
+    expect(within(actions).getByRole('link', { name: /Actions in Dex Web/ })).toBeTruthy();
+    expect(within(actions).queryByRole('link', { name: /Load Flow definitions/ })).toBeNull();
+  });
+
+  it('opens Events, not an empty tab, for a remembered Conversation that does not apply', async () => {
+    window.localStorage.setItem('dex.run.selected-tab', JSON.stringify({ flowId: 'run-flow', tab: 'session' }));
+    stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
+    renderRun();
+    await screen.findByText('Running');
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true'));
+    expect(screen.queryByRole('region', { name: 'Conversation unavailable' })).toBeNull();
   });
 
   it('shares one Working as choice between Agent session and Actions', async () => {
@@ -426,10 +506,11 @@ describe('Run page experimental tabs', () => {
     });
     renderRun('/v1/flows/run-flow/run-1?view=session');
     await screen.findByTestId('session-view');
-    const sessionWorkingAs = screen.getByRole('combobox', { name: 'Working as' }) as HTMLSelectElement;
-    const permission = [...sessionWorkingAs.options].map((option) => option.value).find((value) => value !== '');
-    expect(permission).toBeTruthy();
-    fireEvent.change(sessionWorkingAs, { target: { value: permission } });
+    // Conversation has no Working as selector of its own; its controls set it where it blocks them.
+    expect(screen.queryByRole('combobox', { name: 'Working as' })).toBeNull();
+    const workAs = screen.getByRole('button', { name: /^Work as / });
+    const permission = workAs.textContent!.replace('Work as ', '');
+    fireEvent.click(workAs);
     expect(screen.getByTestId('session-view').getAttribute('data-permissions')).toBe(permission);
 
     fireEvent.click(screen.getByRole('tab', { name: /^Actions/ }));
@@ -453,7 +534,8 @@ describe('Run page experimental tabs', () => {
     renderRun(`/v1/flows/run-flow/run-1?view=actions${search}`);
     const currentRunLink = await screen.findByRole('link', { name: 'Open the current run' });
     expect(currentRunLink.getAttribute('href')).toBe('/v1/flows/run-flow?view=actions');
-    expect(tabLabels()).toEqual(['timeline', 'overview', 'stream']);
+    expect(tabLabels()).toEqual(['timeline', 'overview', 'session', 'actions', 'stream']);
+    expect(screen.queryByRole('region', { name: 'Actions unavailable' })).toBeNull();
     await settle();
     expect(screen.queryByRole('region', { name: 'Actions' })).toBeNull();
     expect(screen.queryByTestId('session-view')).toBeNull();

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { agentInboxPath, sessionRunPath } from '../routes';
 import '../workspace/css/workspace.css';
+import './workQueue.css';
 import { useV2Catalog } from '../catalog/WebCatalogProvider';
 import { ACTIVE_STEP_TYPES_FIELD, newFilterRow, type FilterRow } from '../workspace/filters';
 import { flowStatusQueryValue } from '../workspace/runQuery';
@@ -95,11 +96,10 @@ export function AgentInboxWorkspace() {
         : '';
 
   return (
-    <div className="v2-shell v2-run">
+    <div className="v2-shell v2-run wq">
       <div className="ai-body" data-selected={flowId !== '' ? 'true' : undefined}>
         <aside className="rsw ai-list" aria-label={AGENT_INBOX_COPY.heading}>
-          <div className="sq-head">
-            <span className="sq-title">{WORK_QUEUE_COPY.appName}</span>
+          <div className="wq-head">
             <WorkQueueModeSwitch hasAgents mode="agents" />
           </div>
           <section className="rsw-zone" data-zone="permission">

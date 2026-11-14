@@ -1085,3 +1085,50 @@ html .nsd .ses-settings-json {
   color: var(--p-ink-0);
   font-family: var(--p-mono, ui-monospace, monospace);
 }
+
+/* Where Working as blocks a control, a small Work as button stands in for the reason. */
+.ses-workas-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ses-workas-line .ses-workas {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* Once Working as is set, one muted line names it, with Change for the other choices. */
+.ses-acting-as {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ses-acting-as-change {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--as-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ses-acting-as select {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--as-track);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+

@@ -15,6 +15,9 @@ const horizontalMargin = 32;
 const verticalMargin = 32;
 export const minimumGraphZoom = 1 / 3;
 
+/** Top to bottom, or left to right with ranks as columns. */
+export type GraphDirection = 'tb' | 'lr';
+
 interface LayoutNode<NodeData extends Record<string, unknown>> {
   height: number;
   node: Node<NodeData>;
@@ -64,6 +67,7 @@ function nodeHeight<NodeData extends Record<string, unknown>>(node: Node<NodeDat
 export function layoutGraph<NodeData extends Record<string, unknown>>(
   nodes: Array<Node<NodeData>>,
   edges: Edge[],
+  direction: GraphDirection = 'tb',
 ): Array<Node<NodeData>> {
   if (nodes.length === 0) return [];
   const topologyNodes = nodes.filter((node) => !isSubFlowNode(node));
@@ -72,9 +76,13 @@ export function layoutGraph<NodeData extends Record<string, unknown>>(
   const topologyEdges = edges.filter((edge) => (
     topologyIDs.has(edge.source) && topologyIDs.has(edge.target)
   ));
-  const positions = layoutTopology(topologyNodes, topologyEdges);
+  const childrenByParent = subFlowChildrenByParent(subFlowNodes, topologyIDs);
+  const positions = direction === 'lr'
+    ? layoutTopologyLeftToRight(topologyNodes, topologyEdges, childrenByParent)
+    : layoutTopology(topologyNodes, topologyEdges);
   // SubFlow conditions are not next Steps; keep them off the topology ranks.
-  placeSubFlowNodes(subFlowNodes, topologyNodes, positions);
+  if (direction === 'lr') placeSubFlowNodesBelow(childrenByParent, topologyNodes, positions);
+  else placeSubFlowNodes(subFlowNodes, topologyNodes, positions);
   return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
 }
 
@@ -134,6 +142,88 @@ function layoutTopology<NodeData extends Record<string, unknown>>(
   return positions;
 }
 
+/** Lays ranks out as columns; each Step reserves room under itself for its SubFlow nodes. */
+function layoutTopologyLeftToRight<NodeData extends Record<string, unknown>>(
+  nodes: Array<Node<NodeData>>,
+  edges: Edge[],
+  childrenByParent: Map<string, Array<Node<NodeData>>>,
+): Map<string, { x: number; y: number }> {
+  const slotHeight = (node: Node<NodeData>) => nodeHeight(node) + subFlowStackHeight(childrenByParent.get(node.id));
+  const graph = new dagre.graphlib.Graph();
+  graph.setDefaultEdgeLabel(() => ({}));
+  graph.setGraph({ rankdir: 'LR', ranksep: verticalGap, nodesep: horizontalGap });
+  nodes.forEach((node) => graph.setNode(node.id, { width: nodeWidth(node), height: slotHeight(node) }));
+  edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
+  dagre.layout(graph);
+
+  const nodeRanks = logicalRanks(nodes, edges);
+  const rankMembers = new Map<number, Array<LayoutNode<NodeData>>>();
+  for (const node of nodes) {
+    const position = graph.node(node.id);
+    const rank = nodeRanks.get(node.id) ?? Math.round(position.x);
+    const members = rankMembers.get(rank) ?? [];
+    members.push({ height: slotHeight(node), node, order: position.y, width: nodeWidth(node) });
+    rankMembers.set(rank, members);
+  }
+
+  const columns = [...rankMembers.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, members]) => members.sort((left, right) => left.order - right.order));
+  const columnHeight = (column: Array<LayoutNode<NodeData>>) => (
+    column.reduce((height, member) => height + member.height, 0) + horizontalGap * Math.max(0, column.length - 1)
+  );
+  const contentHeight = Math.max(...columns.map(columnHeight));
+  const positions = new Map<string, { x: number; y: number }>();
+  let columnLeft = horizontalMargin;
+  for (const column of columns) {
+    const columnWidth = Math.max(...column.map((member) => member.width));
+    let nodeTop = verticalMargin + (contentHeight - columnHeight(column)) / 2;
+    for (const member of column) {
+      positions.set(member.node.id, { x: columnLeft + (columnWidth - member.width) / 2, y: nodeTop });
+      nodeTop += member.height + horizontalGap;
+    }
+    columnLeft += columnWidth + verticalGap;
+  }
+  return positions;
+}
+
+function subFlowChildrenByParent<NodeData extends Record<string, unknown>>(
+  subFlowNodes: Array<Node<NodeData>>,
+  topologyIDs: Set<string>,
+): Map<string, Array<Node<NodeData>>> {
+  const childrenByParent = new Map<string, Array<Node<NodeData>>>();
+  for (const node of subFlowNodes) {
+    const parentID = parentStepID(node);
+    if (!parentID || !topologyIDs.has(parentID)) continue;
+    childrenByParent.set(parentID, [...(childrenByParent.get(parentID) ?? []), node]);
+  }
+  return childrenByParent;
+}
+
+/** The height a Step reserves under itself for its SubFlow nodes, gaps included. */
+function subFlowStackHeight<NodeData extends Record<string, unknown>>(children: Array<Node<NodeData>> | undefined): number {
+  if (!children || children.length === 0) return 0;
+  return children.reduce((height, child) => height + horizontalGap + nodeHeight(child), 0);
+}
+
+function placeSubFlowNodesBelow<NodeData extends Record<string, unknown>>(
+  childrenByParent: Map<string, Array<Node<NodeData>>>,
+  topologyNodes: Array<Node<NodeData>>,
+  positions: Map<string, { x: number; y: number }>,
+): void {
+  const topologyByID = new Map(topologyNodes.map((node) => [node.id, node]));
+  for (const [parentID, children] of childrenByParent) {
+    const parent = topologyByID.get(parentID);
+    const parentPosition = positions.get(parentID);
+    if (!parent || !parentPosition) continue;
+    let nodeTop = parentPosition.y + nodeHeight(parent) + horizontalGap;
+    for (const child of children) {
+      positions.set(child.id, { x: parentPosition.x + (nodeWidth(parent) - nodeWidth(child)) / 2, y: nodeTop });
+      nodeTop += nodeHeight(child) + horizontalGap;
+    }
+  }
+}
+
 function placeSubFlowNodes<NodeData extends Record<string, unknown>>(
   subFlowNodes: Array<Node<NodeData>>,
   topologyNodes: Array<Node<NodeData>>,
@@ -183,6 +273,18 @@ export function defaultGraphZoom(contentWidth: number, viewportWidth: number): n
   if (contentWidth <= 0 || viewportWidth <= 0) return 1;
   const availableWidth = Math.max(0, viewportWidth - horizontalMargin * 2);
   return Math.max(minimumGraphZoom, Math.min(1, availableWidth / contentWidth));
+}
+
+/**
+ * Returns the zoom that fits the whole graph into a box of both sizes, at most 1. It may be
+ * below minimumGraphZoom; callers clamp it and treat a lower value as "does not fit".
+ */
+export function fittingGraphZoom(
+  bounds: { height: number; width: number },
+  viewport: { height: number; width: number },
+): number {
+  if (bounds.width <= 0 || bounds.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return 1;
+  return Math.min(1, viewport.width / bounds.width, viewport.height / bounds.height);
 }
 
 export function graphBounds<NodeData extends Record<string, unknown>>(

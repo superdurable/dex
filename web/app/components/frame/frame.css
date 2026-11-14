@@ -1418,12 +1418,58 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--tone-done);
+  background: color-mix(in srgb, var(--ui-ink-3) 35%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-surface) 70%, var(--ui-page));
+  transition: background-color 200ms ease;
+}
+
+/* A reachable server stays quiet: a faint dot, no words. */
+.app-rail-reach.is-reachable {
+  background: color-mix(in srgb, var(--tone-done) 45%, transparent);
 }
 
 .app-rail-reach.is-unreachable {
   background: var(--tone-fail);
+}
+
+.app-rail-host-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.app-rail-reach-text {
+  color: var(--tone-fail-ink);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  animation: app-rail-reach-text-in 200ms ease-out;
+}
+
+/* In the open rail the red words may wrap, so the home row grows instead of cutting them off. */
+:is(.app-rail.is-expanded, .app-rail.is-phone-open) .app-rail-reach-text {
+  white-space: normal;
+}
+
+:is(.app-rail.is-expanded, .app-rail.is-phone-open) .app-rail-host:has(.app-rail-reach-text) {
+  height: auto;
+  min-height: 42px;
+  padding-block: 4px;
+}
+
+@keyframes app-rail-reach-text-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-rail-reach {
+    transition: none;
+  }
+
+  .app-rail-reach-text {
+    animation: none;
+  }
 }
 
 .app-rail-label {
@@ -1543,10 +1589,6 @@ body {
   display: flex;
   min-width: 0;
   align-self: stretch;
-}
-
-.app-bar.v1-page .run-tabs .experimental-tag {
-  margin-left: 0;
 }
 
 .live-status:focus-visible,
@@ -1694,19 +1736,37 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* Events' Timeline and Graph switch leads the event header; the pressed view reads as selected. */
+/* Events' Timeline, Graph and Design switch leads the event header; one indicator slides to the pressed view. */
 .events-view-switch {
-  display: inline-flex;
+  position: relative;
+  display: inline-grid;
   flex: none;
+  grid-template-columns: repeat(var(--option-count, 2), minmax(0, 1fr));
   gap: 2px;
   padding: 2px;
   border-radius: 999px;
   background: var(--ui-chip);
 }
 
+.events-view-switch-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px - 2px * (var(--option-count, 2) - 1)) / var(--option-count, 2));
+  border-radius: 999px;
+  background: var(--ui-surface);
+  box-shadow: 0 0 0 1px var(--ui-hairline);
+  transform: translateX(calc(var(--active-index, 0) * (100% + 2px)));
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
+}
+
 .events-view-switch button {
+  position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   height: 26px;
   padding: 0 11px;
@@ -1718,15 +1778,301 @@ body {
   font: inherit;
   font-size: var(--ui-text-sm);
   font-weight: 600;
+  transition: color 150ms ease;
+}
+
+.events-view-switch button:hover {
+  color: var(--ui-ink);
 }
 
 .events-view-switch button[aria-pressed='true'] {
   color: var(--ui-ink);
-  background: var(--ui-surface);
-  box-shadow: 0 0 0 1px var(--ui-hairline);
 }
 
 .events-view-switch button:focus-visible {
   outline: 2px solid var(--ui-focus-outline);
   outline-offset: 1px;
+}
+
+/* ------------------------------------------------------ Events picture area */
+
+/* Timeline, Graph and Design swap only this box; the event panel below stays in place. */
+.events-picture {
+  --events-picture-height: clamp(300px, 42vh, 420px);
+
+  position: relative;
+  min-width: 0;
+}
+
+.events-picture-view {
+  animation: events-picture-in 160ms ease-out;
+}
+
+@keyframes events-picture-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Graph and Design share one bounded height, so switching between them never moves the panel. */
+.events-picture:is([data-view='graph'], [data-view='design']) > .events-picture-view {
+  display: flex;
+  height: var(--events-picture-height);
+  min-height: 0;
+  flex-direction: column;
+}
+
+.v1-page .graph-view.graph-view--lr {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+
+.v1-page .graph-view--lr .view-toolbar {
+  flex: none;
+  margin-bottom: 8px;
+}
+
+.v1-page .graph-view--lr .graph-canvas {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+html .events-picture .v2-shell.dg {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.events-picture .flow-definition-diagnostics {
+  max-height: 30%;
+  flex: none;
+  overflow: auto;
+}
+
+.events-picture .events-picture-loading {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* Conversation and Actions are always tabs; without content the full-width card shows a calm empty state. */
+.run-tab-unavailable {
+  display: flex;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+.run-tab-unavailable-body {
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.run-tab-unavailable-icon {
+  margin-bottom: 4px;
+  color: var(--ui-ink-3);
+}
+
+.run-tab-unavailable-title {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: var(--ui-text-md);
+  font-weight: 500;
+}
+
+.run-tab-unavailable-text {
+  margin: 0;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+  line-height: 1.55;
+}
+
+.run-tab-unavailable-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  font-size: var(--ui-text-sm);
+}
+
+.run-tab-unavailable-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* From and To each take a row; the label column keeps the links aligned. */
+.related-events-line {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.related-event-inline .related-event-relation {
+  min-width: 34px;
+}
+
+.related-event-target {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.related-event-separator {
+  color: var(--ui-ink-3);
+}
+
+/* Each Flow config value keeps its Edit beside it. */
+.flow-config-value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-config-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--ui-text-xs);
+}
+
+/* A row being edited spans the card: its name on top, then the editor, left-aligned. */
+.v1-page .run-overview .flow-config-list > div.is-editing {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.v1-page .run-overview .flow-config-list > div.is-editing dd {
+  overflow: visible;
+  font-weight: 400;
+  text-align: left;
+}
+
+.flow-config-editor {
+  max-width: 420px;
+  margin-top: 0;
+  animation: events-picture-in 160ms ease-out;
+}
+
+.flow-config-editor .flow-config-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-config-editor .flow-config-check input {
+  width: auto;
+}
+
+.flow-config-editor-notes {
+  display: grid;
+  gap: 4px;
+}
+
+.flow-config-editor-notes p {
+  margin: 0;
+  font-size: var(--ui-text-xs);
+}
+
+.flow-config-invalid {
+  color: var(--tone-fail-ink);
+}
+
+.flow-config-warning {
+  color: var(--tone-wait-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-config-editor {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------- motion */
+
+/* Controls ease their colors on hover and press; outlines stay instant so focus never lags. */
+:where(
+  .button,
+  .pager-button,
+  .run-io-button,
+  .live-status,
+  .app-bar-menu-item,
+  .app-bar-icon-button,
+  .app-bar-jump-button,
+  .run-facts-button,
+  .operate-menu-button,
+  .json-toggle,
+  .copy-button,
+  .text-button,
+  .icon-button,
+  .value-expand-button,
+  .section-expand-toggle,
+  .graph-minimap-toggle,
+  .theme-toggle,
+  .htl-legend-fold > summary,
+  .event-detail-tabs button,
+  .run-events-page-size select
+) {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.app-bar.v1-page .run-tabs button::after {
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Menus and popovers fade in, like the bar's menus. */
+.htl-legend-fold[open] > .htl-legend,
+.v1-page .column-popover {
+  animation: app-bar-popover-in 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .events-picture-view,
+  .htl-legend-fold[open] > .htl-legend,
+  .v1-page .column-popover {
+    animation: none;
+  }
+
+  /* Plain selectors and !important, so this beats each control's own class-level transition. */
+  .events-view-switch-indicator,
+  .events-view-switch button,
+  .app-bar.v1-page .run-tabs button::after,
+  .button,
+  .pager-button,
+  .run-io-button,
+  .live-status,
+  .app-bar-menu-item,
+  .app-bar-icon-button,
+  .app-bar-jump-button,
+  .run-facts-button,
+  .operate-menu-button,
+  .json-toggle,
+  .copy-button,
+  .text-button,
+  .icon-button,
+  .value-expand-button,
+  .section-expand-toggle,
+  .graph-minimap-toggle,
+  .theme-toggle,
+  .htl-legend-fold > summary,
+  .event-detail-tabs button,
+  .run-events-page-size select {
+    transition: none !important;
+  }
 }

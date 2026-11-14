@@ -67,7 +67,15 @@ function isSetAttributesEvent(event: FlowHistoryEvent): boolean {
     && event.payload.isSetAttributeApi === true;
 }
 
-function InitialStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {
+function InitialStartDetails({
+  payload,
+  showHeading = true,
+  showFlowConfig = true,
+}: {
+  payload: Data;
+  showHeading?: boolean;
+  showFlowConfig?: boolean;
+}) {
   const start = asData(payload.initialStart);
   return (
     <>
@@ -82,7 +90,7 @@ function InitialStartDetails({ payload, showHeading = true }: { payload: Data; s
       {Array.isArray(start.initialAttributes) && start.initialAttributes.length > 0 && (
         <DetailSection title="Initial attributes"><KeyValues values={start.initialAttributes} /></DetailSection>
       )}
-      <FlowConfigView value={payload.flowConfig} />
+      {showFlowConfig && <FlowConfigView value={payload.flowConfig} />}
       <FlowTimeoutHandlerOptionsView value={payload.timeoutHandlerOptions} />
     </>
   );
@@ -197,17 +205,20 @@ export function SemanticEventDetails({
   history = [event],
   parentFlowId = '',
   showStartHeading = true,
+  showStartFlowConfig = true,
 }: {
   event: FlowHistoryEvent;
   history?: FlowHistoryEvent[];
   parentFlowId?: string;
   showStartHeading?: boolean;
+  /** False hides a start event's Flow configuration, such as where the run's current configuration shows. */
+  showStartFlowConfig?: boolean;
 }) {
   if (event.type.startsWith('StepWaitFor') || event.type.startsWith('StepExecute')) {
     return <StepMethodDetails event={event} history={history} parentFlowId={parentFlowId} />;
   }
   if (event.type === 'FlowStartedOrContinued') {
-    return <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
+    return <InitialStartDetails payload={event.payload} showFlowConfig={showStartFlowConfig} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
   if (event.type === 'TimeTravelFork') {

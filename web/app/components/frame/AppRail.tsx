@@ -6,13 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { FLOWS_PATH } from '../../routes';
 import { DexMark } from '../DexMark';
 import { FLOWS_SECTION, sectionOf, type AppSection } from './appSections';
-import type { ServerReachability } from './useServerReachability';
+import type { ServerReachability, ServerReachabilityStatus } from './useServerReachability';
 
 const RAIL_EXPANDED_STORAGE_KEY = 'dex.rail.expanded';
 
@@ -38,10 +38,32 @@ export function useRailExpanded(): [boolean, (isExpanded: boolean) => void] {
   return [isExpanded, update];
 }
 
-const reachabilityLabels: Record<Exclude<ServerReachability, 'checking'>, string> = {
-  reachable: 'Dex Server reachable',
-  unreachable: 'Dex Web cannot reach the Dex Server',
-};
+const UNREACHABLE_TEXT = 'Dex Server unreachable';
+
+/** Names the reachability for the dot's tooltip, with the last error and last success when known. */
+export function reachabilityTooltip(status: ServerReachabilityStatus): string {
+  if (status.state === 'checking') return 'Checking whether Dex Web reaches the Dex Server';
+  if (status.state === 'reachable') return 'Dex Server reachable';
+  const lastError = status.lastError ? ` Last error: ${status.lastError}.` : '';
+  const lastReached = status.lastReachableAt
+    ? ` Last reached at ${new Date(status.lastReachableAt).toLocaleTimeString()}.`
+    : '';
+  return `Dex Web cannot reach the Dex Server.${lastError}${lastReached}`;
+}
+
+/** Announces a change of reachability once, after the first answer; polls that repeat a state say nothing. */
+function useReachabilityAnnouncement(state: ServerReachability): string {
+  const [announcement, setAnnouncement] = useState('');
+  const previous = useRef<ServerReachability>('checking');
+  useEffect(() => {
+    if (state === previous.current) return;
+    const wasKnown = previous.current !== 'checking';
+    previous.current = state;
+    if (state === 'unreachable') setAnnouncement('Dex Server unreachable.');
+    else if (state === 'reachable' && wasKnown) setAnnouncement('Dex Server reachable again.');
+  }, [state]);
+  return announcement;
+}
 
 /** The left rail of a Dex Web on its own: home, then every section; experimental ones sit below their heading. */
 export function AppRail({
@@ -55,7 +77,7 @@ export function AppRail({
 }: {
   sections: readonly AppSection[];
   flowsHref: string;
-  reachability: ServerReachability;
+  reachability: ServerReachabilityStatus;
   isExpanded: boolean;
   onExpandedChange: (isExpanded: boolean) => void;
   isPhoneOpen: boolean;
@@ -67,12 +89,16 @@ export function AppRail({
   const stable = sections.filter((section) => !section.isExperimental);
   const experimental = sections.filter((section) => section.isExperimental);
 
-  const reachDot = reachability === 'checking' ? null : (
+  const reachTooltip = reachabilityTooltip(reachability);
+  const isUnreachable = reachability.state === 'unreachable';
+  const announcement = useReachabilityAnnouncement(reachability.state);
+  // Reachable and checking stay a faint dot; only an unreachable server adds red words.
+  const reachDot = (
     <span
-      aria-label={reachabilityLabels[reachability]}
-      className={`app-rail-reach is-${reachability}`}
+      aria-label={reachTooltip}
+      className={`app-rail-reach is-${reachability.state}`}
       role="img"
-      title={reachabilityLabels[reachability]}
+      title={reachTooltip}
     />
   );
   const sectionLink = (section: AppSection) => (
@@ -96,13 +122,22 @@ export function AppRail({
         className={`app-rail${isExpanded ? ' is-expanded' : ''}${isPhoneOpen ? ' is-phone-open' : ''}`}
       >
         <div className="app-rail-server">
-          <Link aria-label="Dex home" className="app-rail-item app-rail-host" title={isExpanded ? undefined : 'Dex home'} to={FLOWS_PATH}>
+          <Link
+            aria-label={isUnreachable ? `Dex home. ${UNREACHABLE_TEXT}` : 'Dex home'}
+            className="app-rail-item app-rail-host"
+            title={isUnreachable ? reachTooltip : isExpanded ? undefined : 'Dex home'}
+            to={FLOWS_PATH}
+          >
             <span className="app-rail-icon app-rail-mark">
               <DexMark size={22} />
               {reachDot}
             </span>
-            <span className="app-rail-label app-rail-host-name">Dex</span>
+            <span className="app-rail-label app-rail-host-name">
+              Dex
+              {isUnreachable && <span className="app-rail-reach-text">{UNREACHABLE_TEXT}</span>}
+            </span>
           </Link>
+          <p aria-live="polite" className="sr-only">{announcement}</p>
         </div>
         <div className="app-rail-sections">
           {stable.map(sectionLink)}

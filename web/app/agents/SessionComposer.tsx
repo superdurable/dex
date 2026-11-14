@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { ActingAsLine, BlockedReason } from './WorkingAsChoice';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ListPlus, SendHorizontal, ShieldCheck, Square } from 'lucide-react';
 import { SESSION_COPY } from './copy';
@@ -114,12 +115,13 @@ export function SessionComposer({
   );
   const steer = () => run('steer', () => invoke(schema.steerUserMessage, steerInput), SESSION_COPY.steered);
 
-  const shownReasons = new Set<string | null>([null, hintShownAbove]);
-  const blockedNotes: string[] = [];
+  // The Work as button in place of Send already says why the box is blocked.
+  const shownReasons = new Set<string | null>([null, hintShownAbove, workingAsOffer ? sendBlocked : null]);
+  const blockedNotes: { label: string | null; reason: string }[] = [];
   const addBlockedNote = (label: string | null, reason: string | null) => {
     if (shownReasons.has(reason)) return;
     shownReasons.add(reason);
-    blockedNotes.push(label ? `${label}: ${reason}` : reason as string);
+    blockedNotes.push({ label, reason: reason as string });
   };
   if (isComposerBlocked) addBlockedNote(null, sendBlocked);
   if (isTurnRunning) {
@@ -216,7 +218,10 @@ export function SessionComposer({
         {!isComposerBlocked && isTurnRunning && sendBlocked === null && canSteer && (
           <p className="agc-note">{SESSION_COPY.runningNote}</p>
         )}
-        {blockedNotes.map((note) => <p className="agc-blocked" key={note}>{note}</p>)}
+        {blockedNotes.map((note) => (
+          <BlockedReason key={`${note.label}:${note.reason}`} label={note.label ?? undefined} reason={note.reason} />
+        ))}
+        <ActingAsLine />
         {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
       </form>
     </footer>

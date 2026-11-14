@@ -47,7 +47,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
-import type { HistorySettingsChange } from './details/HistorySettingsCard';
+import type { FlowConfigChange } from './details/FlowConfigCard';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDialog';
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
@@ -64,6 +64,13 @@ import { EventsViewSwitch, LiveStatus, RunInputOutputButtons, RunViewTabs, type 
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline, type TimelineEndNote } from './details/HorizontalTimeline';
+import {
+  RunActionsUnavailable,
+  RunConversationUnavailable,
+  RunDesignUnavailable,
+  type RunActionsUnavailableReason,
+  type RunConversationUnavailableReason,
+} from './details/RunTabUnavailable';
 import { useRunHistory } from './useRunHistory';
 import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
@@ -89,7 +96,7 @@ interface CurrentRunOfFlow {
 /** History settings saved on this page, shown until a state load started after the save succeeds. */
 interface SavedHistorySettings {
   runIdentity: string;
-  values: HistorySettingsChange;
+  values: FlowConfigChange;
   savedAfterStateLoad: number;
 }
 
@@ -111,13 +118,31 @@ const noOperatorDefinitions: FlowV2Definition[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
 const eventsViewStorageKey = 'dex.run.events-view';
 
-/** The Events view this browser last chose, Timeline or Graph, as the tab that shows it. */
+/** The Events view this browser last chose, Timeline, Graph or Design, as the tab that shows it. */
 function storedEventsTab(): RunTab {
   try {
-    return window.localStorage.getItem(eventsViewStorageKey) === 'graph' ? 'steps' : 'timeline';
+    return eventsTabOf(window.localStorage.getItem(eventsViewStorageKey));
   } catch {
     return 'timeline';
   }
+}
+
+/** The tab that shows an Events view; Graph keeps its older `steps` tab id for old links. */
+function eventsTabOf(view: string | null): RunTab {
+  if (view === 'graph') return 'steps';
+  if (view === 'design') return 'design';
+  return 'timeline';
+}
+
+function eventsViewOf(tab: RunTab): EventsView {
+  if (tab === 'steps') return 'graph';
+  if (tab === 'design') return 'design';
+  return 'timeline';
+}
+
+/** Timeline, Graph and Design are pictures of one event page, above one shared event panel. */
+function isEventsTab(tab: RunTab): boolean {
+  return tab === 'timeline' || tab === 'steps' || tab === 'design';
 }
 
 function persistEventsView(view: EventsView) {
@@ -237,6 +262,9 @@ export function RunDetailsPage({
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
+  const [closedFlowConfig, setClosedFlowConfig] = useState<
+    { runIdentity: string; value: Record<string, unknown> } | { runIdentity: string; error: string } | null
+  >(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
   const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
   const [eventsTab, setEventsTab] = useState<RunTab>(storedEventsTab);
@@ -270,21 +298,29 @@ export function RunDetailsPage({
   );
   const runSessionSchema = sessionSchemaFor(catalogEntry);
   const runHasActions = hasRunActions(catalogEntry);
-  // Agent session and Actions read and write the current run, so an earlier run does not offer them.
+  // Conversation and Actions read and write the current run, so an earlier run does not offer them.
   const sessionSchema = displayedRunPosition === 'current' ? runSessionSchema : null;
   const hasActionsTab = displayedRunPosition === 'current' && runHasActions;
+  // Conversation and Actions are always tabs; without content, their panel says why.
+  const isRunTabContentPending = summary === null || !isCatalogReady
+    || ((runSessionSchema !== null || runHasActions) && displayedRunPosition === 'unknown');
+  const conversationUnavailableReason: RunConversationUnavailableReason | null = runSessionSchema !== null
+    ? null
+    : designDefinition !== null && catalogEntry === null ? 'unusable-definition' : 'not-a-session';
+  const actionsUnavailableReason: RunActionsUnavailableReason | null = runHasActions
+    ? null
+    : designDefinition === null ? 'no-definition' : catalogEntry === null ? 'unusable-definition' : 'no-actions';
+  // A remembered tab with nothing to show opens the Events view; a link still opens it.
+  const isRememberedTabEmpty = !isRunTab(requestedView) && !isRunTabContentPending
+    && ((chosenTab === 'session' && conversationUnavailableReason !== null)
+      || (chosenTab === 'actions' && actionsUnavailableReason !== null));
   // An agent session is read as its conversation, so it opens there unless another tab was chosen.
-  const tab: RunTab = chosenTab ?? (sessionSchema ? 'session' : eventsTab);
+  const tab: RunTab = isRememberedTabEmpty ? eventsTab : chosenTab ?? (sessionSchema ? 'session' : eventsTab);
   const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
     && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
-  // A remembered or linked tab that does not apply to this run shows the Timeline instead.
-  const shownTab: RunTab = (tab === 'design' && !designDefinition)
-    || (tab === 'session' && !sessionSchema)
-    || (tab === 'actions' && !hasActionsTab)
-    ? eventsTab
-    : tab;
-  // Design draws only the definition: history, state and blobs wait until the reader leaves it.
-  const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
+  // Design is always a view of Events; without a definition its picture says why.
+  const shownTab: RunTab = tab;
+  const isEventsViewShown = isEventsTab(shownTab);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -313,7 +349,8 @@ export function RunDetailsPage({
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
-  const sidebarKind: SidebarKind = shownTab === 'timeline' ? 'timeline' : 'graph';
+  // Every Events view shares one panel, so switching views keeps its width.
+  const sidebarKind: SidebarKind = isEventsViewShown ? 'timeline' : 'graph';
   const sidebarWidth = sidebarWidths[sidebarKind];
   const sidebarKindRef = useRef(sidebarKind);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -405,7 +442,7 @@ export function RunDetailsPage({
   }, [addDataWarning, flowId, stateURL]);
 
   const showSavedHistorySettings = useCallback(async (
-    values: HistorySettingsChange,
+    values: FlowConfigChange,
     savedRun: FlowSummary,
   ) => {
     const runIdentity = runIdentityOf(savedRun.flowId, savedRun.runId, savedRun.runAttempt);
@@ -522,7 +559,7 @@ export function RunDetailsPage({
 
   // A layout effect, so Loading events shows before an empty graph can paint.
   useLayoutEffect(() => {
-    if (isHoldingRunData || !summary || loadedRunDataRequest.current === runDataRequest) return;
+    if (!summary || loadedRunDataRequest.current === runDataRequest) return;
     loadedRunDataRequest.current = runDataRequest;
     void Promise.all([
       loadHistory(historyRunAttempt(summary)),
@@ -530,7 +567,7 @@ export function RunDetailsPage({
     ]).catch((loadError: unknown) => {
       setError(loadError instanceof Error ? loadError.message : 'Run refresh failed');
     });
-  }, [historyRunAttempt, isHoldingRunData, loadHistory, loadState, runDataRequest, summary]);
+  }, [historyRunAttempt, loadHistory, loadState, runDataRequest, summary]);
 
   // The operator API acts on the current run, so learn which run that is before offering it.
   const summaryStatusCode = summary?.flowStatusCode;
@@ -562,7 +599,6 @@ export function RunDetailsPage({
   useEffect(() => {
     if (
       !autoRefresh
-      || isHoldingRunData
       || !summary
       || terminalStatuses.has(summary.flowStatusCode)
       || nextInternalEventId <= 0
@@ -617,7 +653,6 @@ export function RunDetailsPage({
     clearLoadedRun,
     flowId,
     historyRunAttempt,
-    isHoldingRunData,
     isViewingEarlierRunAttempt,
     loadHistory,
     loadState,
@@ -628,13 +663,13 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  // An agent session's conversation leads. Events holds Timeline and Graph; old Design links open under it.
+  // Every run has the same tabs. Events holds Timeline, Graph and Design.
   const views: RunView<RunTab>[] = [
-    ...(sessionSchema ? [{ id: 'session' as const, label: 'Conversation', Icon: Bot, isExperimental: true }] : []),
     { id: 'timeline', label: 'Events', Icon: Rows3, alsoSelectedFor: ['steps', 'design'] },
     { id: 'overview', label: 'State', Icon: LayoutDashboard },
+    { id: 'session', label: 'Conversation', Icon: Bot },
+    { id: 'actions', label: 'Actions', Icon: MousePointerClick },
     { id: 'stream', label: 'Streams', Icon: Waves },
-    ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
   ];
   const timelineWindow = runHistory.timelineWindow;
   const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
@@ -656,8 +691,8 @@ export function RunDetailsPage({
     () => timelineEvents.map((event) => hydratedEvents[event.eventId] ?? event),
     [hydratedEvents, timelineEvents],
   );
-  // The Execution graph and the Timeline share one event page.
-  const isSelectionOnTimeline = shownTab === 'timeline' || shownTab === 'steps';
+  // The Timeline, the Execution graph and the Design share one event page.
+  const isSelectionOnTimeline = isEventsViewShown;
   const pageEventsWithFlowStart = useMemo(
     () => withFlowStart(displayedTimelineEvents, flowStartEvent),
     [displayedTimelineEvents, flowStartEvent],
@@ -700,7 +735,7 @@ export function RunDetailsPage({
   }, [eventsTab, selectTab]);
 
   const changeEventsView = useCallback((view: EventsView) => {
-    const nextTab: RunTab = view === 'graph' ? 'steps' : 'timeline';
+    const nextTab = eventsTabOf(view);
     persistEventsView(view);
     setEventsTab(nextTab);
     selectTab(nextTab);
@@ -709,7 +744,8 @@ export function RunDetailsPage({
 
   const jumpToEvent = useCallback(async (eventId: number) => {
     setError('');
-    selectTab('timeline');
+    // A jump stays in the Events view on screen; other tabs open the Timeline.
+    if (!isEventsTab(shownTab)) selectTab('timeline');
     try {
       const result = await jumpInTimeline(eventId, selectedEvent);
       // A pruned target needs no error: the refreshed pruned range turns its stub into a pruned stub.
@@ -718,7 +754,7 @@ export function RunDetailsPage({
     } catch (jumpError) {
       setError(jumpError instanceof Error ? jumpError.message : 'History page failed to load');
     }
-  }, [jumpInTimeline, selectTab, selectedEvent]);
+  }, [jumpInTimeline, selectTab, selectedEvent, shownTab]);
 
   // The selected event lives in the URL, so a link or a reload opens the same event.
   const requestedEventId = Number(searchParams.get(RUN_EVENT_PARAM)) || 0;
@@ -726,7 +762,7 @@ export function RunDetailsPage({
   useEffect(() => {
     if (hasOpenedRequestedEvent.current || requestedEventId <= 0 || history.length === 0) return;
     hasOpenedRequestedEvent.current = true;
-    if (shownTab === 'timeline' || shownTab === 'steps') void jumpToEvent(requestedEventId);
+    if (isEventsTab(shownTab)) void jumpToEvent(requestedEventId);
   }, [history.length, jumpToEvent, requestedEventId, shownTab]);
   useEffect(() => {
     if (!selectedEvent || (!hasOpenedRequestedEvent.current && requestedEventId > 0)) return;
@@ -806,12 +842,31 @@ export function RunDetailsPage({
     };
 
   useEffect(() => {
-    if (selectedRaw && !isHoldingRunData) void hydrateEvent(selectedRaw);
-  }, [hydrateEvent, isHoldingRunData, selectedRaw?.eventId]);
+    if (selectedRaw) void hydrateEvent(selectedRaw);
+  }, [hydrateEvent, selectedRaw?.eventId]);
 
   useEffect(() => {
     if (shownTab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
   }, [flowStartEvent, hydrateEvent, shownTab]);
+
+  // Live state is not loaded for a closed run, so State reads its Flow config once.
+  const isClosedRunShown = summary !== null && terminalStatuses.has(summary.flowStatusCode);
+  useEffect(() => {
+    if (shownTab !== 'overview' || !isClosedRunShown || closedFlowConfig?.runIdentity === runIdentity) return undefined;
+    const controller = new AbortController();
+    void fetch(stateURL, { cache: 'no-store', signal: controller.signal })
+      .then((response) => readResponseJSON<FlowState>(response))
+      .then((closedState) => setClosedFlowConfig({ runIdentity, value: closedState.flowConfig ?? {} }))
+      .catch((configError: unknown) => {
+        if (controller.signal.aborted) return;
+        console.warn('Unable to read the closed run\'s Flow config.', configError);
+        setClosedFlowConfig({
+          runIdentity,
+          error: configError instanceof Error ? configError.message : 'Configuration query failed',
+        });
+      });
+    return () => controller.abort();
+  }, [closedFlowConfig?.runIdentity, isClosedRunShown, runIdentity, shownTab, stateURL]);
 
   useLayoutEffect(() => {
     const content = runContent.current;
@@ -969,13 +1024,12 @@ export function RunDetailsPage({
   const closeEvent = summary && terminalStatuses.has(summary.flowStatusCode)
     ? [...history].reverse().find((event) => event.type === 'FlowClosed') ?? null
     : null;
-  const isEventListShown = shownTab === 'timeline' || shownTab === 'steps';
   const liveStatus = isRunOpen ? <LiveStatus isLive={isLive} onChange={resumeOrPauseLive} /> : null;
   const inputOutputButtons = (
     <RunInputOutputButtons
       closeEventId={closeEvent?.eventId ?? null}
       onShowEvent={(eventId) => void jumpToEvent(eventId)}
-      selectedEventId={isEventListShown ? selected?.eventId ?? null : null}
+      selectedEventId={isEventsViewShown ? selected?.eventId ?? null : null}
       startEventId={flowStartEvent?.eventId ?? null}
     />
   );
@@ -1016,7 +1070,7 @@ export function RunDetailsPage({
         <RunViewTabs onSelect={selectRunView} shownView={shownTab} views={views} />
       </AppBarSlot>
       <AppBarSlot name="actions">
-        {!isEventListShown && liveStatus}
+        {!isEventsViewShown && liveStatus}
         <OperateMenu
           isRunning={isRunOpen}
           failedEventId={failedEvent?.eventId}
@@ -1060,7 +1114,7 @@ export function RunDetailsPage({
 
       {isCurrentRunOnlyTabRequested && (
         <p className="run-experimental-hint">
-          Agent session and Actions act on the current run, so this earlier run does not offer them.{' '}
+          Conversation and Actions act on the current run, so this earlier run does not offer them.{' '}
           <Link to={`${currentRunPath(flowId)}?${new URLSearchParams({ [RUN_VIEW_PARAM]: tab })}`}>
             Open the current run
           </Link>
@@ -1072,11 +1126,11 @@ export function RunDetailsPage({
           'run-content',
           shownTab === 'overview' ? 'run-content--overview' : '',
           shownTab === 'stream' ? 'run-content--stream' : '',
-          shownTab === 'design' ? 'run-content--design' : '',
           shownTab === 'session' || shownTab === 'actions' ? 'run-content--experimental' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
-          shownTab === 'timeline' ? 'run-content--timeline' : '',
-          shownTab === 'timeline' && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
+          // Every Events view gets the same classes, so the event panel keeps its layout across views.
+          isEventsViewShown ? 'run-content--timeline' : '',
+          isEventsViewShown && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
         ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
@@ -1093,20 +1147,92 @@ export function RunDetailsPage({
           </svg>
         )}
         <section className="run-primary">
-          {(shownTab === 'steps' || shownTab === 'timeline') && summary && (
+          {isEventsViewShown && summary && (
             <RunEventsTile
               latestEventId={latestEvent?.eventId ?? null}
               paging={eventsPaging}
               pageSize={historyPageSize}
               onPageSizeChange={changeHistoryPageSize}
               status={liveStatus}
-              viewSwitch={<EventsViewSwitch onChange={changeEventsView} view={shownTab === 'steps' ? 'graph' : 'timeline'} />}
+              viewSwitch={(
+                <EventsViewSwitch
+                  onChange={changeEventsView}
+                  view={eventsViewOf(shownTab)}
+                />
+              )}
             >
               {inputOutputButtons}
             </RunEventsTile>
           )}
-          {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
-            <LoadingIndicator className="card page-loading" label="Loading events…" />
+          {isEventsViewShown && (
+            // One stable box; only its keyed child changes, so the panel below never re-mounts.
+            <div className="events-picture" data-view={eventsViewOf(shownTab)}>
+              <div className="events-picture-view" key={eventsViewOf(shownTab)}>
+                {shownTab === 'design' && (designDefinition ? (
+                  <DesignCanvasErrorBoundary key={designDefinition.id}>
+                    <FlowDesignGraph definition={designDefinition} opensWholeFlow zoomsOnGesture={false} />
+                    <FlowDefinitionDiagnostics definition={designDefinition} />
+                  </DesignCanvasErrorBoundary>
+                ) : isCatalogReady && summary ? (
+                  <RunDesignUnavailable flowType={summary.flowType} />
+                ) : (
+                  <LoadingIndicator className="events-picture-loading" label="Loading the Flow design…" />
+                ))}
+                {shownTab !== 'design' && isWaitingForHistory && (
+                  <LoadingIndicator className="card page-loading" label="Loading events…" />
+                )}
+                {shownTab === 'steps' && !isWaitingForHistory && (
+                  <ExecutionGraph
+                    flowId={flowId}
+                    events={pageEventsWithFlowStart}
+                    hasEarlierEvents={pageHasEarlierEvents}
+                    state={state}
+                    selectedEvent={selectedRaw}
+                    onSelectEvent={setSelectedEvent}
+                    direction="lr"
+                  />
+                )}
+                {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
+                  <div className="htl-host">
+                  <HorizontalTimeline
+                    events={displayedTimelineEvents}
+                    selectedEvent={selectedRaw}
+                    isFollowingLatest={selectedEvent === null}
+                    onSelectEvent={selectTimelineEvent}
+                    relations={selectedRaw ? selectedRelations : undefined}
+                    paging={{
+                      hasOlder: timelineWindow?.hasOlder ?? false,
+                      hasNewer: runHistory.timelineHasNewer,
+                      isLoading: runHistory.isLoadingTimelinePage,
+                    }}
+                    prunedEventIdRange={prunedEventIdRange}
+                    highlightedEventId={runHistory.highlightedEventId}
+                    endNote={timelineEndNote}
+                    onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
+                    onTimeTravelFromEvent={openTimeTravel}
+                  />
+                  </div>
+                )}
+                {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
+                  <Timeline
+                    flowId={flowId}
+                    events={displayedTimelineEvents}
+                    selectedEvent={selectedRaw}
+                    onSelectEvent={selectTimelineEvent}
+                    relations={selectedRaw ? selectedRelations : undefined}
+                    paging={{
+                      hasOlder: timelineWindow?.hasOlder ?? false,
+                      hasNewer: runHistory.timelineHasNewer,
+                      isLoading: runHistory.isLoadingTimelinePage,
+                    }}
+                    prunedEventIdRange={prunedEventIdRange}
+                    highlightedEventId={runHistory.highlightedEventId}
+                    onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+                    runStepDurability={runStepDurabilityOf(flowStartEvent)}
+                  />
+                )}
+              </div>
+            </div>
           )}
           {shownTab === 'overview' && summary && relations && (
             <RunRelations
@@ -1125,63 +1251,15 @@ export function RunDetailsPage({
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
               savedHistorySettings={displayedHistorySettings}
+              closedFlowConfig={closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
+                ? closedFlowConfig.value
+                : undefined}
+              closedFlowConfigError={closedFlowConfig?.runIdentity === runIdentity && 'error' in closedFlowConfig
+                ? closedFlowConfig.error
+                : undefined}
+              onRetryClosedFlowConfig={() => setClosedFlowConfig(null)}
               onHistorySettingsSaved={showSavedHistorySettings}
             />
-          )}
-          {shownTab === 'steps' && !isWaitingForHistory && (
-            <ExecutionGraph
-              flowId={flowId}
-              events={pageEventsWithFlowStart}
-              hasEarlierEvents={pageHasEarlierEvents}
-              state={state}
-              selectedEvent={selectedRaw}
-              onSelectEvent={setSelectedEvent}
-            />
-          )}
-          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
-            <div className="htl-host">
-            <HorizontalTimeline
-              events={displayedTimelineEvents}
-              selectedEvent={selectedRaw}
-              isFollowingLatest={selectedEvent === null}
-              onSelectEvent={selectTimelineEvent}
-              relations={selectedRaw ? selectedRelations : undefined}
-              paging={{
-                hasOlder: timelineWindow?.hasOlder ?? false,
-                hasNewer: runHistory.timelineHasNewer,
-                isLoading: runHistory.isLoadingTimelinePage,
-              }}
-              prunedEventIdRange={prunedEventIdRange}
-              highlightedEventId={runHistory.highlightedEventId}
-              endNote={timelineEndNote}
-              onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
-              onTimeTravelFromEvent={openTimeTravel}
-            />
-            </div>
-          )}
-          {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
-            <Timeline
-              flowId={flowId}
-              events={displayedTimelineEvents}
-              selectedEvent={selectedRaw}
-              onSelectEvent={selectTimelineEvent}
-              relations={selectedRaw ? selectedRelations : undefined}
-              paging={{
-                hasOlder: timelineWindow?.hasOlder ?? false,
-                hasNewer: runHistory.timelineHasNewer,
-                isLoading: runHistory.isLoadingTimelinePage,
-              }}
-              prunedEventIdRange={prunedEventIdRange}
-              highlightedEventId={runHistory.highlightedEventId}
-              onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
-              runStepDurability={runStepDurabilityOf(flowStartEvent)}
-            />
-          )}
-          {shownTab === 'design' && designDefinition && (
-            <DesignCanvasErrorBoundary key={designDefinition.id}>
-              <FlowDesignGraph definition={designDefinition} />
-              <FlowDefinitionDiagnostics definition={designDefinition} />
-            </DesignCanvasErrorBoundary>
           )}
           {shownTab === 'stream' && summary && (
             <DesignCanvasErrorBoundary key={designDefinition?.id ?? 'stream'} title="Streams could not be shown">
@@ -1197,7 +1275,7 @@ export function RunDetailsPage({
               workingAs={workingAs}
             />
           )}
-          {shownTab === 'actions' && catalogEntry && summary && (
+          {shownTab === 'actions' && hasActionsTab && catalogEntry && summary && (
             <RunActionsTab
               entry={catalogEntry}
               flowId={flowId}
@@ -1206,8 +1284,17 @@ export function RunDetailsPage({
               workingAs={workingAs}
             />
           )}
+          {(shownTab === 'session' || shownTab === 'actions') && isRunTabContentPending && (
+            <LoadingIndicator className="card page-loading" label="Loading…" />
+          )}
+          {shownTab === 'session' && !isRunTabContentPending && conversationUnavailableReason !== null && (
+            <RunConversationUnavailable reason={conversationUnavailableReason} />
+          )}
+          {shownTab === 'actions' && !isRunTabContentPending && actionsUnavailableReason !== null && summary && (
+            <RunActionsUnavailable flowType={summary.flowType} reason={actionsUnavailableReason} />
+          )}
         </section>
-        {(shownTab === 'steps' || shownTab === 'timeline') && (
+        {isEventsViewShown && (
           <aside className="run-sidebar">
             <button
               type="button"
