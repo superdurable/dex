@@ -18,8 +18,8 @@ import {
   type AgentTurnContext,
   type AgentTurnOutcome,
   type DeferredToolExecution,
+  type DeferredToolOutcome,
   type ToolEffect,
-  type ToolExecutionResult,
   type ToolPolicy,
 } from "@superdurable/dex-agents";
 import {
@@ -335,7 +335,7 @@ class ReauthorizingClaudeAgentRunner extends ClaudeAgentRunner {
     return runningTurn.run(turn, () => super.runModelStep(turn));
   }
 
-  public override async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public override async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const toolName = call.toolCall.toolName;
     if (Object.hasOwn(claudeCodeLocalTools, toolName)) {
       const permissions = await this.context.resolveToolStepPermissions({

@@ -27,6 +27,7 @@ Step streaming, heartbeat recovery, and cancellation scenarios.
 | `StateOptionsTest` | `state_options_test.rs` |
 | `StateRecoveryTest` | `state_recovery_test.rs` |
 | `StreamTest` | `stream_test.rs` |
+| Rust named task queues | `task_queue_test.rs` |
 | `TimerTest` | `timer_test.rs` |
 | `WorkflowUncompletedTest` | `workflow_uncompleted_test.rs` |
 

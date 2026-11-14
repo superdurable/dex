@@ -179,4 +179,38 @@ public interface PollWorkerTaskRegisterOrBuilder extends
    * @return The slotKind.
    */
   io.superdurable.gen.PollWorkerSlotKind getSlotKind();
+
+  /**
+   * <pre>
+   * Names the task queue this stream serves; empty serves the default task queue.
+   * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+   * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+   * names another one with INVALID_ARGUMENT.
+   * Requires Server protocol version 5 or later.
+   * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+   * </pre>
+   *
+   * <code>string task_queue = 8;</code>
+   * @return The taskQueue.
+   */
+  java.lang.String getTaskQueue();
+  /**
+   * <pre>
+   * Names the task queue this stream serves; empty serves the default task queue.
+   * The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+   * A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+   * Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+   * Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+   * names another one with INVALID_ARGUMENT.
+   * Requires Server protocol version 5 or later.
+   * An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+   * </pre>
+   *
+   * <code>string task_queue = 8;</code>
+   * @return The bytes for taskQueue.
+   */
+  com.google.protobuf.ByteString
+      getTaskQueueBytes();
 }

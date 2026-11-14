@@ -18,7 +18,6 @@ use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{
     DeleteChannelMessageRequest, PublishToChannelRequest, SetAttributesRequest, SkipTimerRequest,
     StartFlowRequest, StartFlowResponse, StopFlowRequest, StopType, UpdateFlowConfigRequest,
-    WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, FlowCommand,
@@ -69,6 +68,8 @@ impl FlowCoordinatorRegistry {
             }
             None => None,
         };
+        // Validation accepted only pull targets, which normalize to this value.
+        let worker_target = effective_flow_config.worker_target.clone();
         let start = FlowStartCommand {
             new_run_id: new_run_id.as_bytes().to_vec(),
             request_fingerprint: fingerprint,
@@ -76,8 +77,7 @@ impl FlowCoordinatorRegistry {
             settings: Some(self.inner.config.run_settings),
             resolved_timeout_policy,
             effective_flow_config: Some(effective_flow_config),
-            // Validation accepted only pull targets, which normalize to this value.
-            worker_target: Some(WorkerTarget { is_pull_mode: true }),
+            worker_target,
             hard_delete_objects: hard_delete_references(uploads.as_ref()),
         };
         let command = unstamped_flow_command(&flow, None, flow_command::Command::FlowStart(start));

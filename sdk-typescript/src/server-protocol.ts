@@ -9,7 +9,7 @@
 import type { ServerInfo } from "./gen/dex.js";
 
 export const minimumSupportedServerProtocolVersion: number = 4;
-export const maximumSupportedServerProtocolVersion: number = 4;
+export const maximumSupportedServerProtocolVersion: number = 5;
 const minimumServerRelease = "server-zd newer than v0.1.16";
 
 export function negotiateServerProtocol(

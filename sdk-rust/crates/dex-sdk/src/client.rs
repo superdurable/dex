@@ -30,6 +30,7 @@ use uuid::Uuid;
 mod attribute_reads;
 mod flow_definitions;
 pub(crate) mod flow_service_tls;
+pub(crate) mod task_queue_name;
 
 pub use flow_service_tls::FlowServiceTlsOptions;
 use flow_service_tls::flow_service_endpoint;
@@ -60,7 +61,7 @@ use crate::{
 /// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
 /// Attribute, and Channel arguments are checked against the [`Registry`].
 /// Construction performs no network I/O. Before its first service request, every Client negotiates
-/// protocol version 4. Successful negotiation and incompatibility errors are cached for its lifetime;
+/// protocol version 4 or 5. Successful negotiation and incompatibility errors are cached for its lifetime;
 /// transient negotiation failures are retried on the next call. Incompatibility errors name the
 /// Server version and required server-zd release. Concurrent first calls share one negotiation.
 /// An unreachable Server during negotiation returns the usual service error with its gRPC code.
@@ -194,6 +195,11 @@ impl Client {
     /// [`SdkError::InvalidArgument`] for an invalid initial hard-delete Attribute value or a
     /// definition that does not match the registered one. Returns [`SdkError::Service`] when the
     /// Server does not support the protocol version this SDK requires.
+    ///
+    /// Changed in 1.45.1: sends [`StartFlowOptions::task_queue`] as the Flow's task queue.
+    /// Returns [`SdkError::InvalidArgument`] for an invalid task queue name, and
+    /// [`SdkError::Service`] before sending the request when the task queue is not empty and the
+    /// Server protocol is older than 5.
     pub fn start_flow_with_options<SomeFlow: Flow>(
         &self,
         flow: &SomeFlow,
@@ -251,6 +257,11 @@ impl Client {
                 .unwrap_or_else(|| Uuid::new_v4().to_string()),
         };
         self.require_server_protocol("start_flow")?;
+        self.negotiated_protocol_version
+            .require_named_task_queue_support(&options.task_queue, "start_flow")
+            .map_err(|error| SdkError::Service {
+                service: ServiceError::local("start_flow", error),
+            })?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
             service
@@ -1207,8 +1218,9 @@ impl Client {
         if let Some(write) = attributes.iter().find(|write| write.is_hard_delete_on_null) {
             self.require_hard_delete_attribute_support("start_flow", &write.key)?;
         }
+        task_queue_name::validate_flow_task_queue(&options.task_queue).map_err(invalid)?;
         let config = options.config_override.as_ref();
-        let flow_config_override = Some(map_pull_flow_config(config)?);
+        let flow_config_override = Some(map_pull_flow_config(config, &options.task_queue)?);
         #[expect(
             clippy::needless_update,
             reason = "The test preserves forward-compatible construction of SDK options."
@@ -1334,9 +1346,17 @@ impl Client {
     }
 }
 
-pub(crate) fn map_pull_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
+/// Returns the Flow configuration with a pull Worker target on `task_queue`; empty selects the
+/// default task queue at start and the parent's task queue for a SubFlow.
+pub(crate) fn map_pull_flow_config(
+    config: Option<&FlowConfig>,
+    task_queue: &str,
+) -> SdkResult<ProtoFlowConfig> {
     Ok(ProtoFlowConfig {
-        worker_target: Some(ProtoWorkerTarget { is_pull_mode: true }),
+        worker_target: Some(ProtoWorkerTarget {
+            is_pull_mode: true,
+            task_queue: task_queue.to_string(),
+        }),
         ..map_flow_config(config)?
     })
 }

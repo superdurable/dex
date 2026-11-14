@@ -102,7 +102,10 @@ startup deadline. In a rolling deployment, wait for it before you activate the
 new Worker or stop the old one.
 
 A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
-**POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
+**POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind. Its **TaskQueue** field and
+the **TaskQueue** field of each **PullQueueRegistrationState** entry name the
+Worker's [task queue](#task-queue). An empty name means the default task queue.
+Since 1.45.2.
 
 Register the Go HTTP handler at your readiness probe endpoint.
 
@@ -119,6 +122,42 @@ func PullGreetingReadiness(worker *dex.Worker) http.Handler {
 ```
 
 Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)
+
+## Task queue {#task-queue}
+
+A Worker serves one task queue. **PullWorkerOptions.TaskQueue** names it, and
+an empty name serves the default task queue. The Worker receives the Steps and
+RPCs only of Flows on the same task queue, even when it registers their Flow
+type. To serve several task queues, run one Worker per task queue, each with
+its own **AppWorkerID**. Workers can share one process and one Registry.
+Since 1.45.2.
+
+| Setting | Go name |
+| --- | --- |
+| Task queue the Worker serves | **PullWorkerOptions.TaskQueue** |
+| Task queue of a started Flow | [**StartFlowOptions.TaskQueue**](./start-flow-options.mdx#task-queue) |
+| Task queue of a SubFlow | [**SubFlowOptions.TaskQueue**](./subflow.mdx#task-queue) |
+| Default task queue, named explicitly | **DefaultTaskQueue** |
+| Error for a Server older than protocol 5 | **TaskQueueUnsupportedError** |
+
+- A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+  **NewWorker** returns an error for any other name.
+- Names starting with **dex.** are reserved, including **DefaultTaskQueue**.
+  A Worker registers none of them; leave the field empty to serve the default
+  task queue.
+- A named task queue requires Server protocol 5 or later. **Start** returns
+  **TaskQueueUnsupportedError** against an older Server instead of serving the
+  default task queue. A Worker without a task queue still starts against
+  protocol 4.
+- Each slot stream sends the task queue when it registers, and Dex echoes the
+  task queue it registered the stream on. When the echo differs, for example
+  after a rollback to an older Server, the Worker half-closes that stream
+  without running its tasks. It records a permanent rejection with
+  **codes.InvalidArgument**, and [readiness](#readiness) reports it like any
+  other permanent rejection.
+
+See the [API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions) and
+[Workers and the task queue](/reference/server/workers).
 
 ## Capacity and shutdown
 

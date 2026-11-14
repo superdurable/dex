@@ -496,6 +496,24 @@ export function ExecutionGraph({
   }, [edges, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
+  // The graph opens framed on the selected Step, such as the failed or waiting one, once per mount.
+  const hasFramedSelection = useRef(false);
+  useEffect(() => {
+    if (hasFramedSelection.current || !flowInstance || !selectedEvent) return undefined;
+    const element = graphCanvas.current?.querySelector<HTMLElement>('.graph-method.is-selected')
+      ?.closest<HTMLElement>('.react-flow__node');
+    const node = element?.dataset.id ? flowInstance.getNode(element.dataset.id) : undefined;
+    if (!node) return undefined;
+    hasFramedSelection.current = true;
+    // Pan the graph, not the page, so the bar and the run line stay in view.
+    const width = node.measured?.width ?? node.width ?? 0;
+    const height = node.measured?.height ?? node.height ?? 0;
+    // A frame later, so the initial viewport below has been set first.
+    const frame = window.requestAnimationFrame(() => {
+      void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: flowInstance.getZoom() });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [flowInstance, nodes, selectedEvent]);
 
   useEffect(() => {
     const canvas = graphCanvas.current;
@@ -533,9 +551,10 @@ export function ExecutionGraph({
       <div
         className="graph-canvas"
         ref={graphCanvas}
-        style={{ height: Math.max(650, bounds.height * initialZoom) }}
+        style={{ height: `min(${Math.max(650, bounds.height * initialZoom)}px, max(480px, calc(100vh - 220px)))` }}
       >
         <ReactFlow
+          proOptions={{ hideAttribution: true }}
           nodes={nodes}
           edges={edges}
           nodeTypes={graphNodeTypes}
@@ -546,6 +565,7 @@ export function ExecutionGraph({
           nodesDraggable={false}
           preventScrolling={false}
           zoomOnScroll={false}
+          panOnScroll
           onInit={setFlowInstance}
           onNodeClick={(_, node) => {
             const model = (node.data as StepNodeData).model;
@@ -579,11 +599,6 @@ export function ExecutionGraph({
           </div>
         </ReactFlow>
       </div>
-      {selectedEvent && (
-        <div className="graph-selection">
-          Selected {selectedEvent.type}
-        </div>
-      )}
     </div>
   );
 }

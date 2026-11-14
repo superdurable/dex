@@ -62,6 +62,8 @@ pub struct WorkerRpcInvocation {
     pub run_id: RunId,
     /// Worker queue of the Flow type.
     pub flow_type: String,
+    /// Task queue of the run; empty for the default task queue.
+    pub task_queue: String,
     /// Worker that served the run most recently; empty when none.
     pub sticky_app_worker_id: String,
     /// The request the Worker receives.
@@ -126,11 +128,13 @@ pub trait RpcWorkerInvoker: Send + Sync + 'static {
 
 /// Answers what Worker matching knows about queued Steps. Worker matching implements it.
 pub trait StepQueueStatus: Send + Sync + 'static {
-    /// Returns whether Workers of the Flow type are connected but every one of them declined
-    /// the Step type, so a queued attempt of it waits for a Worker that supports it.
+    /// Returns whether Workers of the Flow type in the task queue are connected but every one
+    /// of them declined the Step type, so a queued attempt of it waits for a Worker that
+    /// supports it.
     fn is_waiting_for_supporting_worker(
         &self,
         tenant_id: u64,
+        task_queue: &str,
         flow_type: &str,
         step_type: &str,
     ) -> bool;

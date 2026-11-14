@@ -207,16 +207,6 @@ describe('Work Queue agent mode', () => {
     });
   });
 
-  it('leads back to Flows with a breadcrumb', async () => {
-    stubServer(threeSessions(), () => ok(true));
-    renderInbox();
-
-    await screen.findByText('SupportAgent', { selector: '.ai-grouphead span' });
-    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(within(breadcrumb).getByRole('link', { name: 'Flows' }).getAttribute('href')).toBe('/v1/flows');
-    expect(breadcrumb.querySelector('[aria-current="page"]')?.textContent).toBe('Work Queue');
-  });
-
   it('asks for Working as before it offers an answer', async () => {
     stubServer(threeSessions(), () => ok(true));
     renderInbox('/v1/work-queue/SupportAgent/ses-soon?view=agents');

@@ -242,8 +242,10 @@ export interface HarnessContext {
   /** The file's harness section, `config.harness_options`. */
   readonly harnessOptions: Readonly<Record<string, unknown>>;
   /**
-   * The tool sources to offer, in order: the connectors, then the local tools the harness does not replace.
-   * Each call runs in its own Dex tool Step.
+   * The tool sources to offer, in order: the connectors, the remote MCP servers of `mcp_servers`, then the local
+   * tools the harness does not replace. Each call runs in its own Dex tool Step.
+   *
+   * Changed in 0.6.4: adds the `mcp_servers` source, whose `sourceName` is `mcp_servers`.
    */
   readonly toolSources: readonly ToolSource[];
   /**

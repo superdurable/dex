@@ -140,6 +140,7 @@ import {
 import type { RPCInvokeOptions, RPCResult } from "./rpc.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { negotiateServerProtocol } from "./server-protocol.js";
+import { requireNamedTaskQueueSupport, validateFlowTaskQueue } from "./task-queue.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { voidCodec } from "./codec.js";
@@ -224,7 +225,10 @@ export class Client {
    * @throws {@link FlowDefinitionError} when `flow` is not registered.
    * @throws {@link TypeError} when a hard-delete initial Attribute is not the definition registered with `flow`.
    * @throws {@link ValueMappingError} when a hard-delete initial value encodes to a number or Boolean.
-   * @throws {@link Error} when the Server is incompatible with required protocol version 4.
+   * @throws {@link TypeError} when `options.taskQueue` is not a valid task queue name.
+   * @throws {@link Error} when the Server is incompatible with required protocol version 4, or
+   * `options.taskQueue` is non-empty and the Server protocol is older than 5.
+   * Changed in 1.45.2: sends `options.taskQueue` as the Flow's task queue.
    * @throws {@link DexServiceError} for other transport or service failures, including INVALID_ARGUMENT
    * when a Flow retry policy or positive start delay is supplied.
    */
@@ -235,6 +239,8 @@ export class Client {
     options: StartFlowOptions = {},
   ): Promise<string> {
     const registered = registeredFlow(this.registry, flow);
+    const taskQueue = options.taskQueue ?? "";
+    validateFlowTaskQueue(taskQueue);
     const flowTimeoutSeconds = seconds(options.timeoutMs);
     const flowTimeoutPolicy = resolveFlowTimeoutPolicy(
       registered,
@@ -258,7 +264,7 @@ export class Client {
         attributes: initialAttributeWrites,
         flowConfigOverride: {
           ...mapFlowConfig(options.configOverride),
-          workerTarget: { isPullMode: true },
+          workerTarget: { isPullMode: true, taskQueue },
         },
         flowAlreadyStartedOptions: {
           ignoreAlreadyStartedError: options.ignoreAlreadyStarted ?? false,
@@ -285,6 +291,9 @@ export class Client {
       );
     }
     await this.requireHardDeleteAttributeWriteSupport(initialAttributeWrites);
+    if (taskQueue !== "") {
+      requireNamedTaskQueueSupport(await this.negotiateServerProtocol(), taskQueue, "startFlow");
+    }
     return (await this.unary<StartFlowResponse>(
       { operation: "startFlow", flowId, requirement: "none" },
       (callback) => this.service.startFlow(request, callback),

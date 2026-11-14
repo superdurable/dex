@@ -9,6 +9,7 @@
 //! Protobuf and gRPC bindings plus shared Attribute index conversion rules for the public Dex protocol and server-zd internal formats.
 
 pub mod attribute_index;
+pub mod task_queue_names;
 
 /// Generated public Dex protocol from `protos/dex.proto`.
 #[expect(

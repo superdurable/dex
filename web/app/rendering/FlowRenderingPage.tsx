@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { ExperimentalTag } from '../components/frame/appSections';
 import { useEffect, useMemo, useState } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import { formatDate } from '@/lib/format';
@@ -13,8 +14,6 @@ import type { FlowDefinitionCatalog, FlowDefinitionEntry, FlowDefinitionSummary 
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { DesignCanvasErrorBoundary, DesignUnavailable } from '../design/DesignCanvasErrorBoundary';
 import { flowDefinitionShapeProblem } from '../design/definitionLimits';
-import { ExperimentalBadge } from '../components/ExperimentalBadge';
-import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { drawableDefinitions, fetchFlowTypeDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { useTimezonePreference } from '../providers';
 import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
@@ -44,7 +43,10 @@ export function FlowRenderingPage() {
   useEffect(() => {
     if (!catalog || catalog.definitions.length === 0) return;
     if (!catalog.definitions.some((definition) => definition.id === selectedID)) {
-      setSelectedID(catalog.definitions[0].id);
+      // A link from a Flow type, such as the Flows list's group, opens that type's definition.
+      const requestedFlowType = new URLSearchParams(window.location.search).get('flowType');
+      const ofFlowType = catalog.definitions.find((definition) => definition.flowName === requestedFlowType);
+      setSelectedID((ofFlowType ?? catalog.definitions[0]).id);
     }
   }, [catalog, selectedID]);
 
@@ -94,10 +96,9 @@ export function FlowRenderingPage() {
 
   return (
     <div className="page-shell flow-rendering-page v1-page">
-      <PageBreadcrumb pageName="Designs" />
       <section className="flow-rendering-header">
         <div>
-          <h1>Designs <ExperimentalBadge className="page-title-badge" /></h1>
+          <h1>Designs <ExperimentalTag /></h1>
           <p>Explore statically possible Step paths generated from Go, Python, or TypeScript source.</p>
         </div>
         {catalog?.configured && catalog.definitions.length > 0 && (

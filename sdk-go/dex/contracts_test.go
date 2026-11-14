@@ -256,12 +256,14 @@ func (applicationCredential) Token(context.Context) (string, error) {
 }
 
 func TestPublicContractsCompile(t *testing.T) {
-	_ = dex.PullWorkerOptions{MaxConcurrentTasks: 4, ReservedRPCTasks: ptr.Any(0)}
+	_ = dex.PullWorkerOptions{MaxConcurrentTasks: 4, ReservedRPCTasks: ptr.Any(0), TaskQueue: "tenant-a"}
+	_ = dex.SubFlowOptions{TaskQueue: dex.DefaultTaskQueue}
+	_ = dex.PullRegistrationError{Queue: "POLL_WORKER_SLOT_KIND_STEP_AND_RPC", TaskQueue: "tenant-a"}
 	var reserveDeclines func(*dex.Worker) uint64 = (*dex.Worker).PullReservedRPCDeclines
 	_ = reserveDeclines
 	registrationState := dex.PullRegistrationState{
 		IsReady: true,
-		Queues:  []dex.PullQueueRegistrationState{{Queue: "OrderFlow", HasRegisteredStream: true, LastPermanentError: nil}},
+		Queues:  []dex.PullQueueRegistrationState{{Queue: "OrderFlow", TaskQueue: "tenant-a", HasRegisteredStream: true, LastPermanentError: nil}},
 	}
 	if !registrationState.IsReady || !registrationState.Queues[0].HasRegisteredStream {
 		t.Fatal("unexpected pull registration snapshot")
@@ -308,6 +310,7 @@ func TestPublicContractsCompile(t *testing.T) {
 		StartDelay:     ptr.Any(time.Second),
 		Attributes:     []dex.InitialAttributeDef{initial, mapInitial},
 		ConfigOverride: &config,
+		TaskQueue:      "tenant-a",
 	}
 	if options.Timeout == nil ||
 		options.StartDelay == nil ||
@@ -616,6 +619,11 @@ var _ error = &dex.HardDeleteAttributeUnsupportedError{
 	AttributeName:                 "contract-secret",
 	NegotiatedServerProtocol:      2,
 	RequiredServerProtocolVersion: 3,
+}
+var _ error = &dex.TaskQueueUnsupportedError{
+	TaskQueue:                     "tenant-a",
+	NegotiatedServerProtocol:      4,
+	RequiredServerProtocolVersion: 5,
 }
 var _ = dex.ForceCompleteIfChannelsEmpty(
 	"done",

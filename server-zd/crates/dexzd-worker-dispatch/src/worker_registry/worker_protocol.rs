@@ -74,8 +74,11 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             tenant_id: self.tenant_id,
             queue_keys: subscribed_queues(&registration)
                 .into_iter()
-                .map(|queue_name| (self.tenant_id, queue_name))
+                .map(|queue_name| {
+                    MatchingQueueKey::new(self.tenant_id, &registration.task_queue, &queue_name)
+                })
                 .collect(),
+            task_queue: registration.task_queue.clone(),
             backlog_flow_types: backlog_flow_types(&registration),
             app_worker_id: registration.app_worker_id.clone(),
             slot: StreamSlot::of(&registration),
@@ -104,6 +107,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
             {
                 return Err(Status::resource_exhausted("Worker stream limit reached"));
             }
+            registry.check_one_task_queue_per_worker(&worker)?;
             registry
                 .worker_stream_ids
                 .entry(worker_key)
@@ -131,6 +135,7 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
                     PollWorkerTaskRegistered {
                         supports_unknown_name_rejection: true,
                         max_concurrent_tasks_per_app_worker,
+                        task_queue: worker.task_queue.clone(),
                     },
                 )),
             }))

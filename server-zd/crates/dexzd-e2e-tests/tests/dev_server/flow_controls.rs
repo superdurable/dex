@@ -612,7 +612,10 @@ async fn update_flow_config_merges_into_the_stored_config() {
     let started_config = stored_flow_config(&mut flow_client, flow_id).await;
     assert_eq!(
         started_config.worker_target,
-        Some(WorkerTarget { is_pull_mode: true })
+        Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        })
     );
 
     flow_client
@@ -668,7 +671,10 @@ async fn enabling_active_step_search_finds_a_running_flow_by_step_type() {
             step_options: Some(StepOptions::default()),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     active_step_search_mode: Some(ActiveStepSearchMode::Disabled.into()),
                     ..FlowConfig::default()
                 }),

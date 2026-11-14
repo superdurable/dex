@@ -4,6 +4,111 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.6 (2026-11-13)
+
+### Added
+
+- Python Claude Agent SDK adapter: `ClaudeAgentRunner` polls and cancels the
+  tool tasks of its tool sources. A source call that returns
+  `ToolTaskStarted` waits for its task: `poll_tool_task` polls it through the
+  source on a Timer, and the resumed Claude session receives its result.
+  `cancel_turn` cancels the task through the source's `cancel_tool_task`
+  and records the call `outcome_unknown`. Before, such a call recorded `failed`
+  for a `read` tool and `outcome_unknown` otherwise. `McpToolSource` now sees
+  `supports_tool_tasks` set, so it hands the tasks of a Streamable HTTP
+  server to the session to poll instead of finishing them inside the tool
+  Step.
+  A task that a tool Step was already polling when its Worker upgrades stays
+  in that tool Step: a retried CallTool attempt resumes it from the heartbeat
+  checkpoint, and if the server no longer knows the task, that attempt sends
+  the call again with the same idempotency key. Only calls made after the
+  upgrade hand their tasks to the session.
+- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` polls and
+  cancels the tool tasks of its tool sources through the new `pollToolTask`
+  and `cancelToolTask`. A source call that returns `ToolTaskStarted` waits
+  for its task: the session polls it through the source on a Timer, and the
+  resumed Claude session receives its result. `cancel_turn` records the call
+  `outcome_unknown` and cancels the task through the source. A source call
+  that returns `ToolInputRequested` waits for the user's answer, and the
+  source runs the call again with it, as in the Python adapter. Before, a call
+  that started a task recorded `failed` for a `read` tool and
+  `outcome_unknown` otherwise, and a call that asked a question recorded
+  `failed`. `McpToolSource` now sees `supportsToolTasks` set, so it hands the
+  tasks of a Streamable HTTP server to the session to poll instead of
+  finishing them inside the tool Step. A task that a tool Step was already
+  polling when its Worker upgrades stays in that tool Step: a retried
+  `CallTool` attempt resumes it from the heartbeat checkpoint, and if the
+  server no longer knows the task, that attempt sends the call again with the
+  same idempotency key. Only calls made after the upgrade hand their tasks to
+  the session. The `dex-agents-claude-sdk` command gets the same behavior for
+  its MCP servers and connector tools.
+
+### Changed
+
+- `dex-agents`: `McpToolSource` marks the heartbeat checkpoint of a task it
+  hands to the session with `mcp_task_polled_by_session`, as the TypeScript
+  source does. A retried `CallTool` attempt returns the saved task as
+  `ToolTaskStarted` only when the checkpoint carries the marker, and
+  `will_resume_tool_task_without_sending` is `True` only then. A task saved
+  without it was polled inside its tool Step, so the retried attempt keeps
+  polling it there and sends the call again with the same idempotency key
+  when the server no longer knows the task.
+
+### Fixed
+
+- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` now
+  implements `AgentFrameworkRunner<DeferredToolOutcome>`, and its
+  `executeDeferredToolCall` returns `Promise<DeferredToolOutcome>` instead of
+  `Promise<ToolExecutionResult>`. `createClaudeAgentSessionFlow` returns
+  `AgentSessionFlow<ClaudeAgentRunner>` instead of `AgentSessionFlow`, as
+  `createBuiltinAgentSessionFlow` returns `AgentSessionFlow<BuiltinLoopAgentRunner>`.
+  The tool tasks and questions above need these types. Code that annotates
+  the Flow as a bare `AgentSessionFlow` drops the annotation, or writes
+  `AgentSessionFlow<ClaudeAgentRunner>`. A parameter that takes the Flow of
+  any adapter can use `AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>`.
+  A subclass that overrides `executeDeferredToolCall` declares
+  `Promise<DeferredToolOutcome>`, and code that reads `.output` from its
+  result first checks that the outcome has no `kind`.
+
+## 0.6.5 (2026-11-13)
+
+### Fixed
+
+- `dex-agents`: `ConnectorStepContext` now exposes `flow_started_at` and
+  `first_attempt_at` from the tool Step's context. A connector operation that
+  reads either one, such as a Gmail send, no longer fails inside an agent tool
+  Step.
+- `@superdurable/dex-agents`: `ConnectorStepContext` now exposes
+  `flowStartedAt` and `firstAttemptAt` from the tool Step's context. A
+  connector operation that reads either one, such as a Gmail send, no longer
+  fails inside an agent tool Step.
+
+## 0.6.4 (2026-11-13)
+
+### Added
+
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: the
+  configuration file's optional `mcp_servers` map names remote MCP servers,
+  each with a `url`, `headers`, and `trust_tool_annotations`. The effective
+  configuration carries it as `mcp_servers` (`RemoteMcpServerConfig` values),
+  with header values as written. `resolve_mcp_servers` (`resolveMcpServers`)
+  expands each `${NAME}` header reference from the environment, treats
+  `DEX_API_KEY`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE` as not set, and
+  raises `McpServerSettingsError` with the setting and an exact message that
+  names the variable, never its value. `McpServersToolSource`, source name
+  `mcp_servers` (`MCP_SERVERS_TOOL_SOURCE_NAME`, `mcpServersToolSourceName`),
+  wraps `McpToolSource`, applies each turn's `approval.always`, and checks it
+  again in the tool Step. There it also refuses, unsent, a call that lacks the
+  approval or single attempt that the Worker's own `trust_tool_annotations:
+  false` requires, and it replaces every header and variable value of at least
+  8 characters with `[redacted]` in its log lines, errors, and tool output.
+  `mcp_server_secret_texts` (`mcpServerHeaderVariableValues`) returns the
+  secret texts to pass it. The new configuration error code is
+  `insecure_mcp_server_url`. The rules and cases are in
+  `agents/conformance/cli_config.json`.
+- `@superdurable/dex-agents-pi-cli` and `dex-agents-deepagents-cli`: writes of
+  `mcp_servers` tools wait for approval, as connector writes do.
+
 ## 0.6.3 (2026-11-13)
 
 ### Added

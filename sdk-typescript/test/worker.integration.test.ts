@@ -9,12 +9,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Server, ServerCredentials, status as grpcStatus, type sendUnaryData } from "@grpc/grpc-js";
+import { Server, ServerCredentials, status as grpcStatus, type sendUnaryData, type ServiceError } from "@grpc/grpc-js";
 
-import { Attribute, IndexType, Registry, StepList, Worker, stringCodec, type BlobCache, type Flow } from "../src/index.js";
+import {
+  Attribute, IndexType, PullRegistrationError, Registry, StepList, Worker, stringCodec, type BlobCache, type Flow,
+} from "../src/index.js";
 import {
   FlowServiceService, IndexType as ProtoIndexType, WorkerTaskServiceService,
-  type ServerInfo, type FlowServiceServer, type WorkerTaskServiceServer,
+  type PollWorkerTaskRequest, type ServerInfo, type FlowServiceServer, type WorkerTaskServiceServer,
   type SyncAttributeIndexRequest, type SyncAttributeIndexResponse,
 } from "../src/gen/dex.js";
 
@@ -47,7 +49,7 @@ test("Worker synchronizes indexes before opening task streams", async () => {
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -89,7 +91,7 @@ test("Worker rejects incompatible Server before sync and task streams", async ()
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -133,7 +135,7 @@ test("Worker sync failure prevents task streams", async () => {
     pollWorkerTask(call) {
       hasPolled = true;
       call.on("end", () => call.end());
-      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0 } } }));
+      call.on("data", () => call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } }));
     },
   } as WorkerTaskServiceServer);
   flowServer.addService(FlowServiceService, {
@@ -156,6 +158,174 @@ test("Worker sync failure prevents task streams", async () => {
     await shutdown(flowServer);
   }
 });
+
+test("Worker rejects an invalid task queue name at construction", () => {
+  for (const taskQueue of ["dex.default", "dex.other", "has space", "q".repeat(64), "ü"]) {
+    assert.throws(
+      () => new Worker(new Registry([new IndexedFlow()]), new MemoryBlobCache(), { pull: { taskQueue } }),
+      TypeError,
+    );
+  }
+});
+
+test("Worker with a task queue refuses a Server older than protocol 5 before sync and task streams", async () => {
+  const fake = await startTaskQueueServer(4, (requested) => requested);
+  const worker = new Worker(new Registry([new IndexedFlow()]), new MemoryBlobCache(), {
+    serverAddress: `127.0.0.1:${fake.port}`, pull: { taskQueue: "blue" },
+  });
+  try {
+    await assert.rejects(worker.start(), (failure: Error) => {
+      assert.match(failure.message, /a pull Worker with task queue "blue" requires Server protocol version 5 or later; negotiated protocol version is 4/);
+      return true;
+    });
+    assert.deepEqual(fake.calls, ["GetServerInfo"]);
+    assert.deepEqual(fake.registeredTaskQueues, []);
+  } finally {
+    await worker.close();
+    await shutdown(fake.server);
+  }
+});
+
+test("Worker registers its task queue on every stream and reports it in readiness", async () => {
+  const fake = await startTaskQueueServer(5, (requested) => requested);
+  const worker = new Worker(new Registry([new IndexedFlow()]), new MemoryBlobCache(), {
+    serverAddress: `127.0.0.1:${fake.port}`, pull: { taskQueue: "blue", maxConcurrentTasks: 2 },
+  });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 5_000 });
+    assert.deepEqual(fake.registeredTaskQueues, ["blue", "blue"]);
+    const state = worker.pullRegistrationState();
+    assert.equal(state.isReady, true);
+    assert.deepEqual(state.queues.map((entry) => [entry.queue, entry.taskQueue]), [
+      ["STEP_AND_RPC", "blue"], ["RPC_ONLY", "blue"],
+    ]);
+  } finally {
+    await worker.close();
+    await shutdown(fake.server);
+  }
+});
+
+test("Worker half-closes a stream registered on a different task queue as a permanent rejection", async () => {
+  const fake = await startTaskQueueServer(5, () => "");
+  const worker = new Worker(new Registry([new IndexedFlow()]), new MemoryBlobCache(), {
+    serverAddress: `127.0.0.1:${fake.port}`, pull: { taskQueue: "blue", maxConcurrentTasks: 2 },
+  });
+  const isTaskQueueRejection = (failure: unknown) => {
+    assert.ok(failure instanceof PullRegistrationError);
+    assert.equal(failure.taskQueue, "blue");
+    assert.equal((failure.cause as ServiceError).code, grpcStatus.FAILED_PRECONDITION);
+    assert.match(failure.message, /on task queue blue rejected: .*registered task queue "" instead of "blue"/);
+    return true;
+  };
+  try {
+    const waiting = worker.waitPullRegistered({ timeoutMs: 5_000 });
+    waiting.catch(() => {});
+    await assert.rejects(worker.start(), isTaskQueueRejection);
+    await assert.rejects(waiting, isTaskQueueRejection);
+    const state = worker.pullRegistrationState();
+    assert.equal(state.isReady, false);
+    for (const entry of state.queues) {
+      assert.equal(entry.taskQueue, "blue");
+      assert.equal(entry.hasRegisteredStream, false);
+      assert.equal(entry.lastPermanentError?.code, grpcStatus.FAILED_PRECONDITION);
+    }
+    await until(() => fake.halfClosedStreams === 2);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(fake.registeredTaskQueues, ["blue", "blue"]);
+  } finally {
+    await worker.close();
+    await shutdown(fake.server);
+  }
+});
+
+test("a running Worker treats a reconnect registered on a different task queue as a permanent rejection", async () => {
+  let echoedTaskQueue = "blue";
+  const fake = await startTaskQueueServer(5, () => echoedTaskQueue);
+  const worker = new Worker(new Registry([new IndexedFlow()]), new MemoryBlobCache(), {
+    serverAddress: `127.0.0.1:${fake.port}`, pull: { taskQueue: "blue", maxConcurrentTasks: 1 },
+  });
+  try {
+    await worker.start();
+    assert.equal(worker.pullRegistrationState().isReady, true);
+    echoedTaskQueue = "";
+    fake.endStreams();
+    await until(() => worker.pullRegistrationState().queues[0]?.lastPermanentError !== undefined);
+    const [entry] = worker.pullRegistrationState().queues;
+    assert.equal(entry?.hasRegisteredStream, false);
+    assert.equal(entry?.lastPermanentError?.code, grpcStatus.FAILED_PRECONDITION);
+    assert.equal(worker.pullRegistrationState().isReady, false);
+  } finally {
+    await worker.close();
+    await shutdown(fake.server);
+  }
+});
+
+interface TaskQueueServer {
+  readonly server: Server;
+  readonly port: number;
+  readonly calls: string[];
+  readonly registeredTaskQueues: string[];
+  readonly halfClosedStreams: number;
+  endStreams(): void;
+}
+
+async function startTaskQueueServer(
+  currentProtocolVersion: number,
+  echoTaskQueue: (requested: string) => string,
+): Promise<TaskQueueServer> {
+  const calls: string[] = [];
+  const registeredTaskQueues: string[] = [];
+  const openCalls = new Set<{ end(): void }>();
+  let halfClosedStreams = 0;
+  const server = new Server();
+  server.addService(WorkerTaskServiceService, {
+    pollWorkerTask(call) {
+      openCalls.add(call);
+      call.on("end", () => {
+        halfClosedStreams++;
+        openCalls.delete(call);
+        call.end();
+      });
+      call.on("error", () => openCalls.delete(call));
+      call.on("data", (request: PollWorkerTaskRequest) => {
+        if (request.frame?.$case !== "register") return;
+        const requested = request.frame.value.taskQueue;
+        registeredTaskQueues.push(requested);
+        call.write({ frame: { $case: "registered", value: {
+          supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0, taskQueue: echoTaskQueue(requested),
+        } } });
+      });
+    },
+  } as WorkerTaskServiceServer);
+  server.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      calls.push("GetServerInfo");
+      callback(null, { ...compatibleServerInfo(), currentProtocolVersion });
+    },
+    syncAttributeIndexes(_call, callback: sendUnaryData<SyncAttributeIndexResponse>) {
+      calls.push("SyncAttributeIndexes");
+      callback(null, {});
+    },
+  } as Partial<FlowServiceServer> as FlowServiceServer);
+  const port = await bind(server);
+  return {
+    server, port, calls, registeredTaskQueues,
+    get halfClosedStreams() { return halfClosedStreams; },
+    endStreams() {
+      for (const call of openCalls) call.end();
+      openCalls.clear();
+    },
+  };
+}
+
+async function until(condition: () => boolean): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for the fake Server");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 class MemoryBlobCache implements BlobCache {
   public readonly config = { directory: "memory", maxBytes: 1_024 };

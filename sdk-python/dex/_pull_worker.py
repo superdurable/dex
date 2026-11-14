@@ -51,6 +51,17 @@ _PERMANENT_CODES = {
 }
 
 
+class TaskQueueRegistrationMismatchError(RuntimeError):
+    def __init__(self, requested_task_queue: str, registered_task_queue: str) -> None:
+        super().__init__(
+            f"Server registered the Worker task stream on task queue "
+            f"{registered_task_queue!r} instead of the requested task queue "
+            f"{requested_task_queue!r}"
+        )
+        self.requested_task_queue = requested_task_queue
+        self.registered_task_queue = registered_task_queue
+
+
 def generate_app_worker_id() -> str:
     identity = next(
         (
@@ -118,6 +129,7 @@ class PullWorkerRuntime:
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
         self.flow_types = sorted(registry._registered_flows)
+        self.task_queue = options.task_queue
         self._stop_on_permanent_stream_rejection = (
             options.stop_on_permanent_stream_rejection
         )
@@ -136,7 +148,7 @@ class PullWorkerRuntime:
         self.queues = ("STEP_AND_RPC",) + (
             ("RPC_ONLY",) if self.reserved_rpc_tasks else ()
         )
-        self.registration = _PullRegistration(self.queues)
+        self.registration = _PullRegistration(self.queues, self.task_queue)
         self._has_checked_registration_limit = False
         self.stop_drain_timeout = options.stop_drain_timeout.total_seconds() or 30
         self._dispatcher = dispatcher
@@ -421,10 +433,13 @@ class PullStream:
             self.is_draining = False
             was_registered = False
             error: grpc.RpcError | None = None
+            task_queue_mismatch: TaskQueueRegistrationMismatchError | None = None
             try:
                 was_registered = await self._poll()
             except grpc.RpcError as failure:
                 error = failure
+            except TaskQueueRegistrationMismatchError as failure:
+                task_queue_mismatch = failure
             except Exception:
                 _LOGGER.exception(
                     "Worker task stream failed", extra={"queue": self.queue}
@@ -449,14 +464,11 @@ class PullStream:
                 )
                 if can_reject_token and credential is not None:
                     _reject_credential_token(credential, self._stream_metadata)
+                permanent_error: BaseException | None = task_queue_mismatch
+                if code in _PERMANENT_CODES and not should_retry_unauthenticated:
+                    permanent_error = error
                 rejection = self.runtime.registration.record_stream_result(
-                    self.queue,
-                    self._is_registered,
-                    (
-                        error
-                        if code in _PERMANENT_CODES and not should_retry_unauthenticated
-                        else None
-                    ),
+                    self.queue, self._is_registered, permanent_error
                 )
                 self._is_registered = False
                 self._stream_metadata = None
@@ -492,6 +504,9 @@ class PullStream:
             elif code in _PERMANENT_CODES:
                 _LOGGER.error("Worker task stream rejected: %s", error)
                 backoff = 60
+            elif task_queue_mismatch is not None:
+                _LOGGER.error("Worker task stream rejected: %s", task_queue_mismatch)
+                backoff = 60
             elif error is not None:
                 _LOGGER.warning("Worker task stream disconnected: %s", error)
             if self.runtime._stopping is not None:
@@ -502,7 +517,7 @@ class PullStream:
                     )
                 except asyncio.TimeoutError:
                     pass
-            if code not in _PERMANENT_CODES:
+            if code not in _PERMANENT_CODES and task_queue_mismatch is None:
                 backoff = min(backoff * 2, 5)
 
     async def _poll(self) -> bool:
@@ -538,6 +553,7 @@ class PullStream:
                         flow_types=self.runtime.flow_types,
                         sdk_name="python",
                         sdk_version=sdk_version(),
+                        task_queue=self.runtime.task_queue,
                     )
                 )
             )
@@ -577,6 +593,11 @@ class PullStream:
                         return False
                     if kind != "registered":
                         raise RuntimeError("Worker task stream did not register")
+                    # An older Server ignores the request field and registers the default queue.
+                    if frame.registered.task_queue != self.runtime.task_queue:
+                        raise TaskQueueRegistrationMismatchError(
+                            self.runtime.task_queue, frame.registered.task_queue
+                        )
                     was_registered = True
                     if not self.runtime.accept_registration(frame.registered):
                         # Half-close, not reset, so an already sent task returns unused.

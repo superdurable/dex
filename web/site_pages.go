@@ -22,7 +22,10 @@ import (
 )
 
 // basePathMetaName names the index.html meta tag that tells the SPA its base path.
-const basePathMetaName = "dex-web-base-path"
+const (
+	basePathMetaName       = "dex-web-base-path"
+	hostNavigationMetaName = "dex-web-host-navigation"
+)
 
 // sitePages serves the embedded SPA; it is immutable after construction, so many targets may share it.
 type sitePages struct {
@@ -61,7 +64,7 @@ func newSitePages(assets fs.FS, frameAncestors []string) (*sitePages, error) {
 }
 
 // spaHandler serves assets, and index.html for every other page path so the SPA router can resolve it.
-func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool) http.Handler {
+func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool, hasHostNavigation bool) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !hasConnectorSetup && strings.HasPrefix(request.URL.Path, "/api/v2/connector-") {
 			api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_SETUP_UNAVAILABLE", "Connector configuration is not available in this Dex Web")
@@ -73,7 +76,7 @@ func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool) http
 		}
 		requestPath := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
 		if requestPath == "." || requestPath == "" {
-			pages.serveIndex(response, request, basePath)
+			pages.serveIndex(response, request, basePath, hasHostNavigation)
 			return
 		}
 		file, err := pages.assets.Open(requestPath)
@@ -89,20 +92,28 @@ func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool) http
 			api.WriteError(response, http.StatusNotFound, "API route not found", nil)
 			return
 		}
-		pages.serveIndex(response, request, basePath)
+		pages.serveIndex(response, request, basePath, hasHostNavigation)
 	})
 }
 
-func (pages *sitePages) serveIndex(response http.ResponseWriter, request *http.Request, basePath string) {
+func (pages *sitePages) serveIndex(response http.ResponseWriter, request *http.Request, basePath string, hasHostNavigation bool) {
 	response.Header().Set("Cache-Control", "no-store")
-	index := renderIndexForBasePath(pages.indexTemplate, basePath)
+	index := renderIndexForBasePath(pages.indexTemplate, basePath, hasHostNavigation)
 	http.ServeContent(response, request, "index.html", time.Time{}, bytes.NewReader(index))
 }
 
 // renderIndexForBasePath makes the relative asset URLs absolute under basePath and records basePath for the SPA.
-func renderIndexForBasePath(indexTemplate string, basePath string) []byte {
+// hasHostNavigation is recorded too, so the SPA leaves the navigation to the host.
+func renderIndexForBasePath(indexTemplate string, basePath string, hasHostNavigation bool) []byte {
 	prefix := html.EscapeString(strings.TrimSuffix(basePath, "/"))
 	index := strings.NewReplacer(`src="./`, `src="`+prefix+`/`, `href="./`, `href="`+prefix+`/`).Replace(indexTemplate)
-	meta := `<meta name="` + basePathMetaName + `" content="` + html.EscapeString(basePath) + `" />`
+	meta := metaTag(basePathMetaName, basePath)
+	if hasHostNavigation {
+		meta += "\n  " + metaTag(hostNavigationMetaName, "true")
+	}
 	return []byte(strings.Replace(index, "</head>", meta+"\n  </head>", 1))
+}
+
+func metaTag(name string, content string) string {
+	return `<meta name="` + name + `" content="` + html.EscapeString(content) + `" />`
 }

@@ -37,6 +37,9 @@ const FIRST_VERSIONED_STORAGE_HOT_STANDBY_SEED: u64 = 0x0a11_5700;
 const DEFAULT_STALE_LISTING_STORAGE_SEED_COUNT: u64 = 8;
 /// First seed of the stale-listing storage runs.
 const FIRST_STALE_LISTING_STORAGE_SEED: u64 = 0x0c05_0000;
+const DEFAULT_NAMED_TASK_QUEUE_SEED_COUNT: u64 = 16;
+/// Named task queues change every trajectory, so their seeds form their own group.
+const FIRST_NAMED_TASK_QUEUE_SEED: u64 = 0x7a5c_0000;
 const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
 /// Hot standbys change every trajectory, so their seeds form their own group.
 const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
@@ -446,6 +449,39 @@ fn step_failure_policies_keep_every_invariant() {
 }
 
 #[test]
+fn named_task_queues_keep_every_invariant() {
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_NAMED_TASK_QUEUE_SEED_COUNT,
+        FIRST_NAMED_TASK_QUEUE_SEED,
+        &[],
+    );
+    let mut total = run_seeds(&seeds, EngineSimulationProfile::NamedTaskQueues);
+    total.recent_events.clear();
+    println!("named task queue profile coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    let count = |counts: &BTreeMap<String, u64>, key: &str| counts.get(key).copied().unwrap_or(0);
+    let checks = [
+        (
+            "queued attempts",
+            count(&total.applied_by_kind, "StepAttemptQueued"),
+        ),
+        (
+            "started attempts",
+            count(&total.applied_by_kind, "StepAttemptStarted"),
+        ),
+        ("restarts", total.restarts_by_local_store.values().sum()),
+    ];
+    for (name, value) in checks {
+        assert!(
+            value > 0,
+            "the named task queue profile had no {name}: {total:#?}"
+        );
+    }
+}
+
+#[test]
 fn pinned_seeds_keep_their_canonical_command_trajectories() {
     for (seed, active_seconds) in regression_seed_cases() {
         let is_pinned = PINNED_CANONICAL_COMMAND_DIGESTS.iter().any(
@@ -710,6 +746,10 @@ fn one_seed_produces_the_same_trace_and_final_state_twice() {
         (
             FIRST_HOT_STANDBY_SEED,
             EngineSimulationProfile::HotStandbyTakeovers,
+        ),
+        (
+            FIRST_NAMED_TASK_QUEUE_SEED,
+            EngineSimulationProfile::NamedTaskQueues,
         ),
     ] {
         let config = EngineSimulationConfig {

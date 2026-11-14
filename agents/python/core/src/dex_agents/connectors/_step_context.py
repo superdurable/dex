@@ -32,8 +32,9 @@ class ConnectorStepContext:
     checkpoint per attempt and repeats it on every background heartbeat. This
     context stores each heartbeat value as that text checkpoint and decodes it
     on the next attempt, so a marker survives the session's own heartbeats and
-    a retry can read it. It exposes only the members the fence uses; the agent
-    core's conformance tests pin that list.
+    a retry can read it. It exposes only the members the fence uses, plus the
+    identities and times released connectors read; the agent core's
+    conformance tests pin that list.
 
     ``ConnectorToolSource`` builds one per tool Step attempt. Applications do
     not construct it.
@@ -41,11 +42,18 @@ class ConnectorStepContext:
     Attributes:
         flow_id: The Flow ID.
         run_id: The Flow run ID.
+        flow_started_at: When the current Flow run started, the same on every
+            Step and attempt of the run.
         step_execution_id: The tool Step's execution ID, the same on every attempt.
+        first_attempt_at: When the tool Step's first attempt became pending,
+            the same on every attempt.
         attempt: The one-based attempt.
         deadline: The attempt's deadline, or ``None``.
 
     .. versionadded:: 0.4.0
+
+    .. versionadded:: 0.6.5
+        ``flow_started_at`` and ``first_attempt_at``.
     """
 
     def __init__(
@@ -74,8 +82,16 @@ class ConnectorStepContext:
         return self._context.run_id
 
     @property
+    def flow_started_at(self) -> datetime:
+        return self._context.flow_started_at
+
+    @property
     def step_execution_id(self) -> str:
         return self._context.step_execution_id
+
+    @property
+    def first_attempt_at(self) -> datetime:
+        return self._context.first_attempt_at
 
     @property
     def attempt(self) -> int:

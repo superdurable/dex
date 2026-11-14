@@ -32,7 +32,10 @@ fn sub_flow_without_config_overrides_only_worker_target() {
     assert_eq!(
         options.flow_config_override,
         Some(dex_protocol::dex::FlowConfig {
-            worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(dex_protocol::dex::WorkerTarget {
+                is_pull_mode: true,
+                ..dex_protocol::dex::WorkerTarget::default()
+            }),
             ..Default::default()
         })
     );
@@ -55,7 +58,10 @@ fn sub_flow_config_override_maps_history_window_events() {
     assert_eq!(config.history_window_events, Some(2_500));
     assert_eq!(
         config.worker_target,
-        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+        Some(dex_protocol::dex::WorkerTarget {
+            is_pull_mode: true,
+            ..dex_protocol::dex::WorkerTarget::default()
+        })
     );
 }
 
@@ -76,7 +82,10 @@ fn sub_flow_config_override_maps_offload_history() {
     assert_eq!(config.offload_history, Some(false));
     assert_eq!(
         config.worker_target,
-        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+        Some(dex_protocol::dex::WorkerTarget {
+            is_pull_mode: true,
+            ..dex_protocol::dex::WorkerTarget::default()
+        })
     );
 }
 
@@ -99,6 +108,63 @@ fn sub_flow_config_override_drops_delete_expired_history_objects() {
     assert_eq!(config.delete_expired_history_objects, None);
     assert_eq!(
         config.worker_target,
-        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+        Some(dex_protocol::dex::WorkerTarget {
+            is_pull_mode: true,
+            ..dex_protocol::dex::WorkerTarget::default()
+        })
     );
+}
+
+#[test]
+fn sub_flow_task_queue_requires_a_valid_name_and_protocol_five() {
+    let registry = Registry::new()
+        .register(PullRoutingFlow)
+        .expect("register SubFlow");
+    let target = registry.flow("PullRoutingFlow").expect("lookup SubFlow");
+    let negotiated = NegotiatedServerProtocolVersion::default();
+    negotiated.store(4);
+    let inherited = map_sub_flow_options(target, &SubFlowOptions::new(), &negotiated)
+        .expect("an empty task queue inherits the parent's on protocol 4");
+    assert_eq!(
+        inherited
+            .flow_config_override
+            .and_then(|config| config.worker_target)
+            .map(|target| target.task_queue),
+        Some(String::new())
+    );
+    let old_server = map_sub_flow_options(
+        target,
+        &SubFlowOptions::new().task_queue("reports"),
+        &negotiated,
+    )
+    .expect_err("protocol 4 ignores named task queues");
+    assert!(
+        old_server.to_string().contains("protocol version 5"),
+        "{old_server}"
+    );
+    negotiated.store(5);
+    for task_queue in ["reports", "dex.default"] {
+        let options = map_sub_flow_options(
+            target,
+            &SubFlowOptions::new().task_queue(task_queue),
+            &negotiated,
+        )
+        .expect("map SubFlow task queue");
+        assert_eq!(
+            options
+                .flow_config_override
+                .and_then(|config| config.worker_target),
+            Some(dex_protocol::dex::WorkerTarget {
+                is_pull_mode: true,
+                task_queue: task_queue.to_string(),
+            })
+        );
+    }
+    let invalid = map_sub_flow_options(
+        target,
+        &SubFlowOptions::new().task_queue("dex.other"),
+        &negotiated,
+    )
+    .expect_err("reserved task queue");
+    assert!(invalid.to_string().contains("reserved"), "{invalid}");
 }

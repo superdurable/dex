@@ -30,8 +30,11 @@ type registrationTestServer struct {
 }
 
 type registrationTestStream struct {
-	queue    string
-	commands chan registrationTestCommand
+	queue     string
+	taskQueue string
+	commands  chan registrationTestCommand
+	// halfClosed is closed when the Worker half-closes the stream.
+	halfClosed chan struct{}
 }
 
 type registrationTestCommand struct {
@@ -44,7 +47,10 @@ func (server *registrationTestServer) PollWorkerTask(stream dexpb.WorkerTaskServ
 	if err != nil {
 		return err
 	}
-	registration := &registrationTestStream{queue: request.GetRegister().GetSlotKind().String(), commands: make(chan registrationTestCommand, 8)}
+	registration := &registrationTestStream{
+		queue: request.GetRegister().GetSlotKind().String(), taskQueue: request.GetRegister().GetTaskQueue(),
+		commands: make(chan registrationTestCommand, 8), halfClosed: make(chan struct{}),
+	}
 	select {
 	case server.streams <- registration:
 	case <-stream.Context().Done():
@@ -63,6 +69,7 @@ func (server *registrationTestServer) PollWorkerTask(stream dexpb.WorkerTaskServ
 		select {
 		case err := <-receiveError:
 			if errors.Is(err, io.EOF) {
+				close(registration.halfClosed)
 				return nil
 			}
 			return err
@@ -407,6 +414,10 @@ func queueStateIndex(worker *Worker, queue string) int {
 
 func (stream *registrationTestStream) register() {
 	stream.commands <- registrationTestCommand{response: &dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{}}}}
+}
+
+func (stream *registrationTestStream) registerOnTaskQueue(taskQueue string) {
+	stream.commands <- registrationTestCommand{response: &dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{TaskQueue: taskQueue}}}}
 }
 
 func (stream *registrationTestStream) reject(err error) {

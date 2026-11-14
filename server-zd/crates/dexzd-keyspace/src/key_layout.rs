@@ -260,11 +260,16 @@ pub enum IndexKind {
     /// `flow_hash(8) ‖ run_id(16)`: runs with local history cleanup pending, whose RunRecord
     /// holds the time it comes due.
     HistoryLocalCleanupPending = 0x11,
+    /// `tenant_id(8) ‖ name_length(2) ‖ task_queue ‖ type_length(2) ‖ flow_type ‖
+    /// type_length(2) ‖ step_type ‖ priority(1) ‖ pending_since(8) ‖ flow_hash(8) ‖ run_id(16) ‖
+    /// method(1) ‖ attempt(4) ‖ step_execution_id`: the DispatchQueue rows of named task queues;
+    /// default task queue rows stay in [`IndexKind::DispatchQueue`].
+    NamedDispatchQueue = 0x12,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -282,6 +287,7 @@ impl IndexKind {
         Self::HistoryUploadPending,
         Self::HistoryObjectDeletePending,
         Self::HistoryLocalCleanupPending,
+        Self::NamedDispatchQueue,
     ];
 }
 
@@ -444,7 +450,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=29).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=17).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=18).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
         assert_eq!(RunTable::HistorySegment.column_family(), ColumnFamily::Flow);

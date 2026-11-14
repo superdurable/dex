@@ -10,13 +10,14 @@ use dexzd_keyspace::row_keys::{outbox_key, prefix_range, run_item_index_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, ExecuteMethodFailurePolicy, FlowConfig, FlowResult, FlowTimeoutPolicy,
-    StepCompletionOutput, StepDurability, SubFlowCondition, SubFlowReusePolicy,
+    StepCompletionOutput, StepDurability, SubFlowCondition, SubFlowReusePolicy, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, ChildFlowStartMessage, CrossFlowEndpoint, OutboxAckCommand,
     OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, StepExecutionRecord, StoredValue,
     TimerId, flow_command, outbox_record, step_method_completed_command, timer_id,
 };
+use dexzd_protocol::task_queue_names::{overridden_task_queue, registered_task_queue_name_error};
 
 use crate::ApplyEffect;
 use crate::ApplyError;
@@ -182,8 +183,16 @@ fn effective_flow_config(
         if overrides.step_durability.is_some() {
             effective.step_durability = overrides.step_durability;
         }
-        if overrides.worker_target.is_some() {
-            effective.worker_target.clone_from(&overrides.worker_target);
+        if let Some(target) = &overrides.worker_target {
+            // An empty task queue keeps the parent's; "dex.default" selects the default.
+            let parent_task_queue = effective
+                .worker_target
+                .as_ref()
+                .map_or("", |parent| parent.task_queue.as_str());
+            effective.worker_target = Some(WorkerTarget {
+                is_pull_mode: target.is_pull_mode,
+                task_queue: overridden_task_queue(parent_task_queue, &target.task_queue),
+            });
         }
         if overrides.attribute_store_names.is_some() {
             effective
@@ -357,6 +366,12 @@ fn validate_effective_flow_config(flow_config: &FlowConfig) -> Result<(), String
     };
     if !target.is_pull_mode {
         return Err("SubFlow requires a pull Worker target".to_owned());
+    }
+    if let Some(reason) = registered_task_queue_name_error(&target.task_queue) {
+        return Err(format!(
+            "SubFlow task queue {:?} is invalid: {reason}",
+            target.task_queue
+        ));
     }
     Ok(())
 }

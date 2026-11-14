@@ -8,20 +8,35 @@
 
 import type { ServiceError } from "@grpc/grpc-js";
 
-/** Identifies a permanent rejection that leaves a required slot kind without a registered stream. */
+/**
+ * Identifies a permanent rejection that leaves a required slot kind without a registered stream.
+ *
+ * Changed in 1.45.2: the error carries the Worker's task queue in `taskQueue`. A stream whose
+ * registration the Server confirms for a different task queue is also a permanent rejection.
+ * Its `cause` then has the gRPC code `FAILED_PRECONDITION`.
+ */
 export class PullRegistrationError extends Error {
   /** Rejected slot kind: STEP_AND_RPC or RPC_ONLY; retained field name for compatibility. */
   public readonly queue: string;
+  /**
+   * Task queue the rejected stream tried to register, or the empty string for the default task queue.
+   * @since 1.45.2
+   */
+  public readonly taskQueue: string;
 
   /**
    * Creates a slot-kind rejection preserving the original gRPC error as `cause`.
+   * Changed in 1.45.2: accepts the optional `taskQueue`.
    * @param queue - Rejected slot kind: STEP_AND_RPC or RPC_ONLY.
    * @param cause - Permanent gRPC stream error, including its status code and details.
+   * @param taskQueue - Task queue the stream tried to register; defaults to the empty default task queue.
    */
-  public constructor(queue: string, cause: ServiceError) {
-    super(`pull slot kind ${queue} rejected: ${cause.message}`, { cause });
+  public constructor(queue: string, cause: ServiceError, taskQueue: string = "") {
+    const location = taskQueue === "" ? "" : ` on task queue ${taskQueue}`;
+    super(`pull slot kind ${queue}${location} rejected: ${cause.message}`, { cause });
     this.name = "PullRegistrationError";
     this.queue = queue;
+    this.taskQueue = taskQueue;
   }
 }
 
@@ -29,6 +44,12 @@ export class PullRegistrationError extends Error {
 export interface PullQueueRegistrationState {
   /** Slot kind: STEP_AND_RPC or RPC_ONLY; retained field name for compatibility. */
   readonly queue: string;
+  /**
+   * Task queue the Worker's streams register, or the empty string for the default task queue.
+   * Every entry of one Worker has the same task queue. See `PullWorkerOptions.taskQueue`.
+   * @since 1.45.2
+   */
+  readonly taskQueue: string;
   /** Whether this slot kind currently has an acknowledged stream. */
   readonly hasRegisteredStream: boolean;
   /** Last permanent rejection, cleared by successful registration; absent when none remains. */
@@ -65,7 +86,7 @@ export class PullRegistration {
   private hasStopped = false;
   public permanentError: PullRegistrationError | undefined;
 
-  public constructor(queues: readonly string[]) {
+  public constructor(queues: readonly string[], private readonly taskQueue: string) {
     this.queues = new Map(queues.map((queue) => [queue, {
       hasRegistered: false, registeredStreams: 0, lastPermanentError: undefined,
     }]));
@@ -86,7 +107,7 @@ export class PullRegistration {
     if (failure !== undefined) {
       registration.lastPermanentError = failure;
       if (registration.registeredStreams === 0) {
-        const rejection = new PullRegistrationError(queue, failure);
+        const rejection = new PullRegistrationError(queue, failure, this.taskQueue);
         if (!this.hasRegisteredAllQueues) this.initialError ??= rejection;
         this.permanentError ??= rejection;
         this.notify();
@@ -105,7 +126,7 @@ export class PullRegistration {
 
   public snapshot(): PullRegistrationState {
     const queues = [...this.queues].map(([queue, registration]) => ({
-      queue, hasRegisteredStream: registration.registeredStreams > 0,
+      queue, taskQueue: this.taskQueue, hasRegisteredStream: registration.registeredStreams > 0,
       lastPermanentError: registration.lastPermanentError,
     }));
     return {

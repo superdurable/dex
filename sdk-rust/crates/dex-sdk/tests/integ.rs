@@ -131,6 +131,10 @@ mod stream_workflow;
 mod subflow_test;
 #[path = "integ/subflow_workflow.rs"]
 mod subflow_workflow;
+#[path = "integ/task_queue_test.rs"]
+mod task_queue_test;
+#[path = "integ/task_queue_workflow.rs"]
+mod task_queue_workflow;
 #[path = "integ/timer_test.rs"]
 mod timer_test;
 #[path = "integ/timer_workflow.rs"]

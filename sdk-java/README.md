@@ -385,6 +385,23 @@ registered stream of that kind prevents shutdown. By default such registration
 errors retry; an excessive concurrency setting always fails startup without
 background retry. Both `stop()` and `close()` remain safe after startup fails.
 
+#### Named task queues
+
+`PullWorkerOptions.Builder.taskQueue(name)` makes a Worker pull one named task
+queue, and `StartFlowOptions.Builder.taskQueue(name)` starts a Flow on it. Only
+Workers of that task queue run the Flow's Steps and RPCs. A SubFlow inherits its
+parent's task queue unless `SubFlowOptions.Builder.taskQueue` names another one;
+`dex.default` selects the default task queue. Run one Worker per task queue. A
+named task queue requires Server protocol 5. See
+[Task queues](https://docs.superdurable.io/reference/java/workers#task-queues).
+
+```java
+Worker blueWorker = new Worker(registry, cache, WorkerOptions.newBuilder()
+        .pull(PullWorkerOptions.newBuilder().taskQueue("blue").build()).build());
+client.startFlow(orderFlow, "order-42", input,
+        StartFlowOptions.newBuilder().taskQueue("blue").build());
+```
+
 #### Reserved RPC capacity
 
 `reservedRpcTasks` selects slots that accept only RPCs; the remaining slots
@@ -1020,7 +1037,8 @@ use the local publishing command:
 
 Worker startup calls `GetServerInfo`, requires protocol 4, synchronizes Attribute
 indexes, and opens the reserved-slot streams. The Java SDK protocol interval is
-`[4,4]`. This SDK requires a Dex Server with protocol version 4 or later
+`[4,5]`. A Worker with a named task queue requires protocol 5 and fails startup
+on an older Server. This SDK requires a Dex Server with protocol version 4 or later
 (server-zd newer than v0.1.16). Upgrade the Server before upgrading the SDK.
 Absent RPCs, invalid intervals, and negotiation request failures also stop startup.
 The compatibility error includes the actual reported values in this message:
@@ -1030,7 +1048,8 @@ This SDK requires a Dex Server with protocol version 4 or later (server-zd newer
 ```
 
 Client construction stays lazy and does no network I/O. Before the first network
-request of any method, the Client negotiates protocol 4. It caches success and
+request of any method, the Client negotiates a protocol from 4 to 5. A start
+with a named task queue, or a SubFlow that names one, requires protocol 5. It caches success and
 incompatibility; every subsequent request against an older Server returns the
 same compatibility error. Transient negotiation failures are retried on the next
 call. Protocol negotiation also establishes hard-delete Attribute support.

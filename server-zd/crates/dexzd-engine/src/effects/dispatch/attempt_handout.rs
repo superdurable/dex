@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use dexzd_apply::dispatch_queue_entry;
+use dexzd_apply::{dispatch_queue_entry, run_task_queue};
 use dexzd_keyspace::dispatch_queue_keys::{DispatchQueueEntry, dispatch_queue_key};
 use dexzd_keyspace::{ColumnFamily, RunId};
 use dexzd_protocol::dex::{self, PullRouting, PullRoutingSource};
@@ -134,6 +134,8 @@ pub(crate) struct ClaimedRow {
 struct PendingAttempt {
     tenant_id: u64,
     flow_type: String,
+    /// The run's task queue; empty for the default task queue.
+    task_queue: String,
     step_type: String,
     sticky_app_worker_id: String,
     durability: dex::StepDurability,
@@ -233,7 +235,11 @@ impl AttemptHandout {
                 .dispatch_task_id()
                 .as_bytes()
                 .to_vec();
-            let routing = pull_routing(&pending.sticky_app_worker_id, stream.app_worker_id());
+            let routing = pull_routing(
+                &pending.task_queue,
+                &pending.sticky_app_worker_id,
+                stream.app_worker_id(),
+            );
             // A claimed stream is partition-fenced; matching may have removed the partition since.
             if let Some((claim_id, task)) = &claim
                 && !stream.may_hand_out_tasks()
@@ -299,6 +305,7 @@ impl AttemptHandout {
                 task_id: task_id.clone(),
                 durability: pending.durability,
                 method_timeout_seconds: pending.method_timeout_seconds,
+                task_queue: pending.task_queue.clone(),
                 scheduled_at: self.progress.scheduled_at.take(),
                 cancel,
             };
@@ -347,6 +354,7 @@ impl AttemptHandout {
             tenant_id: pending.tenant_id,
             flow_id: self.flow.flow_id.clone(),
             flow_type: pending.flow_type.clone(),
+            task_queue: pending.task_queue.clone(),
             step_type: pending.step_type.clone(),
             sticky_app_worker_id: (!pending.sticky_app_worker_id.is_empty())
                 .then(|| pending.sticky_app_worker_id.clone()),
@@ -549,6 +557,7 @@ impl AttemptHandout {
         .expect("a pending Step has an invocation");
         Ok(Some(PendingAttempt {
             tenant_id: run_record.tenant_id,
+            task_queue: run_task_queue(&run_record).to_owned(),
             flow_type: run_record.flow_type,
             step_type: step_execution.step_type.clone(),
             sticky_app_worker_id: run_record.sticky_app_worker_id,
@@ -616,7 +625,11 @@ impl AttemptHandout {
                 attempt: self.key.attempt,
                 kind: StepAttemptFailureKind::DispatchError as i32,
                 server_detail: detail,
-                pull_routing: Some(pull_routing(&pending.sticky_app_worker_id, "")),
+                pull_routing: Some(pull_routing(
+                    &pending.task_queue,
+                    &pending.sticky_app_worker_id,
+                    "",
+                )),
                 is_before_start: true,
                 ..StepAttemptFailedCommand::default()
             },
@@ -716,9 +729,10 @@ pub(crate) async fn fail_interrupted_attempt(
         .await;
 }
 
-/// Returns the routing of a dispatch to the run's sticky Worker or its Flow type queue; an
-/// empty `served_by_app_worker_id` means no Worker served it yet.
+/// Returns the routing of a dispatch to the run's sticky Worker or its Flow type queue in
+/// `task_queue`; an empty `served_by_app_worker_id` means no Worker served it yet.
 pub(crate) fn pull_routing(
+    task_queue: &str,
     sticky_app_worker_id: &str,
     served_by_app_worker_id: &str,
 ) -> PullRouting {
@@ -733,5 +747,6 @@ pub(crate) fn pull_routing(
         sticky_app_worker_id: sticky_app_worker_id.to_owned(),
         served_by_app_worker_id: served_by_app_worker_id.to_owned(),
         source: source as i32,
+        task_queue: task_queue.to_owned(),
     }
 }

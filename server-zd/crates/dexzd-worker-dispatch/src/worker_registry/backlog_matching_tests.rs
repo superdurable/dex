@@ -15,6 +15,7 @@ use dexzd_keyspace::{FlowHash, RunId, TenantId};
 fn queue_name(step_type: &str) -> DispatchQueueName {
     DispatchQueueName {
         tenant_id: TenantId(7),
+        task_queue: String::new(),
         flow_type: "Flow".to_owned(),
         step_type: step_type.to_owned(),
     }
@@ -45,7 +46,8 @@ fn register_busy_stream(dispatch: &WorkerDispatch, app_worker_id: &str) -> Arc<W
     let worker = Arc::new(WorkerStream {
         id: Uuid::now_v7(),
         tenant_id: 7,
-        queue_keys: vec![(7, "Flow".to_owned())],
+        queue_keys: vec![MatchingQueueKey::new(7, "", "Flow")],
+        task_queue: String::new(),
         backlog_flow_types: vec!["Flow".to_owned()],
         app_worker_id: app_worker_id.to_owned(),
         slot: StreamSlot::Legacy,
@@ -59,7 +61,7 @@ fn register_busy_stream(dispatch: &WorkerDispatch, app_worker_id: &str) -> Arc<W
     let mut registry = dispatch.lock_registry();
     let queue = registry
         .queues
-        .entry((7, "Flow".to_owned()))
+        .entry(MatchingQueueKey::new(7, "", "Flow"))
         .or_insert_with(QueueState::new);
     queue.stream_ids.insert(worker.id);
     queue.users += 1;
@@ -112,9 +114,10 @@ async fn a_delivered_claim_of_a_removed_partition_is_untracked_and_its_slot_retu
 fn backoff_callback_preserves_a_promised_rpc_slot() {
     let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
     let worker = register_busy_stream(&dispatch, "worker");
-    let mut lease = QueueLease::new(&dispatch, 7, "Flow", 1);
+    let mut lease = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
     let task_type = TaskTypeKey {
         tenant_id: 7,
+        task_queue: String::new(),
         flow_type: "Flow".to_owned(),
         kind: TaskKind::Rpc,
         name: "getStatus".to_owned(),
@@ -180,7 +183,7 @@ fn backlog_service_agrees_with_claim_eligibility_after_an_evicted_decline() {
 fn backoff_callback_leaves_a_stream_woken_for_a_step_waiter() {
     let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
     let worker = register_busy_stream(&dispatch, "worker");
-    let mut lease = QueueLease::new(&dispatch, 7, "Flow", 1);
+    let mut lease = QueueLease::new(&dispatch, MatchingQueueKey::new(7, "", "Flow"), 1);
     let task_type = step_type_key(&queue_name("Ship"));
     let search = TaskSearch {
         task_type: &task_type,
@@ -194,7 +197,7 @@ fn backoff_callback_leaves_a_stream_woken_for_a_step_waiter() {
         dispatch
             .lock_registry()
             .queues
-            .get(&(7, "Flow".to_owned()))
+            .get(&MatchingQueueKey::new(7, "", "Flow"))
             .is_some_and(|queue| {
                 queue
                     .woken_waiter_streams

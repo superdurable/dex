@@ -67,23 +67,24 @@ below the Timeline shows the event's title and its event number.
 
 The event number is the event ID. It stays the same on every page and after
 pruning. **Timeline** shows one page of events and opens on the newest page.
-The **Events** control in the run header pages through events. A page holds
+The **Events** bar above the Timeline pages through events. A page holds
 1,000 events by default; its **Page size** setting switches it to 100.
-Use **Older page** and **Newer page** to move between pages, and **Oldest
-page** to open the oldest retained page. Use **Latest page** to return to the
-page that **Live** keeps extending.
+Use **Older** and **Newer** to move between pages, and **Oldest** to open
+the oldest retained page. Use **Latest** to return to the page that **Live**
+keeps extending.
 
-The selected event panel lists **Related events**: the event's WaitFor, its
-source execution, and the executions it started. An entry on the current page
-offers **Show #N**, which selects that event. An entry on another page offers
-**Go to #N**, with a hint that it is on an older or newer page. **Go to #N**
-loads a page around the event and highlights it. **Back** returns to the previous page. Dex Server
-keeps only a
+One line under the selected event's title names its related events: the
+event's WaitFor, its source execution, and the executions it started, such as
+**Source execution** from SyncBatch-3095 decision, event #3096. Click an entry
+on the current page to select that event. An entry on another page says
+whether its page is older or newer. Clicking it loads a page around the event
+and highlights it. **Back** returns to the previous page. Dex Server keeps
+only a
 [recent history window](/reference/server/configuration#history-window). A
-pruned related event reads **Outside the retention window** and offers no
-action. **Not on this page** means Dex Web knows the related event exists but
-cannot locate it, so it offers no jump. The oldest retained page states which
-event numbers were removed.
+pruned related event says the history window removed it, and it is not a
+link. "Event not on this page" means Dex Web knows the related event exists
+but cannot locate it, so it offers no jump. The oldest retained page states
+which event numbers were removed.
 
 <img
   src="/img/production/dex-web-timeline-step-input.png"
@@ -92,12 +93,13 @@ event numbers were removed.
 
 ### 2. Read inputs, Attributes, conditions, and outputs
 
-Keep **Details** selected and read **Input** first. It shows the Step input and
+Read **Input** first. **JSON** in the panel header switches to the raw
+payload and back. **Input** shows the Step input and
 the Attributes the method read. For a WaitFor event, **Output** shows the
 WaitFor condition and its results. For a completed Step, **Output** shows the
 Step decision, the next Step input, and resulting Attribute changes. On a wide
-screen, **Input**, **Output**, and
-**Context** sit side by side. Each Step decision target reads as one row, such
+screen, **Input** and **Output** sit side by side. **Context** follows
+with the timing, the attempt, the Worker, and the retry options. Each Step decision target reads as one row, such
 as the next Step type, its input, and its options; **Decision details** expands
 the rest. Attribute rows preview their values, and **Show all** opens a long
 one.
@@ -110,7 +112,7 @@ one.
 ### 3. Expand a failed Step's stack trace
 
 For a retrying or failed Step, select the failed event from **Timeline** or the
-failed node from **Execution graph**. Under **Failure**, compare the attempt, Worker
+failed node from **Graph**. Under **Failure**, compare the attempt, Worker
 error type, error detail, and gRPC status. Expand **Stack trace** before asking
 the owning team to investigate.
 

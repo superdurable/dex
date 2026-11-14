@@ -12,9 +12,12 @@ use crate::FlowConfig;
 #[test]
 fn start_flow_without_config_always_maps_pull_target() {
     assert_eq!(
-        map_pull_flow_config(None).expect("map default StartFlow config"),
+        map_pull_flow_config(None, "").expect("map default StartFlow config"),
         dex_protocol::dex::FlowConfig {
-            worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(dex_protocol::dex::WorkerTarget {
+                is_pull_mode: true,
+                ..dex_protocol::dex::WorkerTarget::default()
+            }),
             ..Default::default()
         }
     );
@@ -23,9 +26,12 @@ fn start_flow_without_config_always_maps_pull_target() {
 #[test]
 fn start_flow_override_always_maps_pull_target() {
     assert_eq!(
-        map_pull_flow_config(Some(&FlowConfig::new())).expect("map explicit Flow config"),
+        map_pull_flow_config(Some(&FlowConfig::new()), "").expect("map explicit Flow config"),
         dex_protocol::dex::FlowConfig {
-            worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
+            worker_target: Some(dex_protocol::dex::WorkerTarget {
+                is_pull_mode: true,
+                ..dex_protocol::dex::WorkerTarget::default()
+            }),
             ..Default::default()
         }
     );
@@ -75,7 +81,7 @@ fn flow_config_maps_offload_history() {
         (FlowConfig::new().offload_history(true), Some(true)),
     ] {
         assert_eq!(
-            map_pull_flow_config(Some(&config))
+            map_pull_flow_config(Some(&config), "")
                 .expect("map StartFlow config")
                 .offload_history,
             expected_offload_history
@@ -98,7 +104,7 @@ fn flow_config_drops_delete_expired_history_objects() {
         FlowConfig::new().delete_expired_history_objects(true),
     ] {
         assert_eq!(
-            map_pull_flow_config(Some(&config))
+            map_pull_flow_config(Some(&config), "")
                 .expect("map StartFlow config")
                 .delete_expired_history_objects,
             None
@@ -108,6 +114,20 @@ fn flow_config_drops_delete_expired_history_objects() {
                 .expect("map Flow config update")
                 .delete_expired_history_objects,
             None
+        );
+    }
+}
+
+#[test]
+fn start_flow_maps_the_task_queue_into_the_pull_target() {
+    for task_queue in ["blue", "dex.default"] {
+        let config = map_pull_flow_config(None, task_queue).expect("map task queue");
+        assert_eq!(
+            config.worker_target,
+            Some(dex_protocol::dex::WorkerTarget {
+                is_pull_mode: true,
+                task_queue: task_queue.to_string(),
+            })
         );
     }
 }

@@ -21,10 +21,12 @@ import (
 
 const (
 	minimumSupportedServerProtocolVersion uint32 = 4
-	maximumSupportedServerProtocolVersion uint32 = 4
+	maximumSupportedServerProtocolVersion uint32 = 5
 	// hardDeleteAttributeProtocolVersion is the first Server protocol that keeps hard-delete Attributes out of history.
 	hardDeleteAttributeProtocolVersion uint32 = 3
-	goSDKModulePath                           = "github.com/superdurable/dex/sdk-go"
+	// taskQueueProtocolVersion is the first Server protocol that routes Flows to named task queues.
+	taskQueueProtocolVersion uint32 = 5
+	goSDKModulePath                 = "github.com/superdurable/dex/sdk-go"
 	// minimumSupportedServerZDRelease names the first server-zd releases with minimumSupportedServerProtocolVersion.
 	minimumSupportedServerZDRelease = "server-zd newer than v0.1.16"
 )
@@ -99,6 +101,18 @@ func (protocol *negotiatedServerProtocol) requireHardDeleteAttributeSupport(
 		}
 	}
 	return nil
+}
+
+// requireTaskQueueSupport fails closed because older Servers would route a named task queue to the default one.
+func (protocol *negotiatedServerProtocol) requireTaskQueueSupport(taskQueue string) error {
+	if taskQueue == "" || protocol.version.Load() >= taskQueueProtocolVersion {
+		return nil
+	}
+	return &TaskQueueUnsupportedError{
+		TaskQueue:                     taskQueue,
+		NegotiatedServerProtocol:      protocol.version.Load(),
+		RequiredServerProtocolVersion: taskQueueProtocolVersion,
+	}
 }
 
 func serverProtocolRequestError(sdkVersion string, err error) error {

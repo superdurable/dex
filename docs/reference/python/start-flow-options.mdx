@@ -21,6 +21,7 @@ cannot change after the Flow starts.
 | **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values. |
 | **FlowConfig** | Per-run Flow configuration, sent as **ConfigOverride**. |
+| **task_queue** | Named task queue that runs the Flow. Since 1.45.1. See [Task queue](#task-queue). |
 
 For an application-defined outcome at the Flow deadline, see
 [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
@@ -300,6 +301,37 @@ delay fails with **INVALID_ARGUMENT**. Tracked in
 [issue 995](https://github.com/superdurable/dex/issues/995). To delay the first
 work, start the Flow without a delay and begin the start Step with a durable
 **Timer** wait.
+
+## Task queue {#task-queue}
+
+Since 1.45.1. **StartFlowOptions.task_queue** names the task queue that runs
+the Flow. Only Workers whose **PullWorkerOptions.task_queue** has the same name
+and that register the Flow type receive its Steps and RPCs. **dex.default** is
+the exception: it selects the default task queue, which Workers with an empty
+**task_queue** serve. Workers cannot register **dex.default** itself. See
+[Named task queues](./workers.mdx#named-task-queues) for the Worker side.
+
+| Value | Task queue |
+| --- | --- |
+| **""**, the default | The default task queue, the same as a start without this option |
+| **dex.default** | The default task queue, named explicitly |
+| Any other valid name | That named task queue |
+
+- A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens.
+  Names starting with **dex.** are reserved, except **dex.default**. The
+  **StartFlowOptions** constructor raises **ValueError** for an invalid name.
+- The task queue is fixed when the Flow starts. **task_queue** is a start
+  option, not a **FlowConfig** field, so **update_flow_config** never changes
+  it.
+- A SubFlow inherits the task queue. See
+  [SubFlow task queue](./subflow.mdx#task-queue).
+- While no Worker polls the task queue, the Flow's Steps wait in the durable
+  task queue, and RPCs fail after the Server's dispatch wait.
+- A non-empty value needs Dex Server protocol version 5 or later.
+  **start_flow** on **Client** and **AsyncClient** raises **RuntimeError**
+  against an older Server and does not send the start request.
+
+API reference: [StartFlowOptions.task_queue](pathname:///api/python/latest/dex.html#StartFlowOptions.task_queue).
 
 ## Attributes {#attributes}
 

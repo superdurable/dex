@@ -21,6 +21,27 @@ them in the [Python SDK API reference](./index.mdx#api-reference).
 | Read the child result | **SubFlow.get_condition_results** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
 | Read the generated child Flow ID | **SubFlow.get_flow_id** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Stop a child that lost an **AnyOf** | **Client.stop_flow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+| Run the child on another task queue | **task_queue** of **SubFlowOptions**. Since 1.45.1. | [Task queue](#task-queue) |
+
+## Task queue {#task-queue}
+
+Since 1.45.1. A SubFlow runs on its parent's task queue unless
+**SubFlowOptions.task_queue** selects another one.
+
+| Value | Task queue of the child |
+| --- | --- |
+| **""**, the default | The parent Flow's task queue |
+| **dex.default** | The default task queue |
+| Any other valid name | That named task queue |
+
+The name rules match
+[StartFlowOptions task queue](./start-flow-options.mdx#task-queue). The
+**SubFlowOptions** constructor raises **ValueError** for an invalid name. A
+non-empty value needs Dex Server protocol version 5 or later. Against an older
+Server, the Step attempt that returns the SubFlow Condition fails with
+**RuntimeError**, and Dex retries it under the Step's retry policy.
+
+API reference: [SubFlowOptions.task_queue](pathname:///api/python/latest/dex.html#SubFlowOptions.task_queue).
 
 ## Step types that start SubFlows {#step-types-that-start-subflows}
 

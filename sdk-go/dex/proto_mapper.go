@@ -135,7 +135,10 @@ func mapStartFlowOptions(
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
-	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}
+	if err := validateTargetTaskQueueName(options.TaskQueue); err != nil {
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
+	}
+	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: options.TaskQueue}
 	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
@@ -778,7 +781,10 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
-	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}
+	if err := validateTargetTaskQueueName(options.TaskQueue); err != nil {
+		return nil, err
+	}
+	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: options.TaskQueue}
 	reusePolicy, err := mapSubFlowReusePolicy(options.ReusePolicy)
 	if err != nil {
 		return nil, err

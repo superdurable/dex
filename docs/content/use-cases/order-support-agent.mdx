@@ -95,7 +95,7 @@ export function createClaudeAgentSdkOrderSupportFlow(
   model: string,
   cliEnvironment: Readonly<Record<string, string>>,
   slack: Connection | undefined,
-): AgentSessionFlow {
+) {
   const lookUpOrder = tool(
     "look_up_order",
     "Look up one order by its order ID and return its items and status.",

@@ -642,7 +642,7 @@ deadline fails startup. Indexed AttributeMaps must declare a fixed index key.
 
 ### Client-only Flows
 
-Since 1.46.0, a Flow that embeds `dex.ClientOnlyFlow` types the RPCs and
+Since 1.45.2, a Flow that embeds `dex.ClientOnlyFlow` types the RPCs and
 Streams of a Flow type that another application serves, such as a Worker in
 another language. It declares the served Flow type, the RPC methods with the
 served names, types, and `RPCOptions`, and the Attributes, Channels, and Streams
@@ -998,6 +998,37 @@ pull := dex.PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2
 ```
 
 `PullReservedRPCDeclines()` is deprecated and always returns zero.
+
+### Named task queues
+
+A task queue gives one Flow type separate Worker pools. `PullWorkerOptions.TaskQueue`
+names the one task queue a Worker serves; empty serves the default task queue.
+`StartFlowOptions.TaskQueue` places a Flow on a task queue for its whole run.
+Only Workers on that task queue receive its Steps and RPCs. A SubFlow inherits
+its parent's task queue. `SubFlowOptions.TaskQueue` names another one, and
+`dex.DefaultTaskQueue` selects the default task queue. To serve several task
+queues, run one Worker per task queue, each with its own `AppWorkerID`.
+
+```go
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	Pull: &dex.PullWorkerOptions{TaskQueue: "tenant-42"},
+})
+// ...
+_, err = client.StartFlow(ctx, orderFlow, flowID, input, dex.StartFlowOptions{
+	TaskQueue: "tenant-42",
+})
+```
+
+A name has 1 to 63 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, and `-`.
+Names starting with `dex.` are reserved; only `dex.DefaultTaskQueue` is accepted
+in `StartFlowOptions` and `SubFlowOptions`, and a Worker accepts none of them.
+Named task queues require Server protocol 5. Against an older Server, `Start`,
+`StartFlow`, and a WaitFor that starts such a SubFlow return
+`*dex.TaskQueueUnsupportedError` instead of falling back to the default task
+queue. When a Server registers a Worker stream on another task queue, the Worker
+half-closes the stream and readiness reports a permanent `InvalidArgument`
+rejection. `PullRegistrationState` entries and `PullRegistrationError` carry the
+Worker's `TaskQueue`.
 
 ## FlowService TLS
 

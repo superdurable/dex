@@ -57,6 +57,7 @@ from dex_agents import (
     sort_agent_sessions_by_last_activity,
 )
 from dex_agents.builtin_loop import ToolSource
+from dex_agents.mcp import McpStreamableHttpServerConfig
 from dex_agents_cli_core.chat import Terminal, TerminalChat
 from dex_agents_cli_core.config import (
     AUTO,
@@ -125,6 +126,12 @@ from dex_agents_cli_core.harness import (
 )
 from dex_agents_cli_core.local_tools import LocalToolSource
 from dex_agents_cli_core.local_tools.shell import ShellProcessGroups
+from dex_agents_cli_core.mcp_servers import (
+    McpServerSettingsError,
+    McpServersToolSource,
+    mcp_server_secret_texts,
+    resolve_mcp_servers,
+)
 from dex_agents_cli_core.session_lease import (
     HeldSessionLease,
     SessionLeaseHolder,
@@ -865,6 +872,8 @@ class _RunInputs:
     workspace: Path
     resolver: TurnConfigResolver
     connection: DexConnectionSettings
+    mcp_servers: tuple[McpStreamableHttpServerConfig, ...] = ()
+    mcp_server_secret_texts: frozenset[str] = frozenset()
 
 
 def _resolve_connection(
@@ -920,7 +929,14 @@ def _prepare_run(
         report_ignored_settings,
         supported_reasoning_efforts=declared_reasoning_efforts(harness),
     )
-    return _RunInputs(config, media_store, workspace, resolver, connection)
+    try:
+        mcp_servers = resolve_mcp_servers(config, os.environ)
+        secret_texts = mcp_server_secret_texts(config, os.environ)
+    except McpServerSettingsError as error:
+        raise CommandError(error.message) from error
+    return _RunInputs(
+        config, media_store, workspace, resolver, connection, mcp_servers, secret_texts
+    )
 
 
 async def _run_plain_chat(
@@ -1091,8 +1107,9 @@ class _SessionWorker:
         local_tools = _local_tool_source(
             config, inputs.workspace, harness, inputs.resolver, process_groups
         )
+        mcp_servers = await _connect_mcp_servers(inputs, reports)
         tool_sources: list[ToolSource] = [
-            source for source in (connectors, local_tools) if source is not None
+            source for source in (connectors, mcp_servers, local_tools) if source is not None
         ]
         identity = current_session_environment_identity(loaded.path, inputs.workspace)
         flow_type = namespace_session_flow_type(harness.flow_type, identity)
@@ -1340,6 +1357,35 @@ async def _connect_connectors(
     )
     # A failed listing prints the one line through describe_unavailable.
     await source.list_file_enabled_tools()
+    return source
+
+
+async def _connect_mcp_servers(
+    inputs: _RunInputs, reports: _SessionWorkerReports
+) -> McpServersToolSource:
+    """Return the remote MCP server source, listed once so fixed tool sets get its tools.
+
+    It is returned even without servers, so it refuses stored calls of servers
+    another Worker has.
+    """
+    log_path = reports.log_path
+    unavailable_line = "MCP server tools are unavailable for now; each turn tries again."
+    if log_path is not None:
+        unavailable_line = f"{unavailable_line} See {log_path} for the error."
+    source = McpServersToolSource(
+        inputs.mcp_servers,
+        inputs.resolver,
+        report=reports.report_runtime,
+        report_at_startup=reports.report,
+        unavailable_line=unavailable_line,
+        media_store=inputs.media_store,
+        secret_texts=inputs.mcp_server_secret_texts,
+    )
+    if inputs.mcp_servers:
+        # Every record of this process may quote a server's error, which may echo a header.
+        for handler in logging.getLogger().handlers:
+            handler.addFilter(source.secret_redacting_log_filter)
+        await source.list_file_enabled_tools()
     return source
 
 

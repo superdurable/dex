@@ -244,12 +244,12 @@ test("Reconnect backs off idle streams and drains a busy stream", async () => {
   try {
     worker.start();
     const idle = await harness.nextStream();
-    idle.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+    idle.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
     const reconnectRequestedAt = Date.now();
     idle.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
     const replacement = await harness.nextStream();
     assert.ok(replacement.openedAt - reconnectRequestedAt >= 95);
-    replacement.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+    replacement.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
     replacement.call.write(rpcTask("busy"));
     replacement.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
     replacement.call.write({ frame: { $case: "ping", value: {} } });
@@ -347,7 +347,7 @@ test("CancelTask and task deadline abort the handler", async () => {
   try {
     worker.start();
     const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
     stream.call.write(rpcTask("cancel"));
     stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "cancel" } } });
     const cancelled = await stream.frame("taskFrame");
@@ -392,7 +392,7 @@ test("pull WaitFor sends heartbeat and stream write before its final result", as
   try {
     worker.start();
     const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
     stream.call.write({ frame: { $case: "task", value: {
       taskId: "wait-for", deadline: undefined,
       request: { $case: "waitFor", value: InvokeWaitForMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
@@ -560,7 +560,7 @@ for (const shouldReconnect of [false, true]) {
     try {
       worker.start();
       const stream = await harness.nextStream();
-      stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+      stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
       stream.call.write(rpcTask("large-result"));
       await until(() => harness.invocationCount === 1);
       if (shouldReconnect) {
@@ -608,7 +608,7 @@ for (const shutdown of ["Stop drain", "busy Reconnect", "busy Reconnect then Sto
       worker.start();
       const capturedStream = await harness.nextStream();
       stream = capturedStream;
-      capturedStream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+      capturedStream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
       capturedStream.call.write(rpcTask("delayed-result"));
       await until(() => harness.invocationCount === 1);
       if (shutdown !== "Stop drain") {
@@ -721,7 +721,7 @@ test("close drains a task, then resets its stream and waits for a handler that i
   try {
     worker.start();
     const stream = await harness.nextStream();
-    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0 } } });
+    stream.call.write({ frame: { $case: "registered", value: { supportsUnknownNameRejection: false, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } });
     stream.call.write(rpcTask("blocked"));
     await until(() => harness.invocationCount === 1);
     const poll = [...(Reflect.get(worker, "streams") as Set<{ stream: { end: () => void } }>)][0]!;
@@ -756,12 +756,12 @@ test("Worker start rejects a concurrency limit below its total slot count by hal
     const starting = assert.rejects(worker.start(), limitMessage);
     const streams = [await harness.nextStream(), await harness.nextStream(), await harness.nextStream()];
     streams[0]!.call.write({ frame: { $case: "registered", value: {
-      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 2,
+      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 2, taskQueue: "",
     } } });
     // Dex may assign a task right after Registered; the Worker must drop it and half-close.
     streams[0]!.call.write(rpcTask("sent-after-registered"));
     streams[1]!.call.write({ frame: { $case: "registered", value: {
-      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 2,
+      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 2, taskQueue: "",
     } } });
     await starting;
     await readiness;
@@ -794,7 +794,7 @@ test("a lower concurrency limit after a reconnect warns and keeps the running Wo
     first.call.write({ frame: { $case: "reconnect", value: { reason: "move" } } });
     const replacement = await harness.nextStream();
     replacement.call.write({ frame: { $case: "registered", value: {
-      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 1,
+      supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 1, taskQueue: "",
     } } });
     replacement.call.write(rpcTask("after-lower-limit"));
     await replacement.frame("taskFrame");
@@ -1303,7 +1303,7 @@ function taskWithRawDeadline(taskId: string, deadline: { seconds: bigint; nanos:
 }
 
 function registered(supportsUnknownNameRejection: boolean): PollWorkerTaskResponse {
-  return { frame: { $case: "registered", value: { supportsUnknownNameRejection, maxConcurrentTasksPerAppWorker: 0 } } };
+  return { frame: { $case: "registered", value: { supportsUnknownNameRejection, maxConcurrentTasksPerAppWorker: 0, taskQueue: "" } } };
 }
 
 function unknownStepTask(taskId: string): PollWorkerTaskResponse {

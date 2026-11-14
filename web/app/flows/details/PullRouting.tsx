@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowHistoryEvent, FlowState } from '@/lib/types';
-import { asData, Fields } from './StepMethodSections';
+import { asData, Fields, taskQueueLabel } from './StepMethodSections';
 
 export interface FlowRoutingData {
   workerTarget: Record<string, unknown>;
@@ -37,9 +37,9 @@ export function FlowRouting({ routing, flowType, showFlowType = false }: {
 }) {
   return <Fields compact values={[
     ...(showFlowType ? [['Flow type', flowType]] as [string, unknown][] : []),
-    ['Task queue', flowType],
+    ['Task queue', taskQueueLabel(routing.workerTarget.taskQueue)],
     ['Sticky Worker ID', routing.stickyAppWorkerId || '—'],
   ]} />;
 }
 
-export { PullRouting } from './StepMethodSections';
+export { PullRouting, taskQueueLabel } from './StepMethodSections';

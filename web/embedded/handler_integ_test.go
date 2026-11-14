@@ -165,6 +165,8 @@ func newHostApplication(t *testing.T, cfg *embedded.Config) *hostApplication {
 			return embedded.Target{}, errors.New("secret database password leaked")
 		case "bad-base-path":
 			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/../x"}, nil
+		case "host-navigation":
+			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/host-navigation", HasHostNavigation: true}, nil
 		}
 		client, ok := clients[serverID]
 		if !ok {
@@ -277,6 +279,18 @@ func TestHandlerServesPagesUnderEachBasePath(t *testing.T) {
 	redirect := host.send(t, http.MethodGet, "/dex-web/server-a", "", nil)
 	if redirect.status/100 != 3 || redirect.header.Get("Location") != "/dex-web/server-a/" {
 		t.Fatalf("mount without slash = %d %v", redirect.status, redirect.header)
+	}
+}
+
+func TestHandlerRecordsThatTheHostDrawsTheNavigation(t *testing.T) {
+	host := newHostApplication(t, &embedded.Config{})
+	hosted := host.send(t, http.MethodGet, "/dex-web/host-navigation/v1/flows", "", nil)
+	if hosted.status != http.StatusOK || !strings.Contains(hosted.body, `<meta name="dex-web-host-navigation" content="true" />`) {
+		t.Fatalf("page with host navigation = %d %s", hosted.status, hosted.body)
+	}
+	plain := host.send(t, http.MethodGet, "/dex-web/server-a/v1/flows", "", nil)
+	if plain.status != http.StatusOK || strings.Contains(plain.body, "dex-web-host-") {
+		t.Fatalf("page without host navigation = %d %s", plain.status, plain.body)
 	}
 }
 

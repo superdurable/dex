@@ -100,6 +100,12 @@ type Target struct {
 	// JSON files under this directory on every definition request, which enables the Designs page, the Work
 	// Queue, and typed Flow start forms for this Dex Server.
 	FlowRenderingDirectory string
+	// HasHostNavigation defaults false, which gives Dex Web its own left rail of pages and its home link. Set it
+	// when your page draws the navigation around Dex Web, such as a Dex Server's own rail in your console: Dex Web
+	// then draws no rail, and its bar starts with the name of the page it shows.
+	//
+	// Since 1.45.4.
+	HasHostNavigation bool
 }
 
 // TargetResolver returns the Dex Server that a request reaches.
@@ -181,6 +187,7 @@ func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *h
 		FlowServiceClient:      target.FlowServiceClient,
 		BasePath:               target.BasePath,
 		FlowRenderingDirectory: target.FlowRenderingDirectory,
+		HasHostNavigation:      target.HasHostNavigation,
 	})
 }
 

@@ -13,6 +13,8 @@ use dexzd_protocol::dex::{
     self, DispatchTaskErrorReason, PollWorkerSlotKind, PollWorkerTask, PollWorkerTaskFrame,
     PollWorkerTaskRegister, poll_worker_task, poll_worker_task_frame,
 };
+use dexzd_protocol::task_queue_names::registered_task_queue_name_error;
+use dexzd_request_validation::quote_go_string;
 use tonic::Status;
 
 use super::{DispatchOutcome, DispatchRequest, DispatchTaskPayload};
@@ -55,6 +57,7 @@ pub(super) fn validate_dispatch(
             "Flow type queue must have a valid length",
         ));
     }
+    validate_dispatched_task_queue(&request.task_queue)?;
     if request
         .sticky_app_worker_id
         .as_ref()
@@ -112,6 +115,12 @@ pub(super) fn validate_registration(
             return Err(Status::invalid_argument("queue must have a valid length"));
         }
     }
+    if let Some(reason) = registered_task_queue_name_error(&registration.task_queue) {
+        return Err(Status::invalid_argument(format!(
+            "invalid task_queue {}: {reason}",
+            quote_go_string(&registration.task_queue)
+        )));
+    }
     if registration.flow_types.len() > config.max_flow_types {
         return Err(Status::invalid_argument("too many flow_types"));
     }
@@ -133,6 +142,17 @@ pub(super) fn validate_registration(
         ));
     }
     Ok(())
+}
+
+/// Checks the task queue of a server-built dispatch, which holds a stored, validated name.
+pub(super) fn validate_dispatched_task_queue(task_queue: &str) -> Result<(), Status> {
+    match registered_task_queue_name_error(task_queue) {
+        Some(reason) => Err(Status::invalid_argument(format!(
+            "invalid task queue {}: {reason}",
+            quote_go_string(task_queue)
+        ))),
+        None => Ok(()),
+    }
 }
 
 pub(super) fn is_final(frame: &PollWorkerTaskFrame) -> bool {

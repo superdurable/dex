@@ -143,6 +143,10 @@ func (service *workerService) invokeWaitForMethod(
 		if err := service.serverProtocol.requireHardDeleteAttributeSupport(subFlow.GetOptions().GetAttributes()); err != nil {
 			return err
 		}
+		subFlowTaskQueue := subFlow.GetOptions().GetFlowConfigOverride().GetWorkerTarget().GetTaskQueue()
+		if err := service.serverProtocol.requireTaskQueueSupport(subFlowTaskQueue); err != nil {
+			return err
+		}
 	}
 	return output.sendResult(&dexpb.InvokeWaitForMethodResponse{
 		UpsertAttributes:         attributeWrites,

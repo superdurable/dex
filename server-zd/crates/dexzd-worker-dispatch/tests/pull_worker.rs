@@ -126,6 +126,7 @@ fn request(tenant_id: u64, flow_id: &str) -> DispatchRequest {
         tenant_id,
         flow_id: flow_id.to_owned(),
         flow_type: "Flow".to_owned(),
+        task_queue: String::new(),
         sticky_app_worker_id: None,
         payload: DispatchTaskPayload::WaitFor(InvokeWaitForMethodRequest {
             flow_type: "Flow".to_owned(),

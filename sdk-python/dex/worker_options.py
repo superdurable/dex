@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from dex._message_size import validate_grpc_max_message_bytes
+from dex._task_queue_names import registered_task_queue_name_error
 from dex.credential import Credential
 from dex.flow_definition import FlowDefinitionDocument
 from dex.flow_service_tls_options import FlowServiceTlsOptions
@@ -73,14 +74,43 @@ class PullWorkerOptions:
             leaving a slot kind without a registered stream drains the Worker and
             raises PullRegistrationError from start. Defaults to False, which
             retries indefinitely. Applies before and after initial readiness.
+        task_queue: The named task queue this Worker polls. The empty default
+            polls the default task queue, which serves every Flow started
+            without a task queue.
+
+            A Flow started with ``StartFlowOptions(task_queue=...)`` runs its
+            Steps and RPCs only on Workers that poll that task queue and
+            register its Flow type. A Worker polls exactly one task queue. To
+            serve several task queues from one process, construct one Worker
+            for each task queue, each with its own ``app_worker_id``.
+
+            A name has 1 to 63 ASCII letters, digits, dots, underscores, or
+            hyphens. Names starting with ``dex.`` are reserved and invalid
+            here, including ``dex.default``; leave the field empty to poll the
+            default task queue.
+
+            A named task queue requires Dex Server protocol version 5 or later.
+            Against an older Server, ``start`` raises ``RuntimeError`` before it
+            synchronizes Attribute indexes or opens task streams. Each stream
+            also checks that the Server registered it under this task queue.
+            On a mismatch the Worker closes the stream without running any
+            task it received and records a permanent rejection: see
+            ``PullRegistrationError`` and ``pull_registration_state``.
+
+            .. versionadded:: 1.45.1
 
     Raises:
         ValueError: If a numeric option is negative, the reserve reaches the task
-            limit, or app_worker_id is invalid.
+            limit, app_worker_id is invalid, or task_queue is invalid.
 
     Examples:
         >>> pull = PullWorkerOptions(max_concurrent_tasks=8, reserved_rpc_tasks=2)
         >>> worker = Worker(registry, cache, WorkerOptions(pull=pull))
+        >>> gpu_worker = Worker(
+        ...     registry,
+        ...     cache,
+        ...     WorkerOptions(pull=PullWorkerOptions(task_queue="gpu")),
+        ... )
     """
 
     max_concurrent_tasks: int = 0
@@ -89,8 +119,14 @@ class PullWorkerOptions:
     stop_drain_timeout: timedelta = timedelta(0)
     stop_on_permanent_stream_rejection: bool = False
     reserved_rpc_tasks: int | None = None
+    task_queue: str = ""
 
     def __post_init__(self) -> None:
+        task_queue_error = registered_task_queue_name_error(self.task_queue)
+        if task_queue_error is not None:
+            raise ValueError(
+                f"task_queue {self.task_queue!r} is invalid: {task_queue_error}"
+            )
         if self.max_concurrent_tasks < 0:
             raise ValueError("max_concurrent_tasks must not be negative")
         task_limit = self.max_concurrent_tasks or os.cpu_count() or 1

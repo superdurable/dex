@@ -613,7 +613,10 @@ async fn start_idle_flow(flow_client: &mut FlowServiceClient<Channel>, flow_id: 
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -748,7 +751,10 @@ async fn run_flow_with_input(
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

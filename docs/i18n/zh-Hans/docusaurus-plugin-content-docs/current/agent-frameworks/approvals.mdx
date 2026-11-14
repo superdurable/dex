@@ -71,14 +71,14 @@ Tool 的 policy 决定它的调用是否要等待审批；[要求审批](/agent-
 
 ## 在 Dex Web 中审批 {#approve-in-dex-web}
 
-你也可以在 Dex Web 中审批调用。如果 server 保存了某个 Flow type 的 Session graph，Dex Web 就会为它显示 **Agent session** 标签页。
+你也可以在 Dex Web 中审批调用。如果 server 保存了某个 Flow type 的 Session graph，Dex Web 就会为它显示 **Conversation** 标签页。
 
 [Agent 快速开始](/agent-frameworks/quick-start) 程序会自己上传这个 graph，Python 和 TypeScript 都是如此：它的 Worker 在启动时通过 Worker options（Python 中是 `flow_definitions`，TypeScript 中是 `flowDefinitions`）传入 graph。所以只用普通的 **dexcli dev**，Dex Web 就已经能显示这个标签页。上传需要较新的 Dex Agents 和 Dex Server 版本；详情参见 [Upload the session graph from the Worker](/reference/agents/dex-web#upload-the-graph)（英文）。
 
 然后审批这次调用：
 
 1. 打开这个 Session 的 run。它的 Flow ID 就是 Session ID。
-2. 选择 **Agent session** 标签页。
+2. 选择 **Conversation** 标签页，会话的运行页面默认打开这里。
 3. 把 **Working as** 设为 graph 中的 permission `agent-quick-start.operate`。
 4. 在 `cancel_order` 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 `resolve_interrupt`。
 

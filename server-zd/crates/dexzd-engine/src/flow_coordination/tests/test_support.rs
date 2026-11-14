@@ -298,6 +298,7 @@ impl StepQueueStatus for FakeRpcInvoker {
     fn is_waiting_for_supporting_worker(
         &self,
         _tenant_id: u64,
+        _task_queue: &str,
         _flow_type: &str,
         _step_type: &str,
     ) -> bool {

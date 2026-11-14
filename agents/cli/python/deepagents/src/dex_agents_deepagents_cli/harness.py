@@ -48,6 +48,7 @@ from dex_agents import (
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli_core import (
     CONNECTORS_TOOL_SOURCE_NAME,
+    MCP_SERVERS_TOOL_SOURCE_NAME,
     ConfigError,
     EffectiveConfig,
     HarnessContext,
@@ -241,16 +242,19 @@ def build_deep_agent(file_model: str, workspace: Path) -> Any:
 def deep_agents_tool_sources(tool_sources: Sequence[ToolSource]) -> list[ToolSource]:
     """Return the CLI core's tool sources, with connector tools that fit beside Deep Agents'.
 
+    .. versionchanged:: 0.6.4
+       The remote MCP server source asks approval for every write too.
+
     Args:
         tool_sources: ``HarnessContext.tool_sources``.
 
     Returns:
-        The sources; the connectors source prefixes a tool whose name a Deep
-        Agents tool uses and asks approval for every write.
+        The sources; the connectors and remote MCP server sources prefix a
+        tool whose name a Deep Agents tool uses and ask approval for every write.
     """
     return [
         PrefixedConnectorToolSource(source, DEEP_AGENTS_TOOL_RULES.keys())
-        if source.source_name == CONNECTORS_TOOL_SOURCE_NAME
+        if source.source_name in (CONNECTORS_TOOL_SOURCE_NAME, MCP_SERVERS_TOOL_SOURCE_NAME)
         else source
         for source in tool_sources
     ]

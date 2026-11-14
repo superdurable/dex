@@ -24,7 +24,7 @@ import {
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
 
-import type { ClaudeAgentSessionOptions } from "../../src/index.js";
+import type { ClaudeAgentRunner, ClaudeAgentSessionOptions } from "../../src/index.js";
 
 import { createClaudeTestAgentFlow, type ClaudeTestAgentCli } from "./claude-test-agent.js";
 import {
@@ -44,7 +44,7 @@ export class ClaudeAgentTestHarness {
     /** Directory of this test's gates, invocation log, workspace, and Claude config. */
     public readonly stateDirectory: string,
     /** The Claude test agent Flow. */
-    public readonly flow: AgentSessionFlow,
+    public readonly flow: AgentSessionFlow<ClaudeAgentRunner>,
     private readonly environment: AgentTestEnvironment,
     /** Typed session RPCs and waits. */
     public readonly sessions: AgentSessionTestClient,

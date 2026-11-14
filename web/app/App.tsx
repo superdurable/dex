@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
-import { AppHeader } from './components/AppHeader';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { AppFrame } from './components/frame/AppBar';
+import { AppBarSlotsProvider } from './components/frame/AppBarSlots';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
@@ -24,10 +25,11 @@ export function App() {
     <PreferencesProvider>
       <ThemeProvider>
         <WebCatalogProvider>
-          <AppHeader />
-          <main className="app-main">
-            <AppRoutes />
-          </main>
+          <AppBarSlotsProvider>
+            <AppFrame>
+              <AppRoutes />
+            </AppFrame>
+          </AppBarSlotsProvider>
         </WebCatalogProvider>
       </ThemeProvider>
     </PreferencesProvider>
@@ -68,14 +70,9 @@ function FlowRunRoute() {
   const { flowId = '', runId = '' } = useParams();
   const flowPath = `/v1/flows/${encodeURIComponent(flowId)}`;
   return (
+    // Keyed by Flow ID, so each Flow opens fresh on its own remembered tab.
     <RunDetailsPage
-      breadcrumb={(
-        <div className="breadcrumbs">
-          <Link to={FLOWS_PATH}>Flows</Link><span>/</span>
-          <Link to={flowPath}>{flowId}</Link><span>/</span>
-          <span className="mono">{runId}</span>
-        </div>
-      )}
+      key={flowId}
       flowId={flowId}
       runId={runId}
       runPath={(chainRunID) => `${flowPath}/${encodeURIComponent(chainRunID)}`}

@@ -146,7 +146,10 @@ async fn start_synced_run() -> (FlowCoordinationHarness, RunId) {
     let options = request.flow_start_options.as_mut().unwrap();
     options.attributes = vec![synced("status", "opened")];
     options.flow_config_override = Some(FlowConfig {
-        worker_target: Some(WorkerTarget { is_pull_mode: true }),
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
         attribute_store_names: Some(AttributeStoreNames {
             names: vec![STORE.to_owned()],
         }),

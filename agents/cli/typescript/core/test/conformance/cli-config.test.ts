@@ -17,6 +17,7 @@ import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import {
   ConfigError,
   DexConnectionSettingsError,
+  McpServerSettingsError,
   canonicalOperationName,
   compareCodePoints,
   isShellCommandAllowed,
@@ -25,6 +26,7 @@ import {
   readSchema,
   resolveConfig,
   resolveDexConnectionSettings,
+  resolveMcpServers,
   resolveTurn,
 } from "../../src/index.js";
 
@@ -79,6 +81,16 @@ interface ConformanceFixture {
       config: unknown;
       environment: Readonly<Record<string, string>>;
       settings?: unknown;
+      error?: { setting: string; message: string };
+    }[];
+  };
+  readonly mcp_servers: {
+    readonly context: { harness_section: string; harness_default_model: string | null };
+    readonly cases: readonly {
+      name: string;
+      config: unknown;
+      environment: Readonly<Record<string, string>>;
+      servers?: readonly unknown[];
       error?: { setting: string; message: string };
     }[];
   };
@@ -198,6 +210,31 @@ describe("CLI configuration conformance", () => {
           assert.ok(!JSON.stringify(settings).includes(secret.trim()), "the settings hold no secret");
         }
       }
+    });
+  }
+
+  const mcpServers = fixture.mcp_servers;
+  for (const testCase of mcpServers.cases) {
+    test(`mcp servers: ${testCase.name}`, () => {
+      const context = mcpServers.context;
+      const effective = resolveConfig(testCase.config, context.harness_section, context.harness_default_model);
+      const resolve = () => resolveMcpServers(effective, testCase.environment);
+      if (testCase.error !== undefined) {
+        assert.throws(resolve, (error: unknown) => {
+          assert.ok(error instanceof McpServerSettingsError, String(error));
+          assert.deepEqual({ setting: error.setting, message: error.message }, testCase.error);
+          return true;
+        });
+        return;
+      }
+      const servers = resolve().map((server) => ({
+        name: server.name,
+        url: server.url,
+        headers: server.headers,
+        trust_tool_annotations: server.trustsToolAnnotations,
+      }));
+      assert.deepEqual(servers, testCase.servers);
+      assert.ok(resolve().every((server) => server.transport === "streamable_http"));
     });
   }
 

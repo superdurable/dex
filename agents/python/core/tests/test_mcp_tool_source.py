@@ -864,6 +864,84 @@ async def test_a_retried_attempt_resumes_its_task_without_calling_the_tool_again
     assert len(long_report_runs) == 1
 
 
+async def test_a_task_saved_by_an_in_step_poll_stays_in_the_tool_step_after_an_upgrade(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    """A checkpoint without the session-polled marker comes from a Worker that polled in-Step."""
+    tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
+    saved_checkpoints: list[str] = []
+
+    async def save_heartbeat_checkpoint(checkpoint: str) -> None:
+        saved_checkpoints.append(checkpoint)
+
+    # A new call hands its task to the session and marks the checkpoint.
+    first = await tools.execute_deferred_tool_call(
+        _deferred_execution(
+            "remote__long_report",
+            '{"topic": "q23"}',
+            "remote",
+            "long_report",
+            save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+        )
+    )
+    assert isinstance(first, ToolTaskStarted)
+    (marked,) = saved_checkpoints
+    assert json.loads(marked) == {
+        "mcp_server": "remote",
+        "mcp_tool": "long_report",
+        "mcp_task_id": first.task_id,
+        "mcp_task_polled_by_session": True,
+    }
+
+    # The same task saved without the marker is polled to its end inside the tool Step.
+    unmarked = json.dumps(
+        {"mcp_server": "remote", "mcp_tool": "long_report", "mcp_task_id": first.task_id}
+    )
+    resumed_in_step = _deferred_execution(
+        "remote__long_report",
+        '{"topic": "q23"}',
+        "remote",
+        "long_report",
+        heartbeat_checkpoint=unmarked,
+    )
+    assert not tools.will_resume_tool_task_without_sending(resumed_in_step)
+    assert await tools.execute_deferred_tool_call(resumed_in_step) == ToolExecutionResult(
+        output="report on q23"
+    )
+    assert len(_long_report_runs(mcp_harness)) == 1
+
+    # An unmarked task the server lost is sent again with the same idempotency key.
+    lost = json.dumps({"mcp_server": "remote", "mcp_tool": "long_report", "mcp_task_id": "lost"})
+    resent = await tools.execute_deferred_tool_call(
+        _deferred_execution(
+            "remote__long_report",
+            '{"topic": "q24"}',
+            "remote",
+            "long_report",
+            heartbeat_checkpoint=lost,
+            save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+        )
+    )
+    assert isinstance(resent, ToolTaskStarted)
+    assert resent.task_id not in ("lost", first.task_id)
+    assert json.loads(saved_checkpoints[-1])["mcp_task_polled_by_session"] is True
+    assert len(_long_report_runs(mcp_harness)) == 2
+    sent_keys = [
+        json.loads(line)["meta"][IDEMPOTENCY_KEY_META_KEY]
+        for line in (mcp_harness.state_dir / REQUEST_META_LOG_NAME).read_text().splitlines()
+        if json.loads(line)["tool"] == "long_report"
+    ]
+    assert sent_keys == ["session-direct/turn-1/call-1"] * 2
+
+
+def _long_report_runs(mcp_harness: McpAgentHarness) -> list[str]:
+    return [
+        name
+        for name in InvocationLog(mcp_harness.state_dir / INVOCATION_LOG_NAME).names()
+        if name.startswith("long_report ")
+    ]
+
+
 async def test_input_required_and_tool_errors_reach_the_model_as_failures(
     mcp_harness: McpAgentHarness,
 ) -> None:

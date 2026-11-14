@@ -33,6 +33,8 @@ pub struct MethodStreamRequest {
     pub flow_id: String,
     /// Flow type queue.
     pub flow_type: String,
+    /// Task queue of the run; empty for the default task queue.
+    pub task_queue: String,
     /// Step type of the attempt.
     pub step_type: String,
     /// Worker that last served the run, tried first.
@@ -169,10 +171,12 @@ pub trait MethodDispatcher: Send + Sync + 'static {
         pending_since_micros: Option<i64>,
     );
 
-    /// Returns whether every connected Worker of the Flow type declined the Step type.
+    /// Returns whether every connected Worker of the Flow type in the task queue declined the
+    /// Step type.
     fn is_waiting_for_supporting_worker(
         &self,
         tenant_id: u64,
+        task_queue: &str,
         flow_type: &str,
         step_type: &str,
     ) -> bool;
@@ -185,10 +189,13 @@ impl crate::flow_coordination::StepQueueStatus for WorkerDispatch {
     fn is_waiting_for_supporting_worker(
         &self,
         tenant_id: u64,
+        task_queue: &str,
         flow_type: &str,
         step_type: &str,
     ) -> bool {
-        WorkerDispatch::is_waiting_for_supporting_worker(self, tenant_id, flow_type, step_type)
+        WorkerDispatch::is_waiting_for_supporting_worker(
+            self, tenant_id, task_queue, flow_type, step_type,
+        )
     }
 }
 
@@ -204,6 +211,7 @@ impl MethodDispatcher for WorkerDispatch {
                     tenant_id: request.tenant_id,
                     flow_id: request.flow_id,
                     flow_type: request.flow_type,
+                    task_queue: request.task_queue,
                     step_type: request.step_type,
                     sticky_app_worker_id: request.sticky_app_worker_id,
                 })
@@ -294,10 +302,13 @@ impl MethodDispatcher for WorkerDispatch {
     fn is_waiting_for_supporting_worker(
         &self,
         tenant_id: u64,
+        task_queue: &str,
         flow_type: &str,
         step_type: &str,
     ) -> bool {
-        WorkerDispatch::is_waiting_for_supporting_worker(self, tenant_id, flow_type, step_type)
+        WorkerDispatch::is_waiting_for_supporting_worker(
+            self, tenant_id, task_queue, flow_type, step_type,
+        )
     }
 
     fn refresh_task_queue_gauges(&self) {

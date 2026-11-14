@@ -16,7 +16,7 @@ use std::time::Duration;
 use dexzd_apply::{BoundedRowSeek, FlowStateReader};
 use dexzd_keyspace::dispatch_queue_keys::{
     DEFAULT_DISPATCH_PRIORITY, DispatchQueueEntry, DispatchQueueName, DispatchQueuePosition,
-    decode_dispatch_queue_key, dispatch_queue_key, dispatch_queue_partition_prefix,
+    decode_dispatch_queue_key, dispatch_queue_key, dispatch_queue_partition_prefixes,
     dispatch_queue_prefix,
 };
 use dexzd_keyspace::row_keys::prefix_range;
@@ -84,8 +84,8 @@ type DiscoveredHeads = (
     BTreeMap<DispatchQueueName, DispatchQueuePosition>,
 );
 
-/// Skip-scans the partition's queues: one seek per queue, plus one per held row passed and
-/// priority-0 head.
+/// Skip-scans the partition's queues of the default and the named task queues: one seek per
+/// queue, plus one per held row passed and priority-0 head.
 ///
 /// Returns the discovered heads, or the read's error.
 fn discover_heads(
@@ -93,10 +93,22 @@ fn discover_heads(
     reader: &dyn FlowStateReader,
     partition: PartitionId,
 ) -> Result<DiscoveredHeads, EffectError> {
-    let (mut cursor, end) = prefix_range(&dispatch_queue_partition_prefix(partition));
-    let mut heads = Vec::new();
-    let mut ordinary_backlog = Vec::new();
-    let mut scanned_heads = BTreeMap::new();
+    let mut discovered = (Vec::new(), Vec::new(), BTreeMap::new());
+    for prefix in dispatch_queue_partition_prefixes(partition) {
+        discover_heads_in(context, reader, partition, &prefix, &mut discovered)?;
+    }
+    Ok(discovered)
+}
+
+/// Skip-scans the queues under one of the partition's DispatchQueue prefixes into `discovered`.
+fn discover_heads_in(
+    context: &EffectContext,
+    reader: &dyn FlowStateReader,
+    partition: PartitionId,
+    partition_prefix: &[u8],
+    (heads, ordinary_backlog, scanned_heads): &mut DiscoveredHeads,
+) -> Result<(), EffectError> {
+    let (mut cursor, end) = prefix_range(partition_prefix);
     while let Some((first_key, first_value)) = reader
         .scan(ColumnFamily::PartitionIndex, &cursor, &end, 1)?
         .into_iter()
@@ -134,7 +146,7 @@ fn discover_heads(
         }
         cursor = queue_end;
     }
-    Ok((heads, ordinary_backlog, scanned_heads))
+    Ok(())
 }
 
 /// Counts a rebuilt partition's queue rows in the background; the entries gauge omits the
@@ -207,17 +219,19 @@ fn count_partition_rows(
     context
         .task_queue_memory()
         .note_row_count_watermark(partition, count_generation, watermark);
-    let (mut cursor, end) = prefix_range(&dispatch_queue_partition_prefix(partition));
     let mut row_count = 0_i64;
-    loop {
-        let rows = reader.scan(ColumnFamily::PartitionIndex, &cursor, &end, COUNT_PAGE_ROWS)?;
-        row_count += i64::try_from(rows.len()).expect("a page holds few rows");
-        match rows.last() {
-            Some((last_key, _)) if rows.len() == COUNT_PAGE_ROWS => {
-                cursor.clone_from(last_key);
-                cursor.push(0);
+    for prefix in dispatch_queue_partition_prefixes(partition) {
+        let (mut cursor, end) = prefix_range(&prefix);
+        loop {
+            let rows = reader.scan(ColumnFamily::PartitionIndex, &cursor, &end, COUNT_PAGE_ROWS)?;
+            row_count += i64::try_from(rows.len()).expect("a page holds few rows");
+            match rows.last() {
+                Some((last_key, _)) if rows.len() == COUNT_PAGE_ROWS => {
+                    cursor.clone_from(last_key);
+                    cursor.push(0);
+                }
+                _ => break,
             }
-            _ => break,
         }
     }
     Ok((row_count, watermark))
@@ -254,6 +268,7 @@ pub(crate) async fn run_heads_resync(context: Arc<EffectContext>) {
 fn first_slot(partition: PartitionId) -> (PartitionId, DispatchQueueName) {
     let first_queue = DispatchQueueName {
         tenant_id: dexzd_keyspace::TenantId(0),
+        task_queue: String::new(),
         flow_type: String::new(),
         step_type: String::new(),
     };

@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { rememberFlowsSearch } from '../components/frame/lastFlowsSearch';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
@@ -16,7 +17,8 @@ import {
   type QueryOperator,
 } from '@/lib/query';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowExecution, SearchFlowsResult } from '@/lib/types';
+import type { FlowDefinitionTypeList, FlowExecution, SearchFlowsResult } from '@/lib/types';
+import { DESIGNS_PATH } from '../routes';
 import {
   ArrowDown,
   ArrowUp,
@@ -26,18 +28,20 @@ import {
   Columns3,
   History,
   Inbox,
+  Layers,
   Plus,
   Search,
   X,
 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
+import { middleTruncate } from './details/RunFactsMenu';
 import { usePreferences } from '../providers';
 import { scopedStorageKey, webURL } from '@/lib/basePath';
 
 type QueryMode = 'basic' | 'advanced';
 type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration';
 
-const defaultColumns: ColumnId[] = [
+const allColumns: ColumnId[] = [
   'status',
   'flowId',
   'flowType',
@@ -46,6 +50,9 @@ const defaultColumns: ColumnId[] = [
   'close',
   'duration',
 ];
+
+// The Run ID stays one click away in Columns, so the default columns fit a laptop screen.
+const defaultColumns: ColumnId[] = allColumns.filter((column) => column !== 'runId');
 
 const columnLabels: Record<ColumnId, string> = {
   status: 'Status',
@@ -95,6 +102,26 @@ function newFilter(field = 'ExecutionStatus'): BasicFilter {
   };
 }
 
+/** A SubFlow reads as a child in the list: its name without the "SubFlow:" prefix, after a child mark. */
+function listFlowIdOf(flowId: string): string {
+  return flowId.startsWith('SubFlow:') && flowId.length > 'SubFlow:'.length
+    ? `↳ ${middleTruncate(flowId.slice('SubFlow:'.length), 26)}`
+    : flowId;
+}
+
+const ALL_STATUSES = 'All';
+const QUICK_STATUSES = [ALL_STATUSES, 'Running', 'Failed', 'Completed'] as const;
+type QuickStatus = typeof QUICK_STATUSES[number];
+
+/** The quick status a search is exactly, or null when it filters anything else. */
+function quickStatusOf(filters: BasicFilter[] | null): QuickStatus | null {
+  if (!filters) return null;
+  if (filters.length === 0) return ALL_STATUSES;
+  const [only] = filters;
+  if (filters.length !== 1 || only.field !== 'ExecutionStatus' || only.operator !== '=') return null;
+  return QUICK_STATUSES.find((status) => status === only.value) ?? null;
+}
+
 function readJSON<T>(key: string, fallback: T): T {
   try {
     const stored = window.localStorage.getItem(key);
@@ -122,12 +149,67 @@ export function selectVisibleIndexedAttributeKeys(flows: FlowExecution[]): strin
   return [...visibleIndexedAttributeKeys].sort();
 }
 
+// A new key, so a choice made while grouping was off by default does not carry over.
+const groupByTypeStorageKey = 'dex-web.flows.group-by-type';
+
+function storedIsGroupedByType(): boolean {
+  try {
+    // The landing page groups by Flow type until a viewer turns it off.
+    return window.localStorage.getItem(groupByTypeStorageKey) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function persistIsGroupedByType(isGrouped: boolean) {
+  try {
+    window.localStorage.setItem(groupByTypeStorageKey, String(isGrouped));
+  } catch (storageError) {
+    console.warn('Unable to save the Flows grouping preference.', storageError);
+  }
+}
+
+/** The page's runs grouped by Flow type, in the order each type first appears. */
+export function flowsByType(flows: readonly FlowExecution[]): Array<{ flowType: string; flows: FlowExecution[] }> {
+  const groups = new Map<string, FlowExecution[]>();
+  for (const flow of flows) groups.set(flow.flowType, [...(groups.get(flow.flowType) ?? []), flow]);
+  return [...groups].map(([flowType, groupFlows]) => ({ flowType, flows: groupFlows }));
+}
+
+/** Counts a group's runs by status, such as "1 failed · 2 completed", busiest first. */
+export function flowGroupCountsLabel(flows: readonly FlowExecution[]): string {
+  const counts = new Map<string, number>();
+  for (const flow of flows) {
+    const status = flow.flowStatus.toLowerCase();
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts].sort((left, right) => right[1] - left[1]).map(([status, count]) => `${count} ${status}`).join(' · ');
+}
+
+/** The Flow types with a loaded design, read only while the list is grouped. */
+function useDesignedFlowTypes(isGrouped: boolean): Set<string> {
+  const [flowTypes, setFlowTypes] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!isGrouped) return undefined;
+    const controller = new AbortController();
+    fetch(webURL('/api/flow-definition-types'), { signal: controller.signal })
+      .then((response) => readResponseJSON<FlowDefinitionTypeList>(response))
+      .then((list) => setFlowTypes(new Set(list.configured ? list.flowTypes.map((item) => item.flowType) : [])))
+      // Without the list, groups simply offer no Design link.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [isGrouped]);
+  return flowTypes;
+}
+
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<QueryMode>('basic');
   const modeTabs = useRef<Partial<Record<QueryMode, HTMLButtonElement | null>>>({});
   const [filters, setFilters] = useState<BasicFilter[]>([]);
   const [query, setQuery] = useState('');
+  const [searchedQuery, setSearchedQuery] = useState('');
   const [flows, setFlows] = useState<FlowExecution[]>([]);
   const [nextPageToken, setNextPageToken] = useState('');
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
@@ -139,11 +221,17 @@ export function FlowSearchPage() {
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [columns, setColumns] = useState<ColumnId[]>(defaultColumns);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [isGroupedByType, setIsGroupedByType] = useState(storedIsGroupedByType);
+  const flowGroups = useMemo(() => (isGroupedByType ? flowsByType(flows) : null), [flows, isGroupedByType]);
+  const designedFlowTypes = useDesignedFlowTypes(isGroupedByType);
   const [savedOpen, setSavedOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const generatedQuery = useMemo(() => buildVisibilityQuery(filters), [filters]);
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
+  const quickStatus = quickStatusOf(parseVisibilityQuery(searchedQuery));
+  // A search that is just one status chip keeps the card one row; Add filter opens the rows.
+  const isQuickStatusSearch = mode === 'basic' && quickStatus !== null && generatedQuery === searchedQuery;
   const customAttributes = useMemo(() => selectVisibleIndexedAttributeKeys(flows), [flows]);
 
   const executeSearch = useCallback(async (
@@ -166,6 +254,7 @@ export function FlowSearchPage() {
       });
       const data = await readResponseJSON<SearchFlowsResult>(response);
       setFlows(data.flows);
+      setSearchedQuery(requestedQuery);
       setNextPageToken(data.nextPageToken);
       setPage(requestedPage);
       const url = new URL(window.location.href);
@@ -175,6 +264,7 @@ export function FlowSearchPage() {
       if (requestedPage) url.searchParams.set('page', String(requestedPage + 1));
       else url.searchParams.delete('page');
       window.history.replaceState(null, '', url);
+      rememberFlowsSearch(url.search);
       if (requestedQuery.trim()) {
         setRecent((current) => {
           const next = [requestedQuery, ...current.filter((item) => item !== requestedQuery)].slice(0, 10);
@@ -250,6 +340,17 @@ export function FlowSearchPage() {
     if (switchMode(target)) modeTabs.current[target]?.focus();
   }
 
+  // One click per status: the filters become just that status, and the search runs.
+  function searchByStatus(status: QuickStatus) {
+    const nextFilters = status === ALL_STATUSES ? [] : [{ ...newFilter(), value: status }];
+    const nextQuery = buildVisibilityQuery(nextFilters);
+    setMode('basic');
+    setFilters(nextFilters);
+    setQuery(nextQuery);
+    setPageTokens(['']);
+    void executeSearch(nextQuery, '', 0, pageSize);
+  }
+
   function loadQuery(nextQuery: string) {
     setQuery(nextQuery);
     const parsed = parseVisibilityQuery(nextQuery);
@@ -312,7 +413,7 @@ export function FlowSearchPage() {
 
   return (
     <div className="page-shell flow-search-page v1-page">
-      <section className="card query-card">
+      <section className={`card query-card${isQuickStatusSearch ? ' is-quick-status' : ''}`}>
         <div className="query-toolbar">
           <div className="segmented" role="tablist" aria-label="Query mode" onKeyDown={handleModeTabKeyDown}>
             <button
@@ -341,6 +442,19 @@ export function FlowSearchPage() {
             >
               Query
             </button>
+          </div>
+          <div aria-label="Status" className="status-quick-filters" role="group">
+            {QUICK_STATUSES.map((status) => (
+              <button
+                aria-pressed={quickStatus === status}
+                className={quickStatus === status ? 'active' : ''}
+                key={status}
+                onClick={() => searchByStatus(status)}
+                type="button"
+              >
+                {status === ALL_STATUSES ? 'All' : status}
+              </button>
+            ))}
           </div>
           <div className="query-actions">
             <button aria-expanded={savedOpen} className="button quiet" onClick={() => setSavedOpen(!savedOpen)} type="button">
@@ -435,10 +549,12 @@ export function FlowSearchPage() {
               <Plus aria-hidden="true" size={15} strokeWidth={2} />
               Add filter
             </button>
-            <div className="query-preview">
-              <span>Generated query</span>
-              <code>{generatedQuery || 'All flows'}</code>
-            </div>
+            {generatedQuery && (
+              <div className="query-preview">
+                <span>Generated query</span>
+                <code>{generatedQuery}</code>
+              </div>
+            )}
           </div>
         ) : (
           <div aria-labelledby="flow-search-query-tab" id="flow-search-query-panel" role="tabpanel">
@@ -495,6 +611,18 @@ export function FlowSearchPage() {
                 {[20, 50, 100, 200].map((size) => <option key={size}>{size}</option>)}
               </select>
             </label>
+            <button
+              aria-pressed={isGroupedByType}
+              className="button quiet flow-group-toggle"
+              onClick={() => {
+                persistIsGroupedByType(!isGroupedByType);
+                setIsGroupedByType(!isGroupedByType);
+              }}
+              type="button"
+            >
+              <Layers aria-hidden="true" size={15} strokeWidth={2} />
+              Group by type
+            </button>
             <div className="popover-wrap">
               <button aria-expanded={columnsOpen} className="button quiet" onClick={() => setColumnsOpen(!columnsOpen)} type="button">
                 <Columns3 aria-hidden="true" size={15} strokeWidth={2} />
@@ -502,7 +630,7 @@ export function FlowSearchPage() {
               </button>
               {columnsOpen && (
                 <div className="column-popover">
-                  {defaultColumns.map((column) => (
+                  {allColumns.map((column) => (
                     <div key={column}>
                       <label>
                         <input
@@ -541,8 +669,30 @@ export function FlowSearchPage() {
               </tr>
             </thead>
             <tbody>
-              {!loading && flows.map((flow) => (
-                <tr key={`${flow.flowId}-${flow.runId}`}>
+              {!loading && (flowGroups ?? [{ flowType: '', flows }]).flatMap((group) => [
+                ...(flowGroups ? [(
+                  <tr className="flow-group-row" key={`group-${group.flowType}`}>
+                    <td colSpan={columns.length + customAttributes.length}>
+                      <span className="flow-group-name">{group.flowType}</span>
+                      <span className="flow-group-counts">{flowGroupCountsLabel(group.flows)}</span>
+                      {designedFlowTypes.has(group.flowType) && (
+                        <Link className="flow-group-design" to={`${DESIGNS_PATH}?${new URLSearchParams({ flowType: group.flowType })}`}>
+                          Design ›
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                )] : []),
+                ...group.flows.map((flow) => (
+                <tr
+                  className="flow-row"
+                  key={`${flow.flowId}-${flow.runId}`}
+                  onClick={(event) => {
+                    // The Flow ID link handles its own click; the rest of the row opens the run too.
+                    if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) return;
+                    navigate(`/v1/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`);
+                  }}
+                >
                   {columns.map((column) => (
                     <td className={`column-${column}`} key={column}>
                       {renderCell(column, flow, timezone)}
@@ -554,7 +704,8 @@ export function FlowSearchPage() {
                     </td>
                   ))}
                 </tr>
-              ))}
+                )),
+              ])}
             </tbody>
           </table>
           {!loading && flows.length === 0 && (
@@ -604,7 +755,7 @@ function renderCell(column: ColumnId, flow: FlowExecution, timezone: 'local' | '
           to={`/v1/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
           title={flow.flowId}
         >
-          {flow.flowId}
+          {listFlowIdOf(flow.flowId)}
         </Link>
       );
     case 'runId':

@@ -929,7 +929,13 @@ final class WorkerDispatcher {
                 }
                 mappedOptions.addAttributes(write);
             }
-            mappedOptions.setFlowConfigOverride(mapFlowConfig(options.getConfigOverride()));
+            serverProtocol.requireNamedTaskQueueSupport(
+                    options.getTaskQueue(), "SubFlow " + target.getName());
+            final io.superdurable.gen.FlowConfig flowConfigOverride =
+                    mapFlowConfig(options.getConfigOverride());
+            mappedOptions.setFlowConfigOverride(flowConfigOverride.toBuilder()
+                    .setWorkerTarget(flowConfigOverride.getWorkerTarget().toBuilder()
+                            .setTaskQueue(options.getTaskQueue())));
             final SubFlowCondition.Builder mapped = SubFlowCondition.newBuilder()
                     .setConditionId(conditionId)
                     .setSubFlowType(target.getName())

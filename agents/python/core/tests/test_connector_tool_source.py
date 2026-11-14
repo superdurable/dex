@@ -18,7 +18,15 @@ from typing import Any, cast
 
 import pytest
 from dex import AsyncContext
-from dex_connectors.sdk import Call, CallID, ConnectionRef, OperationRef, derive_call_id
+from dex_connectors.sdk import (
+    Call,
+    CallID,
+    ConnectionRef,
+    OperationRef,
+    QueryAttempt,
+    Receipt,
+    derive_call_id,
+)
 from dex_connectors.sdk.singledispatch import DecisionKind, Fence, Marker, State
 
 from dex_agents import (
@@ -26,6 +34,7 @@ from dex_agents import (
     AgentInterruptDisplay,
     AgentToolCall,
     AgentTurnContext,
+    DeferredToolExecution,
     ToolCallStatus,
     ToolEffect,
     ToolPolicy,
@@ -54,10 +63,12 @@ from tests.connector_agent import (
     read_fake_ledger_manifest,
 )
 from tests.fake_ledger import (
+    Balance,
     CloseAccountOperation,
     CreatePayoutOperation,
     FakeLedgerProvider,
     GetBalanceByIDOperation,
+    GetBalanceInput,
     GetBalanceOperation,
     PostNoteOperation,
 )
@@ -409,7 +420,9 @@ class _LiveContext:
     def __init__(self, attempt: int) -> None:
         self.flow_id = "session-1"
         self.run_id = "run-1"
+        self.flow_started_at = datetime(2026, 11, 13, 8, 0, 0, tzinfo=UTC)
         self.step_execution_id = "CallTool-3"
+        self.first_attempt_at = datetime(2026, 11, 13, 8, 0, 5, tzinfo=UTC)
         self.attempt = attempt
         self.deadline = datetime.now(UTC) + timedelta(minutes=1)
 
@@ -450,13 +463,76 @@ def test_the_step_context_exposes_only_what_the_fence_reads() -> None:
     assert public == {
         "attempt",
         "deadline",
+        "first_attempt_at",
         "flow_id",
+        "flow_started_at",
         "get_last_heartbeat_value",
         "has_last_heartbeat_value",
         "heartbeat",
         "run_id",
         "step_execution_id",
     }
+
+
+class _StepTimesBalanceOperation(GetBalanceOperation):
+    """getBalance that reports the Step times it reads, as released connectors read them."""
+
+    async def invoke(self, call: Call, input: GetBalanceInput) -> QueryAttempt[Balance]:
+        context = call.context
+        assert context is not None
+        elapsed = context.first_attempt_at - context.flow_started_at
+        return QueryAttempt.branch_result(
+            "found", Balance(input.account_id, int(elapsed.total_seconds())), Receipt()
+        )
+
+
+async def test_an_operation_reads_the_flow_start_and_first_attempt_times(
+    provider: FakeLedgerProvider,
+) -> None:
+    source = ConnectorToolSource(
+        [
+            connector_tool(
+                _StepTimesBalanceOperation(provider),
+                CONNECTION,
+                name="get_balance",
+                manifest=read_fake_ledger_manifest(),
+            )
+        ]
+    )
+    arguments = '{"accountId": "acct-1"}'
+    deferred = source.deferred_tool_call(
+        _turn(),
+        tool_call_id="call-1",
+        tool_name="get_balance",
+        arguments=arguments,
+        listed_tool=None,
+    )
+    record = AgentToolCall(
+        tool_call_id="call-1",
+        turn_id="turn-1",
+        tool_name="get_balance",
+        arguments=arguments,
+        effect=ToolEffect.READ,
+        requires_approval=False,
+        status=ToolCallStatus.APPROVED,
+        tool_source_reference=deferred.tool_source_reference,
+    )
+
+    async def heartbeat() -> None:
+        return None
+
+    result = await source.execute_deferred_tool_call(
+        DeferredToolExecution(
+            flow_id="session-1",
+            tool_call=record,
+            idempotency_key="session-1/turn-1/call-1",
+            attempt=1,
+            events=cast(AgentEventWriter, None),
+            heartbeat=heartbeat,
+            context=cast(AsyncContext, _LiveContext(1)),
+        )
+    )
+    assert json.loads(result.output) == {"accountId": "acct-1", "amount": 5}
 
 
 async def test_every_fence_method_keeps_its_marker_through_the_session_checkpoint() -> None:

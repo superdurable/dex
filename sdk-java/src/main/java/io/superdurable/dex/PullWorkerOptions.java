@@ -37,6 +37,7 @@ public final class PullWorkerOptions {
     private final int reservedRpcTasks;
     private final boolean shouldWarnRpcCapacity;
     private final String appWorkerID;
+    private final String taskQueue;
     private final Duration stopDrainTimeout;
     private final boolean stopOnPermanentStreamRejection;
 
@@ -51,6 +52,7 @@ public final class PullWorkerOptions {
             throw new IllegalArgumentException("reservedRpcTasks must be nonnegative and less than maxConcurrentTasks");
         }
         this.appWorkerID = builder.appWorkerID;
+        this.taskQueue = builder.taskQueue;
         this.stopDrainTimeout = builder.stopDrainTimeout.isZero()
                 ? Duration.ofSeconds(30) : builder.stopDrainTimeout;
     }
@@ -80,6 +82,10 @@ public final class PullWorkerOptions {
         return appWorkerID;
     }
 
+    String getTaskQueue() {
+        return taskQueue;
+    }
+
     boolean isStopOnPermanentStreamRejection() {
         return stopOnPermanentStreamRejection;
     }
@@ -98,6 +104,7 @@ public final class PullWorkerOptions {
         private int maxConcurrentTasks;
         private Integer reservedRpcTasks;
         private String appWorkerID = "";
+        private String taskQueue = "";
         private Duration stopDrainTimeout = Duration.ZERO;
         private boolean stopOnPermanentStreamRejection;
 
@@ -193,6 +200,55 @@ public final class PullWorkerOptions {
                 throw new IllegalArgumentException("appWorkerID must contain 1-63 ASCII letters, digits, periods, underscores, or hyphens");
             }
             this.appWorkerID = value;
+            return this;
+        }
+
+        /**
+         * Sets the named task queue this Worker pulls from; empty pulls the default task queue.
+         *
+         * <p>A task queue separates which Workers execute a Flow from the Flow's type. A Flow
+         * started with {@link StartFlowOptions.Builder#taskQueue(String)} runs its Steps and RPCs
+         * only on Workers that pull that task queue and register its Flow type. A Flow started
+         * without one runs only on Workers of the default task queue, as before. Workers on
+         * different task queues never take each other's work, even for the same Flow type. Sticky
+         * routing stays inside the Flow's task queue.
+         *
+         * <p>One Worker pulls exactly one task queue. To serve several task queues, construct one
+         * Worker per task queue. The Workers can share the Registry and the blob cache. Give each
+         * Worker its own appWorkerID when you set one.
+         *
+         * <p>A name has 1-63 ASCII letters, digits, periods, underscores, or hyphens. Names
+         * starting with {@code dex.} are reserved, including {@code dex.default}, and this method
+         * rejects them.
+         *
+         * <p>A non-empty task queue requires Server protocol 5. Worker.start throws
+         * IllegalStateException before opening task streams when the Server is older. When the
+         * Server confirms a stream for a different task queue, the Worker half-closes that stream
+         * and treats it as a permanent rejection with the gRPC code FAILED_PRECONDITION.
+         * Worker.waitPullRegistered throws a {@link PullRegistrationError} whose cause is that gRPC
+         * error. With stopOnPermanentStreamRejection, Worker.start throws the same error after
+         * draining. In Worker.getPullRegistrationState, the slot kind's getLastPermanentError holds
+         * the gRPC error itself.
+         *
+         * <pre>{@code
+         * Worker blueWorker = new Worker(registry, cache, WorkerOptions.newBuilder()
+         *         .pull(PullWorkerOptions.newBuilder().taskQueue("blue").build()).build());
+         * Worker greenWorker = new Worker(registry, cache, WorkerOptions.newBuilder()
+         *         .pull(PullWorkerOptions.newBuilder().taskQueue("green").build()).build());
+         * new Thread(blueWorker::start).start();
+         * new Thread(greenWorker::start).start();
+         * // Only blueWorker runs this Flow's Steps and RPCs.
+         * client.startFlow(orderFlow, "order-42", input,
+         *         StartFlowOptions.newBuilder().taskQueue("blue").build());
+         * }</pre>
+         *
+         * @param value the task queue name, or empty for the default task queue
+         * @return this builder
+         * @throws IllegalArgumentException if value is null, reserved, or malformed
+         * @since 1.45.1
+         */
+        public Builder taskQueue(final String value) {
+            this.taskQueue = TaskQueueNames.validatePullWorkerTaskQueue(value);
             return this;
         }
 

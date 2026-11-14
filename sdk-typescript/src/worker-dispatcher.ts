@@ -85,6 +85,7 @@ import type {
   StepOptions,
 } from "./step.js";
 import { voidCodec } from "./codec.js";
+import { requireNamedTaskQueueSupport, validateFlowTaskQueue } from "./task-queue.js";
 import {
   codecOrJson,
   decodeValue,
@@ -157,6 +158,13 @@ export class WorkerDispatcher {
         ...(response.waitingCondition?.subFlowConditions ?? [])
           .flatMap((condition) => condition.options?.attributes ?? []),
       ]);
+      for (const condition of response.waitingCondition?.subFlowConditions ?? []) {
+        requireNamedTaskQueueSupport(
+          this.negotiatedServerProtocolVersion(),
+          condition.options?.flowConfigOverride?.workerTarget?.taskQueue ?? "",
+          `SubFlow ${condition.subFlowType}`,
+        );
+      }
       const finalizationFailure = context.finalizeStepOutputs();
       if (finalizationFailure !== undefined) {
         throw finalizationFailure;
@@ -903,7 +911,7 @@ function mapSubFlowOptions(
     flowStartDelaySeconds: seconds(options.startDelayMs),
     retryPolicy: mapFlowRetry(options.retryPolicy),
     attributes: appendInitialWorkQueuePermissions(target.actions, attributes),
-    flowConfigOverride: mapSubFlowConfig(options.configOverride),
+    flowConfigOverride: mapSubFlowConfig(options.configOverride, options.taskQueue ?? ""),
   });
 }
 
@@ -1115,7 +1123,8 @@ function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability
   return ProtoStepDurability.STEP_DURABILITY_UNSPECIFIED;
 }
 
-function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
+function mapSubFlowConfig(config: FlowConfig | undefined, taskQueue: string): ProtoFlowConfig {
+  validateFlowTaskQueue(taskQueue);
   return ProtoFlowConfig.create({
     activeStepSearchMode: mapActiveStepSearchMode(config),
     attributeStoreNames: mapAttributeStoreNames(config),
@@ -1127,7 +1136,7 @@ function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
         : config?.stepDurability === "async"
           ? ProtoStepDurability.STEP_DURABILITY_ASYNC
           : undefined,
-    workerTarget: { isPullMode: true },
+    workerTarget: { isPullMode: true, taskQueue },
   });
 }
 

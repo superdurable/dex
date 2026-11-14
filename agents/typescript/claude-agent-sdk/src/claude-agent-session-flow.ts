@@ -150,7 +150,10 @@ export type ClaudeAgentSessionOptions = Omit<AgentSessionOptions, "toolPolicies"
  * running sessions resume by it.
  * @param sessionOptions - Default tool effect, Stream capacity, and approval deadline. Defaults to all
  * defaults.
- * @returns A new Flow that runs the agent with a {@link ClaudeAgentRunner}.
+ * @returns A new Flow that runs the agent with a {@link ClaudeAgentRunner}. Changed in 0.6.6: the return type is
+ * `AgentSessionFlow<ClaudeAgentRunner>` instead of `AgentSessionFlow`, because the runner's `executeDeferredToolCall`
+ * returns a `DeferredToolOutcome`. Annotate a variable or a return type that holds the Flow as
+ * `AgentSessionFlow<ClaudeAgentRunner>`, or leave the annotation out.
  * @throws {TypeError} When the custom tool server name is invalid, two custom tools share a name, the
  * Flow type is blank, or an effect is unknown; when a tool source is invalid or two share a `sourceName`; or when
  * a source's `declaredToolNames` repeat a custom tool, a Claude Code tool, or another source's tool.
@@ -161,7 +164,7 @@ export function createClaudeAgentSessionFlow(
   agent: ClaudeAgentDefinition,
   flowType: string,
   sessionOptions: ClaudeAgentSessionOptions = {},
-): AgentSessionFlow {
+): AgentSessionFlow<ClaudeAgentRunner> {
   const runner = new ClaudeAgentRunner(agent.options, {
     ...(agent.customTools === undefined ? {} : { customTools: agent.customTools }),
     ...(agent.customToolServerName === undefined

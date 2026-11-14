@@ -204,6 +204,7 @@ fn routing(sticky: &str, served_by: &str, source: PullRoutingSource) -> PullRout
         sticky_app_worker_id: sticky.to_owned(),
         served_by_app_worker_id: served_by.to_owned(),
         source: source as i32,
+        task_queue: String::new(),
     }
 }
 

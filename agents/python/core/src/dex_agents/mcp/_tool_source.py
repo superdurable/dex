@@ -900,7 +900,15 @@ class McpToolSource:
         A Streamable HTTP server that answers with a task handle gets
         ``ToolTaskStarted``. The source saves the task ID as the heartbeat
         checkpoint first; a retried attempt that reads it returns the same
-        task without calling the tool again.
+        task without calling the tool again. A task that an earlier attempt
+        polled inside the tool Step, as before the runner polled tool tasks,
+        stays there: the retried attempt polls it to its end, and calls the
+        tool again with the same idempotency key when the server no longer
+        knows the task.
+
+        .. versionchanged:: 0.6.6
+            A task saved by an attempt that polled it inside the tool Step
+            stays in the tool Step.
 
         Example:
             >>> await tools.execute_deferred_tool_call(
@@ -938,10 +946,11 @@ class McpToolSource:
         is_task_polled_by_session = call.supports_tool_tasks and isinstance(
             target.server, McpStreamableHttpServerConfig
         )
-        resumed_task_id = _task_id_from_checkpoint(call.heartbeat_checkpoint, target)
-        if is_task_polled_by_session and resumed_task_id is not None:
+        saved_task = _saved_task_from_checkpoint(call.heartbeat_checkpoint, target)
+        # A task saved without the marker is polled inside the tool Step, so it stays there.
+        if is_task_polled_by_session and saved_task is not None and saved_task.is_polled_by_session:
             # An earlier attempt started this task; PollToolTask finds out how it went.
-            return ToolTaskStarted(task_id=resumed_task_id, poll_interval_seconds=1)
+            return ToolTaskStarted(task_id=saved_task.task_id, poll_interval_seconds=1)
         return await self._call_target(
             target,
             arguments,
@@ -975,14 +984,20 @@ class McpToolSource:
 
         .. versionadded:: 0.5.0
 
+        .. versionchanged:: 0.6.6
+            A task that an earlier attempt polled inside the tool Step returns
+            ``False``: the call keeps polling it there.
+
         Args:
             call: The approved call from the tool Step, as built by ``deferred_tool_call``.
 
         Returns:
             ``True`` only when the call supports tool tasks, its server uses
             Streamable HTTP, and its heartbeat checkpoint names a task of the
-            server and tool on its record; ``False`` otherwise, including for
-            a call whose server this source no longer configures.
+            server and tool on its record that an earlier attempt handed to the
+            session to poll; ``False`` otherwise, including for a task that an
+            earlier attempt polled inside the tool Step and for a call whose
+            server this source no longer configures.
         """
         record = call.tool_call
         try:
@@ -994,9 +1009,9 @@ class McpToolSource:
         is_task_polled_by_session = call.supports_tool_tasks and isinstance(
             target.server, McpStreamableHttpServerConfig
         )
+        saved_task = _saved_task_from_checkpoint(call.heartbeat_checkpoint, target)
         return (
-            is_task_polled_by_session
-            and _task_id_from_checkpoint(call.heartbeat_checkpoint, target) is not None
+            is_task_polled_by_session and saved_task is not None and saved_task.is_polled_by_session
         )
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
@@ -1199,8 +1214,8 @@ class McpToolSource:
             save_heartbeat_checkpoint=save_heartbeat_checkpoint,
             is_task_polled_by_session=is_task_polled_by_session,
         )
-        resumed_task_id = _task_id_from_checkpoint(heartbeat_checkpoint, target)
-        outcome = await call.run(resumed_task_id)
+        saved_task = _saved_task_from_checkpoint(heartbeat_checkpoint, target)
+        outcome = await call.run(None if saved_task is None else saved_task.task_id)
         if isinstance(outcome, _ToolCallSucceeded):
             return await self._tool_execution_result(outcome, target)
         if isinstance(outcome, _TaskStarted):
@@ -1485,7 +1500,9 @@ class _McpToolCall:
                 ):
                     # A stdio server's tasks end with its process, so only HTTP tasks resume.
                     await self._save_heartbeat_checkpoint(
-                        _task_checkpoint(self._target, result.task_id)
+                        _task_checkpoint(
+                            self._target, result.task_id, self._is_task_polled_by_session
+                        )
                     )
                 if self._is_task_polled_by_session:
                     return self._start_session_polling(result)
@@ -1781,13 +1798,27 @@ def _parse_tool_source_reference(tool_source_reference: str | None) -> tuple[str
     return server_name, mcp_tool_name
 
 
-def _task_checkpoint(target: _McpToolTarget, task_id: str) -> str:
-    return json.dumps(
-        {"mcp_server": target.server.name, "mcp_tool": target.mcp_tool_name, "mcp_task_id": task_id}
-    )
+def _task_checkpoint(target: _McpToolTarget, task_id: str, is_polled_by_session: bool) -> str:
+    saved: dict[str, Any] = {
+        "mcp_server": target.server.name,
+        "mcp_tool": target.mcp_tool_name,
+        "mcp_task_id": task_id,
+    }
+    if is_polled_by_session:
+        saved["mcp_task_polled_by_session"] = True
+    return json.dumps(saved)
 
 
-def _task_id_from_checkpoint(checkpoint: str | None, target: _McpToolTarget) -> str | None:
+@dataclass(frozen=True)
+class _SavedMcpTask:
+    task_id: str
+    is_polled_by_session: bool
+
+
+def _saved_task_from_checkpoint(
+    checkpoint: str | None, target: _McpToolTarget
+) -> _SavedMcpTask | None:
+    """Read a task this source saved; a checkpoint another writer saved reads as none."""
     if checkpoint is None:
         return None
     try:
@@ -1801,7 +1832,9 @@ def _task_id_from_checkpoint(checkpoint: str | None, target: _McpToolTarget) -> 
     ):
         return None
     task_id = saved.get("mcp_task_id")
-    return task_id if isinstance(task_id, str) else None
+    if not isinstance(task_id, str):
+        return None
+    return _SavedMcpTask(task_id, saved.get("mcp_task_polled_by_session") is True)
 
 
 def _outcome_from_mcp_error(error: MCPError) -> _ToolCallOutcome:

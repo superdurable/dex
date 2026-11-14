@@ -30,6 +30,7 @@ import { PrivateDexEngine, pollUntil } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, RefusingProxy, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
+import { FakeRemoteMcpServer } from "../fixtures/fake-remote-mcp-server.js";
 import { runWithTerminalUi } from "../fixtures/terminal-ui-handoff.js";
 import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 
@@ -620,6 +621,46 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(await cli.waitForExit(), 0);
     assert.equal(connectors.runCount("slack_post_thread_reply"), 1);
     assert.equal(connectors.runCount("notion_update_page_title"), 0);
+  });
+
+  test("mcp_servers tools run with the header from the environment; a trusted read runs at once, every write waits", async () => {
+    const apiKey = "pi-remote-mcp-api-key-sentinel-5";
+    const remote = new FakeRemoteMcpServer(apiKey);
+    const remoteUrl = await remote.start();
+    try {
+      const home = newHome({
+        ...noConnectors,
+        mcp_servers: {
+          studio: {
+            url: remoteUrl,
+            headers: { Authorization: "Bearer ${STUDIO_API_KEY}" },
+            trust_tool_annotations: true,
+          },
+        },
+      });
+      home.extraEnvironment["STUDIO_API_KEY"] = apiKey;
+      const cli = start(home);
+      await cli.waitForSession();
+      cli.writeLine(call("studio__search_assets", { query: "logo" }));
+      await cli.stdout.waitFor("search_assets: assets for logo");
+      assert.doesNotMatch(cli.stdout.all, /Approve studio__search_assets/);
+      assert.ok(offeredToolNames().includes("studio__publish_asset"));
+      // An idempotent write runs without approval in the CLI core; Pi makes it wait, as for connector writes.
+      cli.writeLine(call("studio__tag_asset", { name: "logo", tag: "brand" }));
+      await cli.stdout.waitFor("Approve studio__tag_asset?");
+      assert.equal(remote.runsOf("tag_asset").length, 0);
+      cli.writeLine("y");
+      await cli.stdout.waitFor("tag_asset: tagged logo brand");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+      assert.equal(remote.runsOf("search_assets").length, 1);
+      assert.equal(remote.runsOf("tag_asset").length, 1);
+      assert.equal(remote.rejectedRequests, 0);
+      const everything = [cli.stdout.all, cli.stderr.all, home.stateText(), JSON.stringify(api.requests)].join("\n");
+      assert.ok(!everything.includes(apiKey), "the API key never reaches output, state, logs, or the model");
+    } finally {
+      await remote.stop();
+    }
   });
 
   test("a connector tool named like a Pi tool gets the connector_ prefix", async () => {

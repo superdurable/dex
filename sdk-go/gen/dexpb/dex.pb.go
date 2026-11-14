@@ -1938,7 +1938,16 @@ type PollWorkerTaskRegister struct {
 	// Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
 	// and slot_kind is not UNSPECIFIED.
 	// Requires Server protocol version 4 or later.
-	SlotKind      PollWorkerSlotKind `protobuf:"varint,7,opt,name=slot_kind,json=slotKind,proto3,enum=dex.PollWorkerSlotKind" json:"slot_kind,omitempty"`
+	SlotKind PollWorkerSlotKind `protobuf:"varint,7,opt,name=slot_kind,json=slotKind,proto3,enum=dex.PollWorkerSlotKind" json:"slot_kind,omitempty"`
+	// Names the task queue this stream serves; empty serves the default task queue.
+	// The stream receives only work of Flows whose WorkerTarget.task_queue names this task queue.
+	// A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+	// Dex rejects a name starting with "dex." with INVALID_ARGUMENT.
+	// Every stream of one app_worker_id must name the same task queue; Dex rejects a stream that
+	// names another one with INVALID_ARGUMENT.
+	// Requires Server protocol version 5 or later.
+	// An older Server ignores this field, so compare PollWorkerTaskRegistered.task_queue with it.
+	TaskQueue     string `protobuf:"bytes,8,opt,name=task_queue,json=taskQueue,proto3" json:"task_queue,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2020,6 +2029,13 @@ func (x *PollWorkerTaskRegister) GetSlotKind() PollWorkerSlotKind {
 		return x.SlotKind
 	}
 	return PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_UNSPECIFIED
+}
+
+func (x *PollWorkerTaskRegister) GetTaskQueue() string {
+	if x != nil {
+		return x.TaskQueue
+	}
+	return ""
 }
 
 // Carries a task's heartbeat, stream write, result, or Worker error.
@@ -2394,8 +2410,13 @@ type PollWorkerTaskRegistered struct {
 	// Reported by Server protocol version 4 or later.
 	// A Worker whose configured concurrency exceeds it should fail to start with a clear error.
 	MaxConcurrentTasksPerAppWorker uint32 `protobuf:"varint,2,opt,name=max_concurrent_tasks_per_app_worker,json=maxConcurrentTasksPerAppWorker,proto3" json:"max_concurrent_tasks_per_app_worker,omitempty"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	// The task queue Dex registered this stream on; empty means the default task queue.
+	// Reported by Server protocol version 5 or later.
+	// A Worker that asked for a named task queue and reads another value here must close the
+	// stream and treat the registration as rejected: an older Server ignored the request.
+	TaskQueue     string `protobuf:"bytes,3,opt,name=task_queue,json=taskQueue,proto3" json:"task_queue,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PollWorkerTaskRegistered) Reset() {
@@ -2440,6 +2461,13 @@ func (x *PollWorkerTaskRegistered) GetMaxConcurrentTasksPerAppWorker() uint32 {
 		return x.MaxConcurrentTasksPerAppWorker
 	}
 	return 0
+}
+
+func (x *PollWorkerTaskRegistered) GetTaskQueue() string {
+	if x != nil {
+		return x.TaskQueue
+	}
+	return ""
 }
 
 // Assigns one task to this stream until its final result, error, or rejection.
@@ -4210,7 +4238,22 @@ func (x *AttributeStoreNames) GetNames() []string {
 type WorkerTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Routes work through a connected pull Worker. Dex requires true whenever a target is set.
-	IsPullMode    bool `protobuf:"varint,3,opt,name=is_pull_mode,json=isPullMode,proto3" json:"is_pull_mode,omitempty"`
+	IsPullMode bool `protobuf:"varint,3,opt,name=is_pull_mode,json=isPullMode,proto3" json:"is_pull_mode,omitempty"`
+	// Names the task queue whose pull Workers run this Flow's Steps and RPCs.
+	// Only Workers registered on this task queue receive the Flow's work, through its sticky
+	// Worker or its Flow type queue inside the task queue.
+	// The task queue is fixed when the Flow starts.
+	// At StartFlow, an empty name selects the default task queue.
+	// In a SubFlow override, an empty name keeps the parent's task queue, and "dex.default"
+	// selects the default task queue.
+	// In UpdateFlowConfig, an empty name keeps the run's task queue, and Dex rejects another task
+	// queue with INVALID_ARGUMENT.
+	// A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+	// Names starting with "dex." are reserved; only "dex.default" is accepted, and Dex stores it as
+	// the empty default name.
+	// Dex rejects a name with INVALID_ARGUMENT when is_pull_mode is false or the name is invalid.
+	// Requires Server protocol version 5 or later.
+	TaskQueue     string `protobuf:"bytes,4,opt,name=task_queue,json=taskQueue,proto3" json:"task_queue,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4250,6 +4293,13 @@ func (x *WorkerTarget) GetIsPullMode() bool {
 		return x.IsPullMode
 	}
 	return false
+}
+
+func (x *WorkerTarget) GetTaskQueue() string {
+	if x != nil {
+		return x.TaskQueue
+	}
+	return ""
 }
 
 type StartFlowRequest struct {
@@ -7352,8 +7402,11 @@ type PullRouting struct {
 	StickyAppWorkerId   string                 `protobuf:"bytes,1,opt,name=sticky_app_worker_id,json=stickyAppWorkerId,proto3" json:"sticky_app_worker_id,omitempty"`
 	ServedByAppWorkerId string                 `protobuf:"bytes,2,opt,name=served_by_app_worker_id,json=servedByAppWorkerId,proto3" json:"served_by_app_worker_id,omitempty"`
 	Source              PullRoutingSource      `protobuf:"varint,3,opt,name=source,proto3,enum=dex.PullRoutingSource" json:"source,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The task queue of the dispatch; empty means the default task queue.
+	// Recorded by Server protocol version 5 or later.
+	TaskQueue     string `protobuf:"bytes,4,opt,name=task_queue,json=taskQueue,proto3" json:"task_queue,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PullRouting) Reset() {
@@ -7405,6 +7458,13 @@ func (x *PullRouting) GetSource() PullRoutingSource {
 		return x.Source
 	}
 	return PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED
+}
+
+func (x *PullRouting) GetTaskQueue() string {
+	if x != nil {
+		return x.TaskQueue
+	}
+	return ""
 }
 
 type StepMethodEventContext struct {
@@ -13135,7 +13195,7 @@ const file_dex_proto_rawDesc = "" +
 	"task_frame\x18\x02 \x01(\v2\x18.dex.PollWorkerTaskFrameH\x00R\ttaskFrame\x123\n" +
 	"\x06reject\x18\x03 \x01(\v2\x19.dex.PollWorkerTaskRejectH\x00R\x06reject\x12-\n" +
 	"\x04pong\x18\x04 \x01(\v2\x17.dex.PollWorkerTaskPongH\x00R\x04pongB\a\n" +
-	"\x05frame\"\xaa\x02\n" +
+	"\x05frame\"\xc9\x02\n" +
 	"\x16PollWorkerTaskRegister\x12\x14\n" +
 	"\x05queue\x18\x01 \x01(\tR\x05queue\x12\"\n" +
 	"\rapp_worker_id\x18\x02 \x01(\tR\vappWorkerId\x12\x1d\n" +
@@ -13145,7 +13205,9 @@ const file_dex_proto_rawDesc = "" +
 	"\vsdk_version\x18\x05 \x01(\tR\n" +
 	"sdkVersion\x12E\n" +
 	"\x1fsupports_reserved_slot_dispatch\x18\x06 \x01(\bR\x1csupportsReservedSlotDispatch\x124\n" +
-	"\tslot_kind\x18\a \x01(\x0e2\x17.dex.PollWorkerSlotKindR\bslotKind\"\xa2\x02\n" +
+	"\tslot_kind\x18\a \x01(\x0e2\x17.dex.PollWorkerSlotKindR\bslotKind\x12\x1d\n" +
+	"\n" +
+	"task_queue\x18\b \x01(\tR\ttaskQueue\"\xa2\x02\n" +
 	"\x13PollWorkerTaskFrame\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12;\n" +
 	"\bwait_for\x18\x02 \x01(\v2\x1e.dex.InvokeWaitForMethodOutputH\x00R\awaitFor\x12:\n" +
@@ -13166,10 +13228,12 @@ const file_dex_proto_rawDesc = "" +
 	"cancelTask\x12<\n" +
 	"\treconnect\x18\x04 \x01(\v2\x1c.dex.PollWorkerTaskReconnectH\x00R\treconnect\x12-\n" +
 	"\x04ping\x18\x05 \x01(\v2\x17.dex.PollWorkerTaskPingH\x00R\x04pingB\a\n" +
-	"\x05frame\"\xae\x01\n" +
+	"\x05frame\"\xcd\x01\n" +
 	"\x18PollWorkerTaskRegistered\x12E\n" +
 	"\x1fsupports_unknown_name_rejection\x18\x01 \x01(\bR\x1csupportsUnknownNameRejection\x12K\n" +
-	"#max_concurrent_tasks_per_app_worker\x18\x02 \x01(\rR\x1emaxConcurrentTasksPerAppWorker\"\x98\x02\n" +
+	"#max_concurrent_tasks_per_app_worker\x18\x02 \x01(\rR\x1emaxConcurrentTasksPerAppWorker\x12\x1d\n" +
+	"\n" +
+	"task_queue\x18\x03 \x01(\tR\ttaskQueue\"\x98\x02\n" +
 	"\x0ePollWorkerTask\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x126\n" +
 	"\bdeadline\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12<\n" +
@@ -13310,10 +13374,12 @@ const file_dex_proto_rawDesc = "" +
 	"\x1f_delete_expired_history_objectsB\x12\n" +
 	"\x10_offload_historyJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\x19continue_as_new_thresholdR\"continue_as_new_page_size_in_bytes\"+\n" +
 	"\x13AttributeStoreNames\x12\x14\n" +
-	"\x05names\x18\x01 \x03(\tR\x05names\"Z\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"y\n" +
 	"\fWorkerTarget\x12 \n" +
 	"\fis_pull_mode\x18\x03 \x01(\bR\n" +
-	"isPullModeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aaddressR\x13is_headless_address\"\xae\x03\n" +
+	"isPullMode\x12\x1d\n" +
+	"\n" +
+	"task_queue\x18\x04 \x01(\tR\ttaskQueueJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aaddressR\x13is_headless_address\"\xae\x03\n" +
 	"\x10StartFlowRequest\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
 	"\tflow_type\x18\x02 \x01(\tR\bflowType\x120\n" +
@@ -13581,11 +13647,13 @@ const file_dex_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\x04 \x03(\v2\a.dex.KVR\n" +
 	"attributes\x12;\n" +
-	"\x15step_execution_locals\x18\x05 \x03(\v2\a.dex.KVR\x13stepExecutionLocals\"\xa4\x01\n" +
+	"\x15step_execution_locals\x18\x05 \x03(\v2\a.dex.KVR\x13stepExecutionLocals\"\xc3\x01\n" +
 	"\vPullRouting\x12/\n" +
 	"\x14sticky_app_worker_id\x18\x01 \x01(\tR\x11stickyAppWorkerId\x124\n" +
 	"\x17served_by_app_worker_id\x18\x02 \x01(\tR\x13servedByAppWorkerId\x12.\n" +
-	"\x06source\x18\x03 \x01(\x0e2\x16.dex.PullRoutingSourceR\x06source\"\x96\x06\n" +
+	"\x06source\x18\x03 \x01(\x0e2\x16.dex.PullRoutingSourceR\x06source\x12\x1d\n" +
+	"\n" +
+	"task_queue\x18\x04 \x01(\tR\ttaskQueue\"\x96\x06\n" +
 	"\x16StepMethodEventContext\x12*\n" +
 	"\x11step_execution_id\x18\x01 \x01(\tR\x0fstepExecutionId\x123\n" +
 	"\x16from_step_execution_id\x18\x02 \x01(\tR\x13fromStepExecutionId\x12\x1b\n" +

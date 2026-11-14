@@ -53,6 +53,9 @@ from dex_agents import (
     ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
+    ToolTaskCancellation,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
     TurnCompleted,
     collect_turn_images,
     load_images,
@@ -208,6 +211,16 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     deferrable call is refused, and the model sees the earlier result before
     it calls again.
 
+    A source call can start a tool task: its ``execute_deferred_tool_call``
+    returns ``ToolTaskStarted``, and the session polls the task on a Timer
+    through ``poll_tool_task`` until the source returns its result, which the
+    resumed Claude session receives. ``McpToolSource`` hands its Streamable
+    HTTP tasks to the session this way. ``cancel_turn`` abandons a running
+    task and cancels it through ``cancel_tool_task``.
+
+    .. versionchanged:: 0.6.6
+        The runner polls and cancels tool tasks of its sources.
+
     With a ``media_store``, the runner takes images. A user message's images
     reach the model as Claude ``image`` blocks after its text, and a tool
     result's images as ``image`` blocks inside its ``tool_result``. The
@@ -294,12 +307,16 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 when the source's policy asks, and runs in its own tool Step
                 through the source's ``execute_deferred_tool_call``, with the
                 Step options of its ``tool_call_step_options``. Policies and
-                records use the tool's own name. The runner polls no tool
-                tasks, so a call that starts one records ``FAILED`` for a
-                ``READ`` call and ``OUTCOME_UNKNOWN`` otherwise. Defaults to
-                none.
+                records use the tool's own name. A call that returns
+                ``ToolTaskStarted`` waits for its task: the session polls it
+                through the source's ``poll_tool_task`` and cancels it through
+                the source's ``cancel_tool_task`` when ``cancel_turn``
+                abandons it. Defaults to none.
 
                 .. versionadded:: 0.4.0
+
+                .. versionchanged:: 0.6.6
+                    The runner polls and cancels the sources' tool tasks.
             tool_source_listing_timeout: How long one ``RunModel`` attempt
                 waits for each source's ``list_tools``. A source that fails or
                 takes longer offers no tools in that attempt. Defaults to 10
@@ -584,6 +601,78 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         if result.get("is_error"):
             raise ToolExecutionError(text)
         return ToolExecutionResult(output=text, images=images)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        """Poll a tool source's task once, through the source that built the call.
+
+        A source call whose ``execute_deferred_tool_call`` returns
+        ``ToolTaskStarted`` records ``WAITING_FOR_TASK``. The session's
+        ``PollToolTask`` Step then calls this method after each poll interval,
+        on any Worker, until the source returns a result. The resumed Claude
+        session receives that result as the call's ``tool_result``.
+
+        .. versionadded:: 0.6.6
+
+        Args:
+            poll: The call's record and its idempotency key from ``PollToolTask``.
+
+        Returns:
+            The source's ``poll_tool_task`` outcome: ``ToolExecutionResult``
+            when the task finished, ``ToolTaskPending`` while it runs, or
+            ``ToolInputRequested`` when it needs the user's answer.
+
+        Raises:
+            LookupError: If no tool source built the call, or the source that
+                built it is not configured on this Worker. The task may still
+                run, so ``PollToolTask`` retries and then records the call by
+                its effect.
+            ToolExecutionError: The source reports that the task failed. The
+                session records ``FAILED``.
+            ToolOutcomeUnknownError: The source cannot tell whether the task
+                took effect. The session records ``OUTCOME_UNKNOWN``.
+            Exception: Any other exception the source raises fails the poll
+                attempt.
+        """
+        record = poll.tool_call
+        routed = self._tool_sources.route(record)
+        if routed is None:
+            raise LookupError(f"no tool source built the call of tool {record.tool_name}")
+        source, reference = routed
+        return await source.poll_tool_task(
+            replace(poll, tool_call=replace(record, tool_source_reference=reference))
+        )
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        """Cancel a tool source's task that ``cancel_turn`` abandoned.
+
+        The session's ``CancelToolTask`` Step calls this method best-effort
+        with the call's record, whose ``cancellation_reason`` is
+        ``TURN_CANCELLED``, and then records the call ``OUTCOME_UNKNOWN``.
+        The source that built the call gets it with its own reference. A
+        source without ``cancel_tool_task`` leaves its task running.
+
+        .. versionadded:: 0.6.6
+
+        Args:
+            cancellation: The abandoned call's record from ``CancelToolTask``.
+
+        Raises:
+            LookupError: If no tool source built the call, or the source that
+                built it is not configured on this Worker. ``CancelToolTask``
+                retries and then records the call ``OUTCOME_UNKNOWN``.
+            Exception: What the source raises.
+        """
+        record = cancellation.tool_call
+        routed = self._tool_sources.route(record)
+        if routed is None:
+            raise LookupError(f"no tool source built the call of tool {record.tool_name}")
+        source, reference = routed
+        cancel = getattr(source, "cancel_tool_task", None)
+        if cancel is None:
+            return
+        await cancel(
+            replace(cancellation, tool_call=replace(record, tool_source_reference=reference))
+        )
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
         """Return a tool source's options for one call's tool Step.

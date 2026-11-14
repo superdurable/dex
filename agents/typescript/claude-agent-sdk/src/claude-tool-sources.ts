@@ -39,6 +39,9 @@ export class ListedSourceTool {
   }
 }
 
+/** The fields of a call or a stored record that routing reads. */
+export type SourceRoutedToolCall = Pick<AgentToolCall, "toolName" | "toolSourceReference">;
+
 /** A source and its own reference, unwrapped from a stored call. */
 export interface RoutedSourceCall {
   readonly source: ToolSource;
@@ -109,7 +112,7 @@ export class ToolSourceRouter {
   }
 
   // Throws a RangeError when the source that built the call is not configured on this Worker.
-  public route(toolCall: AgentToolCall): RoutedSourceCall | undefined {
+  public route(toolCall: SourceRoutedToolCall): RoutedSourceCall | undefined {
     const envelope = readToolSourceEnvelope(toolCall.toolSourceReference);
     if (envelope === undefined) {
       return undefined;
@@ -158,7 +161,7 @@ export class ToolSourceRouter {
 }
 
 /** Returns the record as its source built it: the source's own reference instead of the envelope. */
-export function withSourceReference<Call extends AgentToolCall>(toolCall: Call, reference: string | undefined): Call {
+export function withSourceReference<Call extends SourceRoutedToolCall>(toolCall: Call, reference: string | undefined): Call {
   const { toolSourceReference: _envelope, ...rest } = toolCall;
   return (reference === undefined ? rest : { ...rest, toolSourceReference: reference }) as Call;
 }

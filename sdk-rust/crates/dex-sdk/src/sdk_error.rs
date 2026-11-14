@@ -286,19 +286,33 @@ impl SdkError {
     /// Returns the typed pull queue rejection when a permanent error leaves no registered stream.
     ///
     /// Registration waiters and opt-in Worker shutdown return the existing [`Self::Service`]
-    /// variant. This accessor preserves its queue name and original gRPC status. Other errors
-    /// return `None`. See [`crate::PullRegistrationError`] for a complete inspection example.
+    /// variant. This accessor preserves its slot kind and rejection status. The status is the
+    /// Server's gRPC rejection, or the SDK's synthesized `FAILED_PRECONDITION` status when the
+    /// Server confirmed the stream for a different task queue. Other errors return `None`. See [`crate::PullRegistrationError`] for a complete inspection example.
     pub fn pull_registration_error(&self) -> Option<&crate::PullRegistrationError> {
         self.service_error()
             .and_then(|service| service.pull_registration_error.as_deref())
     }
 
-    pub(crate) fn from_pull_registration(rejection: crate::PullRegistrationError) -> Self {
+    /// Returns the Service error for `rejection`; its detail names `task_queue` unless it is the
+    /// empty default task queue.
+    pub(crate) fn from_pull_registration(
+        rejection: crate::PullRegistrationError,
+        task_queue: &str,
+    ) -> Self {
+        let detail = if task_queue.is_empty() {
+            rejection.to_string()
+        } else {
+            format!(
+                "pull slot kind {} on task queue {task_queue} rejected: {}",
+                rejection.queue, rejection.status
+            )
+        };
         Self::Service {
             service: ServiceError {
                 code: rejection.status.code(),
                 sub_status: ErrorSubStatus::Uncategorized,
-                detail: rejection.to_string(),
+                detail,
                 operation: "pull_worker_registration",
                 flow_id: None,
                 source: rejection.status.clone(),

@@ -341,7 +341,9 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
 fn dispatch_queue_change(writes: &[crate::StateWrite]) -> Option<crate::ApplyEffect> {
     let is_queue_key = |column_family: &dexzd_keyspace::ColumnFamily, key: &[u8]| {
         *column_family == dexzd_keyspace::ColumnFamily::PartitionIndex
-            && key.get(2) == Some(&(dexzd_keyspace::IndexKind::DispatchQueue as u8))
+            && key.get(2).is_some_and(|index_kind| {
+                dexzd_keyspace::dispatch_queue_keys::is_dispatch_queue_index_kind(*index_kind)
+            })
     };
     let mut written_keys = Vec::new();
     let mut removed_count = 0_u32;

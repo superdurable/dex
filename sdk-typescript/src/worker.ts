@@ -27,6 +27,7 @@ import { registeredAttributeIndexes, registeredFlowTypes, type Registry } from "
 import type { WorkerOptions } from "./options.js";
 import { negotiateServerProtocol } from "./server-protocol.js";
 import { sdkVersion } from "./sdk-version.generated.js";
+import { requireNamedTaskQueueSupport } from "./task-queue.js";
 import { ValueHydrator } from "./value-mapper.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 import { PullWorker } from "./pull-worker.js";
@@ -77,7 +78,7 @@ export class Worker {
    * @param registry - Flow definitions served by this Worker.
    * @param blobCache - Open cache used to hydrate large handler values.
    * @param options - Server connectivity, task capacity, bearer credential, startup settings, and gRPC message size limit; uses local defaults when omitted.
-   * @throws {TypeError} When the Worker ID is invalid, or `flowServiceTls` is set and the address or TLS settings are invalid.
+   * @throws {TypeError} When the Worker ID or `pull.taskQueue` is invalid, or `flowServiceTls` is set and the address or TLS settings are invalid.
    * @throws {RangeError} When a pull capacity or drain timeout is invalid, or `grpcMaxMessageBytes` is negative or not an integer.
    * @throws {Error} When a configured Flow definition cannot be loaded or two Flow definitions describe the same Flow type.
    * Changed in 1.45.0: loads `flowDefinitionPaths` and `flowDefinitions` and throws for an invalid or duplicate Flow definition.
@@ -128,6 +129,9 @@ export class Worker {
    * Changed in 1.45.0: uploads the configured Flow definitions before opening task streams, within
    * `attributeIndexSyncTimeoutMs` in total. An upload failure is logged and does not fail start;
    * `close` cancels an upload in flight.
+   * Changed in 1.45.2: with a non-empty `pull.taskQueue`, start fails before opening task streams
+   * when the Server protocol is older than 5. It rejects with {@link PullRegistrationError} when
+   * the Server confirms every stream for a different task queue.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
@@ -141,6 +145,7 @@ export class Worker {
       }
       const serverInfo = await getServerInfo(this.flowService, timeoutMs);
       this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
+      requireNamedTaskQueueSupport(this.negotiatedProtocolVersion, this.pullWorker.taskQueue, "a pull Worker");
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
       await uploadWorkerFlowDefinitions(
         (request, deadline) => this.uploadFlowDefinitions(request, deadline),
@@ -224,6 +229,7 @@ export class Worker {
    * Returns an independent snapshot of slot-kind registrations.
    * Readiness latches after every configured slot kind registers once. Only a permanent rejection with no
    * registered stream makes it false; re-registration clears the slot-kind error. Stop preserves readiness.
+   * Changed in 1.45.2: each slot-kind snapshot carries the Worker's `taskQueue`.
    * @returns Current readiness and slot-kind snapshots.
    * See waitPullRegistered for a startup and readiness example. Treat errors as immutable.
    */

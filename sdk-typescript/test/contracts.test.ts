@@ -376,7 +376,7 @@ test("SubFlows always send the exact pull Worker target with and without config 
       stepInput: encodeValue(voidCodec, undefined),
     }));
     const mappedConfig = response.waitingCondition?.subFlowConditions[0]?.options?.flowConfigOverride;
-    assert.deepEqual(mappedConfig?.workerTarget, { isPullMode: true });
+    assert.deepEqual(mappedConfig?.workerTarget, { isPullMode: true, taskQueue: "" });
     assert.equal(mappedConfig?.deleteExpiredHistoryObjects, undefined);
     assert.equal(
       mappedConfig?.historyWindowEvents,
@@ -391,6 +391,49 @@ test("SubFlows always send the exact pull Worker target with and without config 
         : undefined,
     );
   }
+});
+
+test("SubFlows send their task queue only to a Server with protocol 5", async () => {
+  class QueuedChildStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string { return "QueuedChildStep"; }
+    public execute(): StepDecision { return gracefulComplete(); }
+  }
+  const childStep = new QueuedChildStep();
+  const child: Flow<void> = {
+    getFlowType: () => "QueuedChildFlow",
+    getSteps: () => StepList.startStep(childStep),
+  };
+  const invokeWithTaskQueue = async (taskQueue: string, protocolVersion: number) => {
+    class StartQueuedChildStep implements Step<void> {
+      public readonly inputCodec = voidCodec;
+      public getStepType(): string { return "StartQueuedChildStep"; }
+      public waitFor(): Wait { return Wait.until(SubFlow.run(child, undefined, { taskQueue })); }
+      public execute(): StepDecision { return gracefulComplete(); }
+    }
+    const step = new StartQueuedChildStep();
+    const parent: Flow<void> = {
+      getFlowType: () => "QueuedParentFlow",
+      getSteps: () => StepList.startStep(step),
+    };
+    const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+    const dispatcher = new WorkerDispatcher(new Registry([parent, child]), hydrator, () => protocolVersion);
+    const response = await dispatcher.invokeWaitFor(InvokeWaitForMethodRequest.create({
+      context: ProtoContext.create({ flowId: "queued-parent", stepExecutionId: "start-child-1" }),
+      flowType: parent.getFlowType(), stepType: step.getStepType(),
+      stepInput: encodeValue(voidCodec, undefined),
+    }));
+    return response.waitingCondition?.subFlowConditions[0]?.options?.flowConfigOverride?.workerTarget;
+  };
+  for (const taskQueue of ["reports", "dex.default"]) {
+    assert.deepEqual(await invokeWithTaskQueue(taskQueue, 5), { isPullMode: true, taskQueue });
+  }
+  assert.deepEqual(await invokeWithTaskQueue("", 4), { isPullMode: true, taskQueue: "" });
+  await assert.rejects(
+    invokeWithTaskQueue("reports", 4),
+    /SubFlow QueuedChildFlow with task queue "reports" requires Server protocol version 5 or later/,
+  );
+  await assert.rejects(invokeWithTaskQueue("dex.reports", 5), /names starting with "dex." are reserved/);
 });
 
 test("a Step type containing a dash still sends its SubFlow WaitFor result for the server to reject", async () => {

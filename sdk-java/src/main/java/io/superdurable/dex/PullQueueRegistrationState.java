@@ -18,12 +18,14 @@ package io.superdurable.dex;
  */
 public final class PullQueueRegistrationState {
     private final String queue;
+    private final String taskQueue;
     private final boolean hasRegisteredStream;
     private final Throwable lastPermanentError;
 
-    PullQueueRegistrationState(final String queue, final boolean hasRegisteredStream,
-            final Throwable lastPermanentError) {
+    PullQueueRegistrationState(final String queue, final String taskQueue,
+            final boolean hasRegisteredStream, final Throwable lastPermanentError) {
         this.queue = queue;
+        this.taskQueue = taskQueue;
         this.hasRegisteredStream = hasRegisteredStream;
         this.lastPermanentError = lastPermanentError;
     }
@@ -37,6 +39,19 @@ public final class PullQueueRegistrationState {
      */
     public String getQueue() {
         return queue;
+    }
+
+    /**
+     * Returns the task queue this slot kind's streams register.
+     *
+     * <p>Every entry of one Worker has the same task queue. See
+     * {@link PullWorkerOptions.Builder#taskQueue(String)}.
+     *
+     * @return the task queue name, or empty for the default task queue
+     * @since 1.45.1
+     */
+    public String getTaskQueue() {
+        return taskQueue;
     }
 
     /**

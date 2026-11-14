@@ -992,7 +992,7 @@ export function StepMethodOutputSection({
       {hasData(asData(output.failure)) && (
         <div className="semantic-subsection">
           <h5>Failure</h5>
-          <FailureContent hiddenPullRouting={context.pullRouting} value={output.failure} />
+          <FailureContent hiddenPullRouting={context.pullRouting} stackInitiallyExpanded value={output.failure} />
         </div>
       )}
     </SectionShell>
@@ -1004,9 +1004,48 @@ export function StepMethodContextSection({
   history,
   parentFlowId: _parentFlowId,
   wrapSection = true,
-}: StepMethodSectionProps) {
+  isGrouped = false,
+}: StepMethodSectionProps & {
+  /** Splits the fields into Timing, Attempt, and Worker and retry. */
+  isGrouped?: boolean;
+}) {
   const { timezone } = usePreferences();
   const { context, lastFailure, isWaitFor } = stepMethodFlags(event);
+  if (isGrouped) {
+    const groups: [string, Field[]][] = [
+      ['Timing', [
+        ['Scheduled', isPresent(context.scheduledTime) ? formatDate(String(context.scheduledTime), timezone) : undefined],
+        ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined],
+        ['Duration', protobufDuration(context.duration)],
+      ]],
+      ['Attempt', [
+        ['Execution ID', context.stepExecutionId],
+        ['From', context.fromStepExecutionId],
+        ['Durability', durabilityLabel(context.durability)],
+        ['Final attempt', context.finalAttempt],
+      ]],
+      ['Worker and retry', [
+        ...pullRoutingFields(context.pullRouting, true),
+        ...stepMethodOptionFields(context.methodOptions, findSourceStepOptions(event, history), isWaitFor),
+      ]],
+    ];
+    return (
+      <div className="semantic-context-groups">
+        {groups.map(([title, values]) => (values.some(([, value]) => isPresent(value)) || (title === 'Attempt' && hasData(lastFailure))) && (
+          <div className="semantic-subsection" key={title}>
+            <h5>{title}</h5>
+            <Fields compact values={values} />
+            {title === 'Attempt' && hasData(lastFailure) && (
+              <div className="semantic-subsection">
+                <h5>Last failure</h5>
+                <FailureContent stackInitiallyExpanded value={lastFailure} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <SectionShell title="Context" wrapSection={wrapSection}>
       <Fields compact values={[
@@ -1043,7 +1082,9 @@ export function StepMethodDetails({
     <>
       <StepMethodInputSection event={event} history={history} parentFlowId={parentFlowId} />
       <StepMethodOutputSection event={event} history={history} parentFlowId={parentFlowId} />
-      <StepMethodContextSection event={event} history={history} parentFlowId={parentFlowId} />
+      <DetailSection title="Context">
+        <StepMethodContextSection event={event} history={history} parentFlowId={parentFlowId} wrapSection={false} isGrouped />
+      </DetailSection>
     </>
   );
 }
@@ -1113,13 +1154,20 @@ function pullDispatchFailureLabel(reason: unknown, value: unknown): string | und
   return undefined;
 }
 
+/** Names a task queue for display; the empty name is the default task queue. */
+export function taskQueueLabel(taskQueue: unknown): string {
+  return typeof taskQueue === 'string' && taskQueue !== '' ? taskQueue : 'default';
+}
+
 /** Where a method was routed; hideEmpty leaves unknown fields empty instead of a dash. */
 function pullRoutingFields(value: unknown, hideEmpty: boolean): Field[] {
   const routing = asData(value);
   const blank = hideEmpty ? undefined : '—';
-  const queueSource = routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Task queue' : blank;
+  const queueSource = routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Flow type queue' : blank;
+  const hasRouting = Boolean(routing.servedByAppWorkerId || routing.stickyAppWorkerId || routing.source || routing.taskQueue);
   return [
     ['Serving Worker ID', routing.servedByAppWorkerId || blank],
+    ['Task queue', hasRouting ? taskQueueLabel(routing.taskQueue) : blank],
     ['Queue source', queueSource],
     ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || blank],
   ];

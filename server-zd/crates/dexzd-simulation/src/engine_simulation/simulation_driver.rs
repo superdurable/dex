@@ -261,7 +261,7 @@ impl Simulation {
             let client = SimulatedClient::new(
                 format!("c{index}"),
                 self.rng.random(),
-                self.config.profile.has_step_failure_policies(),
+                self.config.profile,
                 self.serving_node.clone(),
                 Arc::clone(&self.environment.committed_log),
                 Arc::clone(&self.client_records),
@@ -275,7 +275,7 @@ impl Simulation {
                 let probe = SimulatedClient::new(
                     format!("probe-{flow_id}"),
                     self.seed ^ CHILD_WAIT_PROBE_SEED_SALT,
-                    false,
+                    EngineSimulationProfile::Standard,
                     self.serving_node.clone(),
                     Arc::clone(&self.environment.committed_log),
                     Arc::clone(&self.client_records),

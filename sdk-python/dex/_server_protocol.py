@@ -17,8 +17,9 @@ import grpc
 from dex.dexpb import dex_pb2 as pb
 
 MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
-MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
+MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 5
 HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3
+NAMED_TASK_QUEUE_PROTOCOL_VERSION = 5
 LAST_SERVER_ZD_RELEASE_BEFORE_MINIMUM_PROTOCOL = "v0.1.16"
 
 
@@ -95,6 +96,16 @@ class NegotiatedServerProtocol:
             "hard-delete Attribute writes require Dex Server protocol version "
             f"{HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION} or later, but the negotiated "
             f"protocol version is {self._version}: {', '.join(attribute_names)}"
+        )
+
+    def require_named_task_queue_support(self, task_queue: str) -> None:
+        if not task_queue or self._version >= NAMED_TASK_QUEUE_PROTOCOL_VERSION:
+            return
+        raise RuntimeError(
+            f"task queue {task_queue!r} requires Dex Server protocol version "
+            f"{NAMED_TASK_QUEUE_PROTOCOL_VERSION} or later, but the negotiated "
+            f"protocol version is {self._version}; upgrade the Server or use "
+            "the default task queue"
         )
 
 

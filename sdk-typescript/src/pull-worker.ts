@@ -15,6 +15,7 @@ import { Duplex } from "node:stream";
 import { BinaryReader, WireType } from "@bufbuild/protobuf/wire";
 import {
   makeGenericClientConstructor,
+  Metadata,
   status,
   type ClientDuplexStream,
   type ServiceError,
@@ -43,6 +44,7 @@ import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
 import { PullRegistration, PullRegistrationError } from "./pull-registration.js";
 import { sdkVersion } from "./sdk-version.generated.js";
+import { validatePullWorkerTaskQueue } from "./task-queue.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 
 const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
@@ -86,10 +88,12 @@ interface PollStream {
   hasRetriedRejectedToken: boolean;
   backoffMs: number;
   failure: ServiceError | undefined;
+  taskQueueMismatch: ServiceError | undefined;
 }
 
 export class PullWorker {
   public readonly appWorkerID: string;
+  public readonly taskQueue: string;
   public readonly registration: PullRegistration;
   private readonly client: InstanceType<typeof WorkerTaskServiceClient>;
   private readonly hasRefreshableCredential: boolean;
@@ -140,7 +144,12 @@ export class PullWorker {
     if (this.flowTypes.includes(this.appWorkerID)) {
       throw new TypeError(`appWorkerID conflicts with Flow type ${this.appWorkerID}`);
     }
-    this.registration = new PullRegistration(this.reservedRpcTasks > 0 ? ["STEP_AND_RPC", "RPC_ONLY"] : ["STEP_AND_RPC"]);
+    this.taskQueue = options.taskQueue ?? "";
+    validatePullWorkerTaskQueue(this.taskQueue);
+    this.registration = new PullRegistration(
+      this.reservedRpcTasks > 0 ? ["STEP_AND_RPC", "RPC_ONLY"] : ["STEP_AND_RPC"],
+      this.taskQueue,
+    );
     this.client = createWorkerTaskClient(channel, credential);
     this.hasRefreshableCredential = credential instanceof ApiKeyCredential;
   }
@@ -226,7 +235,7 @@ export class PullWorker {
         isRegistered: false, hasRecordedResult: false, hasPermanentRejectionBeforeStart: false, isDisconnected: false,
         isHalfClosed: false, isFinalFrameSent: false, hasUnconfirmedFinalOutput: false, http2Streams: [], isDraining: false,
         isReconnectRequested: false, hasRetriedRejectedToken: false,
-        backoffMs: 100, failure: undefined,
+        backoffMs: 100, failure: undefined, taskQueueMismatch: undefined,
       };
       this.streams.add(poll);
       this.openStream(poll);
@@ -243,6 +252,7 @@ export class PullWorker {
     poll.hasUnconfirmedFinalOutput = false;
     poll.http2Streams = [];
     poll.failure = undefined;
+    poll.taskQueueMismatch = undefined;
     poll.isDraining = false;
     poll.isReconnectRequested = false;
     const stream = this.client.pollWorkerTask();
@@ -278,6 +288,7 @@ export class PullWorker {
         sdkVersion,
         supportsReservedSlotDispatch: true,
         slotKind: poll.slotKind,
+        taskQueue: this.taskQueue,
       } } });
     } catch (failure) {
       console.error("Worker task registration failed", failure);
@@ -294,6 +305,10 @@ export class PullWorker {
         this.halfCloseStream(poll);
       } else if (frame?.$case === "registered") {
         if (!this.installResetHook(poll)) return;
+        if (frame.value.taskQueue !== this.taskQueue) {
+          this.rejectTaskQueueMismatch(poll, frame.value.taskQueue);
+          return;
+        }
         const limit = frame.value.maxConcurrentTasksPerAppWorker;
         const isOverLimit = limit !== 0 && limit < this.maxConcurrentTasks;
         if (!this.hasRegisteredSlot) {
@@ -351,6 +366,19 @@ export class PullWorker {
       default:
         break;
     }
+  }
+
+  // A Server without named task queues silently registers the default queue; refuse that stream.
+  private rejectTaskQueueMismatch(poll: PollStream, registeredTaskQueue: string): void {
+    const message = `Server registered task queue ${JSON.stringify(registeredTaskQueue)} `
+      + `instead of ${JSON.stringify(this.taskQueue)}; it may not support named task queues`;
+    console.error("Worker task stream registered the wrong task queue", poll.queue, message);
+    poll.taskQueueMismatch = Object.assign(new Error(`${status.FAILED_PRECONDITION} FAILED_PRECONDITION: ${message}`), {
+      code: status.FAILED_PRECONDITION, details: message, metadata: new Metadata(),
+    });
+    this.recordStreamResult(poll);
+    // Half-close so Dex returns tasks sent after Registered without consuming an attempt.
+    this.halfCloseStream(poll);
   }
 
   private startTask(poll: PollStream, task: PollWorkerTask): void {
@@ -633,6 +661,8 @@ export class PullWorker {
         console.error("pull Worker polling is unsupported by this Dex server", failure);
       }
       delayMs = 60_000 + Math.floor(Math.random() * 30_000);
+    } else if (poll.taskQueueMismatch !== undefined) {
+      delayMs = 60_000 + Math.floor(Math.random() * 30_000);
     } else if (failure !== undefined && [
       status.UNAUTHENTICATED, status.PERMISSION_DENIED, status.INVALID_ARGUMENT,
       status.RESOURCE_EXHAUSTED,
@@ -656,12 +686,12 @@ export class PullWorker {
   private recordStreamResult(poll: PollStream): void {
     if (poll.hasRecordedResult) return;
     poll.hasRecordedResult = true;
-    const failure = poll.failure;
-    const isPermanent = failure !== undefined && [
+    const failure = poll.taskQueueMismatch ?? poll.failure;
+    const isPermanent = failure !== undefined && (failure === poll.taskQueueMismatch || [
       status.INVALID_ARGUMENT, status.RESOURCE_EXHAUSTED, status.UNIMPLEMENTED,
       status.PERMISSION_DENIED, status.UNAUTHENTICATED,
     ].includes(failure.code) && !(failure.code === status.UNAUTHENTICATED
-      && this.hasRefreshableCredential && !poll.hasRetriedRejectedToken);
+      && this.hasRefreshableCredential && !poll.hasRetriedRejectedToken));
     const isRejected = this.registration.ended(poll.queue, poll.isRegistered, isPermanent ? failure : undefined);
     poll.isRegistered = false;
     if (isPermanent && !this.hasRegisteredSlot) {
@@ -678,7 +708,8 @@ export class PullWorker {
     for (const poll of this.streams) {
       if (!poll.hasPermanentRejectionBeforeStart) return;
     }
-    const failure = this.registration.permanentError ?? new PullRegistrationError("STEP_AND_RPC", lastFailure);
+    const failure = this.registration.permanentError
+      ?? new PullRegistrationError("STEP_AND_RPC", lastFailure, this.taskQueue);
     for (const waiter of this.startupWaiters) waiter.reject(failure);
     this.startupWaiters.clear();
   }

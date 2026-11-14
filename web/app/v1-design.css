@@ -328,7 +328,7 @@ body:has(.v1-page) {
 /* ---------------------------------------------------------------- header */
 
 .v1-page.run-page {
-  padding-top: 22px;
+  padding-top: 12px;
 }
 
 .v1-page .run-header {
@@ -576,9 +576,10 @@ body:has(.v1-page) {
 .run-events-tile {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-  margin-left: auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-bottom: 12px;
 }
 
 .run-events-line {
@@ -601,9 +602,7 @@ body:has(.v1-page) {
 .v1-page .run-events-pager {
   display: inline-flex;
   flex-wrap: wrap;
-  align-self: flex-start;
   gap: 2px;
-  margin-top: 2px;
   padding: 2px;
   border-radius: 9px;
   background: var(--ui-chip);
@@ -620,7 +619,6 @@ body:has(.v1-page) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
   font-weight: 600;
@@ -1399,8 +1397,8 @@ body:has(.v1-page) {
 
 .v1-page .timeline-row.selected .event-card {
   border: 0;
-  background: var(--ui-focus-surface);
-  box-shadow: inset 3px 0 0 var(--tone-accent);
+  background: var(--ui-chip);
+  box-shadow: inset 3px 0 0 var(--ui-ink-2);
   transform: none;
 }
 
@@ -1596,7 +1594,7 @@ body:has(.v1-page) {
 
 .v1-page .selected-event-anchor > h3 {
   margin-bottom: 4px;
-  font-size: var(--ui-text-xl);
+  font-size: var(--ui-text-lg);
   font-weight: 650;
 }
 
@@ -2215,7 +2213,7 @@ html:has(.v1-page .stream-scroll--entries) {
 /* ------------------------------------------------------------ flow search */
 
 .v1-page.page-shell {
-  width: min(1500px, calc(100% - 40px));
+  width: min(1760px, calc(100% - 40px));
   margin: 0 auto;
   padding: 24px 0 60px;
 }
@@ -2374,10 +2372,6 @@ html:has(.v1-page .stream-scroll--entries) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .run-events-tile {
-    margin-left: 0;
-    flex-basis: 100%;
-  }
 }
 
 @media (max-width: 760px) {
@@ -2438,6 +2432,7 @@ html:has(.v1-page .stream-scroll--entries) {
 
 /* ---------------------------------------------------- horizontal Timeline */
 
+/* The event panel sits under the strip at every desktop width, so the page has one scroll. */
 @media (min-width: 761px) {
   .v1-page .run-content.run-content--horizontal-timeline {
     grid-template-columns: minmax(0, 1fr);
@@ -2451,13 +2446,15 @@ html:has(.v1-page .stream-scroll--entries) {
     position: static;
     max-height: none;
     overflow: visible;
+    overscroll-behavior: auto;
   }
 }
+
 
 /* The overview is a histogram of the page, like a log explorer's: density, problems, and the view. */
 .htl-minimap {
   position: relative;
-  margin: 2px 0 14px;
+  margin: 6px 0 0;
   border-radius: var(--ui-radius-control);
   cursor: pointer;
   touch-action: none;
@@ -2574,6 +2571,39 @@ html:has(.v1-page .stream-scroll--entries) {
   fill: color-mix(in srgb, var(--ui-ink) 10%, transparent);
 }
 
+/* One row over the lane: the page's time range, its span, and the lane's tools. */
+.htl-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+  color: var(--ui-ink-3);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.htl-head-range {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.htl-head-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--ui-font-sans);
+}
+
+.htl-lane {
+  position: relative;
+}
+
 .htl-overview-axis {
   display: flex;
   gap: 12px;
@@ -2661,7 +2691,7 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-strip {
   position: relative;
   overscroll-behavior: contain;
-  height: 268px;
+  height: 98px;
   overflow: hidden;
   border-radius: var(--ui-radius-item);
   background: var(--ui-well);
@@ -2671,23 +2701,23 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-strip::before {
   position: absolute;
   right: 0;
-  bottom: 75px;
+  bottom: 60px;
   left: 0;
   height: 1px;
   content: '';
   background: var(--ui-hairline);
 }
 
-/* Slots overlap their neighbors' slanted labels, so only the dot and label take clicks. */
+/* Only the dot takes clicks, so the space around it never selects a neighbor. */
 .htl-event {
   position: absolute;
-  top: 0;
-  bottom: 62px;
+  top: 22px;
+  bottom: 46px;
   width: var(--htl-slot-width, 40px);
   pointer-events: none;
 }
 
-.htl-event :is(.htl-dot, .htl-label) {
+.htl-event .htl-dot {
   cursor: pointer;
   pointer-events: auto;
 }
@@ -2812,32 +2842,26 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-fail);
 }
 
-/* Labels rise at the strip's label angle, so neighbors share space like angled parking. */
-.htl-label {
+/* One flat label per run of events about the same subject, over a hairline that spans the run. */
+.htl-subject {
   position: absolute;
-  bottom: 30px;
-  left: calc(50% - 4px);
-  max-width: var(--htl-label-max-width, 240px);
+  top: 3px;
   overflow: hidden;
+  padding-top: 3px;
+  border-top: 2px solid var(--ui-hairline);
   color: var(--ui-ink-2);
-  font-size: var(--ui-text-sm);
-  line-height: 17px;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  line-height: 14px;
   text-overflow: ellipsis;
-  transform: rotate(var(--htl-label-angle, -20deg));
-  transform-origin: left bottom;
   white-space: nowrap;
 }
 
-.htl-event:hover .htl-label,
-.htl-event.linked .htl-label {
+.htl-subject.selected {
+  border-top-color: var(--tone-accent);
   color: var(--ui-ink);
 }
 
-/* Only the selection gets the strong label, so it reads apart from linked events. */
-.htl-event.selected .htl-label {
-  color: var(--ui-ink);
-  font-weight: 600;
-}
 
 .htl-event.selected .htl-dot {
   box-shadow: 0 0 0 3px var(--tone-accent);
@@ -2855,7 +2879,7 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-axis {
   position: absolute;
   right: 0;
-  bottom: 44px;
+  bottom: 28px;
   left: 0;
   height: 18px;
   pointer-events: none;
@@ -2894,6 +2918,46 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-arc.kind-condition-wait {
   stroke: var(--tone-wait);
   stroke-dasharray: 4 3;
+}
+
+/* What the run is doing now, beside the newest event; clicking it selects that event. */
+.htl-end-note {
+  position: absolute;
+  z-index: 5;
+  top: 34px;
+  max-width: 230px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--ui-font-sans);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.htl-end-note.is-open-run {
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+}
+
+.htl-end-note:hover {
+  text-decoration: underline;
+}
+
+.htl-end-note-mark {
+  display: inline-block;
+  width: 2px;
+  height: 11px;
+  margin-right: 6px;
+  border-radius: 1px;
+  background: currentColor;
+  vertical-align: -1px;
 }
 
 

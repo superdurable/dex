@@ -32,6 +32,7 @@ import {
   displayValue,
   flowTimeoutFields,
   isPresent,
+  taskQueueLabel,
   type Data,
 } from './StepMethodSections';
 
@@ -164,11 +165,16 @@ function ChannelDeletionDetails({ payload }: { payload: Data }) {
   );
 }
 
-function RPCDetails({ payload, isPull }: { payload: Data; isPull: boolean }) {
+function RPCDetails({ payload, isPull, workerTarget }: { payload: Data; isPull: boolean; workerTarget: Data }) {
   return (
     <>
       <DetailSection title="RPC call">
-        <Fields values={[['RPC name', payload.rpcName], ['Serving Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined]]} />
+        <Fields values={[
+          ['RPC name', payload.rpcName],
+          ['Serving Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined],
+          // The Flow's task queue is fixed at start; unknown when the start event is not loaded.
+          ['Task queue', workerTarget.isPullMode === true ? taskQueueLabel(workerTarget.taskQueue) : undefined],
+        ]} />
         <ValueBlock label="Input" value={payload.input} />
         <ValueBlock label="Output" value={payload.output} />
       </DetailSection>
@@ -209,7 +215,10 @@ export function SemanticEventDetails({
   }
   if (event.type === 'ChannelExternalDelete') return <ChannelDeletionDetails payload={event.payload} />;
   if (isSetAttributesEvent(event)) return <SetAttributesDetails payload={event.payload} />;
-  if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} isPull={Boolean(event.payload.servedByAppWorkerId) || asData(asData(history.find((candidate) => candidate.type === 'FlowStartedOrContinued')?.payload.flowConfig).workerTarget).isPullMode === true} />;
+  if (event.type === 'RpcExecutionCompleted') {
+    const workerTarget = asData(asData(history.find((candidate) => candidate.type === 'FlowStartedOrContinued')?.payload.flowConfig).workerTarget);
+    return <RPCDetails payload={event.payload} isPull={Boolean(event.payload.servedByAppWorkerId) || workerTarget.isPullMode === true} workerTarget={workerTarget} />;
+  }
   return (
     <DetailSection title="Published messages">
       <ChannelMessages values={event.payload.messages} />
@@ -217,23 +226,31 @@ export function SemanticEventDetails({
   );
 }
 
+export type EventPayloadView = 'details' | 'raw';
+
 export function EventDetails({
   event,
   history,
   parentFlowId,
+  payloadView,
 }: {
   event: FlowHistoryEvent;
   history: FlowHistoryEvent[];
   parentFlowId: string;
+  /** Set when the caller owns the Details and JSON switch; the built-in switch then hides. */
+  payloadView?: EventPayloadView;
 }) {
-  const [view, setView] = useState<'details' | 'raw'>('details');
+  const [ownView, setView] = useState<EventPayloadView>('details');
+  const view = payloadView ?? ownView;
   return (
     <div className="event-details">
       <div className="event-details-content">
-        <div className="event-detail-tabs" role="group" aria-label="Event payload view">
-          <button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} type="button" onClick={() => setView('details')}>Details</button>
-          <button aria-pressed={view === 'raw'} className={view === 'raw' ? 'active' : ''} type="button" onClick={() => setView('raw')}>Raw JSON</button>
-        </div>
+        {payloadView === undefined && (
+          <div className="event-detail-tabs" role="group" aria-label="Event payload view">
+            <button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} type="button" onClick={() => setView('details')}>Details</button>
+            <button aria-pressed={view === 'raw'} className={view === 'raw' ? 'active' : ''} type="button" onClick={() => setView('raw')}>Raw JSON</button>
+          </div>
+        )}
         {view === 'details'
           ? <div className="semantic-event"><SemanticEventDetails event={event} history={history} parentFlowId={parentFlowId} /></div>
           : <pre className="raw-event-json">{JSON.stringify(event.payload, storedValueJSONReplacer, 2)}</pre>}

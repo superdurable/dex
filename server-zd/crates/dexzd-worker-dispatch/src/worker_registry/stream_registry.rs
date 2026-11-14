@@ -9,6 +9,7 @@
 //! The matching registry: registered streams, their queues, idle order, and waiter wakeups.
 
 use super::*;
+use dexzd_request_validation::quote_go_string;
 
 /// Matching state guarded by the registry lock.
 pub(super) struct Registry {
@@ -16,7 +17,7 @@ pub(super) struct Registry {
     pub(super) streams: HashMap<Uuid, Arc<WorkerStream>>,
     /// Registered stream IDs of each tenant's app Worker.
     pub(super) worker_stream_ids: HashMap<(u64, String), HashSet<Uuid>>,
-    pub(super) queues: HashMap<(u64, String), QueueState>,
+    pub(super) queues: HashMap<MatchingQueueKey, QueueState>,
     /// Idle streams and their position in every subscribed queue's idle order.
     pub(super) idle_positions: HashMap<Uuid, u64>,
     pub(super) next_idle_position: u64,
@@ -28,6 +29,29 @@ pub(super) struct Registry {
 }
 
 impl Registry {
+    /// Rejects `worker` when another stream of its app Worker serves another task queue.
+    pub(super) fn check_one_task_queue_per_worker(
+        &self,
+        worker: &WorkerStream,
+    ) -> Result<(), Status> {
+        let other_task_queue = self
+            .worker_stream_ids
+            .get(&(worker.tenant_id, worker.app_worker_id.clone()))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| self.streams.get(id))
+            .map(|other| other.task_queue.as_str())
+            .find(|task_queue| *task_queue != worker.task_queue);
+        match other_task_queue {
+            Some(task_queue) => Err(Status::invalid_argument(format!(
+                "app_worker_id {} already serves task queue {}; one app Worker serves one task queue",
+                quote_go_string(&worker.app_worker_id),
+                quote_go_string(task_queue)
+            ))),
+            None => Ok(()),
+        }
+    }
+
     /// Adds `worker` to the idle order of every queue it serves.
     pub(super) fn add_idle(&mut self, worker: &WorkerStream) {
         self.next_idle_position += 1;
@@ -56,7 +80,7 @@ impl Registry {
     /// Counts a dispatch as a user of queue `key` while it waits; removes the queue once unused.
     pub(super) fn settle_waiting_user(
         &mut self,
-        key: &(u64, String),
+        key: &MatchingQueueKey,
         was_waiting: bool,
         is_waiting: bool,
     ) {
@@ -75,7 +99,11 @@ impl Registry {
     ///
     /// Returns the stream its wakeup named, as [`QueueState::remove_waiter`] does; that stream
     /// is no longer promised to it.
-    pub(super) fn end_wait(&mut self, key: &(u64, String), waiter_sequence: u64) -> Option<Uuid> {
+    pub(super) fn end_wait(
+        &mut self,
+        key: &MatchingQueueKey,
+        waiter_sequence: u64,
+    ) -> Option<Uuid> {
         let woken_for = self
             .queues
             .get_mut(key)
@@ -127,7 +155,7 @@ impl Registry {
         if self.promised_streams.contains_key(&worker.id) {
             return;
         }
-        let mut rpc_choice: Option<(u64, &(u64, String))> = None;
+        let mut rpc_choice: Option<(u64, &MatchingQueueKey)> = None;
         for queue_key in &worker.queue_keys {
             let Some(queue) = self.queues.get(queue_key) else {
                 continue;
@@ -150,7 +178,7 @@ impl Registry {
         if !is_step_allowed {
             return;
         }
-        let mut step_choice: Option<(u64, &(u64, String))> = None;
+        let mut step_choice: Option<(u64, &MatchingQueueKey)> = None;
         for queue_key in &worker.queue_keys {
             let Some(queue) = self.queues.get(queue_key) else {
                 continue;
@@ -191,7 +219,7 @@ impl Registry {
         worker: &WorkerStream,
         kind: TaskKind,
         sequence: u64,
-        queue_key: &(u64, String),
+        queue_key: &MatchingQueueKey,
     ) {
         let queue = self
             .queues
@@ -231,15 +259,14 @@ impl Registry {
         self.wake_waiter_for(&worker, now);
     }
 
-    /// Returns whether `queue_name` has streams and the unsupported type cache excludes every
-    /// one of them for `task_type`.
+    /// Returns whether `queue` has streams and the unsupported type cache excludes every one of
+    /// them for `task_type`.
     pub(super) fn has_only_unsupported_streams(
         &self,
-        tenant_id: u64,
-        queue_name: &str,
+        queue: &MatchingQueueKey,
         task_type: &TaskTypeKey,
     ) -> bool {
-        let Some(queue) = self.queues.get(&(tenant_id, queue_name.to_owned())) else {
+        let Some(queue) = self.queues.get(queue) else {
             return false;
         };
         let mut workers = queue

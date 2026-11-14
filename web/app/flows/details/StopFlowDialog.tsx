@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
+import { useModalFocus } from '../../components/useModalFocus';
 
 const stopTypes = [
   { value: 1, label: 'Cancel', needsReason: false },
@@ -36,6 +37,7 @@ export function StopFlowDialog({
   const reasonRequired = selected.needsReason;
   const canSubmit = !submitting && (!reasonRequired || reason.trim() !== '');
 
+  const modalRef = useModalFocus<HTMLDivElement>(open, onClose);
   if (!open) return null;
 
   async function submit() {
@@ -64,7 +66,7 @@ export function StopFlowDialog({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal" ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title-danger">Stop flow</h2>
           <button className="icon-button" onClick={onClose}>×</button>

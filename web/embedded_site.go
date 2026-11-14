@@ -41,6 +41,9 @@ type EmbeddedSiteTarget struct {
 	// so a target needs no directory for them. A Flow type that a file in this directory declares comes only
 	// from the directory. Changed in 1.45.0: Dex Web reads uploaded definitions.
 	FlowRenderingDirectory string
+	// HasHostNavigation defaults false, meaning Dex Web draws its own rail. True means the host draws the
+	// navigation around Dex Web, so Dex Web draws no rail.
+	HasHostNavigation bool
 }
 
 // EmbeddedSite serves Dex Web for a target chosen per request. It shares only immutable pages between targets.
@@ -93,7 +96,7 @@ func (site *EmbeddedSite) ServeTarget(response http.ResponseWriter, request *htt
 		return
 	}
 	routes := site.pages.newTargetRouteMux(targetRoutes{
-		client: target.FlowServiceClient, flowDefinitions: flowDefinitions, basePath: basePath,
+		client: target.FlowServiceClient, flowDefinitions: flowDefinitions, basePath: basePath, hasHostNavigation: target.HasHostNavigation,
 	})
 	serveUnderBasePath(response, request, basePath, site.protection.wrap(refuseWorkerHealthProbes(routes)))
 }
