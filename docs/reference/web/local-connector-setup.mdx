@@ -26,6 +26,13 @@ below it. Each group shows the Flows, Steps, operations, bindings, exact module
 version, and one of these states: **Missing**, **Ready**, **Expired**,
 **Conflict**, or **Unsupported**.
 
+Changed in 1.45.5: each row shows the Connector's initial, the connection name,
+and the state as an icon and a word. The selected connection's header shows how
+long until its token expires, or how long ago it expired. Hover over that time
+to see the exact date and time. Below the header, an **Expired** connection
+offers **Reauthorize** and a **Missing** connection offers **Set up**. Each
+button takes you to the authorization form.
+
 Since 1.42.0, the sidebar also lists each connection that no loaded Flow uses:
 every connection you added and every saved connection in the file. Such a
 connection says that no loaded Flow uses it. It shows its own module version
@@ -46,7 +53,9 @@ declares. An agent that offers Connector operations as tools is one example:
 the agent examples open the Slack connection **support-slack** by its name.
 Add such a connection on the Connectors page:
 
-1. Choose **+ Add** next to the **Connectors** heading.
+1. Choose **Add** at the top of the connection list. Changed in 1.45.5: the
+   button was **+ Add**, next to a **Connectors** heading that the list no
+   longer repeats.
 2. Search the catalog and choose a Connector. The catalog lists the newest
    release of each official Connector, and the release of each
    **--connector-release-override**.
@@ -111,8 +120,9 @@ dexcli dev \
 ```
 
 Dex resolves the directory to an absolute path. The **Local store** zone of the
-Connectors page shows the directory and the JSON file inside it, and **Copy**
-copies the absolute file path. Several local stacks share the default file.
+Connectors page shows the directory and the JSON file inside it, and the copy
+button copies the absolute file path. Changed in 1.45.5: the copy button shows
+an icon instead of the word **Copy**. Several local stacks share the default file.
 Give each stack a different directory when they must not share accounts.
 
 The directory is created with mode **0700** and the file with mode **0600**.
@@ -168,7 +178,11 @@ and checksum. It loads a compatible Studio UI in an opaque-origin sandbox when
 one exists. Otherwise it renders a generic form from the manifest.
 
 The authorization panel links to the provider's starting page and lists the
-exact setup path supplied by the Connector release. Fields that require user
+exact setup path supplied by the Connector release. Changed in 1.45.5: the
+guide's steps are numbered, and you can fold them away. The guide starts open
+until the connection is **Ready**. Its start link and the Redirect URI stay
+visible while it is folded. A release with several authentication methods
+offers them as one segmented choice and shows the chosen method's description. Fields that require user
 input appear first. Fields that can be omitted or use manifest defaults remain
 visible under **Optional settings**. Each non-secret manifest default appears
 below its field in parentheses. Leave the input blank to use that default;

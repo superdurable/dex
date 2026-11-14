@@ -45,6 +45,7 @@ import {
   providerCommandRequestBody,
   isStudioFrameResize,
   descriptionParts,
+  guideStartURLText,
   manifestFieldDefaultText,
   studioCommandFailureOutcome,
   selectedManifestAuth,
@@ -729,15 +730,73 @@ describe('Connectors page presentation', () => {
     expect(local).toContain('<code>/home/dev/.dex/connectors</code>');
     expect(local).not.toContain('aria-label="Copy Store directory"');
     for (const label of ['Connection file', 'Flow configuration file', 'Start your app']) {
-      expect(local).toContain(`aria-label="Copy ${label}" class="v2-ghost connector-copy" type="button">Copy</button>`);
+      expect(local).toContain(`aria-label="Copy ${label}" class="v2-ghost connector-copy" title="Copy" type="button"><svg`);
     }
   });
 
-  it('shows each connection status as a chip keyed by status', () => {
-    expect(renderToStaticMarkup(createElement(ConnectionStatusChip, {status: 'Expired'})))
-      .toBe('<span class="connector-status" data-status="expired">Expired</span>');
+  it('shows each connection status as an icon and its word keyed by status', () => {
+    const markup = renderToStaticMarkup(createElement(ConnectionStatusChip, {status: 'Expired'}));
+    expect(markup).toMatch(/^<span class="connector-status" data-status="expired"><svg [^>]*aria-hidden="true">.*<\/svg>Expired<\/span>$/);
+    expect(markup).toContain('lucide-clock-alert');
+  });
+
+  it('offers several authentication methods as one segmented radio group that describes every option', () => {
+    const markup = renderConnectorForm(twoMethodOAuthManifest, {status: 'Missing'}, {oauthRedirectUri: 'http://127.0.0.1:8842/api/v2/connector-oauth/callback'});
+    expect(markup).toContain('<legend class="sc-blockhead">Authentication method</legend>');
+    expect(markup).toContain('style="--option-count:2;--active-index:0"');
+    expect(markup.match(/<input [^>]*name="connector-auth-method"/g)).toHaveLength(2);
+    expect(markup).toMatch(/<input aria-describedby="[^"]+-googleOAuth" class="connector-segment-input" type="radio" name="connector-auth-method" checked="" value="googleOAuth"\/>/);
+    expect(markup).toContain('>Personal Gmail and Workspace users.</span>');
+    expect(markup).toContain('>Administrators delegate a domain.</span>');
+    expect(markup).toContain('<p aria-hidden="true" class="connector-auth-method-description">Personal Gmail and Workspace users.</p>');
+    expect(markup).toContain('Recommended</span>');
+    expect(markup).not.toContain('connector-option');
+  });
+
+  it('shows the authorization guide as a numbered stepper with its start link and copyable Redirect URI', () => {
+    const missing = renderConnectorForm(twoMethodOAuthManifest, {status: 'Missing'}, {oauthRedirectUri: 'http://127.0.0.1:8842/api/v2/connector-oauth/callback'});
+    expect(missing).toContain('<section aria-label="Authorization guide" class="connector-authorization-guide" data-expanded="true">');
+    expect(missing).toMatch(/<button aria-controls="[^"]+" aria-expanded="true" class="connector-guide-toggle"/);
+    expect(missing).toContain('<span class="connector-guide-count">2 steps</span>');
+    expect(missing).toContain('href="https://console.cloud.google.com/apis/credentials"');
+    expect(missing).toContain('<span class="connector-guide-start-url">console.cloud.google.com/apis/credentials</span>');
+    expect(missing).toContain('<span aria-hidden="true" class="connector-stepper-mark">2</span><span class="connector-stepper-text">Create an OAuth client.</span>');
+    expect(missing).toContain('aria-label="Copy Redirect URI"');
+    // A connection that already worked folds the guide away, but its link and Redirect URI stay.
+    const ready = renderConnectorForm(twoMethodOAuthManifest, {status: 'Ready'}, {oauthRedirectUri: 'http://127.0.0.1:8842/api/v2/connector-oauth/callback'});
+    expect(ready).toContain('data-expanded="false"');
+    expect(ready).toMatch(/class="connector-guide-body" id="[^"]+" inert=""/);
+    expect(ready).toContain('aria-label="Copy Redirect URI"');
+  });
+
+  it('shortens the guide start link text but keeps the whole URL', () => {
+    expect(guideStartURLText('https://console.cloud.google.com/apis/credentials')).toBe('console.cloud.google.com/apis/credentials');
+    expect(guideStartURLText('http://localhost:8080/')).toBe('localhost:8080');
   });
 });
+
+const twoMethodOAuthManifest = {
+  metadata: {displayName: 'Gmail', description: 'Gmail connection'},
+  spec: {
+    provider: 'google',
+    configuration: {fields: []},
+    auth: {
+      fields: [],
+      defaultMethod: 'googleOAuth',
+      methods: [
+        {
+          id: 'googleOAuth', displayName: 'Google OAuth', description: 'Personal Gmail and Workspace users.', recommended: true,
+          type: 'oauth2', fields: [{name: 'access_token', type: 'secretString', description: '', required: true}], oauth2: {},
+          guide: {startURL: 'https://console.cloud.google.com/apis/credentials', steps: ['Enable the Gmail API.', 'Create an OAuth client.']},
+        },
+        {
+          id: 'workspaceServiceAccount', displayName: 'Workspace domain-wide delegation', description: 'Administrators delegate a domain.',
+          type: 'serviceAccount', fields: [{name: 'service_account_key', type: 'secretString', description: '', required: true}],
+        },
+      ],
+    },
+  },
+};
 
 function renderConnectorForm(
   manifest: unknown,

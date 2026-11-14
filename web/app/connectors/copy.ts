@@ -9,7 +9,7 @@
 /** Every string the Connectors page says outside a Connector's own manifest. */
 export const CONNECTORS_COPY = {
   heading: 'Connectors',
-  localNote: 'local',
+  localNote: 'Local connections',
   loading: 'Loading Connectors…',
   loadingRelease: 'Loading Connector release…',
   setupSaved: 'Restart the application to use new settings. A new key applies on the next Connector call.',
@@ -30,6 +30,21 @@ export const CONNECTORS_COPY = {
   resizeList: 'Resize the connector list',
   conflict: 'The same connector and connection name use different module versions. Align the Flow dependencies before configuring.',
   unsupported: 'Automatic setup requires an exact official release and a static ConnectionName.',
+  conflictTitle: 'Module versions conflict',
+  unsupportedTitle: 'Automatic setup is unavailable',
+  expiredTitle: 'Authorization expired',
+  missingTitle: 'Not set up yet',
+  reauthorizeAction: 'Reauthorize',
+  setUpAction: 'Set up',
+  expiredNextStep(connectorName: string): string {
+    return `${connectorName} calls fail until you authorize this connection again.`;
+  },
+  missingNextStep(connectorName: string): string {
+    return `Complete the setup below to start using ${connectorName}.`;
+  },
+  connectionCount(count: number): string {
+    return count === 1 ? '1 connection' : `${count} connections`;
+  },
   connectionRenderFailed(detail: string): string {
     return `This connection could not be shown: ${detail}`;
   },

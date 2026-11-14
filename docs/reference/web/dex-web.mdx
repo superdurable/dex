@@ -189,7 +189,7 @@ Changed in 1.41.0: Dex Web has one UI. The **v1** and **v2** version picker is g
 
 Features that need Flow Definition Graphs, and features that are still changing, are **Experimental**. Each section appears only when it applies. Changed in 1.45.4: each carries the word **Experimental**. The left rail lists **Designs**, **Work Queue**, and **Connectors** under its **Experimental** heading, after **Flows**, in place of the header's **Experimental** menu. On the run page, **Conversation** and **Actions** are tabs. Changed in 1.45.5: these two tabs are on every run and show only their icon and name, without the word **Experimental**. See [Run tabs](#run-tabs). See [Flows and Run pages](#v1-pages).
 
-**Connectors** sets up the local Connector connections of **dexcli dev**. Changed in 1.42.0: it appears whenever **dexcli dev** runs, even with no Flow Definition Graph files, and **+ Add** adds a named connection that no loaded Flow uses, such as one an agent tool opens. See [Local Connector setup](/reference/web/local-connector-setup#add-a-connection).
+**Connectors** sets up the local Connector connections of **dexcli dev**. Changed in 1.42.0: it appears whenever **dexcli dev** runs, even with no Flow Definition Graph files, and **Add** adds a named connection that no loaded Flow uses, such as one an agent tool opens. Changed in 1.45.5: the button reads **Add** instead of **+ Add**. See [Local Connector setup](/reference/web/local-connector-setup#add-a-connection).
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund

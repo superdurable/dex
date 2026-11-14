@@ -10,64 +10,236 @@
 
 /* The Connectors page reuses the Run and Work Queue workspace classes; these rules cover only what they lack. */
 
+/* Typography, spacing and colour build this page, not boxes. Colour means a state or an action. */
+
+/* Selectors start at `html .v2-shell.v2-connectors` to outrank the shared experimental styles. */
+html .v2-shell.v2-connectors {
+  --cx-font: var(--ui-font-sans);
+  --cx-mono: var(--ui-font-mono);
+  --cx-pane: var(--ui-page);
+  --cx-surface: var(--ui-surface);
+  --cx-ink: var(--ui-ink);
+  --cx-ink-2: var(--ui-ink-2);
+  --cx-ink-3: var(--ui-ink-3);
+  --cx-hover: color-mix(in srgb, var(--ui-ink) 4%, transparent);
+  --cx-selected: color-mix(in srgb, var(--ui-ink) 7%, transparent);
+  --cx-well: color-mix(in srgb, var(--ui-ink) 4.5%, transparent);
+  --cx-field: color-mix(in srgb, var(--ui-ink) 3.5%, var(--ui-surface));
+  --cx-field-edge: color-mix(in srgb, var(--ui-ink) 10%, transparent);
+  --cx-avatar: color-mix(in srgb, var(--ui-ink) 8%, var(--ui-surface));
+  --cx-ready: var(--tone-done-ink);
+  --cx-ready-dot: var(--tone-accent);
+  --cx-ready-soft: color-mix(in srgb, var(--tone-accent) 7%, transparent);
+  --cx-raised: var(--ui-surface);
+  --cx-expired: var(--tone-wait-ink);
+  --cx-expired-soft: color-mix(in srgb, var(--tone-wait) 16%, transparent);
+  --cx-missing: var(--kind-input);
+  --cx-missing-soft: color-mix(in srgb, var(--kind-input) 13%, transparent);
+  --cx-conflict: var(--tone-fail-ink);
+  --cx-conflict-soft: color-mix(in srgb, var(--tone-fail) 12%, transparent);
+  --cx-cta: var(--tone-accent);
+  --cx-cta-on: var(--tone-accent-on);
+  --cx-focus: 0 0 0 3px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+  --cx-ease: cubic-bezier(0.2, 0, 0, 1);
+  --cx-fast: 140ms;
+  --cx-medium: 220ms;
+
+  font-family: var(--cx-font);
+}
+
+html[data-theme='dark'] .v2-shell.v2-connectors {
+  --cx-raised: color-mix(in srgb, var(--ui-ink) 12%, var(--ui-surface));
+}
+
 /* ---------------------------------------------------------------- sidebar */
 
-.v2-connectors .connector-row {
+/* The list pane is a quieter ground than the detail; the change of ground replaces the rule between them. */
+html .v2-shell.v2-connectors .rsw {
+  padding: 14px 10px;
+  border: 0;
+  background: var(--cx-pane);
+}
+
+html .v2-shell.v2-connectors .v2-work-queue-case {
+  background: var(--cx-surface);
+}
+
+html .v2-shell.v2-connectors .connector-list-head {
+  gap: 6px;
+  min-height: 30px;
+  margin: 0 0 8px;
+  padding: 0 4px 0 8px;
+}
+
+.connector-list-title {
+  color: var(--cx-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.connector-list-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--cx-well);
+  color: var(--cx-ink-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+html .v2-shell.v2-connectors .connector-add-button {
+  display: inline-flex;
   align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 5px 10px 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cx-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color var(--cx-fast) var(--cx-ease), transform var(--cx-fast) var(--cx-ease);
+}
+
+html .v2-shell.v2-connectors .connector-add-button:hover,
+html .v2-shell.v2-connectors .connector-add-button[aria-pressed='true'] {
+  background: var(--cx-selected);
+}
+
+html .v2-shell.v2-connectors .connector-add-button:active {
+  transform: scale(0.97);
+}
+
+html .v2-shell.v2-connectors .rsw-scroll[data-zone='list'] {
+  padding-top: 0;
+  border: 0;
+}
+
+html .v2-shell.v2-connectors .rsw-list {
+  display: grid;
+  gap: 2px;
+}
+
+html .v2-shell.v2-connectors .rsw-item + .rsw-item {
+  border: 0;
+}
+
+html .v2-shell.v2-connectors .connector-row {
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 10px;
+  transition: background-color var(--cx-fast) var(--cx-ease), transform var(--cx-fast) var(--cx-ease);
+}
+
+html .v2-shell.v2-connectors .connector-row:hover {
+  background: var(--cx-hover);
+}
+
+html .v2-shell.v2-connectors .connector-row:active {
+  transform: scale(0.99);
+}
+
+html .v2-shell.v2-connectors .rsw-item[data-selected='true'] .connector-row {
+  border: 0;
+  background: var(--cx-selected);
+}
+
+.connector-row-text {
+  display: grid;
+  min-width: 0;
+}
+
+html .v2-shell.v2-connectors .connector-row .rsw-id {
+  color: var(--cx-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+html .v2-shell.v2-connectors .connector-row .rsw-state {
+  overflow: hidden;
+  color: var(--cx-ink-3);
+  font-family: var(--cx-mono);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Brand-neutral: an initial on a soft square, so colour stays free for states. */
+.connector-avatar {
+  display: inline-grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--cx-avatar);
+  color: var(--cx-ink-2);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.connector-avatar[data-size='lg'] {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--cx-ink);
+  font-size: 19px;
 }
 
 .connector-status {
-  justify-self: end;
-  padding: 0 6px;
-  border: 1px solid var(--p-line);
-  border-radius: var(--r-sm);
-  background: var(--p-surface-2);
-  color: var(--p-ink-2);
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cx-ink-3);
+  font-size: 11.5px;
   font-weight: 600;
   line-height: 16px;
   white-space: nowrap;
 }
 
+.connector-status-icon {
+  flex: none;
+}
+
+/* Ready is quiet: a small green mark beside muted text. What needs action carries the colour. */
 .connector-status[data-status='ready'] {
-  border-color: transparent;
-  background: var(--color-done-subtle);
-  color: var(--color-done-ink);
+  color: var(--cx-ink-3);
+  font-weight: 500;
 }
 
-.connector-status[data-status='expired'],
-.connector-status[data-status='conflict'],
-.connector-status[data-status='reauthorization required'] {
-  border-color: transparent;
-  background: var(--color-attention-subtle);
-  color: var(--color-attention-ink);
+.connector-status[data-status='ready'] .connector-status-icon {
+  color: var(--cx-ready-dot);
 }
 
-.connector-status[data-status='unsupported'] {
-  background: transparent;
-  color: var(--p-ink-2);
+.connector-status[data-status='expired'] {
+  color: var(--cx-expired);
 }
 
-.connector-store-entry code,
-.connector-copy-value code {
-  color: var(--p-ink-1);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+.connector-status[data-status='missing'] {
+  color: var(--cx-missing);
 }
 
-.v2-connectors .connector-copy {
-  flex: 0 0 auto;
-  padding: 0 6px;
-  font-size: 10px;
-  line-height: 16px;
+.connector-status[data-status='conflict'] {
+  color: var(--cx-conflict);
 }
 
+/* Setup steps hang under their connection, aligned with its name. */
 .connector-setup-tabs {
   display: grid;
   gap: 1px;
-  padding: 2px 0 8px 10px;
+  padding: 2px 0 6px 30px;
+  animation: connector-reveal var(--cx-medium) var(--cx-ease);
 }
 
 .connector-setup-tab {
@@ -75,29 +247,48 @@
   width: 100%;
   min-width: 0;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   grid-template-columns: auto minmax(0, 1fr);
-  padding: 4px 8px;
+  padding: 5px 8px;
   border: 0;
-  border-left: 2px solid transparent;
+  border-radius: 8px;
   background: transparent;
-  color: var(--p-ink-1);
+  color: var(--cx-ink-2);
   text-align: left;
+  transition: background-color var(--cx-fast) var(--cx-ease), color var(--cx-fast) var(--cx-ease);
 }
 
 .connector-setup-tab:hover:not(:disabled) {
-  background: var(--color-hover);
+  background: var(--cx-hover);
+  color: var(--cx-ink);
 }
 
 .connector-setup-tab[aria-selected='true'] {
-  border-left-color: var(--p-run-active);
-  background: var(--p-surface-3);
-  color: var(--p-ink-0);
+  color: var(--cx-ink);
 }
 
-.connector-setup-tab[data-configured='true'] .apg-mark {
-  border-color: var(--p-run-done);
-  color: var(--p-run-done);
+.connector-step-mark {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--cx-well);
+  color: var(--cx-ink-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  transition: background-color var(--cx-fast) var(--cx-ease), color var(--cx-fast) var(--cx-ease);
+}
+
+.connector-setup-tab[aria-selected='true'] .connector-step-mark {
+  background: var(--cx-ink);
+  color: var(--cx-surface);
+}
+
+.connector-setup-tab[data-configured='true'] .connector-step-mark {
+  background: transparent;
+  color: var(--cx-ready-dot);
 }
 
 .connector-setup-tab-copy {
@@ -113,94 +304,365 @@
 }
 
 .connector-setup-tab-copy b {
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .connector-setup-tab-copy small {
-  color: var(--p-ink-2);
-  font-size: 10px;
+  color: var(--cx-ink-3);
+  font-family: var(--cx-mono);
+  font-size: 10.5px;
 }
 
-.v2-connectors .rsw-row:focus-visible,
+html .v2-shell.v2-connectors .rsw-row:focus-visible,
 .connector-setup-tab:focus-visible,
-.connector-add-auth-method-menu button:focus-visible {
+.connector-add-auth-method-menu button:focus-visible,
+.connector-guide-toggle:focus-visible,
+.connector-guide-start:focus-visible,
+html .v2-shell.v2-connectors :is(.v2-ghost, .v2-primary, .rhd-stop, .connector-add-button):focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  box-shadow: var(--cx-focus);
 }
 
 /* ------------------------------------------------------------ main panel */
 
 /* A setup surface, not a reading column: its forms and Studio frames use the panel width. */
-.v2-connectors .v2-work-queue-case .v2-case {
-  max-width: 56rem;
+html .v2-shell.v2-connectors .v2-work-queue-case .v2-case {
+  max-width: 46rem;
+  margin: 0;
+  padding: 28px 36px 44px;
+}
+
+/* A newly selected connection fades in, so the switch reads as one motion. */
+.connector-detail {
+  animation: connector-reveal var(--cx-medium) var(--cx-ease);
+}
+
+html .v2-shell.v2-connectors .connector-detail-head {
+  display: grid;
+  align-items: start;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 0;
+  border: 0;
+}
+
+.connector-detail-title {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+html .v2-shell.v2-connectors .connector-detail-head .sc-title {
+  margin: 0;
+  color: var(--cx-ink);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.connector-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+  margin: 0;
+  color: var(--cx-ink-3);
+  font-size: 12.5px;
+}
+
+/* A middle dot between facts instead of a pill around each. */
+.connector-detail-meta > * + *::before {
+  margin: 0 8px;
+  color: var(--cx-ink-3);
+  content: '·';
+  font-family: var(--cx-font);
+  opacity: 0.6;
+}
+
+.connector-detail-meta .connector-status {
+  font-size: 12.5px;
+}
+
+html .v2-shell.v2-connectors .connector-detail-meta .rsw-state,
+.connector-release {
+  font-family: var(--cx-mono);
+  font-size: 12px;
+}
+
+.connector-expiry time {
+  border-bottom: 1px dotted color-mix(in srgb, currentColor 45%, transparent);
+  cursor: help;
+}
+
+.connector-standalone-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 0;
+  color: var(--cx-ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.connector-standalone-note svg {
+  flex: none;
+  margin-top: 2.5px;
+}
+
+/* The next step: one tinted line with one action. The tint is the state's colour, at low strength. */
+.connector-next {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-top: 22px;
+  padding: 12px 12px 12px 16px;
+  border-radius: 14px;
+  background: var(--cx-well);
+  animation: connector-reveal var(--cx-medium) var(--cx-ease) 60ms backwards;
+}
+
+.connector-next[data-tone='expired'] {
+  background: var(--cx-expired-soft);
+}
+
+.connector-next[data-tone='missing'] {
+  background: var(--cx-missing-soft);
+}
+
+.connector-next[data-tone='conflict'] {
+  background: var(--cx-conflict-soft);
+}
+
+.connector-next-icon {
+  color: var(--cx-ink-3);
+}
+
+.connector-next[data-tone='expired'] .connector-next-icon {
+  color: var(--cx-expired);
+}
+
+.connector-next[data-tone='missing'] .connector-next-icon {
+  color: var(--cx-missing);
+}
+
+.connector-next[data-tone='conflict'] .connector-next-icon {
+  color: var(--cx-conflict);
+}
+
+.connector-next-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connector-next-title,
+.connector-next-body {
   margin: 0;
 }
 
-.v2-connectors .sc-head h2 {
-  margin: 0;
+.connector-next-title {
+  color: var(--cx-ink);
+  font-size: 13.5px;
+  font-weight: 650;
 }
 
-.v2-connectors .sc > .v2-error {
-  margin: 12px 0 0;
+.connector-next-body {
+  color: var(--cx-ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+html .v2-shell.v2-connectors :is(.v2-primary, .v2-ghost) {
+  border-radius: 8px;
+  transition:
+    background-color var(--cx-fast) var(--cx-ease),
+    border-color var(--cx-fast) var(--cx-ease),
+    color var(--cx-fast) var(--cx-ease),
+    box-shadow var(--cx-fast) var(--cx-ease),
+    transform var(--cx-fast) var(--cx-ease);
+}
+
+html .v2-shell.v2-connectors .v2-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 0;
+  background: var(--cx-cta);
+  color: var(--cx-cta-on);
+  font-size: 13px;
+  font-weight: 650;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--cx-cta) 30%, transparent);
+}
+
+html .v2-shell.v2-connectors .v2-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cx-cta) 88%, var(--cx-ink));
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--cx-cta) 70%, transparent);
+}
+
+html .v2-shell.v2-connectors :is(.v2-primary, .v2-ghost):active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+html .v2-shell.v2-connectors .v2-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 0;
+  background: var(--cx-well);
+  color: var(--cx-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+html .v2-shell.v2-connectors .v2-ghost:hover:not(:disabled) {
+  background: var(--cx-selected);
+}
+
+/* The next step's button wears its state's colour, so the form's green commit stays the only green. */
+html .v2-shell.v2-connectors .connector-next[data-tone='expired'] .connector-next-action {
+  background: var(--tone-wait);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--tone-wait) 40%, transparent);
+  color: var(--tone-wait-on);
+}
+
+html .v2-shell.v2-connectors .connector-next[data-tone='missing'] .connector-next-action {
+  background: var(--cx-missing);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--cx-missing) 30%, transparent);
+  color: var(--cx-surface);
+}
+
+html .v2-shell.v2-connectors .connector-next[data-tone='expired'] .connector-next-action:hover {
+  background: color-mix(in srgb, var(--tone-wait) 90%, var(--cx-ink));
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--tone-wait) 80%, transparent);
+}
+
+html .v2-shell.v2-connectors .connector-next[data-tone='missing'] .connector-next-action:hover {
+  background: color-mix(in srgb, var(--cx-missing) 86%, var(--cx-ink));
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--cx-missing) 70%, transparent);
+}
+
+.connector-next-action svg {
+  transition: transform var(--cx-fast) var(--cx-ease);
+}
+
+.connector-next-action:hover svg {
+  transform: translateX(2px);
+}
+
+.connector-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 0;
+}
+
+.connector-spinner {
+  animation: connector-spin 900ms linear infinite;
+}
+
+html .v2-shell.v2-connectors .sc > .v2-error,
+html .v2-shell.v2-connectors .connector-form > .v2-error {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--cx-conflict-soft);
+  color: var(--cx-conflict);
+  font-size: 12.5px;
 }
 
 .connector-notice {
   margin: 12px 0 0;
-  padding: 8px 10px;
-  border: 1px solid var(--p-line-soft);
-  border-radius: var(--r);
-  font-size: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--cx-well);
+  font-size: 12.5px;
   line-height: 1.45;
 }
 
 .connector-notice[data-tone='attention'] {
-  border-color: var(--color-attention-rule);
-  background: var(--color-attention-subtle);
-  color: var(--color-attention-ink);
+  background: var(--cx-expired-soft);
+  color: var(--cx-expired);
 }
 
 .connector-notice[data-tone='done'] {
-  border-color: var(--color-done-rule);
-  background: var(--color-done-subtle);
-  color: var(--color-done-ink);
+  background: var(--cx-ready-soft);
+  color: var(--cx-ink);
 }
 
 .connector-authorization-summary,
 .connector-form {
   display: grid;
-  gap: 16px;
-  margin-top: 16px;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 30px;
 }
 
-.connector-authorization-summary > .sc-block,
-.connector-form > .sc-block {
+html .v2-shell.v2-connectors :is(.connector-authorization-summary, .connector-form) > .sc-block {
   margin-top: 0;
+}
+
+/* Adding a connection has no header above it, so its first heading takes the page title's place. */
+html .v2-shell.v2-connectors .connector-add-form {
+  margin-top: 0;
+}
+
+html .v2-shell.v2-connectors .connector-add-form > .sc-block:first-child .sc-blockhead {
+  margin-bottom: 6px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+html .v2-shell.v2-connectors .connector-add-form + .connector-store-zone {
+  margin-top: 44px;
+}
+
+/* Section titles read as headings in sentence case, not as small capitals. */
+html .v2-shell.v2-connectors .v2-case .sc-blockhead {
+  margin: 0 0 4px;
+  color: var(--cx-ink);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+html .v2-shell.v2-connectors .v2-case .scx-purpose {
+  margin: 0;
+  color: var(--cx-ink-2);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .connector-authorization-complete {
   display: grid;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   margin: 0;
 }
 
-.connector-authorization-complete .apg-mark {
-  border-color: var(--color-done-ink);
-  color: var(--color-done-ink);
+.connector-done-icon {
+  color: var(--cx-ready-dot);
 }
 
 .connector-authorization-complete h3 {
   margin: 0;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 650;
 }
 
 .connector-authorization-complete p {
   margin: 2px 0 0;
-  color: var(--p-ink-1);
-  font-size: 11.5px;
+  color: var(--cx-ink-2);
+  font-size: 12.5px;
 }
 
 .connector-connection-settings,
@@ -208,7 +670,8 @@
 .connector-auth-methods,
 .connector-auth-method-cards {
   display: grid;
-  gap: 10px;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .connector-form fieldset {
@@ -222,105 +685,185 @@
   padding: 0;
 }
 
-.connector-field-group[data-optional='true'] {
-  padding-top: 12px;
-  border-top: 1px solid var(--p-line-soft);
+html .v2-shell.v2-connectors .connector-form legend.sc-blockhead {
+  margin-bottom: 12px;
 }
 
 .connector-field,
 .connector-field label,
 .connector-studio-field {
   display: grid;
-  gap: 3px;
+  gap: 6px;
   min-width: 0;
 }
 
 /* A form label names its input, so it reads as primary text, not muted metadata. */
-.connector-field .sc-fname,
-.connector-studio-field .sc-fname {
-  color: var(--p-ink-1);
-  font-size: 12px;
+html .v2-shell.v2-connectors :is(.connector-field, .connector-studio-field) .sc-fname {
+  color: var(--cx-ink);
+  font-size: 12.5px;
   font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.connector-field .sc-why,
-.connector-studio-field .sc-why {
-  font-size: 11px;
-  line-height: 1.45;
+html .v2-shell.v2-connectors :is(.connector-field, .connector-studio-field) .sc-why {
+  color: var(--cx-ink-3);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .connector-field-default {
   font-style: italic;
 }
 
-.v2-connectors .sc-why a,
-.connector-authorization-guide a {
-  color: var(--color-accent);
+html .v2-shell.v2-connectors .sc-why a,
+.connector-stepper a {
+  color: var(--cx-ink);
   overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--cx-fast) var(--cx-ease);
 }
 
-.v2-connectors .v2-case input:focus-visible {
-  border-color: var(--color-focus);
+html .v2-shell.v2-connectors .sc-why a:hover,
+.connector-stepper a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Filled fields: a soft ground and an inner hairline, no drawn border. */
+html .v2-shell.v2-connectors .v2-case :is(input:not([type='radio']):not([type='checkbox']), select) {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--cx-field);
+  box-shadow: inset 0 0 0 1px var(--cx-field-edge);
+  color: var(--cx-ink);
+  font: inherit;
+  font-size: 13px;
+  transition: box-shadow var(--cx-fast) var(--cx-ease), background-color var(--cx-fast) var(--cx-ease);
+}
+
+html .v2-shell.v2-connectors .v2-case :is(input:not([type='radio']):not([type='checkbox']), select):hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cx-ink) 18%, transparent);
+}
+
+html .v2-shell.v2-connectors .v2-case :is(input, select):focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  background: var(--cx-surface);
+  box-shadow: inset 0 0 0 1px var(--cx-cta), var(--cx-focus);
 }
 
-.v2-connectors .v2-case input[type='radio'] {
-  width: auto;
-  margin: 2px 0 0;
-  padding: 0;
-  accent-color: var(--color-cta);
+html .v2-shell.v2-connectors .v2-case input[aria-invalid='true'],
+html .v2-shell.v2-connectors .v2-case select[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1px var(--cx-conflict);
 }
 
-/* Radio cards: the chosen method reads like a selected run row, raised and ruled darker. */
-.connector-option {
+/* Authentication method: a segmented radio group; one indicator slides to the chosen method. */
+.connector-segmented {
+  position: relative;
   display: grid;
-  gap: 8px;
-  grid-template-columns: auto minmax(0, 1fr);
-  padding: 8px 10px;
-  border: 1px solid var(--p-line-soft);
-  border-radius: var(--r);
-  background: var(--p-surface-2);
+  gap: 2px;
+  grid-template-columns: repeat(var(--option-count, 2), minmax(0, 1fr));
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--cx-well);
+}
+
+.connector-segmented-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px - 2px * (var(--option-count, 2) - 1)) / var(--option-count, 2));
+  border-radius: 9px;
+  background: var(--cx-raised);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px color-mix(in srgb, var(--cx-ink) 6%, transparent);
+  transform: translateX(calc(var(--active-index, 0) * (100% + 2px)));
+  transition: transform var(--cx-medium) var(--cx-ease);
+  pointer-events: none;
+}
+
+.connector-segment {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 9px;
+  color: var(--cx-ink-2);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  transition: color var(--cx-fast) var(--cx-ease), background-color var(--cx-fast) var(--cx-ease);
+}
+
+.connector-segment:hover {
+  color: var(--cx-ink);
+}
+
+.connector-segment:has(input:checked) {
+  color: var(--cx-ink);
+}
+
+.connector-segment:has(input:focus-visible) {
+  box-shadow: var(--cx-focus);
+}
+
+/* The native radio stays in place for the keyboard and screen readers; the label draws the choice. */
+html .v2-shell.v2-connectors .v2-case .connector-segment-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
-.connector-option:hover {
-  border-color: var(--p-line);
-}
-
-.connector-option:has(input:checked) {
-  border-color: var(--p-ink-2);
-  background: var(--p-surface-3);
-}
-
-.connector-option:focus-within {
-  box-shadow: var(--focus-ring);
-}
-
-.connector-option > span,
-.connector-auth-method-card > header > span {
-  display: grid;
-  gap: 2px;
+.connector-segment-name {
   min-width: 0;
 }
 
-.connector-option b,
-.connector-auth-method-card b {
-  color: var(--p-ink-0);
-  font-size: 12.5px;
+.connector-segment-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--cx-ready);
+  font-size: 11px;
   font-weight: 600;
 }
 
-.connector-option em {
-  color: var(--color-accent);
-  font-size: 11px;
-  font-style: normal;
+.connector-segmented[data-layout='list'] {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.connector-option small,
-.connector-auth-method-card > header small {
-  color: var(--p-ink-2);
-  font-size: 11px;
+.connector-segmented[data-layout='list'] .connector-segmented-indicator {
+  display: none;
+}
+
+.connector-segmented[data-layout='list'] .connector-segment {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.connector-segmented[data-layout='list'] .connector-segment:has(input:checked) {
+  background: var(--cx-raised);
+}
+
+.connector-auth-method-description {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--cx-ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  animation: connector-reveal var(--cx-medium) var(--cx-ease);
 }
 
 .connector-auth-method-cards-header {
@@ -330,17 +873,17 @@
   gap: 8px;
 }
 
-.connector-auth-method-cards-header .sc-blockhead {
+html .v2-shell.v2-connectors .connector-auth-method-cards-header .sc-blockhead {
   margin: 0;
 }
 
 .connector-auth-method-card {
   display: grid;
-  gap: 10px;
-  padding: 10px 12px 12px;
-  border: 1px solid var(--p-line-soft);
-  border-radius: var(--r);
-  background: var(--p-surface-2);
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--cx-well);
+  animation: connector-reveal var(--cx-medium) var(--cx-ease);
 }
 
 .connector-auth-method-card > header {
@@ -348,6 +891,23 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.connector-auth-method-card > header > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connector-auth-method-card b {
+  color: var(--cx-ink);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.connector-auth-method-card > header small {
+  color: var(--cx-ink-2);
+  font-size: 12px;
 }
 
 .connector-add-auth-method {
@@ -363,102 +923,280 @@
   width: max-content;
   min-width: 14rem;
   max-width: 22rem;
-  margin-top: 4px;
+  margin-top: 6px;
   padding: 4px;
-  border: 1px solid var(--p-line);
-  border-radius: var(--r);
-  background: var(--p-surface-2);
-  box-shadow: var(--shadow-pop);
+  border-radius: 12px;
+  background: var(--cx-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cx-ink) 8%, transparent), 0 14px 32px -12px rgba(15, 23, 42, 0.35);
+  animation: connector-pop var(--cx-fast) var(--cx-ease);
 }
 
 .connector-add-auth-method-menu button {
   display: grid;
   gap: 1px;
-  padding: 6px 8px;
+  padding: 7px 10px;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: 8px;
   background: transparent;
-  color: var(--p-ink-0);
+  color: var(--cx-ink);
   text-align: left;
+  transition: background-color var(--cx-fast) var(--cx-ease);
 }
 
 .connector-add-auth-method-menu button:hover,
 .connector-add-auth-method-menu button:focus-visible {
-  background: var(--p-surface-3);
+  background: var(--cx-hover);
 }
 
 .connector-add-auth-method-menu b {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .connector-add-auth-method-menu small {
-  color: var(--p-ink-2);
-  font-size: 10.5px;
+  color: var(--cx-ink-3);
+  font-size: 11.5px;
 }
 
+/* Authorization guide: a numbered stepper that folds away; its start link and Redirect URI stay visible. */
 .connector-authorization-guide {
   display: grid;
-  gap: 4px;
-  padding: 8px 10px;
-  border: 1px solid var(--p-line-soft);
-  border-radius: var(--r);
-  background: var(--p-surface-1);
-  color: var(--p-ink-1);
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  color: var(--cx-ink-2);
+  font-size: 13px;
+}
+
+.connector-guide-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 14px;
+}
+
+.connector-guide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: -6px;
+  padding: 4px 8px 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cx-ink);
+  cursor: pointer;
+  font: inherit;
+  transition: background-color var(--cx-fast) var(--cx-ease);
+}
+
+.connector-guide-toggle:hover {
+  background: var(--cx-hover);
+}
+
+.connector-guide-chevron {
+  color: var(--cx-ink-3);
+  transform: rotate(-90deg);
+  transition: transform var(--cx-medium) var(--cx-ease);
+}
+
+.connector-authorization-guide[data-expanded='true'] .connector-guide-chevron {
+  transform: rotate(0deg);
+}
+
+.connector-guide-title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.connector-guide-count {
+  color: var(--cx-ink-3);
   font-size: 12px;
+  font-weight: 500;
 }
 
-.connector-authorization-guide .rsw-zonehead,
-.connector-authorization-guide p,
-.connector-authorization-guide ol {
-  margin: 0;
+.connector-guide-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--cx-ink-2);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color var(--cx-fast) var(--cx-ease), background-color var(--cx-fast) var(--cx-ease);
 }
 
-.connector-authorization-guide ol {
-  display: grid;
-  gap: 3px;
-  padding-left: 18px;
+.connector-guide-start:hover {
+  background: var(--cx-hover);
+  color: var(--cx-ink);
+}
+
+.connector-guide-start-label {
+  color: var(--cx-ink-3);
+}
+
+.connector-guide-start-url {
+  overflow: hidden;
+  font-family: var(--cx-mono);
   font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Rows animate from 0fr to 1fr, so the guide opens to its natural height. */
+.connector-guide-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--cx-medium) var(--cx-ease), opacity var(--cx-medium) var(--cx-ease);
+}
+
+.connector-authorization-guide[data-expanded='true'] .connector-guide-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.connector-guide-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.connector-stepper {
+  display: grid;
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+}
+
+.connector-stepper li {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  padding-bottom: 14px;
+}
+
+/* A faint rail joins each number to the next. */
+.connector-stepper li:not(:last-child)::before {
+  position: absolute;
+  top: 26px;
+  bottom: 4px;
+  left: 10.5px;
+  width: 1px;
+  background: color-mix(in srgb, var(--cx-ink) 12%, transparent);
+  content: '';
+}
+
+.connector-stepper-mark {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--cx-well);
+  color: var(--cx-ink);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.connector-stepper-text {
+  padding-top: 2px;
+  color: var(--cx-ink-2);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .connector-redirect-uri {
   display: grid;
-  gap: 3px;
-  padding-top: 4px;
+  align-items: center;
+  gap: 4px 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px 8px 8px 14px;
+  border-radius: 12px;
+  background: var(--cx-well);
+}
+
+.connector-redirect-uri-label {
+  color: var(--cx-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .connector-copy-value {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
+}
+
+.connector-store-entry code,
+.connector-copy-value code {
+  min-width: 0;
+  color: var(--cx-ink);
+  font-family: var(--cx-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+html .v2-shell.v2-connectors .connector-copy {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cx-ink-3);
+}
+
+html .v2-shell.v2-connectors .connector-copy:hover {
+  background: var(--cx-selected);
+  color: var(--cx-ink);
+}
+
+html .v2-shell.v2-connectors .connector-copy[data-copied] {
+  color: var(--cx-ready-dot);
+}
+
+.connector-copy svg {
+  animation: connector-pop var(--cx-fast) var(--cx-ease);
 }
 
 .connector-studio-field-note {
   margin: 0;
-  padding: 6px 8px;
-  border: 1px dashed var(--p-line);
-  border-radius: 5px;
-  color: var(--p-ink-2);
-  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--cx-well);
+  color: var(--cx-ink-2);
+  font-size: 12.5px;
 }
 
 .connector-studio-field-note code {
-  font-family: var(--font-mono);
+  font-family: var(--cx-mono);
 }
 
 .connector-use .scx-step {
   margin: 0;
-  font-weight: 600;
+  color: var(--cx-ink);
+  font-size: 16px;
+  font-weight: 650;
 }
 
 .connector-use .scx-facts {
-  margin: 6px 0 12px;
+  margin: 8px 0 16px;
 }
 
 .connector-use-units {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .connector-studio-shell {
@@ -492,10 +1230,10 @@
   inset: 20px;
   padding: 12px;
   overflow: hidden;
-  border: 1px solid var(--p-line);
-  border-radius: var(--r-lg);
-  background: var(--p-surface-1);
-  box-shadow: var(--shadow-pop);
+  border-radius: 16px;
+  background: var(--cx-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cx-ink) 8%, transparent), 0 24px 60px -20px rgba(15, 23, 42, 0.45);
+  animation: connector-pop var(--cx-medium) var(--cx-ease);
 }
 
 .connector-studio-shell[data-expanded='true'] .connector-studio {
@@ -505,46 +1243,99 @@
 .connector-form-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+html .v2-shell.v2-connectors .connector-form-actions .v2-primary {
+  padding: 9px 18px;
 }
 
 .connector-connection-footer {
   display: grid;
   justify-items: start;
+  gap: 8px;
+  margin-top: 44px;
+}
+
+html .v2-shell.v2-connectors .connector-delete {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding-top: 12px;
-  border-top: 1px solid var(--p-line-soft);
-}
-
-.connector-connection-footer .rhd-stop {
-  margin-top: 0;
+  margin: 0 0 0 -10px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
+  color: var(--cx-conflict);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background-color var(--cx-fast) var(--cx-ease);
 }
 
-.connector-store-zone {
-  padding-top: 12px;
-  border-top: 1px solid var(--p-line-soft);
+html .v2-shell.v2-connectors .connector-delete:hover:not(:disabled) {
+  background: var(--cx-conflict-soft);
+}
+
+html .v2-shell.v2-connectors .connector-connection-footer .sc-why {
+  max-width: 40rem;
+  color: var(--cx-ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+html .v2-shell.v2-connectors .connector-store-zone {
+  margin-top: 28px;
+}
+
+html .v2-shell.v2-connectors .connector-store-zone .sc-blockhead {
+  color: var(--cx-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+html .v2-shell.v2-connectors .connector-store {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 6px 0 0;
+}
+
+.connector-store-entry {
+  display: contents;
 }
 
 .connector-store-entry dt {
   align-self: center;
+  padding: 4px 16px 4px 0;
+  color: var(--cx-ink-3);
+  font-size: 12px;
 }
 
 .connector-store-entry dd {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
+  min-height: 28px;
   margin: 0;
 }
 
-.connector-add-button {
-  margin-left: auto;
-  white-space: nowrap;
+.connector-studio-expand svg {
+  flex: none;
 }
 
-.connector-standalone-note {
-  margin: 8px 0 0;
+@keyframes connector-reveal {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes connector-pop {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes connector-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* A phone stacks the connection list above the selected connection instead of clipping it. */
@@ -559,12 +1350,72 @@
     display: none;
   }
 
-  .v2-connectors .v2-run-body > .rsw {
-    border-right: 0;
-    border-bottom: 1px solid var(--p-line-soft);
+  html .v2-shell.v2-connectors .v2-run-body > .rsw {
+    padding: 12px 8px;
   }
 
   .v2-connectors .v2-run-body > .v2-work-queue-case {
     overflow-y: visible;
+  }
+
+  /* The detail overflows its grid row here, so the scrolling body paints the detail's ground. */
+  html .v2-shell.v2-connectors > .v2-run-body {
+    background: var(--cx-surface);
+  }
+
+  html .v2-shell.v2-connectors .v2-run-body > .v2-work-queue-case {
+    background: transparent;
+  }
+
+  html .v2-shell.v2-connectors .v2-work-queue-case .v2-case {
+    padding: 22px 16px 36px;
+  }
+
+  .connector-next {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .connector-next-action {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .connector-segmented {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connector-segmented-indicator {
+    display: none;
+  }
+
+  .connector-segment {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .connector-segment:has(input:checked) {
+    background: var(--cx-raised);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+
+  .connector-redirect-uri {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html .v2-shell.v2-connectors .connector-store {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connector-store-entry dt {
+    padding: 8px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html .v2-shell.v2-connectors *,
+  html .v2-shell.v2-connectors *::before,
+  html .v2-shell.v2-connectors *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }
