@@ -126,8 +126,8 @@ before task queues existed. Since 1.45.1.
 - The Worker checks that Dex registered each stream on the requested task
   queue. When the Server confirms a different task queue, the Worker
   half-closes that stream and treats it as a permanent rejection with the gRPC
-  code **FAILED_PRECONDITION**. An older Server that ignored the task queue
-  therefore never receives work for the default task queue from this Worker.
+  code **FAILED_PRECONDITION**. So the Worker never runs default task queue
+  work from an older Server that ignored the task queue.
   [Readiness](#readiness) reports the rejection.
 - Each **PullQueueRegistrationState** in **pull_registration_state** and each
   **PullRegistrationError** carries the Worker's task queue in **task_queue**.

@@ -61,7 +61,7 @@ use crate::{
 /// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
 /// Attribute, and Channel arguments are checked against the [`Registry`].
 /// Construction performs no network I/O. Before its first service request, every Client negotiates
-/// protocol version 4. Successful negotiation and incompatibility errors are cached for its lifetime;
+/// protocol version 4 or 5. Successful negotiation and incompatibility errors are cached for its lifetime;
 /// transient negotiation failures are retried on the next call. Incompatibility errors name the
 /// Server version and required server-zd release. Concurrent first calls share one negotiation.
 /// An unreachable Server during negotiation returns the usual service error with its gRPC code.
@@ -195,6 +195,11 @@ impl Client {
     /// [`SdkError::InvalidArgument`] for an invalid initial hard-delete Attribute value or a
     /// definition that does not match the registered one. Returns [`SdkError::Service`] when the
     /// Server does not support the protocol version this SDK requires.
+    ///
+    /// Changed in 1.45.1: sends [`StartFlowOptions::task_queue`] as the Flow's task queue.
+    /// Returns [`SdkError::InvalidArgument`] for an invalid task queue name, and
+    /// [`SdkError::Service`] before sending the request when the task queue is not empty and the
+    /// Server protocol is older than 5.
     pub fn start_flow_with_options<SomeFlow: Flow>(
         &self,
         flow: &SomeFlow,
