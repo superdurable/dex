@@ -280,6 +280,12 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
        A started ``dexcli dev`` stops when the command exits instead of
        running on.
 
+    .. versionchanged:: 0.6.9
+       With ``connectors.mcp: auto``, ``run`` and ``connectors`` run
+       ``dexcli connectors mcp`` for this machine's ``connections.json``,
+       with any ``dex.server``, and stop it when the command exits, before
+       a ``dexcli dev`` the command started.
+
     Args:
         harness: The command's harness.
         argv: The arguments without the program name; ``None`` reads ``sys.argv``.

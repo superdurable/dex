@@ -236,6 +236,10 @@ function requireSessionSummarySetting(
  *
  * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
+ * Changed in 0.6.9: with `connectors.mcp: auto`, `run` and `connectors` run `dexcli connectors mcp` for this
+ * machine's `connections.json`, with any `dex.server`, and stop it when the command exits, before a `dexcli dev`
+ * the command started.
+ *
  * A harness command's bin calls it and exits with its result, because open connections can keep Node running. When
  * it returns or throws, its output on `io.stdout` and `io.stderr` has reached the operating system, so exiting at once
  * loses no line, even when a slow reader such as a pipe has not read them yet. It waits at most 2 seconds for that
