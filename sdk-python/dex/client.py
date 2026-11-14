@@ -65,6 +65,7 @@ from dex.flow_definition import (
 )
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
+from dex.flow_state import FlowState, flow_state_from_proto
 from dex.flow_options import (
     FlowTimeoutPolicy,
     IdReusePolicy,
@@ -723,17 +724,12 @@ class Client:
         Args:
             flow_id: The non-empty Flow ID to describe.
 
-        .. versionchanged:: 1.45.2
-            Also returns the Flow's task queue in ``task_queue``. The call now sends
-            a second FlowService request that reads the run's full committed state,
-            including its Attributes and completed Step outputs.
-
         Returns:
-            Flow ID, run ID, Flow type, status, UTC start time, and task queue.
+            Flow ID, run ID, Flow type, status, and UTC start time.
 
         Raises:
             FlowNotFoundError: If ``flow_id`` does not exist.
-            DexServiceError: If FlowService cannot return the summary or the state.
+            DexServiceError: If FlowService cannot return the summary.
             RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = cast(
@@ -746,27 +742,80 @@ class Client:
                 "existing",
             ),
         )
-        state = cast(
-            pb.GetFlowStateResponse,
-            self._call(
-                self._service.GetFlowState,
-                pb.GetFlowStateRequest(
-                    flow_id=response.flow_run_id.flow_id,
-                    run_id=response.flow_run_id.run_id,
-                ),
-                "describe_flow",
-                flow_id,
-                "existing",
-            ),
-        )
         return FlowInfo(
             response.flow_run_id.flow_id,
             response.flow_run_id.run_id,
             response.flow_type,
             self._map_flow_status(response.flow_status),
             response.start_time.ToDatetime(tzinfo=timezone.utc),
-            state.flow_config.worker_target.task_queue,
         )
+
+    def get_flow_state(self, flow_id: str) -> FlowState:
+        """Read the open Step executions, their latest failures, and the task queue.
+
+        .. versionadded:: 1.45.2
+
+        Use ``get_flow_state`` when a Flow is still running and you need to know
+        why. It tells a healthy Flow apart from a Flow whose active Step keeps
+        failing and retrying. Each ``ActiveStepExecution`` reports its Step type,
+        execution number, and phase. While a WaitFor or Execute call is open,
+        ``invocation`` reports its attempt and whether it is pending, running, or
+        in retry backoff. ``last_failure`` reports the latest failed attempt of
+        that call: its attempt number, error type, message, and stack trace. A
+        Step that has not failed has no ``last_failure``.
+
+        The result also reports the Flow's task queue in ``task_queue``. ``""``
+        means the default task queue.
+
+        The call reads committed server state once and does not wait. No Worker
+        runs. Poll it, for example in a test harness, to wait for a Step to start
+        failing. Use ``wait_for_flow`` or ``wait_for_step_completion`` to wait for
+        completion instead. A closed run stays readable until Dex purges it and
+        reports no open Step executions.
+
+        Example:
+            .. code-block:: python
+
+                state = client.get_flow_state("order-42")
+                print(f"task queue: {state.task_queue or 'default'}")
+                for step in state.active_step_executions:
+                    failure = step.last_failure
+                    if failure is None:
+                        phase = step.invocation.phase if step.invocation else step.phase
+                        print(f"{step.step_execution_id} is {phase.value}")
+                        continue
+                    next_attempt = step.invocation.attempt if step.invocation else None
+                    print(
+                        f"{step.step_execution_id} attempt {failure.attempt} failed "
+                        f"with {failure.error_type}: {failure.detail}; "
+                        f"next attempt {next_attempt}"
+                    )
+
+        Args:
+            flow_id: The non-empty ID of an existing Flow.
+
+        Returns:
+            The open Step executions and the task queue of the current run, or of
+            the latest run when no run is open.
+
+        Raises:
+            ValueError: If ``flow_id`` is empty.
+            FlowNotFoundError: If ``flow_id`` does not exist.
+            DexServiceError: For other service or transport failures.
+            RuntimeError: If the Server reports a protocol range without protocol
+                4, or returns a malformed Step execution ID.
+        """
+        response = cast(
+            pb.GetFlowStateResponse,
+            self._call(
+                self._service.GetFlowState,
+                pb.GetFlowStateRequest(flow_id=require_name(flow_id)),
+                "get_flow_state",
+                flow_id,
+                "existing",
+            ),
+        )
+        return flow_state_from_proto(flow_id, response)
 
     def get_attributes(
         self,

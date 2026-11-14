@@ -44,14 +44,6 @@ class FlowInfo:
         flow_type: The registered Flow type name.
         status: The run's current lifecycle status.
         started_at: The timezone-aware server start timestamp.
-        task_queue: The task queue whose Workers run this Flow's Steps and
-            RPCs. ``""`` means the default task queue. Dex fixes the task queue
-            when the Flow starts, so it never changes during a run. Read it from
-            a Client without a Worker to see which Workers must serve the Flow.
-            The field defaults to ``""`` so positional construction with five
-            arguments keeps working.
-
-            .. versionadded:: 1.45.2
     """
 
     flow_id: str
@@ -59,7 +51,6 @@ class FlowInfo:
     flow_type: str
     status: FlowStatus
     started_at: datetime
-    task_queue: str = ""
 
 
 @dataclass(frozen=True)
