@@ -124,6 +124,7 @@ def test_sessions_picker_switches_session(
         [
             {"prompt": "alpha session turn", "steps": [{"text": "ALPHA-DONE"}]},
             {"prompt": "beta session turn", "steps": [{"text": "BETA-DONE"}]},
+            {"prompt": "alpha again turn", "steps": [{"text": "ALPHA-AGAIN-DONE"}]},
         ]
     )
     alpha = start_chat(run)
@@ -146,10 +147,19 @@ def test_sessions_picker_switches_session(
     else:
         raise AssertionError(f"could not select {alpha_id}\n{beta.describe()}")
     beta.press("enter")
-    beta.wait_for_text(f"── session {alpha_id} ──", timeout_seconds=60)
-    beta.wait_for_text("ALPHA-DONE", timeout_seconds=60)
-    lines = beta.screen.all_lines()
-    separator = max(i for i, line in enumerate(lines) if f"── session {alpha_id} ──" in line)
-    assert any("ALPHA-DONE" in line for line in lines[separator:]), beta.describe()
+    # The terminal UI starts again on the chosen session, as a resume of it.
+    beta.wait_until(
+        lambda screen: any(
+            "session:" in line and f"{alpha_id} (resumed)" in line for line in screen.display()
+        ),
+        f"launch screen of {alpha_id} as resumed",
+        timeout_seconds=60,
+    )
+    beta.wait_for_display("ALPHA-DONE", timeout_seconds=60)
     beta.wait_for_display(READY_STATUS)
+    display = beta.screen.display()
+    assert any("alpha session turn" in line for line in display), beta.describe()
+    assert not any(beta_id in line for line in display), beta.describe()
+    assert not any("BETA-DONE" in line for line in display), beta.describe()
+    run_turn(beta, "alpha again turn", "ALPHA-AGAIN-DONE")
     assert exit_chat(beta) == alpha_id
