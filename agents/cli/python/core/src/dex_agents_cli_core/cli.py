@@ -140,6 +140,7 @@ from dex_agents_cli_core.session_lease import (
     SessionLeaseHolder,
     SessionLeaseWaitInterrupted,
     build_lease_lost_line,
+    build_lease_unconfirmed_line,
     format_lease_holder,
     is_waiting_line_animated,
     terminal_columns,
@@ -182,6 +183,7 @@ from dex_agents_cli_core.terminal_ui.worker_host import (
     ACQUIRE_SESSION_LEASE,
     RELEASE_SESSION_LEASE,
     SESSION_LEASE_LOST,
+    SESSION_LEASE_UNCONFIRMED,
     SESSION_UNAVAILABLE,
     WORKER_HOST_COMMAND,
     HostedRun,
@@ -544,6 +546,7 @@ class _HostedSessionLease:
         self._lease = lease
         self._reports = reports
         lease.lost.add_done_callback(self._report_lost)
+        lease.unconfirmed.add_done_callback(self._report_unconfirmed)
 
     async def acquire(self, params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
         """Try once for ``params.session_id``'s lease after checking that the session can open.
@@ -598,6 +601,12 @@ class _HostedSessionLease:
                 "lease": dataclasses.asdict(holder),
             }
         )
+
+    def _report_unconfirmed(self, unconfirmed: asyncio.Future[str]) -> None:
+        if not unconfirmed.cancelled():
+            self._reports.channel.post(
+                {"type": SESSION_LEASE_UNCONFIRMED, "session_id": unconfirmed.result()}
+            )
 
 
 class _HostedCliRun:
@@ -1044,26 +1053,29 @@ async def _wait_for_session_lease(
 
 
 async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) -> bool:
-    """Run the chat until it ends or another terminal takes the session.
+    """Run the chat until it ends, another terminal takes the session, or no renewal confirms it.
 
     Returns:
-        The chat's result, or ``False`` when the lease was lost.
+        The chat's result, or ``False`` when the lease was lost or unconfirmed.
     """
     chatting = asyncio.create_task(chat.run())
     try:
-        waited: set[asyncio.Future[Any]] = {chatting, lease.lost}
+        waited: set[asyncio.Future[Any]] = {chatting, lease.lost, lease.unconfirmed}
         await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
-        # A chat whose session was taken may fail at the same time; the lost lease explains it.
-        if not lease.lost.done():
+        # A chat whose lease ended may fail at the same time; the lease explains it.
+        if not lease.lost.done() and not lease.unconfirmed.done():
             return chatting.result()
     finally:
         chatting.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await _end_cancelled_chat(chatting)
-    session_id, holder = lease.lost.result()
     # The newline ends the prompt line, which is on standard output.
     print(flush=True)
-    print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+    if lease.lost.done():
+        session_id, holder = lease.lost.result()
+        print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+    else:
+        print(build_lease_unconfirmed_line(lease.unconfirmed.result()), file=sys.stderr)
     return False
 
 

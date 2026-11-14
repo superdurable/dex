@@ -43,7 +43,14 @@ from dex_agents.testing import (
     wait_until,
 )
 from dex_agents_cli_core import SESSION_ACTION_PERMISSION
-from dex_agents_cli_core.session_task_queues import build_takeover_line
+from dex_agents_cli_core.harness import (
+    current_session_environment_identity,
+    session_start_environment,
+)
+from dex_agents_cli_core.session_task_queues import (
+    build_takeover_line,
+    describe_session_environment_identity,
+)
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.reasoning_effort_cli import (
     REASONING_EFFORTS_ENVIRONMENT_VARIABLE,
@@ -254,7 +261,7 @@ async def test_resume_with_another_workspace_takes_the_session_over_there(
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
-    first_workspace = os.path.realpath(cli_home.home / "dex-agent-workspace")
+    first_identity = _environment_identity(cli_home, cli_home.home / "dex-agent-workspace")
     first = cli_home.spawn()
     session_id = await read_session_id(first)
     await expect(first, "> ")
@@ -264,13 +271,8 @@ async def test_resume_with_another_workspace_takes_the_session_over_there(
     cli_home.write_config(config_yaml({**NO_CONNECTORS, "workspace": str(other)}))
     # Since 0.6.7 the other environment takes the session over, and its tool Steps then run there.
     second = cli_home.spawn("--resume", session_id)
-    host = socket.gethostname()
-    await expect(
-        second,
-        build_takeover_line(
-            session_id, f"{host}:{first_workspace}", f"{host}:{os.path.realpath(other)}"
-        ),
-    )
+    other_identity = _environment_identity(cli_home, other)
+    await expect(second, build_takeover_line(session_id, first_identity, other_identity))
     assert await read_session_id(second) == session_id
     await expect(second, "> ")
     second.sendline('call write_file {"path": "from-other.txt", "content": "b"}')
@@ -281,6 +283,12 @@ async def test_resume_with_another_workspace_takes_the_session_over_there(
     assert await wait_for_exit(second) == 0
     assert (other / "from-other.txt").exists()
     assert not (cli_home.home / "dex-agent-workspace" / "from-other.txt").exists()
+
+
+def _environment_identity(cli_home: CliHome, workspace: Path) -> str:
+    """Return the identity text a takeover line shows for this home's file and a workspace."""
+    identity = current_session_environment_identity(cli_home.config_path, workspace)
+    return describe_session_environment_identity(session_start_environment(identity))
 
 
 async def test_resume_of_an_unknown_session_fails(cli_home: CliHome) -> None:

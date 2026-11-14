@@ -53,6 +53,10 @@ DEFAULT_COLUMNS = 80
 LEASE_CALL_TIMEOUT_SECONDS = 5.0
 #: How long the release at exit may take; the lease expires anyway.
 LEASE_RELEASE_TIMEOUT_SECONDS = 2.0
+#: The share of the TTL before the confirmed expiry at which an unconfirmed lease ends the chat.
+RENEWAL_SAFETY_MARGIN_RATIO = 0.2
+#: The exit code of a chat whose lease no renewal confirmed in time.
+LEASE_UNCONFIRMED_EXIT_CODE = 1
 _HOST_NAME_LIMIT = 255
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,6 +136,13 @@ class HeldSessionLease:
     opener then stops pulling that session's task queue. A try that did not
     answer, such as one Ctrl-C cancelled, may still have taken the lease, so
     ``release`` releases that session too.
+
+    The lease counts as confirmed until the local time at which the last
+    successful acquire or renewal was sent, plus the TTL. When no renewal
+    confirms it again by that time less ``RENEWAL_SAFETY_MARGIN_RATIO`` of the
+    TTL, renewing stops, the opener stops pulling the session's task queue,
+    and ``unconfirmed`` completes with the session ID. The lease then expires
+    before another terminal can take the session; nothing releases it.
     """
 
     def __init__(self, opener: SessionOpener) -> None:
@@ -145,9 +156,9 @@ class HeldSessionLease:
         self._session_id: str | None = None
         self._unanswered_session_ids: set[str] = set()
         self._renewing: asyncio.Task[None] | None = None
-        self.lost: asyncio.Future[tuple[str, SessionTerminalLease]] = (
-            asyncio.get_running_loop().create_future()
-        )
+        loop = asyncio.get_running_loop()
+        self.lost: asyncio.Future[tuple[str, SessionTerminalLease]] = loop.create_future()
+        self.unconfirmed: asyncio.Future[str] = loop.create_future()
 
     @property
     def session_id(self) -> str | None:
@@ -189,22 +200,76 @@ class HeldSessionLease:
         await asyncio.gather(*(self._opener.release(session_id) for session_id in session_ids))
 
     async def _renew(self, session_id: str) -> None:
-        while True:
-            await asyncio.sleep(self._holder.renew_interval_seconds)
-            try:
-                result = await self._opener.renew(session_id)
-            except (DexServiceError, TimeoutError) as error:
-                _LOGGER.warning("cannot renew the session lease: session=%s: %s", session_id, error)
-                continue
-            if result.is_acquired or result.lease is None:
-                continue
-            if self._session_id == session_id:
-                self._session_id = None
-            # The other terminal runs the session now, so this command stops pulling its queue.
-            self._opener.leave(session_id)
+        loop = asyncio.get_running_loop()
+        ttl = self._holder.ttl_seconds
+        margin = ttl * RENEWAL_SAFETY_MARGIN_RATIO
+        interval = self._holder.renew_interval_seconds
+        confirmed_until = loop.time() + ttl
+        next_renewal_at = loop.time() + interval
+        renewing: asyncio.Task[SessionTerminalLeaseResult] | None = None
+        sent_at = 0.0
+        try:
+            while True:
+                deadline = confirmed_until - margin
+                wake_at = deadline if renewing is not None else min(next_renewal_at, deadline)
+                timeout = max(0.0, wake_at - loop.time())
+                if renewing is None:
+                    await asyncio.sleep(timeout)
+                else:
+                    await asyncio.wait({renewing}, timeout=timeout)
+                if renewing is not None and renewing.done():
+                    finished, renewing = renewing, None
+                    next_renewal_at = sent_at + interval
+                    result = self._renewal_result(session_id, finished)
+                    if result is not None and result.is_acquired:
+                        confirmed_until = sent_at + ttl
+                    elif result is not None and result.lease is not None:
+                        self._end_held_lease(session_id)
+                        if not self.lost.done():
+                            self.lost.set_result((session_id, result.lease))
+                        return
+                if loop.time() >= confirmed_until - margin:
+                    await self._end_unconfirmed_lease(session_id)
+                    return
+                if renewing is None and loop.time() >= next_renewal_at:
+                    sent_at = loop.time()
+                    renewing = asyncio.create_task(self._opener.renew(session_id))
+        finally:
+            if renewing is not None:
+                renewing.cancel()
+
+    def _renewal_result(
+        self, session_id: str, finished: asyncio.Task[SessionTerminalLeaseResult]
+    ) -> SessionTerminalLeaseResult | None:
+        """Return a finished renewal's result, or ``None`` after a failed call, which it logs."""
+        try:
+            return finished.result()
+        except Exception as error:  # Any failed renewal is tried again until the deadline.
+            _LOGGER.warning("cannot renew the session lease: session=%s: %s", session_id, error)
+            return None
+
+    async def _end_unconfirmed_lease(self, session_id: str) -> None:
+        """Stop pulling a session no renewal confirmed, then end as lost or as unconfirmed.
+
+        It ends as lost when another terminal already holds the session, such
+        as after a long pause, else as unconfirmed.
+        """
+        self._end_held_lease(session_id)
+        _LOGGER.warning(
+            "session lease unconfirmed; stopped pulling its task queue: session=%s", session_id
+        )
+        stored = await self._opener.read_stored_lease(session_id)
+        if stored is not None and stored.holder_id != self._holder.holder_id:
             if not self.lost.done():
-                self.lost.set_result((session_id, result.lease))
-            return
+                self.lost.set_result((session_id, stored))
+        elif not self.unconfirmed.done():
+            self.unconfirmed.set_result(session_id)
+
+    def _end_held_lease(self, session_id: str) -> None:
+        """Forget a lease this process no longer renews, and stop pulling its session's queue."""
+        if self._session_id == session_id:
+            self._session_id = None
+        self._opener.leave(session_id)
 
     def _stop_renewing(self) -> None:
         if self._renewing is not None:
@@ -450,4 +515,12 @@ def build_lease_lost_line(session_id: str, holder_text: str) -> str:
     """Return the line written when another terminal took the session from this chat."""
     return (
         f"Session {session_id} is now open in another terminal ({holder_text}); this chat stopped."
+    )
+
+
+def build_lease_unconfirmed_line(session_id: str) -> str:
+    """Return the line written when no renewal confirmed this chat's lease in time."""
+    return (
+        f"Session {session_id} could not renew its lease in time; this chat stopped so that "
+        "another terminal can take the session."
     )

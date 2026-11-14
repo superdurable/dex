@@ -15,8 +15,8 @@ channel, an internal protocol of one CLI core version:
 
 - launcher to host: ``start``, ``request``, and ``shutdown``;
 - host to launcher: ``worker_ready`` or ``startup_failed``, then
-  ``response``, ``notice``, ``worker`` (``stopping``), and
-  ``session_lease_lost``.
+  ``response``, ``notice``, ``worker`` (``stopping``),
+  ``session_lease_lost``, and ``session_lease_unconfirmed``.
 
 Besides the relayed local requests, the host serves the launcher's own
 ``acquire_session_lease`` and ``release_session_lease`` requests. The host holds
@@ -66,6 +66,8 @@ ACQUIRE_SESSION_LEASE = "acquire_session_lease"
 RELEASE_SESSION_LEASE = "release_session_lease"
 #: The host's message that another terminal took the session it held.
 SESSION_LEASE_LOST = "session_lease_lost"
+#: The host's message that no renewal confirmed the lease of the session it held in time.
+SESSION_LEASE_UNCONFIRMED = "session_lease_unconfirmed"
 #: The error of ``acquire_session_lease`` for a session that cannot be opened.
 SESSION_UNAVAILABLE = "session_unavailable"
 _SIGTERM_EXIT_CODE = 143

@@ -27,11 +27,14 @@ from dex_agents import SESSION_TERMINAL_LEASE
 from dex_agents_cli_core.session_lease import (
     DEFAULT_COLUMNS,
     FRAME_INTERVAL_SECONDS,
+    LEASE_UNCONFIRMED_EXIT_CODE,
     REDRAW_PREFIX,
+    RENEWAL_SAFETY_MARGIN_RATIO,
     RETRY_INTERVAL_SECONDS,
     SPINNER_FRAMES,
     build_animated_waiting_line,
     build_lease_lost_line,
+    build_lease_unconfirmed_line,
     build_plain_waiting_line,
     build_took_over_line,
     format_lease_since,
@@ -78,6 +81,10 @@ def test_the_lines_match_the_conformance_file() -> None:
     for case in CONFORMANCE["lease_lost_cases"]:
         holder = f"{case['host_name']}, pid {case['process_id']}, since {case['since']}"
         assert build_lease_lost_line(case["session_id"], holder) == case["line"]
+    assert RENEWAL_SAFETY_MARGIN_RATIO == CONFORMANCE["renewal_safety_margin_ratio"]
+    assert LEASE_UNCONFIRMED_EXIT_CODE == CONFORMANCE["lease_unconfirmed_exit_code"]
+    for case in CONFORMANCE["lease_unconfirmed_cases"]:
+        assert build_lease_unconfirmed_line(case["session_id"]) == case["line"], case["name"]
     for case in CONFORMANCE["since_cases"]:
         since = format_lease_since(case["opened_at"], ZoneInfo(case["time_zone"]))
         assert since == case["since"], case["name"]
@@ -208,19 +215,28 @@ async def test_a_chat_whose_session_another_terminal_took_stops_with_one_line(
     finally:
         os.kill(first.pid, signal.SIGCONT)
 
-    await expect(
-        first,
-        f"Session {session_id} is now open in another terminal "
-        f"({socket.gethostname()}, pid {second.pid}, since ",
-        timeout=TEST_TTL_SECONDS + 10,
-    )
-    await expect(first, "this chat stopped.")
+    await expect_lease_ended(first, session_id, second.pid)
     assert await wait_for_exit(first) == 1
     assert "Traceback" not in str(first.before)
     second.sendline("hello")
     await expect(second, "echo: hello")
     second.sendeof()
     assert await wait_for_exit(second) == 0
+
+
+async def expect_lease_ended(child: pexpect.spawn, session_id: str, other_pid: int) -> None:
+    """Expect the lost lease line of a chat paused past its lease's expiry.
+
+    After the pause its overdue renewal deadline fires first; the stored lease
+    then names the other terminal, so the chat still ends as lost.
+    """
+    await expect(
+        child,
+        f"Session {session_id} is now open in another terminal "
+        f"({socket.gethostname()}, pid {other_pid}, since ",
+        timeout=TEST_TTL_SECONDS + 10,
+    )
+    await expect(child, "this chat stopped.")
 
 
 SWITCH_MESSAGE: dict[str, Any] = {"type": "switch_session", "is_resumed": True}
@@ -294,12 +310,7 @@ async def test_a_terminal_ui_whose_session_another_terminal_took_stops_with_one_
     finally:
         os.kill(host_pid, signal.SIGCONT)
 
-    await expect(
-        first,
-        f"Session {session_id} is now open in another terminal "
-        f"({socket.gethostname()}, pid {second.pid}, since ",
-        timeout=TEST_TTL_SECONDS + 10,
-    )
+    await expect_lease_ended(first, session_id, second.pid)
     assert await wait_for_exit(first) == 1
     assert "Traceback" not in screen.getvalue()
     second.sendeof()

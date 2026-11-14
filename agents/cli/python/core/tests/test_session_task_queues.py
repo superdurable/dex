@@ -19,13 +19,22 @@ import signal
 import socket
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+import grpc
 import pexpect
 import pytest
-from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob_cache
+from dex import (
+    AsyncClient,
+    BlobCacheConfig,
+    ClientOptions,
+    ErrorSubStatus,
+    Registry,
+    RpcLockConflictError,
+    open_blob_cache,
+)
 
 from dex_agents import (
     AGENT_STATE,
@@ -35,15 +44,31 @@ from dex_agents import (
     AgentState,
 )
 from dex_agents.testing import wait_until
-from dex_agents_cli_core import session_flow_type, session_task_queue
-from dex_agents_cli_core.session_lease import build_took_over_line
+from dex_agents_cli_core import session_flow_type, session_opener, session_task_queue
+from dex_agents_cli_core.harness import (
+    current_session_environment_identity,
+    session_start_environment,
+)
+from dex_agents_cli_core.session_lease import (
+    SessionLeaseHolder,
+    build_lease_unconfirmed_line,
+    build_took_over_line,
+)
+from dex_agents_cli_core.session_opener import (
+    SessionOpener,
+    SessionQueueWorker,
+    TakenOverTurnRefusal,
+    _PendingTakeover,
+)
 from dex_agents_cli_core.session_task_queues import (
     CANCELLED_TURN_LINE,
+    TURN_NOT_CANCELLED_LINE,
     build_takeover_line,
     cli_app_worker_id,
     describe_session_environment,
+    describe_session_environment_identity,
     is_legacy_session_flow_type,
-    is_other_session_place,
+    is_other_session_environment,
     named_task_queue_server_error,
     other_environment_legacy_session_error,
     other_harness_session_error,
@@ -53,8 +78,13 @@ from dex_agents_cli_core.session_task_queues import (
 )
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.fake_terminal_ui import FakeTerminalUi, chat_transcript
+from tests.scripted_cli import (
+    FAIL_ACQUIRE_MARKER,
+    LEASE_FAULT_ENVIRONMENT_VARIABLE,
+    LOSE_NEXT_ACQUIRE_MARKER,
+)
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE, build_session_flow_without_tools
-from tests.test_terminal_ui_handoff import pause
+from tests.test_terminal_ui_handoff import pause, start_chat
 
 AGENTS_DIR = Path(__file__).resolve().parents[4]
 FIXTURE: dict[str, Any] = json.loads(
@@ -103,13 +133,20 @@ def test_the_environment_text_matches_the_shared_cases(case: dict[str, Any]) -> 
     assert describe_session_environment(case["environment"]) == case["text"]
 
 
-@pytest.mark.parametrize("case", FIXTURE["place_cases"], ids=lambda case: case["name"])
-def test_other_places_match_the_shared_cases(case: dict[str, Any]) -> None:
-    assert is_other_session_place(case["previous"], case["current"]) is case["is_other_place"]
+@pytest.mark.parametrize("case", FIXTURE["other_environment_cases"], ids=lambda case: case["name"])
+def test_other_environments_match_the_shared_cases(case: dict[str, Any]) -> None:
+    is_other = is_other_session_environment(case["previous"], case["current"])
+    assert is_other is case["is_other_environment"]
+
+
+@pytest.mark.parametrize("case", FIXTURE["identity_cases"], ids=lambda case: case["name"])
+def test_the_identity_text_matches_the_shared_cases(case: dict[str, Any]) -> None:
+    assert describe_session_environment_identity(case["environment"]) == case["text"]
 
 
 def test_every_template_case_renders_its_line() -> None:
     assert FIXTURE["templates"]["cancelled_turn_line"] == CANCELLED_TURN_LINE
+    assert FIXTURE["templates"]["turn_not_cancelled_line"] == TURN_NOT_CANCELLED_LINE
     for case in FIXTURE["template_cases"]:
         assert _RENDERERS[case["template"]](case["values"]) == case["line"], case["template"]
 
@@ -135,6 +172,13 @@ class _Environment:
         return f"{socket.gethostname()}:{os.path.realpath(self.workspace)}"
 
     @property
+    def identity(self) -> str:
+        environment = session_start_environment(
+            current_session_environment_identity(self.config_path, self.workspace)
+        )
+        return describe_session_environment_identity(environment)
+
+    @property
     def legacy_flow_type(self) -> str:
         return session_flow_type(SCRIPTED_FLOW_TYPE, self.config_path, self.workspace)
 
@@ -142,9 +186,11 @@ class _Environment:
         return ("--config", str(self.config_path), *more)
 
 
-def _new_environment(tmp_path: Path, name: str) -> _Environment:
-    workspace = tmp_path / f"{name}-workspace"
-    workspace.mkdir()
+def _new_environment(tmp_path: Path, name: str, workspace: Path | None = None) -> _Environment:
+    """Write a configuration file of its own, with its own workspace unless one is given."""
+    if workspace is None:
+        workspace = tmp_path / f"{name}-workspace"
+        workspace.mkdir()
     config_path = tmp_path / f"{name}.yaml"
     local_tools = {"shell": {"enabled": True, "allow": ["pwd"]}}
     config_path.write_text(
@@ -246,7 +292,9 @@ async def test_a_session_started_in_one_environment_continues_in_another_whose_t
         second = cli_home.spawn(*second_environment.arguments("--resume", session_id))
         await expect(
             second,
-            build_takeover_line(session_id, first_environment.place, second_environment.place),
+            build_takeover_line(
+                session_id, first_environment.identity, second_environment.identity
+            ),
         )
         assert await _read_session_id(second) == session_id
         await expect(second, PROMPT)
@@ -273,7 +321,8 @@ async def test_a_second_terminal_from_another_environment_waits_without_pulling_
 
     await expect(second, build_took_over_line(session_id))
     await expect(
-        second, build_takeover_line(session_id, first_environment.place, second_environment.place)
+        second,
+        build_takeover_line(session_id, first_environment.identity, second_environment.identity),
     )
     assert await _read_session_id(second) == session_id
     await expect(second, PROMPT)
@@ -286,6 +335,28 @@ async def test_a_takeover_cancels_the_turn_that_was_in_progress_in_the_other_env
 ) -> None:
     first_environment = _new_environment(tmp_path, "a")
     second_environment = _new_environment(tmp_path, "b")
+    await _check_takeover_cancels_the_turn(
+        cli_home, tmp_path, first_environment, second_environment
+    )
+
+
+async def test_another_configuration_file_in_the_same_workspace_also_cancels_the_turn(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    first_environment = _new_environment(tmp_path, "a")
+    # The same host and workspace with another file is another environment too.
+    second_environment = _new_environment(tmp_path, "b", workspace=first_environment.workspace)
+    await _check_takeover_cancels_the_turn(
+        cli_home, tmp_path, first_environment, second_environment
+    )
+
+
+async def _check_takeover_cancels_the_turn(
+    cli_home: CliHome,
+    tmp_path: Path,
+    first_environment: _Environment,
+    second_environment: _Environment,
+) -> None:
     cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
     first, session_id = await _open_chat(cli_home, *first_environment.arguments())
     async with _session_reader(cli_home, tmp_path) as reader:
@@ -301,7 +372,9 @@ async def test_a_takeover_cancels_the_turn_that_was_in_progress_in_the_other_env
         second = cli_home.spawn(*second_environment.arguments("--resume", session_id))
         await expect(
             second,
-            build_takeover_line(session_id, first_environment.place, second_environment.place),
+            build_takeover_line(
+                session_id, first_environment.identity, second_environment.identity
+            ),
             timeout=60,
         )
         await expect(second, CANCELLED_TURN_LINE)
@@ -493,3 +566,179 @@ async def test_a_terminal_ui_switch_moves_the_session_worker_to_the_chosen_sessi
                 reader.sessions.send_user_message(left_session_id, "nobody pulls this"), 3
             )
     assert session_task_queue(chosen_session_id) != session_task_queue(left_session_id)
+
+
+async def test_a_lease_no_renewal_confirms_ends_the_chat_before_another_terminal_takes_it(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    first_environment = _new_environment(tmp_path, "a")
+    second_environment = _new_environment(tmp_path, "b")
+    first_faults = tmp_path / "first-faults"
+    second_faults = tmp_path / "second-faults"
+    first_faults.mkdir()
+    second_faults.mkdir()
+    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(first_faults)
+    first, session_id = await _open_chat(cli_home, *first_environment.arguments())
+    cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(second_faults)
+    second = cli_home.spawn(*second_environment.arguments("--resume", session_id))
+    await expect(second, f"Session {session_id} is open in another terminal (")
+
+    # Every renewal fails from now on, as on a broken network.
+    (first_faults / FAIL_ACQUIRE_MARKER).touch()
+    await expect(first, build_lease_unconfirmed_line(session_id), timeout=10)
+    assert await wait_for_exit(first) == 1
+    async with _session_reader(cli_home, tmp_path) as reader:
+        left_lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
+        assert left_lease is not None, "the unconfirmed chat released nothing"
+        # It stopped pulling before the lease expired; its exit may come later, after cleanup.
+        stopped_at = _logged_unconfirmed_time(cli_home, session_id)
+        assert stopped_at < datetime.fromisoformat(left_lease.expires_at)
+        await expect(second, build_took_over_line(session_id), timeout=20)
+        assert await _read_session_id(second) == session_id
+        taken_lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
+        assert taken_lease.holder_id != left_lease.holder_id
+        opened_at = datetime.fromisoformat(taken_lease.opened_at)
+        assert opened_at >= datetime.fromisoformat(left_lease.expires_at)
+    await expect(second, PROMPT)
+    await _run_pwd(second, second_environment)
+    await _exit_chat(second)
+
+
+def _logged_unconfirmed_time(cli_home: CliHome, session_id: str) -> datetime:
+    """Return the local time of the log line that says the chat stopped pulling the session."""
+    log = (cli_home.home / ".dex" / "agents" / "scripted.log").read_text(encoding="utf-8")
+    marker = f"session lease unconfirmed; stopped pulling its task queue: session={session_id}"
+    (line,) = [line for line in log.splitlines() if line.endswith(marker)]
+    logged = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f")
+    return logged.astimezone()
+
+
+async def test_an_acquire_whose_answer_was_lost_still_opens_the_session(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    environment = _new_environment(tmp_path, "a")
+    faults = tmp_path / "faults"
+    faults.mkdir()
+    (faults / LOSE_NEXT_ACQUIRE_MARKER).touch()
+    cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
+    child, session_id = await _open_chat(cli_home, *environment.arguments())
+    assert not (faults / LOSE_NEXT_ACQUIRE_MARKER).exists(), "the first acquire's answer was lost"
+    async with _session_reader(cli_home, tmp_path) as reader:
+        lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
+        assert lease is not None
+        child.sendline("hello")
+        await expect(child, "echo: hello")
+        await expect(child, PROMPT)
+        assert (await reader.read(session_id, SESSION_TERMINAL_LEASE)).holder_id == lease.holder_id
+        await _exit_chat(child)
+        assert await reader.read(session_id, SESSION_TERMINAL_LEASE) is None, "the exit released it"
+
+
+@dataclass
+class _ActiveTurn:
+    active_turn_id: str | None
+
+
+class _CancelProbeClient:
+    """A Client stand-in: the turn stays active unless an accepted cancel ends it."""
+
+    def __init__(self, cancel_outcomes: list[bool | Exception], *, ends_after_cancel: bool) -> None:
+        self._cancel_outcomes = cancel_outcomes
+        self._ends_after_cancel = ends_after_cancel
+        self.cancel_calls = 0
+        self._active_turn_id: str | None = "turn-1"
+
+    async def get_attributes(self, session_id: str, *definitions: Any) -> dict[Any, Any]:
+        return {AGENT_STATE: _ActiveTurn(self._active_turn_id)}
+
+    async def invoke_rpc(self, rpc: Any, session_id: str, request: Any) -> bool:
+        self.cancel_calls += 1
+        outcome = self._cancel_outcomes[min(self.cancel_calls, len(self._cancel_outcomes)) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        if outcome and self._ends_after_cancel:
+            self._active_turn_id = None
+        return outcome
+
+
+def _lock_conflict() -> RpcLockConflictError:
+    return RpcLockConflictError(
+        grpc.StatusCode.ABORTED,
+        ErrorSubStatus.UNCATEGORIZED,
+        "the lock is held",
+        "InvokeRPC",
+        "session-1",
+    )
+
+
+def _opener_for(client: _CancelProbeClient) -> SessionOpener:
+    flow = build_session_flow_without_tools(SCRIPTED_FLOW_TYPE)
+    legacy_flow = build_session_flow_without_tools(f"{SCRIPTED_FLOW_TYPE}-abcdef")
+    opener = SessionOpener(
+        client=cast(AsyncClient, client),
+        harness_flow_type=SCRIPTED_FLOW_TYPE,
+        session_flow=flow,
+        legacy_session_flow=legacy_flow,
+        command_name="dex-agents-scripted",
+        holder=SessionLeaseHolder.for_this_process(15),
+        environment={"host_name": "host-b", "user_id": "501", "workspace": "/b"},
+        session_worker=cast(SessionQueueWorker, None),
+        turn_refusal=TakenOverTurnRefusal(),
+    )
+    previous = {"host_name": "host-a", "user_id": "501", "workspace": "/a"}
+    opener._pending_takeovers["session-1"] = _PendingTakeover(previous, "turn-1")
+    return opener
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "ends_after_cancel", "is_cancelled"),
+    [
+        ([True], True, True),
+        ([_lock_conflict()], False, False),
+        ([False], False, False),
+        ([ConnectionError("the RPC failed")], False, False),
+        ([True], False, False),
+        ([_lock_conflict(), True], True, True),
+    ],
+    ids=[
+        "confirmed",
+        "lock-conflicts-until-the-deadline",
+        "false-while-still-active",
+        "rpc-error",
+        "still-active-after-the-wait",
+        "a-lock-conflict-then-confirmed",
+    ],
+)
+async def test_a_takeover_reports_the_turn_cancelled_only_once_it_is_no_longer_active(
+    monkeypatch: pytest.MonkeyPatch,
+    outcomes: list[bool | Exception],
+    ends_after_cancel: bool,
+    is_cancelled: bool,
+) -> None:
+    monkeypatch.setattr(session_opener, "_TURN_CANCELLATION_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(session_opener, "_TURN_END_TIMEOUT_SECONDS", 0.3)
+    client = _CancelProbeClient(outcomes, ends_after_cancel=ends_after_cancel)
+    lines = await _opener_for(client).complete_takeover("session-1")
+    assert lines[0].startswith("Session session-1 was last open on 501@host-a:/a ()")
+    assert lines[1:] == [CANCELLED_TURN_LINE if is_cancelled else TURN_NOT_CANCELLED_LINE]
+    assert client.cancel_calls >= 1
+
+
+async def test_a_terminal_ui_whose_lease_no_renewal_confirms_stops_with_one_line(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    faults = tmp_path / "faults"
+    faults.mkdir()
+    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
+    screen = io.StringIO()
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(300_000)]))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await _read_session_id(child)
+    await fake.wait_for("sent", type="ready")
+    # The Worker host inherits the fault directory, so its renewals fail from now on.
+    (faults / FAIL_ACQUIRE_MARKER).touch()
+    await expect(child, build_lease_unconfirmed_line(session_id), timeout=15)
+    assert await wait_for_exit(child) == 1
+    assert "Traceback" not in screen.getvalue()

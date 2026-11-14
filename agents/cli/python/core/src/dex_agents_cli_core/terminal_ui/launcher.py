@@ -36,6 +36,7 @@ from dex_agents_cli_core.session_lease import (
     LeaseCallError,
     SessionLeaseWaitInterrupted,
     build_lease_lost_line,
+    build_lease_unconfirmed_line,
     format_lease_holder,
     terminal_columns,
     wait_for_session_lease,
@@ -431,6 +432,7 @@ class WorkerHostProcess:
         self._is_channel_ended = False
         self._stopped = asyncio.Event()
         self.lease_lost: asyncio.Future[tuple[str, SessionTerminalLease]] = loop.create_future()
+        self.lease_unconfirmed: asyncio.Future[str] = loop.create_future()
         self._reader = asyncio.create_task(self._read())
         self._watcher = asyncio.create_task(self._watch_exit())
 
@@ -657,6 +659,9 @@ class WorkerHostProcess:
                     self.lease_lost.set_result(
                         (str(message["session_id"]), SessionTerminalLease(**lease))
                     )
+            case "session_lease_unconfirmed":
+                if not self.lease_unconfirmed.done():
+                    self.lease_unconfirmed.set_result(str(message["session_id"]))
 
     async def _watch_exit(self) -> None:
         returncode = await self._process.wait()
@@ -699,6 +704,7 @@ class _Handoff:
         self._notices = notices
         self._switch_request: _ChatSession | None = None
         self._lost_lease: tuple[str, SessionTerminalLease] | None = None
+        self._unconfirmed_session_id: str | None = None
         self._terminal_fd = sys.stdin.fileno()
         self._outbox: list[Mapping[str, Any]] = []
         self._channel: MessageChannel | None = None
@@ -739,6 +745,11 @@ class _Handoff:
             self._restore_terminal(saved_mode, is_reset_written=True)
             session_id, holder = self._lost_lease
             print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
+            return 1
+        is_signaled = self._is_terminated or self._is_interrupted
+        if self._unconfirmed_session_id is not None and not is_signaled:
+            self._restore_terminal(saved_mode, is_reset_written=True)
+            print(build_lease_unconfirmed_line(self._unconfirmed_session_id), file=sys.stderr)
             return 1
         if isinstance(outcome, str) and (self._is_terminated or self._is_interrupted):
             self._restore_terminal(saved_mode, is_reset_written=True)
@@ -853,11 +864,15 @@ class _Handoff:
         server = LocalRequestServer(handlers, channel.send)
         reading = asyncio.create_task(self._read_requests(channel, server))
         lease_lost = self._worker_host.lease_lost
+        lease_unconfirmed = self._worker_host.lease_unconfirmed
         try:
-            waited: set[asyncio.Future[Any]] = {reading, exit_task, lease_lost}
+            waited: set[asyncio.Future[Any]] = {reading, exit_task, lease_lost, lease_unconfirmed}
             await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
             if lease_lost.done() and not exit_task.done():
                 self._lost_lease = lease_lost.result()
+                await self._stop_terminal_ui(exit_task, 0.0)
+            elif lease_unconfirmed.done() and not exit_task.done():
+                self._unconfirmed_session_id = lease_unconfirmed.result()
                 await self._stop_terminal_ui(exit_task, 0.0)
         finally:
             if not reading.done():

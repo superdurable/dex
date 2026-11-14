@@ -23,7 +23,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from dex import AsyncClient, AsyncWorker, DexServiceError, FlowNotFoundError, FlowStatus
+from dex import (
+    AsyncClient,
+    AsyncWorker,
+    DexServiceError,
+    FlowNotFoundError,
+    FlowStatus,
+    RpcLockConflictError,
+)
 
 from dex_agents import (
     AGENT_STATE,
@@ -31,6 +38,7 @@ from dex_agents import (
     SESSION_TERMINAL_LEASE,
     AgentSessionClient,
     AgentSessionFlow,
+    CancelTurnRequest,
     SessionTerminalLease,
     SessionTerminalLeaseResult,
     ToolExecutionError,
@@ -42,10 +50,11 @@ from dex_agents_cli_core.session_lease import (
 )
 from dex_agents_cli_core.session_task_queues import (
     CANCELLED_TURN_LINE,
+    TURN_NOT_CANCELLED_LINE,
     build_takeover_line,
-    describe_session_environment,
+    describe_session_environment_identity,
     is_legacy_session_flow_type,
-    is_other_session_place,
+    is_other_session_environment,
     other_environment_legacy_session_error,
     other_harness_session_error,
     refused_model_call_error,
@@ -54,10 +63,13 @@ from dex_agents_cli_core.session_task_queues import (
     taken_over_turn_reason,
 )
 
+#: How long reading a stored lease may take when a lease ends unconfirmed.
+STORED_LEASE_READ_TIMEOUT_SECONDS = 2.0
 #: How long a session Worker may take to start pulling its task queue.
 SESSION_WORKER_START_TIMEOUT_SECONDS = 30.0
 # How long a takeover keeps trying cancel_turn while a short Step holds its lock.
 _TURN_CANCELLATION_TIMEOUT_SECONDS = 5.0
+_TURN_CANCELLATION_RETRY_SECONDS = 0.05
 # How long a takeover waits for the cancelled turn to end before the chat starts.
 _TURN_END_TIMEOUT_SECONDS = 10.0
 _TURN_END_POLL_SECONDS = 0.1
@@ -430,8 +442,11 @@ class SessionOpener:
         For a session on its own task queue, it reads the stored lease first.
         While another terminal's lease has not expired, it returns that lease
         and pulls nothing. Otherwise the session Worker pulls the session's
-        task queue, and the acquire RPC runs on it; a refused or failed
-        acquire stops the pulling again.
+        task queue, and the acquire RPC runs on it; a refused acquire stops
+        the pulling again. An acquire whose outcome is unknown, such as a
+        timeout, reads the stored lease: this holder's lease counts as
+        acquired, another one stops the pulling and raises, and a failed read
+        keeps the Worker and raises, so the next attempt decides.
 
         Returns:
             The lease RPC's result, or a refusal that names the stored holder.
@@ -453,11 +468,13 @@ class SessionOpener:
         state = stored.get(AGENT_STATE)
         is_held_here = lease is not None and lease.holder_id == self._holder.holder_id
         if lease is not None and not is_held_here and not is_lease_expired_here(lease):
+            # A Worker that an attempt with an unknown outcome kept stops here.
+            self.leave(session_id)
             return SessionTerminalLeaseResult(is_acquired=False, lease=lease)
         is_takeover = (
             last_environment is not None
             and not is_held_here
-            and is_other_session_place(last_environment, self._environment)
+            and is_other_session_environment(last_environment, self._environment)
         )
         taken_over_turn_id = (
             state.active_turn_id if is_takeover and state is not None else None
@@ -469,9 +486,8 @@ class SessionOpener:
         # A cancelled call may still have taken the lease; its release then needs this Worker.
         try:
             result = await self._acquire(self._sessions, session_id)
-        except Exception:
-            self._session_worker.stop()
-            raise
+        except Exception as error:
+            result = await self._resolve_unknown_acquisition(session_id, error)
         if not result.is_acquired:
             self._session_worker.stop()
             return result
@@ -490,14 +506,33 @@ class SessionOpener:
         """
         return await self._acquire(self._sessions_of(session_id), session_id)
 
-    async def complete_takeover(self, session_id: str) -> list[str]:
-        """Finish a takeover from another place once the lease is held.
-
-        It cancels the turn that was in progress there. A failed cancellation
-        only leaves that turn refused in this process.
+    async def read_stored_lease(self, session_id: str) -> SessionTerminalLease | None:
+        """Read a session's stored lease without a Worker, within a short timeout.
 
         Returns:
-            The lines to print, none when the session was last open in this place.
+            The lease, or ``None`` when none is stored or the read failed.
+        """
+        try:
+            stored = await asyncio.wait_for(
+                self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE),
+                STORED_LEASE_READ_TIMEOUT_SECONDS,
+            )
+        except Exception as error:  # An unread lease ends the chat as unconfirmed.
+            _LOGGER.warning("cannot read the session lease: session=%s: %s", session_id, error)
+            return None
+        lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
+        return lease
+
+    async def complete_takeover(self, session_id: str) -> list[str]:
+        """Finish a takeover from another environment once the lease is held.
+
+        It cancels the turn that was in progress there and waits until that
+        turn is no longer active. Only then does it report the turn cancelled;
+        otherwise it reports that it could not confirm it. The turn stays
+        refused in this process either way.
+
+        Returns:
+            The lines to print, none when the session was last open in this environment.
         """
         takeover = self._pending_takeovers.pop(session_id, None)
         if takeover is None:
@@ -505,23 +540,14 @@ class SessionOpener:
         lines = [
             build_takeover_line(
                 session_id,
-                describe_session_environment(takeover.previous_environment),
-                describe_session_environment(self._environment),
+                describe_session_environment_identity(takeover.previous_environment),
+                describe_session_environment_identity(self._environment),
             )
         ]
         turn_id = takeover.taken_over_turn_id
-        try:
-            if turn_id is not None and await self._read_active_turn_id(session_id) == turn_id:
-                await asyncio.wait_for(
-                    self._sessions.cancel_turn(session_id, turn_id),
-                    _TURN_CANCELLATION_TIMEOUT_SECONDS,
-                )
-                # The chat must not show the cancelled turn's approvals, pending until it ends.
-                await self._wait_for_turn_end(session_id, turn_id)
-                lines.append(CANCELLED_TURN_LINE)
-        except Exception as error:
-            # The turn stays refused in this process, so none of its calls runs here.
-            _LOGGER.warning("cannot cancel the taken over turn: session=%s: %s", session_id, error)
+        if turn_id is not None:
+            is_cancelled = await self._is_turn_cancelled(session_id, turn_id)
+            lines.append(CANCELLED_TURN_LINE if is_cancelled else TURN_NOT_CANCELLED_LINE)
         return lines
 
     async def release(self, session_id: str) -> None:
@@ -551,6 +577,66 @@ class SessionOpener:
         ):
             self._session_worker.stop()
 
+    async def _resolve_unknown_acquisition(
+        self, session_id: str, error: Exception
+    ) -> SessionTerminalLeaseResult:
+        """Decide an acquire whose outcome is unknown, such as a lost response, from the store.
+
+        The Worker keeps pulling while the outcome stays unknown, because the
+        lease may be this command's; the next attempt then decides.
+
+        Returns:
+            An acquired result when the stored lease is this holder's.
+
+        Raises:
+            Exception: ``error`` again when the stored lease is not this
+                holder's, which stops the Worker, or when the read fails.
+        """
+        try:
+            stored = await self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE)
+        except Exception:
+            raise error from None
+        lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
+        if lease is not None and lease.holder_id == self._holder.holder_id:
+            _LOGGER.info("the lost lease call took the lease: session=%s", session_id)
+            return SessionTerminalLeaseResult(is_acquired=True, lease=lease)
+        self._session_worker.stop()
+        raise error
+
+    async def _is_turn_cancelled(self, session_id: str, turn_id: str) -> bool:
+        """Cancel a taken over turn; return whether it is confirmed no longer active."""
+        try:
+            if await self._read_active_turn_id(session_id) != turn_id:
+                return True
+            if not await self._cancel_turn(session_id, turn_id):
+                return await self._read_active_turn_id(session_id) != turn_id
+            # The chat must not show the cancelled turn's approvals, pending until it ends.
+            return await self._wait_for_turn_end(session_id, turn_id)
+        except Exception as error:
+            _LOGGER.warning("cannot cancel the taken over turn: session=%s: %s", session_id, error)
+            return False
+
+    async def _cancel_turn(self, session_id: str, turn_id: str) -> bool:
+        """Call ``cancel_turn``, trying again while a short Step holds its lock.
+
+        Returns:
+            The RPC's result, or ``False`` when the lock stayed busy until the deadline.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _TURN_CANCELLATION_TIMEOUT_SECONDS
+        while loop.time() < deadline:
+            try:
+                return await self._invoke_cancel_turn(session_id, turn_id)
+            except RpcLockConflictError:
+                await asyncio.sleep(_TURN_CANCELLATION_RETRY_SECONDS)
+        return False
+
+    async def _invoke_cancel_turn(self, session_id: str, turn_id: str) -> bool:
+        result: bool = await self._client.invoke_rpc(
+            self._sessions.flow.cancel_turn, session_id, CancelTurnRequest(turn_id=turn_id)
+        )
+        return result
+
     async def _acquire(
         self, sessions: AgentSessionClient, session_id: str
     ) -> SessionTerminalLeaseResult:
@@ -570,11 +656,15 @@ class SessionOpener:
         state = stored.get(AGENT_STATE)
         return None if state is None else state.active_turn_id or None
 
-    async def _wait_for_turn_end(self, session_id: str, turn_id: str) -> None:
-        """Wait a bounded time for a turn to end; a tool call that runs on keeps it going."""
+    async def _wait_for_turn_end(self, session_id: str, turn_id: str) -> bool:
+        """Return whether a turn stopped being active within the wait; a running tool keeps it."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + _TURN_END_TIMEOUT_SECONDS
-        while loop.time() < deadline and await self._read_active_turn_id(session_id) == turn_id:
+        while True:
+            if await self._read_active_turn_id(session_id) != turn_id:
+                return True
+            if loop.time() >= deadline:
+                return False
             await asyncio.sleep(_TURN_END_POLL_SECONDS)
 
 

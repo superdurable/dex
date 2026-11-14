@@ -70,20 +70,40 @@ Opening a session of the harness's Flow type follows these steps:
 3. Otherwise start the session Worker on the session's task queue, then
    acquire the lease through the RPC, which that Worker serves.
 4. When the acquire fails because another terminal won, stop the session
-   Worker and wait again.
+   Worker and wait again. When its outcome is unknown, such as after a
+   timeout or a lost answer, keep the session Worker and read the lease: the
+   command holds the session when the stored holder is its own. Otherwise
+   it stops the session Worker, or keeps it when that read fails too, and
+   tries again.
 5. On exit or on a terminal UI switch, release the lease while the session
    Worker still serves the RPC, then stop it.
+
+The held lease counts as confirmed until the local time at which its last
+successful acquire or renewal was sent, plus the TTL (15 seconds). The command
+renews it every third of the TTL. When no renewal confirms it again by that
+time less a fifth of the TTL, the command stops pulling the session's task
+queue, stops the chat, prints one line, and exits with 1 without releasing the
+lease. When the stored lease already names another terminal, such as after
+the process was paused, it ends as for a lost lease instead. The lease then
+expires before another terminal can take the session,
+so two commands never run its Steps at once because of a lost renewal.
 
 The acquire request carries this command's environment: the
 `start_environment` values below. When the call gives the lease to a new
 holder, the session stores them in `SessionLastTerminalEnvironment`. A command
-that takes a session whose last environment had another host name or
-workspace prints one line that names both places. When a turn was still
-running there, it refuses that turn's model and tool calls in its own process
-before the session Worker pulls, cancels the turn with `cancel_turn`, waits up
-to 10 seconds for it to end, and prints one more line. The lines and rules are
-in
-[`agents/conformance/cli_session_task_queues.json`](../../../conformance/cli_session_task_queues.json).
+that takes a session whose last environment had another host name, user,
+configuration file, or workspace prints one line that names both
+environments as `<user>@<host>:<workspace> (<configuration identity>)`. When a
+turn was still running there, it refuses that turn's model and tool calls in
+its own process before the session Worker pulls, and cancels the turn with
+`cancel_turn`, trying again for up to 5 seconds while a short Step holds its
+lock. It then waits up to 10 seconds for the turn to end. Only when the turn
+is no longer active does it print that the turn was cancelled; otherwise it
+prints that it could not confirm the cancellation and keeps refusing the
+turn's calls. The lines and rules are in
+[`agents/conformance/cli_session_task_queues.json`](../../../conformance/cli_session_task_queues.json)
+and
+[`agents/conformance/cli_session_lease.json`](../../../conformance/cli_session_lease.json).
 `--resume` of another harness's session, or of another environment's
 environment-hashed session, exits with code 2. A server whose protocol has no
 named task queues, older than server-zd 0.1.30, stops the command with one

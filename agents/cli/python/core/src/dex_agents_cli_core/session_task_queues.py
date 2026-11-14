@@ -22,7 +22,7 @@ _SESSION_TASK_QUEUE_PREFIX = "s-"
 _SESSION_TASK_QUEUE_HASH_LENGTH = 20
 _LEGACY_SESSION_FLOW_TYPE_SUFFIX = re.compile(r"-[0-9a-z]{6}")
 # The keys of a session environment that decide whether a takeover moved the session.
-_PLACE_KEYS = ("host_name", "workspace")
+_ENVIRONMENT_KEYS = ("host_name", "user_id", "config_identity", "workspace")
 _MAX_APP_WORKER_ID_LENGTH = 63
 _NAMED_TASK_QUEUE_PROTOCOL_ERROR = re.compile(
     r"task queue .* requires (Dex )?Server protocol version"
@@ -31,6 +31,11 @@ _NAMED_TASK_QUEUE_PROTOCOL_ERROR = re.compile(
 #: The line printed when a takeover cancelled the turn that was in progress in the other place.
 CANCELLED_TURN_LINE = (
     "Cancelled the turn that was in progress there; none of its model or tool calls run here."
+)
+#: The line printed when a takeover could not confirm that the turn in progress there ended.
+TURN_NOT_CANCELLED_LINE = (
+    "Could not confirm that the turn in progress there was cancelled; this command still "
+    "refuses its model and tool calls."
 )
 
 
@@ -85,18 +90,36 @@ def describe_session_environment(environment: Mapping[str, str] | None) -> str:
     return "—" if not host_name and not workspace else f"{host_name}:{workspace}"
 
 
-def is_other_session_place(previous: Mapping[str, str], current: Mapping[str, str]) -> bool:
-    """Return whether two session environments are other places: another host or workspace.
+def describe_session_environment_identity(environment: Mapping[str, str]) -> str:
+    """Return ``<user>@<host name>:<workspace> (<config identity>)`` of a session environment.
+
+    The user is ``user_name``, or ``user_id`` without it. A takeover line names
+    both environments this way.
+
+    Args:
+        environment: A session's ``start_environment`` or ``SessionLastTerminalEnvironment``.
+    """
+    user = environment.get("user_name") or environment.get("user_id", "")
+    return (
+        f"{user}@{environment.get('host_name', '')}:{environment.get('workspace', '')} "
+        f"({environment.get('config_identity', '')})"
+    )
+
+
+def is_other_session_environment(previous: Mapping[str, str], current: Mapping[str, str]) -> bool:
+    """Return whether two session environments differ in host, user, configuration, or workspace.
+
+    A missing key counts as empty.
 
     Args:
         previous: Where the session was last open.
         current: This command's environment.
     """
-    return any(previous.get(key, "") != current.get(key, "") for key in _PLACE_KEYS)
+    return any(previous.get(key, "") != current.get(key, "") for key in _ENVIRONMENT_KEYS)
 
 
 def build_takeover_line(session_id: str, previous_environment: str, environment: str) -> str:
-    """Return the line printed once a command took a session over from another place."""
+    """Return the line printed once a command took a session over from another environment."""
     return (
         f"Session {session_id} was last open on {previous_environment}; its model and tool "
         f"calls now run here, on {environment}."
