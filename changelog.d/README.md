@@ -102,6 +102,42 @@ component before it creates any tag. The server binary and image releases
 run it on the tagged commit and fail before they build, upload, or push
 anything.
 
+### The compatibility file
+
+`docs/static/compatibility/server-zd.json` lists, for each supported
+server-zd release, the oldest and the newest compatible release of each SDK,
+dexcli, the Dex Agents packages, and the Agents CLI. The docs site serves it
+at https://docs.superdurable.io/compatibility/server-zd.json, and the
+Compatibility matrix and each server reference's compatibility section render
+from it.
+
+- `prepare` of server, go, python, typescript, java, rust, cli, or agents
+  rewrites the file from the prepared change logs, the release tags, and
+  `script/release/server_zd_compatibility_rules.json`. Commit it in the
+  release-prep pull request. Check Gate accepts it there. Its generatedAt
+  becomes the release date only when an answer changes. `prepare` reads the
+  pins of older agents releases from their tags, so fetch the tags first:
+  `git fetch --tags origin`.
+- The rules file is the only hand-maintained input: the oldest supported
+  server-zd release (`oldestSupportedServerZd`), the protocol range of each
+  server-zd and client release line, any minimum server-zd a client line
+  needs, and releases missing from one registry. When a pull request changes
+  a protocol constant, add a rule line whose since is the next release of
+  that component. To stop listing old servers, raise
+  `oldestSupportedServerZd`. Then run
+  `python3 script/release/server_zd_compatibility.py update` in that pull
+  request.
+- Release Tooling CI runs
+  `python3 script/release/server_zd_compatibility.py check`, which works
+  offline. It fails when the file differs from the generator, when a rule line
+  disagrees with a release tag or the working tree, or when a server-zd tag
+  from the oldest supported release on is missing from the server change log.
+- **Release changed components** runs
+  `python3 script/release/server_zd_compatibility.py verify-registries` after
+  it publishes. It checks that every listed version exists on its registry,
+  retrying while a registry catches up. Run it by hand after a server-zd
+  release.
+
 ## Check Gate rules
 
 - Outside a release-prep pull request, any change to a release file fails

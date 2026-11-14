@@ -104,6 +104,14 @@ on main when the release snapshots the reference. **Release changed
 components** fails its plan when a selected component's change log does not
 record the release yet. See `changelog.d/README.md`.
 
+A release-prep pull request of server-zd, an SDK, dexcli, or the agents
+packages also carries `docs/static/compatibility/server-zd.json`, the
+compatibility answers per server-zd release; `prepare` rewrites it. When
+compatibility rules change, such as a new protocol range or a release that
+needs a newer server, edit
+`script/release/server_zd_compatibility_rules.json` and run
+`python3 script/release/server_zd_compatibility.py update`.
+
 ## Release Versions
 
 Choose the version of each SDK, cli, web, and agents release by what it

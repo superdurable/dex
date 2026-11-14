@@ -42,16 +42,17 @@ Dex 按一个共享的 release train 发版。每次发版只给有改动的组�
 
 ## 兼容性矩阵 {#compatibility-matrix}
 
-Worker 和 Client 会和 server 协商协议版本。server-zd 0.1.17 及更新版本提供协议版本 4。server-zd 0.1.30 及更新版本提供协议版本 5。
+每个 server-zd 版本接受一个协议版本范围。每个客户端版本需要一个最低协议版本，有些还需要更新的 server-zd 版本。较新的 server 会一直接受较旧的客户端，直到它提高最低协议版本。
 
-| 组件 | 版本 | 需要的 server-zd |
-| --- | --- | --- |
-| Go SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
-| Python SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
-| Java SDK | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 或更新（协议版本 4） |
-| TypeScript SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
-| Rust SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
-| Dex Web | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 或更新（协议版本 4） |
+每一行是一个受支持的 server-zd 版本。每个单元格给出能和这个 server 一起使用的某个客户端的最旧和最新版本。两者之间的版本只要已发布到对应的 registry，也可以使用。Dex Agents 包和 Agents CLI 按 registry 分开列出，因为一个版本可能只发布到一个 registry。
+
+<ServerZdCompatibilityMatrix />
+
+每一行都有锚点 **server-zd-MAJOR-MINOR-PATCH**，例如 **server-zd-0-1-31**，链接可以直接打开某个 server-zd 版本的那一行。每个 server-zd 参考版本在它的 [Upgrades and compatibility](/reference/server/upgrades#compatible-client-releases) 页面上显示自己的那一行。
+
+程序可以从 [server-zd.json](https://docs.superdurable.io/compatibility/server-zd.json) 读取同样的数据。它的 [JSON Schema](https://docs.superdurable.io/compatibility/server-zd.schema.json) 说明每个字段和兼容规则。
+
+Dex Web 1.45, 1.43, 1.41, 1.40, 1.37 需要 server-zd 0.1.17 或更新（协议版本 4）。
 
 先升级 server，再升级 SDK。见 [Upgrades and compatibility](/reference/server/upgrades)。
 

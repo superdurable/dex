@@ -194,25 +194,51 @@ try {
   await writeFile(join(contentPath, 'older.mdx'), '# Earlier version\n');
   await writeFile(join(contentPath, 'agents.mdx'), '# Agents\n\n<FrameworkTabs>\n<FrameworkTab framework="claude-agent-sdk">\n\nClaude agents.\n\n</FrameworkTab>\n<FrameworkTab framework="mastra">\n\n## Setup\n\nMastra agents.\n\n</FrameworkTab>\n</FrameworkTabs>\n');
   await writeFile(join(contentPath, 'moved.mdx'), '# Moved\n\nThis page moved. See [Home](/zh-Hans/).\n');
+  const compatibilityRange = (oldest, newest) => ({oldest, newest});
+  const compatibilityServer = (serverZd, max, agentsNewest) => ({
+    serverZd, protocolVersion: {min: 1, max},
+    sdks: {go: compatibilityRange('0.9.0', '1.1.0'), python: compatibilityRange('0.9.0', '1.1.0'),
+      typescript: compatibilityRange('0.9.0', '1.1.0'), java: compatibilityRange('0.9.0', '1.1.0'),
+      rust: compatibilityRange('0.9.0', '1.1.0')},
+    dexcli: compatibilityRange('0.9.0', '1.2.0'),
+    agents: {npm: {oldest: {version: '0.1.0', pinnedSdk: '1.0.0'}, newest: {version: agentsNewest, pinnedSdk: '1.1.0'}}, pypi: null},
+    agentsCli: {npm: compatibilityRange('0.2.0', agentsNewest), pypi: null},
+  });
+  await mkdir(join(siteDir, 'static/compatibility'), {recursive: true});
+  await writeFile(join(siteDir, 'static/compatibility/server-zd.json'), JSON.stringify({schemaVersion: 1, generatedAt: '2026-11-14',
+    servers: [compatibilityServer('0.1.3', 5, '0.3.0'), compatibilityServer('0.1.2', 4, '0.2.0')]}));
+  await writeFile(join(siteDir, 'reference/versions.json'), JSON.stringify({server: '0.1.3'}));
+  await writeFile(join(contentPath, 'compatibility.mdx'), '# Compatibility\n\n<ServerZdCompatibilityMatrix />\n\n'
+    + '<ServerZdCompatibility />\n\n<ServerZdCompatibility version="0.1.2" />\n\n<ServerZdCompatibility version="0.1.1" />\n');
   const metadata = (id, source, permalink, title) => ({id, source, permalink, title,
     description: `The ${title}\n  meta description.`, frontMatter: {description: 'Ignored front matter description.'}});
   const fallback = metadata('index', '@site/reference/index.mdx', '/zh-Hans/', 'Home');
   const translated = metadata('translated', '@site/i18n/zh-Hans/reference/translated.mdx', '/zh-Hans/translated/', 'Translated');
   const earlier = metadata('older', '@site/reference/older.mdx', '/zh-Hans/reference/go/1.32/', 'Go reference');
   const agents = metadata('agents', '@site/reference/agents.mdx', '/zh-Hans/agents/', 'Agents');
+  const compatibility = metadata('compatibility', '@site/reference/compatibility.mdx', '/zh-Hans/compatibility/', 'Compatibility');
   // Without a front matter description, Docusaurus keeps only the first source line.
   const moved = {id: 'moved', source: '@site/reference/moved.mdx', permalink: '/zh-Hans/moved/', title: 'Moved',
     description: 'This page moved.', frontMatter: {}};
   const sidebars = {docs: [{type: 'category', label: '参考', link: {type: 'doc', id: 'translated'}, items: []}, {type: 'doc', id: 'index'}]};
   const options = {siteDir, outDir, baseUrl: '/zh-Hans/', siteConfig: {url: 'https://docs.example.test', title: 'Fixture', trailingSlash: true},
     i18n: {currentLocale: 'zh-Hans', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
-    routesPaths: ['/zh-Hans/', '/zh-Hans/agents/', '/zh-Hans/translated/', '/zh-Hans/moved/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
+    routesPaths: ['/zh-Hans/', '/zh-Hans/agents/', '/zh-Hans/compatibility/', '/zh-Hans/translated/', '/zh-Hans/moved/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
     allContent: {'docusaurus-plugin-content-docs': {
-      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated, moved, agents]}]},
+      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated, moved, agents, compatibility]}]},
       'reference-go': {loadedVersions: [{isLast: false, contentPath, contentPathLocalized, docs: [earlier]},
         {isLast: true, contentPath, contentPathLocalized, docs: [{...earlier, permalink: '/zh-Hans/reference/go/1.33/'}]}]},
     }}};
   await exportMarkdown(options);
+  // The compatibility components export tables from static/compatibility/server-zd.json, with row anchors.
+  const compatibilityPage = await readFile(join(outDir, 'compatibility.md'), 'utf8');
+  assert.match(compatibilityPage, /\| <a id="server-zd-0-1-3"><\/a>0\.1\.3 +\| 1–5 +\| 0\.9\.0 – 1\.1\.0 +\|/);
+  assert.match(compatibilityPage, /\| <a id="server-zd-0-1-2"><\/a>0\.1\.2 +\| 1–4 +\|/);
+  // Without a version, the section shows the latest server reference version.
+  assert.match(compatibilityPage, /server-zd 0\.1\.3 接受协议版本 1 到 5。/);
+  assert.match(compatibilityPage, /\| Dex Agents \(npm\) +\| 0\.1\.0 \(SDK 1\.0\.0\) \| 0\.2\.0 \(SDK 1\.1\.0\) \|/);
+  assert.match(compatibilityPage, /\| Agents CLI \(PyPI\) +\| 无 +\| 无 +\|/);
+  assert.match(compatibilityPage, /不再列出 server-zd 0\.1\.1。/);
   const home = await readFile(join(outDir, 'index.md'), 'utf8');
   // CrashTimeline exports its events as a numbered list in the page locale, without the animation.
   assert.match(home, /1\. 你启动 Flow，Dex Server 记录下来。\n2\. Worker 1 运行 Charge。Dex 保存它的结果。\n3\. Dex Server：/);
@@ -319,7 +345,7 @@ try {
   assert.match(await readFile(join(outDir, 'llms-full.go.txt'), 'utf8'), /const sample = 1/);
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
   // Archived versions keep their Markdown twin but stay out of llms.txt.
-  assert.equal((index.match(/^-/gm) ?? []).length, 4);
+  assert.equal((index.match(/^-/gm) ?? []).length, 5);
   // A moved notice stays out of llms.txt.
   assert.doesNotMatch(index, /\[Moved\]/);
   assert.doesNotMatch(index, /1\.32\.md/);

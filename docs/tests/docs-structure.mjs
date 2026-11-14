@@ -304,7 +304,6 @@ for (const id of sequenceDocs) {
 // The compatibility matrix is generated in every locale; a release that leaves one behind fails here.
 {
   const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));
-  const sdkLine = versions.go.replace(/\.x$/, '');
   const cliLine = versions.cli.replace(/\.x$/, '');
   const matrixPages = [
     {path: 'content/reference/index.mdx', start: '## Compatibility matrix', end: '## Release notes'},
@@ -317,8 +316,9 @@ for (const id of sequenceDocs) {
       continue;
     }
     const matrix = page.slice(page.indexOf(start), page.indexOf(end));
-    if (!new RegExp(`SDK[^|]*\\| ${sdkLine.replace('.', '\\.')}[,| ]`).test(matrix) || !new RegExp(`^\\| ${cliLine.replace('.', '\\.')} \\|`, 'm').test(matrix)) {
-      failures.push(`${path}: the compatibility matrix does not list SDK ${sdkLine} and dexcli ${cliLine}. Run node scripts/generate-reference-compatibility.mjs.`);
+    // The per-server table renders from static/compatibility/server-zd.json; the dexcli table is generated.
+    if (!matrix.includes('<ServerZdCompatibilityMatrix />') || !new RegExp(`^\\| ${cliLine.replace('.', '\\.')} \\|`, 'm').test(matrix)) {
+      failures.push(`${path}: the compatibility matrix lacks <ServerZdCompatibilityMatrix /> or dexcli ${cliLine}. Run node scripts/generate-reference-compatibility.mjs.`);
     }
   }
 }

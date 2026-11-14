@@ -501,6 +501,22 @@ jobs:
       publish: true
     secrets: inherit
 
+  # Registries are checked only here, after publishing, so their outages never fail a pull request.
+  verify-compatibility-registries:
+    name: Verify compatibility file versions
+    needs: [plan, create-releases, publish-java, publish-python, publish-rust, publish-typescript, publish-cli, publish-agents]
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      # Maven Central can take many minutes to show a new release, so it retries for up to 20 minutes.
+      - name: Check every version the compatibility file lists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 script/release/server_zd_compatibility.py verify-registries --attempts 20 --delay 60
+
   complete:
     name: Verify publications
     if: always() && needs.plan.result != 'skipped'

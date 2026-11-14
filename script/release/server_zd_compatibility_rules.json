@@ -1,0 +1,79 @@
+{
+  "description": "Hand-maintained input of server_zd_compatibility.py. Each line applies from its since version up to the next line. server_zd_compatibility.py check compares every protocol line with the release tags and the working tree.",
+  "oldestSupportedServerZd": "0.1.27",
+  "serverZd": [
+    {"since": "0.1.0", "protocol": {"min": 1, "max": 3}},
+    {"since": "0.1.17", "protocol": {"min": 1, "max": 4}},
+    {"since": "0.1.30", "protocol": {"min": 1, "max": 5}}
+  ],
+  "clients": {
+    "go": [
+      {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
+      {"since": "0.10.2", "protocol": {"min": 2, "max": 2}},
+      {"since": "1.11.0", "protocol": {"min": 2, "max": 3}},
+      {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
+      {"since": "1.45.2", "protocol": {"min": 4, "max": 5}}
+    ],
+    "python": [
+      {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
+      {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
+      {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
+      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}}
+    ],
+    "typescript": [
+      {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
+      {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
+      {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
+      {"since": "1.45.2", "protocol": {"min": 4, "max": 5}}
+    ],
+    "java": [
+      {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
+      {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
+      {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
+      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}}
+    ],
+    "rust": [
+      {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
+      {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
+      {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
+      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}}
+    ],
+    "dexcli": [
+      {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
+      {"since": "0.11.0", "protocol": {"min": 2, "max": 2}},
+      {"since": "1.11.0", "protocol": {"min": 2, "max": 3}},
+      {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
+      {"since": "1.47.4", "protocol": {"min": 4, "max": 5}}
+    ],
+    "agents": [
+      {"since": "0.1.0"},
+      {
+        "since": "0.6.8",
+        "minimumServerZd": "0.1.30",
+        "reason": "Sessions run on their own named task queue; the agents change log for 0.6.8 says the commands need server-zd 0.1.30. The whole release line shares this minimum."
+      }
+    ],
+    "agentsCli": [
+      {"since": "0.5.0"},
+      {
+        "since": "0.6.8",
+        "minimumServerZd": "0.1.30",
+        "reason": "Each new session has its own named task queue, which needs protocol 5; the agents change log for 0.6.8 says the commands need server-zd 0.1.30."
+      }
+    ]
+  },
+  "unpublished": [
+    {
+      "component": "agents",
+      "version": "0.6.7",
+      "registry": "pypi",
+      "reason": "0.6.7 fixed only an npm package, so only the npm packages were published."
+    },
+    {
+      "component": "agentsCli",
+      "version": "0.6.7",
+      "registry": "pypi",
+      "reason": "0.6.7 fixed only an npm package, so only the npm packages were published."
+    }
+  ]
+}

@@ -15,6 +15,18 @@ on:
       - ".github/workflows/docker-image-web-release.yml"
       - ".github/workflows/release-tooling-ci.yml"
       - "CONTRIBUTING.md"
+      # The server-zd compatibility file and the sources its check reads.
+      - "docs/static/compatibility/**"
+      - "sdk-go/dex/server_protocol.go"
+      - "sdk-python/dex/_server_protocol.py"
+      - "sdk-typescript/src/server-protocol.ts"
+      - "sdk-java/src/main/java/io/superdurable/dex/ServerProtocolCompatibility.java"
+      - "sdk-rust/crates/dex-sdk/src/server_protocol.rs"
+      - "server-zd/crates/dexzd-api/src/flow_service.rs"
+      - "agents/typescript/core/package.json"
+      - "agents/python/core/pyproject.toml"
+      - "agents/cli/typescript/core/package.json"
+      - "agents/cli/python/core/pyproject.toml"
   workflow_dispatch:
   # Main CI (all) and release workflows call this suite on main and release commits.
   workflow_call:
@@ -34,6 +46,9 @@ jobs:
           fetch-depth: 0
       - name: Test release tooling
         run: make release-tooling-test
+      # Offline: it reads the change logs, the release tags, and the rules, never a registry.
+      - name: Check the server-zd compatibility file
+        run: python3 script/release/server_zd_compatibility.py check
       - name: Test derived-file regeneration
         run: make regenerate-derived-test
       - name: Validate workflow policy

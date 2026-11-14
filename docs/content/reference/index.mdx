@@ -59,18 +59,32 @@ Three groups hold the full guide pages behind the shorter sections:
 
 ## Compatibility matrix
 
-Workers and Clients negotiate a protocol version with the server.
-server-zd 0.1.17 and newer provide protocol version 4.
-server-zd 0.1.30 and newer provide protocol version 5.
+Each server-zd release accepts a range of protocol versions. Each client
+release needs a minimum protocol version, and some need a newer server-zd
+release. A newer server keeps accepting older clients until it raises its
+minimum protocol version.
 
-| Component | Version | server-zd it needs |
-| --- | --- | --- |
-| Go SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
-| Python SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
-| Java SDK | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 or newer (protocol version 4) |
-| TypeScript SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
-| Rust SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
-| Dex Web | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 or newer (protocol version 4) |
+Each row is one supported server-zd release. Each cell holds the oldest and the
+newest release of a client that works with that server. A release between them
+works too, if its registry has it. The Dex Agents packages and the Agents CLI
+are listed per registry, because a release is sometimes published to one
+registry only.
+
+<ServerZdCompatibilityMatrix />
+
+Each row has the anchor **server-zd-MAJOR-MINOR-PATCH**, such as
+**server-zd-0-1-31**, so a link can open the row of one server-zd release.
+Each server-zd reference version shows its own row on its
+[Upgrades and compatibility](/reference/server/upgrades#compatible-client-releases)
+page.
+
+Programs read the same data from
+[server-zd.json](https://docs.superdurable.io/compatibility/server-zd.json).
+Its [JSON Schema](https://docs.superdurable.io/compatibility/server-zd.schema.json)
+describes every field and the compatibility rule.
+
+Dex Web 1.45, 1.43, 1.41, 1.40, 1.37 needs server-zd 0.1.17 or newer (protocol
+version 4).
 
 Upgrade the server first, then the SDKs. See
 [Upgrades and compatibility](/reference/server/upgrades).

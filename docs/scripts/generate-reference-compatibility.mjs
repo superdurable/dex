@@ -8,6 +8,7 @@
 
 // Rewrites the Developer reference compatibility matrix from the repository and its GitHub releases.
 // Run it after a release snapshots the reference: node scripts/generate-reference-compatibility.mjs
+// The per-server table itself renders from static/compatibility/server-zd.json at build time.
 
 import {execFile} from 'node:child_process';
 import {readFileSync, writeFileSync} from 'node:fs';
@@ -18,6 +19,8 @@ const executeFile = promisify(execFile);
 const docsRoot = fileURLToPath(new URL('..', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url));
 const repository = 'superdurable/dex';
+const compatibilityUrl = 'https://docs.superdurable.io/compatibility/server-zd.json';
+const compatibilitySchemaUrl = 'https://docs.superdurable.io/compatibility/server-zd.schema.json';
 // Each locale's landing page, with the headings that bound its matrix section.
 const pages = [
   {locale: 'en', path: `${docsRoot}content/reference/index.mdx`, start: '## Compatibility matrix', end: '## Release notes'},
@@ -28,7 +31,6 @@ const pages = [
     end: '## 发版说明',
   },
 ];
-const sdkComponents = ['go', 'python', 'java', 'typescript', 'rust'];
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -50,13 +52,6 @@ function requiredServerProtocol() {
   if (!minimum || !firstRelease) throw new Error('sdk-go/dex/server_protocol.go no longer states the required server protocol');
   const [major, minor, patch] = firstRelease.split('.').map(Number);
   return {protocol: minimum, firstServer: `${major}.${minor}.${patch + 1}`};
-}
-
-function serverCurrentProtocol() {
-  const source = readFileSync(`${repositoryRoot}server-zd/crates/dexzd-api/src/flow_service.rs`, 'utf8');
-  const current = source.match(/pub const CURRENT_PROTOCOL_VERSION: u32 = (\d+);/)?.[1];
-  if (!current) throw new Error('server-zd no longer states CURRENT_PROTOCOL_VERSION in flow_service.rs');
-  return current;
 }
 
 async function gh(args) {
@@ -129,29 +124,7 @@ async function bundledServers() {
   return rows;
 }
 
-const sdkNames = {
-  en: {all: 'Go, Python, Java, TypeScript, and Rust SDKs', go: 'Go SDK', python: 'Python SDK', java: 'Java SDK', typescript: 'TypeScript SDK', rust: 'Rust SDK'},
-  'zh-Hans': {all: 'Go、Python、Java、TypeScript 和 Rust SDK', go: 'Go SDK', python: 'Python SDK', java: 'Java SDK', typescript: 'TypeScript SDK', rust: 'Rust SDK'},
-};
-
-function needsText(locale, requirement) {
-  return locale === 'en'
-    ? `${requirement.firstServer} or newer (protocol version ${requirement.protocol})`
-    : `${requirement.firstServer} 或更新（协议版本 ${requirement.protocol}）`;
-}
-
-function sdkRows(locale, requirement) {
-  const lines = sdkComponents.map((component) => retainedLines(component).join(', '));
-  const needs = needsText(locale, requirement);
-  const names = sdkNames[locale];
-  if (new Set(lines).size === 1) {
-    return [`| ${names.all} | ${lines[0]} | ${needs} |`];
-  }
-  return sdkComponents.map((component, index) => `| ${names[component]} | ${lines[index]} | ${needs} |`);
-}
-
 const requirement = requiredServerProtocol();
-const currentProtocol = serverCurrentProtocol();
 const releases = await serverReleases();
 const firstMinimumServer = await firstServerProviding(Number(requirement.protocol), releases);
 if (firstMinimumServer !== requirement.firstServer) {
@@ -159,38 +132,40 @@ if (firstMinimumServer !== requirement.firstServer) {
     `sdk-go/dex/server_protocol.go names server-zd ${requirement.firstServer} for protocol ${requirement.protocol}, but releases first provide it in ${firstMinimumServer}`,
   );
 }
-// Each protocol the matrix names, with the first release that provides it. An unreleased current protocol is left out.
-const protocolReleases = [{protocol: requirement.protocol, firstServer: requirement.firstServer}];
-if (Number(currentProtocol) > Number(requirement.protocol)) {
-  const firstCurrentServer = await firstServerProviding(Number(currentProtocol), releases);
-  if (firstCurrentServer) protocolReleases.push({protocol: currentProtocol, firstServer: firstCurrentServer});
-}
-
-function protocolSentences(locale) {
-  if (locale === 'en') {
-    return protocolReleases
-      .map(({protocol, firstServer}) => `server-zd ${firstServer} and newer provide protocol version ${protocol}.`)
-      .join('\n');
-  }
-  return protocolReleases.map(({protocol, firstServer}) => `server-zd ${firstServer} 及更新版本提供协议版本 ${protocol}。`).join('');
-}
 const webLines = retainedLines('web').join(', ');
 const bundled = await bundledServers();
 
 function section(locale) {
-  const sdk = sdkRows(locale, requirement).join('\n');
-  const needs = needsText(locale, requirement);
   const dexcli = bundled.map(({cli, server}) => `| ${cli} | ${server} |`).join('\n');
   if (locale === 'en') {
     return `## Compatibility matrix
 
-Workers and Clients negotiate a protocol version with the server.
-${protocolSentences(locale)}
+Each server-zd release accepts a range of protocol versions. Each client
+release needs a minimum protocol version, and some need a newer server-zd
+release. A newer server keeps accepting older clients until it raises its
+minimum protocol version.
 
-| Component | Version | server-zd it needs |
-| --- | --- | --- |
-${sdk}
-| Dex Web | ${webLines} | ${needs} |
+Each row is one supported server-zd release. Each cell holds the oldest and the
+newest release of a client that works with that server. A release between them
+works too, if its registry has it. The Dex Agents packages and the Agents CLI
+are listed per registry, because a release is sometimes published to one
+registry only.
+
+<ServerZdCompatibilityMatrix />
+
+Each row has the anchor **server-zd-MAJOR-MINOR-PATCH**, such as
+**server-zd-0-1-31**, so a link can open the row of one server-zd release.
+Each server-zd reference version shows its own row on its
+[Upgrades and compatibility](/reference/server/upgrades#compatible-client-releases)
+page.
+
+Programs read the same data from
+[server-zd.json](${compatibilityUrl}).
+Its [JSON Schema](${compatibilitySchemaUrl})
+describes every field and the compatibility rule.
+
+Dex Web ${webLines} needs server-zd ${requirement.firstServer} or newer (protocol
+version ${requirement.protocol}).
 
 Upgrade the server first, then the SDKs. See
 [Upgrades and compatibility](/reference/server/upgrades).
@@ -206,12 +181,17 @@ ${dexcli}
   }
   return `## 兼容性矩阵 {#compatibility-matrix}
 
-Worker 和 Client 会和 server 协商协议版本。${protocolSentences(locale)}
+每个 server-zd 版本接受一个协议版本范围。每个客户端版本需要一个最低协议版本，有些还需要更新的 server-zd 版本。较新的 server 会一直接受较旧的客户端，直到它提高最低协议版本。
 
-| 组件 | 版本 | 需要的 server-zd |
-| --- | --- | --- |
-${sdk}
-| Dex Web | ${webLines} | ${needs} |
+每一行是一个受支持的 server-zd 版本。每个单元格给出能和这个 server 一起使用的某个客户端的最旧和最新版本。两者之间的版本只要已发布到对应的 registry，也可以使用。Dex Agents 包和 Agents CLI 按 registry 分开列出，因为一个版本可能只发布到一个 registry。
+
+<ServerZdCompatibilityMatrix />
+
+每一行都有锚点 **server-zd-MAJOR-MINOR-PATCH**，例如 **server-zd-0-1-31**，链接可以直接打开某个 server-zd 版本的那一行。每个 server-zd 参考版本在它的 [Upgrades and compatibility](/reference/server/upgrades#compatible-client-releases) 页面上显示自己的那一行。
+
+程序可以从 [server-zd.json](${compatibilityUrl}) 读取同样的数据。它的 [JSON Schema](${compatibilitySchemaUrl}) 说明每个字段和兼容规则。
+
+Dex Web ${webLines} 需要 server-zd ${requirement.firstServer} 或更新（协议版本 ${requirement.protocol}）。
 
 先升级 server，再升级 SDK。见 [Upgrades and compatibility](/reference/server/upgrades)。
 
@@ -231,4 +211,4 @@ for (const {locale, path, start: startHeading, end: endHeading} of pages) {
   if (start === -1 || end === -1 || end < start) throw new Error(`${path} lost its ${startHeading} or ${endHeading} heading`);
   writeFileSync(path, `${page.slice(0, start)}${section(locale)}${page.slice(end)}`);
 }
-console.log(`Compatibility matrix written in ${pages.length} locales: SDK lines ${retainedLines('go').join(', ')}, ${bundled.length} dexcli lines.`);
+console.log(`Compatibility matrix written in ${pages.length} locales: ${bundled.length} dexcli lines.`);

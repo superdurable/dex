@@ -14,11 +14,34 @@ import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {Globby} from '@docusaurus/utils';
 import {
-  droppedVersionRedirects, localizeAllSnapshotLinks, readReferenceDocuments, referenceVersion,
-  retargetRedirects, rewriteSnapshotLinks, snapshotReference,
+  droppedVersionRedirects, localizeAllSnapshotLinks, pinServerCompatibilityVersion, readReferenceDocuments,
+  referenceVersion, retargetRedirects, rewriteSnapshotLinks, snapshotReference,
 } from '../scripts/snapshot-reference.mjs';
 
 const docsDirectory = fileURLToPath(new URL('../', import.meta.url));
+
+test('a server snapshot pins its compatibility section to its own version', async () => {
+  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-compatibility-'));
+  try {
+    const serverDirectory = join(siteDirectory, 'reference-server_versioned_docs/version-0.1.32');
+    const webDirectory = join(siteDirectory, 'reference-web_versioned_docs/version-1.45.x');
+    await mkdir(serverDirectory, {recursive: true});
+    await mkdir(webDirectory, {recursive: true});
+    await writeFile(join(serverDirectory, 'upgrades.mdx'), '# Upgrades\n\n<ServerZdCompatibility />\n');
+    await writeFile(join(serverDirectory, 'workers.mdx'), '# Workers\n');
+    await writeFile(join(webDirectory, 'index.mdx'), '<ServerZdCompatibility />\n');
+
+    assert.deepEqual(await pinServerCompatibilityVersion('server', '0.1.32', {siteDirectory}),
+      ['reference-server_versioned_docs/version-0.1.32/upgrades.mdx']);
+    assert.equal(await readFile(join(serverDirectory, 'upgrades.mdx'), 'utf8'),
+      '# Upgrades\n\n<ServerZdCompatibility version="0.1.32" />\n');
+    assert.deepEqual(await pinServerCompatibilityVersion('server', '0.1.32', {siteDirectory}), []);
+    assert.deepEqual(await pinServerCompatibilityVersion('web', '1.45.x', {siteDirectory}), []);
+    assert.equal(await readFile(join(webDirectory, 'index.mdx'), 'utf8'), '<ServerZdCompatibility />\n');
+  } finally {
+    await rm(siteDirectory, {recursive: true, force: true});
+  }
+});
 
 test('release versions follow component boundaries', () => {
   assert.equal(referenceVersion('go', 'v1.35.2'), '1.35.x');
