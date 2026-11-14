@@ -383,11 +383,19 @@ RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guar
 
 [订单处理](/use-cases/order-processing) 示例用完整代码展示了这三种模式。
 
+## 让 Flow 在自己的 Worker 池上运行 {#task-queues}
+
+一个 Worker 服务一个 task queue（任务队列）。Flow 在启动时指定自己的 task queue，并在整个运行期间保持不变。只有这个 task queue 的 Worker 会运行这个 Flow 的 Step 和 RPC。SubFlow 默认在父 Flow 的 task queue 上运行，也可以指定另一个。没有指定 task queue 的 Flow 和 Worker 使用默认 task queue。
+
+需要专用主机的工作，比如需要 GPU 的工作，可以用一个 task queue。把这项工作作为 SubFlow 启动在这个 task queue 上，再让这批主机上的 Worker 服务它。task queue 也能让共享 server 上的测试互不干扰。
+
+[Named task queues](/reference/server/workers#named-task-queues)（英文）列出命名规则、路由细节和回滚步骤。
+
 ## 容量和关闭 {#capacity-and-shutdown}
 
 <a id="容量和关闭"></a>
 
-Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在持久任务队列中等待。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
+Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在 Dex 中持久地等待，直到有 Worker 接手。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
 
 [Workers and the task queue](/reference/server/workers)（英文）介绍就绪检查、路由、容量、关闭和网络设置。
 

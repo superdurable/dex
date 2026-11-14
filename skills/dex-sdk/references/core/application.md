@@ -50,10 +50,10 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 ## Dispatch
 
-- Each Worker opens streams for its process queue (its app Worker ID) and for every Flow type it registers. Flow types must be unique on a Server.
+- Each Worker serves one task queue (the default task queue when it names none). Inside it, the Worker opens streams for its app Worker ID and every Flow type it registers. Within one task queue, a Flow type name must mean one Flow definition.
 - The app Worker ID identifies one process and must change after every restart. Let the SDK generate it unless the deployment needs an explicit process-unique value.
-- Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Keep durable state in Dex; sticky routing does not promise the same process.
-- A Step that no Worker takes waits in a durable task queue. It consumes no retry. A Flow timeout or stop ends the wait; without a Flow timeout it can wait forever.
+- Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Keep durable state in Dex; sticky routing does not promise the same process. Sticky routing stays inside the Flow's task queue; it never crosses task queues.
+- A Step that no Worker takes waits durably in Dex until a Worker takes it. It consumes no retry. A Flow timeout or stop ends the wait; without a Flow timeout it can wait forever.
 - A Step type that no connected Worker registers also waits, with its attempt number, snapshot, and locks, without blocking other Step types.
 - An RPC never queues. It fails with UNAVAILABLE when no Worker takes it within the dispatch wait, or with FAILED_PRECONDITION naming the RPC when no connected Worker registers it.
 - A Worker that does not register a requested Step type or RPC name declines it before any application code runs. Dex tries another Worker without consuming an attempt.

@@ -267,7 +267,7 @@ Temporal 版本从上往下读。退出是一个设置变量的 Signal handler�
 | Update | 写入 Attribute 或发布到 Channel 的 [RPC](/concepts/primitives/rpc) | 两者都需要 Worker。 |
 | Workflow 变量 | [Attribute](/concepts/primitives/attribute) | Dex 保存它们。Temporal 通过重放重建它们。 |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
-| Task Queue | Flow 类型的队列 | 要使用单独的 Worker 池，给这项工作一个自己的 Flow 类型。 |
+| Task Queue | Task queue | Flow 在启动时指定自己的 task queue，之后保持不变。在一个 task queue 内，Dex 按 Flow 类型路由。 |
 | Sticky execution | 尽力而为的 sticky 路由 | Dex 先把任务交给上次服务这个 Flow 的 Worker。Worker 不保留历史缓存。 |
 | Search Attributes | 带索引的 Attribute | |
 | Workflow ID 复用策略和冲突策略 | ID 复用策略和启动 request ID | 见 [Flow 标识](/concepts/flow)。 |
@@ -312,7 +312,7 @@ DBOS 是一个例子。Workflow 和 step 是你应用里加了注解的函数。
 | Step | Step `Execute` |
 | Send 和 receive | Channel |
 | Events | Attribute，通过 RPC 读取 |
-| Queue | Flow 类型的队列。每个 Worker 的任务槽限制它的工作量。 |
+| Queue | Task queue。每个 Worker 的任务槽限制它的工作量。 |
 
 Dex 在对象存储上运行自己的服务器，并可以用 [Attribute Store 同步](/components/your-database#attribute-store-sync)把 Attribute 值复制到你的数据库。
 

@@ -426,11 +426,26 @@ An RPC needs a running Worker ([RPC guarantees](/concepts/primitives/rpc#guarant
 
 The [Order Processing](/use-cases/order-processing) example shows these three patterns in full code.
 
+## Run a Flow on its own Worker pool {#task-queues}
+
+A Worker serves one task queue. A Flow names its task queue when it starts and
+keeps it for its whole run. Only Workers of that task queue run the Flow's
+Steps and RPCs. A SubFlow runs on its parent's task queue unless it names
+another one. Flows and Workers that name no task queue use the default task
+queue.
+
+Use a task queue for work that needs its own hosts, such as hosts with GPUs.
+Start that work as a SubFlow on the task queue, and run the pool's Workers on
+it. A task queue also keeps tests apart on a shared server.
+
+[Named task queues](/reference/server/workers#named-task-queues) lists the name
+rules, the routing details, and the rollback steps.
+
 ## Capacity and shutdown
 
 A Worker opens one stream for each task slot. Dex sends a task only to a free
 slot, so a Worker never has to decline work for lack of capacity. A Step that no Worker takes
-waits in a durable task queue. An RPC fails when no Worker takes it in time.
+waits durably in Dex until a Worker takes it. An RPC fails when no Worker takes it in time.
 Stop Workers gracefully during a deployment, so running tasks can finish.
 
 [Workers and the task queue](/reference/server/workers) describes readiness,

@@ -10,6 +10,12 @@ Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server
 and never listens for incoming calls. For Worker setup, see
 [Application](/components/application#enable-pull-mode).
 
+This page uses "task queue" in two senses. A **named task queue** is a routing
+name that a Flow chooses at start and a Worker serves; see
+[Named task queues](#named-task-queues). The **Step task queue** is the durable
+backlog of Step attempts that wait for a Worker; see
+[Step task queue](#step-task-queue).
+
 ## Readiness
 
 A Worker's readiness wait, **WaitPullRegistered** in Go, blocks until the
@@ -35,6 +41,11 @@ rejection and retries the rejected stream. Startup errors from **Start** also
 reach the waiter. If the context is canceled, the wait returns the context
 error. If the Worker stops before readiness, the wait returns an error. Once
 every required slot kind has registered, the wait keeps returning success.
+
+A Worker on a named task queue also checks the task queue that Dex echoes at
+registration. When the echo differs, the Worker closes that stream and records
+a permanent rejection, so readiness fails closed. See
+[Named task queues](#named-task-queues).
 
 The runnable examples wait for registration with a 30-second startup deadline,
 and stop the Worker if startup fails. Read the readiness state in your probe
@@ -62,21 +73,26 @@ exiting; it is still safe to call after **Start** returns.
 
 ## Routing and availability
 
-Each pull Worker polls its own app Worker ID queue and the queue of every Flow
-type it registers. Flow type names must be unique within a Dex Server.
+Each pull Worker serves one task queue. Inside it, the Worker polls its own app
+Worker ID queue and the queue of every Flow type it registers. A Worker that
+names no task queue serves the default task queue. Within one task queue, a
+Flow type name must mean one Flow definition.
 
 Dex routes by Flow type, not by Step type. Any Worker that registers a Flow
 type can receive any Step or RPC of it. There is no option that limits a
 Worker to some Step types; a Worker that lacks a Step type only declines it,
 as [Unsupported types](#unsupported-types) describes. To run some work on a
-separate pool of Workers, such as hosts with GPUs, give that work its own Flow
-type, for example a SubFlow, and register that Flow type only on the pool.
+separate pool of Workers, such as hosts with GPUs, start that work on its own
+[named task queue](#named-task-queues), for example as a SubFlow, and run the
+pool's Workers on that task queue. A separate Flow type registered only on the
+pool also works.
 Queues have no concurrency or rate limit of their own. The task slots of each
 Worker bound how many tasks it runs at once.
 
 For each Step attempt or RPC, Dex first tries the app Worker ID that served the
-Flow before. This is sticky routing. When no stream for that ID is still
-connected, for example after a Worker restart or a deployment, Dex goes to the
+Flow before. This is sticky routing. Sticky routing looks only inside the
+Flow's task queue. When no stream for that ID is still connected on that task
+queue, for example after a Worker restart or a deployment, Dex goes to the
 Flow type queue at once. Otherwise, Dex goes to the Flow type queue after the
 sticky wait, 5 seconds by default, so another Worker can take the task. Sticky
 routing is best effort. Keep durable state in Dex instead of depending on one
@@ -96,7 +112,7 @@ toward the method timeout or the heartbeat timeout. These timeouts start when
 Dex hands the attempt to a Worker. See [Step task queue](#step-task-queue).
 
 An RPC never queues. If no Worker takes it within the dispatch wait, the caller
-receives an **Unavailable** error directly. The default dispatch wait is 10
+receives an **UNAVAILABLE** error directly. The default dispatch wait is 10
 seconds, including up to 5 seconds for a sticky queue with connected streams.
 The wait never extends past the method deadline of the attempt. See
 [Pull Worker dispatch](#pull-worker-dispatch) for the wait settings.
@@ -114,9 +130,9 @@ seconds. If none supports the RPC, the caller gets the named error directly.
 Older server releases without this reassignment return the previous
 not-registered Worker error instead.
 
-Dex also remembers the (tenant, Flow type, Step type or RPC name, app Worker ID)
-pair in a bounded cache, and stops offering that type to that Worker. Dex drops
-the entry when every stream with that app Worker ID disconnects. A restarted
+Dex also remembers the (tenant, task queue, Flow type, Step type or RPC name,
+app Worker ID) entry in a bounded cache, and stops offering that type to that
+Worker. Dex drops the entry when every stream with that app Worker ID disconnects. A restarted
 Worker gets a new app Worker ID, so the entry does not exclude it.
 
 If you set the app Worker ID yourself and an upgraded process reuses the old ID
@@ -142,15 +158,98 @@ consuming a retry. Make external side effects idempotent, for example by using
 the Flow ID and Step execution ID as an idempotency key.
 
 New SDKs require server protocol version 4, which server-zd 0.1.17 and later
-provide. See [Upgrades and compatibility](/reference/server/upgrades) for the
-upgrade order.
+provide. Named task queues need protocol version 5, which server-zd 0.1.30 and
+later provide. See [Upgrades and compatibility](/reference/server/upgrades) for
+the upgrade order.
+
+## Named task queues {#named-task-queues}
+
+Since 0.1.30, a Flow can name a task queue when it starts. Only Workers that
+serve that task queue receive the Flow's Steps and RPCs. Use a named task queue
+for a separate Worker pool, to keep tests apart on a shared server, or to run
+two applications that use the same Flow type name on one server. Each SDK
+reference lists its option names:
+[Go](/reference/go/workers#task-queue),
+[Python](/reference/python/workers#named-task-queues),
+[Java](/reference/java/workers#task-queues),
+[TypeScript](/reference/typescript/workers#task-queues), and
+[Rust](/reference/rust/workers#task-queue).
+
+### Routing inside a task queue
+
+- A pull **WorkerTarget** names the Flow's task queue in **task_queue**. An
+  empty name selects the default task queue, which routes as before named task
+  queues existed. A **WorkerTarget** that names a task queue needs
+  **is_pull_mode**.
+- Dex routes by (task queue, Flow type) and, for sticky routing, by
+  (task queue, app Worker ID). A Worker that registers the Flow type on another
+  task queue never receives the Flow's work.
+- A Worker serves exactly one task queue. Every stream of one app Worker ID
+  must name the same task queue. Dex rejects a stream that names another one
+  with **INVALID_ARGUMENT**. To serve several task queues, run one Worker per
+  task queue, each with its own app Worker ID. The Workers can share one
+  process.
+- Sticky routing never crosses task queues. When the Worker that served the
+  Flow before is on another task queue, Dex goes to the Flow type queue inside
+  the Flow's task queue at once.
+- The Step task queue keeps a separate backlog for each named task queue. A
+  Step of a named task queue with no Worker waits there, like any other queued
+  Step. An RPC fails with **UNAVAILABLE** after the dispatch wait.
+- **PullRouting.task_queue** records the task queue of each dispatch. An empty
+  value means the default task queue.
+
+### Names
+
+- A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'.
+  The limit is fixed, independent of **matching.maxQueueLength**.
+- Names that start with **dex.** are reserved. A Worker cannot register one.
+- In a **WorkerTarget**, **dex.default** selects the default task queue. Dex
+  stores it as the empty name.
+- Dex rejects any other name with **INVALID_ARGUMENT**.
+
+### Fixed at start, inherited by SubFlows
+
+- The task queue is fixed when the Flow starts. **UpdateFlowConfig** keeps the
+  task queue when its **WorkerTarget** names none. It rejects another task
+  queue with **INVALID_ARGUMENT**.
+- A SubFlow inherits its parent's task queue. A pull override with an empty
+  task queue keeps the parent's task queue. An override can name another task
+  queue, or select the default task queue with **dex.default**.
+
+### Protocol and readiness
+
+- A Worker or Client that sends a task queue needs server protocol version 5.
+  Each SDK refuses to send one to an older server, and reports an error
+  instead of serving the default task queue.
+- Dex echoes the task queue it registered each stream on. When the echo
+  differs from the requested task queue, the SDK closes the stream without
+  running its tasks. It records a permanent rejection, and
+  [readiness](#readiness) reports it.
+
+### Metrics
+
+Each metric family covers all task queues together.
+**dexzd_step_task_queue_entries**,
+**dexzd_step_task_queue_oldest_age_seconds**, and
+**dexzd_matching_unserved_task_queues** count named task queues together with
+the default task queue, with no task queue label.
+
+### Roll back the server {#named-task-queue-rollback}
+
+Before you roll back to a server older than 0.1.30, stop every Flow that uses a
+named task queue. Then confirm that none of them is still running. An older
+server drops **WorkerTarget.task_queue** and does not see queued work of named
+task queues. It can dispatch a pending Step of such a Flow to a Worker of the
+default task queue. A Worker on a named task queue does not start against the
+older server, because that server provides protocol version 4.
 
 ## Capacity and shutdown
 
 The concurrent task limit sets the number of task slots. The default is the
 CPU count. A Worker opens one long-lived stream for each slot. Each stream
-serves the Worker's app Worker ID queue and every Flow type it registers. A
-stream runs one task at a time and is ready for a new task while it is idle.
+serves the Worker's app Worker ID queue and every Flow type it registers, inside
+the Worker's task queue. A stream runs one task at a time and is ready for a
+new task while it is idle.
 The Worker runs every task it receives and never declines a task for capacity.
 When all its slots are busy, Dex sends the Worker no more tasks.
 
@@ -289,8 +388,8 @@ matching:
 | **matching.headsResyncInterval** | 5m | Interval of a background check that finds queued tasks matching lost. 0 disables it. See [Step task queue](#step-task-queue). |
 | **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
 | **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by total slots. |
-| **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, Flow type, Step type or RPC name, app Worker ID) pairs that Dex remembers as unsupported. |
-| **matching.maxQueueLength** | 256 | Longest queue name, in characters. |
+| **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, task queue, Flow type, Step type or RPC name, app Worker ID) entries that Dex remembers as unsupported. |
+| **matching.maxQueueLength** | 256 | Longest Flow type or app Worker ID queue name, in characters. Named task queues have a fixed limit of 63 characters. |
 | **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
 | **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
 | **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
@@ -311,9 +410,9 @@ the Flow type for up to **syncMatchWait**. When the Step type already has a
 backlog that a connected Worker can run, a new Step goes straight to the queue.
 
 The attempt then waits in a durable task queue until a Worker takes it, the Flow
-times out, or the Flow stops. There is one queue for each tenant, Flow type,
-and Step type. A Step type that no connected Worker supports stays queued and
-does not block other Step types. Dex dispatches Steps roughly in the order they
+times out, or the Flow stops. There is one queue for each tenant, task queue,
+Flow type, and Step type. A Step type that no connected Worker supports stays
+queued and does not block other Step types. Dex dispatches Steps roughly in the order they
 became ready, but does not guarantee strict order. Dex spreads each queue over
 partitions, and each node serves the partitions it owns.
 

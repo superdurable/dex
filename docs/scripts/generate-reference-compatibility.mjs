@@ -64,6 +64,51 @@ async function gh(args) {
   return stdout;
 }
 
+function compareVersions(left, right) {
+  const leftParts = left.split('.').map(Number);
+  const rightParts = right.split('.').map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index];
+  }
+  return 0;
+}
+
+// Released server-zd versions, oldest first.
+async function serverReleases() {
+  return (await gh(['release', 'list', '--repo', repository, '--limit', '1000', '--json', 'tagName', '--jq', '.[].tagName']))
+    .split('\n')
+    .map((tag) => tag.match(/^server-zd\/v(\d+\.\d+\.\d+)$/)?.[1])
+    .filter(Boolean)
+    .sort(compareVersions);
+}
+
+// The current protocol of one server-zd release, or 0 when that release does not state one.
+async function releasedServerProtocol(version) {
+  const path = 'server-zd/crates/dexzd-api/src/flow_service.rs';
+  let content;
+  try {
+    content = await gh(['api', `repos/${repository}/contents/${path}?ref=server-zd/v${version}`, '--jq', '.content']);
+  } catch (error) {
+    if (String(error.stderr ?? error.message).includes('404')) return 0;
+    throw error;
+  }
+  const source = Buffer.from(content, 'base64').toString('utf8');
+  return Number(source.match(/pub const CURRENT_PROTOCOL_VERSION: u32 = (\d+);/)?.[1] ?? 0);
+}
+
+// The first released server-zd version that provides the protocol, or null before any release does.
+// Protocol versions only grow from one release to the next, so a binary search finds it.
+async function firstServerProviding(protocol, releases) {
+  let low = 0;
+  let high = releases.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((await releasedServerProtocol(releases[middle])) >= protocol) high = middle;
+    else low = middle + 1;
+  }
+  return low < releases.length ? releases[low] : null;
+}
+
 // Each retained dexcli line, with the server-zd release its newest patch bundles.
 async function bundledServers() {
   const tags = (await gh(['release', 'list', '--repo', repository, '--limit', '1000', '--json', 'tagName', '--jq', '.[].tagName']))
@@ -107,6 +152,28 @@ function sdkRows(locale, requirement) {
 
 const requirement = requiredServerProtocol();
 const currentProtocol = serverCurrentProtocol();
+const releases = await serverReleases();
+const firstMinimumServer = await firstServerProviding(Number(requirement.protocol), releases);
+if (firstMinimumServer !== requirement.firstServer) {
+  throw new Error(
+    `sdk-go/dex/server_protocol.go names server-zd ${requirement.firstServer} for protocol ${requirement.protocol}, but releases first provide it in ${firstMinimumServer}`,
+  );
+}
+// Each protocol the matrix names, with the first release that provides it. An unreleased current protocol is left out.
+const protocolReleases = [{protocol: requirement.protocol, firstServer: requirement.firstServer}];
+if (Number(currentProtocol) > Number(requirement.protocol)) {
+  const firstCurrentServer = await firstServerProviding(Number(currentProtocol), releases);
+  if (firstCurrentServer) protocolReleases.push({protocol: currentProtocol, firstServer: firstCurrentServer});
+}
+
+function protocolSentences(locale) {
+  if (locale === 'en') {
+    return protocolReleases
+      .map(({protocol, firstServer}) => `server-zd ${firstServer} and newer provide protocol version ${protocol}.`)
+      .join('\n');
+  }
+  return protocolReleases.map(({protocol, firstServer}) => `server-zd ${firstServer} 及更新版本提供协议版本 ${protocol}。`).join('');
+}
 const webLines = retainedLines('web').join(', ');
 const bundled = await bundledServers();
 
@@ -117,8 +184,8 @@ function section(locale) {
   if (locale === 'en') {
     return `## Compatibility matrix
 
-Workers and Clients negotiate a protocol version with the server. server-zd
-${requirement.firstServer} and newer provide protocol version ${currentProtocol}.
+Workers and Clients negotiate a protocol version with the server.
+${protocolSentences(locale)}
 
 | Component | Version | server-zd it needs |
 | --- | --- | --- |
@@ -139,7 +206,7 @@ ${dexcli}
   }
   return `## 兼容性矩阵 {#compatibility-matrix}
 
-Worker 和 Client 会和 server 协商协议版本。server-zd ${requirement.firstServer} 及更新版本提供协议版本 ${currentProtocol}。
+Worker 和 Client 会和 server 协商协议版本。${protocolSentences(locale)}
 
 | 组件 | 版本 | 需要的 server-zd |
 | --- | --- | --- |
