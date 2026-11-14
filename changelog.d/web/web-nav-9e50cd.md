@@ -7,7 +7,7 @@ section: Changed
 - Live moved out of the bar to the event range on Events. It reads **Live** while the page follows the run, and **Updates paused · Resume** after a click.
 - **Input** and **Result** beside the event range on Events select Flow started and Flow closed, which show the run's start input and how it ended.
 - **Group by type**, on by default, on the Flows page groups the page's runs by Flow type, with counts by status and a link to the type's design.
-- `web/embedded`: `Target.HasHostNavigation` tells Dex Web that your page draws the navigation around it, so Dex Web draws no rail.
+- **web/embedded**: **Target.HasHostNavigation** tells Dex Web that your page draws the navigation around it, so Dex Web draws no rail.
 - The Timeline strip is about half as tall. Labels lie flat, one for each run of consecutive events about the same subject, such as **SyncBatch ×20**; a short page spreads its events so every name fits. The overview is a thin strip under the lane, one row above it holds the time range and failure count, and **Legend** opens over the strip.
 - A running or ended run no longer has a line under the bar for its state. The Timeline lane's newest end says what the run does now, such as **Now · waiting · fires in 2d 6h**, and selects that event on click. A failed run keeps its error line.
 - The event pager reads **Oldest**, **Older**, **Newer** and **Latest**, older pages on the left as in the strip.
