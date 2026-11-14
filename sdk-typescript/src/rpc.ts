@@ -89,11 +89,13 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
 }
 
 /**
- * Adds runtime-selected map instances to one RPC invocation.
+ * Adds call-time settings to one RPC invocation: runtime-selected map instances and a request ID.
  *
  * Dex unions these selections with the fixed locks and loads from `@rpc` or `declareRPCMethod`. Locking and loading
  * are independent, so read-modify-write handlers must select the same AttributeMap instance in
  * both fields.
+ *
+ * Set `requestId` to make a retried call idempotent. See {@link RPCInvokeOptions.requestId}.
  */
 export interface RPCInvokeOptions {
   /** AttributeMap instance locks added for this invocation. */
@@ -102,6 +104,151 @@ export interface RPCInvokeOptions {
   readonly loadAttributeMapInstances?: readonly AttributeMapLoad[];
   /** Exact ChannelMap pending-message snapshots added for this invocation. */
   readonly loadChannelMapInstances?: readonly ChannelMapLoad[];
+  /**
+   * Request ID that lets Dex Server deduplicate a repeated call of this RPC.
+   *
+   * When omitted, the Client generates a new random request ID for every call, so each call is a
+   * new request. Pass your own stable ID when the same logical call may be sent more than once.
+   * Use it to retry an RPC whose outcome is unknown, such as after a timeout, an `UNAVAILABLE`
+   * error, or a lost response. Use it also to apply an event that arrives at least once, such as
+   * a Trigger delivery that is retried after a failure: pass the event ID, or a value derived
+   * from it, as the request ID. Reuse the same ID only for the same logical call.
+   *
+   * Dex Server records the reply of a successful RPC that it commits under its request ID. A
+   * repeat that Dex checks against a recorded request ID returns the recorded output and applies
+   * the RPC's Flow changes, such as Attribute writes, Channel publications, and next Steps, no
+   * second time. Whether Dex checks a repeat depends on the RPC and on what the repeated attempt
+   * returns:
+   *
+   * - A transactional RPC (`isTransactional: true`) or an RPC with Attribute locks is answered
+   *   from the recorded reply before any Worker runs the handler. Concurrent calls with the same
+   *   request ID share one handler execution and its result.
+   * - Any other RPC runs its handler again on a Worker, and the handler's calls to external
+   *   systems repeat. When this attempt changes Flow state or records an event, Dex discards those
+   *   changes and returns the recorded reply. When this attempt changes no Flow state and records
+   *   no event, Dex returns its new output without checking the request ID, and records nothing.
+   *   For example, a handler that marks an
+   *   event processed can return a different output once the mark exists.
+   *
+   * Use a transactional RPC when callers need the exact recorded reply, or when the handler must
+   * run at most once per request ID.
+   *
+   * Traps:
+   *
+   * - Dex compares the whole request, not only the request ID. A repeat must use the same Flow ID,
+   *   RPC, encoded input, run ID, and runtime locks and loads. Pass `runId` on every attempt or on
+   *   none. Rebuild the input from the stored event rather than from data that can change. The
+   *   comparison also covers the RPC's declared timeout, locks, loads, and `isTransactional`, so a
+   *   retry after a deployment that changed them is a different request. A
+   *   different request under a kept request ID fails with {@link DexServiceError} whose `code` is
+   *   gRPC `INVALID_ARGUMENT` and whose detail says the request ID "was already used for a
+   *   different request". A transactional or locking RPC rejects it before a Worker runs the
+   *   handler. Any other RPC rejects it after the handler ran, and applies none of its changes,
+   *   when that attempt changes Flow state or records an event. An attempt that changes no Flow
+   *   state and records no event skips this check and returns its new output.
+   * - Each Flow run keeps only its newest request IDs, set by the Server limit
+   *   `limits.maxRequestIdsPerRun` (default 1,000). The window is shared with the run's other
+   *   requests that carry request IDs, such as Client Attribute writes. A repeat with an older,
+   *   evicted request ID runs as a new request. A new run of the same Flow ID keeps none of the
+   *   earlier run's request IDs.
+   * - A handler failure records nothing. After a {@link WorkerInvocationError} or an RPC handler
+   *   timeout, a retry with the same request ID runs the handler again.
+   * - An `UNAVAILABLE` error can leave the outcome unknown, because the first call may still
+   *   commit. A retry with the same request ID still applies the RPC's Flow changes at most once.
+   * - After the Flow run closes, a transactional or locking RPC with a recorded request ID still
+   *   returns its recorded output while the Server retains the run. The same RPC with a new
+   *   request ID fails with {@link FlowNotActiveOrNotFoundError}.
+   * - When a run is over its Flow state budget (`limits.maxFlowStateBytes`), an RPC that changes
+   *   no Flow state keeps no reply or request ID, so its repeat runs again. RPCs that change Flow
+   *   state still keep both.
+   * - A kept request ID counts toward the run's Flow state budget, so keep IDs short.
+   *
+   * The Server rejects an empty string with {@link DexServiceError} whose `code` is gRPC
+   * `INVALID_ARGUMENT`. The Server sets no other length or character limit.
+   *
+   * @example
+   * ```ts
+   * import { status } from "@grpc/grpc-js";
+   * import {
+   *   Attribute,
+   *   Client,
+   *   DexServiceError,
+   *   StepList,
+   *   doubleCodec,
+   *   rpc,
+   *   type Context,
+   *   type Flow,
+   *   type PersistenceSchema,
+   *   type RPCInvokeOptions,
+   *   type RPCResult,
+   * } from "@superdurable/dex";
+   *
+   * interface Payment {
+   *   readonly paymentId: string;
+   *   readonly amountCents: number;
+   * }
+   *
+   * interface PaymentEvent {
+   *   readonly id: string;
+   *   readonly orderId: string;
+   *   readonly amountCents: number;
+   * }
+   *
+   * const paidCents = new Attribute("paidCents", doubleCodec);
+   *
+   * export class OrderFlow implements Flow {
+   *   public getFlowType(): string {
+   *     return "OrderFlow";
+   *   }
+   *
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [paidCents] };
+   *   }
+   *
+   *   // Transactional, so a repeat returns the recorded total without running the handler.
+   *   @rpc({ outputCodec: doubleCodec, isTransactional: true })
+   *   public recordPayment(context: Context, payment: Payment): RPCResult<number> {
+   *     const total = (paidCents.get(context) ?? 0) + payment.amountCents;
+   *     paidCents.set(context, total);
+   *     return { output: total };
+   *   }
+   * }
+   *
+   * // orderFlow is the instance registered in the Client's Registry.
+   * // A delivery may arrive more than once, so the event ID identifies the logical call.
+   * export async function deliverPayment(
+   *   client: Client,
+   *   orderFlow: OrderFlow,
+   *   event: PaymentEvent,
+   * ): Promise<number> {
+   *   const payment: Payment = { paymentId: event.id, amountCents: event.amountCents };
+   *   const options: RPCInvokeOptions = { requestId: `payment-${event.id}` };
+   *   for (let attempt = 1; ; attempt++) {
+   *     try {
+   *       return await client.invokeRPCWithOptions(
+   *         orderFlow.recordPayment,
+   *         event.orderId,
+   *         payment,
+   *         options,
+   *       );
+   *     } catch (error) {
+   *       const isUnknownOutcome = error instanceof DexServiceError &&
+   *         (error.code === status.UNAVAILABLE || error.code === status.DEADLINE_EXCEEDED);
+   *       if (!isUnknownOutcome || attempt === 5) {
+   *         throw error;
+   *       }
+   *       await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+   *     }
+   *   }
+   * }
+   * ```
+   * @since 1.45.4
+   */
+  readonly requestId?: string;
 }
 
 export interface RegisteredRPC {

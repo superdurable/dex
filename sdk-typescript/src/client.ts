@@ -378,6 +378,8 @@ export class Client {
    * transactional execution, returned effects, or server policy can require an active execution.
    * The call waits for handler completion and application of its durable effects before returning output.
    * Lock acquisition is nonblocking; retry a lock conflict only when the operation is safe to repeat.
+   * Each call sends a new request ID. To retry one logical call idempotently, use
+   * invokeRPCWithOptions with a stable {@link RPCInvokeOptions.requestId}.
    * @example
    * ```ts
    * try {
@@ -513,13 +515,14 @@ export class Client {
   }
 
   /**
-   * Invokes an input-bearing RPC with additive runtime map-instance selections.
+   * Invokes an input-bearing RPC with call-time options: map-instance selections and a request ID.
    * @typeParam Input - RPC input type.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
-   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param options - Runtime AttributeMap locks, exact map-instance loads, and an optional request ID
+   * that makes a repeated call idempotent; see {@link RPCInvokeOptions.requestId}.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns The decoded RPCResult output.
    */
@@ -535,11 +538,12 @@ export class Client {
   ): Promise<Output>;
 
   /**
-   * Invokes an input-free RPC with additive runtime map-instance selections.
+   * Invokes an input-free RPC with call-time options: map-instance selections and a request ID.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
-   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param options - Runtime AttributeMap locks, exact map-instance loads, and an optional request ID
+   * that makes a repeated call idempotent; see {@link RPCInvokeOptions.requestId}.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns The decoded RPCResult output.
    */
@@ -551,12 +555,13 @@ export class Client {
   ): Promise<Output>;
 
   /**
-   * Invokes an input-bearing, output-free RPC with runtime map-instance selections.
+   * Invokes an input-bearing, output-free RPC with call-time options: map-instance selections and a request ID.
    * @typeParam Input - RPC input type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
-   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param options - Runtime AttributeMap locks, exact map-instance loads, and an optional request ID
+   * that makes a repeated call idempotent; see {@link RPCInvokeOptions.requestId}.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns A promise resolved after successful handler completion.
    */
@@ -569,10 +574,11 @@ export class Client {
   ): Promise<void>;
 
   /**
-   * Invokes an input-free, output-free RPC with runtime map-instance selections.
+   * Invokes an input-free, output-free RPC with call-time options: map-instance selections and a request ID.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
-   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param options - Runtime AttributeMap locks, exact map-instance loads, and an optional request ID
+   * that makes a repeated call idempotent; see {@link RPCInvokeOptions.requestId}.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns A promise resolved after successful handler completion.
    */
@@ -584,7 +590,7 @@ export class Client {
   ): Promise<void>;
 
   /**
-   * Implements RPC invocation with additive runtime map-instance selections.
+   * Implements RPC invocation with call-time map-instance selections and an optional request ID.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param inputOrOptions - Typed input for an input-bearing RPC, or options for an input-free RPC.
@@ -666,7 +672,7 @@ export class Client {
             ),
             ...invocationLocks,
           ]),
-          requestId: crypto.randomUUID(),
+          requestId: invokeOptions.requestId ?? crypto.randomUUID(),
           isTransactional: rpc.options.isTransactional ?? false,
           loadAttributeMapInstances: uniqueSorted([
             ...(rpc.options.loadAttributeMaps ?? []).map((attributeMap) =>

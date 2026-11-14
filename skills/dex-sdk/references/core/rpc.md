@@ -89,7 +89,7 @@ ResolveStoppedTurnStep.execute         // locks turnState
 
 ## Retries and request identity
 
-- Every SDK generates a new request ID for each RPC call and has no override. A retry through the SDK is a new request and can run the handler again.
+- By default, the SDK generates a new request ID for each RPC call. A retry with a new request ID is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID, such as an event ID, on every attempt of one logical call; Dex then applies the RPC's Flow changes at most once. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
 - Make handlers safe to repeat, or reconcile with a typed read before you retry a write.
 - A call that times out or returns UNAVAILABLE has an unknown outcome. The first call may still commit while a retry runs the handler again.
 - An RPC that no Worker takes within the dispatch wait fails with UNAVAILABLE. An RPC name that no connected Worker registers fails with FAILED_PRECONDITION naming the RPC. RPCs never wait in the Step task queue.

@@ -51,7 +51,7 @@ handler 经常为同一个请求写入自己的一行，并启动一个 Flow。�
 
 把保留期设得比 Client 的重试窗口更长。见 [Retention and start deduplication](/reference/server/configuration#retention-and-start-deduplication)（英文）。
 
-你的代码再次调用 RPC，它就会再运行一次。见 [RPC 的保证](/concepts/primitives/rpc#guarantees)。
+你的代码再次调用 RPC，它就会再运行一次。如果两次调用传入同一个 request ID，Dex 最多保存一次这个 RPC 的修改。见 [RPC 的保证](/concepts/primitives/rpc#guarantees)。
 
 ## Dex 把 Attribute 复制到你的数据库 {#attribute-store-sync}
 

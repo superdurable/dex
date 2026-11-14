@@ -1419,6 +1419,66 @@ RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trig
 </SdkSnippet>
 </SdkTabs>
 
+### RPC request IDs {#rpc-request-ids}
+
+Every RPC invocation carries a request ID. Dex Server records the reply of a
+successful RPC that it commits under that request ID. A repeat that Dex Server
+checks against a recorded request ID returns the recorded output. It applies
+the RPC's Flow changes, such as Attribute writes, Channel publications, and
+next Steps, no second time. Whether Dex Server checks a repeat depends on the
+RPC and on what the repeated attempt returns.
+
+By default, SDKs send a new request ID on each call, so calling an RPC again
+from your code runs it again. To make a retried call idempotent, pass the same
+request ID on every attempt, where the SDK accepts one. The TypeScript SDK
+takes it as **requestId** of **RPCInvokeOptions**. Use an ID that names the
+logical call, such as the ID of an event that is delivered at least once.
+
+How Dex Server answers a repeat depends on the RPC:
+
+| RPC | Repeat with a recorded request ID |
+| --- | --- |
+| Transactional or locking | Answered from the recorded reply before a Worker runs the handler. Concurrent calls with the same request ID share one handler execution and its result. |
+| Any other RPC | The handler runs again on a Worker, and its calls to external systems repeat. When this attempt changes Flow state or records an event, Dex Server discards those changes and returns the recorded reply. When this attempt changes no Flow state and records no event, Dex Server returns its new output without checking the request ID, and records nothing. |
+
+An RPC that is neither transactional nor locking can therefore return a new
+output to a repeat. For example, a handler that marks an event processed
+returns a different output once the mark exists. Use a transactional RPC when
+callers need the exact recorded reply.
+
+These rules also apply:
+
+- Dex Server compares the whole request: Flow ID, run ID, RPC name, input,
+  timeout, locks, and loads. A different request under a kept request ID fails
+  with INVALID_ARGUMENT and the detail "request ID ... was already used for a
+  different request". The RPC applies none of its changes. An attempt of an
+  RPC that is neither transactional nor locking skips this check when it
+  changes no Flow state and records no event.
+- Each run keeps its newest request IDs, as many as
+  [**limits.maxRequestIdsPerRun**](/reference/server/configuration#limits).
+  RPC request IDs share this window with the run's other request IDs, such as
+  those of Client Attribute writes. A repeat with an older request ID runs as
+  a new request. A new run of the same Flow ID starts with no request IDs.
+- A failed RPC records nothing. A retry after a Worker error or an
+  [RPC timeout](#rpc-timeout) of the Worker handler runs the handler again.
+- A client-side deadline or cancellation leaves the outcome unknown. The server
+  may still commit the RPC. A retry with the same request ID applies the Flow
+  changes at most once. For a transactional or locking RPC, the retry joins
+  the invocation still in flight, or returns the recorded reply after it
+  commits. Any other RPC runs its handler again.
+- UNAVAILABLE after the server's commit budget also leaves the outcome
+  unknown. A retry with the same request ID can run the handler again, and
+  still applies the Flow changes at most once.
+- After the Flow run closes, a transactional or locking RPC with a recorded
+  request ID returns its recorded reply while the server retains the run. With
+  a new request ID it fails with NOT_FOUND and FLOW_NOT_EXISTS, as described in
+  [Retention](/reference/server/configuration#retention).
+- On a run over its [Flow state budget](/reference/server/configuration#flow-state-budget),
+  an RPC that changes no Flow state keeps no request ID.
+- A request ID must be non-empty. Dex Server sets no other length or character
+  limit. Each kept request ID counts toward the run's Flow state budget, so
+  keep request IDs short.
+
 ## Channels {#channels}
 
 ### Wait conditions {#channel-conditions}

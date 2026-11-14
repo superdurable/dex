@@ -32,6 +32,8 @@ immediately, or fail it with a reason.
 **InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and
 returns its result. A query-only RPC can also read a closed Flow run that the
 server still retains. An RPC that commits effects needs an active Flow run.
+To retry an RPC without applying it twice, reuse its request ID, as described
+in [RPC request IDs](/reference/server/runtime-data#rpc-request-ids).
 
 ## Requests during Flow close {#requests-during-flow-close}
 

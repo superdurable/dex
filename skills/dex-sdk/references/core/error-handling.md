@@ -182,7 +182,7 @@ While a Flow closes, Dex rejects some new requests with the Flow closing error. 
 
 After an ambiguous provider or Client mutation, reconcile authoritative state before you repeat an effect whose safe replay is not established. A StartFlow retry with a stable Flow ID, Request ID, and the same options can replay without a read. Bound retries and keep the repeated mutation idempotent.
 
-Every SDK generates a new request ID for each RPC call and has no override. A retried RPC is therefore a new request and can run the handler again. Make RPC handlers safe to repeat, or reconcile with a typed read before you retry a write. An RPC that times out or returns UNAVAILABLE has an unknown outcome: the handler may run again on retry while the first call may still commit. Never promise unconditional eventual success.
+By default, the SDK generates a new request ID for each RPC call, so a retried RPC is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID on every attempt so the retried RPC's Flow changes take effect at most once; see [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids). Make RPC handlers safe to repeat, or reconcile with a typed read before you retry a write. An RPC that times out or returns UNAVAILABLE has an unknown outcome: the handler may run again on retry while the first call may still commit. Never promise unconditional eventual success.
 
 ## Best-effort output
 
