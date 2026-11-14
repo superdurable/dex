@@ -119,6 +119,7 @@ the soak prints.
 | `DEX_SOAK_FAULT_INTERVAL` | Time between faults; defaults to a sixth of the duration, from 30 seconds to 4 minutes |
 | `DEX_SOAK_SEED` | The fault schedule's seed; defaults to the start time, and the soak prints it |
 | `DEX_SOAK_SNAPSHOT_INTERVAL` | `snapshot.interval` of both processes; defaults to `60s`. A longer interval, such as the server default of `10m`, leaves a longer log to replay after a crash |
+| `DEX_SOAK_LEASE_DURATION` | `lease.duration` of both processes; defaults to the server default of `30s`. A short lease from outside the bucket's region can expire during slow requests and stop the active process |
 | `DEX_SOAK_MAX_STANDBY_RESTARTS` | Unset (default) only reports hot standby restarts; a count fails the test once the restarts over all processes exceed it |
 | `DEX_SOAK_MAX_TAKEOVER_RETRIES` | Unset (default) only reports takeover retries; a count fails the test once the retries over all processes exceed it |
 | `DEX_SOAK_LOG_STALL_INTERVAL` | s3local targets only: how often to hold log batch writes for 15 seconds, outside the fault schedule, so the serving process exits as an UNPLANNED EXIT. Unset by default |

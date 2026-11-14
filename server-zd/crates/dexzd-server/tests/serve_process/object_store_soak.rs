@@ -28,7 +28,7 @@ use tempfile::TempDir;
 use tokio::time::Instant;
 
 use crate::robustness::workload::{LoadShape, Workload};
-use cluster::{KILLED_LEASE_EXPIRY_WAIT, NODE_ID, SoakCluster};
+use cluster::{NODE_ID, SoakCluster};
 use layout::check_versioned_layout;
 use log_tally::LogTally;
 use target::{SoakTarget, count_by_area, list_all};
@@ -40,6 +40,7 @@ const SEED_VARIABLE: &str = "DEX_SOAK_SEED";
 const LOG_DIRECTORY_VARIABLE: &str = "DEX_SOAK_LOG_DIR";
 const KEEP_OBJECTS_VARIABLE: &str = "DEX_SOAK_KEEP_OBJECTS";
 const SNAPSHOT_INTERVAL_VARIABLE: &str = "DEX_SOAK_SNAPSHOT_INTERVAL";
+const LEASE_DURATION_VARIABLE: &str = "DEX_SOAK_LEASE_DURATION";
 const MAX_STANDBY_RESTARTS_VARIABLE: &str = "DEX_SOAK_MAX_STANDBY_RESTARTS";
 const MAX_TAKEOVER_RETRIES_VARIABLE: &str = "DEX_SOAK_MAX_TAKEOVER_RETRIES";
 const LOG_STALL_INTERVAL_VARIABLE: &str = "DEX_SOAK_LOG_STALL_INTERVAL";
@@ -50,6 +51,8 @@ const LOG_STALL_BUDGET: Duration = Duration::from_secs(30);
 const TOP_LOG_PATTERNS: usize = 15;
 /// Short enough that every cold restart restores a recent snapshot.
 const DEFAULT_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(60);
+/// The server's default `lease.duration`.
+const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
 const DEFAULT_DURATION: Duration = Duration::from_secs(2 * 60 * 60);
 /// Faults come at most this far apart by default, and a sixth of a short soak apart.
 const LONGEST_DEFAULT_FAULT_INTERVAL: Duration = Duration::from_secs(4 * 60);
@@ -154,6 +157,7 @@ struct SoakSettings {
     log_directory: PathBuf,
     keeps_objects: bool,
     snapshot_interval: Duration,
+    lease_duration: Duration,
     /// More hot standby restarts than this fail the soak; `None` only reports them.
     max_standby_restarts: Option<usize>,
     max_takeover_retries: Option<usize>,
@@ -230,6 +234,14 @@ impl SoakSettings {
                     panic!("{SNAPSHOT_INTERVAL_VARIABLE} must be a duration, not {text:?}")
                 })
             });
+        let lease_duration = std::env::var(LEASE_DURATION_VARIABLE)
+            .ok()
+            .filter(|text| !text.is_empty())
+            .map_or(DEFAULT_LEASE_DURATION, |text| {
+                parse_duration(&text).unwrap_or_else(|| {
+                    panic!("{LEASE_DURATION_VARIABLE} must be a duration, not {text:?}")
+                })
+            });
         let log_stall_interval = std::env::var(LOG_STALL_INTERVAL_VARIABLE)
             .ok()
             .filter(|text| !text.is_empty())
@@ -245,6 +257,7 @@ impl SoakSettings {
             log_directory,
             keeps_objects: std::env::var(KEEP_OBJECTS_VARIABLE).is_ok_and(|text| text == "1"),
             snapshot_interval,
+            lease_duration,
             max_standby_restarts: count_limit(MAX_STANDBY_RESTARTS_VARIABLE),
             max_takeover_retries: count_limit(MAX_TAKEOVER_RETRIES_VARIABLE),
             log_stall_interval,
@@ -267,10 +280,11 @@ impl fmt::Display for SoakSettings {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "duration {:?}, a fault every {:?}, a snapshot every {:?}, seed {} ({SEED_VARIABLE}), process logs in {}",
+            "duration {:?}, a fault every {:?}, a snapshot every {:?}, a {:?} lease, seed {} ({SEED_VARIABLE}), process logs in {}",
             self.duration,
             self.fault_interval,
             self.snapshot_interval,
+            self.lease_duration,
             self.seed,
             self.log_directory.display()
         )?;
@@ -454,6 +468,7 @@ async fn run_soak(target: Arc<SoakTarget>, settings: SoakSettings, run_id: Strin
         &workload,
         &SLOT_NAMES,
         settings.snapshot_interval,
+        settings.lease_duration,
     )
     .await;
     let inspection = target.physical_store().await;
@@ -800,7 +815,7 @@ async fn inject_fault(
                 cluster.kill(active).await;
                 let stopped_at = Instant::now();
                 // A process started before the lease expires follows the log as a hot standby.
-                tokio::time::sleep(KILLED_LEASE_EXPIRY_WAIT).await;
+                tokio::time::sleep(cluster.killed_lease_expiry_wait()).await;
                 stopped_at
             } else {
                 cluster.terminate(standby).await;

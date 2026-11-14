@@ -33,10 +33,9 @@ use crate::robustness::workload::{VerificationReport, Workload};
 use crate::standby_failover::readiness_router::{ReadinessRouter, RouterBackend, ServingReport};
 
 pub(crate) const NODE_ID: &str = "soak-node";
-/// Long enough to ride out object storage latency spikes of a real bucket.
-const LEASE_DURATION: &str = "10s";
-/// Outlasts a killed process's lease and the one-second takeover grace.
-pub(crate) const KILLED_LEASE_EXPIRY_WAIT: Duration = Duration::from_secs(12);
+
+/// Added to the lease duration: the one-second takeover grace plus a margin.
+const KILLED_LEASE_EXPIRY_MARGIN: Duration = Duration::from_secs(2);
 /// Longer than any standby lag, so a hot standby never misses a deleted log batch.
 const LOG_DELETION_DELAY: &str = "10m";
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(1);
@@ -98,6 +97,7 @@ pub(crate) struct SoakCluster {
     tally: MetricsTally,
     log_tally: LogTally,
     created_at: Instant,
+    lease_duration: Duration,
 }
 
 impl SoakCluster {
@@ -109,6 +109,7 @@ impl SoakCluster {
         workload: &Workload,
         slot_names: &[&str],
         snapshot_interval: Duration,
+        lease_duration: Duration,
     ) -> Self {
         let mut slots = Vec::new();
         for name in slot_names {
@@ -119,10 +120,11 @@ impl SoakCluster {
             let local_directory = directory.join(format!("{name}-store"));
             let contents = |standby_mode: &str| {
                 format!(
-                    "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {LEASE_DURATION}\n  failIfHeld: false\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: {standby_mode}\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
+                    "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {lease_duration}s\n  failIfHeld: false\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: {standby_mode}\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
                     object_store = target.object_store_yaml(),
                     local = local_directory.display(),
                     snapshot_interval = snapshot_interval.as_secs(),
+                    lease_duration = lease_duration.as_secs(),
                 )
             };
             std::fs::write(&config_path, contents("hot"))
@@ -168,6 +170,7 @@ impl SoakCluster {
             tally: MetricsTally::default(),
             log_tally: LogTally::default(),
             created_at: Instant::now(),
+            lease_duration,
         }
     }
 
@@ -569,4 +572,11 @@ fn stop_reason(log: &str) -> String {
             || "<the log is empty>".to_owned(),
             |line| (*line).to_owned(),
         )
+}
+
+impl SoakCluster {
+    /// Returns how long a killed process's lease can still block a takeover.
+    pub(crate) fn killed_lease_expiry_wait(&self) -> Duration {
+        self.lease_duration + KILLED_LEASE_EXPIRY_MARGIN
+    }
 }
