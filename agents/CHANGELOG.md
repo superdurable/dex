@@ -4,6 +4,67 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.9 (2026-11-14)
+
+### Changed
+
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`:
+  `connectors.mcp: auto` runs `dexcli connectors mcp --exit-on-stdin-close`
+  for this machine's `~/.dex/connectors/connections.json` and uses the URL of
+  its `{"type":"ready","url":...}` line, with any `dex.server`. The startup
+  waits at most 120 seconds and reads at most 1 MiB of that line. The command
+  owns the child from its spawn, in its own process group, and logs its stderr
+  to `~/.dex/agents/dexcli-connectors-mcp.log`. It stops the child before a
+  `dexcli dev` it started, also on a signal while it owns the child: it closes
+  the child's stdin, then sends SIGTERM and SIGKILL to the group while the
+  child still runs, and sends no signal after that. Every startup outcome but a
+  valid ready line stops the child first.
+  With `dex.server: auto`, it starts after `dexcli dev` is ready, and a failed
+  start falls back to `<Dex Web URL>/mcp`. With a URL `dex.server`, a missing or
+  empty `connections.json`, a `dexcli` that may not support the command (usage
+  exit code 2 and no output), or a failed start keeps connector tools off, and
+  the new optional `DexServerConnection.connectorsOffReason`
+  (`DexServerEndpoint.connectors_off_reason`) holds the line that says why. The
+  pinned `dexcli` is 1.47.7.
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: a session's
+  terminal lease lasts 600 seconds by default instead of 15, so a pause or a
+  lost connection of a few minutes no longer ends a chat. The configuration
+  file's new optional `sessions.lease_ttl_seconds`, an integer from 10 to
+  3600, sets it; a value outside that range fails the schema at
+  `/sessions/lease_ttl_seconds`, and the command exits with code 2.
+  `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, from 1 to 3600, still overrides it,
+  and the command ignores any other value of the variable. The lease rules are
+  unchanged: the command renews every third of the TTL, a clean exit releases
+  the lease at once, and a waiting command still asks every second. A killed
+  or paused command now holds its session for up to 10 minutes by default.
+  Each lease read of an attempt waits at most 5 seconds, also while a pull
+  permit is active, so an unanswered read never holds a waiting command for
+  the rest of the longer permit.
+  New: `SessionsConfig.lease_ttl_seconds`,
+  `CommandEnvironment.has_session_lease_ttl_override` and
+  `resolve_session_lease_ttl_seconds`, `defaultSessionLeaseTtlSeconds` in the
+  TypeScript package index, `readSessionLeaseTtlOverrideSeconds`,
+  `resolveSessionLeaseTtlSeconds`, and `OpenedSessionWorker.leaseTtlSeconds`.
+  `CliEnvironment.sessionLeaseTtlSeconds` is now set only by a valid variable.
+
+### Fixed
+
+- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: `init` on an
+  existing, valid configuration file replaces only the fields it asks about
+  (`model`, `system_prompt`, `connectors.enabled`, `workspace`, and the
+  `local_tools` switches) and keeps every other field, such as `dex.server`,
+  `dex.auth`, `dex.tls`, `connectors.mcp`, `mcp_servers`, `approval`, `media`,
+  `sessions`, and the harness sections. Before, it wrote the whole file from
+  its answers, and the command then used a local `dexcli dev`. The questions
+  offer the file's values as defaults, and `--yes` takes those same defaults.
+  An invalid file is copied to `NAME.yaml.bak` and
+  replaced, with one line that says so. The TypeScript core also asks for the
+  shell commands that run without approval, as the Python core does. `init`
+  writes the file and the backup through a temporary file and a rename, so a
+  crash never leaves a partial file, and it writes through a symbolic link to
+  the configuration without replacing the link. The merge rules are in
+  `agents/conformance/cli_init.json`.
+
 ## 0.6.8 (2026-11-14)
 
 ### Added

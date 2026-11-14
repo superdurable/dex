@@ -16,7 +16,7 @@ and upgrade steps.
 
 ## 0.6 {#v0-6}
 
-Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3); 0.6.4 released 2026-11-13 as [agents/v0.6.4](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.4); 0.6.5 released 2026-11-13 as [agents/v0.6.5](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.5); 0.6.6 released 2026-11-13 as [agents/v0.6.6](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.6); 0.6.7 released 2026-11-13 as [agents/v0.6.7](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.7); 0.6.8 released 2026-11-14 as [agents/v0.6.8](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.8).
+Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3); 0.6.4 released 2026-11-13 as [agents/v0.6.4](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.4); 0.6.5 released 2026-11-13 as [agents/v0.6.5](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.5); 0.6.6 released 2026-11-13 as [agents/v0.6.6](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.6); 0.6.7 released 2026-11-13 as [agents/v0.6.7](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.7); 0.6.8 released 2026-11-14 as [agents/v0.6.8](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.8); 0.6.9 released 2026-11-14 as [agents/v0.6.9](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.9).
 
 ### Breaking
 
@@ -97,6 +97,15 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
   With a **dexcli** earlier than 1.47.2, which switches sessions in place, the
   commands use the plain chat.
   [Reference](/reference/agents/cli#one-terminal-per-session). Since 0.6.8.
+- Python and TypeScript CLI commands: **connectors.mcp: auto** serves the Connector tools authorized on this machine, from **~/.dex/connectors/connections.json**, with any **dex.server**, including a remote server such as Dex Cloud. The command runs **dexcli connectors mcp**, which needs dexcli 1.47.7, and stops it when it exits, before a **dexcli dev** it started. With **dex.server: auto** it starts after **dexcli dev** is ready and reuses its server, so one Connectors MCP server runs for each **connections.json**. With a remote server, Connector tools stay off with a hint when this machine has no authorized connection, the dexcli may not support the command, or the command does not start. Before, **auto** used the server of **dexcli dev** and had none with a remote server. [Reference](/reference/agents/cli#connectors). Since 0.6.9.
+- A session's terminal lease lasts 600 seconds by default instead of 15, so a
+  pause or a lost connection of a few minutes no longer ends a chat. The new optional
+  **sessions.lease_ttl_seconds** in the configuration file sets it, from 10 to
+  3600 seconds. **DEX_AGENTS_SESSION_LEASE_TTL_SECONDS** still overrides it. A
+  command that exits still releases the lease at once, and a waiting command
+  takes the session within about a second. A killed or paused command holds
+  its session until its lease expires, up to 10 minutes by default.
+  See [One terminal per session](/reference/agents/cli#one-terminal-per-session). Since 0.6.9.
 
 ### Fixed
 
@@ -109,6 +118,17 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
   no longer stops with a traceback: a Dex error that remains prints one line
   and exits with code 1. Since 0.6.3.
 - TypeScript Claude Agent SDK adapter: **createClaudeAgentSessionFlow** now returns an **AgentSessionFlow** typed with **ClaudeAgentRunner**, as the built-in agent loop's Flow is typed with **BuiltinLoopAgentRunner**, and the runner's **executeDeferredToolCall** returns a **DeferredToolOutcome**, which a tool task or a question needs. Code that annotates the Flow as a plain **AgentSessionFlow** must drop the annotation or type it with **ClaudeAgentRunner**. Since 0.6.6.
+- Running **init** again on a valid configuration file replaces only the
+  fields it asks about: **model**, **system_prompt**, **connectors.enabled**,
+  **workspace**, and the **local_tools** switches. It keeps **dex.server**,
+  **dex.auth**, **dex.tls**, **connectors.mcp**, **mcp_servers**,
+  **approval**, **media**, **sessions**, the harness sections, and every other
+  field, so a command set up for a remote Dex server no longer falls back to a
+  local **dexcli dev**. At a terminal, each question offers the file's value
+  as its default, and **--yes** takes those same defaults. **init** replaces a file that is not YAML or fails the
+  configuration rules, copies it to **HARNESS.yaml.bak** first, and says so.
+  Comments in the old file are not kept. **init** writes through a temporary
+  file and a rename, so a crash never leaves a partial configuration file. Since 0.6.9.
 
 ## 0.5 {#v0-5}
 
