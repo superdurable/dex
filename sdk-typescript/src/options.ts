@@ -569,6 +569,15 @@ export interface FlowState {
    * The array is empty when the run is closed or has no open Step execution.
    */
   readonly activeStepExecutions: readonly ActiveStepExecution[];
+  /**
+   * The task queue whose Workers run this Flow's Steps and RPCs.
+   * The empty string means the default task queue.
+   * Dex fixes the task queue when the Flow starts, so it does not change during a run.
+   * Read it from a Client without a Worker to see which Workers must serve the Flow.
+   * See {@link StartFlowOptions.taskQueue}.
+   * @since 1.45.3
+   */
+  readonly taskQueue: string;
 }
 
 /**

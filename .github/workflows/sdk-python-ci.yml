@@ -134,6 +134,7 @@ jobs:
             dex/flow_definition.py \
             dex/flow_info.py \
             dex/flow_options.py \
+            dex/flow_state.py \
             dex/join.py \
             dex/runtime_errors.py \
             dex/step.py \

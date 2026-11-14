@@ -922,6 +922,9 @@ export class Client {
    * `waitForStepCompletion` to wait for completion instead. A closed run stays readable until Dex
    * purges it and reports no open Step executions.
    *
+   * The result also reports the Flow's task queue in `taskQueue`. The empty string means the
+   * default task queue.
+   *
    * @example
    * ```ts
    * const state = await client.getFlowState("order-42");
@@ -939,12 +942,14 @@ export class Client {
    * }
    * ```
    * @param flowId - Non-empty existing Flow ID.
-   * @returns The open Step executions of the current run, or of the latest run when no run is open.
+   * @returns The open Step executions and the task queue of the current run, or of the latest run
+   * when no run is open.
    * @throws {@link TypeError} before any request when `flowId` is empty, or when Dex returns a
    * malformed Step execution ID.
    * @throws {@link FlowNotFoundError} when the Flow does not exist.
    * @throws {@link DexServiceError} for other service or transport failures.
    * @since 1.45.1
+   * Changed in 1.45.3: also returns the Flow's task queue in `taskQueue`.
    */
   public async getFlowState(flowId: string): Promise<FlowState> {
     const response = await this.unary<GetFlowStateResponse>(
@@ -955,6 +960,7 @@ export class Client {
       activeStepExecutions: response.activeStepExecutions.map(
         (step) => mapActiveStepExecution(flowId, step),
       ),
+      taskQueue: response.flowConfig?.workerTarget?.taskQueue ?? "",
     };
   }
 

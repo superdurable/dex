@@ -67,6 +67,16 @@ from dex.flow_info import (
     SearchFlowEntry,
     SearchFlowsPage,
 )
+from dex.flow_state import (
+    ActiveStepExecution,
+    ActiveStepExecutionPhase,
+    FlowState,
+    StepMethodFailureInfo,
+    StepMethodInvocation,
+    StepMethodInvocationPhase,
+    StepMethodName,
+    StepMethodPendingReason,
+)
 from dex.flow_options import (
     FlowTimeoutHandlerOptions,
     FlowTimeoutPolicy,
@@ -207,6 +217,14 @@ __all__ = [
     "FlowNotActiveOrNotFoundError",
     "FlowNotFoundError",
     "FlowStatus",
+    "ActiveStepExecution",
+    "ActiveStepExecutionPhase",
+    "FlowState",
+    "StepMethodFailureInfo",
+    "StepMethodInvocation",
+    "StepMethodInvocationPhase",
+    "StepMethodName",
+    "StepMethodPendingReason",
     "FlowTimeoutHandlerOptions",
     "FlowTimeoutPolicy",
     "HealthInfo",
