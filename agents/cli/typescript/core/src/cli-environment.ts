@@ -9,7 +9,7 @@
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import { readSessionLeaseTtlSeconds } from "./session-terminal-lease.js";
+import { readSessionLeaseTtlOverrideSeconds } from "./session-terminal-lease.js";
 
 /**
  * The Dex gRPC port of `dexcli dev` when `DEX_AGENTS_DEX_PORT` is not set.
@@ -78,14 +78,17 @@ export interface CliEnvironment {
    */
   readonly dexConnectionVariables?: DexConnectionVariables;
   /**
-   * How many seconds a session's terminal lease lasts unless the command renews it; the command renews it every
-   * third of that. `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, an integer from 1 to 3600, overrides it for tests; any
-   * other value is ignored. {@link readCliEnvironment} always sets it. An environment built by hand may omit it,
-   * which means 15.
+   * How many seconds a session's terminal lease lasts unless the command renews it, as
+   * `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` sets it: an integer from 1 to 3600. Any other value is ignored. When it is
+   * set, it overrides the configuration file's `sessions.lease_ttl_seconds`; when it is absent, that field applies,
+   * and its default is 600. The command renews the lease every third of the TTL. See `resolveSessionLeaseTtlSeconds`.
+   *
+   * Changed in 0.6.9: {@link readCliEnvironment} sets it only for a valid variable, which then overrides the
+   * configuration file.
    *
    * @since 0.6.3
    */
-  readonly sessionLeaseTtlSeconds?: number;
+  readonly sessionLeaseTtlSeconds?: number | undefined;
   /**
    * The environment that `${NAME}` references in `mcp_servers` header values read. {@link readCliEnvironment} always
    * sets it to the whole environment it reads. An environment built by hand may omit it, which means none is set.
@@ -217,7 +220,7 @@ export function readCliEnvironment(environment: NodeJS.ProcessEnv): CliEnvironme
     dexcliDownloadUrl: nonEmpty(environment.DEX_AGENTS_DEXCLI_DOWNLOAD_URL) ?? defaultDexcliDownloadUrl,
     isBrowserOpeningEnabled: !["0", "false"].includes((environment.DEX_AGENTS_OPEN_BROWSER ?? "").trim().toLowerCase()),
     dexConnectionVariables: readDexConnectionVariables(environment),
-    sessionLeaseTtlSeconds: readSessionLeaseTtlSeconds(environment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS),
+    sessionLeaseTtlSeconds: readSessionLeaseTtlOverrideSeconds(environment.DEX_AGENTS_SESSION_LEASE_TTL_SECONDS),
     mcpServerHeaderVariables: { ...environment },
     childProcessVariables: { ...withoutDexSecretVariables(environment), HOME: homeDirectory },
   };

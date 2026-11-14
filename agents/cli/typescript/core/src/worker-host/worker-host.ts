@@ -15,7 +15,7 @@ import type { SessionFlowCapabilities } from "../terminal-ui/launch-document.js"
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
 import { refusal } from "../terminal-ui/local-request-relay.js";
 import { SessionWorkerStartError, UnopenableSessionError } from "../session-opener.js";
-import { SessionLeaseRenewal, defaultSessionLeaseTtlSeconds } from "../session-terminal-lease.js";
+import { SessionLeaseRenewal } from "../session-terminal-lease.js";
 import { readProcessIdentity } from "./process-identity.js";
 import { RecordedToolProcessGroups } from "./tool-process-groups.js";
 import { executeWorkerHostMethod } from "./worker-host-methods.js";
@@ -69,7 +69,6 @@ class WorkerHost {
   private requestStop: () => void = () => undefined;
   private readonly startReceived: Promise<WorkerHostStartRequest | undefined>;
   private resolveStart: (start: WorkerHostStartRequest | undefined) => void = () => undefined;
-  private readonly leaseTtlSeconds: number;
   private leaseRenewal: SessionLeaseRenewal | undefined;
   private readonly unansweredLeaseSessionIds = new Set<string>();
 
@@ -79,7 +78,6 @@ class WorkerHost {
     createCommand: WorkerHostCommandFactory,
   ) {
     const environment = readCliEnvironment(io.environment);
-    this.leaseTtlSeconds = environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
     this.recordPath = workerHostRunRecordPath(environment.agentsDirectory, harness.name, process.pid);
     this.command = createCommand((line) => this.log(line));
     this.watchdog = new WorkerHostWatchdog(this.launcherPid, () => void this.stop());
@@ -230,7 +228,7 @@ class WorkerHost {
   private renewedLeases(opened: OpenedSessionWorker): SessionLeaseRenewal {
     this.leaseRenewal ??= new SessionLeaseRenewal(
       opened.opener.holderId,
-      this.leaseTtlSeconds,
+      opened.leaseTtlSeconds,
       (sessionId, timeoutMs) => opened.opener.renew(sessionId, timeoutMs),
       (sessionId, lease) => {
         // The other terminal runs the session now, so this host stops pulling its task queue at once.

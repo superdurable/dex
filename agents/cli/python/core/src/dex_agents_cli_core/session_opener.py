@@ -73,7 +73,11 @@ STORED_LEASE_READ_TIMEOUT_SECONDS = 2.0
 #: How long failed reads of a stored lease are tried again, such as on reconnecting after a pause.
 STORED_LEASE_READ_RETRY_BUDGET_SECONDS = 6.0
 _STORED_LEASE_READ_RETRY_INTERVAL_SECONDS = 0.25
-#: How long the read before an attempt may take while no pull permit is active.
+#: How long one lease read of an attempt may take; an active pull permit's
+#: remaining time bounds it too.
+#:
+#: .. versionchanged:: 0.6.9
+#:    It also bounds the reads while a pull permit is active.
 LEASE_READ_TIMEOUT_SECONDS = 5.0
 #: How long a session Worker may take to start pulling its task queue.
 SESSION_WORKER_START_TIMEOUT_SECONDS = 30.0
@@ -686,9 +690,7 @@ class SessionOpener:
             self._client.get_attributes(
                 session_id, SESSION_TERMINAL_LEASE, SESSION_LAST_TERMINAL_ENVIRONMENT, AGENT_STATE
             ),
-            LEASE_READ_TIMEOUT_SECONDS
-            if active_permit is None
-            else active_permit.remaining_seconds(),
+            _lease_read_timeout(active_permit),
         )
         lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
         last_environment: Mapping[str, str] | None = stored.get(SESSION_LAST_TERMINAL_ENVIRONMENT)
@@ -877,8 +879,9 @@ class SessionOpener:
         """Decide an acquire whose answer never arrived, such as after a timeout, from the store.
 
         The RPC may have taken the lease, and only this command's session
-        Worker serves its release. The read is bounded by the permit, which
-        stops the Worker on its own when no confirmation comes.
+        Worker serves its release. The read is bounded by
+        ``LEASE_READ_TIMEOUT_SECONDS`` and by the permit, which stops the
+        Worker on its own when no confirmation comes.
 
         Args:
             session_id: The session.
@@ -897,7 +900,7 @@ class SessionOpener:
         try:
             stored = await asyncio.wait_for(
                 self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE),
-                permit.remaining_seconds(),
+                _lease_read_timeout(permit),
             )
         except Exception:
             raise error from None
@@ -994,6 +997,13 @@ class SessionOpener:
             if loop.time() >= deadline:
                 return False
             await asyncio.sleep(_TURN_END_POLL_SECONDS)
+
+
+def _lease_read_timeout(permit: SessionPullPermit | None) -> float:
+    """Return the bound of one lease read, so an unanswered read never stalls the waiting loop."""
+    if permit is None:
+        return LEASE_READ_TIMEOUT_SECONDS
+    return min(LEASE_READ_TIMEOUT_SECONDS, permit.remaining_seconds())
 
 
 def is_lease_expired_here(lease: SessionTerminalLease, now: datetime | None = None) -> bool:

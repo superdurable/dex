@@ -101,6 +101,8 @@ def test_every_property_is_described_and_every_config_default_is_stated() -> Non
     assert CONFIG_SCHEMA["properties"]["connectors"]["properties"]["mcp"]["default"] == "auto"
     assert CONFIG_SCHEMA["properties"]["media"]["properties"]["store"]["default"] == "auto"
     assert CONFIG_SCHEMA["properties"]["sessions"]["properties"]["summary"]["default"] == "auto"
+    lease_ttl = CONFIG_SCHEMA["properties"]["sessions"]["properties"]["lease_ttl_seconds"]
+    assert lease_ttl["default"] == 600
 
 
 def test_schema_defaults_are_the_empty_file_defaults() -> None:

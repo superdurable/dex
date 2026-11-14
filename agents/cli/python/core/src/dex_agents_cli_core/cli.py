@@ -501,7 +501,10 @@ async def _open_hosted_run(
             ),
             # The launcher is the Worker host's parent: its pid is the one a waiting terminal shows.
             holder=SessionLeaseHolder.for_this_process(
-                environment.session_lease_ttl_seconds, process_id=os.getppid()
+                environment.resolve_session_lease_ttl_seconds(
+                    inputs.config.sessions.lease_ttl_seconds
+                ),
+                process_id=os.getppid(),
             ),
             process_groups=process_groups,
         )
@@ -1003,7 +1006,9 @@ async def _run_plain_chat(
             open_connectors_page=_open_connectors_page_if_interactive(environment),
             log_path=log_path,
         ),
-        holder=SessionLeaseHolder.for_this_process(environment.session_lease_ttl_seconds),
+        holder=SessionLeaseHolder.for_this_process(
+            environment.resolve_session_lease_ttl_seconds(inputs.config.sessions.lease_ttl_seconds)
+        ),
     )
     terminal = Terminal()
     lease = HeldSessionLease(session_worker.opener)

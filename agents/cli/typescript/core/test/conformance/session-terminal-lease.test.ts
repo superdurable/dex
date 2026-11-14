@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { readSchema, resolveConfig } from "../../src/cli-config.js";
+import { readCliEnvironment } from "../../src/cli-environment.js";
 import {
   animatedWaitingLine,
   cutToColumns,
@@ -22,8 +24,10 @@ import {
   leaseLostLine,
   leaseUnconfirmedLine,
   plainWaitingLine,
+  readSessionLeaseTtlOverrideSeconds,
   readSessionLeaseTtlSeconds,
   renewalSafetyMarginRatio,
+  resolveSessionLeaseTtlSeconds,
   tookOverLine,
   waitingFrameIntervalMs,
   waitingRedrawPrefix,
@@ -123,6 +127,37 @@ describe("session terminal lease lines: the shared cases", () => {
     assert.equal(readSessionLeaseTtlSeconds(" 3600 "), 3600);
     for (const ignored of ["", "0", "3601", "2.5", "-1", "ten"]) {
       assert.equal(readSessionLeaseTtlSeconds(ignored), defaultSessionLeaseTtlSeconds, ignored);
+      assert.equal(readSessionLeaseTtlOverrideSeconds(ignored), undefined, ignored);
     }
+    assert.equal(readSessionLeaseTtlOverrideSeconds(undefined), undefined);
+    assert.equal(readSessionLeaseTtlOverrideSeconds(" 3600 "), 3600);
+  });
+
+  test("the lease TTL is the variable's, else the file's sessions.lease_ttl_seconds, else 600", () => {
+    assert.equal(defaultSessionLeaseTtlSeconds, 600);
+    assert.equal(resolveSessionLeaseTtlSeconds(undefined, undefined), 600);
+    assert.equal(resolveSessionLeaseTtlSeconds(undefined, 45), 45);
+    assert.equal(resolveSessionLeaseTtlSeconds(3, 45), 3);
+    assert.equal(readCliEnvironment({ HOME: "/home/ada" }).sessionLeaseTtlSeconds, undefined);
+    assert.equal(
+      readCliEnvironment({ HOME: "/home/ada", DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3601" }).sessionLeaseTtlSeconds,
+      undefined,
+    );
+    assert.equal(readCliEnvironment({ HOME: "/home/ada", DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "6" }).sessionLeaseTtlSeconds, 6);
+  });
+
+  test("the file's lease TTL range stays within what the session accepts", () => {
+    const schema = readSchema("config.schema.json") as {
+      properties: { sessions: { properties: { lease_ttl_seconds: { minimum: number; maximum: number; default: number } } } };
+    };
+    const leaseTtl = schema.properties.sessions.properties.lease_ttl_seconds;
+    assert.equal(leaseTtl.default, defaultSessionLeaseTtlSeconds);
+    assert.ok(leaseTtl.minimum >= 1 && leaseTtl.minimum <= leaseTtl.maximum);
+    const names = JSON.parse(readFileSync(join(sharedCliDirectory, "..", "conformance", "names.json"), "utf8")) as {
+      readonly limits: { readonly session_terminal_lease_maximum_ttl_seconds: number };
+    };
+    assert.equal(leaseTtl.maximum, names.limits.session_terminal_lease_maximum_ttl_seconds);
+    assert.equal(resolveConfig({}, "claude", "m").sessions?.lease_ttl_seconds, 600);
+    assert.equal(resolveConfig({ sessions: { lease_ttl_seconds: 45 } }, "claude", "m").sessions?.lease_ttl_seconds, 45);
   });
 });

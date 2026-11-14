@@ -115,7 +115,8 @@ if (leaseGateDirectory !== undefined) {
 // Lease faults: fail-acquire fails every acquire before it is sent; lose-next-acquire loses one answer and, with
 // the text then-fail-lease-reads or then-hang-lease-reads, creates fail-lease-read or hang-lease-read, which fail
 // or hold every read of the lease while they exist; slow-next-acquire delays one answer by its milliseconds;
-// fail-cancel fails every cancel_turn. Each acquire answer appends a line to acquire-answers.
+// fail-cancel fails every cancel_turn. Each acquire answer appends a line to acquire-answers, and each held lease
+// read appends one to held-lease-reads.
 const leaseFaultDirectory = process.env.DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR;
 if (leaseFaultDirectory !== undefined) {
   const getAttributes = Client.prototype.getAttributes;
@@ -124,6 +125,9 @@ if (leaseFaultDirectory !== undefined) {
     const isLeaseRead = reads.some((read) => read.name === "SessionTerminalLease");
     if (isLeaseRead && existsSync(join(leaseFaultDirectory, "fail-lease-read"))) {
       throw new Error("injected lease read failure");
+    }
+    if (isLeaseRead && existsSync(join(leaseFaultDirectory, "hang-lease-read"))) {
+      appendFileSync(join(leaseFaultDirectory, "held-lease-reads"), `${new Date().toISOString()}\n`);
     }
     while (isLeaseRead && existsSync(join(leaseFaultDirectory, "hang-lease-read"))) {
       await delay(50);

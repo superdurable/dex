@@ -122,12 +122,12 @@ import {
 } from "./session-task-queues.js";
 import {
   SessionLeaseRenewal,
-  defaultSessionLeaseTtlSeconds,
   describeLeaseHolder,
   isAnimatedWaitingOutput,
   leaseLostLine,
   leaseUnconfirmedLine,
   newSessionLeaseHolder,
+  resolveSessionLeaseTtlSeconds,
   waitForSessionLease,
 } from "./session-terminal-lease.js";
 import { commandPackageVersion } from "./terminal-ui/command-package-version.js";
@@ -331,6 +331,13 @@ export interface OpenedSessionWorker {
   readonly sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /** Opens, renews, and leaves sessions, and moves the session Worker between task queues. */
   readonly opener: SessionOpener;
+  /**
+   * How many seconds the session's terminal lease lasts without a renewal: `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`,
+   * else the file's `sessions.lease_ttl_seconds`, else 600.
+   *
+   * @since 0.6.9
+   */
+  readonly leaseTtlSeconds: number;
   /** The opened session. */
   readonly session: OpenableSession;
   /** The session. */
@@ -606,10 +613,9 @@ export class AgentCliCommand {
       toolProcessGroups: undefined,
       leaseHolderProcessId: process.pid,
     });
-    const { opener, session, sessionId } = opened;
+    const { opener, session, sessionId, leaseTtlSeconds: ttlSeconds } = opened;
     // From here Ctrl-C ends the wait for the lease, and then the chat handles it.
     this.startedDexcliDev.releaseInterrupt();
-    const ttlSeconds = this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds;
     // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
     const unanswered = new Set<string>();
     this.unansweredSessionLeases = { opener, sessionIds: unanswered };
@@ -958,6 +964,10 @@ export class AgentCliCommand {
     await startPullingWorker(this.worker);
     await this.uploadSessionFlowDefinitions(client, [this.harness.flowType, legacyFlowType]);
     const startEnvironment = sessionStartEnvironment(identity);
+    const leaseTtlSeconds = resolveSessionLeaseTtlSeconds(
+      this.environment.sessionLeaseTtlSeconds,
+      effective.sessions?.lease_ttl_seconds,
+    );
     const opener = new SessionOpener({
       client,
       harnessFlowType: this.harness.flowType,
@@ -965,7 +975,7 @@ export class AgentCliCommand {
       legacySessionFlow,
       commandName: `dex-agents-${this.harness.name}`,
       holder: newSessionLeaseHolder(options.leaseHolderProcessId),
-      ttlSeconds: this.environment.sessionLeaseTtlSeconds ?? defaultSessionLeaseTtlSeconds,
+      ttlSeconds: leaseTtlSeconds,
       environment: startEnvironment,
       sessionWorker,
       turnRefusal,
@@ -992,6 +1002,7 @@ export class AgentCliCommand {
       flowType: session.flowType,
       sessionFlow,
       opener,
+      leaseTtlSeconds,
       session,
       sessionId: session.sessionId,
       isResumed: resumeSessionId !== undefined,

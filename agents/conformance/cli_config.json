@@ -225,7 +225,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -280,7 +281,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "on"
+          "summary": "on",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -332,7 +334,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "off"
+          "summary": "off",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -351,6 +354,107 @@
         "code": "schema",
         "path": "/sessions/summary",
         "keyword": "enum"
+      }
+    },
+    {
+      "name": "sessions-lease-ttl-seconds",
+      "description": "sessions.lease_ttl_seconds sets how long a session's terminal lease lasts without a renewal.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "sessions": {
+          "lease_ttl_seconds": 30
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto",
+          "auth": {
+            "mode": "none"
+          },
+          "tls": {
+            "ca_file": null,
+            "server_name": null
+          }
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "mcp_servers": {},
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto",
+          "lease_ttl_seconds": 30
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "sessions-lease-ttl-seconds-below-minimum",
+      "description": "sessions.lease_ttl_seconds is at least 10.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "sessions": {
+          "lease_ttl_seconds": 9
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/sessions/lease_ttl_seconds",
+        "keyword": "minimum"
+      }
+    },
+    {
+      "name": "sessions-lease-ttl-seconds-above-maximum",
+      "description": "sessions.lease_ttl_seconds is at most 3600, the longest lease the session accepts.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "sessions": {
+          "lease_ttl_seconds": 3601
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/sessions/lease_ttl_seconds",
+        "keyword": "maximum"
+      }
+    },
+    {
+      "name": "sessions-lease-ttl-seconds-not-an-integer",
+      "description": "sessions.lease_ttl_seconds is a whole number of seconds.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "sessions": {
+          "lease_ttl_seconds": 30.5
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/sessions/lease_ttl_seconds",
+        "keyword": "type"
       }
     },
     {
@@ -396,7 +500,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -508,7 +613,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -561,7 +667,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {
           "thinking": "high"
@@ -620,7 +727,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {
           "tracing": false
@@ -679,7 +787,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -734,7 +843,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -789,7 +899,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -841,7 +952,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -893,7 +1005,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -945,7 +1058,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -997,7 +1111,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1083,7 +1198,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1155,7 +1271,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1221,7 +1338,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1271,7 +1389,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1321,7 +1440,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1373,7 +1493,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -1426,7 +1547,8 @@
           "endpoint": "http://127.0.0.1:9000"
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2455,7 +2577,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2512,7 +2635,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2571,7 +2695,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2629,7 +2754,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2687,7 +2813,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2744,7 +2871,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2803,7 +2931,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2861,7 +2990,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2915,7 +3045,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -2971,7 +3102,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -3023,7 +3155,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -3745,7 +3878,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -3795,7 +3929,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -3879,7 +4014,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -3946,7 +4082,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -4489,7 +4626,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       }
@@ -4642,7 +4780,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -4714,7 +4853,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -4789,7 +4929,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -4868,7 +5009,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -4947,7 +5089,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5022,7 +5165,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5079,7 +5223,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5153,7 +5298,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5235,7 +5381,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5318,7 +5465,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5395,7 +5543,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5450,7 +5599,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5529,7 +5679,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5610,7 +5761,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5689,7 +5841,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5768,7 +5921,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5848,7 +6002,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -5926,7 +6081,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
@@ -6334,7 +6490,8 @@
           "endpoint": null
         },
         "sessions": {
-          "summary": "auto"
+          "summary": "auto",
+          "lease_ttl_seconds": 600
         },
         "harness_options": {}
       },
