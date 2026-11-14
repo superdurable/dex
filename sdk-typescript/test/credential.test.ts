@@ -869,7 +869,7 @@ async function startServer(options: {
       taskStreams.push(call);
       call.on("data", (request: PollWorkerTaskRequest) => {
         if (request.frame?.$case === "register") call.write({ frame: { $case: "registered", value: {
-          supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0,
+          supportsUnknownNameRejection: true, maxConcurrentTasksPerAppWorker: 0, taskQueue: "",
         } } });
       });
       call.on("end", () => call.end());
