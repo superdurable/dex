@@ -15,6 +15,10 @@ import json
 import os
 import re
 import signal
+import subprocess
+import sys
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -22,7 +26,11 @@ from typing import Any
 import pytest
 
 from dex_agents.testing import PrivateDexEngine, find_free_ports
-from dex_agents_cli_core.connectors_mcp_command import start_connectors_mcp_command
+from dex_agents_cli_core import connectors_mcp_command
+from dex_agents_cli_core.connectors_mcp_command import (
+    StartedConnectorsMcpCommand,
+    start_connectors_mcp_command,
+)
 from dex_agents_cli_core.environment import CommandEnvironment
 from tests.conftest import CliHome, FakeConnectorsMcp, config_yaml, wait_for_exit
 
@@ -337,3 +345,93 @@ async def test_dex_server_auto_falls_back_to_the_dexcli_dev_url_when_the_command
     log = (wrapped_home.home / ".dex" / "agents" / "scripted.log").read_text()
     web_url = f"http://127.0.0.1:{shared_engine.web_port}"
     assert f"Using {web_url}/mcp of dexcli dev instead." in log
+
+
+async def test_a_late_eof_while_a_cancelled_start_stops_never_signals_a_reaped_leader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The child ignores stdin EOF and exits, closing stdout, only when the stop's first wait ends.
+    trigger = tmp_path / "exit-now"
+    wrapper = tmp_path / "late-eof-dexcli"
+    wrapper.write_text(
+        f"#!{sys.executable}\nimport os, time\nfrom pathlib import Path\n"
+        f"while not Path({str(trigger)!r}).exists():\n    time.sleep(0.001)\nos.close(1)\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    monkeypatch.setattr(connectors_mcp_command, "_STDIN_CLOSE_WAIT_SECONDS", 0.2)
+    children: list[subprocess.Popen[bytes]] = []
+    reaped = threading.Event()
+    real_popen = subprocess.Popen
+
+    def popen_that_pauses_after_reaping(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        child = real_popen(*args, **kwargs)
+        children.append(child)
+        handle_exit_status = child._handle_exitstatus  # type: ignore[attr-defined]
+
+        def pause_after_waitpid(status: int, *rest: Any) -> None:
+            # Between the kernel reaping the leader and Popen recording it, as in the race.
+            reaped.set()
+            time.sleep(0.3)
+            handle_exit_status(status, *rest)
+
+        child._handle_exitstatus = pause_after_waitpid  # type: ignore[attr-defined]
+        return child
+
+    real_wait_for_exit = StartedConnectorsMcpCommand.wait_for_exit
+
+    def wait_that_lets_the_child_exit_late(
+        self: StartedConnectorsMcpCommand, timeout: float
+    ) -> int | None:
+        exit_code = real_wait_for_exit(self, timeout)
+        if exit_code is None and not trigger.exists():
+            trigger.touch()
+            # The reader sees EOF and reaps before the stop signals the group.
+            assert reaped.wait(5)
+        return exit_code
+
+    signals: list[tuple[int, bool]] = []
+    signal_attempts: list[signal.Signals] = []
+    real_signal_group = StartedConnectorsMcpCommand._signal_group_while_leader_runs
+
+    def record_killpg(pid: int, number: int) -> None:
+        signals.append((number, _is_unreaped_child(pid)))
+
+    def count_signal_attempt(self: StartedConnectorsMcpCommand, number: signal.Signals) -> None:
+        signal_attempts.append(number)
+        real_signal_group(self, number)
+
+    monkeypatch.setattr(subprocess, "Popen", popen_that_pauses_after_reaping)
+    monkeypatch.setattr(
+        StartedConnectorsMcpCommand, "wait_for_exit", wait_that_lets_the_child_exit_late
+    )
+    monkeypatch.setattr(
+        StartedConnectorsMcpCommand, "_signal_group_while_leader_runs", count_signal_attempt
+    )
+    monkeypatch.setattr(os, "killpg", record_killpg)
+    environment = CommandEnvironment.from_environment({"HOME": str(tmp_path / "home")})
+
+    task = asyncio.create_task(start_connectors_mcp_command(wrapper, environment))
+    while not children:
+        await asyncio.sleep(0.001)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert trigger.exists() and reaped.is_set()
+    assert signal_attempts == [
+        signal.SIGTERM
+    ], "the stop reached its group signal after the reaping"
+    assert all(is_unreaped for _, is_unreaped in signals), signals
+    assert children[0].wait(5) == 0
+
+
+def _is_unreaped_child(pid: int) -> bool:
+    """Whether pid still names a process, running or a zombie no wait has reaped."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

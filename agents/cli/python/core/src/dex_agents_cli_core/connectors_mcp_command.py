@@ -17,6 +17,8 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -33,6 +35,7 @@ _READY_TIMEOUT_SECONDS = 120.0
 _EXIT_WAIT_AFTER_OUTPUT_END_SECONDS = 5.0
 _STDIN_CLOSE_WAIT_SECONDS = 10.0
 _GROUP_STOP_WAIT_SECONDS = 5.0
+_EXIT_POLL_SECONDS = 0.02
 # The same bound as dexcli's connectorsMCPMaxAnnouncementBytes.
 _MAXIMUM_READY_LINE_BYTES = 1 << 20
 _MAXIMUM_REASON_CHARACTERS = 500
@@ -80,12 +83,33 @@ def connectors_mcp_command_log_path(environment: CommandEnvironment) -> Path:
 class StartedConnectorsMcpCommand:
     """A ``dexcli connectors mcp`` this command started, the leader of its own process group.
 
-    Stopping it stops a server it started, never one it reused.
+    Stopping it stops a server it started, never one it reused. This object
+    is the only code that reaps the leader: every ``poll()`` runs under one
+    lock, which a group signal also holds from its leader check through the
+    signal. So the leader cannot be reaped in between, and a signal never
+    reaches a process group ID that another group may reuse.
     """
 
     def __init__(self, process: subprocess.Popen[bytes]) -> None:
         """Own a spawned ``dexcli connectors mcp`` with a piped stdin."""
-        self._process: subprocess.Popen[bytes] | None = process
+        self._process = process
+        self._reaping_lock = threading.Lock()
+        self._stop_lock = threading.Lock()
+        self._is_stopped = False
+
+    def wait_for_exit(self, timeout: float) -> int | None:
+        """Wait up to ``timeout`` seconds for the leader to exit, reaping it.
+
+        Returns:
+            Its exit code, or ``None`` when it still runs after ``timeout``.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._reaping_lock:
+                exit_code = self._process.poll()
+            if exit_code is not None or time.monotonic() >= deadline:
+                return exit_code
+            time.sleep(_EXIT_POLL_SECONDS)
 
     def stop(self) -> None:
         """Stop it once: close its stdin, then signal its group with SIGTERM and SIGKILL.
@@ -95,20 +119,34 @@ class StartedConnectorsMcpCommand:
         on stdin EOF, so nothing of the group outlives the leader. A later
         call does nothing.
         """
-        process, self._process = self._process, None
-        if process is None:
-            return
-        if process.stdin is not None:
+        with self._stop_lock:
+            if self._is_stopped:
+                return
+            self._is_stopped = True
+        if self._process.stdin is not None:
             # It may have exited already; closing a broken pipe changes nothing then.
             with contextlib.suppress(OSError):
-                process.stdin.close()
-        if _waits_for_exit(process, _STDIN_CLOSE_WAIT_SECONDS):
+                self._process.stdin.close()
+        if self.wait_for_exit(_STDIN_CLOSE_WAIT_SECONDS) is not None:
             return
-        _signal_group_while_leader_runs(process, signal.SIGTERM)
-        if _waits_for_exit(process, _GROUP_STOP_WAIT_SECONDS):
+        self._signal_group_while_leader_runs(signal.SIGTERM)
+        if self.wait_for_exit(_GROUP_STOP_WAIT_SECONDS) is not None:
             return
-        _signal_group_while_leader_runs(process, _FORCE_STOP_SIGNAL)
-        _waits_for_exit(process, _GROUP_STOP_WAIT_SECONDS)
+        self._signal_group_while_leader_runs(_FORCE_STOP_SIGNAL)
+        self.wait_for_exit(_GROUP_STOP_WAIT_SECONDS)
+
+    def _signal_group_while_leader_runs(self, signal_number: signal.Signals) -> None:
+        with self._reaping_lock:
+            # Only this object reaps, so an unreaped leader keeps its group ID under the lock.
+            if self._process.poll() is not None:
+                return
+            if sys.platform == "win32":
+                with contextlib.suppress(OSError):
+                    self._process.kill()
+                return
+            # The leader may be a zombie already; its group ID is still this group's.
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(self._process.pid, signal_number)
 
 
 @dataclass(frozen=True)
@@ -165,7 +203,7 @@ async def start_connectors_mcp_command(
     started = StartedConnectorsMcpCommand(process)
     try:
         start = await asyncio.wait_for(
-            asyncio.to_thread(_await_startup, process), _READY_TIMEOUT_SECONDS
+            asyncio.to_thread(_await_startup, process, started), _READY_TIMEOUT_SECONDS
         )
     except TimeoutError:
         start = ConnectorsMcpCommandStart(
@@ -188,8 +226,13 @@ async def start_connectors_mcp_command(
     return start
 
 
-def _await_startup(process: subprocess.Popen[bytes]) -> ConnectorsMcpCommandStart:
-    """Judge the first stdout line, at most 1 MiB; without one, wait briefly for the exit code."""
+def _await_startup(
+    process: subprocess.Popen[bytes], started: StartedConnectorsMcpCommand
+) -> ConnectorsMcpCommandStart:
+    """Judge the first stdout line, at most 1 MiB; without one, wait briefly for the exit code.
+
+    It reaps only through ``started``, the one owner of the leader.
+    """
     assert process.stdout is not None, "stdout is piped"
     line = process.stdout.readline(_MAXIMUM_READY_LINE_BYTES + 1)
     if len(line) > _MAXIMUM_READY_LINE_BYTES:
@@ -199,9 +242,8 @@ def _await_startup(process: subprocess.Popen[bytes]) -> ConnectorsMcpCommandStar
         )
     if line:
         return _judge_ready_line(line)
-    try:
-        exit_code = process.wait(_EXIT_WAIT_AFTER_OUTPUT_END_SECONDS)
-    except subprocess.TimeoutExpired:
+    exit_code = started.wait_for_exit(_EXIT_WAIT_AFTER_OUTPUT_END_SECONDS)
+    if exit_code is None:
         return ConnectorsMcpCommandStart(
             failure="dexcli connectors mcp closed its output without a line"
         )
@@ -240,26 +282,3 @@ def _is_loopback_http_url(value: str) -> bool:
         return parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
     except ValueError:
         return False
-
-
-def _waits_for_exit(process: subprocess.Popen[bytes], timeout: float) -> bool:
-    try:
-        process.wait(timeout)
-    except subprocess.TimeoutExpired:
-        return False
-    return True
-
-
-def _signal_group_while_leader_runs(
-    process: subprocess.Popen[bytes], signal_number: signal.Signals
-) -> None:
-    """Signal the group only while the leader is not reaped, so its group ID is still ours."""
-    if process.poll() is not None:
-        return
-    if sys.platform == "win32":
-        with contextlib.suppress(OSError):
-            process.kill()
-        return
-    # A leader exiting right after poll() stays a zombie until a wait, keeping the group ID.
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(process.pid, signal_number)
