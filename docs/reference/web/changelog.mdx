@@ -10,7 +10,7 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3).
+Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4).
 
 ### Breaking
 
@@ -25,6 +25,9 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - Each **GET /api/v2/catalog** entry carries its **definitionRevision** and, for a Dex Agents session, **agentSession**. [Reference](/reference/web/dex-web#agent-session-view).
 - Dex Web accepts the optional top-level **generatedAt** field in a Version 2.0 Flow Definition Graph and checks that it is an RFC 3339 timestamp. Earlier releases reject a graph that has the field. [Reference](/reference/web/flow-visualization#generated-at).
 - The **Agent session** message box has a **Your name** input. The browser remembers it, and Dex Web sends it with each message, so the agent and the session's other clients see who wrote. The transcript shows the name on user messages. The name is self-declared. See [Agent session view](/reference/web/dex-web#agent-session-view). Since 1.45.2.
+- A run's details show its **Task queue**, or **default** when the Flow runs on the default task queue. The Flow type is shown on its own row; the Flow type is no longer shown as the task queue. Since 1.45.4.
+- A Step attempt's routing shows the **Task queue** of its dispatch next to the serving Worker ID and the queue source. The queue source that was called Task queue is now **Flow type queue**. An RPC shows the Flow's task queue. Since 1.45.4.
+- **Start Flow** takes an optional **Task queue**. Leave it empty for the default task queue. Dex Web checks the name before it starts the Flow. Since 1.45.4.
 
 ### Changed
 
@@ -40,6 +43,23 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - A Flow's **Streams** tab uses the full width of the page, and its messages flow in the page instead of a fixed-height box with its own scroll bar. The page keeps your place while new entries arrive above it, and **Back to latest** stays on screen while you scroll. A live transcript moves the page only after you scroll down to its end; until then, **N new · Back to latest** shows how much text has arrived below. Since 1.45.1.
 - The header connection label and the empty-response error message say
   **Dex Server**, the term the docs use. Since 1.45.3.
+- Every page has one bar instead of a header plus page breadcrumbs. The bar holds the page's name, its views and actions, a jump box (⌘K or Ctrl+K) that suggests Flows by ID prefix, opens a pasted run link, and lists recent runs, and a settings menu for theme, timezone and Docs. Its Flows link returns to your last search. Since 1.45.4.
+- The run page puts its status, Flow ID, tabs and one action button in that bar, so the selected tab starts right below it. The status shows the run's duration. The action button follows the run: **Stop** while it runs, with **Time travel…** in its menu; **Time travel from #N** at the failed event on a failed run; **Time travel** once it ended otherwise. Each Flow remembers its own tab. Graph opens centred on the selected Step. A failed run states its error under the bar and opens on the failing event. The selected event offers **Time travel from here…**. That line also names the run's parent and child Flows and holds the attempt picker, so the bar shows the same items on every run and keeps every tab's name from 1280 pixels up. Run facts and the Flow and run IDs open from the Flow ID. Since 1.45.4.
+- The event pager sits above Timeline and Graph and shows its page buttons only when there is more than one page. The selected event is kept in the address. State lists the run's parent and child Flows. The run attempt picker appears only after time travel. Since 1.45.4.
+- Refresh and Copy link are gone from the run page. Resuming Live reads the run again, and the address bar is the link. Since 1.45.4.
+- Run dialogs take focus on their first field, keep Tab inside, and close with Escape. Bar menus take arrow keys. A whole Flows row opens its run, the Run ID column is off by default, and status buttons search by status in one click. Run tabs are ARIA tabs. Since 1.45.4.
+- A left rail holds Dex Web's sections: Flows, then Designs, Work Queue and Connectors under an Experimental heading when they apply. It starts as icons with their names on hover, expands to show the names, and remembers the choice; on a phone it opens from the bar's menu button. The rail starts at the Dex mark and shows whether Dex Web reaches the Dex Server. The bar starts with the page's name. Since 1.45.4.
+- Early features carry the word **Experimental** in place of a violet dot. Since 1.45.4.
+- The run tabs are Events, State and Streams, then Actions when it applies. Events shows the run's events as Timeline or Graph, with a switch at its top; the browser remembers the choice for every run. Graph was Execution graph. The run page has no Design tab; a Flow type's design is on Designs, and old Design links open it under Events. State was Overview. A Dex Agents session's run opens on its first tab, Conversation, which was Agent session. Links that name a former tab still open its view. Since 1.45.4.
+- Live moved out of the bar to the event range on Events. It reads **Live** while the page follows the run, and **Updates paused · Resume** after a click. Since 1.45.4.
+- **Input** and **Result** beside the event range on Events select Flow started and Flow closed, which show the run's start input and how it ended. Since 1.45.4.
+- **Group by type**, on by default, on the Flows page groups the page's runs by Flow type, with counts by status and a link to the type's design. Since 1.45.4.
+- **web/embedded**: **Target.HasHostNavigation** tells Dex Web that your page draws the navigation around it, so Dex Web draws no rail. Since 1.45.4.
+- The Timeline strip is about half as tall. Labels lie flat, one for each run of consecutive events about the same subject, such as **SyncBatch ×20**; a short page spreads its events so every name fits. The overview is a thin strip under the lane, one row above it holds the time range and failure count, and **Legend** opens over the strip. Since 1.45.4.
+- A running or ended run no longer has a line under the bar for its state. The Timeline lane's newest end says what the run does now, such as **Now · waiting · fires in 2d 6h**, and selects that event on click. A failed run keeps its error line. Since 1.45.4.
+- The event pager reads **Oldest**, **Older**, **Newer** and **Latest**, older pages on the left as in the strip. Since 1.45.4.
+- The selected event panel puts **JSON** in its header in place of the Details and Raw JSON switch, names related events in one line under the title, groups **Context** into Timing, Attempt, and Worker and retry, and shows a failure's stack trace open. Since 1.45.4.
+- Timeline keeps the event panel below the strip at every desktop width, so the page scrolls as one; the one-line event list and **Show lane** at 1280 pixels and wider are gone. A vertical wheel over the strip scrolls the page, and a sideways swipe or Shift+wheel scrolls the strip. J, K and T work from anywhere on the page. Since 1.45.4.
 
 ### Fixed
 
