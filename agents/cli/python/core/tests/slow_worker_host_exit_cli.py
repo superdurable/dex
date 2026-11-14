@@ -43,13 +43,13 @@ def _patch(markers: Path) -> None:
 
         cli._HostedCliRun.close = slow_close  # type: ignore[method-assign]
         return
-    stop = cli._CommandDexServer.stop_started_dexcli_dev
+    stop = cli._CommandDexServer.stop_started_processes
 
     def marked_stop(self: Any) -> None:
         (markers / DEXCLI_DEV_STOPPED_MARKER).touch()
         stop(self)
 
-    cli._CommandDexServer.stop_started_dexcli_dev = marked_stop  # type: ignore[method-assign]
+    cli._CommandDexServer.stop_started_processes = marked_stop  # type: ignore[method-assign]
 
 
 if __name__ == "__main__":

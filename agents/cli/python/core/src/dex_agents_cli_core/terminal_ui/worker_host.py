@@ -90,6 +90,9 @@ class WorkerHostStart:
         dex_connection: The resolved Dex connection settings, as
             ``DexConnectionSettings.to_json`` returns them. They hold no secret;
             the Worker host reads it from its own environment.
+        connectors_off_reason: Why ``connectors.mcp: auto`` has no URL, or ``None``.
+
+            .. versionadded:: 0.6.9
     """
 
     config_path: str | None
@@ -100,6 +103,7 @@ class WorkerHostStart:
     web_url: str | None
     connectors_mcp_url: str | None
     dex_connection: Mapping[str, Any]
+    connectors_off_reason: str | None = None
 
     def to_message(self) -> dict[str, Any]:
         """Return the ``start`` message."""
@@ -114,8 +118,15 @@ class WorkerHostStart:
         """
         if message.get("type") != "start":
             raise ChannelProtocolError("the launcher's first message is not start")
+        optional_names = {"connectors_off_reason"}
         try:
-            return cls(**{name: message[name] for name in cls.__dataclass_fields__})
+            return cls(
+                **{
+                    name: message[name]
+                    for name in cls.__dataclass_fields__
+                    if name in message or name not in optional_names
+                }
+            )
         except KeyError as error:
             raise ChannelProtocolError(f"the start message lacks {error}") from error
 

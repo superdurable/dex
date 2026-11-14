@@ -83,6 +83,11 @@ class DexServerEndpoint:
         connectors_mcp_url: The connectors MCP endpoint ``dexcli dev``
             serves, or ``None`` when unknown.
         started_pid: The ``dexcli dev`` process this run started, or ``None``.
+        connectors_off_reason: The line that says why ``connectors.mcp: auto``
+            has no URL, such as no authorized connection on this machine, or
+            ``None``.
+
+            .. versionadded:: 0.6.9
     """
 
     address: str
@@ -90,6 +95,7 @@ class DexServerEndpoint:
     web_url: str | None = None
     connectors_mcp_url: str | None = None
     started_pid: int | None = None
+    connectors_off_reason: str | None = None
 
 
 class StartedDexcliDevProcess:

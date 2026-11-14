@@ -78,6 +78,7 @@ class HostedChatSession:
         connectors: ConnectorsConfig,
         connectors_mcp_url: str | None,
         web_url: str | None,
+        connectors_off_reason: str | None = None,
     ) -> None:
         """Serve requests for one harness's session Flow type.
 
@@ -90,6 +91,7 @@ class HostedChatSession:
             connectors: The configuration file's ``connectors`` section.
             connectors_mcp_url: The connectors MCP endpoint, or ``None`` when off.
             web_url: Dex Web's URL, for its connections, or ``None``.
+            connectors_off_reason: Why ``connectors.mcp: auto`` has no endpoint, or ``None``.
         """
         self._harness_name = harness_name
         self._client = client
@@ -99,6 +101,7 @@ class HostedChatSession:
         self._connectors = connectors
         self._connectors_mcp_url = connectors_mcp_url
         self._web_url = web_url
+        self._connectors_off_reason = connectors_off_reason
 
     async def put_image(self, params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
         """Store one image file by its SHA-256 and return its reference and base name."""
@@ -190,7 +193,8 @@ class HostedChatSession:
         if url is None:
             return RequestOutcome.failed(
                 "mcp_unavailable",
-                "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto.",
+                self._connectors_off_reason
+                or "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto.",
             )
         try:
             catalog = await read_connector_catalog(url)
