@@ -645,18 +645,21 @@ the session's model calls and tool calls run there.
 - **--resume SESSION_ID** from another environment takes the session over. Its
   next tool calls run in this environment's workspace, with this
   environment's configuration file and permissions. The command prints one
-  line that names both places:
+  line that names both environments, each as user, host, workspace, and
+  configuration file:
 
   ```text
-  Session builtin-20261113-203123-3efeb4 was last open on host-a:/home/a/work; its model and tool calls now run here, on host-b:/srv/work.
+  Session builtin-20261113-203123-3efeb4 was last open on alice@host-a:/home/alice/work (defaults); its model and tool calls now run here, on alice@host-b:/srv/work (defaults).
   ```
 
-- When a turn was still running in the other place, the command cancels it
-  before the chat starts and says so. None of that turn's model or tool calls
-  run here, so a call approved there never runs in this workspace.
-- Two environments are other places when the host name or the workspace
-  differs. A takeover on the same host and workspace, such as with another
-  configuration file, prints no line and keeps a running turn.
+- Another environment is another host name, user, configuration file, or
+  workspace. A takeover by the same user on the same host, with the same
+  configuration file and workspace, prints no line.
+- When a turn was still running in the other environment, the command refuses
+  that turn's model and tool calls, so a call approved there never runs in
+  this workspace. It also cancels the turn before the chat starts. Once the
+  turn has ended, it says so. When it cannot confirm that the turn ended, it
+  says that instead and keeps refusing the turn's calls.
 - **--resume** of another command's session, such as a **dex-agents-pi**
   session in **dex-agents-builtin**, exits with code 2.
 - A session that no command has open does not run. A message, an approval, or
@@ -729,6 +732,16 @@ took its session, its chat stops with one line and exit code 1:
 
 ```text
 Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
+```
+
+Since 0.6.7, a command that cannot renew its lease, such as when it loses its
+connection to Dex, stops its chat before the lease expires. It stops pulling
+the session's task queue 3 seconds, a fifth of the lease, before its last
+confirmed renewal runs out, prints one line, and exits with code 1. Another
+command can then take the session without both running it:
+
+```text
+Session builtin-20261113-203123-3efeb4 could not renew its lease in time; this chat stopped so that another terminal can take the session.
 ```
 
 The lease is stored in the session, in the **SessionTerminalLease**

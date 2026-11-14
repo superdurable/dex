@@ -116,6 +116,14 @@ export function leaseLostLine(sessionId: string, holder: string): string {
   return `Session ${sessionId} is now open in another terminal (${holder}); this chat stopped.`;
 }
 
+/** Returns the line that ends a chat whose lease no renewal confirmed in time. */
+export function leaseUnconfirmedLine(sessionId: string): string {
+  return `Session ${sessionId} could not renew its lease in time; this chat stopped so that another terminal can take the session.`;
+}
+
+/** The share of the TTL before the confirmed expiry at which an unconfirmed lease ends the chat. */
+export const renewalSafetyMarginRatio = 0.2;
+
 /** Cuts a line longer than `columns - 1` code points to `columns - 2` code points and an ellipsis. */
 export function cutToColumns(line: string, columns: number): string {
   const codePoints = [...line];
@@ -263,13 +271,17 @@ class SessionLeaseWaitingDisplay {
 }
 
 /**
- * Renews the lease of the current session every third of its TTL. Only a refusal that names another holder
- * ends it; failed renewals are tried again at the next tick.
+ * Renews the lease of the current session every third of its TTL. A refusal that names another holder ends it as
+ * lost. Failed renewals are tried again at the next tick, but only until the lease's confirmed expiry, minus
+ * {@link renewalSafetyMarginRatio} of the TTL: then it ends as unconfirmed, before another terminal can take the
+ * session.
  */
 export class SessionLeaseRenewal {
   private sessionId: string | undefined;
   private timer: NodeJS.Timeout | undefined;
+  private expiryTimer: NodeJS.Timeout | undefined;
   private isRenewing = false;
+  private readonly ttlMs: number;
 
   /**
    * Creates the renewal; {@link renew} starts it.
@@ -277,14 +289,18 @@ export class SessionLeaseRenewal {
    * @param ttlSeconds - The lease's TTL.
    * @param attemptFor - Takes or renews the lease of one session.
    * @param onLost - Called once when another holder took the lease.
+   * @param onUnconfirmed - Called once when no renewal confirmed the lease before its safety margin.
    */
   public constructor(
     private readonly holderId: string,
     ttlSeconds: number,
     private readonly attemptFor: (sessionId: string) => Promise<SessionTerminalLeaseResult>,
     private readonly onLost: (sessionId: string, lease: SessionTerminalLease) => void,
+    private readonly onUnconfirmed: (sessionId: string) => void,
     private readonly intervalMs = (ttlSeconds * 1_000) / 3,
-  ) {}
+  ) {
+    this.ttlMs = ttlSeconds * 1_000;
+  }
 
   /** The session whose lease this process holds, or `undefined`. */
   public get currentSessionId(): string | undefined {
@@ -297,6 +313,7 @@ export class SessionLeaseRenewal {
    */
   public renew(sessionId: string): void {
     this.sessionId = sessionId;
+    this.confirmUntil(sessionId, Date.now() + this.ttlMs);
     this.timer ??= setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
   }
@@ -304,7 +321,9 @@ export class SessionLeaseRenewal {
   /** Stops renewing; the caller releases the lease. */
   public stop(): void {
     clearInterval(this.timer);
+    clearTimeout(this.expiryTimer);
     this.timer = undefined;
+    this.expiryTimer = undefined;
     this.sessionId = undefined;
   }
 
@@ -315,21 +334,35 @@ export class SessionLeaseRenewal {
     }
     this.isRenewing = true;
     try {
+      const sentAt = Date.now();
       const result = await attemptQuietly(() => this.attemptFor(sessionId));
       const lease = result?.lease;
-      if (
-        this.sessionId === sessionId &&
-        result?.isAcquired === false &&
-        lease !== null &&
-        lease !== undefined &&
-        lease.holderId !== this.holderId
-      ) {
+      if (this.sessionId !== sessionId) {
+        return;
+      }
+      if (result?.isAcquired === true) {
+        // The lease lasts the TTL from the Worker's handling, which follows the send.
+        this.confirmUntil(sessionId, sentAt + this.ttlMs);
+      } else if (result?.isAcquired === false && lease !== null && lease !== undefined && lease.holderId !== this.holderId) {
         this.stop();
         this.onLost(sessionId, lease);
       }
     } finally {
       this.isRenewing = false;
     }
+  }
+
+  /** Ends the renewal as unconfirmed at the safety margin before `confirmedUntilMs`, unless a renewal confirms it. */
+  private confirmUntil(sessionId: string, confirmedUntilMs: number): void {
+    clearTimeout(this.expiryTimer);
+    const delayMs = Math.max(0, confirmedUntilMs - this.ttlMs * renewalSafetyMarginRatio - Date.now());
+    this.expiryTimer = setTimeout(() => {
+      if (this.sessionId === sessionId) {
+        this.stop();
+        this.onUnconfirmed(sessionId);
+      }
+    }, delayMs);
+    this.expiryTimer.unref();
   }
 }
 

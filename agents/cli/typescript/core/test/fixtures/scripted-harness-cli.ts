@@ -8,7 +8,7 @@
 
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
-import { existsSync, writeFileSync, writeSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -107,6 +107,31 @@ if (leaseGateDirectory !== undefined) {
     const output: unknown = await (invokeRPC as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
     if (isAcquire) {
       await passGate("acquire");
+    }
+    return output;
+  } as typeof invokeRPC;
+}
+
+// Lease faults: fail-acquire fails every acquire before it is sent, lose-next-acquire loses one answer, and
+// fail-cancel fails every cancel_turn.
+const leaseFaultDirectory = process.env.DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR;
+if (leaseFaultDirectory !== undefined) {
+  const invokeRPC = Client.prototype.invokeRPC;
+  Client.prototype.invokeRPC = async function faultyInvokeRPC(this: Client, ...callArguments: unknown[]): Promise<unknown> {
+    const input = callArguments[2];
+    const isAcquire = typeof input === "object" && input !== null && "holderId" in input && "ttlSeconds" in input;
+    if (isAcquire && existsSync(join(leaseFaultDirectory, "fail-acquire"))) {
+      throw new Error("injected acquire failure");
+    }
+    const isCancel = typeof input === "object" && input !== null && Object.keys(input).join() === "turnId";
+    if (isCancel && existsSync(join(leaseFaultDirectory, "fail-cancel"))) {
+      throw new Error("injected cancel_turn failure");
+    }
+    const output: unknown = await (invokeRPC as (...forwarded: unknown[]) => Promise<unknown>).apply(this, callArguments);
+    const lostAnswer = join(leaseFaultDirectory, "lose-next-acquire");
+    if (isAcquire && existsSync(lostAnswer)) {
+      rmSync(lostAnswer);
+      throw new Error("no answer within 5000 ms");
     }
     return output;
   } as typeof invokeRPC;

@@ -61,6 +61,12 @@ export interface WorkerHostSessionLeaseLost {
   readonly lease: SessionTerminalLease;
 }
 
+/** No renewal confirmed the lease of the session the Worker host renews, which then stopped pulling it. */
+export interface WorkerHostSessionLeaseUnconfirmed {
+  readonly type: "session_lease_unconfirmed";
+  readonly sessionId: string;
+}
+
 /** A message from the launcher to the Worker host. */
 export type LauncherToWorkerHostMessage = WorkerHostStartRequest | WorkerHostExecuteRequest | { readonly type: "shutdown" };
 
@@ -89,4 +95,5 @@ export type WorkerHostToLauncherMessage =
   | { readonly type: "log"; readonly text: string }
   | { readonly type: "executed"; readonly requestNumber: number; readonly outcome: LocalRequestOutcome }
   | { readonly type: "worker_state"; readonly state: "stopping" }
-  | WorkerHostSessionLeaseLost;
+  | WorkerHostSessionLeaseLost
+  | WorkerHostSessionLeaseUnconfirmed;

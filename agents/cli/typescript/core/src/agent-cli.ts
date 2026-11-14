@@ -126,6 +126,7 @@ import {
   describeLeaseHolder,
   isAnimatedWaitingOutput,
   leaseLostLine,
+  leaseUnconfirmedLine,
   newSessionLeaseHolder,
   waitForSessionLease,
 } from "./session-terminal-lease.js";
@@ -626,18 +627,30 @@ export class AgentCliCommand {
     for (const line of await opener.completeTakeover(sessionId)) {
       this.log(line);
     }
-    let lostLeaseLine: string | undefined;
+    let lostLeaseLine: Promise<string> | undefined;
     const chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
       mediaStore: opened.mediaStore,
       homeDirectory: this.environment.homeDirectory,
     });
     const renewFor = (id: string): Promise<SessionTerminalLeaseResult> => tracked(id, () => opener.renew(id));
-    const renewal = new SessionLeaseRenewal(opener.holderId, ttlSeconds, renewFor, (lostSessionId, lease) => {
-      lostLeaseLine = leaseLostLine(lostSessionId, describeLeaseHolder(lease));
-      // The other terminal runs the session now, so this command stops pulling its task queue at once.
-      opener.leave(lostSessionId);
-      chat.stop();
-    });
+    const renewal = new SessionLeaseRenewal(
+      opener.holderId,
+      ttlSeconds,
+      renewFor,
+      (lostSessionId, lease) => {
+        lostLeaseLine = Promise.resolve(leaseLostLine(lostSessionId, describeLeaseHolder(lease)));
+        // The other terminal runs the session now, so this command stops pulling its task queue at once.
+        opener.leave(lostSessionId);
+        chat.stop();
+      },
+      (unconfirmedSessionId) => {
+        // Stopped before the lease can expire, so no other terminal pulls the queue while this one does.
+        opener.leave(unconfirmedSessionId);
+        this.writeLogLine(`session lease unconfirmed; stopped pulling its task queue: session=${unconfirmedSessionId}`);
+        lostLeaseLine = describeEndedLease(opener, unconfirmedSessionId);
+        chat.stop();
+      },
+    );
     this.heldSessionLease = { opener, sessionId, renewal };
     renewal.renew(sessionId);
     if (opened.isResumed) {
@@ -658,10 +671,10 @@ export class AgentCliCommand {
       isFailed = true;
     }
     if (lostLeaseLine !== undefined) {
-      // Another terminal holds the session now, so nothing is released.
+      // Another terminal holds the session now, or will once the unconfirmed lease expires, so nothing is released.
       this.heldSessionLease = undefined;
       this.io.stdout.write("\n");
-      this.log(lostLeaseLine);
+      this.log(await lostLeaseLine);
       return 1;
     }
     this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
@@ -1654,6 +1667,17 @@ function usage(harness: AgentHarness): string {
     "      --plain           Chat in plain text, without the terminal UI.",
     "  -h, --help            Show this help.",
   ].join("\n");
+}
+
+/**
+ * Returns the line that ends a chat whose lease no renewal confirmed: the lease lost line when another terminal
+ * already holds the session, such as after a long pause, else the unconfirmed line.
+ */
+async function describeEndedLease(opener: SessionOpener, sessionId: string): Promise<string> {
+  const lease = await opener.readStoredLease(sessionId);
+  return lease !== undefined && lease.holderId !== opener.holderId
+    ? leaseLostLine(sessionId, describeLeaseHolder(lease))
+    : leaseUnconfirmedLine(sessionId);
 }
 
 function newSessionId(harness: AgentHarness): string {

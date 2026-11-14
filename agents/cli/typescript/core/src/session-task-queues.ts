@@ -50,8 +50,8 @@ export function isLegacySessionFlowType(harnessFlowType: string, flowType: strin
   );
 }
 
-/** The keys of a session environment that decide whether a takeover moved the session to another place. */
-const placeKeys = ["host_name", "workspace"] as const;
+/** The keys of a session environment that decide whether a takeover moved the session to another environment. */
+const environmentIdentityKeys = ["host_name", "user_id", "config_identity", "workspace"] as const;
 
 /**
  * Returns `<host name>:<workspace>` of a session environment, or `—` when it names neither.
@@ -64,25 +64,39 @@ export function describeSessionEnvironment(environment: Readonly<Record<string, 
 }
 
 /**
- * Returns whether two session environments are different places: another host name or another workspace.
+ * Returns `<user>@<host name>:<workspace> (<configuration identity>)` of a session environment, where the user is
+ * `user_name`, or `user_id` without it. A missing part is empty.
+ * @param environment - A session's `startEnvironment` or `SessionLastTerminalEnvironment`.
+ */
+export function describeSessionEnvironmentIdentity(environment: Readonly<Record<string, string>>): string {
+  const user = environment.user_name ?? environment.user_id ?? "";
+  return `${user}@${environment.host_name ?? ""}:${environment.workspace ?? ""} (${environment.config_identity ?? ""})`;
+}
+
+/**
+ * Returns whether two session environments differ: another host name, user, configuration file, or workspace.
  * @param previous - Where the session was last open.
  * @param current - This command's environment.
  */
-export function isOtherSessionPlace(
+export function isOtherSessionEnvironment(
   previous: Readonly<Record<string, string>>,
   current: Readonly<Record<string, string>>,
 ): boolean {
-  return placeKeys.some((key) => (previous[key] ?? "") !== (current[key] ?? ""));
+  return environmentIdentityKeys.some((key) => (previous[key] ?? "") !== (current[key] ?? ""));
 }
 
-/** Returns the line printed once a command took a session over from another place. */
+/** Returns the line printed once a command took a session over from another environment. */
 export function takeoverLine(sessionId: string, previousEnvironment: string, environment: string): string {
   return `Session ${sessionId} was last open on ${previousEnvironment}; its model and tool calls now run here, on ${environment}.`;
 }
 
-/** The line printed when a takeover cancelled the turn that was in progress in the other place. */
+/** The line printed when a takeover confirmed that the turn in progress in the other environment ended. */
 export const cancelledTurnLine =
   "Cancelled the turn that was in progress there; none of its model or tool calls run here.";
+
+/** The line printed when a takeover could not confirm that the turn in progress there ended. */
+export const turnNotCancelledLine =
+  "Could not confirm that the turn in progress there was cancelled; this command still refuses its model and tool calls.";
 
 /** Returns why this command refuses a call of the turn that was in progress when it took the session over. */
 export function takenOverTurnReason(sessionId: string): string {

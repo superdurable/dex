@@ -85,8 +85,8 @@ export class WorkerHostProcess {
   private startupResolver: ((startup: WorkerHostStartup) => void) | undefined;
   private listener: WorkerHostListener | undefined;
   private readonly earlyLogs: string[] = [];
-  private lostLease: { readonly sessionId: string; readonly lease: SessionTerminalLease } | undefined;
-  private onLeaseLost: ((sessionId: string, lease: SessionTerminalLease) => void) | undefined;
+  private lostLease: { readonly sessionId: string; readonly lease: SessionTerminalLease | null } | undefined;
+  private onLeaseLost: ((sessionId: string, lease: SessionTerminalLease | null) => void) | undefined;
 
   /**
    * Starts the Worker host. Its environment is the launcher's, so it holds the provider keys the terminal UI never
@@ -227,10 +227,11 @@ export class WorkerHostProcess {
   }
 
   /**
-   * Sets who hears that another terminal took the lease; one that was lost already is delivered at once.
-   * @param handler - Receives the session and the other holder's lease.
+   * Sets who hears that the Worker host gave up a lease: another terminal took it, or no renewal confirmed it in
+   * time. One that ended already is delivered at once.
+   * @param handler - Receives the session and the other holder's lease, or `null` for an unconfirmed lease.
    */
-  public whenSessionLeaseLost(handler: (sessionId: string, lease: SessionTerminalLease) => void): void {
+  public whenSessionLeaseLost(handler: (sessionId: string, lease: SessionTerminalLease | null) => void): void {
     this.onLeaseLost = handler;
     if (this.lostLease !== undefined) {
       handler(this.lostLease.sessionId, this.lostLease.lease);
@@ -309,6 +310,10 @@ export class WorkerHostProcess {
       case "session_lease_lost":
         this.lostLease = { sessionId: message.sessionId, lease: message.lease };
         this.onLeaseLost?.(message.sessionId, message.lease);
+        return;
+      case "session_lease_unconfirmed":
+        this.lostLease = { sessionId: message.sessionId, lease: null };
+        this.onLeaseLost?.(message.sessionId, null);
         return;
     }
   }

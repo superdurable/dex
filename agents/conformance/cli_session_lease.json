@@ -1,5 +1,5 @@
 {
-  "description": "The lines a CLI command prints while it waits for a session that another terminal has open, and when another terminal takes the session from it. Hand-written for the CLI cores. Every line goes to standard error. The animated form is used when standard error is a terminal and TERM is set and is not dumb; otherwise the plain form. The animated line is redrawn in place every frame_interval_ms: the command writes redraw_prefix, then the line, with no newline. A line longer than columns minus 1 Unicode code points keeps its first columns minus 2 code points and ends with an ellipsis; columns is the terminal width, or default_columns when it is unknown. When the command gets the session, it writes redraw_prefix to clear the animated line, then took_over_line and a newline. The plain form writes plain_waiting_line once when the wait starts and took_over_line once when it ends; the holder in plain_waiting_line is the first one seen. A command that gets the session at once prints none of these lines. The command asks again every retry_interval_ms. Ctrl-C while waiting clears the animated line and exits with interrupted_exit_code. since is the local time, HH:MM, of the lease's opened_at. elapsed is whole minutes, a colon, and two-digit seconds, counted from the start of the wait. A chat whose lease another terminal took prints lease_lost_line and exits with lease_lost_exit_code.",
+  "description": "The lines a CLI command prints while it waits for a session that another terminal has open, and when another terminal takes the session from it. Hand-written for the CLI cores. Every line goes to standard error. The animated form is used when standard error is a terminal and TERM is set and is not dumb; otherwise the plain form. The animated line is redrawn in place every frame_interval_ms: the command writes redraw_prefix, then the line, with no newline. A line longer than columns minus 1 Unicode code points keeps its first columns minus 2 code points and ends with an ellipsis; columns is the terminal width, or default_columns when it is unknown. When the command gets the session, it writes redraw_prefix to clear the animated line, then took_over_line and a newline. The plain form writes plain_waiting_line once when the wait starts and took_over_line once when it ends; the holder in plain_waiting_line is the first one seen. A command that gets the session at once prints none of these lines. The command asks again every retry_interval_ms. Ctrl-C while waiting clears the animated line and exits with interrupted_exit_code. since is the local time, HH:MM, of the lease's opened_at. elapsed is whole minutes, a colon, and two-digit seconds, counted from the start of the wait. A chat whose lease another terminal took prints lease_lost_line and exits with lease_lost_exit_code. A held lease counts as confirmed until the local time at which its last successful acquire or renewal was sent, plus the TTL. When no renewal confirms it again before that time minus renewal_safety_margin_ratio times the TTL, the command stops pulling the session's task queue, stops the chat, prints lease_unconfirmed_line, and exits with lease_unconfirmed_exit_code, so the lease expires before another terminal can take the session.",
   "spinner_frames": [
     "⠋",
     "⠙",
@@ -24,7 +24,8 @@
     "animated_waiting_line": "{frame} Session {session_id} is open in another terminal ({holder}) · waiting {elapsed} · Ctrl-C to quit",
     "plain_waiting_line": "Session {session_id} is open in another terminal ({holder}) · waiting · Ctrl-C to quit",
     "took_over_line": "Took over session {session_id}.",
-    "lease_lost_line": "Session {session_id} is now open in another terminal ({holder}); this chat stopped."
+    "lease_lost_line": "Session {session_id} is now open in another terminal ({holder}); this chat stopped.",
+    "lease_unconfirmed_line": "Session {session_id} could not renew its lease in time; this chat stopped so that another terminal can take the session."
   },
   "animated_waiting_cases": [
     {
@@ -139,6 +140,15 @@
       "opened_at": "2026-11-13T20:31:00Z",
       "time_zone": "Asia/Tokyo",
       "since": "05:31"
+    }
+  ],
+  "renewal_safety_margin_ratio": 0.2,
+  "lease_unconfirmed_exit_code": 1,
+  "lease_unconfirmed_cases": [
+    {
+      "name": "the example",
+      "session_id": "builtin-20261113-203123-3efeb4",
+      "line": "Session builtin-20261113-203123-3efeb4 could not renew its lease in time; this chat stopped so that another terminal can take the session."
     }
   ]
 }

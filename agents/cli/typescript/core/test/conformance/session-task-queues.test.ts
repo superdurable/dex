@@ -16,8 +16,9 @@ import { cliAppWorkerId } from "../../src/session-opener.js";
 import {
   cancelledTurnLine,
   describeSessionEnvironment,
+  describeSessionEnvironmentIdentity,
   isLegacySessionFlowType,
-  isOtherSessionPlace,
+  isOtherSessionEnvironment,
   namedTaskQueueServerError,
   otherEnvironmentLegacySessionError,
   otherHarnessSessionError,
@@ -26,6 +27,7 @@ import {
   sessionTaskQueue,
   takenOverTurnReason,
   takeoverLine,
+  turnNotCancelledLine,
 } from "../../src/session-task-queues.js";
 
 const sharedCliDirectory = fileURLToPath(new URL("../../../../../", import.meta.url));
@@ -40,12 +42,13 @@ interface SessionTaskQueueFixture {
   readonly task_queue_cases: readonly { readonly name: string; readonly session_id: string; readonly task_queue: string }[];
   readonly legacy_flow_type_cases: readonly { readonly name: string; readonly flow_type: string; readonly is_legacy: boolean }[];
   readonly environment_cases: readonly { readonly name: string; readonly environment: Environment; readonly text: string }[];
-  readonly place_cases: readonly {
+  readonly other_environment_cases: readonly {
     readonly name: string;
     readonly previous: Environment;
     readonly current: Environment;
-    readonly is_other_place: boolean;
+    readonly is_other_environment: boolean;
   }[];
+  readonly identity_cases: readonly { readonly name: string; readonly environment: Environment; readonly text: string }[];
   readonly templates: Readonly<Record<string, string>>;
   readonly template_cases: readonly {
     readonly template: string;
@@ -94,14 +97,21 @@ describe("CLI session task queue conformance", () => {
     });
   }
 
-  for (const testCase of fixture.place_cases) {
-    test(`other place: ${testCase.name}`, () => {
-      assert.equal(isOtherSessionPlace(testCase.previous, testCase.current), testCase.is_other_place);
+  for (const testCase of fixture.other_environment_cases) {
+    test(`other environment: ${testCase.name}`, () => {
+      assert.equal(isOtherSessionEnvironment(testCase.previous, testCase.current), testCase.is_other_environment);
+    });
+  }
+
+  for (const testCase of fixture.identity_cases) {
+    test(`environment identity text: ${testCase.name}`, () => {
+      assert.equal(describeSessionEnvironmentIdentity(testCase.environment), testCase.text);
     });
   }
 
   test("every template case renders its line, and the cancelled turn line matches", () => {
     assert.equal(cancelledTurnLine, fixture.templates.cancelled_turn_line);
+    assert.equal(turnNotCancelledLine, fixture.templates.turn_not_cancelled_line);
     for (const testCase of fixture.template_cases) {
       const render = renderers[testCase.template];
       assert.ok(render !== undefined, testCase.template);

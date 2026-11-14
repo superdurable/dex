@@ -235,8 +235,23 @@ class WorkerHost {
         opened.opener.leave(sessionId);
         this.send({ type: "session_lease_lost", sessionId, lease });
       },
+      (sessionId) => void this.endUnconfirmedLease(opened, sessionId),
     );
     return this.leaseRenewal;
+  }
+
+  /**
+   * Stops pulling a session whose lease no renewal confirmed, before the lease can expire, then tells the launcher:
+   * as lost when another terminal already holds the session, else as unconfirmed.
+   */
+  private async endUnconfirmedLease(opened: OpenedSessionWorker, sessionId: string): Promise<void> {
+    opened.opener.leave(sessionId);
+    const lease = await opened.opener.readStoredLease(sessionId);
+    if (lease !== undefined && lease.holderId !== opened.opener.holderId) {
+      this.send({ type: "session_lease_lost", sessionId, lease });
+    } else {
+      this.send({ type: "session_lease_unconfirmed", sessionId });
+    }
   }
 
   /** Releases the renewed lease, and any a call without an answer may have taken, while the Worker still serves. */

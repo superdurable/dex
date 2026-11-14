@@ -22,6 +22,7 @@ import {
   type ContextSummaryResult,
   type DeferredToolExecution,
   type DeferredToolOutcome,
+  type SessionTerminalLease,
   type SessionTerminalLeaseResult,
   type ToolTaskCancellation,
   type ToolTaskPoll,
@@ -37,9 +38,9 @@ import {
 } from "./session-terminal-lease.js";
 import {
   cancelledTurnLine,
-  describeSessionEnvironment,
+  describeSessionEnvironmentIdentity,
   isLegacySessionFlowType,
-  isOtherSessionPlace,
+  isOtherSessionEnvironment,
   otherEnvironmentLegacySessionError,
   otherHarnessSessionError,
   refusedModelCallError,
@@ -47,6 +48,7 @@ import {
   sessionTaskQueue,
   takenOverTurnReason,
   takeoverLine,
+  turnNotCancelledLine,
 } from "./session-task-queues.js";
 
 type SessionFlow = AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
@@ -59,6 +61,8 @@ const turnCancellationTimeoutMs = 5_000;
 const turnEndTimeoutMs = 10_000;
 /** How often a takeover reads whether the cancelled turn ended. */
 const turnEndPollIntervalMs = 100;
+/** How long the read of a stored lease may take after a renewal could not confirm it. */
+const storedLeaseReadTimeoutMs = 2_000;
 
 /**
  * Returns `dex-agents-<harness>-<host>-<pid>`, plus `-<suffix>` when given, cutting the host name so the ID has at
@@ -330,7 +334,8 @@ export class SessionOpener {
    *
    * For a session on its own task queue, it reads the stored lease first. While another terminal's lease has not
    * expired, it returns that lease and pulls nothing. Otherwise the session Worker pulls the session's task queue,
-   * and the acquire RPC runs on it; a refused or failed acquire stops the pulling again.
+   * and the acquire RPC runs on it; a refused acquire stops the pulling again. When the acquire's answer never
+   * arrives, the stored lease decides: this command's holder means acquired, and the Worker keeps pulling.
    * @param session - The session.
    * @returns The lease RPC's result, or a refusal that names the stored holder.
    * @throws {SessionWorkerStartError} When the session Worker did not start.
@@ -349,9 +354,12 @@ export class SessionOpener {
     );
     const isHeldHere = lease?.holderId === holder.holderId;
     if (lease !== undefined && !isHeldHere && !isLeaseExpiredHere(lease, new Date())) {
+      // A Worker that an attempt with an unknown outcome kept stops here.
+      this.leave(session.sessionId);
       return { isAcquired: false, lease };
     }
-    const isTakeover = lastEnvironment !== undefined && !isHeldHere && isOtherSessionPlace(lastEnvironment, environment);
+    const isTakeover =
+      lastEnvironment !== undefined && !isHeldHere && isOtherSessionEnvironment(lastEnvironment, environment);
     const takenOverTurnId = isTakeover ? (state?.activeTurnId ?? null) : null;
     if (takenOverTurnId !== null) {
       // Refused before the Worker pulls, so none of that turn's calls runs here.
@@ -362,8 +370,7 @@ export class SessionOpener {
     try {
       result = await acquireSessionLease(client, sessionFlow, session.sessionId, holder, ttlSeconds, environment);
     } catch (error: unknown) {
-      sessionWorker.stop();
-      throw error;
+      result = await this.resolveUnknownAcquisition(session.sessionId, error);
     }
     if (!result.isAcquired) {
       sessionWorker.stop();
@@ -373,6 +380,30 @@ export class SessionOpener {
       this.pendingTakeovers.set(session.sessionId, { previousEnvironment: lastEnvironment, takenOverTurnId });
     }
     return result;
+  }
+
+  /**
+   * Decides an acquire whose answer never arrived, such as after a timeout: the RPC may have taken the lease, and
+   * only this command's session Worker serves its release.
+   * @param sessionId - The session.
+   * @param error - The acquire's failure.
+   * @returns The stored lease as acquired when this command holds it.
+   * @throws The acquire's failure otherwise: after stopping the Worker when the read shows another holder or no
+   * lease, and keeping it when the read fails too, so the next attempt decides.
+   */
+  private async resolveUnknownAcquisition(sessionId: string, error: unknown): Promise<SessionTerminalLeaseResult> {
+    const { client, sessionFlow, holder, sessionWorker } = this.options;
+    let stored;
+    try {
+      [stored] = await client.getAttributes(sessionId, sessionFlow.sessionTerminalLease);
+    } catch {
+      throw error;
+    }
+    if (stored?.holderId === holder.holderId) {
+      return { isAcquired: true, lease: stored };
+    }
+    sessionWorker.stop();
+    throw error;
   }
 
   /**
@@ -386,10 +417,10 @@ export class SessionOpener {
   }
 
   /**
-   * Finishes a takeover from another place once the lease is held: cancels the turn that was in progress there.
-   * A failed cancellation only leaves that turn refused in this process.
+   * Finishes a takeover from another environment once the lease is held: cancels the turn that was in progress
+   * there. The turn stays refused in this process either way; the lines say whether it ended.
    * @param sessionId - The session whose lease this command now holds.
-   * @returns The lines to print, none when the session was last open in this place.
+   * @returns The lines to print, none when the session was last open in this environment.
    */
   public async completeTakeover(sessionId: string): Promise<readonly string[]> {
     const takeover = this.pendingTakeovers.get(sessionId);
@@ -400,22 +431,34 @@ export class SessionOpener {
     const lines = [
       takeoverLine(
         sessionId,
-        describeSessionEnvironment(takeover.previousEnvironment),
-        describeSessionEnvironment(this.options.environment),
+        describeSessionEnvironmentIdentity(takeover.previousEnvironment),
+        describeSessionEnvironmentIdentity(this.options.environment),
       ),
     ];
     const turnId = takeover.takenOverTurnId;
-    try {
-      if (turnId !== null && (await this.readActiveTurnId(sessionId)) === turnId) {
-        await this.cancelTurn(sessionId, turnId);
-        // The chat must not show the cancelled turn's approvals, which stay pending until the turn ends.
-        await this.waitForTurnEnd(sessionId, turnId);
-        lines.push(cancelledTurnLine);
-      }
-    } catch {
-      // The turn stays refused in this process, so none of its calls runs here.
+    if (turnId !== null) {
+      lines.push((await this.isTurnCancelled(sessionId, turnId)) ? cancelledTurnLine : turnNotCancelledLine);
     }
     return lines;
+  }
+
+  /**
+   * Cancels a turn and waits for it to end.
+   * @returns Whether the turn is no longer active: ended before, cancelled, or ended within the wait.
+   */
+  private async isTurnCancelled(sessionId: string, turnId: string): Promise<boolean> {
+    try {
+      if ((await this.readActiveTurnId(sessionId)) !== turnId) {
+        return true;
+      }
+      if (!(await this.cancelTurn(sessionId, turnId))) {
+        return (await this.readActiveTurnId(sessionId)) !== turnId;
+      }
+      // The chat must not show the cancelled turn's approvals, which stay pending until the turn ends.
+      return await this.waitForTurnEnd(sessionId, turnId);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -426,6 +469,27 @@ export class SessionOpener {
     const { client, holder } = this.options;
     await releaseSessionLease(client, this.flowOf(sessionId), sessionId, holder.holderId);
     this.leave(sessionId);
+  }
+
+  /**
+   * Reads a session's stored lease without a Worker, within 2 s.
+   * @param sessionId - The session.
+   * @returns The lease, or `undefined` when none is stored or the read failed.
+   */
+  public async readStoredLease(sessionId: string): Promise<SessionTerminalLease | undefined> {
+    const { client, sessionFlow } = this.options;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), storedLeaseReadTimeoutMs);
+    });
+    try {
+      const read = client.getAttributes(sessionId, sessionFlow.sessionTerminalLease).then(([lease]) => lease);
+      return await Promise.race([read, timeout]);
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -449,21 +513,32 @@ export class SessionOpener {
     return state?.activeTurnId ?? null;
   }
 
-  /** Waits a bounded time for a turn to end; a tool call that runs on keeps it going, and the chat then waits. */
-  private async waitForTurnEnd(sessionId: string, turnId: string): Promise<void> {
+  /**
+   * Waits a bounded time for a turn to end; a tool call that runs on keeps it going, and the chat then waits.
+   * @returns Whether the turn ended within the wait.
+   */
+  private async waitForTurnEnd(sessionId: string, turnId: string): Promise<boolean> {
     const deadline = Date.now() + turnEndTimeoutMs;
-    while (Date.now() < deadline && (await this.readActiveTurnId(sessionId)) === turnId) {
+    for (;;) {
+      if ((await this.readActiveTurnId(sessionId)) !== turnId) {
+        return true;
+      }
+      if (Date.now() >= deadline) {
+        return false;
+      }
       await delay(turnEndPollIntervalMs);
     }
   }
 
-  /** Cancels one turn, trying again while a short Step holds the RPC's lock. */
-  private async cancelTurn(sessionId: string, turnId: string): Promise<void> {
+  /**
+   * Cancels one turn, trying again while a short Step holds the RPC's lock.
+   * @returns The RPC's result, or `false` when the lock stayed held until the deadline.
+   */
+  private async cancelTurn(sessionId: string, turnId: string): Promise<boolean> {
     const deadline = Date.now() + turnCancellationTimeoutMs;
     while (Date.now() < deadline) {
       try {
-        await this.options.client.invokeRPC(this.options.sessionFlow.cancelTurn, sessionId, { turnId });
-        return;
+        return await this.options.client.invokeRPC(this.options.sessionFlow.cancelTurn, sessionId, { turnId });
       } catch (error: unknown) {
         if (!(error instanceof RpcLockConflictError)) {
           throw error;
@@ -471,5 +546,6 @@ export class SessionOpener {
       }
       await delay(50);
     }
+    return false;
   }
 }

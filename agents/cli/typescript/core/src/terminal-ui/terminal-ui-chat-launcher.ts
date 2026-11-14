@@ -17,6 +17,7 @@ import {
   describeLeaseHolder,
   isAnimatedWaitingOutput,
   leaseLostLine,
+  leaseUnconfirmedLine,
   waitForSessionLease,
 } from "../session-terminal-lease.js";
 import {
@@ -347,7 +348,8 @@ export class TerminalUiChatLauncher {
     const isFallback = !handoff.isReady && handoff.failure !== undefined;
     await this.stopHost();
     if (handoff.lostLease !== undefined) {
-      this.writeLine(leaseLostLine(sessionId, describeLeaseHolder(handoff.lostLease)));
+      const lease = handoff.lostLease;
+      this.writeLine(lease === null ? leaseUnconfirmedLine(sessionId) : leaseLostLine(sessionId, describeLeaseHolder(lease)));
       return { kind: "exited", exitCode: 1 };
     }
     // A signal may also arrive while the Worker host stops; it decides the outcome then.
@@ -508,8 +510,11 @@ class TerminalUiHandoff {
 
   /** The session the terminal UI chose to switch to, when it handed the switch back. */
   public switchRequest: SessionSwitchRequest | undefined;
-  /** The other holder's lease, when another terminal took this session and the launcher stopped the terminal UI. */
-  public lostLease: SessionTerminalLease | undefined;
+  /**
+   * The other holder's lease when another terminal took this session, or `null` when no renewal confirmed the lease
+   * in time; the launcher then stopped the terminal UI.
+   */
+  public lostLease: SessionTerminalLease | null | undefined;
 
   public constructor(
     private readonly launch: TerminalUiChatLaunch,
