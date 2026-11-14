@@ -137,8 +137,8 @@ impl PullWorkerOptions {
     /// confirms a stream for a different task queue, the Worker half-closes that stream and
     /// treats it as a permanent rejection with the gRPC code `FAILED_PRECONDITION`.
     /// [`crate::Worker::wait_pull_registered`], [`crate::Worker::pull_registration_state`], and
-    /// [`Self::stop_on_permanent_stream_rejection`] report it. Returns these options with the
-    /// task queue applied.
+    /// [`Self::stop_on_permanent_stream_rejection`] report it. [`crate::Worker::task_queue`]
+    /// returns the configured name. Returns these options with the task queue applied.
     ///
     /// Since 1.45.1.
     ///

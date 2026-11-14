@@ -332,7 +332,10 @@ impl PullWorker {
         if self.stop_on_permanent_stream_rejection
             && let Some(rejection) = self.registration.permanent_error()
         {
-            return Err(SdkError::from_pull_registration(rejection));
+            return Err(SdkError::from_pull_registration(
+                rejection,
+                &self.task_queue,
+            ));
         }
         Ok(())
     }

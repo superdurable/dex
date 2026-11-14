@@ -300,12 +300,29 @@ impl Worker {
         0
     }
 
+    /// Returns the task queue this Worker pulls; the empty string means the default task queue.
+    ///
+    /// It is the value of [`crate::PullWorkerOptions::task_queue`] and never changes. Every pull
+    /// stream of this Worker registers it. Use it to label readiness probes and logs when a
+    /// process runs one Worker per task queue.
+    ///
+    /// Since 1.45.1.
+    ///
+    /// ```no_run
+    /// # fn report(worker: &dex_sdk::Worker) {
+    /// let state = worker.pull_registration_state();
+    /// println!("task queue {:?} ready: {}", worker.task_queue(), state.is_ready);
+    /// # }
+    /// ```
+    pub fn task_queue(&self) -> &str {
+        &self.pull.task_queue
+    }
+
     /// Returns an independent snapshot of current pull slot-kind registrations.
     ///
     /// Readiness latches after each required slot kind registers once. Only a permanent rejection with no
     /// registered stream makes it false. Successful registration clears that slot kind's error.
     /// Transient disconnects and Stop do not clear readiness. See [`Self::wait_pull_registered`] for a startup and probe example.
-    /// Changed in 1.45.1: each slot-kind snapshot carries the Worker's task queue.
     pub fn pull_registration_state(&self) -> crate::PullRegistrationState {
         self.pull.registration.snapshot()
     }

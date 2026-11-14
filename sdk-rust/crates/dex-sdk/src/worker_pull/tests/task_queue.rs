@@ -140,7 +140,12 @@ async fn mismatched_task_queue_echo_is_a_permanent_rejection() {
         .expect_err("a mismatched echo never becomes ready");
     let rejection = error.pull_registration_error().expect("typed rejection");
     assert_eq!(rejection.status.code(), Code::FailedPrecondition);
-    assert_eq!(rejection.task_queue, "blue");
+    assert!(
+        error
+            .to_string()
+            .starts_with("pull slot kind STEP_AND_RPC on task queue blue rejected:"),
+        "{error}"
+    );
     assert!(
         rejection
             .status
@@ -154,7 +159,6 @@ async fn mismatched_task_queue_echo_is_a_permanent_rejection() {
         .expect("the Worker half-closed the mismatched stream");
     let snapshot = registration.snapshot();
     assert!(!snapshot.is_ready);
-    assert_eq!(snapshot.queues[0].task_queue, "blue");
     assert_eq!(
         snapshot.queues[0]
             .last_permanent_error
@@ -166,11 +170,13 @@ async fn mismatched_task_queue_echo_is_a_permanent_rejection() {
         .await
         .expect("permanent rejection stops the Worker")
         .expect("Worker task");
+    let stop_error = result.expect_err("stop on permanent rejection");
+    assert!(stop_error.pull_registration_error().is_some());
     assert!(
-        result
-            .expect_err("stop on permanent rejection")
-            .pull_registration_error()
-            .is_some_and(|rejection| rejection.task_queue == "blue")
+        stop_error
+            .to_string()
+            .contains("on task queue blue rejected"),
+        "{stop_error}"
     );
     server.stop.send_replace(true);
     server
@@ -204,7 +210,6 @@ async fn matching_task_queue_echo_registers() {
             .expect("ready");
         let snapshot = registration.snapshot();
         assert!(snapshot.is_ready);
-        assert_eq!(snapshot.queues[0].task_queue, task_queue);
         stop.send_replace(true);
         timeout(Duration::from_secs(5), running)
             .await
@@ -240,12 +245,16 @@ fn worker_construction_rejects_invalid_and_reserved_task_queues() {
         );
         assert!(error.to_string().contains("task queue"), "{error}");
     }
-    Worker::try_new(
-        registry,
-        cache,
+    let worker = Worker::try_new(
+        registry.clone(),
+        Arc::clone(&cache),
         WorkerOptions::new().pull(PullWorkerOptions::new().task_queue("blue")),
     )
     .expect("valid Worker task queue");
+    assert_eq!(worker.task_queue(), "blue");
+    let default_worker =
+        Worker::try_new(registry, cache, WorkerOptions::new()).expect("default task queue Worker");
+    assert_eq!(default_worker.task_queue(), "");
 }
 
 /// Serves only GetServerInfo with protocol 4; every other FlowService call is unimplemented.

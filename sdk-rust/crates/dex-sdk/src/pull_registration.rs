@@ -18,11 +18,14 @@ use crate::{SdkError, SdkResult};
 /// Permanent rejection that leaves a required pull slot kind without any registered stream.
 ///
 /// Use [`SdkError::pull_registration_error`] on errors from [`crate::Worker::wait_pull_registered`] or
-/// [`crate::Worker::start`] to inspect the slot kind and original gRPC status.
+/// [`crate::Worker::start`] to inspect the slot kind and the rejection status.
+/// The status is usually the Server's permanent gRPC rejection of the stream.
 ///
-/// Changed in 1.45.1: the error carries the Worker's task queue in `task_queue`. A stream whose
-/// registration the Server confirms for a different task queue is also a permanent rejection.
-/// Its status then has the gRPC code `FAILED_PRECONDITION`.
+/// Changed in 1.45.1: a stream whose registration the Server confirms for a different task queue
+/// is also a permanent rejection. The SDK then synthesizes the status with the gRPC code
+/// `FAILED_PRECONDITION`, and its message names the requested and the registered task queue.
+/// For a Worker on a named task queue, the message of the returned [`SdkError`] names the task
+/// queue. [`crate::Worker::task_queue`] returns it.
 ///
 /// ```
 /// fn report(error: dex_sdk::SdkError) {
@@ -35,29 +38,21 @@ use crate::{SdkError, SdkResult};
 pub struct PullRegistrationError {
     /// Slot kind label: `STEP_AND_RPC` or `RPC_ONLY`; retained field name for source compatibility.
     pub queue: String,
-    /// Original permanent gRPC rejection, preserving its code and details.
-    pub status: Status,
-    /// Task queue the rejected stream tried to register; empty means the default task queue.
+    /// Permanent rejection status of the stream.
     ///
-    /// See [`crate::PullWorkerOptions::task_queue`]. Since 1.45.1.
-    pub task_queue: String,
+    /// It is usually the Server's gRPC rejection, preserving its code and details. When the Server
+    /// confirms the stream for a different task queue, the SDK synthesizes a `FAILED_PRECONDITION`
+    /// status whose message names both task queues.
+    pub status: Status,
 }
 
 impl Display for PullRegistrationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.task_queue.is_empty() {
-            write!(
-                formatter,
-                "pull slot kind {} rejected: {}",
-                self.queue, self.status
-            )
-        } else {
-            write!(
-                formatter,
-                "pull slot kind {} on task queue {} rejected: {}",
-                self.queue, self.task_queue, self.status
-            )
-        }
+        write!(
+            formatter,
+            "pull slot kind {} rejected: {}",
+            self.queue, self.status
+        )
     }
 }
 
@@ -72,14 +67,12 @@ impl std::error::Error for PullRegistrationError {
 pub struct PullQueueRegistrationState {
     /// Slot kind label: `STEP_AND_RPC` or `RPC_ONLY`; retained field name for source compatibility.
     pub queue: String,
-    /// Task queue the Worker's streams register; empty means the default task queue.
-    ///
-    /// Every entry of one Worker has the same task queue. See
-    /// [`crate::PullWorkerOptions::task_queue`]. Since 1.45.1.
-    pub task_queue: String,
     /// Whether this slot kind currently has an acknowledged stream.
     pub has_registered_stream: bool,
     /// Last permanent rejection, cleared when a stream successfully registers.
+    ///
+    /// It is usually the Server's gRPC status. A task queue mismatch stores the SDK's synthesized
+    /// `FAILED_PRECONDITION` status; see [`PullRegistrationError::status`].
     pub last_permanent_error: Option<Status>,
 }
 
@@ -158,10 +151,12 @@ impl PullRegistration {
                 let rejection = PullRegistrationError {
                     queue: queue.to_string(),
                     status: status.clone(),
-                    task_queue: self.task_queue.clone(),
                 };
                 if !state.has_registered_all_queues && state.initial_error.is_none() {
-                    state.initial_error = Some(SdkError::from_pull_registration(rejection.clone()));
+                    state.initial_error = Some(SdkError::from_pull_registration(
+                        rejection.clone(),
+                        &self.task_queue,
+                    ));
                 }
                 state.permanent_error.get_or_insert(rejection);
             }
@@ -193,7 +188,6 @@ impl PullRegistration {
             .iter()
             .map(|(queue, registration)| PullQueueRegistrationState {
                 queue: queue.clone(),
-                task_queue: self.task_queue.clone(),
                 has_registered_stream: registration.registered_streams > 0,
                 last_permanent_error: registration.last_permanent_error.clone(),
             })
@@ -289,28 +283,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn snapshots_and_rejections_carry_the_task_queue() {
+    async fn rejections_name_the_task_queue() {
         let registration = PullRegistration::new(&["app".to_string()], "blue".to_string());
-        assert_eq!(registration.snapshot().queues[0].task_queue, "blue");
         registration.ended(
             "app",
             false,
             Some(&Status::failed_precondition("wrong task queue")),
         );
         let rejection = registration.permanent_error().expect("permanent rejection");
-        assert_eq!(rejection.task_queue, "blue");
         assert!(
             rejection
                 .to_string()
-                .starts_with("pull slot kind app on task queue blue rejected:"),
+                .starts_with("pull slot kind app rejected:"),
             "{rejection}"
         );
         let error = registration
             .wait()
             .await
             .expect_err("rejected before readiness");
+        assert!(
+            error
+                .to_string()
+                .starts_with("pull slot kind app on task queue blue rejected:"),
+            "{error}"
+        );
         let reported = error.pull_registration_error().expect("typed rejection");
-        assert_eq!(reported.task_queue, "blue");
         assert_eq!(reported.status.code(), tonic::Code::FailedPrecondition);
     }
 
