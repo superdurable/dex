@@ -34,8 +34,11 @@ import {
 } from "../fixtures/terminal-ui-test-support.js";
 
 const quietConfig = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
-/** A short TTL, so the tests that wait for an expiry take seconds. */
-const shortTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3" };
+/**
+ * A short TTL only for a command a test lets expire on purpose, by killing or pausing it or with a fault. Every
+ * other command keeps the default lease, which no slow runner lets lapse by accident.
+ */
+const expiringTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "6" };
 /** An hour-long lease, so only an explicit release frees a session within a test. */
 const longLease = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3600" };
 
@@ -131,16 +134,16 @@ describe("one terminal per session", () => {
 
   test("after the holder is killed, a waiting terminal takes over once the lease expires", async () => {
     const home = newHome();
-    const first = start(home, [], shortTtl);
+    const first = start(home, [], expiringTtl);
     const sessionId = await first.waitForSession();
     await waitForLeaseHolder(home, sessionId, first.pid);
-    const second = start(home, ["--resume", sessionId], shortTtl);
+    const second = start(home, ["--resume", sessionId]);
     await second.stderr.waitFor("is open in another terminal");
 
     await first.kill();
     const killedAt = Date.now();
-    await second.stderr.waitFor(tookOverLine(sessionId), 20_000);
-    assert.ok(Date.now() - killedAt < 10_000, "the expired lease goes to the waiting terminal");
+    await second.stderr.waitFor(tookOverLine(sessionId), 30_000);
+    assert.ok(Date.now() - killedAt < 20_000, "the expired lease goes to the waiting terminal");
     await second.waitForSession();
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
@@ -186,13 +189,13 @@ describe("one terminal per session", () => {
 
   test("a chat whose lease another terminal took while it was paused stops with one line and exits 1", async () => {
     const home = newHome();
-    const first = start(home, [], shortTtl);
+    const first = start(home);
     const sessionId = await first.waitForSession();
     await waitForLeaseHolder(home, sessionId, first.pid);
 
+    // Paused past its default lease. The wait is about as long as Dex takes to stop routing the session's RPCs to
+    // the paused command's streams anyway.
     first.signal("SIGSTOP");
-    // The paused command's streams stay registered, so the acquire may wait out Dex's sticky wait first; the
-    // default lease outlasts that wait, while a 3-second lease would count as unconfirmed at once.
     const second = start(home, ["--resume", sessionId]);
     let secondLease: SessionTerminalLease;
     try {

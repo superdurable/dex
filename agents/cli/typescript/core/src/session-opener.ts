@@ -67,6 +67,10 @@ const turnEndTimeoutMs = 10_000;
 const turnEndPollIntervalMs = 100;
 /** How long the read of a stored lease may take after a renewal could not confirm it. */
 const storedLeaseReadTimeoutMs = 2_000;
+/** How long failed reads of a stored lease are tried again, such as on reconnecting after a pause. */
+const storedLeaseReadRetryBudgetMs = 6_000;
+/** The pause between two reads of a stored lease. */
+const storedLeaseReadRetryIntervalMs = 250;
 /** How long the read of a stored lease before pulling may take. */
 const leaseReadTimeoutMs = 5_000;
 
@@ -114,6 +118,27 @@ export class PullPermitExpiredError extends Error {
   }
 }
 
+/** The clock and timer a pull permit runs on; tests pass a fake one. */
+export interface SessionPullPermitClock {
+  /** Returns the current time on a monotonic clock, in milliseconds. */
+  nowMs(): number;
+  /**
+   * Calls `callback` once after `delayMs`.
+   * @returns A function that cancels the call.
+   */
+  callAfter(delayMs: number, callback: () => void): () => void;
+}
+
+/** The monotonic clock, with timers that never keep the process alive. */
+export const monotonicPermitClock: SessionPullPermitClock = {
+  nowMs: monotonicNowMs,
+  callAfter: (delayMs, callback) => {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref();
+    return () => clearTimeout(timer);
+  },
+};
+
 /**
  * The time a session Worker may pull a session's task queue without a confirmed lease: from the start of pulling,
  * then from the send of each acquire or renewal that the session confirmed, plus the TTL minus the safety margin.
@@ -123,7 +148,7 @@ export class PullPermitExpiredError extends Error {
  */
 export class SessionPullPermit {
   private deadlineMs: number;
-  private timer: NodeJS.Timeout | undefined;
+  private cancelTimer: (() => void) | undefined;
   private isExpiredState = false;
   private isCancelled = false;
   private readonly expiryListeners: (() => void)[] = [];
@@ -131,13 +156,15 @@ export class SessionPullPermit {
   /**
    * Arms the permit.
    * @param ttlMs - The lease's TTL.
-   * @param startedAtMs - The {@link monotonicNowMs} time pulling started, or the first acquire was sent.
+   * @param startedAtMs - The clock's time pulling started, or the first acquire was sent.
    * @param stopPulling - Stops the session Worker, when it still pulls under this permit.
+   * @param clock - The clock `startedAtMs` and later send times come from, and the permit's timer.
    */
   public constructor(
     private readonly ttlMs: number,
     startedAtMs: number,
     private readonly stopPulling: () => void,
+    private readonly clock: SessionPullPermitClock = monotonicPermitClock,
   ) {
     this.deadlineMs = startedAtMs + this.validMs();
     this.schedule();
@@ -148,14 +175,14 @@ export class SessionPullPermit {
     return this.isExpiredState;
   }
 
-  /** Milliseconds left before the permit expires, at least 0. */
+  /** Milliseconds left before the permit expires, at least 0; 0 once it expired, even when its timer fired early. */
   public remainingMs(): number {
-    return Math.max(0, this.deadlineMs - monotonicNowMs());
+    return this.isExpiredState ? 0 : Math.max(0, this.deadlineMs - this.clock.nowMs());
   }
 
   /**
    * Extends the permit to the TTL minus the safety margin after a request that the session confirmed.
-   * @param sentAtMs - The {@link monotonicNowMs} time the confirmed acquire or renewal was sent.
+   * @param sentAtMs - The clock's time the confirmed acquire or renewal was sent.
    * @returns Whether the permit was still valid, so the confirmation counts. A confirmation that arrives once the
    * deadline passed expires the permit at once, even before its timer fires.
    */
@@ -163,7 +190,7 @@ export class SessionPullPermit {
     if (this.isCancelled || this.isExpiredState) {
       return false;
     }
-    if (monotonicNowMs() >= this.deadlineMs) {
+    if (this.clock.nowMs() >= this.deadlineMs) {
       this.expire();
       return false;
     }
@@ -190,8 +217,8 @@ export class SessionPullPermit {
    */
   public cancel(): void {
     this.isCancelled = true;
-    clearTimeout(this.timer);
-    this.timer = undefined;
+    this.cancelTimer?.();
+    this.cancelTimer = undefined;
     this.expiryListeners.length = 0;
   }
 
@@ -200,9 +227,8 @@ export class SessionPullPermit {
   }
 
   private schedule(): void {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.expire(), this.remainingMs());
-    this.timer.unref();
+    this.cancelTimer?.();
+    this.cancelTimer = this.clock.callAfter(this.remainingMs(), () => this.expire());
   }
 
   private expire(): void {
@@ -210,7 +236,8 @@ export class SessionPullPermit {
       return;
     }
     this.isExpiredState = true;
-    this.timer = undefined;
+    this.cancelTimer?.();
+    this.cancelTimer = undefined;
     // Pulling stops before anything else, so no Step of the session runs here past the lease.
     this.stopPulling();
     for (const listener of this.expiryListeners.splice(0)) {
@@ -717,23 +744,26 @@ export class SessionOpener {
   }
 
   /**
-   * Reads a session's stored lease without a Worker, within 2 s.
+   * Reads a session's stored lease without a Worker. Each read may take 2 s; a failed or slow one is tried again
+   * for up to 6 s, as the connection may still be coming back after the process was paused.
    * @param sessionId - The session.
-   * @returns The lease, or `undefined` when none is stored or the read failed.
+   * @returns The lease, or `undefined` when none is stored or no read succeeded.
    */
   public async readStoredLease(sessionId: string): Promise<SessionTerminalLease | undefined> {
-    const { client, sessionFlow } = this.options;
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<undefined>((resolve) => {
-      timer = setTimeout(() => resolve(undefined), storedLeaseReadTimeoutMs);
-    });
-    try {
-      const read = client.getAttributes(sessionId, sessionFlow.sessionTerminalLease).then(([lease]) => lease);
-      return await Promise.race([read, timeout]);
-    } catch {
-      return undefined;
-    } finally {
-      clearTimeout(timer);
+    const { client, sessionFlow, writeLogLine } = this.options;
+    const deadlineMs = monotonicNowMs() + storedLeaseReadRetryBudgetMs;
+    for (;;) {
+      const timeoutMs = Math.min(storedLeaseReadTimeoutMs, Math.max(0, deadlineMs - monotonicNowMs()));
+      try {
+        const [lease] = await withinTimeout(client.getAttributes(sessionId, sessionFlow.sessionTerminalLease), timeoutMs);
+        return lease;
+      } catch (error: unknown) {
+        if (monotonicNowMs() + storedLeaseReadRetryIntervalMs >= deadlineMs) {
+          writeLogLine(`cannot read the session lease: session=${sessionId}: ${describeFailureWithoutDexDetails(error)}`);
+          return undefined;
+        }
+      }
+      await delay(storedLeaseReadRetryIntervalMs);
     }
   }
 

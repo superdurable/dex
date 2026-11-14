@@ -649,11 +649,12 @@ async def test_a_worker_whose_config_switches_shell_off_refuses_a_shell_step_mad
 ) -> None:
     workspace = cli_home.home / "dex-agent-workspace"
     cli_home.write_config(config_yaml(NO_CONNECTORS))
-    # A short lease, so the killed command's lease expires soon.
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = "3"
+    # A short lease only for the command killed below, so its lease expires soon.
+    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = "6"
     first = cli_home.spawn()
     session_id = await read_session_id(first)
     await expect(first, "> ")
+    del cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"]
     first.sendline('call run_shell_command {"command": "touch ran.txt"}')
     await expect(first, "[approval] run_shell_command")
     # The first command's Worker dies while its shell call waits for approval.

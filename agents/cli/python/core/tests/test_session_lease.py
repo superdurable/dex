@@ -50,8 +50,12 @@ CONFORMANCE = json.loads(
     (AGENTS_DIR / "conformance" / "cli_session_lease.json").read_text(encoding="utf-8")
 )
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
-# Short enough that an expiry test takes seconds; the command renews every third of it.
-TEST_TTL_SECONDS = 3
+# Only for a command a test lets expire on purpose, by killing or pausing it or with a fault;
+# every other command keeps the default lease, which no slow runner lets lapse by accident.
+EXPIRING_TTL_SECONDS = 6
+# How long a waiting command may take to open a session that another command released.
+TAKEOVER_TIMEOUT_SECONDS = 20
+TTL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"
 WAITING_TEXT = "is open in another terminal ("
 # The chat's prompt line; a bare "> " also matches the help line's "<path> attaches".
 PROMPT = "\r\n> "
@@ -92,10 +96,19 @@ def test_the_lines_match_the_conformance_file() -> None:
 
 def lease_home(cli_home: CliHome, *, is_terminal_animated: bool = False) -> CliHome:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = str(TEST_TTL_SECONDS)
     if is_terminal_animated:
         cli_home.extra_environment["TERM"] = "xterm-256color"
     return cli_home
+
+
+def use_expiring_lease(cli_home: CliHome) -> None:
+    """Give the commands started from now on the short lease of a command meant to expire."""
+    cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE] = str(EXPIRING_TTL_SECONDS)
+
+
+def use_default_lease(cli_home: CliHome) -> None:
+    """Give the commands started from now on the default lease."""
+    cli_home.extra_environment.pop(TTL_ENVIRONMENT_VARIABLE, None)
 
 
 async def read_session_id(child: pexpect.spawn) -> str:
@@ -128,7 +141,9 @@ async def test_a_second_command_waits_and_takes_over_when_the_first_exits(
     await asyncio.sleep(1)
     first.sendline("/exit")
     assert await wait_for_exit(first) == 0
-    await expect(second, f"\r\x1b[2KTook over session {session_id}.", timeout=TEST_TTL_SECONDS)
+    await expect(
+        second, f"\r\x1b[2KTook over session {session_id}.", timeout=TAKEOVER_TIMEOUT_SECONDS
+    )
     assert await read_session_id(second) == session_id
     await expect(second, PROMPT)
     second.sendline("hello")
@@ -142,12 +157,18 @@ async def test_a_killed_first_command_frees_the_session_once_its_lease_expires(
     cli_home: CliHome,
 ) -> None:
     lease_home(cli_home)
+    use_expiring_lease(cli_home)
     first, session_id = await open_first_chat(cli_home)
+    use_default_lease(cli_home)
     second = cli_home.spawn("--plain", "--resume", session_id)
     await expect(second, holder_prefix(first.pid))
 
     os.kill(first.pid, signal.SIGKILL)
-    await expect(second, f"Took over session {session_id}.", timeout=TEST_TTL_SECONDS + 5)
+    await expect(
+        second,
+        f"Took over session {session_id}.",
+        timeout=EXPIRING_TTL_SECONDS + TAKEOVER_TIMEOUT_SECONDS,
+    )
     await expect(second, PROMPT)
     second.sendline("hello")
     await expect(second, "echo: hello")
@@ -205,11 +226,9 @@ async def test_a_chat_whose_session_another_terminal_took_stops_with_one_line(
 ) -> None:
     lease_home(cli_home)
     first, session_id = await open_first_chat(cli_home)
-    # Paused past its lease, as a suspended laptop would be.
+    # Paused past its default lease, as a suspended laptop would be. The wait is about as long
+    # as Dex takes to stop routing the session's RPCs to the paused command's streams anyway.
     os.kill(first.pid, signal.SIGSTOP)
-    # The paused command's streams stay registered, so the acquire may wait out Dex's sticky
-    # wait first; the default lease outlasts that wait, a 3 s lease's pull permit does not.
-    del cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"]
     second = cli_home.spawn("--plain", "--resume", session_id)
     try:
         # Its lease expired while it started, unless it still waits: either way it gets the session.
@@ -237,7 +256,7 @@ async def expect_lease_ended(child: pexpect.spawn, session_id: str, other_pid: i
         child,
         f"Session {session_id} is now open in another terminal "
         f"({socket.gethostname()}, pid {other_pid}, since ",
-        timeout=TEST_TTL_SECONDS + 10,
+        timeout=TAKEOVER_TIMEOUT_SECONDS,
     )
     await expect(child, "this chat stopped.")
 
@@ -288,7 +307,9 @@ async def test_the_terminal_ui_waits_before_the_handoff_and_takes_over(
     assert not fake.was_run()
     first.sendline("/exit")
     assert await wait_for_exit(first) == 0
-    await expect(second, f"\r\x1b[2KTook over session {session_id}.", timeout=TEST_TTL_SECONDS)
+    await expect(
+        second, f"\r\x1b[2KTook over session {session_id}.", timeout=TAKEOVER_TIMEOUT_SECONDS
+    )
     await fake.wait_for("sent", type="ready")
     second.kill(signal.SIGTERM)
     assert await wait_for_exit(second) == 143
@@ -305,9 +326,8 @@ async def test_a_terminal_ui_whose_session_another_terminal_took_stops_with_one_
     session_id = await read_session_id(first)
     await fake.wait_for("sent", type="ready")
     host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
+    # As for the plain chat, the paused Worker host keeps the default lease.
     os.kill(host_pid, signal.SIGSTOP)
-    # As for the plain chat: the default lease outlasts Dex's sticky wait for the paused streams.
-    del cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"]
     try:
         second = cli_home.spawn("--plain", "--resume", session_id)
         assert await read_session_id(second) == session_id
@@ -336,7 +356,9 @@ async def test_a_session_switch_in_the_terminal_ui_waits_for_the_session_and_rel
     await expect(switching, f"Session {other_session_id} {holder_prefix(other.pid)}")
     other.sendline("/exit")
     assert await wait_for_exit(other) == 0
-    await expect(switching, f"Took over session {other_session_id}.", timeout=TEST_TTL_SECONDS)
+    await expect(
+        switching, f"Took over session {other_session_id}.", timeout=TAKEOVER_TIMEOUT_SECONDS
+    )
     await fake.second.wait_for("received", type="launch")
     assert await wait_for_exit(switching) == 0
     assert fake.first.mismatches() == []

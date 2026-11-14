@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from dex import (
     AsyncClient,
@@ -70,6 +70,9 @@ from dex_agents_cli_core.session_task_queues import (
 
 #: How long reading a stored lease may take when a lease ends unconfirmed.
 STORED_LEASE_READ_TIMEOUT_SECONDS = 2.0
+#: How long failed reads of a stored lease are tried again, such as on reconnecting after a pause.
+STORED_LEASE_READ_RETRY_BUDGET_SECONDS = 6.0
+_STORED_LEASE_READ_RETRY_INTERVAL_SECONDS = 0.25
 #: How long the read before an attempt may take while no pull permit is active.
 LEASE_READ_TIMEOUT_SECONDS = 5.0
 #: How long a session Worker may take to start pulling its task queue.
@@ -122,6 +125,30 @@ class OpenableSession:
     sessions: AgentSessionClient
 
 
+class SessionPullPermitClock(Protocol):
+    """The clock and timer a pull permit runs on; tests pass a fake one."""
+
+    def now(self) -> float:
+        """Return the current time on a monotonic clock, in seconds."""
+        ...
+
+    def call_after(self, delay: float, callback: Callable[[], None]) -> Callable[[], None]:
+        """Call ``callback`` once after ``delay`` seconds; return a function that cancels it."""
+        ...
+
+
+class MonotonicPermitClock:
+    """``time.monotonic`` with the running event loop's timers, which use the same clock."""
+
+    def now(self) -> float:
+        """Return ``time.monotonic()``."""
+        return time.monotonic()
+
+    def call_after(self, delay: float, callback: Callable[[], None]) -> Callable[[], None]:
+        """Schedule ``callback`` on the running event loop; return its handle's ``cancel``."""
+        return asyncio.get_running_loop().call_later(delay, callback).cancel
+
+
 class SessionPullPermit:
     """The time a session Worker may pull a session's task queue without a confirmed lease.
 
@@ -138,24 +165,31 @@ class SessionPullPermit:
     """
 
     def __init__(
-        self, ttl_seconds: float, started_at: float, stop_pulling: Callable[[], None]
+        self,
+        ttl_seconds: float,
+        started_at: float,
+        stop_pulling: Callable[[], None],
+        clock: SessionPullPermitClock | None = None,
     ) -> None:
         """Arm the permit.
 
         Args:
             ttl_seconds: The lease's TTL.
-            started_at: The ``time.monotonic()`` reading taken when pulling
-                started, or when the first acquire was sent.
+            started_at: The clock's reading taken when pulling started, or
+                when the first acquire was sent.
             stop_pulling: Stops the session Worker, when it still pulls under
                 this permit.
+            clock: The clock ``started_at`` and later send times come from,
+                and the permit's timer; ``None`` uses ``MonotonicPermitClock``.
         """
         self._ttl_seconds = ttl_seconds
         self._stop_pulling = stop_pulling
+        self._clock: SessionPullPermitClock = clock or MonotonicPermitClock()
         self._deadline = started_at + self._valid_seconds()
         self._is_expired = False
         self._is_cancelled = False
         self._were_listeners_told = False
-        self._timer: asyncio.TimerHandle | None = None
+        self._cancel_timer: Callable[[], None] | None = None
         self._expiry_listeners: list[Callable[[], None]] = []
         self._schedule()
 
@@ -165,15 +199,17 @@ class SessionPullPermit:
         return self._is_expired
 
     def remaining_seconds(self) -> float:
-        """Return the seconds left before it expires, at least 0."""
-        return max(0.0, self._deadline - time.monotonic())
+        """Return the seconds left before it expires, at least 0; 0 once it expired."""
+        if self._is_expired:
+            return 0.0
+        return max(0.0, self._deadline - self._clock.now())
 
     def confirm(self, sent_at: float) -> bool:
         """Extend it after a request that the session confirmed.
 
         Args:
-            sent_at: The ``time.monotonic()`` reading taken right before the
-                confirmed acquire or renewal was sent.
+            sent_at: The clock's reading taken right before the confirmed
+                acquire or renewal was sent.
 
         Returns:
             Whether it was still valid, so the confirmation counts. An older
@@ -183,7 +219,7 @@ class SessionPullPermit:
         """
         if self._is_cancelled or self._is_expired:
             return False
-        if time.monotonic() >= self._deadline:
+        if self._clock.now() >= self._deadline:
             self._expire()
             return False
         self._deadline = max(self._deadline, sent_at + self._valid_seconds())
@@ -209,24 +245,26 @@ class SessionPullPermit:
         expired already still hear, even when the expiry's notice is pending.
         """
         self._is_cancelled = True
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer = None
+        self._clear_timer()
         self._expiry_listeners.clear()
 
     def _valid_seconds(self) -> float:
         return self._ttl_seconds * (1 - RENEWAL_SAFETY_MARGIN_RATIO)
 
     def _schedule(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
-        self._timer = asyncio.get_running_loop().call_later(self.remaining_seconds(), self._expire)
+        self._clear_timer()
+        self._cancel_timer = self._clock.call_after(self.remaining_seconds(), self._expire)
+
+    def _clear_timer(self) -> None:
+        if self._cancel_timer is not None:
+            self._cancel_timer()
+            self._cancel_timer = None
 
     def _expire(self) -> None:
         if self._is_cancelled or self._is_expired:
             return
         self._is_expired = True
-        self._timer = None
+        self._clear_timer()
         # Pulling stops before anything else, so no Step of the session runs here past the lease.
         self._stop_pulling()
         # Taken now, so a later cancel, such as rebuilding the session's permit, cannot drop them.
@@ -732,21 +770,33 @@ class SessionOpener:
         return result
 
     async def read_stored_lease(self, session_id: str) -> SessionTerminalLease | None:
-        """Read a session's stored lease without a Worker, within a short timeout.
+        """Read a session's stored lease without a Worker.
+
+        Each read may take ``STORED_LEASE_READ_TIMEOUT_SECONDS``; a failed or
+        slow one is tried again for up to
+        ``STORED_LEASE_READ_RETRY_BUDGET_SECONDS``, as the connection may still
+        be coming back after the process was paused.
 
         Returns:
-            The lease, or ``None`` when none is stored or the read failed.
+            The lease, or ``None`` when none is stored or no read succeeded.
         """
-        try:
-            stored = await asyncio.wait_for(
-                self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE),
-                STORED_LEASE_READ_TIMEOUT_SECONDS,
-            )
-        except Exception as error:  # An unread lease ends the chat as unconfirmed.
-            _LOGGER.warning("cannot read the session lease: session=%s: %s", session_id, error)
-            return None
-        lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
-        return lease
+        deadline = time.monotonic() + STORED_LEASE_READ_RETRY_BUDGET_SECONDS
+        while True:
+            timeout = min(STORED_LEASE_READ_TIMEOUT_SECONDS, max(0.0, deadline - time.monotonic()))
+            try:
+                stored = await asyncio.wait_for(
+                    self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE), timeout
+                )
+            except Exception as error:  # An unread lease ends the chat as unconfirmed.
+                if time.monotonic() + _STORED_LEASE_READ_RETRY_INTERVAL_SECONDS >= deadline:
+                    _LOGGER.warning(
+                        "cannot read the session lease: session=%s: %s", session_id, error
+                    )
+                    return None
+            else:
+                lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
+                return lease
+            await asyncio.sleep(_STORED_LEASE_READ_RETRY_INTERVAL_SECONDS)
 
     async def complete_takeover(self, session_id: str) -> list[str]:
         """Finish a takeover from another environment once the lease is held.

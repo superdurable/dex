@@ -37,8 +37,11 @@ import {
 } from "../fixtures/terminal-ui-test-support.js";
 
 const shellConfig = 'connectors: {enabled: []}\nlocal_tools: {browser: false, shell: {enabled: true, allow: ["pwd"]}}\n';
-/** A short TTL, so a killed holder's lease expires within the test. */
-const shortTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "3" };
+/**
+ * A short TTL only for a command a test lets expire on purpose, by killing it or with a fault. Every other command
+ * keeps the default lease, which no slow runner lets lapse by accident.
+ */
+const expiringTtl = { DEX_AGENTS_SESSION_LEASE_TTL_SECONDS: "6" };
 
 describe("session task queues", () => {
   let engine: PrivateDexEngine;
@@ -174,7 +177,7 @@ describe("session task queues", () => {
   test("a takeover cancels the turn that was in progress in the other environment", async () => {
     const homeA = newEnvironment();
     const homeB = newEnvironment();
-    const first = start(homeA, [], shortTtl);
+    const first = start(homeA, [], expiringTtl);
     const sessionId = await first.waitForSession();
     first.writeLine("wait held");
     await pollUntil(async () => (await sessionClients.of(homeA).then((sessions) => sessions.readAgentState(sessionId)))?.activeTurnId ?? undefined, {
@@ -183,7 +186,7 @@ describe("session task queues", () => {
     });
     await first.kill();
 
-    const second = start(homeB, ["--resume", sessionId], shortTtl);
+    const second = start(homeB, ["--resume", sessionId]);
     await second.stderr.waitFor(takeoverLine(sessionId, identity(homeA), identity(homeB)), 60_000);
     await second.stderr.waitFor(cancelledTurnLine);
     await second.waitForSession();
@@ -209,11 +212,11 @@ describe("session task queues", () => {
     const home = newEnvironment();
     const otherConfig = join(home.directory, "other.yaml");
     writeFileSync(otherConfig, shellConfig);
-    const first = start(home, [], shortTtl);
+    const first = start(home, [], expiringTtl);
     const sessionId = await first.waitForSession();
     await killDuringTurn(first, home, sessionId);
 
-    const second = start(home, ["--config", otherConfig, "--resume", sessionId], shortTtl);
+    const second = start(home, ["--config", otherConfig, "--resume", sessionId]);
     await second.stderr.waitFor(takeoverLine(sessionId, identity(home), identity(home, otherConfig)), 60_000);
     await second.stderr.waitFor(cancelledTurnLine);
     await second.waitForSession();
@@ -224,13 +227,13 @@ describe("session task queues", () => {
   test("a takeover whose cancel_turn fails says so and keeps refusing that turn's calls", async () => {
     const homeA = newEnvironment();
     const homeB = newEnvironment();
-    const first = start(homeA, [], shortTtl);
+    const first = start(homeA, [], expiringTtl);
     const sessionId = await first.waitForSession();
     await killDuringTurn(first, homeA, sessionId);
     const faults = faultDirectory(homeB);
     writeFileSync(join(faults, "fail-cancel"), "");
 
-    const second = start(homeB, ["--resume", sessionId], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const second = start(homeB, ["--resume", sessionId], { DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
     await second.stderr.waitFor(takeoverLine(sessionId, identity(homeA), identity(homeB)), 60_000);
     await second.stderr.waitFor(turnNotCancelledLine);
     assert.ok(!second.stderr.all.includes(cancelledTurnLine), second.stderr.all);
@@ -246,7 +249,7 @@ describe("session task queues", () => {
     const homeA = newEnvironment();
     const homeB = newEnvironment();
     const faults = faultDirectory(homeA);
-    const first = start(homeA, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const first = start(homeA, [], { ...expiringTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
     const sessionId = await first.waitForSession();
     await pollUntil(async () => (await readLease(homeA, sessionId)) ?? undefined, {
       timeoutMs: 30_000,
@@ -254,7 +257,7 @@ describe("session task queues", () => {
     });
 
     writeFileSync(join(faults, "fail-acquire"), "");
-    assert.equal(await first.waitForExit(15_000), 1);
+    assert.equal(await first.waitForExit(30_000), 1);
     assert.ok(first.stderr.all.includes(`${leaseUnconfirmedLine(sessionId)}\n`), first.stderr.all);
     const leftLease = await readLease(homeA, sessionId);
     assert.ok(leftLease !== undefined, "the stopped chat released nothing");
@@ -264,7 +267,7 @@ describe("session task queues", () => {
     const stoppedAt = Date.parse(logLine?.split(" ", 1)[0] ?? "");
     assert.ok(stoppedAt < Date.parse(leftLease.expiresAt), `stopped pulling at ${logLine ?? "never"}, lease ${leftLease.expiresAt}`);
 
-    const second = start(homeB, ["--resume", sessionId], shortTtl);
+    const second = start(homeB, ["--resume", sessionId]);
     await second.stderr.waitFor(takeoverLine(sessionId, identity(homeA), identity(homeB)), 60_000);
     await second.waitForSession();
     await runPwd(second, homeB);
@@ -280,7 +283,7 @@ describe("session task queues", () => {
     const fake = new FakeTerminalUi([pausingTranscript(60_000)]);
     const terminal = PseudoTerminalCli.start(home, [], {
       DEXCLI: fake.executable,
-      ...shortTtl,
+      ...expiringTtl,
       DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults,
     });
     terminals.push(terminal);
@@ -316,9 +319,9 @@ describe("session task queues", () => {
   test("an acquire answer slower than the lease stops pulling before the lease expires, and the late grant opens nothing", async () => {
     const home = newEnvironment();
     const faults = faultDirectory(home);
-    // Dex grants the lease at once; its answer arrives after the whole 3-second lease.
-    writeFileSync(join(faults, "slow-next-acquire"), "4000");
-    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    // Dex grants the lease at once; its answer arrives after the whole 6-second lease.
+    writeFileSync(join(faults, "slow-next-acquire"), "7000");
+    const cli = start(home, [], { ...expiringTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
     const { sessionId, stoppedAt } = await waitForPermitExpiry(home);
     const grantedLease = await readLease(home, sessionId);
     assert.ok(grantedLease !== undefined, "Dex granted the lease before the slow answer");
@@ -338,7 +341,7 @@ describe("session task queues", () => {
     const home = newEnvironment();
     const faults = faultDirectory(home);
     writeFileSync(join(faults, "lose-next-acquire"), "then-hang-lease-reads");
-    const cli = start(home, [], { ...shortTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const cli = start(home, [], { ...expiringTtl, DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
     const { sessionId, stoppedAt } = await waitForPermitExpiry(home);
     const lease = await readLease(home, sessionId);
     assert.ok(lease !== undefined, "the acquire whose answer was lost took the lease");

@@ -60,6 +60,7 @@ from dex_agents_cli_core.session_lease import (
     build_took_over_line,
 )
 from dex_agents_cli_core.session_opener import (
+    MonotonicPermitClock,
     SessionOpener,
     SessionPullPermit,
     SessionQueueWorker,
@@ -104,8 +105,10 @@ FIXTURE: dict[str, Any] = json.loads(
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
 # The chat's prompt line; a bare "> " also matches the help line's "<path> attaches".
 PROMPT = "\r\n> "
-# A short lease, so a killed holder's lease expires within the test.
-SHORT_TTL_SECONDS = "3"
+# Only for a command a test lets expire on purpose, by killing it or with a fault; every other
+# command keeps the default lease, which no slow runner lets lapse by accident.
+EXPIRING_TTL_SECONDS = "6"
+TTL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"
 
 _RENDERERS = {
     "takeover_line": lambda values: build_takeover_line(
@@ -371,8 +374,9 @@ async def _check_takeover_cancels_the_turn(
     first_environment: _Environment,
     second_environment: _Environment,
 ) -> None:
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE] = EXPIRING_TTL_SECONDS
     first, session_id = await _open_chat(cli_home, *first_environment.arguments())
+    del cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE]
     async with _session_reader(cli_home, tmp_path) as reader:
         first.sendline("slow")
         await reader.wait_for_state(
@@ -611,16 +615,17 @@ async def test_a_lease_no_renewal_confirms_ends_the_chat_before_another_terminal
     second_faults = tmp_path / "second-faults"
     first_faults.mkdir()
     second_faults.mkdir()
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE] = EXPIRING_TTL_SECONDS
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(first_faults)
     first, session_id = await _open_chat(cli_home, *first_environment.arguments())
+    del cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE]
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(second_faults)
     second = cli_home.spawn(*second_environment.arguments("--resume", session_id))
     await expect(second, f"Session {session_id} is open in another terminal (")
 
     # Every renewal fails from now on, as on a broken network.
     (first_faults / FAIL_ACQUIRE_MARKER).touch()
-    await expect(first, build_lease_unconfirmed_line(session_id), timeout=10)
+    await expect(first, build_lease_unconfirmed_line(session_id), timeout=20)
     assert await wait_for_exit(first) == 1
     async with _session_reader(cli_home, tmp_path) as reader:
         left_lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
@@ -628,7 +633,7 @@ async def test_a_lease_no_renewal_confirms_ends_the_chat_before_another_terminal
         # It stopped pulling before the lease expired; its exit may come later, after cleanup.
         stopped_at = _logged_permit_expiry_time(cli_home, session_id)
         assert stopped_at < datetime.fromisoformat(left_lease.expires_at)
-        await expect(second, build_took_over_line(session_id), timeout=20)
+        await expect(second, build_took_over_line(session_id), timeout=30)
         assert await _read_session_id(second) == session_id
         taken_lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
         assert taken_lease.holder_id != left_lease.holder_id
@@ -781,7 +786,7 @@ async def test_a_terminal_ui_whose_lease_no_renewal_confirms_stops_with_one_line
 ) -> None:
     faults = tmp_path / "faults"
     faults.mkdir()
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE] = EXPIRING_TTL_SECONDS
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
     screen = io.StringIO()
     fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(300_000)]))
@@ -790,7 +795,7 @@ async def test_a_terminal_ui_whose_lease_no_renewal_confirms_stops_with_one_line
     await fake.wait_for("sent", type="ready")
     # The Worker host inherits the fault directory, so its renewals fail from now on.
     (faults / FAIL_ACQUIRE_MARKER).touch()
-    await expect(child, build_lease_unconfirmed_line(session_id), timeout=15)
+    await expect(child, build_lease_unconfirmed_line(session_id), timeout=30)
     assert await wait_for_exit(child) == 1
     assert "Traceback" not in screen.getvalue()
 
@@ -801,9 +806,9 @@ async def test_an_acquire_answer_slower_than_the_lease_stops_pulling_and_opens_n
     environment = _new_environment(tmp_path, "a")
     faults = tmp_path / "faults"
     faults.mkdir()
-    # Dex grants the lease at once; its answer arrives after the whole 3 s lease.
-    (faults / SLOW_NEXT_ACQUIRE_MARKER).write_text("4000")
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    # Dex grants the lease at once; its answer arrives after the whole 6 s lease.
+    (faults / SLOW_NEXT_ACQUIRE_MARKER).write_text("7000")
+    cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE] = EXPIRING_TTL_SECONDS
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
     child = cli_home.spawn(*environment.arguments())
     session_id, stopped_at = await _wait_for_permit_expiry(cli_home)
@@ -831,7 +836,7 @@ async def test_a_hanging_lease_read_after_a_lost_acquire_answer_cannot_keep_the_
     faults.mkdir()
     # The first acquire's answer is lost, then every lease read waits.
     (faults / LOSE_NEXT_ACQUIRE_MARKER).write_text(THEN_HANG_LEASE_READS)
-    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
+    cli_home.extra_environment[TTL_ENVIRONMENT_VARIABLE] = EXPIRING_TTL_SECONDS
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
     child = cli_home.spawn(*environment.arguments())
     session_id, stopped_at = await _wait_for_permit_expiry(cli_home)
@@ -853,86 +858,120 @@ def _logged_time(line: str) -> datetime:
     return datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f").astimezone()
 
 
-async def _wait_for(read: Callable[[], float | None], timeout: float) -> float | None:
-    """Return the first value ``read`` returns within ``timeout`` seconds, or ``None``."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        value = read()
-        if value is not None:
-            return value
-        await asyncio.sleep(0.01)
-    return read()
+@dataclass
+class _ManualTimer:
+    due: float
+    callback: Callable[[], None]
+    is_cancelled: bool = False
+
+    def cancel(self) -> None:
+        self.is_cancelled = True
+
+
+class _ManualPermitClock:
+    """A clock the test moves by hand; the timers that come due fire in order as it moves."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self._now = now
+        self._timers: list[_ManualTimer] = []
+
+    def now(self) -> float:
+        return self._now
+
+    def call_after(self, delay: float, callback: Callable[[], None]) -> Callable[[], None]:
+        timer = _ManualTimer(self._now + delay, callback)
+        self._timers.append(timer)
+        return timer.cancel
+
+    def advance_to(self, target: float) -> None:
+        """Move the clock to ``target``, firing each timer due by then at its own time."""
+        while True:
+            due = [
+                timer for timer in self._timers if not timer.is_cancelled and timer.due <= target
+            ]
+            if not due:
+                break
+            timer = min(due, key=lambda candidate: candidate.due)
+            timer.is_cancelled = True
+            self._now = max(self._now, timer.due)
+            timer.callback()
+        self._now = target
+
+
+async def _run_ready_callbacks() -> None:
+    """Let the callbacks already scheduled on the event loop run, such as an expiry notice."""
+    for _ in range(3):
+        await asyncio.sleep(0)
 
 
 async def test_a_pull_permit_expires_a_fifth_of_the_ttl_early_and_stops_pulling_first() -> None:
+    clock = _ManualPermitClock()
     events: list[str] = []
-    expired_at: list[float] = []
-    started_at = time.monotonic()
-    permit = SessionPullPermit(1, started_at, lambda: events.append("stopped pulling"))
-
-    def tell_the_chat() -> None:
-        events.append("told the chat")
-        expired_at.append(time.monotonic())
-
-    permit.when_expired(tell_the_chat)
-    fired_at = await _wait_for(lambda: expired_at[0] if expired_at else None, 2)
-    assert fired_at is not None
-    assert 0.79 <= fired_at - started_at < 1.0, f"expired {fired_at - started_at:.3f} s in"
-    assert events == ["stopped pulling", "told the chat"]
+    permit = SessionPullPermit(1, clock.now(), lambda: events.append("stopped pulling"), clock)
+    permit.when_expired(lambda: events.append("told the chat"))
+    clock.advance_to(0.79)
+    assert not permit.is_expired
+    assert permit.remaining_seconds() == pytest.approx(0.01)
+    clock.advance_to(0.8)
+    assert events == ["stopped pulling"]
     assert permit.is_expired
     assert permit.remaining_seconds() == 0
+    await _run_ready_callbacks()
+    assert events == ["stopped pulling", "told the chat"]
 
 
 async def test_only_a_confirmation_extends_a_pull_permit_from_the_confirmed_send() -> None:
-    expired_at: list[float] = []
     # Pulling started 0.7 s ago, so 0.1 s remain.
-    permit = SessionPullPermit(1, time.monotonic() - 0.7, lambda: None)
-    permit.when_expired(lambda: expired_at.append(time.monotonic()))
-    sent_at = time.monotonic()
-    assert permit.confirm(sent_at)
+    clock = _ManualPermitClock(0.7)
+    permit = SessionPullPermit(1, 0.0, lambda: None, clock)
+    assert permit.confirm(0.7)
     # A confirmation of an older request never shortens the permit.
-    assert permit.confirm(sent_at - 0.5)
-    fired_at = await _wait_for(lambda: expired_at[0] if expired_at else None, 2)
-    assert fired_at is not None
-    assert 0.79 <= fired_at - sent_at < 1.0, f"expired {fired_at - sent_at:.3f} s after the send"
+    assert permit.confirm(0.2)
+    clock.advance_to(1.49)
+    assert not permit.is_expired
+    clock.advance_to(1.51)
+    assert permit.is_expired
 
 
 async def test_an_answer_after_a_pull_permit_expired_grants_nothing() -> None:
-    told_at: list[float] = []
-    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: None)
-    permit.when_expired(lambda: told_at.append(time.monotonic()))
-    await _wait_for(lambda: told_at[0] if told_at else None, 1)
+    clock = _ManualPermitClock()
+    permit = SessionPullPermit(1, 0.0, lambda: None, clock)
+    told: list[str] = []
+    permit.when_expired(lambda: told.append("before"))
+    clock.advance_to(0.8)
+    await _run_ready_callbacks()
     assert permit.is_expired
-    assert not permit.confirm(time.monotonic())
+    assert not permit.confirm(0.8)
     assert permit.is_expired
-    told: list[bool] = []
-    permit.when_expired(lambda: told.append(True))
-    assert told == [True], "a listener of an expired permit hears at once"
+    permit.when_expired(lambda: told.append("after"))
+    assert told == ["before", "after"], "a listener of an expired permit hears at once"
 
 
 async def test_a_confirmation_after_the_deadline_expires_the_pull_permit_before_its_timer() -> None:
+    # The deadline passed 0.2 s ago; the timer that is due now has not fired.
+    clock = _ManualPermitClock(1.0)
     events: list[str] = []
-    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: events.append("stopped pulling"))
+    permit = SessionPullPermit(1, 0.0, lambda: events.append("stopped pulling"), clock)
     permit.when_expired(lambda: events.append("told the chat"))
-    # The timer cannot fire before this synchronous call returns.
-    assert not permit.confirm(time.monotonic())
+    assert not permit.confirm(1.0)
     assert permit.is_expired
     assert events == ["stopped pulling"]
-    await asyncio.sleep(0)
+    await _run_ready_callbacks()
     assert events == ["stopped pulling", "told the chat"]
-    assert not permit.confirm(time.monotonic())
+    assert not permit.confirm(1.0)
 
 
 async def test_an_expired_permits_listeners_hear_though_it_is_cancelled_before_the_notice() -> None:
+    clock = _ManualPermitClock(1.0)
     events: list[str] = []
-    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: events.append("stopped pulling"))
+    permit = SessionPullPermit(1, 0.0, lambda: events.append("stopped pulling"), clock)
     permit.when_expired(lambda: events.append("told the chat"))
-    assert not permit.confirm(time.monotonic())
+    assert not permit.confirm(1.0)
     # Registered between the expiry and its notice.
     permit.when_expired(lambda: events.append("told the launcher"))
     # Rebuilding the session's permit cancels this one before the notice runs.
     permit.cancel()
-    await asyncio.sleep(0)
+    await _run_ready_callbacks()
     assert events == ["stopped pulling", "told the chat", "told the launcher"]
 
 
@@ -966,14 +1005,15 @@ async def test_a_permit_rebuilt_before_its_expiry_notice_still_ends_the_chat() -
 
 
 async def test_a_cancelled_pull_permit_takes_no_confirmation_and_never_stops_pulling() -> None:
+    clock = _ManualPermitClock(0.7)
     events: list[str] = []
-    # 0.1 s remain before the old deadline.
-    permit = SessionPullPermit(1, time.monotonic() - 0.7, lambda: events.append("stopped pulling"))
+    permit = SessionPullPermit(1, 0.0, lambda: events.append("stopped pulling"), clock)
     permit.when_expired(lambda: events.append("told the chat"))
     permit.cancel()
     # A renewal in flight when the session was left answers now.
-    assert not permit.confirm(time.monotonic())
-    await asyncio.sleep(0.3)
+    assert not permit.confirm(0.7)
+    clock.advance_to(10.0)
+    await _run_ready_callbacks()
     assert events == []
     assert not permit.is_expired
 
@@ -1019,20 +1059,22 @@ def _recording_queue_worker(events: list[str]) -> SessionQueueWorker:
 
 
 async def test_an_older_pull_permits_expiry_never_stops_a_newer_worker_of_the_same_queue() -> None:
+    clock = _ManualPermitClock(0.7)
     events: list[str] = []
     session_worker = _recording_queue_worker(events)
     # 0.1 s remain; the Worker stops without cancelling the permit, to isolate the Worker check.
     older_permit = SessionPullPermit(
-        1, time.monotonic() - 0.7, lambda: session_worker.stop_if_pulling_under(older_permit)
+        1, 0.0, lambda: session_worker.stop_if_pulling_under(older_permit), clock
     )
     await session_worker.pull("s-queue", "session", older_permit)
     session_worker.stop()
     newer_permit = SessionPullPermit(
-        60, time.monotonic(), lambda: session_worker.stop_if_pulling_under(newer_permit)
+        60, 0.7, lambda: session_worker.stop_if_pulling_under(newer_permit), clock
     )
     try:
         await session_worker.pull("s-queue", "session", newer_permit)
-        await _wait_for(lambda: 1.0 if older_permit.is_expired else None, 1)
+        clock.advance_to(0.8)
+        await _run_ready_callbacks()
         assert older_permit.is_expired
         assert session_worker.task_queue == "s-queue", "the newer Worker still pulls"
         assert events == ["closed worker-1 of s-queue"]
@@ -1042,28 +1084,25 @@ async def test_an_older_pull_permits_expiry_never_stops_a_newer_worker_of_the_sa
 
 
 async def test_a_new_pull_permit_gets_a_new_worker_even_for_the_same_queue() -> None:
+    clock = _ManualPermitClock()
     events: list[str] = []
     session_worker = _recording_queue_worker(events)
-    first_permit = SessionPullPermit(60, time.monotonic(), lambda: None)
-    second_permit = SessionPullPermit(60, time.monotonic(), lambda: None)
-    try:
-        await session_worker.pull("s-queue", "session", first_permit)
-        await session_worker.pull("s-queue", "session", first_permit)
-        await asyncio.sleep(0)
-        assert events == [], "the same permit keeps its Worker"
-        await session_worker.pull("s-queue", "session", second_permit)
-        await asyncio.sleep(0)
-        assert events == ["closed worker-1 of s-queue"]
-        session_worker.stop_if_pulling_under(first_permit)
-        assert session_worker.task_queue == "s-queue"
-        session_worker.stop_if_pulling_under(second_permit)
-        assert session_worker.task_queue is None
-        await asyncio.sleep(0)
-        assert events == ["closed worker-1 of s-queue", "closed worker-2 of s-queue"]
-    finally:
-        first_permit.cancel()
-        second_permit.cancel()
-        await session_worker.close()
+    first_permit = SessionPullPermit(60, 0.0, lambda: None, clock)
+    second_permit = SessionPullPermit(60, 0.0, lambda: None, clock)
+    await session_worker.pull("s-queue", "session", first_permit)
+    await session_worker.pull("s-queue", "session", first_permit)
+    await _run_ready_callbacks()
+    assert events == [], "the same permit keeps its Worker"
+    await session_worker.pull("s-queue", "session", second_permit)
+    await _run_ready_callbacks()
+    assert events == ["closed worker-1 of s-queue"]
+    session_worker.stop_if_pulling_under(first_permit)
+    assert session_worker.task_queue == "s-queue"
+    session_worker.stop_if_pulling_under(second_permit)
+    assert session_worker.task_queue is None
+    await _run_ready_callbacks()
+    assert events == ["closed worker-1 of s-queue", "closed worker-2 of s-queue"]
+    await session_worker.close()
 
 
 class _SlowStartWorker:
@@ -1102,19 +1141,16 @@ async def test_a_worker_stopped_while_it_starts_never_pulls_once_its_server_answ
         lambda incarnation: f"worker-{incarnation}",
         str,
     )
-    permit = SessionPullPermit(60, time.monotonic(), lambda: None)
-    try:
-        pulling = asyncio.create_task(session_worker.pull("s-queue", "session", permit))
-        await asyncio.sleep(0)
-        # The permit expires while the Worker still waits for its Server.
-        session_worker.stop()
-        with pytest.raises(PullPermitExpiredError):
-            await pulling
-        server_answered.set()
-        await session_worker.close()
-        assert events == ["closed"]
-    finally:
-        permit.cancel()
+    permit = SessionPullPermit(60, 0.0, lambda: None, _ManualPermitClock())
+    pulling = asyncio.create_task(session_worker.pull("s-queue", "session", permit))
+    await asyncio.sleep(0)
+    # The permit expires while the Worker still waits for its Server.
+    session_worker.stop()
+    with pytest.raises(PullPermitExpiredError):
+        await pulling
+    server_answered.set()
+    await session_worker.close()
+    assert events == ["closed"]
 
 
 class _PartlyRegisteredWorker:
@@ -1150,47 +1186,40 @@ async def test_a_worker_stopped_once_a_stream_registered_drains_its_task_without
         lambda incarnation: f"worker-{incarnation}",
         str,
     )
-    permit = SessionPullPermit(60, time.monotonic(), lambda: None)
-    try:
-        pulling = asyncio.create_task(session_worker.pull("s-queue", "session", permit))
-        await _wait_for(lambda: 1.0 if "took a task" in events else None, 1)
-        # The permit expires before the Worker is ready.
-        session_worker.stop()
-        with pytest.raises(PullPermitExpiredError):
-            await pulling
-        await session_worker.close()
-        assert events == ["took a task", "closed", "sent the task output"]
-    finally:
-        permit.cancel()
+    permit = SessionPullPermit(60, 0.0, lambda: None, _ManualPermitClock())
+    pulling = asyncio.create_task(session_worker.pull("s-queue", "session", permit))
+    await _run_ready_callbacks()
+    assert events == ["took a task"]
+    # The permit expires before the Worker is ready.
+    session_worker.stop()
+    with pytest.raises(PullPermitExpiredError):
+        await pulling
+    await session_worker.close()
+    assert events == ["took a task", "closed", "sent the task output"]
 
 
 async def test_a_pull_permits_expiry_stops_new_tasks_before_it_tells_listeners() -> None:
+    clock = _ManualPermitClock(0.7)
     events: list[str] = []
     session_worker = _recording_queue_worker(events)
-    permit = SessionPullPermit(
-        1, time.monotonic() - 0.7, lambda: session_worker.stop_if_pulling_under(permit)
-    )
+    permit = SessionPullPermit(1, 0.0, lambda: session_worker.stop_if_pulling_under(permit), clock)
     permit.when_expired(lambda: events.append("told the chat"))
     await session_worker.pull("s-queue", "session", permit)
-    await _wait_for(lambda: 1.0 if "told the chat" in events else None, 1)
+    clock.advance_to(0.8)
+    await _run_ready_callbacks()
     assert events == ["closed worker-1 of s-queue", "told the chat"]
     await session_worker.close()
 
 
-async def test_a_pull_permit_runs_on_the_monotonic_clock_so_a_wall_clock_jump_never_moves_it(
+async def test_a_pull_permits_default_clock_is_monotonic_so_a_wall_clock_jump_never_moves_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     wall_time = time.time()
-    expired_at: list[float] = []
-    started_at = time.monotonic()
-    permit = SessionPullPermit(1, started_at, lambda: None)
-    permit.when_expired(lambda: expired_at.append(time.monotonic()))
-    try:
-        monkeypatch.setattr(time, "time", lambda: wall_time - 3600)
-        assert permit.confirm(started_at + 0.1)
-        monkeypatch.setattr(time, "time", lambda: wall_time + 3600)
-        fired_at = await _wait_for(lambda: expired_at[0] if expired_at else None, 2)
-        assert fired_at is not None, "the permit expired despite the wall clock jumps"
-        assert 0.89 <= fired_at - started_at < 1.2, f"expired {fired_at - started_at:.3f} s in"
-    finally:
-        permit.cancel()
+    clock = MonotonicPermitClock()
+    before = clock.now()
+    monkeypatch.setattr(time, "time", lambda: wall_time + 3600)
+    after_forward_jump = clock.now()
+    monkeypatch.setattr(time, "time", lambda: wall_time - 3600)
+    after_backward_jump = clock.now()
+    assert after_forward_jump - before < 60, "a forward jump does not move it"
+    assert after_backward_jump >= after_forward_jump, "a backward jump does not move it back"
