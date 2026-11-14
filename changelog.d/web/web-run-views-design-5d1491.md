@@ -21,3 +21,12 @@ section: Changed
 - The selected event's related events read as **From** and **To**, and each
   link names only the other event, such as
   `ResumeTurn-1 · WaitFor completed · #8 · 44ms before`.
+- **Configuration** edits open on the current value and keep **Save** off until
+  the value changes. A smaller retention window warns before it deletes older
+  events, and Attribute sync turns off only through an explicit choice.
+  **Start input** no longer repeats the start-time Flow configuration.
+- The rail's Dex mark says **Dex Server unreachable** in red when Dex Web cannot
+  reach the server, and keeps a faint dot otherwise.
+- The **Conversation** tab drops its Working as banner and selector. Controls
+  that Working as blocks offer **Work as** in place, and a line by the message
+  box reads **Acting as** with **Change**.

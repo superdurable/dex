@@ -30,6 +30,8 @@ export const flowConfigFieldHints = {
     + 'Chosen when the run starts and fixed for the run.',
 } as const;
 const SERVER_DEFAULT = 'Server default';
+/** The server's history.windowEvents default, from FlowConfig.history_window_events in protos/dex.proto. */
+const BUILT_IN_DEFAULT_WINDOW_EVENTS = 10_000;
 
 export interface HistorySettings {
   historyWindowEvents: number | undefined;
@@ -138,10 +140,12 @@ export function FlowConfigCard({
 }) {
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState('');
+  const [isTurningSyncOff, setIsTurningSyncOff] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [isValidationError, setIsValidationError] = useState(false);
-  const errorId = useId();
+  const hintId = useId();
+  const nameIdPrefix = useId();
+  const nameIdOf = (field: EditableField | 'offloadHistory') => `${nameIdPrefix}-${field}`;
   const isRunning = summary.flowStatus === 'Running';
   const canEdit = isRunning && flowConfig !== undefined && onSaved !== undefined;
 
@@ -159,53 +163,62 @@ export function FlowConfigCard({
   const activeStepSearchMode = enumValue(flowConfig, 'activeStepSearchMode');
   const attributeStoreNames = attributeStoreNamesOf(flowConfig);
 
+  // A new draft clears the last save's error, which named the old value.
+  const changeDraft = (value: string) => {
+    setDraft(value);
+    setError('');
+  };
+
   const startEditing = (field: EditableField) => {
+    // Each editor opens on the current value; an unset field opens with nothing chosen.
     const initialDrafts: Record<EditableField, string> = {
-      historyWindowEvents: '',
-      stepDurability: String(stepDurability ?? 1),
-      activeStepSearchMode: String(activeStepSearchMode ?? 1),
+      historyWindowEvents: windowEvents === undefined ? '' : String(windowEvents),
+      stepDurability: stepDurability === undefined ? '' : String(stepDurability),
+      activeStepSearchMode: activeStepSearchMode === undefined ? '' : String(activeStepSearchMode),
       attributeStoreNames: attributeStoreNames?.join(', ') ?? '',
     };
     setDraft(initialDrafts[field]);
+    setIsTurningSyncOff(false);
     setError('');
-    setIsValidationError(false);
     setEditing(field);
   };
 
-  /** Returns the change the draft makes, null for no change, or an error. */
+  /** Returns the change the draft makes, null while nothing changed, or why the draft cannot be saved. */
   const pendingChange = (field: EditableField): FlowConfigChange | null | { error: string } => {
     if (field === 'historyWindowEvents') {
+      if (draft.trim() === '') return null;
       const result = buildHistorySettingsUpdate({ historyWindowEvents: windowEvents }, draft);
       if ('error' in result) return result;
       return result.update.historyWindowEvents === undefined ? null : result.update;
     }
-    if (field === 'stepDurability') {
+    if (field === 'stepDurability' || field === 'activeStepSearchMode') {
+      if (draft === '') return null;
       const value = Number(draft);
-      return value === stepDurability ? null : { stepDurability: value };
+      const current = field === 'stepDurability' ? stepDurability : activeStepSearchMode;
+      if (value === current) return null;
+      return field === 'stepDurability' ? { stepDurability: value } : { activeStepSearchMode: value };
     }
-    if (field === 'activeStepSearchMode') {
-      const value = Number(draft);
-      return value === activeStepSearchMode ? null : { activeStepSearchMode: value };
+    if (isTurningSyncOff) {
+      return attributeStoreNames?.length === 0 ? null : { attributeStoreNames: { names: [] } };
     }
     const names = draft.split(',').map((name) => name.trim()).filter(Boolean);
+    if (names.length === 0) {
+      return draft.trim() === '' && attributeStoreNames === undefined
+        ? null
+        : { error: 'Enter at least one store name, or choose Turn sync off.' };
+    }
+    if (new Set(names).size !== names.length) return { error: 'Each store name may appear once.' };
     if (attributeStoreNames !== undefined && names.join(',') === attributeStoreNames.join(',')) return null;
     return { attributeStoreNames: { names } };
   };
 
   async function save(field: EditableField) {
-    if (!onSaved) return;
     const change = pendingChange(field);
-    if (change === null) return;
-    if ('error' in change) {
-      setError(change.error);
-      setIsValidationError(true);
-      return;
-    }
+    if (!onSaved || change === null || 'error' in change) return;
     const savedRun = summary;
     const { attributeStoreNames: stores, ...scalarFields } = change;
     setSaving(true);
     setError('');
-    setIsValidationError(false);
     try {
       await readResponseJSON(await fetch(webURL('/api/flows/config'), {
         method: 'PUT',
@@ -227,51 +240,80 @@ export function FlowConfigCard({
     await onSaved(change, savedRun);
   }
 
-  const editor = (field: EditableField) => {
-    const label = fieldLabels[field];
+  const editor = (field: EditableField, currentValue: string) => {
     const change = pendingChange(field);
-    const canSave = !saving && change !== null;
-    const describedBy = isValidationError ? errorId : undefined;
+    const invalid = change !== null && 'error' in change ? change.error : '';
+    const canSave = !saving && change !== null && !invalid;
+    const draftWindow = Number(draft.trim());
+    // An unset window uses the server default, which is 10,000 events unless the server sets another.
+    const isShrinkingWindow = field === 'historyWindowEvents' && canSave && Number.isFinite(draftWindow)
+      && draftWindow < (windowEvents ?? BUILT_IN_DEFAULT_WINDOW_EVENTS);
     return (
-      <div className="history-settings-form">
+      <div className="history-settings-form flow-config-editor">
         {field === 'historyWindowEvents' && (
-          <label>
-            Retention window (events)
-            <input
-              inputMode="numeric"
-              aria-invalid={isValidationError || undefined}
-              aria-describedby={describedBy}
-              placeholder={`Unchanged: ${windowLabel(windowEvents)}`}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-            />
-          </label>
+          <input
+            aria-describedby={hintId}
+            aria-invalid={invalid ? true : undefined}
+            aria-labelledby={nameIdOf(field)}
+            inputMode="numeric"
+            placeholder="e.g. 10000"
+            value={draft}
+            onChange={(event) => changeDraft(event.target.value)}
+          />
         )}
         {(field === 'stepDurability' || field === 'activeStepSearchMode') && (
-          <label>
-            {label}
-            <select value={draft} onChange={(event) => setDraft(event.target.value)}>
-              {Object.entries(field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels)
-                .map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
-            </select>
-          </label>
+          <select
+            aria-describedby={hintId}
+            aria-labelledby={nameIdOf(field)}
+            value={draft}
+            onChange={(event) => changeDraft(event.target.value)}
+          >
+            {draft === '' && <option disabled value="">Choose a value</option>}
+            {Object.entries(field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels)
+              .map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
+          </select>
         )}
         {field === 'attributeStoreNames' && (
-          <label>
-            Attribute stores (comma-separated)
+          <>
             <input
-              placeholder="Empty turns synchronization off"
+              aria-describedby={hintId}
+              aria-invalid={invalid ? true : undefined}
+              aria-labelledby={nameIdOf(field)}
+              disabled={isTurningSyncOff}
+              placeholder="e.g. primary, audit"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => changeDraft(event.target.value)}
             />
-          </label>
+            <label className="flow-config-check">
+              <input
+                checked={isTurningSyncOff}
+                onChange={(event) => {
+                  setIsTurningSyncOff(event.target.checked);
+                  setError('');
+                }}
+                type="checkbox"
+              />
+              Turn sync off for this run
+            </label>
+          </>
         )}
-        <p className="overview-note history-settings-note">
-          {field === 'historyWindowEvents'
-            ? 'A saved value overrides the server default and cannot be cleared. A smaller window deletes older events for good.'
-            : 'A saved value overrides the server default and cannot be cleared.'}
-        </p>
-        {error && <div className="error-banner" id={errorId} role="alert">{error}</div>}
+        <div className="flow-config-editor-notes" id={hintId}>
+          {field === 'historyWindowEvents' && <p className="overview-note">Number of events.</p>}
+          {field === 'attributeStoreNames' && <p className="overview-note">Comma-separated store names.</p>}
+          {invalid && <p className="flow-config-invalid">{invalid}</p>}
+          {isShrinkingWindow && (
+            <p className="flow-config-warning">
+              {windowEvents === undefined
+                ? `This window is smaller than the built-in server default of ${BUILT_IN_DEFAULT_WINDOW_EVENTS.toLocaleString()} events, so older events may be deleted for good.`
+                : `This window is smaller than ${windowEvents.toLocaleString()} events, so older events are deleted for good.`}
+            </p>
+          )}
+          {field === 'attributeStoreNames' && isTurningSyncOff && (
+            <p className="flow-config-warning">This run&apos;s Attributes stop syncing to any store.</p>
+          )}
+          <p className="overview-note">Current value: {currentValue}. A saved value cannot return to Server default later.</p>
+        </div>
+        {error && <div className="error-banner" role="alert">{error}</div>}
         <div className="history-settings-actions">
           <button className="button ghost" disabled={saving} onClick={() => setEditing(null)} type="button">
             Cancel
@@ -287,11 +329,12 @@ export function FlowConfigCard({
   const row = (field: EditableField | 'offloadHistory', value: string, hint?: string) => {
     const label = field === 'offloadHistory' ? 'Offload history' : fieldLabels[field];
     const isEditable = field !== 'offloadHistory' && canEdit;
+    const isEditing = field !== 'offloadHistory' && editing === field;
     return (
-      <div key={field}>
-        <dt>{label}{hint && <> <InfoHint text={hint} /></>}</dt>
+      <div className={isEditing ? 'is-editing' : undefined} key={field}>
+        <dt><span id={nameIdOf(field)}>{label}</span>{hint && <> <InfoHint text={hint} /></>}</dt>
         <dd>
-          {field !== 'offloadHistory' && editing === field ? editor(field) : (
+          {isEditing ? editor(field, value) : (
             <span className="flow-config-value">
               {value}
               {isEditable && editing === null && (

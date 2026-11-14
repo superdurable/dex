@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { BlockedReason } from './WorkingAsChoice';
 import { useEffect, useRef, useState } from 'react';
 import { Settings2, ShieldAlert } from 'lucide-react';
 import { SESSION_COPY } from './copy';
@@ -121,7 +122,7 @@ export function SessionSettingsPanel({
         />
         <p className="agc-note">{SESSION_COPY.settingsReplace} {SESSION_COPY.settingsNextTurn}</p>
         {hasStoredChangedUnderEdit && <p className="agc-blocked">{SESSION_COPY.settingsChangedElsewhere}</p>}
-        {blockedReason !== null && !isBlockedReasonShownAbove && <p className="agc-blocked">{blockedReason}</p>}
+        {blockedReason !== null && !isBlockedReasonShownAbove && <BlockedReason reason={blockedReason} />}
         <div className="ses-settings-buttons">
           <button
             className="agc-secondary"

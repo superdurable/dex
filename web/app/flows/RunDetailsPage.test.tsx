@@ -1149,7 +1149,7 @@ function runPage(runId: string) {
 
 async function saveHistoryWindow(windowEvents: string) {
   fireEvent.click(await screen.findByRole('button', { name: 'Edit Retention window' }));
-  fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: windowEvents } });
+  fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: windowEvents } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 }
 
@@ -1260,8 +1260,8 @@ describe('history settings on the run page', () => {
     dex.runAttempt = 2;
     dex.immediateStateReply = { historyWindowEvents: 1500 };
     refreshByResumingLive();
-    // The card stays in edit mode while its save is pending, so the new value shows as the placeholder.
-    await screen.findByPlaceholderText('Unchanged: Last 1,500 events');
+    // The card stays in edit mode while its save is pending, so the editor names the new current value.
+    await screen.findByText(/Current value: Last 1,500 events\./);
 
     dex.immediateStateReply = 'fail';
     dex.heldConfigUpdates[0]();

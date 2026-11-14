@@ -297,6 +297,7 @@ export function FlowOverview({
                 event={started}
                 parentFlowId={summary.flowId}
                 showStartHeading={false}
+                showStartFlowConfig={false}
               />
             </div>
           ) : (

@@ -1418,12 +1418,58 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--tone-done);
+  background: color-mix(in srgb, var(--ui-ink-3) 35%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-surface) 70%, var(--ui-page));
+  transition: background-color 200ms ease;
+}
+
+/* A reachable server stays quiet: a faint dot, no words. */
+.app-rail-reach.is-reachable {
+  background: color-mix(in srgb, var(--tone-done) 45%, transparent);
 }
 
 .app-rail-reach.is-unreachable {
   background: var(--tone-fail);
+}
+
+.app-rail-host-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.app-rail-reach-text {
+  color: var(--tone-fail-ink);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  animation: app-rail-reach-text-in 200ms ease-out;
+}
+
+/* In the open rail the red words may wrap, so the home row grows instead of cutting them off. */
+:is(.app-rail.is-expanded, .app-rail.is-phone-open) .app-rail-reach-text {
+  white-space: normal;
+}
+
+:is(.app-rail.is-expanded, .app-rail.is-phone-open) .app-rail-host:has(.app-rail-reach-text) {
+  height: auto;
+  min-height: 42px;
+  padding-block: 4px;
+}
+
+@keyframes app-rail-reach-text-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-rail-reach {
+    transition: none;
+  }
+
+  .app-rail-reach-text {
+    animation: none;
+  }
 }
 
 .app-rail-label {
@@ -1902,8 +1948,56 @@ html .events-picture .v2-shell.dg {
   font-size: var(--ui-text-xs);
 }
 
-.flow-config-list .history-settings-form {
+/* A row being edited spans the card: its name on top, then the editor, left-aligned. */
+.v1-page .run-overview .flow-config-list > div.is-editing {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.v1-page .run-overview .flow-config-list > div.is-editing dd {
+  overflow: visible;
+  font-weight: 400;
+  text-align: left;
+}
+
+.flow-config-editor {
+  max-width: 420px;
   margin-top: 0;
+  animation: events-picture-in 160ms ease-out;
+}
+
+.flow-config-editor .flow-config-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-config-editor .flow-config-check input {
+  width: auto;
+}
+
+.flow-config-editor-notes {
+  display: grid;
+  gap: 4px;
+}
+
+.flow-config-editor-notes p {
+  margin: 0;
+  font-size: var(--ui-text-xs);
+}
+
+.flow-config-invalid {
+  color: var(--tone-fail-ink);
+}
+
+.flow-config-warning {
+  color: var(--tone-wait-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-config-editor {
+    animation: none;
+  }
 }
 
 /* --------------------------------------------------------------- motion */

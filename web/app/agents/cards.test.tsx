@@ -15,6 +15,7 @@ import { SESSION_COPY } from './copy';
 import type { ToolCallView } from './sessionModel';
 import type { AgentInterruptRecord } from './sessionSchema';
 import { ToolCallCard, toolArgumentSummary, toolCallDetail } from './ToolCallCard';
+import { WorkingAsChoiceProvider } from './WorkingAsChoice';
 
 afterEach(cleanup);
 
@@ -29,6 +30,22 @@ const call = (overrides: Partial<ToolCallView>): ToolCallView => ({
 });
 
 describe('ApprovalCard', () => {
+  it('offers Work as where only Working as blocks it on the Conversation tab, and plain words elsewhere', () => {
+    const choose = vi.fn();
+    const blockedReason = SESSION_COPY.chooseWorkingAs('approvals.operate');
+    const { unmount } = render(
+      <WorkingAsChoiceProvider value={{ permission: '', options: ['approvals.operate'], choose }}>
+        <ApprovalCard blockedReason={blockedReason} interrupt={interrupt} onResolve={vi.fn()} onSettled={vi.fn()} />
+      </WorkingAsChoiceProvider>,
+    );
+    expect(screen.queryByText(blockedReason)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.workAs('approvals.operate') }));
+    expect(choose).toHaveBeenCalledWith('approvals.operate');
+    unmount();
+    render(<ApprovalCard blockedReason={blockedReason} interrupt={interrupt} onResolve={vi.fn()} onSettled={vi.fn()} />);
+    expect(screen.getByText(blockedReason)).toBeTruthy();
+  });
+
   it('approves and reloads', async () => {
     const onResolve = vi.fn(async () => ({ kind: 'done' as const }));
     const onSettled = vi.fn();
