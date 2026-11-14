@@ -373,7 +373,8 @@ func startTestConnectorsMCPManager(
 	proxyServer := httptest.NewServer(proxy)
 	t.Cleanup(proxyServer.Close)
 	resolver := newConnectorsMCPReleaseResolver(cfg, http.DefaultClient, testConnectorsMCPPlatform, logs)
-	manager := newConnectorsMCPManager(cfg, resolver, newLoopbackHTTPClient(), proxy, logs, proxyServer.URL+"/mcp")
+	manager := newConnectorsMCPManager(
+		cfg, resolver, newLoopbackHTTPClient(), proxy, logs, proxyServer.URL+"/mcp", connectorsMCPHint)
 	manager.Start(context.Background())
 	t.Cleanup(func() {
 		if err := manager.Stop(); err != nil {

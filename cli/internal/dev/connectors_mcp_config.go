@@ -11,6 +11,7 @@ package dev
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -160,6 +161,27 @@ func (c *ConnectorsMCPConfig) validate() error {
 		return fmt.Errorf("connectors MCP release index must be an https URL: %q", c.IndexURL)
 	}
 	return nil
+}
+
+// addConnectorsMCPServerFlags defines the Connectors MCP server flags that dexcli dev and dexcli connectors mcp share.
+func addConnectorsMCPServerFlags(flags *flag.FlagSet, cfg *ConnectorsMCPConfig, connections *connectorsMCPConnectionFlag) {
+	flags.StringVar(
+		&cfg.Version,
+		"connectors-mcp-version",
+		"",
+		"Connectors MCP server release X.Y.Z to run (default the newest compatible release)",
+	)
+	flags.StringVar(
+		&cfg.BinaryPath,
+		"connectors-mcp-binary",
+		cfg.BinaryPath,
+		"local dex-connectors-mcp executable to run instead of a downloaded release (default "+connectorsMCPBinaryEnvironment+")",
+	)
+	flags.Var(
+		connections,
+		"connectors-mcp-connection",
+		"connection the Connectors MCP server offers, as connectorId/connectionName[=tool,...] (repeatable; default every authorized connection)",
+	)
 }
 
 // connectorsMCPConnectionFlag collects repeatable --connectors-mcp-connection values.

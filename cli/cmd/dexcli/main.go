@@ -57,6 +57,8 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 	switch args[0] {
 	case "dev":
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
+	case "connectors":
+		return dev.ExecuteConnectors(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "agents-tui":
 		return agentsterminal.Execute(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr, version)
 	case "codec-server":
@@ -86,6 +88,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
+	fmt.Fprintln(output, "  connectors mcp  Serve the Dex Connectors MCP server alone, without Dex Server or Dex Web")
 	fmt.Fprintln(output, "  health    Check Dex FlowService health")
 	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
