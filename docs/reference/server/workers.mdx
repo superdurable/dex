@@ -353,9 +353,10 @@ Dex keeps the server-to-Worker direction of every Worker stream active at
 stream gets an empty keepalive response that the Worker ignores. Changed in
 0.1.32: before, a busy stream received nothing from Dex until its task ended.
 While a task runs, current SDKs also send upstream **Pong** frames every 20
-seconds. Some load balancers, such as an AWS ALB, count idleness only in the
-server-to-client direction, so only the server keepalive resets their idle
-timer.
+seconds. A load balancer or proxy that counts idleness only in the
+server-to-client direction resets its idle timer only on the server keepalive.
+Busy streams behind an AWS ALB were observed being reset at its idle timeout
+despite the upstream **Pong** frames.
 
 Set load balancer and proxy idle timeouts above both 20 seconds and
 **matching.pingInterval**, with margin for network delays. A server before
