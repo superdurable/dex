@@ -509,7 +509,12 @@ export interface PollWorkerTaskReject {
 export interface PollWorkerTaskPong {
 }
 
-/** Carries one server frame on a pull stream. */
+/**
+ * Carries one server frame on a pull stream.
+ * A response with no frame set is a keepalive. Dex sends it on a busy stream every
+ * matching.pingInterval, so proxies that time out a silent server-to-Worker direction keep
+ * the stream. A Worker ignores it and never replies to it.
+ */
 export interface PollWorkerTaskResponse {
   frame:
     | //
@@ -525,7 +530,10 @@ export interface PollWorkerTaskResponse {
     /** Requests a reconnect after the current task finishes. */
     { $case: "reconnect"; value: PollWorkerTaskReconnect }
     | //
-    /** Checks whether an idle stream remains responsive. */
+    /**
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
+     */
     { $case: "ping"; value: PollWorkerTaskPing }
     | undefined;
 }

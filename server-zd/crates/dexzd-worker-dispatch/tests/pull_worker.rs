@@ -26,10 +26,13 @@ use dexzd_worker_dispatch::{
     DispatchEvent, DispatchOutcome, DispatchRequest, DispatchTaskPayload, MatchingConfig,
     WorkerDispatch,
 };
+use hyper_util::rt::TokioIo;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream, UnboundedReceiverStream};
-use tonic::transport::{Channel, Server};
+use tonic::codegen::Service;
+use tonic::codegen::http::Uri;
+use tonic::transport::{Channel, Endpoint, Server};
 use tonic::{Code, Request, Streaming};
 
 struct TestServer {
@@ -637,9 +640,10 @@ async fn idle_ping_shutdown_reconnect_and_tenant_queues_are_isolated() {
         .dispatch(request(1, "tenant-one"))
         .expect("test operation succeeds");
     let assigned = loop {
-        match worker.next().await.frame.expect("test operation succeeds") {
-            poll_worker_task_response::Frame::Task(task) => break task.task_id,
-            poll_worker_task_response::Frame::Ping(_) => {}
+        match worker.next().await.frame {
+            Some(poll_worker_task_response::Frame::Task(task)) => break task.task_id,
+            // A busy stream may get a keepalive with no frame before its task.
+            Some(poll_worker_task_response::Frame::Ping(_)) | None => {}
             other => panic!("unexpected {other:?}"),
         }
     };
@@ -654,9 +658,9 @@ async fn idle_ping_shutdown_reconnect_and_tenant_queues_are_isolated() {
     dispatch.shutdown();
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
-            match worker.next().await.frame.expect("control frame exists") {
-                poll_worker_task_response::Frame::Reconnect(_) => break,
-                poll_worker_task_response::Frame::Ping(_) => {}
+            match worker.next().await.frame {
+                Some(poll_worker_task_response::Frame::Reconnect(_)) => break,
+                Some(poll_worker_task_response::Frame::Ping(_)) | None => {}
                 other => panic!("expected reconnect, got {other:?}"),
             }
         }
@@ -1264,35 +1268,120 @@ async fn per_worker_stream_limits_are_tenant_scoped() {
         register_worker(&tenant_one.channel, registration("Flow", "same-worker")).await;
 }
 
-#[tokio::test]
-async fn busy_workers_receive_no_idle_ping() {
+/// A busy stream gets an empty keepalive response every ping interval and an idle one a Ping.
+#[tokio::test(start_paused = true)]
+async fn busy_streams_get_keepalives_and_idle_streams_get_pings_every_interval() {
+    let ping_interval = Duration::from_secs(20);
     let config = MatchingConfig {
-        ping_interval: Duration::from_millis(20),
+        ping_interval,
         ..Default::default()
     };
     let dispatch = dispatch_with_config(config);
-    let server = start_server(dispatch.clone(), 0).await;
+    let server = start_in_memory_server(dispatch.clone(), 0).await;
     let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
-    let mut handle = dispatch
-        .dispatch(request(0, "busy-no-ping"))
-        .expect("dispatch starts");
+    let first_ping = next_after(&mut worker, ping_interval).await;
+    assert!(matches!(
+        first_ping.frame,
+        Some(poll_worker_task_response::Frame::Ping(_))
+    ));
+    let mut last_keepalive = tokio::time::Instant::now();
+
+    let mut step_request = request(0, "busy-keepalive");
+    step_request.deadline = SystemTime::now() + Duration::from_secs(600);
+    let mut handle = dispatch.dispatch(step_request).expect("dispatch starts");
     let assigned = loop {
-        match worker.next().await.frame.expect("frame exists") {
-            poll_worker_task_response::Frame::Task(task) => break task.task_id,
-            poll_worker_task_response::Frame::Ping(_) => {}
-            other => panic!("expected task, got {other:?}"),
+        match next_after(&mut worker, ping_interval).await.frame {
+            Some(poll_worker_task_response::Frame::Task(task)) => break task.task_id,
+            None => last_keepalive = tokio::time::Instant::now(),
+            other => panic!("expected the task, got {other:?}"),
         }
     };
-    assert!(
-        tokio::time::timeout(Duration::from_millis(80), worker.stream.message())
-            .await
-            .is_err()
-    );
+    for _ in 0..3 {
+        let keepalive = next_after(&mut worker, ping_interval).await;
+        assert_eq!(keepalive.frame, None, "a busy stream gets only keepalives");
+        let now = tokio::time::Instant::now();
+        assert_eq!(now - last_keepalive, ping_interval);
+        last_keepalive = now;
+    }
+
     worker.sender.send(result(&assigned)).expect("result sends");
     assert!(matches!(
         completed(&mut handle).await,
         DispatchOutcome::WorkerResult { .. }
     ));
+    let idle_ping = next_after(&mut worker, ping_interval).await;
+    assert!(matches!(
+        idle_ping.frame,
+        Some(poll_worker_task_response::Frame::Ping(_))
+    ));
+    assert_eq!(tokio::time::Instant::now() - last_keepalive, ping_interval);
+}
+
+/// Returns the next response, which must arrive within about `ping_interval` of paused time.
+async fn next_after(worker: &mut TestWorker, ping_interval: Duration) -> PollWorkerTaskResponse {
+    // The margin keeps the timeout from tying with a keepalive tick.
+    tokio::time::timeout(
+        ping_interval + Duration::from_secs(1),
+        worker.stream.message(),
+    )
+    .await
+    .expect("a response arrives within one ping interval")
+    .expect("the stream stays healthy")
+    .expect("the stream stays open")
+}
+
+/// Serves `dispatch` over an in-memory connection, so paused time never races socket I/O.
+async fn start_in_memory_server(dispatch: WorkerDispatch, tenant_id: u64) -> TestServer {
+    let (client_io, server_io) = tokio::io::duplex(1 << 20);
+    let task = tokio::spawn(async move {
+        Server::builder()
+            .add_service(WorkerTaskServiceServer::new(
+                dispatch.service_for_tenant(tenant_id),
+            ))
+            .serve_with_incoming(tokio_stream::once(Ok::<_, std::io::Error>(server_io)))
+            .await
+            .expect("the in-memory server runs until the test ends");
+    });
+    let connector = InMemoryConnector {
+        stream: Arc::new(std::sync::Mutex::new(Some(client_io))),
+    };
+    let channel = Endpoint::from_static("http://in-memory.test")
+        .connect_with_connector(connector)
+        .await
+        .expect("the in-memory connection opens");
+    TestServer { channel, task }
+}
+
+/// Hands the client end of one in-memory connection to the first dial.
+#[derive(Clone)]
+struct InMemoryConnector {
+    stream: Arc<std::sync::Mutex<Option<tokio::io::DuplexStream>>>,
+}
+
+impl Service<Uri> for InMemoryConnector {
+    type Response = TokioIo<tokio::io::DuplexStream>;
+    type Error = std::io::Error;
+    type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        _context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _uri: Uri) -> Self::Future {
+        let stream = self
+            .stream
+            .lock()
+            .expect("the connector lock is never poisoned")
+            .take();
+        std::future::ready(
+            stream
+                .map(TokioIo::new)
+                .ok_or_else(|| std::io::Error::other("the in-memory connection is already used")),
+        )
+    }
 }
 
 fn request_for_step(flow_id: &str, step_type: &str) -> DispatchRequest {

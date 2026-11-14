@@ -120,7 +120,8 @@ public interface PollWorkerTaskResponseOrBuilder extends
 
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether an idle stream remains responsive. Dex sends it every
+   * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -129,7 +130,8 @@ public interface PollWorkerTaskResponseOrBuilder extends
   boolean hasPing();
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether an idle stream remains responsive. Dex sends it every
+   * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -138,7 +140,8 @@ public interface PollWorkerTaskResponseOrBuilder extends
   io.superdurable.gen.PollWorkerTaskPing getPing();
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether an idle stream remains responsive. Dex sends it every
+   * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>

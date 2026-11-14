@@ -2263,6 +2263,9 @@ func (*PollWorkerTaskPong) Descriptor() ([]byte, []int) {
 }
 
 // Carries one server frame on a pull stream.
+// A response with no frame set is a keepalive. Dex sends it on a busy stream every
+// matching.pingInterval, so proxies that time out a silent server-to-Worker direction keep
+// the stream. A Worker ignores it and never replies to it.
 type PollWorkerTaskResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Frame:
@@ -2384,7 +2387,8 @@ type PollWorkerTaskResponse_Reconnect struct {
 }
 
 type PollWorkerTaskResponse_Ping struct {
-	// Checks whether an idle stream remains responsive.
+	// Checks whether an idle stream remains responsive. Dex sends it every
+	// matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
 	Ping *PollWorkerTaskPing `protobuf:"bytes,5,opt,name=ping,proto3,oneof"`
 }
 

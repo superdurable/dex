@@ -13,6 +13,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func (step pullKeepaliveStep) Execute(ctx dex.Context, input string) (*dex.StepD
 }
 
 func TestPullSDKKeepaliveThroughDataIdleProxy(t *testing.T) {
-	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullKeepaliveFlow", 25*time.Second)
+	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullKeepaliveFlow", 25*time.Second, false)
 	stepEntered := make(chan struct{}, 1)
 	rpcEntered := make(chan struct{}, 1)
 	stepRelease := make(chan struct{})
@@ -134,15 +135,97 @@ func TestPullSDKKeepaliveThroughDataIdleProxy(t *testing.T) {
 	require.GreaterOrEqual(t, trackedCount, 2)
 }
 
+type pullServerKeepaliveFlow struct {
+	emptyFlowSchema
+	stepDuration time.Duration
+}
+
+func (flow pullServerKeepaliveFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(pullServerKeepaliveStep{duration: flow.stepDuration})}
+}
+
+type pullServerKeepaliveStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+	duration time.Duration
+}
+
+func (step pullServerKeepaliveStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	select {
+	case <-time.After(step.duration):
+		return dex.GracefulComplete(input), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// The Server's busy-stream keepalives alone keep a Step stream through a proxy that counts only
+// server-to-client DATA.
+func TestPullSDKServerKeepaliveThroughServerDataIdleProxy(t *testing.T) {
+	pingInterval := integrationPingInterval(t)
+	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullServerKeepaliveFlow", pingInterval*5/2, true)
+	flow := pullServerKeepaliveFlow{stepDuration: 6 * pingInterval}
+	workerRegistry, err := dex.NewRegistry([]dex.Flow{flow})
+	require.NoError(t, err)
+	worker, err := dex.NewWorker(workerRegistry, newPullSDKCache(t), dex.WorkerOptions{
+		FlowServiceAddress: proxyAddress,
+		Pull:               &dex.PullWorkerOptions{AppWorkerID: "pull-server-keepalive-" + uuid.NewString(), MaxConcurrentTasks: 2},
+	})
+	require.NoError(t, err)
+	workerResult := make(chan error, 1)
+	go func() { workerResult <- worker.Start() }()
+	t.Cleanup(func() {
+		stopContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		require.NoError(t, worker.Stop(stopContext))
+		require.NoError(t, <-workerResult)
+	})
+	operationContext, cancel := context.WithTimeout(context.Background(), 12*pingInterval+60*time.Second)
+	defer cancel()
+	require.NoError(t, worker.WaitPullRegistered(operationContext))
+	clientRegistry, err := dex.NewRegistry([]dex.Flow{pullServerKeepaliveFlow{}})
+	require.NoError(t, err)
+	client, err := dex.NewClient(clientRegistry, newPullSDKCache(t), dex.ClientOptions{FlowServiceAddress: flowServiceAddress()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	flowID := newFlowID(t, "pull-server-keepalive")
+	_, err = client.StartFlow(operationContext, pullServerKeepaliveFlow{}, flowID, "step-result", dex.StartFlowOptions{})
+	require.NoError(t, err)
+	result, err := client.WaitForFlow(operationContext, flowID, dex.WaitForFlowOptions{NeedsResults: true})
+	require.NoError(t, err)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	var stepOutput string
+	require.NoError(t, result.DecodeSingleOutput(&stepOutput))
+	require.Equal(t, "step-result", stepOutput)
+	proxy.mu.Lock()
+	resetCount, trackedCount := proxy.resetCount, proxy.trackedCount
+	proxy.mu.Unlock()
+	require.Zero(t, resetCount)
+	require.GreaterOrEqual(t, trackedCount, 1)
+}
+
+// integrationPingInterval returns the test server's matching.pingInterval; run-e2e-tests.sh sets it.
+func integrationPingInterval(t *testing.T) time.Duration {
+	t.Helper()
+	value := os.Getenv("DEX_INTEG_MATCHING_PING_INTERVAL")
+	if value == "" {
+		return 20 * time.Second
+	}
+	interval, err := time.ParseDuration(value)
+	require.NoError(t, err)
+	return interval
+}
+
 type keepaliveDataIdleProxy struct {
 	listener       net.Listener
 	backendAddress string
 	flowType       []byte
 	idleTimeout    time.Duration
-	mu             sync.Mutex
-	connections    map[*keepaliveDataIdleConnection]struct{}
-	resetCount     int
-	trackedCount   int
+	// countsOnlyServerData resets the idle timer only on server-to-client DATA, like an AWS ALB.
+	countsOnlyServerData bool
+	mu                   sync.Mutex
+	connections          map[*keepaliveDataIdleConnection]struct{}
+	resetCount           int
+	trackedCount         int
 }
 
 type keepaliveDataIdleConnection struct {
@@ -160,11 +243,11 @@ type keepaliveHTTP2Observer struct {
 	buffer     []byte
 }
 
-func startKeepaliveDataIdleProxy(t *testing.T, backendAddress, flowType string, idleTimeout time.Duration) (string, *keepaliveDataIdleProxy) {
+func startKeepaliveDataIdleProxy(t *testing.T, backendAddress, flowType string, idleTimeout time.Duration, countsOnlyServerData bool) (string, *keepaliveDataIdleProxy) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	proxy := &keepaliveDataIdleProxy{listener: listener, backendAddress: backendAddress, flowType: []byte(flowType), idleTimeout: idleTimeout, connections: make(map[*keepaliveDataIdleConnection]struct{})}
+	proxy := &keepaliveDataIdleProxy{listener: listener, backendAddress: backendAddress, flowType: []byte(flowType), idleTimeout: idleTimeout, countsOnlyServerData: countsOnlyServerData, connections: make(map[*keepaliveDataIdleConnection]struct{})}
 	go proxy.serve()
 	t.Cleanup(proxy.close)
 	return listener.Addr().String(), proxy
@@ -267,7 +350,7 @@ func (connection *keepaliveDataIdleConnection) observeFrame(isServer bool, frame
 	if !isTracked {
 		return
 	}
-	if frameType == 0 && len(payload) > 0 {
+	if frameType == 0 && len(payload) > 0 && (isServer || !connection.proxy.countsOnlyServerData) {
 		connection.resetTimer(streamID)
 	} else if isServer && frameType == 1 && flags&1 != 0 {
 		timer.Stop()

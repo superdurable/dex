@@ -8,6 +8,9 @@ package io.superdurable.gen;
 /**
  * <pre>
  * Carries one server frame on a pull stream.
+ * A response with no frame set is a keepalive. Dex sends it on a busy stream every
+ * matching.pingInterval, so proxies that time out a silent server-to-Worker direction keep
+ * the stream. A Worker ignores it and never replies to it.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskResponse}
@@ -275,7 +278,8 @@ private static final long serialVersionUID = 0L;
   public static final int PING_FIELD_NUMBER = 5;
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether an idle stream remains responsive. Dex sends it every
+   * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -287,7 +291,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether an idle stream remains responsive. Dex sends it every
+   * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -302,7 +307,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether an idle stream remains responsive. Dex sends it every
+   * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -552,6 +558,9 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Carries one server frame on a pull stream.
+   * A response with no frame set is a keepalive. Dex sends it on a busy stream every
+   * matching.pingInterval, so proxies that time out a silent server-to-Worker direction keep
+   * the stream. A Worker ignores it and never replies to it.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskResponse}
@@ -1511,7 +1520,8 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.PollWorkerTaskPing, io.superdurable.gen.PollWorkerTaskPing.Builder, io.superdurable.gen.PollWorkerTaskPingOrBuilder> pingBuilder_;
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1523,7 +1533,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1545,7 +1556,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1565,7 +1577,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1583,7 +1596,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1610,7 +1624,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1633,7 +1648,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1643,7 +1659,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1661,7 +1678,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether an idle stream remains responsive. Dex sends it every
+     * matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>

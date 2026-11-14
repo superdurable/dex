@@ -659,6 +659,8 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (wasRegistered b
 					stream.closeSend()
 				}
 				stream.worker.signal()
+			case nil:
+				// A response with no frame is the Server's busy-stream keepalive; it needs no reply.
 			default:
 				stream.worker.service.logger.Debug("ignore unknown Worker task frame", "frame", fmt.Sprintf("%T", frame))
 			}
