@@ -13,6 +13,7 @@ import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import {
   formatTimelineOffset,
   prunedRelatedEventTooltip,
+  timelineRelatedEventGroup,
   timelineRelatedEventLabel,
   type TimelineRelatedEvent,
 } from '@/lib/timeline';
@@ -153,14 +154,7 @@ export function FlowStatePanel({
   );
 }
 
-const relationTitles: Record<TimelineRelatedEvent['relation'], string> = {
-  'wait-for': 'WaitFor',
-  execute: 'Execute',
-  source: 'Source execution',
-  started: 'Started execution',
-};
-
-/** The selected event's relations as one line under its title; each target is its own link. */
+/** The selected event's relations under its title: From the event that led here, To the events it led to. */
 function RelatedEvents({
   relatedEvents,
   isJumpDisabled,
@@ -172,17 +166,25 @@ function RelatedEvents({
   onSelectRelatedEvent?: (eventId: number) => void;
   onJumpToEvent?: (eventId: number) => void;
 }) {
+  const groups = (['From', 'To'] as const)
+    .map((group) => ({ group, entries: relatedEvents.filter((related) => timelineRelatedEventGroup(related) === group) }))
+    .filter(({ entries }) => entries.length > 0);
   return (
     <ul aria-label="Related events" className="related-events-line">
-      {relatedEvents.map((related) => (
-        <li className={`related-event-inline location-${related.location}`} key={related.id}>
-          <span className="related-event-relation">{relationTitles[related.relation]}</span>
-          <RelatedEventAction
-            related={related}
-            isJumpDisabled={isJumpDisabled}
-            onJumpToEvent={onJumpToEvent}
-            onSelectRelatedEvent={onSelectRelatedEvent}
-          />
+      {groups.map(({ group, entries }) => (
+        <li className="related-event-inline" key={group}>
+          <span className="related-event-relation">{group}</span>
+          {entries.map((related, index) => (
+            <span className={`related-event-target location-${related.location}`} key={related.id}>
+              {index > 0 && <span aria-hidden="true" className="related-event-separator">·</span>}
+              <RelatedEventAction
+                related={related}
+                isJumpDisabled={isJumpDisabled}
+                onJumpToEvent={onJumpToEvent}
+                onSelectRelatedEvent={onSelectRelatedEvent}
+              />
+            </span>
+          ))}
         </li>
       ))}
     </ul>

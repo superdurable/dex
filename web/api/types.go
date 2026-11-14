@@ -129,6 +129,19 @@ type updateFlowHistoryConfigRequest struct {
 	DeleteExpiredHistoryObjects *bool `json:"deleteExpiredHistoryObjects"`
 }
 
+// updateFlowConfigRequest names the run and the Flow config fields to change; nil fields stay unchanged.
+type updateFlowConfigRequest struct {
+	FlowID              string `json:"flowId"`
+	RunID               string `json:"runId"`
+	HistoryWindowEvents *int32 `json:"historyWindowEvents"`
+	// StepDurability is 1 for sync or 2 for async.
+	StepDurability *int32 `json:"stepDurability"`
+	// ActiveStepSearchMode is 1 for every Step, 2 for Steps with WaitFor, or 3 for off.
+	ActiveStepSearchMode *int32 `json:"activeStepSearchMode"`
+	// AttributeStoreNames replaces the run's stores; an empty list turns synchronization off.
+	AttributeStoreNames *[]string `json:"attributeStoreNames"`
+}
+
 type deleteChannelMessageRequest struct {
 	FlowID      string `json:"flowId"`
 	RunID       string `json:"runId"`

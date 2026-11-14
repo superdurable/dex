@@ -51,7 +51,7 @@ export interface TimelineRelatedEvent {
   /** Whether the related event comes before or after the selected event. */
   direction: 'older' | 'newer';
   stepExecutionId: string;
-  /** Names the related event, such as "ReviewStep-3 WaitFor completed". */
+  /** Names the related event, such as "ReviewStep-3 · WaitFor completed". */
   description: string;
   eventId?: number;
   location: TimelineEventLocation;
@@ -126,9 +126,10 @@ export function buildSelectedTimelineRelations(
   const selected = index.byId.get(selectedEvent.eventId);
   if (!selected) return emptyRelations;
   const links = unassignedTimelineLinks(index);
+  // One event led to the selected one: an Execute's WaitFor, otherwise its source.
+  const from = waitForRelation(index, links, selected, position) ?? sourceRelation(index, links, selected, position);
   const related = [
-    waitForRelation(index, links, selected, position),
-    sourceRelation(index, links, selected, position),
+    from,
     executeRelation(links, selected, position),
     ...startedRelations(index, links, selected, position),
   ].filter((entry): entry is TimelineRelatedEvent => entry !== undefined);
@@ -139,34 +140,49 @@ export function buildSelectedTimelineRelations(
   };
 }
 
-/** Describes a related event for a stub or a list entry. */
+/** Returns From for the event that led to the selected one, and To for an event it led to. */
+export function timelineRelatedEventGroup(related: TimelineRelatedEvent): 'From' | 'To' {
+  return related.direction === 'older' ? 'From' : 'To';
+}
+
+/** Names only the related event, such as "Review-3 · WaitFor completed · #8 · 44ms before". */
 export function timelineRelatedEventLabel(related: TimelineRelatedEvent): string {
-  const base = `${related.direction === 'older' ? 'from' : 'to'} ${related.description}`;
-  const elapsed = related.elapsedDurationMs === null
-    ? ''
-    : `, waited ${formatElapsedDuration(related.elapsedDurationMs)}`;
+  const elapsed = relatedElapsedPhrase(related);
+  const elapsedPart = elapsed ? ` · ${elapsed}` : '';
   const page = related.direction === 'older' ? 'older page' : 'newer page';
   switch (related.location) {
     case 'loaded':
-      return `${base}, event #${related.eventId}${elapsed}`;
+      return `${related.description} · #${related.eventId}${elapsedPart}`;
     case 'other-page':
-      return `${base}, event #${related.eventId} (${page})${elapsed}`;
+      return `${related.description} · #${related.eventId} (${page})${elapsedPart}`;
     case 'pruned':
       return related.eventId === undefined
-        ? `${base} (removed by the history window)${elapsed}`
-        : `${base} (event #${related.eventId}, removed by the history window)${elapsed}`;
+        ? `${related.description} (removed by the history window)${elapsedPart}`
+        : `${related.description} · #${related.eventId} (removed by the history window)${elapsedPart}`;
     default:
-      return `${base} (event not on this page)${elapsed}`;
+      return `${related.description} (not on this page)${elapsedPart}`;
   }
 }
 
-/** Explains a pruned related event and keeps its Step execution ID and recorded wait. */
+/** A related event label for a Timeline edge stub, which names its group first. */
+export function timelineRelatedEventStubLabel(related: TimelineRelatedEvent): string {
+  return `${timelineRelatedEventGroup(related)} ${timelineRelatedEventLabel(related)}`;
+}
+
+/** Returns "44ms before" for an older event and "after 44ms" for a newer one, or '' without a time. */
+function relatedElapsedPhrase(related: TimelineRelatedEvent): string {
+  if (related.elapsedDurationMs === null) return '';
+  const elapsed = formatElapsedDuration(related.elapsedDurationMs);
+  return related.direction === 'older' ? `${elapsed} before` : `after ${elapsed}`;
+}
+
+/** Explains a pruned related event and keeps its Step execution ID and recorded elapsed time. */
 export function prunedRelatedEventTooltip(related: TimelineRelatedEvent): string {
   const execution = related.stepExecutionId ? ` Step execution ID: ${related.stepExecutionId}.` : '';
-  const waited = related.elapsedDurationMs === null
+  const elapsedSentence = related.elapsedDurationMs === null
     ? ''
-    : ` Waited ${formatElapsedDuration(related.elapsedDurationMs)}.`;
-  return `${PRUNED_RELATED_EVENT_EXPLANATION}${execution}${waited}`;
+    : ` Recorded ${formatElapsedDuration(related.elapsedDurationMs)} ${related.direction === 'older' ? 'before' : 'after'} this event.`;
+  return `${PRUNED_RELATED_EVENT_EXPLANATION}${execution}${elapsedSentence}`;
 }
 
 export function formatElapsedDuration(milliseconds: number | null): string {
@@ -344,7 +360,7 @@ function waitForRelation(
     relation: 'wait-for' as const,
     direction: 'older' as const,
     stepExecutionId,
-    description: `${stepExecutionId} WaitFor completed`,
+    description: `${stepExecutionId} · WaitFor completed`,
   };
   const loaded = links.find((link) => link.kind === 'condition-wait' && link.toEventId === selected.eventId);
   if (loaded) {
@@ -383,7 +399,7 @@ function sourceRelation(
     const source = index.byId.get(loaded.fromEventId);
     return {
       ...base,
-      description: source ? lineageSourceLabel(source) : fromExecutionID(selected),
+      description: sourceRelationDescription(source ? lineageSourceLabel(source) : fromExecutionID(selected)),
       eventId: loaded.fromEventId,
       location: 'loaded',
     };
@@ -397,7 +413,7 @@ function sourceRelation(
   const reportedEventId = decidingEventIdOf(selected) ?? (sourceExecutionId === '__start__' ? 1 : undefined);
   return {
     ...base,
-    description: sourceExecutionLabel(sourceExecutionId),
+    description: sourceRelationDescription(sourceExecutionLabel(sourceExecutionId)),
     ...olderFarEnd(index, reportedEventId, position),
   };
 }
@@ -415,7 +431,7 @@ function executeRelation(
     relation: 'execute' as const,
     direction: 'newer' as const,
     stepExecutionId,
-    description: `${stepExecutionId} Execute`,
+    description: `${stepExecutionId} · Execute`,
   };
   const loaded = links.find((link) => link.kind === 'condition-wait' && link.fromEventId === selected.eventId);
   if (loaded) {
@@ -439,7 +455,7 @@ function startedRelations(
       relation: 'started',
       direction: 'newer',
       stepExecutionId: link.stepExecutionId,
-      description: `${link.stepExecutionId} first event`,
+      description: `${link.stepExecutionId} · started`,
       eventId: link.toEventId,
       location: 'loaded',
       elapsedDurationMs: null,
@@ -459,7 +475,7 @@ function startedRelations(
       relation: 'started' as const,
       direction: 'newer' as const,
       stepExecutionId: '',
-      description: `${nextStepType} execution`,
+      description: `${nextStepType} · started`,
       location: 'unknown' as const,
       elapsedDurationMs: null,
     })),
@@ -549,6 +565,11 @@ function sourceExecutionLabel(sourceExecutionId: string): string {
   if (sourceExecutionId === '__start__') return 'Flow start';
   if (sourceExecutionId.startsWith('__rpc/')) return `RPC ${sourceExecutionId.slice('__rpc/'.length)}`;
   return `${sourceExecutionId} decision`;
+}
+
+/** Splits a source label into its execution and what it did, such as "Intake-1 · decision". */
+function sourceRelationDescription(label: string): string {
+  return label.replace(/ (decision|failure recovery)$/, ' · $1');
 }
 
 function record(value: unknown): Record<string, unknown> {

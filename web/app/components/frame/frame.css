@@ -1865,6 +1865,47 @@ html .events-picture .v2-shell.dg {
   gap: 4px;
 }
 
+/* From and To each take a row; the label column keeps the links aligned. */
+.related-events-line {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.related-event-inline .related-event-relation {
+  min-width: 34px;
+}
+
+.related-event-target {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.related-event-separator {
+  color: var(--ui-ink-3);
+}
+
+/* Each Flow config value keeps its Edit beside it. */
+.flow-config-value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-config-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--ui-text-xs);
+}
+
+.flow-config-list .history-settings-form {
+  margin-top: 0;
+}
+
 /* --------------------------------------------------------------- motion */
 
 /* Controls ease their colors on hover and press; outlines stay instant so focus never lags. */

@@ -318,11 +318,31 @@ describe('redesigned Overview', () => {
       },
     };
     render(<FlowOverview summary={runningSummary} events={[]} state={state} />);
-    fireEvent.click(screen.getByRole('button', { name: /Flow config/ }));
-    expect(screen.getByText('stepDurability')).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects/);
-    fireEvent.click(screen.getByRole('button', { name: 'Raw JSON' }));
-    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects/);
+    expect(screen.getByText('Sync')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects|delete expired/i);
+  });
+
+  it('puts live state on the left and config, identity and records on the right', () => {
+    const { container } = render(<FlowOverview summary={runningSummary} events={[]} state={emptyState} />);
+    const headings = (column: string) => [...container.querySelectorAll(`.${column} > .overview-section h2`)]
+      .map((heading) => heading.firstChild?.textContent);
+    expect(headings('run-overview-main')).toEqual(['Active steps', 'Attributes', 'Channels']);
+    expect(headings('run-overview-side')).toEqual(['Flow config', 'Identity', 'Start input']);
+    expect(container.querySelector('.run-overview-side > .overview-quiet-line')?.textContent)
+      .toBe('No queued steps · No completed outputs');
+    expect(screen.queryByRole('heading', { name: 'Details' })).toBeNull();
+  });
+
+  it('lists Completed outputs before Queued steps in the right column', () => {
+    const state: FlowState = {
+      ...emptyState,
+      queuedSteps: [{ stepType: 'Next' }] as unknown as FlowState['queuedSteps'],
+      completedSteps: [{ stepExecutionId: 'Done-1' }] as unknown as FlowState['completedSteps'],
+    };
+    const { container } = render(<FlowOverview summary={runningSummary} events={[]} state={state} />);
+    const side = [...container.querySelectorAll('.run-overview-side > .overview-section h2')]
+      .map((heading) => heading.firstChild?.textContent);
+    expect(side).toEqual(['Flow config', 'Identity', 'Start input', 'Completed outputs', 'Queued steps']);
   });
 
   it('shows the first run ID only when it differs from the run ID', () => {

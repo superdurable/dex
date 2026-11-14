@@ -12,3 +12,12 @@ section: Changed
   links to the docs. A Dex Agents session still opens on **Conversation**.
 - Buttons, switches, and tabs change smoothly, and the switch's indicator
   slides. Reduced motion turns this off.
+- **State** uses two columns on wide screens: live state on the left, and
+  **Flow config**, **Identity**, **Start input**, **Completed outputs**, and
+  **Queued steps** on the right. **Details** is now **Identity**.
+- **Flow config** replaces **History settings**. It shows the run's settings in
+  plain words, and while the run is active **Edit** changes the retention
+  window, step durability, active step search, or Attribute stores.
+- The selected event's related events read as **From** and **To**, and each
+  link names only the other event, such as
+  `ResumeTurn-1 · WaitFor completed · #8 · 44ms before`.

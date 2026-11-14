@@ -931,17 +931,19 @@ While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
 string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
-The Overview **History settings** section shows the run's
-`FlowConfig.history_window_events` as **Retention window**, read as "Last N
-events". An unset field reads **Server default**. An info icon beside the label
-explains that older events are deleted. The page never shows or sends
-`delete_expired_history_objects`, which the server ignores.
-While the run is active, **Edit** changes the window through
-`PUT /api/flows/config/history`, which calls `UpdateFlowConfig` with only the
-changed field. `UpdateFlowConfig` merges the fields it receives, so the run's
-other settings stay unchanged. A saved value cannot be cleared back to the
-server default, so the editor offers only a positive window.
-Closed runs show no live config and offer no editing.
+The State tab's **Flow config** card shows the run's `FlowConfig` in plain
+words: **Retention window** (`history_window_events`), **Step durability**,
+**Active step search**, **Attribute stores**, and **Offload history**. An unset
+field reads **Server default**, and unset `offload_history` reads
+**On (default)**. The card hides `worker_target`, whose task queue shows under
+**Identity**, and `delete_expired_history_objects`, which the server ignores.
+While the run is active, each of the first four fields has an **Edit** that
+calls `PUT /api/flows/config`, which sends `UpdateFlowConfig` with only the
+changed field. Those are the fields `UpdateFlowConfig` applies; it rejects
+`offload_history`, so that field is read-only. A saved value cannot be cleared
+back to the server default. `PUT /api/flows/config/history` remains for older
+pages. A closed run's card reads the config once through `/api/flows/state` and
+offers no editing.
 The selected event's Context uses the same failure view with the stack collapsed.
 ## License
 

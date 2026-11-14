@@ -693,7 +693,7 @@ body:has(.v1-page) {
 
 .run-overview {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
   align-items: start;
   gap: 18px;
 }
@@ -862,6 +862,7 @@ body:has(.v1-page) {
 }
 
 .v1-page .run-overview .active-step-heading {
+  min-width: 0;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 10px;
@@ -871,6 +872,7 @@ body:has(.v1-page) {
   font-size: var(--ui-text-xl);
   font-weight: 650;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 
 .active-step-waits {

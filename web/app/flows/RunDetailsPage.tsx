@@ -47,7 +47,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
-import type { HistorySettingsChange } from './details/HistorySettingsCard';
+import type { FlowConfigChange } from './details/FlowConfigCard';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDialog';
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
@@ -95,7 +95,7 @@ interface CurrentRunOfFlow {
 /** History settings saved on this page, shown until a state load started after the save succeeds. */
 interface SavedHistorySettings {
   runIdentity: string;
-  values: HistorySettingsChange;
+  values: FlowConfigChange;
   savedAfterStateLoad: number;
 }
 
@@ -261,6 +261,7 @@ export function RunDetailsPage({
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
+  const [closedFlowConfig, setClosedFlowConfig] = useState<{ runIdentity: string; value: Record<string, unknown> } | null>(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
   const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
   const [eventsTab, setEventsTab] = useState<RunTab>(storedEventsTab);
@@ -438,7 +439,7 @@ export function RunDetailsPage({
   }, [addDataWarning, flowId, stateURL]);
 
   const showSavedHistorySettings = useCallback(async (
-    values: HistorySettingsChange,
+    values: FlowConfigChange,
     savedRun: FlowSummary,
   ) => {
     const runIdentity = runIdentityOf(savedRun.flowId, savedRun.runId, savedRun.runAttempt);
@@ -845,6 +846,21 @@ export function RunDetailsPage({
     if (shownTab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
   }, [flowStartEvent, hydrateEvent, shownTab]);
 
+  // Live state is not loaded for a closed run, so State reads its Flow config once.
+  const isClosedRunShown = summary !== null && terminalStatuses.has(summary.flowStatusCode);
+  useEffect(() => {
+    if (shownTab !== 'overview' || !isClosedRunShown || closedFlowConfig?.runIdentity === runIdentity) return undefined;
+    const controller = new AbortController();
+    void fetch(stateURL, { cache: 'no-store', signal: controller.signal })
+      .then((response) => readResponseJSON<FlowState>(response))
+      .then((closedState) => setClosedFlowConfig({ runIdentity, value: closedState.flowConfig ?? {} }))
+      .catch((configError: unknown) => {
+        if (controller.signal.aborted) return;
+        console.warn('Unable to read the closed run\'s Flow config.', configError);
+      });
+    return () => controller.abort();
+  }, [closedFlowConfig?.runIdentity, isClosedRunShown, runIdentity, shownTab, stateURL]);
+
   useLayoutEffect(() => {
     const content = runContent.current;
     const selectedEventID = selectedEvent?.eventId;
@@ -1227,6 +1243,7 @@ export function RunDetailsPage({
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
               savedHistorySettings={displayedHistorySettings}
+              closedFlowConfig={closedFlowConfig?.runIdentity === runIdentity ? closedFlowConfig.value : undefined}
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}
