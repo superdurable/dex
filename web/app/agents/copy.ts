@@ -150,6 +150,13 @@ export const SESSION_COPY = {
   workAs(permission: string): string {
     return `Work as ${permission}`;
   },
+  workAsToAct: 'to act here.',
+  workingAsLabel: 'Working as',
+  workingAsAnyone: 'Anyone',
+  actingAs(permission: string): string {
+    return `Acting as ${permission}`;
+  },
+  changeWorkingAs: 'Change Working as',
   busy: 'The session is busy. Try again.',
   noWorker: 'No Worker is connected to run this. Try again when Workers are back.',
   goReduced:

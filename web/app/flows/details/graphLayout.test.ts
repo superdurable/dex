@@ -10,6 +10,7 @@ import type { Edge, Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 import {
   defaultGraphZoom,
+  fittingGraphZoom,
   graphBounds,
   layoutGraph,
   minimumGraphZoom,
@@ -149,5 +150,40 @@ describe('execution graph layout', () => {
   it('does not enlarge a graph or shrink it past three times', () => {
     expect(defaultGraphZoom(600, 1_200)).toBe(1);
     expect(defaultGraphZoom(3_000, 600)).toBe(minimumGraphZoom);
+  });
+
+  it('lays ranks out as columns left to right, with SubFlow nodes under their Step', () => {
+    const nodes = [
+      layoutNode('source', 'source', 220, 90),
+      layoutNode('a', 'step', 300, 128),
+      layoutNode('b', 'step', 300, 128),
+      layoutNode('c', 'step', 300, 128),
+      layoutNode('child', 'subflow', 220, 90, 'a'),
+    ];
+    const edges: Edge[] = [
+      { id: 's-a', source: 'source', target: 'a' },
+      { id: 'a-b', source: 'a', target: 'b' },
+      { id: 'a-c', source: 'a', target: 'c' },
+    ];
+    const byID = new Map(layoutGraph(nodes, edges, 'lr').map((node) => [node.id, node.position]));
+    const source = byID.get('source')!;
+    const a = byID.get('a')!;
+    const b = byID.get('b')!;
+    const c = byID.get('c')!;
+    const child = byID.get('child')!;
+    expect(a.x).toBeGreaterThan(source.x + 220);
+    expect(b.x).toBe(c.x);
+    expect(b.x).toBeGreaterThan(a.x + 300);
+    expect(b.y).not.toBe(c.y);
+    // The SubFlow sits under its Step, inside the Step's column.
+    expect(child.y).toBeGreaterThanOrEqual(a.y + 128);
+    expect(child.x).toBeGreaterThanOrEqual(a.x);
+    expect(child.x + 220).toBeLessThanOrEqual(a.x + 300);
+  });
+
+  it('fits a graph into both sizes of a box, never enlarging it', () => {
+    expect(fittingGraphZoom({ width: 400, height: 200 }, { width: 800, height: 400 })).toBe(1);
+    expect(fittingGraphZoom({ width: 1_600, height: 200 }, { width: 800, height: 400 })).toBe(0.5);
+    expect(fittingGraphZoom({ width: 400, height: 800 }, { width: 800, height: 400 })).toBe(0.5);
   });
 });

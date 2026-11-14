@@ -43,7 +43,27 @@ const related: TimelineRelatedEvent[] = [{
   location: 'loaded',
   stepExecutionId: 'SyncBatch-3095',
   eventId: 3096,
-  description: 'SyncBatch-3095 decision',
+  description: 'SyncBatch-3095 · decision',
+  elapsedDurationMs: 44,
+}, {
+  id: 'started-3098',
+  kind: 'lineage',
+  relation: 'started',
+  direction: 'newer',
+  location: 'loaded',
+  stepExecutionId: 'Merge-1',
+  eventId: 3098,
+  description: 'Merge-1 · started',
+  elapsedDurationMs: null,
+}, {
+  id: 'started-3099',
+  kind: 'lineage',
+  relation: 'started',
+  direction: 'newer',
+  location: 'other-page',
+  stepExecutionId: 'Notify-1',
+  eventId: 3099,
+  description: 'Notify-1 · started',
   elapsedDurationMs: null,
 }];
 
@@ -65,12 +85,15 @@ function renderPanel(onSelectRelatedEvent = vi.fn()) {
 }
 
 describe('selected event panel', () => {
-  it('puts relations on one line under the title, each a link to its event', () => {
+  it('groups relations into From and To under the title, each link naming only the other event', () => {
     const onSelectRelatedEvent = renderPanel();
     const line = screen.getByRole('list', { name: 'Related events' });
     expect(line.closest('header')).not.toBeNull();
-    expect(line.textContent).toBe('Source executionfrom SyncBatch-3095 decision, event #3096');
-    fireEvent.click(screen.getByRole('button', { name: 'from SyncBatch-3095 decision, event #3096' }));
+    expect([...line.children].map((row) => row.textContent)).toEqual([
+      'FromSyncBatch-3095 · decision · #3096 · 44ms before',
+      'ToMerge-1 · started · #3098·Notify-1 · started · #3099 (newer page)',
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'SyncBatch-3095 · decision · #3096 · 44ms before' }));
     expect(onSelectRelatedEvent).toHaveBeenCalledWith(3096);
   });
 

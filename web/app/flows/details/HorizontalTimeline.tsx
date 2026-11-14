@@ -50,6 +50,9 @@ import {
   brushPixelSpan,
   bucketOverviewEvents,
   buildOverviewAxis,
+  laneOverviewAxis,
+  perEventOverviewBuckets,
+  timelineSlotWidth,
   eventIndexToRatio,
   hasRetriedFailure,
   minimumPositionGap,
@@ -63,21 +66,34 @@ import {
 const arcBandHeight = 28;
 const axisBandHeight = 18;
 const dotBandHeight = 30;
-const subjectLabelBandHeight = 22;
+/** Each event's label slants up at this angle, like angled parking, so long names fit side by side. */
+const labelAngleDegrees = 30;
+const labelMaxWidth = 280;
+const labelAngle = (labelAngleDegrees * Math.PI) / 180;
+/** About the width of one label character at the label font, for sizing the band before layout. */
+const labelCharacterWidth = 7;
 
-/** The strip geometry: flat subject labels on top, then dots, event numbers, and link arcs. */
+/**
+ * Returns the strip height for the longest label on the page: its estimated width, at most
+ * labelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
+ */
+export function timelineStripHeight(subjects: readonly string[]): number {
+  const longest = subjects.reduce((max, subject) => Math.max(max, subject.length), 0);
+  const labelWidth = Math.min(labelMaxWidth, longest * labelCharacterWidth + 8);
+  return Math.ceil(labelWidth * Math.sin(labelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
+
+/** The strip geometry: slanted labels on top, then dots, event numbers, and link arcs. */
 export const horizontalTimelineLayout = {
-  /** Horizontal space per event on a crowded page. */
-  slotWidth: 56,
-  /** A short page spreads its events up to this width each, so every Step name fits. */
-  maxSlotWidth: 160,
-  /** Room at the right edge, so the newest dot clears it. */
-  labelRunWidth: 24,
+  labelAngleDegrees,
+  labelMaxWidth,
+  /** Room at the right edge for the slanted labels of the newest events. */
+  labelRunWidth: Math.ceil(labelMaxWidth * Math.cos(labelAngle)) + 10,
   /** Room at the right edge for the run's end note, when the strip shows one. */
   endNoteRunWidth: 240,
-  stripHeight: subjectLabelBandHeight + dotBandHeight + axisBandHeight + arcBandHeight,
 };
 const overscanSlots = 6;
+
 const fallbackStripWidth = 1200;
 /** The overview: a marker lane for problems above the bars, about one bar per 7 px. */
 const overviewMarkerLaneHeight = 4;
@@ -236,18 +252,6 @@ export interface SubjectRun {
   firstIndex: number;
   lastIndex: number;
   subject: string;
-}
-
-/** Groups a chronological page into runs of the same subject, such as twenty SyncBatch events in a row. */
-export function subjectRunsOf(chronological: readonly FlowHistoryEvent[]): SubjectRun[] {
-  const runs: SubjectRun[] = [];
-  chronological.forEach((event, index) => {
-    const subject = eventSubject(event);
-    const last = runs[runs.length - 1];
-    if (last && last.subject === subject && last.lastIndex === index - 1) last.lastIndex = index;
-    else runs.push({ firstIndex: index, lastIndex: index, subject });
-  });
-  return runs;
 }
 
 /** What the run is doing at the newest end of the lane, and the event that says so. */
@@ -475,12 +479,11 @@ export function HorizontalTimeline({
   const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
-  const slotWidth = Math.max(
-    horizontalTimelineLayout.slotWidth,
-    Math.min(horizontalTimelineLayout.maxSlotWidth, Math.floor((stripWidth - labelRunWidth) / Math.max(1, chronological.length))),
-  );
+  const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
   const maxStart = Math.max(0, chronological.length - visibleCount);
+  // A page that fits draws each overview bar under its own dot; a longer page's overview is a minimap.
+  const isLaneOverview = maxStart === 0;
   const [windowStart, setWindowStart] = useState(maxStart);
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
@@ -492,25 +495,31 @@ export function HorizontalTimeline({
   const plotWidth = Math.max(1, stripWidth - 2 * overviewPlotInset);
   const histogramBucketCount = Math.max(1, Math.floor(plotWidth / overviewBucketWidth));
   // A page with fewer events than bars draws one wide bar per event instead of slivers.
-  const isFewEvents = chronological.length <= histogramBucketCount;
+  const isFewEvents = isLaneOverview || chronological.length <= histogramBucketCount;
   const overviewAxis = useMemo(
-    () => buildOverviewAxis(chronological, histogramBucketCount, isFewEvents ? overviewFewEventMinGap / plotWidth : 0),
-    [chronological, histogramBucketCount, isFewEvents, plotWidth],
+    () => (isLaneOverview
+      ? laneOverviewAxis(chronological, slotWidth, overviewPlotInset, plotWidth)
+      : buildOverviewAxis(chronological, histogramBucketCount, isFewEvents ? overviewFewEventMinGap / plotWidth : 0)),
+    [chronological, histogramBucketCount, isFewEvents, isLaneOverview, plotWidth, slotWidth],
   );
-  const bucketCount = isFewEvents && overviewAxis.kind === 'index' ? Math.max(1, chronological.length) : histogramBucketCount;
+  const bucketCount = isLaneOverview || (isFewEvents && overviewAxis.kind === 'index')
+    ? Math.max(1, chronological.length)
+    : histogramBucketCount;
   /** Each event's own bar width on a short page: as wide as its neighbors allow, up to the cap. */
   const fewEventBarWidth = isFewEvents
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
   const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
-  const subjectRuns = useMemo(() => subjectRunsOf(chronological), [chronological]);
+  const stripHeight = useMemo(() => timelineStripHeight(chronological.map(eventSubject)), [chronological]);
   const statusList = useMemo(
     () => chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
     [chronological, states],
   );
   const overviewBuckets = useMemo(
-    () => bucketOverviewEvents(overviewAxis, statusList, retriedFlags, bucketCount),
-    [overviewAxis, statusList, retriedFlags, bucketCount],
+    () => (isLaneOverview
+      ? perEventOverviewBuckets(statusList, retriedFlags)
+      : bucketOverviewEvents(overviewAxis, statusList, retriedFlags, bucketCount)),
+    [bucketCount, isLaneOverview, overviewAxis, retriedFlags, statusList],
   );
 
   const clampStart = useCallback((start: number) => Math.min(maxStart, Math.max(0, start)), [maxStart]);
@@ -821,138 +830,6 @@ export function HorizontalTimeline({
         </span>
       </div>
 
-      <div className="htl-lane">
-      <div
-        aria-activedescendant={selectedEvent && selectedIndex >= firstRendered && selectedIndex <= lastRendered
-          ? `htl-event-${selectedEvent.eventId}`
-          : undefined}
-        aria-describedby={helpId}
-        aria-label="Timeline events, oldest on the left"
-        className="htl-strip"
-        style={{
-          '--htl-slot-width': `${slotWidth}px`,
-          height: `${horizontalTimelineLayout.stripHeight}px`,
-        } as CSSProperties}
-        onKeyDown={handleStripKeyDown}
-        ref={stripRef}
-        role="listbox"
-        tabIndex={0}
-      >
-        {subjectRuns.flatMap((run) => {
-          if (run.lastIndex < firstRendered || run.firstIndex > lastRendered) return [];
-          const count = run.lastIndex - run.firstIndex + 1;
-          let left = (run.firstIndex - windowStart) * slotWidth + 4;
-          let width = count * slotWidth - 8;
-          // A run that starts before the view keeps its label at the left edge.
-          if (left < 8) {
-            width += left - 8;
-            left = 8;
-          }
-          // The newest run's label may use the empty room after it.
-          if (run.lastIndex === chronological.length - 1) width = Math.max(width, Math.min(220, stripWidth - left - 8));
-          if (width < 14) return [];
-          const text = count > 1 ? `${run.subject} ×${count}` : run.subject;
-          const isSelectedRun = selectedIndex >= run.firstIndex && selectedIndex <= run.lastIndex;
-          return [(
-            <span
-              aria-hidden="true"
-              className={`htl-subject${isSelectedRun ? ' selected' : ''}`}
-              data-first-event-id={chronological[run.firstIndex].eventId}
-              key={run.firstIndex}
-              style={{ left: `${left}px`, width: `${width}px` }}
-              title={count > 1 ? `${text} · #${chronological[run.firstIndex].eventId}–#${chronological[run.lastIndex].eventId}` : text}
-            >
-              {text}
-            </span>
-          )];
-        })}
-        {renderedEvents.map((event, offset) => {
-          const index = firstRendered + offset;
-          const kind = eventKindOf(event);
-          const state = states.get(event.eventId) ?? normalState;
-          const status = state.status;
-          const KindIcon = eventKinds[kind].icon;
-          const subject = eventSubject(event);
-          const isSelected = index === selectedIndex;
-          const isRetried = status !== 'failed' && retriedFlags[index];
-          const classes = [
-            'htl-event',
-            `kind-${kind}`,
-            isSelected ? 'selected' : '',
-            linkedEventIds.has(event.eventId) && !isSelected ? 'linked' : '',
-            highlightedEventId === event.eventId ? 'jump-highlighted' : '',
-          ].filter(Boolean).join(' ');
-          return (
-            <div
-              aria-label={[
-                eventTitle(event),
-                subject !== eventTitle(event) ? subject : '',
-                state.spoken,
-                isRetried ? retriedSpoken(event, status) : '',
-                `#${event.eventId}`,
-              ].filter(Boolean).join(', ')}
-              aria-selected={isSelected}
-              className={classes}
-              data-event-id={event.eventId}
-              id={`htl-event-${event.eventId}`}
-              key={event.eventId}
-              onClick={() => selectIndex(index)}
-              role="option"
-              style={{ left: `${(index - windowStart) * slotWidth}px` }}
-              title={`${subject} · #${event.eventId}`}
-            >
-              <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
-                <KindIcon size={13} strokeWidth={2.5} />
-                {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
-                {isRetried && <span className="htl-dot-badge htl-dot-badge-retried"><RotateCcw size={7} strokeWidth={3.5} /></span>}
-              </span>
-            </div>
-          );
-        })}
-        <div aria-hidden="true" className="htl-axis">
-          {renderedEvents.flatMap((event, offset) => {
-            const index = firstRendered + offset;
-            const isSelected = index === selectedIndex;
-            const isNextToSelection = selectedIndex >= 0 && Math.abs(index - selectedIndex) === 1;
-            if (!isSelected && (event.eventId % axisEventInterval !== 0 || isNextToSelection)) return [];
-            return [(
-              <span
-                className={`htl-axis-label${isSelected ? ' selected' : ''}`}
-                key={event.eventId}
-                style={{ left: `${(index - windowStart) * slotWidth + slotWidth / 2}px` }}
-              >
-                #{event.eventId}
-              </span>
-            )];
-          })}
-        </div>
-        <svg aria-hidden="true" className="htl-arcs" height={arcBandHeight} width={stripWidth}>
-          {selectedLinks.flatMap((link) => {
-            const fromIndex = indexByEventId.get(link.fromEventId);
-            const toIndex = indexByEventId.get(link.toEventId);
-            if (fromIndex === undefined || toIndex === undefined) return [];
-            const fromX = xOf(fromIndex);
-            const toX = xOf(toIndex);
-            const depth = Math.min(arcBandHeight - 4, 10 + Math.abs(toIndex - fromIndex) * 2);
-            return [(
-              <path
-                className={`htl-arc kind-${link.kind}`}
-                d={`M ${fromX} 2 C ${fromX} ${depth}, ${toX} ${depth}, ${toX} 2`}
-                key={`${link.kind}-${link.fromEventId}-${link.toEventId}`}
-              />
-            )];
-          })}
-        </svg>
-      </div>
-      {shownEndNote && isEndInView && (
-        <TimelineEndNoteButton
-          endNote={shownEndNote}
-          left={xOf(chronological.length - 1) + 18}
-          onShowEvent={onShowEndNoteEvent}
-        />
-      )}
-      </div>
-
       <div
         aria-describedby={overviewHelpId}
         aria-label="Timeline overview"
@@ -1053,12 +930,21 @@ export function HorizontalTimeline({
           )}
           {hasBrush && (
             <g className="htl-overview-brush">
-              <rect className="htl-overview-brush-fill" height={overviewHeight} rx={3} width={brush.right - brush.left} x={brush.left} y={0} />
+              {/* The page outside the window is dimmed, so the window reads as the part of the lane in view. */}
+              <rect className="htl-overview-outside" height={overviewHeight} width={Math.max(0, brush.left)} x={0} y={0} />
+              <rect
+                className="htl-overview-outside"
+                height={overviewHeight}
+                width={Math.max(0, stripWidth - brush.right)}
+                x={brush.right}
+                y={0}
+              />
+              <rect className="htl-overview-brush-fill" height={overviewHeight - 1} rx={3} width={brush.right - brush.left} x={brush.left} y={0.5} />
               {[brush.left, brush.right].map((edge, edgeIndex) => (
                 <g className="htl-overview-brush-edge" key={edgeIndex}>
-                  <line x1={edge} x2={edge} y1={0} y2={overviewHeight} />
                   {/* Grips sit just outside the brush, in the inset at either end, so they never cover a bar in view. */}
-                  <rect height={16} rx={2} width={5} x={edgeIndex === 0 ? edge - 6 : edge + 1} y={(overviewHeight - 16) / 2} />
+                  <rect height={16} rx={2} width={6} x={edgeIndex === 0 ? edge - 7 : edge + 1} y={(overviewHeight - 16) / 2} />
+                  <line x1={edgeIndex === 0 ? edge - 4 : edge + 4} x2={edgeIndex === 0 ? edge - 4 : edge + 4} y1={(overviewHeight - 8) / 2} y2={(overviewHeight + 8) / 2} />
                 </g>
               ))}
             </g>
@@ -1080,6 +966,113 @@ export function HorizontalTimeline({
             )}
           </div>
         )}
+      </div>
+
+      <div className="htl-lane">
+      <div
+        aria-activedescendant={selectedEvent && selectedIndex >= firstRendered && selectedIndex <= lastRendered
+          ? `htl-event-${selectedEvent.eventId}`
+          : undefined}
+        aria-describedby={helpId}
+        aria-label="Timeline events, oldest on the left"
+        className="htl-strip"
+        style={{
+          '--htl-slot-width': `${slotWidth}px`,
+          '--htl-label-angle': `-${labelAngleDegrees}deg`,
+          '--htl-label-max-width': `${labelMaxWidth}px`,
+          height: `${stripHeight}px`,
+        } as CSSProperties}
+        onKeyDown={handleStripKeyDown}
+        ref={stripRef}
+        role="listbox"
+        tabIndex={0}
+      >
+        {renderedEvents.map((event, offset) => {
+          const index = firstRendered + offset;
+          const kind = eventKindOf(event);
+          const state = states.get(event.eventId) ?? normalState;
+          const status = state.status;
+          const KindIcon = eventKinds[kind].icon;
+          const subject = eventSubject(event);
+          const isSelected = index === selectedIndex;
+          const isRetried = status !== 'failed' && retriedFlags[index];
+          const classes = [
+            'htl-event',
+            `kind-${kind}`,
+            isSelected ? 'selected' : '',
+            linkedEventIds.has(event.eventId) && !isSelected ? 'linked' : '',
+            highlightedEventId === event.eventId ? 'jump-highlighted' : '',
+          ].filter(Boolean).join(' ');
+          return (
+            <div
+              aria-label={[
+                eventTitle(event),
+                subject !== eventTitle(event) ? subject : '',
+                state.spoken,
+                isRetried ? retriedSpoken(event, status) : '',
+                `#${event.eventId}`,
+              ].filter(Boolean).join(', ')}
+              aria-selected={isSelected}
+              className={classes}
+              data-event-id={event.eventId}
+              id={`htl-event-${event.eventId}`}
+              key={event.eventId}
+              onClick={() => selectIndex(index)}
+              role="option"
+              style={{ left: `${(index - windowStart) * slotWidth}px` }}
+              title={`${subject} · #${event.eventId}`}
+            >
+              <span aria-hidden="true" className="htl-label">{subject}</span>
+              <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
+                <KindIcon size={13} strokeWidth={2.5} />
+                {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
+                {isRetried && <span className="htl-dot-badge htl-dot-badge-retried"><RotateCcw size={7} strokeWidth={3.5} /></span>}
+              </span>
+            </div>
+          );
+        })}
+        <div aria-hidden="true" className="htl-axis">
+          {renderedEvents.flatMap((event, offset) => {
+            const index = firstRendered + offset;
+            const isSelected = index === selectedIndex;
+            const isNextToSelection = selectedIndex >= 0 && Math.abs(index - selectedIndex) === 1;
+            if (!isSelected && (event.eventId % axisEventInterval !== 0 || isNextToSelection)) return [];
+            return [(
+              <span
+                className={`htl-axis-label${isSelected ? ' selected' : ''}`}
+                key={event.eventId}
+                style={{ left: `${(index - windowStart) * slotWidth + slotWidth / 2}px` }}
+              >
+                #{event.eventId}
+              </span>
+            )];
+          })}
+        </div>
+        <svg aria-hidden="true" className="htl-arcs" height={arcBandHeight} width={stripWidth}>
+          {selectedLinks.flatMap((link) => {
+            const fromIndex = indexByEventId.get(link.fromEventId);
+            const toIndex = indexByEventId.get(link.toEventId);
+            if (fromIndex === undefined || toIndex === undefined) return [];
+            const fromX = xOf(fromIndex);
+            const toX = xOf(toIndex);
+            const depth = Math.min(arcBandHeight - 4, 10 + Math.abs(toIndex - fromIndex) * 2);
+            return [(
+              <path
+                className={`htl-arc kind-${link.kind}`}
+                d={`M ${fromX} 2 C ${fromX} ${depth}, ${toX} ${depth}, ${toX} 2`}
+                key={`${link.kind}-${link.fromEventId}-${link.toEventId}`}
+              />
+            )];
+          })}
+        </svg>
+      </div>
+      {shownEndNote && isEndInView && (
+        <TimelineEndNoteButton
+          endNote={shownEndNote}
+          left={xOf(chronological.length - 1) + 18}
+          onShowEvent={onShowEndNoteEvent}
+        />
+      )}
       </div>
 
 

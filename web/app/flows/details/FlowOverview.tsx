@@ -12,7 +12,7 @@ import { flowErrorTypeLabel } from '@/lib/semantic';
 import type { ActiveStepExecution, FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { StepMethodInvocation } from './StepMethodInvocation';
-import { HistorySettingsCard, type HistorySettingsChange } from './HistorySettingsCard';
+import { FlowConfigCard, type FlowConfigChange } from './FlowConfigCard';
 import { JsonView } from '../../components/JsonView';
 import { FailureContent, SemanticEventDetails } from './EventDetails';
 import { Fields } from './StepMethodSections';
@@ -20,11 +20,6 @@ import { AttributeRows, ChannelRows, pendingChannelGroups, RawStateJSON, Section
 import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
-
-/** Deprecated Flow configuration fields that Dex stores but ignores. */
-const ignoredFlowConfigKeys = new Set([
-  'deleteExpiredHistoryObjects',
-]);
 
 function useSectionExpand(persistKey: string) {
   const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);
@@ -93,6 +88,7 @@ export function FlowOverview({
   onDeleteChannelMessage,
   onOpenStateWrite,
   savedHistorySettings,
+  closedFlowConfig,
   onHistorySettingsSaved,
 }: {
   summary: FlowSummary;
@@ -101,8 +97,10 @@ export function FlowOverview({
   deletingChannelMessage?: string;
   onDeleteChannelMessage?: (channelName: string, messageId: string) => Promise<void>;
   onOpenStateWrite?: (kind: StateWriteKind) => void;
-  savedHistorySettings?: HistorySettingsChange;
-  onHistorySettingsSaved?: (saved: HistorySettingsChange, savedRun: FlowSummary) => Promise<void>;
+  savedHistorySettings?: FlowConfigChange;
+  /** A closed run's Flow config, read once since live state is not loaded for it. */
+  closedFlowConfig?: Record<string, unknown>;
+  onHistorySettingsSaved?: (saved: FlowConfigChange, savedRun: FlowSummary) => Promise<void>;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = summary.flowStatus === 'Running'
@@ -121,7 +119,6 @@ export function FlowOverview({
   const pendingMessageCount = channelGroups.reduce((count, channel) => count + channel.messages.length, 0);
   const [attributesView, setAttributesView] = useState<'details' | 'raw'>('details');
   const [channelsView, setChannelsView] = useState<'details' | 'raw'>('details');
-  const flowConfig = state?.flowConfig ? withoutIgnoredFlowConfig(state.flowConfig) : undefined;
   const failure = closed ? closeFailureOf(closed) : undefined;
 
   const setAllActiveStepsExpanded = (expanded: boolean) => {
@@ -275,12 +272,39 @@ export function FlowOverview({
             )}
           </OverviewSection>
         )}
+      </div>
 
-        {state && state.queuedSteps.length > 0 && (
-          <OverviewSection title="Queued steps" count={state.queuedSteps.length}>
-            <JsonView value={state.queuedSteps} label="Queued steps" variant="inline" persistKey="overview:queued-steps" />
-          </OverviewSection>
-        )}
+      {/* The side column holds the run's identity, config and records, so both columns carry weight. */}
+      <div className="run-overview-side">
+        <FlowConfigCard
+          summary={summary}
+          flowConfig={state ? { ...(state.flowConfig ?? {}), ...savedHistorySettings } : closedFlowConfig}
+          onSaved={onHistorySettingsSaved}
+        />
+
+        <OverviewSection title="Identity">
+          <FlowRouting routing={routing} flowType={summary.flowType} showFlowType />
+          <Fields compact values={[
+            ['Request ID', summary.requestId || undefined],
+            ['First run ID', summary.firstRunId && summary.firstRunId !== summary.runId ? summary.firstRunId : undefined],
+          ]} />
+        </OverviewSection>
+
+        <OverviewSection title="Start input">
+          {started ? (
+            <div className="semantic-event">
+              <SemanticEventDetails
+                event={started}
+                parentFlowId={summary.flowId}
+                showStartHeading={false}
+                showStartFlowConfig={false}
+              />
+            </div>
+          ) : (
+            <p className="overview-quiet">The start event is not in the loaded history page.</p>
+          )}
+        </OverviewSection>
+
         {state && state.completedSteps.length > 0 && (
           <OverviewSection title="Completed outputs" count={state.completedSteps.length}>
             <JsonView
@@ -291,42 +315,14 @@ export function FlowOverview({
             />
           </OverviewSection>
         )}
+        {state && state.queuedSteps.length > 0 && (
+          <OverviewSection title="Queued steps" count={state.queuedSteps.length}>
+            <JsonView value={state.queuedSteps} label="Queued steps" variant="inline" persistKey="overview:queued-steps" />
+          </OverviewSection>
+        )}
         {state && state.queuedSteps.length === 0 && state.completedSteps.length === 0 && (
           <p className="overview-quiet overview-quiet-line">No queued steps · No completed outputs</p>
         )}
-
-        <OverviewSection title="Start input">
-          {started ? (
-            <div className="semantic-event">
-              <SemanticEventDetails
-                event={started}
-                parentFlowId={summary.flowId}
-                showStartHeading={false}
-              />
-            </div>
-          ) : (
-            <p className="overview-quiet">The start event is not in the loaded history page.</p>
-          )}
-        </OverviewSection>
-      </div>
-
-      <div className="run-overview-side">
-        <OverviewSection title="Details">
-          <FlowRouting routing={routing} flowType={summary.flowType} showFlowType />
-          <Fields compact values={[
-            ['Request ID', summary.requestId || undefined],
-            ['First run ID', summary.firstRunId && summary.firstRunId !== summary.runId ? summary.firstRunId : undefined],
-          ]} />
-          {flowConfig && (
-            <JsonView value={flowConfig} label="Flow config" persistKey="overview:flow-config" />
-          )}
-        </OverviewSection>
-
-        <HistorySettingsCard
-          summary={summary}
-          flowConfig={state ? { ...state.flowConfig, ...savedHistorySettings } : undefined}
-          onSaved={onHistorySettingsSaved}
-        />
       </div>
     </div>
   );
@@ -433,10 +429,6 @@ function closeFailureOf(closed: FlowHistoryEvent): { message: string; type: stri
 function hasCloseResults(closed: FlowHistoryEvent): boolean {
   const results = closed.payload.results;
   return Array.isArray(results) ? results.length > 0 : results !== undefined && results !== null;
-}
-
-function withoutIgnoredFlowConfig(flowConfig: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(flowConfig).filter(([key]) => !ignoredFlowConfigKeys.has(key)));
 }
 
 function statusTone(status: string): string {

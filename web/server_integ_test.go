@@ -124,6 +124,7 @@ func TestWebServerProtectsUnsafeAPIRequests(t *testing.T) {
 		{http.MethodPost, "/api/v2/agent-sessions/settings"},
 		{http.MethodPut, "/api/flows/attributes"},
 		{http.MethodPut, "/api/flows/config/history"},
+		{http.MethodPut, "/api/flows/config"},
 		{http.MethodDelete, "/api/flows/channels/messages"},
 	} {
 		request, err := http.NewRequest(route.method, harness.http.URL+route.path, strings.NewReader(`{}`))
@@ -323,6 +324,84 @@ func TestWebServerUpdatesOnlyEditedHistoryConfigFields(t *testing.T) {
 		rejectedBody.Error != "history window exceeds history.maxWindowEvents" ||
 		rejectedBody.GRPCCode != int32(codes.InvalidArgument) {
 		t.Fatalf("server rejection status=%d body=%+v", rejected.StatusCode, rejectedBody)
+	}
+}
+
+func TestWebServerUpdatesOnlyEditedFlowConfigFields(t *testing.T) {
+	service := &flowService{configRequests: make(chan *dexpb.UpdateFlowConfigRequest, 1)}
+	harness := newHarness(t, service)
+
+	for _, scenario := range []struct {
+		name     string
+		body     string
+		expected *dexpb.FlowConfig
+	}{
+		{
+			name:     "window",
+			body:     `{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":500}`,
+			expected: &dexpb.FlowConfig{HistoryWindowEvents: ptr.Any(int32(500))},
+		},
+		{
+			name:     "step durability",
+			body:     `{"flowId":"checkout-1","runId":"run-1","stepDurability":2}`,
+			expected: &dexpb.FlowConfig{StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC)},
+		},
+		{
+			name: "active step search mode",
+			body: `{"flowId":"checkout-1","runId":"run-1","activeStepSearchMode":3}`,
+			expected: &dexpb.FlowConfig{
+				ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED),
+			},
+		},
+		{
+			name:     "attribute stores",
+			body:     `{"flowId":"checkout-1","runId":"run-1","attributeStoreNames":["primary"]}`,
+			expected: &dexpb.FlowConfig{AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"primary"}}},
+		},
+		{
+			name:     "attribute stores off",
+			body:     `{"flowId":"checkout-1","runId":"run-1","attributeStoreNames":[]}`,
+			expected: &dexpb.FlowConfig{AttributeStoreNames: &dexpb.AttributeStoreNames{}},
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			response := sendJSON(t, http.MethodPut, harness.http.URL+"/api/flows/config", scenario.body)
+			body := readBody(t, response)
+			response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d body=%q", response.StatusCode, body)
+			}
+			update := <-service.configRequests
+			if update.GetFlowId() != "checkout-1" || update.GetRunId() != "run-1" {
+				t.Fatalf("unexpected run target: %+v", update)
+			}
+			// UpdateFlowConfig merges set fields, so every other field must stay unset.
+			if !proto.Equal(update.GetFlowConfig(), scenario.expected) {
+				t.Fatalf("flow config = %v, want only %v", update.GetFlowConfig(), scenario.expected)
+			}
+		})
+	}
+
+	for _, invalidBody := range []string{
+		`{"runId":"run-1","stepDurability":1}`,
+		`{"flowId":"checkout-1","runId":"run-1"}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":0}`,
+		`{"flowId":"checkout-1","runId":"run-1","stepDurability":0}`,
+		`{"flowId":"checkout-1","runId":"run-1","stepDurability":3}`,
+		`{"flowId":"checkout-1","runId":"run-1","activeStepSearchMode":4}`,
+		`{"flowId":"checkout-1","runId":"run-1","attributeStoreNames":[""]}`,
+		`{"flowId":"checkout-1","runId":"run-1","offloadHistory":false}`,
+		`{"flowId":"checkout-1","runId":"run-1","workerTarget":{}}`,
+	} {
+		response := sendJSON(t, http.MethodPut, harness.http.URL+"/api/flows/config", invalidBody)
+		body := readBody(t, response)
+		response.Body.Close()
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d body=%q", invalidBody, response.StatusCode, body)
+		}
+	}
+	if len(service.configRequests) != 0 {
+		t.Fatal("rejected Flow config update reached FlowService")
 	}
 }
 

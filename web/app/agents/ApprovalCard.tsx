@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { BlockedReason } from './WorkingAsChoice';
 import { useState } from 'react';
 import { formatElapsedDuration } from '@/lib/timeline';
 import { SESSION_COPY } from './copy';
@@ -107,7 +108,7 @@ export function ApprovalCard({
           </button>
         </div>
       )}
-      {blockedReason && <p className="agc-blocked">{blockedReason}</p>}
+      {blockedReason && <BlockedReason reason={blockedReason} />}
       {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
     </div>
   );
@@ -187,7 +188,7 @@ export function QuestionCard({
         </div>
       </form>
       {(answerBlockedReason ?? declineBlockedReason) && (
-        <p className="agc-blocked">{answerBlockedReason ?? declineBlockedReason}</p>
+        <BlockedReason reason={(answerBlockedReason ?? declineBlockedReason) as string} />
       )}
       {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
     </div>

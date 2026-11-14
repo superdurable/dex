@@ -73,16 +73,19 @@ Use **Older** and **Newer** to move between pages, and **Oldest** to open
 the oldest retained page. Use **Latest** to return to the page that **Live**
 keeps extending.
 
-One line under the selected event's title names its related events: the
-event's WaitFor, its source execution, and the executions it started, such as
-**Source execution** from SyncBatch-3095 decision, event #3096. Click an entry
+Two lines under the selected event's title name its related events. **From**
+names the one event that led to it: an Execute's WaitFor completed, the
+decision that started a Step, or another source. **To** names the events it
+led to: the Execute after a WaitFor completed, or each Step that a decision
+started. Each entry names only the other event, such as **From**
+ResumeTurn-1 · WaitFor completed · #8 · 44ms before. Click an entry
 on the current page to select that event. An entry on another page says
 whether its page is older or newer. Clicking it loads a page around the event
 and highlights it. **Back** returns to the previous page. Dex Server keeps
 only a
 [recent history window](/reference/server/configuration#history-window). A
 pruned related event says the history window removed it, and it is not a
-link. "Event not on this page" means Dex Web knows the related event exists
+link. "Not on this page" means Dex Web knows the related event exists
 but cannot locate it, so it offers no jump. The oldest retained page states
 which event numbers were removed.
 

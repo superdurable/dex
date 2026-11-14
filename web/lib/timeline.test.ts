@@ -17,7 +17,9 @@ import {
   buildTimelineStepLinks,
   formatElapsedDuration,
   newestTimelineEvents,
+  timelineRelatedEventGroup,
   timelineRelatedEventLabel,
+  timelineRelatedEventStubLabel,
 } from './timeline';
 import type { FlowHistoryEvent } from './types';
 
@@ -289,7 +291,7 @@ describe('selected event relations across pages', () => {
 
     expect(relations.stubs).toHaveLength(1);
     expect(timelineRelatedEventLabel(relations.stubs[0]))
-      .toBe('from Review-3 WaitFor completed, event #1001 (older page), waited 2h 5m');
+      .toBe('Review-3 · WaitFor completed · #1001 (older page) · 2h 5m before');
   });
 
   it('falls back to an unknown far end without the reported event ID', () => {
@@ -297,7 +299,7 @@ describe('selected event relations across pages', () => {
     const relations = buildSelectedTimelineRelations([execute], execute, newestPage);
 
     expect(relations.stubs.map((stub) => [stub.relation, stub.location])).toEqual([['wait-for', 'unknown']]);
-    expect(timelineRelatedEventLabel(relations.stubs[0])).toBe('from Review-3 WaitFor completed (event not on this page)');
+    expect(timelineRelatedEventLabel(relations.stubs[0])).toBe('Review-3 · WaitFor completed (not on this page)');
   });
 
   it('does not invent a WaitFor for an Execute that skipped it', () => {
@@ -316,7 +318,7 @@ describe('selected event relations across pages', () => {
 
     expect(relations.stubs[0].location).toBe('pruned');
     expect(timelineRelatedEventLabel(relations.stubs[0]))
-      .toBe('from Review-3 WaitFor completed (event #900, removed by the history window)');
+      .toBe('Review-3 · WaitFor completed · #900 (removed by the history window)');
   });
 
   it('marks a missing older event on the oldest retained page as pruned', () => {
@@ -345,7 +347,7 @@ describe('selected event relations across pages', () => {
     const waitFor = stepEvent(2001, 'StepWaitForCompleted', { ...review, fromEventId: '77' });
     const relations = buildSelectedTimelineRelations([waitFor], waitFor, newestPage);
 
-    expect(timelineRelatedEventLabel(relations.stubs[0])).toBe('from Intake-1 decision, event #77 (older page)');
+    expect(timelineRelatedEventLabel(relations.stubs[0])).toBe('Intake-1 · decision · #77 (older page)');
   });
 
   it('lists started executions on the page and on a newer page', () => {
@@ -360,7 +362,7 @@ describe('selected event relations across pages', () => {
     const relations = buildSelectedTimelineRelations([decision, started], decision, { hasOlder: true, hasNewer: true });
 
     expect(relations.related.filter((entry) => entry.relation === 'started').map((entry) => [entry.description, entry.location]))
-      .toEqual([['Review-3 first event', 'loaded'], ['Notify execution', 'unknown']]);
+      .toEqual([['Review-3 · started', 'loaded'], ['Notify · started', 'unknown']]);
   });
 
   it('builds every link of a 20,000-event page in O(n log n)', () => {
@@ -425,5 +427,38 @@ describe('Timeline row times', () => {
       row(10506, '2026-11-08T10:11:01Z'),
       row(10505, '2026-11-08T10:09:00Z'),
     ])).toEqual([true, false, true, false, false, true]);
+  });
+});
+
+describe('related event labels', () => {
+  const execute = {
+    id: 'execute-8',
+    kind: 'condition-wait' as const,
+    relation: 'execute' as const,
+    direction: 'newer' as const,
+    stepExecutionId: 'ResumeTurn-1',
+    description: 'ResumeTurn-1 · Execute',
+    eventId: 9,
+    location: 'loaded' as const,
+    elapsedDurationMs: 44,
+  };
+
+  it('puts the elapsed time on the item it belongs to, worded by direction', () => {
+    expect(timelineRelatedEventGroup(execute)).toBe('To');
+    expect(timelineRelatedEventLabel(execute)).toBe('ResumeTurn-1 · Execute · #9 · after 44ms');
+    const waitFor = { ...execute, relation: 'wait-for' as const, direction: 'older' as const, description: 'ResumeTurn-1 · WaitFor completed', eventId: 8 };
+    expect(timelineRelatedEventGroup(waitFor)).toBe('From');
+    expect(timelineRelatedEventLabel(waitFor)).toBe('ResumeTurn-1 · WaitFor completed · #8 · 44ms before');
+    expect(timelineRelatedEventStubLabel({ ...waitFor, location: 'other-page' }))
+      .toBe('From ResumeTurn-1 · WaitFor completed · #8 (older page) · 44ms before');
+  });
+
+  it('lists at most one From for an Execute event', () => {
+    const context = { stepExecutionId: 'Review-3', fromStepExecutionId: 'Intake-1', stepType: 'Review' };
+    const decision = stepEvent(5, 'StepExecuteCompleted', { stepExecutionId: 'Intake-1', stepType: 'Intake' });
+    const waitFor = stepEvent(6, 'StepWaitForCompleted', context);
+    const executeEvent = stepEvent(7, 'StepExecuteCompleted', context);
+    const relations = buildSelectedTimelineRelations([decision, waitFor, executeEvent], executeEvent, { hasOlder: false, hasNewer: false });
+    expect(relations.related.filter((entry) => timelineRelatedEventGroup(entry) === 'From')).toHaveLength(1);
   });
 });

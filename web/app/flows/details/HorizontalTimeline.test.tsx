@@ -14,10 +14,17 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay } from './HorizontalTimeline';
+import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay, timelineStripHeight } from './HorizontalTimeline';
+import { timelineSlotWidth } from './timelineOverview';
 
-/** Events in view at the 1200 px jsdom fallback width. */
-const visibleCount = Math.floor((1200 - horizontalTimelineLayout.labelRunWidth) / horizontalTimelineLayout.slotWidth);
+/** Events in view at the 1200 px jsdom fallback width, for a page of eventCount events. */
+function visibleCountFor(eventCount: number): number {
+  const available = 1200 - horizontalTimelineLayout.labelRunWidth;
+  return Math.floor(available / timelineSlotWidth(eventCount, available));
+}
+/** A 1000- or 2000-event page is dense. */
+const visibleCount = visibleCountFor(1000);
+const visibleCount100 = visibleCountFor(100);
 
 afterEach(() => {
   cleanup();
@@ -80,7 +87,7 @@ describe('horizontal Timeline', () => {
     expect(strip.getAttribute('aria-activedescendant')).toBe('htl-event-99');
 
     fireEvent.keyDown(strip, { key: 'PageUp' });
-    expect(option(99 - visibleCount)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(99 - visibleCount100)?.getAttribute('aria-selected')).toBe('true');
 
     fireEvent.keyDown(strip, { key: 'Home' });
     expect(option(1)?.getAttribute('aria-selected')).toBe('true');
@@ -178,9 +185,12 @@ describe('horizontal Timeline', () => {
 
   it('labels events with their subject and numbers every tenth event on the axis', () => {
     render(<Harness pageEvents={events(100)} initialEventId={97} />);
-    // A hundred Charge events in a row share one flat label; each dot names itself on hover.
-    expect([...document.querySelectorAll('.htl-subject')].map((label) => label.textContent)).toEqual(['Charge ×100']);
-    expect(document.querySelector('.htl-subject')?.className).toContain('selected');
+    // Each event has its own slanted label; the selected one is emphasized through its event.
+    const labels = [...document.querySelectorAll('.htl-event .htl-label')].map((label) => label.textContent);
+    expect(labels.length).toBeGreaterThan(1);
+    expect(labels.every((label) => label === 'Charge')).toBe(true);
+    expect(option(97)?.className).toContain('selected');
+    expect(option(97)?.querySelector('.htl-label')?.textContent).toBe('Charge');
     expect(option(97)?.getAttribute('title')).toBe('Charge · #97');
     const axis = [...document.querySelectorAll('.htl-axis-label')].map((label) => label.textContent);
     expect(axis).toContain('#90');
@@ -240,9 +250,10 @@ describe('horizontal Timeline', () => {
     // Every event is in view, so there is no brush to move.
     expect(document.querySelector('.htl-overview-brush')).toBeNull();
 
+    // A page that fits the lane draws each bar under its own dot, whatever the event times.
     const spread = events(8).map((event, index) => ({ ...event, eventTime: at(index * 1000) }));
     rerender(<HorizontalTimeline events={spread} selectedEvent={null} onSelectEvent={() => {}} />);
-    expect(overview.getAttribute('data-axis')).toBe('time');
+    expect(overview.getAttribute('data-axis')).toBe('index');
     expect(bars()).toHaveLength(8);
     expect(bars().every((bar) => bar.querySelector('rect')?.getAttribute('width') === '20')).toBe(true);
   });
@@ -329,7 +340,7 @@ describe('horizontal Timeline', () => {
     ];
     render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
     const dot = (eventId: number) => option(eventId)?.querySelector('.htl-dot');
-    const label = (eventId: number) => document.querySelector(`.htl-subject[data-first-event-id="${eventId}"]`)?.textContent;
+    const label = (eventId: number) => option(eventId)?.querySelector('.htl-label')?.textContent;
 
     // Review-1 moved on to Execute, so its wait is normal; Ship-1 is still waiting.
     expect(dot(2)?.className).toContain('htl-family-step htl-status-normal');
@@ -409,9 +420,10 @@ describe('horizontal Timeline', () => {
     expect(wheel(0, -300, true).defaultPrevented).toBe(true);
     expect(overview.getAttribute('aria-valuenow')).toBe('0');
 
-    act(() => { wheel(horizontalTimelineLayout.slotWidth * 5, 0); });
+    const denseSlotWidth = timelineSlotWidth(1000, 1200 - horizontalTimelineLayout.labelRunWidth);
+    act(() => { wheel(denseSlotWidth * 5, 0); });
     expect(overview.getAttribute('aria-valuenow')).toBe('5');
-    act(() => { wheel(0, horizontalTimelineLayout.slotWidth * 5, true); });
+    act(() => { wheel(0, denseSlotWidth * 5, true); });
     expect(overview.getAttribute('aria-valuenow')).toBe('10');
     expect(onPageWheel).not.toHaveBeenCalled();
     document.removeEventListener('wheel', onPageWheel);
@@ -554,7 +566,7 @@ describe('horizontal Timeline', () => {
   });
 
   it('never moves a widened brush on press, even when pressed outside the real window', () => {
-    render(<Harness pageEvents={events(2000)} />);
+    render(<Harness pageEvents={events(4000)} />);
     vi.stubGlobal('PointerEvent', class extends MouseEvent {
       pointerId = 1;
     });
@@ -632,8 +644,9 @@ describe('horizontal Timeline', () => {
     const overview = screen.getByRole('slider', { name: 'Timeline overview' });
     expect(overview.getAttribute('data-axis')).toBe('index');
     overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
-    // Event #3 sits at the center of the third of eight equal slots.
-    fireEvent.pointerMove(overview, { clientX: 10 + (2.5 / 8) * 1180, pointerId: 1 });
+    // The page fits the lane, so event #3's bar sits under its dot, at the center of the third slot.
+    const slot = timelineSlotWidth(8, 1200 - horizontalTimelineLayout.labelRunWidth);
+    fireEvent.pointerMove(overview, { clientX: 2.5 * slot, pointerId: 1 });
     const tooltip = document.querySelector('.htl-overview-tooltip');
     expect(tooltip?.textContent).toContain('#3 · Charge');
     expect(tooltip?.querySelector('strong')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
@@ -669,7 +682,7 @@ describe('horizontal Timeline', () => {
 
       click(overview, barX);
       expect(option(20)?.getAttribute('aria-selected')).toBe('true');
-      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(19 - visibleCount / 2));
+      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(19 - visibleCount100 / 2));
 
       // A bar inside the brush selects too, and the view recenters on the new event.
       const insideX = clientXAt(23.5 / 100);
@@ -678,7 +691,7 @@ describe('horizontal Timeline', () => {
       click(overview, insideX);
       expect(option(24)?.getAttribute('aria-selected')).toBe('true');
       expect(selectedOptions()).toHaveLength(1);
-      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(23 - visibleCount / 2));
+      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(23 - visibleCount100 / 2));
     });
 
     it('selects the failed event of a multi-event bar', () => {
@@ -788,14 +801,15 @@ describe('horizontal Timeline', () => {
     expect(document.querySelector('.htl-end-note')).toBeNull();
   });
 
-  it('groups consecutive events about the same subject under one label', () => {
+  it('gives every event its own slanted label, never grouped or shortened to a count', () => {
     render(<HorizontalTimeline events={[
       ...events(3),
       { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
     ]} onSelectEvent={() => {}} selectedEvent={null} />);
-    const labels = [...document.querySelectorAll('.htl-subject')];
-    expect(labels.map((label) => label.textContent)).toEqual(['Charge ×3', 'AwaitNextWindow']);
-    expect(labels[0].getAttribute('title')).toBe('Charge ×3 · #1–#3');
+    const labels = [...document.querySelectorAll('.htl-event .htl-label')];
+    expect(labels.map((label) => label.textContent)).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    expect(strip.style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
   });
 
   it('moves the selection with J and K and time travels with T from anywhere on the page', () => {
@@ -826,3 +840,62 @@ function HarnessWithTimeTravel({ onTimeTravelFromEvent }: { onTimeTravelFromEven
     />
   );
 }
+
+describe('horizontal Timeline layout', () => {
+  describe('one x mapping for the lane, its labels, and its overview', () => {
+    const laneCenter = (eventId: number) => {
+      const dot = option(eventId)!;
+      return Number.parseFloat(dot.style.left) + Number.parseFloat(dot.parentElement!.style.getPropertyValue('--htl-slot-width')) / 2;
+    };
+
+    it('draws each overview bar of a page that fits under its own dot, with no window to move', () => {
+      render(<Harness pageEvents={events(12)} />);
+      const bars = [...document.querySelectorAll('.htl-bar')];
+      expect(bars).toHaveLength(12);
+      bars.forEach((bar, index) => {
+        const rect = bar.querySelector('rect:last-of-type')!;
+        const center = Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')) / 2;
+        expect(center).toBeCloseTo(laneCenter(index + 1), 0);
+      });
+      expect(document.querySelector('.htl-overview-brush')).toBeNull();
+    });
+
+    it('draws the overview above the lane', () => {
+      render(<Harness pageEvents={events(12)} />);
+      const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+      const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      expect(overview.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('dims the page outside the window of a lane that scrolls', () => {
+      render(<Harness pageEvents={events(1000)} />);
+      const fill = document.querySelector('.htl-overview-brush-fill')!;
+      const outside = [...document.querySelectorAll('.htl-overview-outside')];
+      expect(outside).toHaveLength(2);
+      expect(Number(outside[0].getAttribute('width'))).toBeCloseTo(Number(fill.getAttribute('x')), 0);
+    });
+  });
+
+  describe('lane density', () => {
+    it('sizes the label band to the longest label on the page, up to the widest label', () => {
+      const short = timelineStripHeight(['SyncBatch', 'Checkpoint']);
+      const long = timelineStripHeight(['StoreGeneratedCustomerMessageStep']);
+      expect(short).toBeLessThan(long);
+      expect(timelineStripHeight(['x'.repeat(200)])).toBe(timelineStripHeight(['x'.repeat(100)]));
+      render(<Harness pageEvents={events(1000)} />);
+      const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      const height = strip.style.height;
+      expect(height).toBe(`${timelineStripHeight(['Charge'])}px`);
+      fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+      expect(strip.style.height).toBe(height);
+    });
+
+    it('spreads a short page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {
+      expect(timelineSlotWidth(5, 1000)).toBe(120);
+      expect(timelineSlotWidth(12, 1000)).toBe(83);
+      expect(timelineSlotWidth(25, 1000)).toBe(40);
+      expect(timelineSlotWidth(100, 1000)).toBe(36);
+      expect(timelineSlotWidth(1000, 1000)).toBe(36);
+    });
+  });
+});

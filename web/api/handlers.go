@@ -54,6 +54,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("DELETE /api/flows/channels/messages", handler.deleteChannelMessage)
 	mux.HandleFunc("PUT /api/flows/attributes", handler.setAttribute)
 	mux.HandleFunc("PUT /api/flows/config/history", handler.updateFlowHistoryConfig)
+	mux.HandleFunc("PUT /api/flows/config", handler.updateFlowConfig)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("GET /api/flows/stream", handler.readStream)
 	mux.HandleFunc("POST /api/flows/time-travel", handler.timeTravelFlow)
@@ -170,6 +171,70 @@ func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request 
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
+}
+
+// updateFlowConfig forwards only edited fields, since UpdateFlowConfig merges set fields.
+func (h *handler) updateFlowConfig(response http.ResponseWriter, request *http.Request) {
+	var body updateFlowConfigRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	flowConfig, err := flowConfigUpdateOf(body)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	_, err = h.client.UpdateFlowConfig(request.Context(), &dexpb.UpdateFlowConfigRequest{
+		FlowId:     body.FlowID,
+		RunId:      body.RunID,
+		FlowConfig: flowConfig,
+	})
+	if err != nil {
+		writeGRPCError(response, err, "UpdateFlowConfig")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
+}
+
+// flowConfigUpdateOf returns the FlowConfig that sets only the request's fields, or an input error
+// when the run is missing, no field is set, or a value is outside its field's range.
+func flowConfigUpdateOf(body updateFlowConfigRequest) (*dexpb.FlowConfig, error) {
+	if body.FlowID == "" || body.RunID == "" {
+		return nil, errors.New("flowId and runId are required")
+	}
+	if body.HistoryWindowEvents == nil && body.StepDurability == nil &&
+		body.ActiveStepSearchMode == nil && body.AttributeStoreNames == nil {
+		return nil, errors.New("historyWindowEvents, stepDurability, activeStepSearchMode, or attributeStoreNames is required")
+	}
+	flowConfig := &dexpb.FlowConfig{HistoryWindowEvents: body.HistoryWindowEvents}
+	if body.HistoryWindowEvents != nil && *body.HistoryWindowEvents <= 0 {
+		return nil, errors.New("historyWindowEvents must be a positive integer")
+	}
+	if body.StepDurability != nil {
+		durability := dexpb.StepDurability(*body.StepDurability)
+		if durability != dexpb.StepDurability_STEP_DURABILITY_SYNC && durability != dexpb.StepDurability_STEP_DURABILITY_ASYNC {
+			return nil, errors.New("stepDurability must be 1 (sync) or 2 (async)")
+		}
+		flowConfig.StepDurability = &durability
+	}
+	if body.ActiveStepSearchMode != nil {
+		mode := dexpb.ActiveStepSearchMode(*body.ActiveStepSearchMode)
+		if mode < dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL ||
+			mode > dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED {
+			return nil, errors.New("activeStepSearchMode must be 1, 2, or 3")
+		}
+		flowConfig.ActiveStepSearchMode = &mode
+	}
+	if body.AttributeStoreNames != nil {
+		for _, name := range *body.AttributeStoreNames {
+			if name == "" {
+				return nil, errors.New("attributeStoreNames must not contain an empty name")
+			}
+		}
+		flowConfig.AttributeStoreNames = &dexpb.AttributeStoreNames{Names: *body.AttributeStoreNames}
+	}
+	return flowConfig, nil
 }
 
 // encodeDebugValue accepts only the scalar and JSON types a person can type into the debug view.
