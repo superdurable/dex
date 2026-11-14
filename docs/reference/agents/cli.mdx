@@ -732,9 +732,9 @@ waited, and how to quit.
   plus the signal number.
 
 By default the lease lasts 600 seconds, and the command renews it every third
-of that, every 200 seconds. A failed renewal is tried again within 5 seconds. A command
-that exits releases the lease at once, and a waiting command takes the session
-within about a second, however long the lease lasts. A command that was
+of that, every 200 seconds. A command that exits releases the lease at once,
+and a waiting command takes the session within about a second, however long
+the lease lasts. A command that was
 killed, or paused for longer than the lease, such as with Ctrl-Z or a laptop
 that sleeps, holds the session until its lease expires: up to 10 minutes by
 default. When a paused command continues and finds that another command took
@@ -744,8 +744,7 @@ its session, its chat stops with one line and exit code 1:
 Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
 ```
 
-Changed in 0.6.9: the lease lasts 600 seconds instead of 15, and a failed
-renewal is tried again within 5 seconds instead of at the next renewal.
+Changed in 0.6.9: the lease lasts 600 seconds instead of 15.
 **sessions.lease_ttl_seconds** in the [configuration file](#configuration)
 sets the lease, from 10 to 3600 seconds. The environment variable
 **DEX_AGENTS_SESSION_LEASE_TTL_SECONDS**, from 1 to 3600 seconds, overrides

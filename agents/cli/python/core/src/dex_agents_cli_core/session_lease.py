@@ -56,10 +56,6 @@ LEASE_CALL_TIMEOUT_SECONDS = 5.0
 LEASE_RELEASE_TIMEOUT_SECONDS = 2.0
 #: The share of the TTL by which a session's pull permit ends before the lease it confirmed.
 RENEWAL_SAFETY_MARGIN_RATIO = 0.2
-#: The longest wait before a failed renewal is tried again; a shorter renewal interval wins.
-#:
-#: .. versionadded:: 0.6.9
-RENEWAL_RETRY_INTERVAL_SECONDS = 5.0
 #: The exit code of a chat whose lease no renewal confirmed in time.
 LEASE_UNCONFIRMED_EXIT_CODE = 1
 _HOST_NAME_LIMIT = 255
@@ -253,10 +249,6 @@ class HeldSessionLease:
                     "cannot renew the session lease: session=%s: %s",
                     session_id,
                     error or type(error).__name__,
-                )
-                # A long TTL renews rarely; a retry within seconds survives a brief outage.
-                next_renewal_at = min(
-                    next_renewal_at, time.monotonic() + RENEWAL_RETRY_INTERVAL_SECONDS
                 )
                 continue
             lease = result.lease

@@ -66,7 +66,7 @@ The lease TTL is 600 seconds unless the configuration file's
 `sessions.lease_ttl_seconds`, from 10 to 3600, sets it.
 `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, from 1 to 3600, overrides both; any
 other value of it is ignored. The command renews the lease every third of the
-TTL and tries a failed renewal again within 5 seconds. Changed in 0.6.9: the
+TTL. Changed in 0.6.9: the
 TTL was 15 seconds and came only from the variable.
 
 `/image <path>` attaches an image file to the next message. A leading `~` is

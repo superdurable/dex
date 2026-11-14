@@ -83,8 +83,7 @@ The lease TTL is 600 seconds unless the configuration file's
 `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, from 1 to 3600, overrides both; any
 other value of it is ignored. See
 `CommandEnvironment.resolve_session_lease_ttl_seconds`. Changed in 0.6.9: the
-TTL was 15 seconds and came only from the variable, and a failed renewal
-waited for the next renewal interval.
+TTL was 15 seconds and came only from the variable.
 
 One pull permit, `SessionPullPermit`, bounds how long the session Worker
 pulls without a confirmed lease. It is armed when the Worker starts pulling,
@@ -93,8 +92,7 @@ minus a fifth of the TTL, on the monotonic clock, so a change of the wall
 clock never moves it. Only an acquire or renewal that the session confirmed
 extends it, to that request's send time plus the same span. Every lease read,
 acquire, and renewal is bounded by the time the permit has left, and a
-renewal, sent every third of the TTL, also by one renewal interval. A failed
-renewal is tried again within 5 seconds.
+renewal, sent every third of the TTL, also by one renewal interval.
 When the permit expires, whatever is in progress, the session Worker stops
 pulling first, and its listeners hear only after the Worker's close stopped
 new tasks. An answer that arrives once the deadline passed expires the permit
