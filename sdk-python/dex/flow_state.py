@@ -222,7 +222,7 @@ def _map_active_step_execution(
     flow_id: str, step: pb.ActiveStepExecutionState
 ) -> ActiveStepExecution:
     step_type_part, separator, number_part = step.step_execution_id.rpartition("-")
-    execution_number = int(number_part) if number_part.isdigit() else 0
+    execution_number = _parse_execution_number(number_part)
     if separator == "" or step_type_part == "" or execution_number < 1:
         raise RuntimeError(
             f"Dex returned a malformed Step execution ID {step.step_execution_id!r} "
@@ -249,6 +249,15 @@ def _map_active_step_execution(
             else None
         ),
     )
+
+
+def _parse_execution_number(number_part: str) -> int:
+    """Return the ASCII decimal number, or 0 when it is not a safe integer."""
+    is_ascii_decimal = number_part.isascii() and number_part.isdecimal()
+    if not is_ascii_decimal or len(number_part) > _MAX_SAFE_INTEGER_DIGITS:
+        return 0
+    execution_number = int(number_part)
+    return execution_number if execution_number <= _MAX_SAFE_INTEGER else 0
 
 
 def _map_invocation(
@@ -289,6 +298,10 @@ def _map_failure(failure: pb.StepMethodFailure) -> StepMethodFailureInfo:
         backend_error=failure.backend_error,
     )
 
+
+# Matches the TypeScript SDK, which rejects numbers above Number.MAX_SAFE_INTEGER.
+_MAX_SAFE_INTEGER = 2**53 - 1
+_MAX_SAFE_INTEGER_DIGITS = len(str(_MAX_SAFE_INTEGER))
 
 _INVOCATION_PHASES = {
     pb.STEP_METHOD_INVOCATION_PHASE_PENDING: StepMethodInvocationPhase.PENDING,

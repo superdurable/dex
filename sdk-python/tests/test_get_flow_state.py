@@ -168,7 +168,17 @@ def test_get_flow_state_reports_default_task_queue_as_empty() -> None:
 
 
 @pytest.mark.parametrize(
-    "step_execution_id", ["ChargeStep", "-1", "ChargeStep-0", "Step-x"]
+    "step_execution_id",
+    [
+        "ChargeStep",
+        "-1",
+        "ChargeStep-0",
+        "Step-x",
+        "Step-\u00b2",
+        "Step-\u0661",
+        "Step-" + "9" * 4300,
+        f"Step-{2**53}",
+    ],
 )
 def test_get_flow_state_rejects_a_malformed_step_execution_id(
     step_execution_id: str,
@@ -181,6 +191,18 @@ def test_get_flow_state_rejects_a_malformed_step_execution_id(
 
     with pytest.raises(RuntimeError, match="malformed Step execution ID"):
         client.get_flow_state("order-42")
+
+
+def test_get_flow_state_accepts_the_largest_safe_execution_number() -> None:
+    response = pb.GetFlowStateResponse()
+    response.active_step_executions.add(
+        step_execution_id=f"ChargeStep-{2**53 - 1}", step_type="ChargeStep"
+    )
+    client, _ = _client(response)
+
+    (step,) = client.get_flow_state("order-42").active_step_executions
+
+    assert step.execution_number == 2**53 - 1
 
 
 def test_get_flow_state_rejects_an_empty_flow_id_before_transport() -> None:
