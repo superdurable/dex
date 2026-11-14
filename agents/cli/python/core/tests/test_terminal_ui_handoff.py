@@ -103,6 +103,10 @@ SHELL_CONFIG: dict[str, Any] = {
 }
 SECRET_SENTINEL = "sk-test-terminal-ui-sentinel"
 STOPPED_HOST_MESSAGE = "The Worker host stopped."
+NO_LOCAL_CONNECTION_LINE = (
+    "Connectors are off: this machine has no authorized Connector connection. Authorize one "
+    "on the Connectors page of Dex Web in a local dexcli dev, then run this command again."
+)
 
 
 def request(
@@ -438,10 +442,7 @@ async def test_a_dexcli_that_cannot_show_the_chat_means_the_plain_chat(
 async def test_worker_notices_reach_the_terminal_ui_in_the_launch_document(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO
 ) -> None:
-    notice = (
-        "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto. "
-        "Set connectors.mcp to the MCP server's URL."
-    )
+    notice = NO_LOCAL_CONNECTION_LINE
     transcript = chat_transcript([])
     transcript["steps"][0]["message"]["notices"] = [{"level": "warning", "text": notice}]
     fake = FakeTerminalUi(tmp_path / "tui", transcript)
@@ -857,9 +858,8 @@ async def test_a_resent_key_finds_its_session_and_a_collision_takes_the_long_id(
 async def test_a_fifth_waiting_request_is_busy(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO
 ) -> None:
-    connectors_off = (
-        "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto."
-    )
+    # The home has no connections.json, so connectors.mcp: auto has no URL with a remote server.
+    connectors_off = NO_LOCAL_CONNECTION_LINE
     transcript = with_fresh_keys(load_transcript("chat_unknown_method_and_busy"), HARNESS)
     for step in transcript["steps"]:
         message = step.get("message", {})
@@ -867,12 +867,7 @@ async def test_a_fifth_waiting_request_is_busy(
             step["message"] = error(message["id"], "mcp_unavailable", connectors_off)["message"]
     transcript = insert_pause(transcript, is_ready_step, 1500)
     # The Worker host's startup notice reaches the terminal UI in the launch document.
-    transcript["steps"][0]["message"]["notices"] = [
-        {
-            "level": "warning",
-            "text": f"{connectors_off} Set connectors.mcp to the MCP server's URL.",
-        }
-    ]
+    transcript["steps"][0]["message"]["notices"] = [{"level": "warning", "text": connectors_off}]
     fake = FakeTerminalUi(tmp_path / "tui", transcript)
     config = {"dex": {"server": f"http://{cli_home.address}"}}
     child = start_chat(cli_home, fake, screen, config)
