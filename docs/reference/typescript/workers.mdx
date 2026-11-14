@@ -68,6 +68,10 @@ option on, **run** reports the permanent rejection after draining.
 A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
 kind.
 
+Since 1.45.2, each **PullQueueRegistrationState** in the snapshot and each
+**PullRegistrationError** also carry **taskQueue**, the Worker's task queue. The
+empty string means the default task queue. See [Task queues](#task-queues).
+
 Call the boolean helper from your probe endpoint and return 200 when true or
 503 when false.
 
@@ -78,6 +82,57 @@ export function isPullGreetingReady(worker: Worker): boolean {
 ```
 
 Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)
+
+## Task queues {#task-queues}
+
+Since 1.45.2. A named task queue chooses which Workers execute a Flow,
+independently of its Flow type. Only Workers that pull the Flow's task queue and
+register its Flow type run its Steps and RPCs. Workers on other task queues
+never take that work, even for the same Flow type. A Flow without a task queue
+runs on the default task queue, as before.
+
+| Setting | TypeScript name |
+| --- | --- |
+| Task queue a Worker pulls | **taskQueue** of [PullWorkerOptions](pathname:///api/typescript/latest/interfaces/PullWorkerOptions.html#taskqueue) |
+| Task queue a Flow starts on | **taskQueue** of [StartFlowOptions](./start-flow-options.mdx#task-queue) |
+| Task queue of a SubFlow | **taskQueue** of [SubFlowOptions](./subflow.mdx#task-queue) |
+| Task queue in readiness | **taskQueue** of **PullQueueRegistrationState** and **PullRegistrationError** |
+
+- One Worker pulls exactly one task queue. To serve several task queues,
+  construct one Worker per task queue. The Workers can share one Registry and
+  one blob cache.
+- A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens.
+  Names that start with **dex.** are reserved. A Worker rejects every reserved
+  name, including **dex.default**: its constructor throws **TypeError**.
+- Omitting **taskQueue**, or setting the empty string, pulls the default task
+  queue.
+- A sticky Worker serves a Flow again only when it pulls the Flow's task queue.
+  Otherwise Dex routes the Flow to any Worker of that task queue.
+
+### Server protocol 5 {#task-queue-protocol}
+
+A non-empty task queue requires Server protocol 5. The SDK checks it in three
+places:
+
+- **Worker.start** rejects before it opens task streams when the Server reports
+  an older protocol.
+- **Client.startFlow** throws **Error** before it sends the request.
+- A **waitFor** that returns a SubFlow with a task queue fails its attempt.
+
+The Worker also checks every registration. The Server echoes the task queue it
+registered each stream under. When the echo differs from the Worker's task
+queue, the Worker half-closes that stream and records a permanent rejection,
+so Dex returns tasks already sent to it without spending an attempt. The
+rejection's gRPC code is **FAILED_PRECONDITION**:
+
+- **waitPullRegistered** rejects with a **PullRegistrationError**, and so does
+  **start** when every stream is rejected before any registers. With
+  **stopOnPermanentStreamRejection**, **run** rejects with it after draining.
+- In **pullRegistrationState**, the slot kind's **lastPermanentError** holds the
+  gRPC error, and **isReady** is false while no stream of that slot kind is
+  registered.
+- The Worker retries the stream after the usual delay for a permanent
+  rejection, about one minute.
 
 ## Capacity and shutdown
 

@@ -1008,9 +1008,11 @@ export interface PullWorkerOptions {
    *
    * A non-empty task queue requires Server protocol 5. `Worker.start` rejects before opening task
    * streams when the Server is older. When the Server confirms a stream for a different task queue,
-   * the Worker half-closes that stream and treats it as a permanent rejection.
-   * `waitPullRegistered`, `pullRegistrationState`, and `stopOnPermanentStreamRejection` report it as a
-   * {@link PullRegistrationError} whose cause has the gRPC code `FAILED_PRECONDITION`.
+   * the Worker half-closes that stream and treats it as a permanent rejection with the gRPC code
+   * `FAILED_PRECONDITION`. `waitPullRegistered` rejects with a {@link PullRegistrationError} whose
+   * `cause` is that gRPC error. `Worker.start` does too when every stream is rejected before any
+   * registers, and so does `Worker.run` after draining when `stopOnPermanentStreamRejection` is set.
+   * In `pullRegistrationState`, the slot kind's `lastPermanentError` holds the gRPC error itself.
    *
    * @example
    * ```ts
