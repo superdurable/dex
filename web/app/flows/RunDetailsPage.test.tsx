@@ -504,7 +504,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
-    expect(screen.getByText('Events')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Events' })).toBeTruthy();
     expect(latestEventNumber()).toBe('#2100');
     expect(eventsRange()).toBe('Showing #1101–#2100 · Page 1 of 3');
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
@@ -641,7 +641,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     // Timeline rows are short, so its event panel defaults wider than the graph's.
     const runContent = document.querySelector<HTMLElement>('.run-content');
     expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
-    fireEvent.click(screen.getByRole('tab', { name: 'Graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
     expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('600px');
 
     const graph = await screen.findByTestId('execution-graph');
@@ -1183,8 +1183,7 @@ describe('history settings on the run page', () => {
     await screen.findByText('GetFlowState failed');
     expect(screen.getByText('Last 800 events')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('tab', { name: /^More/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Streams' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Streams' }));
     await waitFor(() => expect(screen.queryByText('Last 800 events')).toBeNull());
     fireEvent.click(screen.getByRole('tab', { name: 'State' }));
     expect(await screen.findByText('Last 800 events')).toBeTruthy();

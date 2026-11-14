@@ -59,8 +59,8 @@ import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './deta
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { rememberRecentRun } from '../components/frame/recentRuns';
-import { RunFailureBody, runFailureOf, RunLineJump, RunStateBody, runStateOf, runStateShortLabel } from './details/RunFailureLine';
-import { LiveStatus, RunInputOutputButtons, RunViewTabs, type RunView } from './details/RunTabs';
+import { RunFailureBody, runFailureOf, RunLineJump, runStateOf, runStateShortLabel } from './details/RunFailureLine';
+import { EventsViewSwitch, LiveStatus, RunInputOutputButtons, RunViewTabs, type EventsView, type RunView } from './details/RunTabs';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline, type TimelineEndNote } from './details/HorizontalTimeline';
@@ -109,6 +109,24 @@ const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const noHistoryEvents: FlowHistoryEvent[] = [];
 const noOperatorDefinitions: FlowV2Definition[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
+const eventsViewStorageKey = 'dex.run.events-view';
+
+/** The Events view this browser last chose, Timeline or Graph, as the tab that shows it. */
+function storedEventsTab(): RunTab {
+  try {
+    return window.localStorage.getItem(eventsViewStorageKey) === 'graph' ? 'steps' : 'timeline';
+  } catch {
+    return 'timeline';
+  }
+}
+
+function persistEventsView(view: EventsView) {
+  try {
+    window.localStorage.setItem(eventsViewStorageKey, view);
+  } catch (storageError) {
+    console.warn('Unable to save the Events view preference.', storageError);
+  }
+}
 /** The horizontal Timeline needs width; narrow screens keep the vertical one. */
 const horizontalTimelineQuery = '(min-width: 761px)';
 /** On desktop the strip gains the event list under it, so events can be scanned as rows. */
@@ -221,6 +239,7 @@ export function RunDetailsPage({
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
   const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
+  const [eventsTab, setEventsTab] = useState<RunTab>(storedEventsTab);
   const webCatalog = useOptionalWebCatalog();
   // A run page reads only its own Flow type's definitions.
   const runDefinitions = useFlowTypeDefinitions(summary?.flowType);
@@ -255,14 +274,14 @@ export function RunDetailsPage({
   const sessionSchema = displayedRunPosition === 'current' ? runSessionSchema : null;
   const hasActionsTab = displayedRunPosition === 'current' && runHasActions;
   // An agent session is read as its conversation, so it opens there unless another tab was chosen.
-  const tab: RunTab = chosenTab ?? (sessionSchema ? 'session' : 'timeline');
+  const tab: RunTab = chosenTab ?? (sessionSchema ? 'session' : eventsTab);
   const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
     && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
   // A remembered or linked tab that does not apply to this run shows the Timeline instead.
   const shownTab: RunTab = (tab === 'design' && !designDefinition)
     || (tab === 'session' && !sessionSchema)
     || (tab === 'actions' && !hasActionsTab)
-    ? 'timeline'
+    ? eventsTab
     : tab;
   // Design draws only the definition: history, state and blobs wait until the reader leaves it.
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
@@ -609,14 +628,13 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  // An agent session's conversation leads; More holds views few runs need. Old Design links open under Graph.
+  // An agent session's conversation leads. Events holds Timeline and Graph; old Design links open under it.
   const views: RunView<RunTab>[] = [
     ...(sessionSchema ? [{ id: 'session' as const, label: 'Conversation', Icon: Bot, isExperimental: true }] : []),
-    { id: 'timeline', label: 'Timeline', Icon: Rows3 },
-    { id: 'steps', label: 'Graph', Icon: Workflow, alsoSelectedFor: ['design'] },
+    { id: 'timeline', label: 'Events', Icon: Rows3, alsoSelectedFor: ['steps', 'design'] },
     { id: 'overview', label: 'State', Icon: LayoutDashboard },
-    { id: 'stream', label: 'Streams', Icon: Waves, moreGroup: 'Advanced' },
-    ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true, moreGroup: 'Experimental' as const }] : []),
+    { id: 'stream', label: 'Streams', Icon: Waves },
+    ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
   ];
   const timelineWindow = runHistory.timelineWindow;
   const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
@@ -675,6 +693,18 @@ export function RunDetailsPage({
   useEffect(() => {
     if (isRunTab(requestedView)) setTab(requestedView);
   }, [requestedView]);
+
+  /** The Events tab opens the view this browser last chose. */
+  const selectRunView = useCallback((view: RunTab) => {
+    selectTab(view === 'timeline' ? eventsTab : view);
+  }, [eventsTab, selectTab]);
+
+  const changeEventsView = useCallback((view: EventsView) => {
+    const nextTab: RunTab = view === 'graph' ? 'steps' : 'timeline';
+    persistEventsView(view);
+    setEventsTab(nextTab);
+    selectTab(nextTab);
+  }, [selectTab]);
 
 
   const jumpToEvent = useCallback(async (eventId: number) => {
@@ -885,7 +915,6 @@ export function RunDetailsPage({
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
   const timelineEndNote: TimelineEndNote | null = runState ? {
     label: runStateShortLabel(runState, now),
-    detail: <RunStateBody state={runState} />,
     eventId: runState.eventId,
     isOpen: runState.isOpen,
   } : null;
@@ -984,7 +1013,7 @@ export function RunDetailsPage({
         />
       </AppBarSlot>
       <AppBarSlot name="views">
-        <RunViewTabs onSelect={selectTab} shownView={shownTab} views={views} />
+        <RunViewTabs onSelect={selectRunView} shownView={shownTab} views={views} />
       </AppBarSlot>
       <AppBarSlot name="actions">
         {!isEventListShown && liveStatus}
@@ -1071,6 +1100,7 @@ export function RunDetailsPage({
               pageSize={historyPageSize}
               onPageSizeChange={changeHistoryPageSize}
               status={liveStatus}
+              viewSwitch={<EventsViewSwitch onChange={changeEventsView} view={shownTab === 'steps' ? 'graph' : 'timeline'} />}
             >
               {inputOutputButtons}
             </RunEventsTile>

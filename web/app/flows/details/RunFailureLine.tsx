@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Activity, ArrowRight, CircleCheck, CircleX } from 'lucide-react';
+import { ArrowRight, CircleX } from 'lucide-react';
 import { formatTimelineOffset } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { eventTitle } from './EventDetails';
@@ -104,27 +104,4 @@ export function runStateShortLabel(state: RunState, nowMs: number): string {
   return state.timer.firesAtMs > nowMs
     ? `Now · ${doing} · fires in ${formatTimelineOffset((state.timer.firesAtMs - nowMs) / 1000)}`
     : `Now · ${doing} · timer due`;
-}
-
-/** What a run that did not fail is doing, or how it ended, for the run line. */
-export function RunStateBody({ state }: { state: RunState }) {
-  const Icon = state.isOpen ? Activity : CircleCheck;
-  return (
-    <>
-      <Icon aria-hidden="true" size={16} strokeWidth={2.25} />
-      <span className="run-state-label">{state.isOpen ? 'Now' : 'Ended'}</span>
-      <span className="run-state-message">
-        {state.title}
-        {state.stepType && <span className="mono"> · {state.stepType}</span>}
-        {state.timer && (
-          <span className="run-state-timer">
-            {' · '}timer {state.timer.conditionId && <span className="mono">{state.timer.conditionId}</span>}
-            {state.timer.firesAtMs > Date.now()
-              ? ` fires in ${formatTimelineOffset((state.timer.firesAtMs - Date.now()) / 1000)}`
-              : ' is due'}
-          </span>
-        )}
-      </span>
-    </>
-  );
 }

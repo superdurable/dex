@@ -685,26 +685,6 @@ body {
   background: var(--tone-accent-soft);
 }
 
-.run-state-label {
-  flex: none;
-  font-size: var(--ui-text-xs);
-  letter-spacing: 0.04em;
-  opacity: 0.75;
-  text-transform: uppercase;
-}
-
-.run-state-message {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-state-message .mono {
-  font-weight: 500;
-}
-
 .run-state-line .run-failure-jump {
   color: inherit;
   background: color-mix(in srgb, currentColor 12%, transparent);
@@ -1306,10 +1286,6 @@ body {
   overflow-wrap: anywhere;
 }
 
-.v1-page .run-state-timer {
-  font-weight: 500;
-}
-
 /* Run details lists each child Flow on its own row, under its heading. */
 .run-facts-children {
   display: grid;
@@ -1573,39 +1549,6 @@ body {
   margin-left: 0;
 }
 
-.run-tabs-more-popover {
-  min-width: 220px;
-}
-
-.run-tabs-more-group {
-  display: grid;
-  gap: 2px;
-}
-
-.run-tabs-more-group + .run-tabs-more-group {
-  margin-top: 4px;
-  padding-top: 4px;
-  box-shadow: inset 0 1px 0 var(--ui-hairline);
-}
-
-.run-tabs-more-heading {
-  padding: 6px 10px 2px;
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.run-tabs-more-popover .app-bar-menu-item[aria-current='true'] {
-  background: var(--tone-accent-soft);
-}
-
-.run-tabs-more-popover .app-bar-menu-words b {
-  display: inline-flex;
-  align-items: center;
-}
-
 .live-status:focus-visible,
 .run-io-button:focus-visible {
   outline: 2px solid var(--ui-focus-outline);
@@ -1663,12 +1606,6 @@ body {
   flex: none;
   align-items: center;
   gap: 6px;
-}
-
-.run-context + .run-io,
-.run-state-message + .run-io,
-.run-failure-message + .run-io {
-  margin-left: auto;
 }
 
 .run-io-button {
@@ -1742,8 +1679,7 @@ body {
     flex-wrap: wrap;
   }
 
-  .run-failure-message,
-  .run-state-message {
+  .run-failure-message {
     flex-basis: calc(100% - 30px);
   }
 
@@ -1756,4 +1692,41 @@ body {
 /* The host draws the navigation around this Dex Web, so the page is one column. */
 .app-shell.has-host-navigation {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Events' Timeline and Graph switch leads the event header; the pressed view reads as selected. */
+.events-view-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.events-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.events-view-switch button[aria-pressed='true'] {
+  color: var(--ui-ink);
+  background: var(--ui-surface);
+  box-shadow: 0 0 0 1px var(--ui-hairline);
+}
+
+.events-view-switch button:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
 }

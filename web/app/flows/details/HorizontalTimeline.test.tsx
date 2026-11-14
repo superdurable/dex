@@ -769,16 +769,16 @@ describe('horizontal Timeline', () => {
     });
   });
 
-  it('says what the run does now at the lane\'s newest end, and opens to the event that says so', () => {
+  it('says what the run does now at the lane\'s newest end, and selects that event on click', () => {
     const onShowEndNoteEvent = vi.fn();
-    const endNote = { label: 'Now · waiting · fires in 2d 6h', detail: 'Waiting for conditions', eventId: 100, isOpen: true };
+    const endNote = { label: 'Now · waiting · fires in 2d 6h', eventId: 100, isOpen: true };
     const { rerender } = render(
       <HorizontalTimeline endNote={endNote} events={events(100)} onSelectEvent={() => {}} onShowEndNoteEvent={onShowEndNoteEvent} selectedEvent={null} />,
     );
-    const note = document.querySelector<HTMLDetailsElement>('.htl-end-note--lane')!;
-    expect(note.querySelector('summary')?.textContent).toBe('Now · waiting · fires in 2d 6h');
-    expect(note.open).toBe(false);
-    fireEvent.click(note.querySelector('button')!);
+    // The note is the link: one click selects the event it describes.
+    const note = screen.getByRole('button', { name: 'Now · waiting · fires in 2d 6h' });
+    expect(note.getAttribute('title')).toBe('Show event #100');
+    fireEvent.click(note);
     expect(onShowEndNoteEvent).toHaveBeenCalledWith(100);
 
     // A page that stops before the newest event has no "now" to point at.

@@ -17,7 +17,6 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from 'react';
 import { formatDate, type TimezonePreference } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
@@ -28,7 +27,6 @@ import {
 } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
-  ArrowRight,
   ChevronRight,
   Flag,
   FlagOff,
@@ -256,8 +254,6 @@ export function subjectRunsOf(chronological: readonly FlowHistoryEvent[]): Subje
 export interface TimelineEndNote {
   /** A few words beside the newest event, such as "waiting · fires in 2d 6h". */
   label: string;
-  /** The full sentence, shown when the note opens. */
-  detail: ReactNode;
   eventId: number;
   isOpen: boolean;
 }
@@ -949,8 +945,7 @@ export function HorizontalTimeline({
         </svg>
       </div>
       {shownEndNote && isEndInView && (
-        <TimelineEndNoteFold
-          className="htl-end-note htl-end-note--lane"
+        <TimelineEndNoteButton
           endNote={shownEndNote}
           left={xOf(chronological.length - 1) + 18}
           onShowEvent={onShowEndNoteEvent}
@@ -1098,33 +1093,27 @@ export function HorizontalTimeline({
   );
 }
 
-/** The run's end note: a few words that open to the full sentence and the event that says so. */
-function TimelineEndNoteFold({
-  className,
+/** The run's end note: a few words that select the event that says so. */
+function TimelineEndNoteButton({
   endNote,
   left,
   onShowEvent,
 }: {
-  className: string;
   endNote: TimelineEndNote;
-  left?: number;
+  left: number;
   onShowEvent?: (eventId: number) => void;
 }) {
   return (
-    <details className={`${className}${endNote.isOpen ? ' is-open-run' : ''}`} style={left === undefined ? undefined : { left: `${left}px` }}>
-      <summary>
-        <span aria-hidden="true" className="htl-end-note-mark" />
-        {endNote.label}
-      </summary>
-      <div className="htl-end-note-card">
-        <p>{endNote.detail}</p>
-        {onShowEvent && (
-          <button className="pager-button" onClick={() => onShowEvent(endNote.eventId)} type="button">
-            Show event #{endNote.eventId}
-            <ArrowRight aria-hidden="true" size={13} strokeWidth={2.25} />
-          </button>
-        )}
-      </div>
-    </details>
+    <button
+      className={`htl-end-note${endNote.isOpen ? ' is-open-run' : ''}`}
+      disabled={!onShowEvent}
+      onClick={() => onShowEvent?.(endNote.eventId)}
+      style={{ left: `${left}px` }}
+      title={`Show event #${endNote.eventId}`}
+      type="button"
+    >
+      <span aria-hidden="true" className="htl-end-note-mark" />
+      {endNote.label}
+    </button>
   );
 }

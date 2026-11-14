@@ -39,8 +39,11 @@ export function RunEventsTile({
   pageSize,
   onPageSizeChange,
   status,
+  viewSwitch,
   children,
 }: {
+  /** The switch between the views this tile heads, shown first. */
+  viewSwitch?: ReactNode;
   /** The page's own status, such as Live, which follows the event count. */
   status?: ReactNode;
   /** Controls of the view the tile heads, after the page controls. */
@@ -54,6 +57,7 @@ export function RunEventsTile({
   return (
     <div className="run-events-tile" role="group" aria-label="Events">
       <span className="run-fact-label"><ListOrdered aria-hidden="true" size={14} strokeWidth={2} />Events</span>
+      {viewSwitch}
       <div className="run-events-line">
         {paging && (
           <span className="run-events-range">

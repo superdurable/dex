@@ -2920,41 +2920,34 @@ html:has(.v1-page .stream-scroll--entries) {
   stroke-dasharray: 4 3;
 }
 
-/* What the run is doing now, beside the newest event; it opens to the full sentence. */
+/* What the run is doing now, beside the newest event; clicking it selects that event. */
 .htl-end-note {
-  position: relative;
-  z-index: 5;
-  max-width: 230px;
-  font-family: var(--ui-font-sans);
-}
-
-.htl-end-note--lane {
   position: absolute;
+  z-index: 5;
   top: 34px;
-}
-
-.htl-end-note > summary {
-  display: block;
+  max-width: 230px;
   padding: 2px 8px;
   overflow: hidden;
+  border: 0;
   border-radius: 999px;
   color: var(--ui-ink-2);
   background: var(--ui-chip);
   cursor: pointer;
+  font: inherit;
+  font-family: var(--ui-font-sans);
   font-size: var(--ui-text-xs);
   font-weight: 600;
-  list-style: none;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.htl-end-note > summary::-webkit-details-marker {
-  display: none;
-}
-
-.htl-end-note.is-open-run > summary {
+.htl-end-note.is-open-run {
   color: var(--tone-wait-ink);
   background: var(--tone-wait-soft);
+}
+
+.htl-end-note:hover {
+  text-decoration: underline;
 }
 
 .htl-end-note-mark {
@@ -2965,31 +2958,6 @@ html:has(.v1-page .stream-scroll--entries) {
   border-radius: 1px;
   background: currentColor;
   vertical-align: -1px;
-}
-
-.htl-end-note-card {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  display: grid;
-  width: max-content;
-  max-width: min(420px, 80vw);
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: var(--ui-radius-item);
-  color: var(--ui-ink);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-section-shadow), 0 8px 24px color-mix(in srgb, var(--ui-ink) 14%, transparent);
-  font-size: var(--ui-text-sm);
-  white-space: normal;
-}
-
-.htl-end-note-card p {
-  margin: 0;
-}
-
-.htl-end-note-card .pager-button {
-  justify-self: start;
 }
 
 

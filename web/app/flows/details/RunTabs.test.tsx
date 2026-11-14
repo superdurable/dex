@@ -10,35 +10,36 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { Rows3, Waves, Workflow } from 'lucide-react';
+import { Rows3, Waves } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LiveStatus, RunInputOutputButtons, RunViewTabs, type RunView } from './RunTabs';
+import { EventsViewSwitch, LiveStatus, RunInputOutputButtons, RunViewTabs, type RunView } from './RunTabs';
 
 afterEach(cleanup);
 
 const views: RunView<'timeline' | 'steps' | 'design' | 'stream' | 'actions'>[] = [
-  { id: 'timeline', label: 'Timeline', Icon: Rows3 },
-  { id: 'steps', label: 'Graph', Icon: Workflow, alsoSelectedFor: ['design'] },
-  { id: 'stream', label: 'Streams', Icon: Waves, moreGroup: 'Advanced' },
-  { id: 'actions', label: 'Actions', Icon: Waves, moreGroup: 'Experimental', isExperimental: true },
+  { id: 'timeline', label: 'Events', Icon: Rows3, alsoSelectedFor: ['steps', 'design'] },
+  { id: 'stream', label: 'Streams', Icon: Waves },
+  { id: 'actions', label: 'Actions', Icon: Waves, isExperimental: true },
 ];
 
 describe('run views', () => {
-  it('keeps Graph selected for its Design view and groups the rest under More', () => {
+  it('puts every view on the tab row, with Events selected for Timeline, Graph and old Design links', () => {
     const onSelect = vi.fn();
-    render(<MemoryRouter><RunViewTabs onSelect={onSelect} shownView="design" views={views} /></MemoryRouter>);
-    expect(screen.getByRole('tab', { name: 'Graph' }).getAttribute('aria-selected')).toBe('true');
-    fireEvent.click(screen.getByRole('tab', { name: /^More/ }));
-    expect(screen.getByRole('group', { name: 'Advanced' }).textContent).toContain('Streams');
-    expect(screen.getByRole('group', { name: 'Experimental' }).textContent).toContain('ActionsExperimental');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Streams' }));
+    const { rerender } = render(<MemoryRouter><RunViewTabs onSelect={onSelect} shownView="steps" views={views} /></MemoryRouter>);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Events', 'Streams', 'ActionsExperimental']);
+    expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
+    rerender(<MemoryRouter><RunViewTabs onSelect={onSelect} shownView="design" views={views} /></MemoryRouter>);
+    expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Streams' }));
     expect(onSelect).toHaveBeenCalledWith('stream');
   });
 
-  it('names the More view that is open', () => {
-    render(<MemoryRouter><RunViewTabs onSelect={vi.fn()} shownView="stream" views={views} /></MemoryRouter>);
-    const more = screen.getByRole('tab', { name: /^Streams/ });
-    expect(more.getAttribute('aria-selected')).toBe('true');
+  it('switches Events between Timeline and Graph', () => {
+    const onChange = vi.fn();
+    render(<EventsViewSwitch onChange={onChange} view="timeline" />);
+    expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    expect(onChange).toHaveBeenCalledWith('graph');
   });
 });
 
