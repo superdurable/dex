@@ -39,6 +39,7 @@ export {
   defaultConnectorsMcp,
   defaultDexServer,
   defaultMediaStore,
+  defaultSessionLeaseTtlSeconds,
   defaultSessionSummary,
   defaultWorkspace,
   isCoveredByConnectorEntry,

@@ -354,6 +354,28 @@ describe("session task queues", () => {
     assert.equal(await cli.waitForExit(), 0);
   });
 
+  test("under the default 600-second lease, each unanswered lease read gives up within seconds", async () => {
+    const home = newEnvironment();
+    const faults = faultDirectory(home);
+    writeFileSync(join(faults, "lose-next-acquire"), "then-hang-lease-reads");
+    const cli = start(home, [], { DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR: faults });
+    const heldReads = join(faults, "held-lease-reads");
+    // Each read gives up after 5 s and the next attempt reads again, instead of waiting out the permit.
+    const reads = await pollUntil(
+      () => {
+        const lines = existsSync(heldReads) ? readFileSync(heldReads, "utf8").split("\n").filter((line) => line !== "") : [];
+        return lines.length >= 3 ? lines : undefined;
+      },
+      { timeoutMs: 40_000, description: "three held lease reads" },
+    );
+    assert.ok(Date.parse(reads[2]!) - Date.parse(reads[0]!) < 20_000, reads.join(", "));
+
+    rmSync(join(faults, "hang-lease-read"));
+    await cli.waitForSession();
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
   test("an acquire whose answer was lost still opens the session and releases it at exit", async () => {
     const home = newEnvironment();
     const faults = faultDirectory(home);

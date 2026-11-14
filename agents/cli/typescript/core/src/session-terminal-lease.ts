@@ -22,8 +22,12 @@ import type {
   SessionTerminalLeaseResult,
 } from "@superdurable/dex-agents";
 
-/** How long a lease lasts unless its holder renews it. */
-export const defaultSessionLeaseTtlSeconds = 15;
+import { defaultSessionLeaseTtlSeconds } from "./cli-config.js";
+
+export { defaultSessionLeaseTtlSeconds };
+
+/** The longest TTL `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` sets, the longest the session accepts. */
+const maximumSessionLeaseTtlSeconds = 3_600;
 /** The spinner of the animated waiting line, one frame per {@link waitingFrameIntervalMs}. */
 export const waitingSpinnerFrames: readonly string[] = [..."⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"];
 /** How often the animated waiting line is redrawn. */
@@ -65,9 +69,35 @@ export function newSessionLeaseHolder(processId: number): SessionLeaseHolder {
  * @param text - The variable's value.
  */
 export function readSessionLeaseTtlSeconds(text: string | undefined): number {
+  return readSessionLeaseTtlOverrideSeconds(text) ?? defaultSessionLeaseTtlSeconds;
+}
+
+/**
+ * Returns the TTL that `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` sets, an integer from 1 to 3600, else `undefined`.
+ *
+ * @param text - The variable's value.
+ * @since 0.6.9
+ */
+export function readSessionLeaseTtlOverrideSeconds(text: string | undefined): number | undefined {
   const trimmed = (text ?? "").trim();
   const seconds = Number(trimmed);
-  return /^\d+$/.test(trimmed) && seconds >= 1 && seconds <= 3_600 ? seconds : defaultSessionLeaseTtlSeconds;
+  return /^\d+$/.test(trimmed) && seconds >= 1 && seconds <= maximumSessionLeaseTtlSeconds ? seconds : undefined;
+}
+
+/**
+ * Returns the session lease TTL a command uses: a valid `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` first, then the
+ * configuration file's `sessions.lease_ttl_seconds`, then {@link defaultSessionLeaseTtlSeconds}.
+ *
+ * @param overrideSeconds - `CliEnvironment.sessionLeaseTtlSeconds`, set only by a valid variable.
+ * @param configuredSeconds - `sessions.lease_ttl_seconds` of the effective configuration, if any.
+ * @returns The TTL in seconds.
+ * @since 0.6.9
+ */
+export function resolveSessionLeaseTtlSeconds(
+  overrideSeconds: number | undefined,
+  configuredSeconds: number | undefined,
+): number {
+  return overrideSeconds ?? configuredSeconds ?? defaultSessionLeaseTtlSeconds;
 }
 
 /** Returns the local time, HH:MM, of an RFC 3339 time; `timeZone` overrides the local zone. */

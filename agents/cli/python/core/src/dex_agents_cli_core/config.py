@@ -26,6 +26,8 @@ from jsonschema import Draft202012Validator, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from dex_agents_cli_core.environment import DEFAULT_SESSION_LEASE_TTL_SECONDS
+
 #: ``dex.server``, ``connectors.mcp``, and ``media.store`` value that lets the CLI core choose.
 AUTO = "auto"
 #: ``workspace`` when the file omits it.
@@ -365,11 +367,19 @@ class SessionsConfig:
         summary: ``auto``, ``on``, or ``off``: whether each session keeps the
             indexed title, last activity time, and turn count that
             ``sessions`` shows. See ``is_session_summary_indexed``.
+        lease_ttl_seconds: How long a session's terminal lease lasts without
+            a renewal, from 10 to 3600 seconds;
+            ``DEFAULT_SESSION_LEASE_TTL_SECONDS`` by default. A valid
+            ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` overrides it; see
+            ``CommandEnvironment.resolve_session_lease_ttl_seconds``.
+
+            .. versionadded:: 0.6.9
 
     .. versionadded:: 0.6.0
     """
 
     summary: str = AUTO
+    lease_ttl_seconds: int = DEFAULT_SESSION_LEASE_TTL_SECONDS
 
 
 @dataclass(frozen=True)
@@ -465,7 +475,10 @@ class EffectiveConfig:
                 "browser": self.local_tools.browser,
             },
             "media": {"store": self.media.store, "endpoint": self.media.endpoint},
-            "sessions": {"summary": self.sessions.summary},
+            "sessions": {
+                "summary": self.sessions.summary,
+                "lease_ttl_seconds": self.sessions.lease_ttl_seconds,
+            },
             "harness_options": json.loads(json.dumps(self.harness_options)),
         }
 
@@ -573,6 +586,7 @@ def resolve_config(
         raise ConfigError("model_required", "/model")
     local_tools = config.get("local_tools", {})
     shell = local_tools.get("shell", {})
+    sessions = config.get("sessions", {})
     return EffectiveConfig(
         model=model,
         system_prompt=config.get("system_prompt"),
@@ -601,7 +615,13 @@ def resolve_config(
         ),
         harness_options=json.loads(json.dumps(config.get(harness_section, {}))),
         media=MediaConfig(store=media.get("store", AUTO), endpoint=endpoint),
-        sessions=SessionsConfig(summary=config.get("sessions", {}).get("summary", AUTO)),
+        sessions=SessionsConfig(
+            summary=sessions.get("summary", AUTO),
+            # The schema accepts 600.0 as an integer; the lease RPC takes an int.
+            lease_ttl_seconds=int(
+                sessions.get("lease_ttl_seconds", DEFAULT_SESSION_LEASE_TTL_SECONDS)
+            ),
+        ),
         mcp_servers=mcp_servers,
     )
 

@@ -42,6 +42,13 @@ export const defaultMediaStore = "auto";
  * @since 0.6.0
  */
 export const defaultSessionSummary = "auto";
+/**
+ * `sessions.lease_ttl_seconds` when the file omits it: how many seconds a session's terminal lease lasts without a
+ * renewal, unless `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` sets it. Before 0.6.9 the lease lasted 15 seconds.
+ *
+ * @since 0.6.9
+ */
+export const defaultSessionLeaseTtlSeconds = 600;
 
 const maximumPort = 65535;
 const urlParts = /^https?:\/\/(?<host>\[[^\]]*\]|[^:/]+)(?::(?<port>[0-9]+))?(?:\/.*)?$/s;
@@ -104,6 +111,14 @@ export interface SessionsConfig {
    * `sessions` subcommand shows. See {@link isSessionSummaryIndexed}.
    */
   readonly summary: "auto" | "on" | "off";
+  /**
+   * How many seconds a session's terminal lease lasts without a renewal, from 10 to 3600. {@link resolveConfig}
+   * always sets it, to 600 when the file omits it. Absent means 600. A valid `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`
+   * overrides it; see `resolveSessionLeaseTtlSeconds`.
+   *
+   * @since 0.6.9
+   */
+  readonly lease_ttl_seconds?: number;
 }
 
 /**
@@ -433,7 +448,10 @@ export function resolveConfig(
       browser: file.local_tools?.browser ?? true,
     },
     media: { store: file.media?.store ?? defaultMediaStore, endpoint: mediaEndpoint },
-    sessions: { summary: file.sessions?.summary ?? defaultSessionSummary },
+    sessions: {
+      summary: file.sessions?.summary ?? defaultSessionSummary,
+      lease_ttl_seconds: file.sessions?.lease_ttl_seconds ?? defaultSessionLeaseTtlSeconds,
+    },
     harness_options: harnessOptions === undefined ? {} : structuredClone(harnessOptions as Record<string, unknown>),
   };
 }
@@ -646,7 +664,7 @@ interface FileConfig {
   readonly workspace?: string;
   readonly local_tools?: SessionLocalTools;
   readonly media?: { readonly store?: string; readonly endpoint?: string };
-  readonly sessions?: { readonly summary?: "auto" | "on" | "off" };
+  readonly sessions?: { readonly summary?: "auto" | "on" | "off"; readonly lease_ttl_seconds?: number };
 }
 
 /** One `mcp_servers` entry after the schema accepted it. */

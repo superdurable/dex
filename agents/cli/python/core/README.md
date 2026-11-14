@@ -78,14 +78,21 @@ Opening a session of the harness's Flow type follows these steps:
 5. On exit or on a terminal UI switch, release the lease while the session
    Worker still serves the RPC, then stop it.
 
+The lease TTL is 600 seconds unless the configuration file's
+`sessions.lease_ttl_seconds`, from 10 to 3600, sets it.
+`DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, from 1 to 3600, overrides both; any
+other value of it is ignored. See
+`CommandEnvironment.resolve_session_lease_ttl_seconds`. Changed in 0.6.9: the
+TTL was 15 seconds and came only from the variable.
+
 One pull permit, `SessionPullPermit`, bounds how long the session Worker
 pulls without a confirmed lease. It is armed when the Worker starts pulling,
 before the first acquire is sent, and runs until that moment plus the TTL
-(15 seconds) minus a fifth of the TTL, on the monotonic clock, so a change of
-the wall clock never moves it. Only an acquire or renewal that the session
-confirmed extends it, to that request's send time plus the same span. Every
-lease read, acquire, and renewal is bounded by the time the permit has left,
-and a renewal, sent every third of the TTL, also by one renewal interval.
+minus a fifth of the TTL, on the monotonic clock, so a change of the wall
+clock never moves it. Only an acquire or renewal that the session confirmed
+extends it, to that request's send time plus the same span. Every lease read,
+acquire, and renewal is bounded by the time the permit has left, and a
+renewal, sent every third of the TTL, also by one renewal interval.
 When the permit expires, whatever is in progress, the session Worker stops
 pulling first, and its listeners hear only after the Worker's close stopped
 new tasks. An answer that arrives once the deadline passed expires the permit

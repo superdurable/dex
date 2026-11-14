@@ -225,8 +225,10 @@ async def test_a_chat_whose_session_another_terminal_took_stops_with_one_line(
     cli_home: CliHome,
 ) -> None:
     lease_home(cli_home)
+    use_expiring_lease(cli_home)
     first, session_id = await open_first_chat(cli_home)
-    # Paused past its default lease, as a suspended laptop would be. The wait is about as long
+    use_default_lease(cli_home)
+    # Paused past its short lease, as a suspended laptop would be. The wait is about as long
     # as Dex takes to stop routing the session's RPCs to the paused command's streams anyway.
     os.kill(first.pid, signal.SIGSTOP)
     second = cli_home.spawn("--plain", "--resume", session_id)
@@ -320,13 +322,15 @@ async def test_a_terminal_ui_whose_session_another_terminal_took_stops_with_one_
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     lease_home(cli_home)
+    use_expiring_lease(cli_home)
     screen = io.StringIO()
     fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(300_000)]))
     first = start_chat(cli_home, fake, screen)
     session_id = await read_session_id(first)
     await fake.wait_for("sent", type="ready")
+    use_default_lease(cli_home)
     host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
-    # As for the plain chat, the paused Worker host keeps the default lease.
+    # As for the plain chat, the paused Worker host keeps its short lease.
     os.kill(host_pid, signal.SIGSTOP)
     try:
         second = cli_home.spawn("--plain", "--resume", session_id)
