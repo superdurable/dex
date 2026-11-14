@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const designCss = readFileSync('app/v1-design.css', 'utf8');
+const frameCss = readFileSync('app/components/frame/frame.css', 'utf8');
 
 describe('Execution graph event panel layout', () => {
   it('measures the graph panel independently of the viewport, Overview, and Timeline', () => {
@@ -32,5 +33,25 @@ describe('Execution graph event panel layout', () => {
       '.v1-page .run-sidebar .semantic-fields-compact',
     ]);
     expect(designCss).toMatch(/\.compact-row \{[^}]*grid-template-columns: minmax\(96px, 200px\) minmax\(0, 1fr\);/);
+  });
+});
+
+describe('motion', () => {
+  const reducedMotionBlocks = [...frameCss.matchAll(/@media \(prefers-reduced-motion: reduce\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)]
+    .map((match) => match[1]);
+
+  it('turns off the switch indicator, the picture fade and control transitions under reduced motion', () => {
+    const reduced = reducedMotionBlocks.join('\n');
+    expect(frameCss).toMatch(/\.events-view-switch-indicator \{[^}]*transition: transform 180ms/);
+    expect(frameCss).toMatch(/\.events-picture-view \{[^}]*animation: events-picture-in 160ms/);
+    expect(reduced).toMatch(/\.events-view-switch-indicator,/);
+    expect(reduced).toMatch(/\.events-picture-view,/);
+    expect(reduced).toMatch(/\.pager-button,/);
+    expect(reduced).toMatch(/\.run-io-button,[^{}]*\{\s*transition: none !important;\s*\}/);
+    expect(reduced).toMatch(/\{\s*animation: none;\s*\}/);
+  });
+
+  it('never eases outlines, so focus rings stay instant', () => {
+    expect(frameCss).not.toMatch(/transition:[^;]*\b(all|outline)\b/);
   });
 });

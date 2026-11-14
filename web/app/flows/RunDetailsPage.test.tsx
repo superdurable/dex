@@ -638,11 +638,17 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
-    // Timeline rows are short, so its event panel defaults wider than the graph's.
+    // Every Events view shares one event panel: switching keeps the same element, its width and its event.
     const runContent = document.querySelector<HTMLElement>('.run-content');
     expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
+    const panel = screen.getByRole('region', { name: 'Selected event details' });
+    const selectedTitle = panel.querySelector('[data-selected-event-target]')?.textContent;
     fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
-    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('600px');
+    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
+    expect(screen.getByRole('region', { name: 'Selected event details' })).toBe(panel);
+    expect(panel.isConnected).toBe(true);
+    expect(panel.querySelector('[data-selected-event-target]')?.textContent).toBe(selectedTitle);
+    expect(document.querySelector('.events-picture')?.getAttribute('data-view')).toBe('graph');
 
     const graph = await screen.findByTestId('execution-graph');
     // FlowStart is added for start details; the page holds events #101 to #1100.

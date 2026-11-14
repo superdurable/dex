@@ -19,14 +19,17 @@ afterEach(cleanup);
 const views: RunView<'timeline' | 'steps' | 'design' | 'stream' | 'actions'>[] = [
   { id: 'timeline', label: 'Events', Icon: Rows3, alsoSelectedFor: ['steps', 'design'] },
   { id: 'stream', label: 'Streams', Icon: Waves },
-  { id: 'actions', label: 'Actions', Icon: Waves, isExperimental: true },
+  { id: 'actions', label: 'Actions', Icon: Waves },
 ];
 
 describe('run views', () => {
   it('puts every view on the tab row, with Events selected for Timeline, Graph and old Design links', () => {
     const onSelect = vi.fn();
     const { rerender } = render(<MemoryRouter><RunViewTabs onSelect={onSelect} shownView="steps" views={views} /></MemoryRouter>);
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Events', 'Streams', 'ActionsExperimental']);
+    // Tabs carry only their icon and name, with no Experimental badge.
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Events', 'Streams', 'Actions']);
+    expect(document.querySelector('.run-tabs .experimental-tag')).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Actions' }).getAttribute('data-tooltip')).toBe('Actions');
     expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
     rerender(<MemoryRouter><RunViewTabs onSelect={onSelect} shownView="design" views={views} /></MemoryRouter>);
     expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
@@ -34,12 +37,25 @@ describe('run views', () => {
     expect(onSelect).toHaveBeenCalledWith('stream');
   });
 
-  it('switches Events between Timeline and Graph', () => {
+  it('switches Events between Timeline and Graph, without Design when the Flow type has no design', () => {
     const onChange = vi.fn();
     render(<EventsViewSwitch onChange={onChange} view="timeline" />);
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Timeline', 'Graph']);
     expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
     expect(onChange).toHaveBeenCalledWith('graph');
+  });
+
+  it('offers Design as a third option and slides the indicator to the pressed one', () => {
+    const onChange = vi.fn();
+    render(<EventsViewSwitch hasDesign onChange={onChange} view="design" />);
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Timeline', 'Graph', 'Design']);
+    expect(screen.getByRole('button', { name: 'Design' }).getAttribute('aria-pressed')).toBe('true');
+    const group = screen.getByRole('group', { name: 'Events view' });
+    expect(group.style.getPropertyValue('--option-count')).toBe('3');
+    expect(group.style.getPropertyValue('--active-index')).toBe('2');
+    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+    expect(onChange).toHaveBeenCalledWith('timeline');
   });
 });
 

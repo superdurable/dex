@@ -6,15 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { LogIn, LogOut, Pause, Rows3, Workflow, type LucideIcon } from 'lucide-react';
-import { ExperimentalTag } from '../../components/frame/appSections';
+import type { CSSProperties } from 'react';
+import { LogIn, LogOut, Pause, PencilRuler, Rows3, Workflow, type LucideIcon } from 'lucide-react';
 
 /** One tab of a run page. */
 export interface RunView<T extends string> {
   id: T;
   label: string;
   Icon: LucideIcon;
-  isExperimental?: boolean;
   /** Other view ids that select this tab, such as Events' Graph view. */
   alsoSelectedFor?: readonly T[];
 }
@@ -39,14 +38,13 @@ export function RunViewTabs<T extends string>({
             aria-selected={isSelected(view)}
             className={isSelected(view) ? 'active' : ''}
             data-tab={view.id}
-            data-tooltip={view.isExperimental ? `${view.label} · Experimental` : view.label}
+            data-tooltip={view.label}
             onClick={() => onSelect(view.id)}
             role="tab"
             type="button"
           >
             <view.Icon aria-hidden="true" size={15} strokeWidth={2} />
             <span className="run-tab-label">{view.label}</span>
-            {view.isExperimental && <ExperimentalTag />}
           </button>
         ))}
       </div>
@@ -54,20 +52,38 @@ export function RunViewTabs<T extends string>({
   );
 }
 
-/** Events' two views of the same event page; the choice is a preference this browser remembers. */
-export type EventsView = 'timeline' | 'graph';
+/** Events' views of the same event page; the choice is a preference this browser remembers. */
+export type EventsView = 'timeline' | 'graph' | 'design';
 
-export function EventsViewSwitch({ view, onChange }: { view: EventsView; onChange: (view: EventsView) => void }) {
+const eventsViewOptions: { view: EventsView; label: string; Icon: LucideIcon }[] = [
+  { view: 'timeline', label: 'Timeline', Icon: Rows3 },
+  { view: 'graph', label: 'Graph', Icon: Workflow },
+  { view: 'design', label: 'Design', Icon: PencilRuler },
+];
+
+/** Switches the picture above the event panel; Design appears only when the Flow type has a design. */
+export function EventsViewSwitch({
+  view,
+  hasDesign = false,
+  onChange,
+}: {
+  view: EventsView;
+  hasDesign?: boolean;
+  onChange: (view: EventsView) => void;
+}) {
+  const options = eventsViewOptions.filter((option) => option.view !== 'design' || hasDesign);
+  const activeIndex = options.findIndex((option) => option.view === view);
+  // Equal-width segments let one indicator slide to the pressed option.
+  const indicatorStyle = { '--option-count': options.length, '--active-index': Math.max(0, activeIndex) } as CSSProperties;
   return (
-    <span aria-label="Events view" className="events-view-switch" role="group">
-      <button aria-pressed={view === 'timeline'} onClick={() => onChange('timeline')} type="button">
-        <Rows3 aria-hidden="true" size={13} strokeWidth={2.25} />
-        Timeline
-      </button>
-      <button aria-pressed={view === 'graph'} onClick={() => onChange('graph')} type="button">
-        <Workflow aria-hidden="true" size={13} strokeWidth={2.25} />
-        Graph
-      </button>
+    <span aria-label="Events view" className="events-view-switch" role="group" style={indicatorStyle}>
+      <span aria-hidden="true" className="events-view-switch-indicator" />
+      {options.map(({ view: optionView, label, Icon }) => (
+        <button aria-pressed={view === optionView} key={optionView} onClick={() => onChange(optionView)} type="button">
+          <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
+          {label}
+        </button>
+      ))}
     </span>
   );
 }

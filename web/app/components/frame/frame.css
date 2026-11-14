@@ -1545,10 +1545,6 @@ body {
   align-self: stretch;
 }
 
-.app-bar.v1-page .run-tabs .experimental-tag {
-  margin-left: 0;
-}
-
 .live-status:focus-visible,
 .run-io-button:focus-visible {
   outline: 2px solid var(--ui-focus-outline);
@@ -1694,19 +1690,37 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* Events' Timeline and Graph switch leads the event header; the pressed view reads as selected. */
+/* Events' Timeline, Graph and Design switch leads the event header; one indicator slides to the pressed view. */
 .events-view-switch {
-  display: inline-flex;
+  position: relative;
+  display: inline-grid;
   flex: none;
+  grid-template-columns: repeat(var(--option-count, 2), minmax(0, 1fr));
   gap: 2px;
   padding: 2px;
   border-radius: 999px;
   background: var(--ui-chip);
 }
 
+.events-view-switch-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px - 2px * (var(--option-count, 2) - 1)) / var(--option-count, 2));
+  border-radius: 999px;
+  background: var(--ui-surface);
+  box-shadow: 0 0 0 1px var(--ui-hairline);
+  transform: translateX(calc(var(--active-index, 0) * (100% + 2px)));
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
+}
+
 .events-view-switch button {
+  position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   height: 26px;
   padding: 0 11px;
@@ -1718,15 +1732,195 @@ body {
   font: inherit;
   font-size: var(--ui-text-sm);
   font-weight: 600;
+  transition: color 150ms ease;
+}
+
+.events-view-switch button:hover {
+  color: var(--ui-ink);
 }
 
 .events-view-switch button[aria-pressed='true'] {
   color: var(--ui-ink);
-  background: var(--ui-surface);
-  box-shadow: 0 0 0 1px var(--ui-hairline);
 }
 
 .events-view-switch button:focus-visible {
   outline: 2px solid var(--ui-focus-outline);
   outline-offset: 1px;
+}
+
+/* ------------------------------------------------------ Events picture area */
+
+/* Timeline, Graph and Design swap only this box; the event panel below stays in place. */
+.events-picture {
+  --events-picture-height: clamp(300px, 42vh, 420px);
+
+  position: relative;
+  min-width: 0;
+}
+
+.events-picture-view {
+  animation: events-picture-in 160ms ease-out;
+}
+
+@keyframes events-picture-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Graph and Design share one bounded height, so switching between them never moves the panel. */
+.events-picture:is([data-view='graph'], [data-view='design']) > .events-picture-view {
+  display: flex;
+  height: var(--events-picture-height);
+  min-height: 0;
+  flex-direction: column;
+}
+
+.v1-page .graph-view.graph-view--lr {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+
+.v1-page .graph-view--lr .view-toolbar {
+  flex: none;
+  margin-bottom: 8px;
+}
+
+.v1-page .graph-view--lr .graph-canvas {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+html .events-picture .v2-shell.dg {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.events-picture .flow-definition-diagnostics {
+  max-height: 30%;
+  flex: none;
+  overflow: auto;
+}
+
+.events-picture .events-picture-loading {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* Conversation and Actions are always tabs; without content their panel says why. */
+.run-tab-unavailable {
+  display: grid;
+  max-width: 720px;
+  gap: 8px;
+  padding: 20px 22px;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-md);
+  line-height: 1.5;
+}
+
+.run-tab-unavailable p {
+  margin: 0;
+}
+
+.run-tab-unavailable-lead {
+  color: var(--ui-ink);
+  font-weight: 600;
+}
+
+.run-tab-unavailable-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.run-tab-unavailable-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- motion */
+
+/* Controls ease their colors on hover and press; outlines stay instant so focus never lags. */
+:where(
+  .button,
+  .pager-button,
+  .run-io-button,
+  .live-status,
+  .app-bar-menu-item,
+  .app-bar-icon-button,
+  .app-bar-jump-button,
+  .run-facts-button,
+  .operate-menu-button,
+  .json-toggle,
+  .copy-button,
+  .text-button,
+  .icon-button,
+  .value-expand-button,
+  .section-expand-toggle,
+  .graph-minimap-toggle,
+  .theme-toggle,
+  .htl-legend-fold > summary,
+  .event-detail-tabs button,
+  .run-events-page-size select
+) {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.app-bar.v1-page .run-tabs button::after {
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Menus and popovers fade in, like the bar's menus. */
+.htl-legend-fold[open] > .htl-legend,
+.v1-page .column-popover {
+  animation: app-bar-popover-in 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .events-picture-view,
+  .htl-legend-fold[open] > .htl-legend,
+  .v1-page .column-popover {
+    animation: none;
+  }
+
+  /* Plain selectors and !important, so this beats each control's own class-level transition. */
+  .events-view-switch-indicator,
+  .events-view-switch button,
+  .app-bar.v1-page .run-tabs button::after,
+  .button,
+  .pager-button,
+  .run-io-button,
+  .live-status,
+  .app-bar-menu-item,
+  .app-bar-icon-button,
+  .app-bar-jump-button,
+  .run-facts-button,
+  .operate-menu-button,
+  .json-toggle,
+  .copy-button,
+  .text-button,
+  .icon-button,
+  .value-expand-button,
+  .section-expand-toggle,
+  .graph-minimap-toggle,
+  .theme-toggle,
+  .htl-legend-fold > summary,
+  .event-detail-tabs button,
+  .run-events-page-size select {
+    transition: none !important;
+  }
 }

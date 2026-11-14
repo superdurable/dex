@@ -3174,13 +3174,12 @@ html:has(.v1-page .stream-scroll--entries) {
   --experimental-wash: rgba(167, 139, 250, 0.16);
 }
 
-/* On a tab or a header link the tag sits above the label's top-right corner, so the label stays one word. */
+/* On a header link the tag sits above the label's top-right corner, so the label stays one word. */
 .run-tabs button[data-tab],
 .header-experimental-link {
   position: relative;
 }
 
-.run-tabs button .experimental-badge,
 .header-experimental-link .experimental-badge {
   position: absolute;
   top: -5px;
@@ -3200,7 +3199,6 @@ html:has(.v1-page .stream-scroll--entries) {
   padding-top: 6px;
 }
 
-.run-content--design,
 .run-content--experimental {
   grid-template-columns: minmax(0, 1fr);
 }

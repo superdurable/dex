@@ -39,15 +39,18 @@ import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
 import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
 import {
   defaultGraphZoom,
+  fittingGraphZoom,
   graphBounds,
   layoutGraph,
   minimumGraphZoom,
+  type GraphDirection,
 } from './graphLayout';
 
 interface StepNodeData extends Record<string, unknown> {
   label: React.ReactNode;
   model: StepGraphNode;
   hasSubFlowChildren?: boolean;
+  direction: GraphDirection;
 }
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
@@ -73,6 +76,11 @@ const stepNodeHeight = { executeOnly: 128, withWaitFor: 148, perExtraConditionLi
 
 /** More Channel names collapse into a "+N more" line so the node keeps a bounded height. */
 const maxVisibleChannelNames = 2;
+
+/** Below this zoom a whole left-to-right graph is too small to read, so it frames the selected Step instead. */
+const readableFitZoom = 0.6;
+/** A framed graph zooms out a little, so the selected Step shows its neighbors. */
+const framedGraphZoom = 0.8;
 
 const graphEdgeColor = 'var(--mark)';
 const connectedStepColor = 'var(--ink-dim)';
@@ -323,22 +331,30 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
   );
 }
 
+/** Where edges meet a node: topology edges follow the direction, and SubFlow edges cross it. */
+function handlePositions(direction: GraphDirection) {
+  return direction === 'lr'
+    ? { topologyIn: Position.Left, topologyOut: Position.Right, subFlowOut: Position.Bottom, subFlowIn: Position.Top }
+    : { topologyIn: Position.Top, topologyOut: Position.Bottom, subFlowOut: Position.Right, subFlowIn: Position.Left };
+}
+
 function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
   const { model } = data;
+  const positions = handlePositions(data.direction);
   return (
     <div className="graph-node-root">
       {model.kind === 'step' && (
-        <Handle id="topology" position={Position.Top} type="target" />
+        <Handle id="topology" position={positions.topologyIn} type="target" />
       )}
       <div className="graph-node-body">{data.label}</div>
       {(model.kind === 'source' || model.kind === 'step') && (
-        <Handle id="topology" position={Position.Bottom} type="source" />
+        <Handle id="topology" position={positions.topologyOut} type="source" />
       )}
       {model.kind === 'step' && data.hasSubFlowChildren === true && (
         <Handle
           className="graph-subflow-handle"
           id="subflow"
-          position={Position.Right}
+          position={positions.subFlowOut}
           type="source"
         />
       )}
@@ -346,7 +362,7 @@ function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
         <Handle
           className="graph-subflow-handle"
           id="subflow"
-          position={Position.Left}
+          position={positions.subFlowIn}
           type="target"
         />
       )}
@@ -374,20 +390,22 @@ function nodeHandles(
   node: StepGraphNode,
   dimensions: { height: number; width: number },
   hasSubFlowChildren: boolean,
+  direction: GraphDirection,
 ): Node['handles'] {
   const box = { x: 0, y: 0, width: dimensions.width, height: dimensions.height };
+  const positions = handlePositions(direction);
   if (node.kind === 'subflow') {
-    return [{ ...box, id: 'subflow', type: 'target', position: Position.Left }];
+    return [{ ...box, id: 'subflow', type: 'target', position: positions.subFlowIn }];
   }
   if (node.kind === 'source') {
-    return [{ ...box, id: 'topology', type: 'source', position: Position.Bottom }];
+    return [{ ...box, id: 'topology', type: 'source', position: positions.topologyOut }];
   }
   const handles: NonNullable<Node['handles']> = [
-    { ...box, id: 'topology', type: 'target', position: Position.Top },
-    { ...box, id: 'topology', type: 'source', position: Position.Bottom },
+    { ...box, id: 'topology', type: 'target', position: positions.topologyIn },
+    { ...box, id: 'topology', type: 'source', position: positions.topologyOut },
   ];
   if (hasSubFlowChildren) {
-    handles.push({ ...box, id: 'subflow', type: 'source', position: Position.Right });
+    handles.push({ ...box, id: 'subflow', type: 'source', position: positions.subFlowOut });
   }
   return handles;
 }
@@ -399,7 +417,10 @@ export function ExecutionGraph({
   state,
   selectedEvent,
   onSelectEvent,
+  direction = 'tb',
 }: {
+  /** Top to bottom by default; left to right in the bounded box above a run's event panel. */
+  direction?: GraphDirection;
   flowId: string;
   events: FlowHistoryEvent[];
   /** True when the events omit history before the newest window, so missing sources are earlier events. */
@@ -409,7 +430,9 @@ export function ExecutionGraph({
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
 }) {
   const graphCanvas = useRef<HTMLDivElement>(null);
-  const [canvasWidth, setCanvasWidth] = useState(0);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const canvasWidth = canvasSize.width;
+  const isLeftToRight = direction === 'lr';
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);
   const graph = useMemo(
@@ -472,8 +495,9 @@ export function ExecutionGraph({
         width: dimensions.width,
         height: dimensions.height,
         style: dimensions,
-        handles: nodeHandles(node, dimensions, subFlowParentIDs.has(node.id)),
+        handles: nodeHandles(node, dimensions, subFlowParentIDs.has(node.id), direction),
         data: {
+          direction,
           model: node,
           hasSubFlowChildren: subFlowParentIDs.has(node.id),
           label: node.kind === 'step' ? (
@@ -492,14 +516,20 @@ export function ExecutionGraph({
         },
       };
     });
-    return layoutGraph(raw, edges);
-  }, [edges, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
+    return layoutGraph(raw, edges, direction);
+  }, [direction, edges, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
-  const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
+  // Left to right fits the whole graph while readable; otherwise it fits the height and frames the selection.
+  const fitZoom = fittingGraphZoom(bounds, canvasSize);
+  const isWholeGraphShown = isLeftToRight && fitZoom >= readableFitZoom;
+  const heightFitZoom = fittingGraphZoom({ width: 1, height: bounds.height }, { width: 1, height: canvasSize.height });
+  const initialZoom = !isLeftToRight
+    ? defaultGraphZoom(bounds.width, canvasWidth)
+    : isWholeGraphShown ? fitZoom : Math.max(minimumGraphZoom, Math.min(framedGraphZoom, heightFitZoom));
   // The graph opens framed on the selected Step, such as the failed or waiting one, once per mount.
   const hasFramedSelection = useRef(false);
   useEffect(() => {
-    if (hasFramedSelection.current || !flowInstance || !selectedEvent) return undefined;
+    if (hasFramedSelection.current || !flowInstance || !selectedEvent || isWholeGraphShown) return undefined;
     const element = graphCanvas.current?.querySelector<HTMLElement>('.graph-method.is-selected')
       ?.closest<HTMLElement>('.react-flow__node');
     const node = element?.dataset.id ? flowInstance.getNode(element.dataset.id) : undefined;
@@ -513,14 +543,18 @@ export function ExecutionGraph({
       void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: flowInstance.getZoom() });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [flowInstance, nodes, selectedEvent]);
+  }, [flowInstance, isWholeGraphShown, nodes, selectedEvent]);
 
   useEffect(() => {
     const canvas = graphCanvas.current;
     if (!canvas) return undefined;
-    const updateWidth = () => setCanvasWidth(canvas.clientWidth);
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
+    const updateSize = () => setCanvasSize((current) => (
+      current.width === canvas.clientWidth && current.height === canvas.clientHeight
+        ? current
+        : { width: canvas.clientWidth, height: canvas.clientHeight }
+    ));
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
     observer.observe(canvas);
     return () => observer.disconnect();
   }, []);
@@ -529,14 +563,14 @@ export function ExecutionGraph({
     if (!flowInstance || canvasWidth <= 0) return;
     void flowInstance.setViewport({
       x: Math.max(0, (canvasWidth - bounds.width * initialZoom) / 2),
-      y: 0,
+      y: isLeftToRight ? Math.max(0, (canvasSize.height - bounds.height * initialZoom) / 2) : 0,
       zoom: initialZoom,
     });
-  }, [bounds.width, canvasWidth, flowInstance, initialZoom]);
+  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isLeftToRight]);
 
   if (!nodes.length) return <div className="card empty-state"><h3>No execution topology loaded</h3></div>;
   return (
-    <div className="graph-view">
+    <div className={isLeftToRight ? 'graph-view graph-view--lr' : 'graph-view'}>
       <div className="view-toolbar">
         <h2 className="sr-only">Execution graph</h2>
         <div className="graph-legend">
@@ -551,7 +585,9 @@ export function ExecutionGraph({
       <div
         className="graph-canvas"
         ref={graphCanvas}
-        style={{ height: `min(${Math.max(650, bounds.height * initialZoom)}px, max(480px, calc(100vh - 220px)))` }}
+        style={isLeftToRight
+          ? undefined
+          : { height: `min(${Math.max(650, bounds.height * initialZoom)}px, max(480px, calc(100vh - 220px)))` }}
       >
         <ReactFlow
           proOptions={{ hideAttribution: true }}
@@ -565,7 +601,8 @@ export function ExecutionGraph({
           nodesDraggable={false}
           preventScrolling={false}
           zoomOnScroll={false}
-          panOnScroll
+          // In the bounded box a wheel scrolls the page; dragging pans the graph.
+          panOnScroll={!isLeftToRight}
           onInit={setFlowInstance}
           onNodeClick={(_, node) => {
             const model = (node.data as StepNodeData).model;
