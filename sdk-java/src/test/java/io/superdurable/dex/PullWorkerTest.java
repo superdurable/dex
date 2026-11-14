@@ -332,9 +332,11 @@ final class PullWorkerTest {
                 assertTrue(rejection.getMessage().contains("task queue blue"), rejection.getMessage());
                 assertEquals(Status.Code.FAILED_PRECONDITION,
                         Status.fromThrowable(rejection.getCause()).getCode());
-                final PollStream stream = pollServer.awaitQueue("PullTestFlow");
-                assertEquals("blue", stream.registration.getTaskQueue());
+                // awaitQueue skips closed streams, and a mismatched stream half-closes at once.
+                assertEquals(1, pollServer.allStreams.size());
+                final PollStream stream = pollServer.allStreams.get(0);
                 assertTrue(stream.closed.await(5, TimeUnit.SECONDS));
+                assertEquals("blue", stream.registration.getTaskQueue());
                 assertTrue(stream.isHalfClosed);
                 assertTrue(stream.frames.isEmpty());
                 assertEquals(0, flow.executeCalls.get());
