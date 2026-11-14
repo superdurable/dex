@@ -46,6 +46,7 @@ jobs:
           cache-dependency-path: |
             web/go.sum
             sdk-go/go.sum
+            web/scripts/local-demo/go.sum
       - name: Install
         run: npm ci
       - name: Check
@@ -58,6 +59,11 @@ jobs:
         run: make test
       - name: Embedded module builds in a host module
         run: python3 ../script/release/check_embedded_web_module.py --skip-if-sdk-go-unreleased
+      - name: Local demo kit vets
+        working-directory: web/scripts/local-demo
+        env:
+          GOWORK: "off"
+        run: go vet ./...
 
   server-zd-e2e:
     name: Dex Web on server-zd
