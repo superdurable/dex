@@ -22,11 +22,12 @@ import logging
 import os
 import signal
 import socket
+import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 from dex import DexServiceError
 
@@ -137,12 +138,15 @@ class HeldSessionLease:
     answer, such as one Ctrl-C cancelled, may still have taken the lease, so
     ``release`` releases that session too.
 
-    The lease counts as confirmed until the local time at which the last
-    successful acquire or renewal was sent, plus the TTL. When no renewal
-    confirms it again by that time less ``RENEWAL_SAFETY_MARGIN_RATIO`` of the
-    TTL, renewing stops, the opener stops pulling the session's task queue,
-    and ``unconfirmed`` completes with the session ID. The lease then expires
-    before another terminal can take the session; nothing releases it.
+    The lease counts as confirmed until the monotonic time at which the last
+    successful acquire or renewal was sent, plus the TTL; the guard starts
+    from the acquire's send time as soon as the acquire succeeds. When no
+    renewal confirms it again by that time less
+    ``RENEWAL_SAFETY_MARGIN_RATIO`` of the TTL, renewing stops, the opener
+    stops pulling the session's task queue, and ``unconfirmed`` completes with
+    the session ID, or ``lost`` when the stored lease already names another
+    holder. The lease then expires before another terminal can take the
+    session; nothing releases it. Wall-clock changes never move the deadline.
     """
 
     def __init__(self, opener: SessionOpener) -> None:
@@ -156,6 +160,8 @@ class HeldSessionLease:
         self._session_id: str | None = None
         self._unanswered_session_ids: set[str] = set()
         self._renewing: asyncio.Task[None] | None = None
+        # The monotonic time until which the held lease counts as confirmed.
+        self._confirmed_until = 0.0
         loop = asyncio.get_running_loop()
         self.lost: asyncio.Future[tuple[str, SessionTerminalLease]] = loop.create_future()
         self.unconfirmed: asyncio.Future[str] = loop.create_future()
@@ -180,8 +186,29 @@ class HeldSessionLease:
         if result.is_acquired:
             self._stop_renewing()
             self._session_id = session_id
+            sent_at = self._opener.acquired_sent_at(session_id)
+            self._confirmed_until = (
+                time.monotonic() if sent_at is None else sent_at
+            ) + self._holder.ttl_seconds
             self._renewing = asyncio.create_task(self._renew(session_id))
         return result
+
+    @property
+    def is_confirmation_overdue(self) -> bool:
+        """Return whether the held lease passed its renewal deadline, or already ended."""
+        margin = self._holder.ttl_seconds * RENEWAL_SAFETY_MARGIN_RATIO
+        is_overdue = time.monotonic() >= self._confirmed_until - margin
+        return self.lost.done() or self.unconfirmed.done() or is_overdue
+
+    async def has_ended_within(self, timeout: float) -> bool:
+        """Return whether ``lost`` or ``unconfirmed`` completes within ``timeout`` seconds.
+
+        A renewal that confirms the lease right at its deadline ends nothing,
+        so the wait is bounded.
+        """
+        endings: set[asyncio.Future[Any]] = {self.lost, self.unconfirmed}
+        await asyncio.wait(endings, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        return self.lost.done() or self.unconfirmed.done()
 
     async def release(self) -> None:
         """Release the held lease, and any a try without an answer may have taken.
@@ -200,39 +227,49 @@ class HeldSessionLease:
         await asyncio.gather(*(self._opener.release(session_id) for session_id in session_ids))
 
     async def _renew(self, session_id: str) -> None:
-        loop = asyncio.get_running_loop()
+        # Deadlines use the monotonic clock, so a wall-clock jump cannot move them.
         ttl = self._holder.ttl_seconds
         margin = ttl * RENEWAL_SAFETY_MARGIN_RATIO
         interval = self._holder.renew_interval_seconds
-        confirmed_until = loop.time() + ttl
-        next_renewal_at = loop.time() + interval
+        next_renewal_at = self._confirmed_until - ttl + interval
         renewing: asyncio.Task[SessionTerminalLeaseResult] | None = None
         sent_at = 0.0
         try:
             while True:
-                deadline = confirmed_until - margin
-                wake_at = deadline if renewing is not None else min(next_renewal_at, deadline)
-                timeout = max(0.0, wake_at - loop.time())
+                deadline = self._confirmed_until - margin
+                # An unanswered renewal counts as failed after one interval, before the deadline.
+                wake_at = min(next_renewal_at, deadline)
+                timeout = max(0.0, wake_at - time.monotonic())
                 if renewing is None:
                     await asyncio.sleep(timeout)
                 else:
                     await asyncio.wait({renewing}, timeout=timeout)
+                if renewing is not None and not renewing.done():
+                    if time.monotonic() >= next_renewal_at:
+                        renewing.cancel()
+                        renewing = None
+                        _LOGGER.warning(
+                            "a session lease renewal got no answer within %.1f s: session=%s",
+                            interval,
+                            session_id,
+                        )
                 if renewing is not None and renewing.done():
                     finished, renewing = renewing, None
                     next_renewal_at = sent_at + interval
                     result = self._renewal_result(session_id, finished)
                     if result is not None and result.is_acquired:
-                        confirmed_until = sent_at + ttl
+                        self._confirmed_until = sent_at + ttl
                     elif result is not None and result.lease is not None:
                         self._end_held_lease(session_id)
                         if not self.lost.done():
                             self.lost.set_result((session_id, result.lease))
                         return
-                if loop.time() >= confirmed_until - margin:
+                if time.monotonic() >= self._confirmed_until - margin:
                     await self._end_unconfirmed_lease(session_id)
                     return
-                if renewing is None and loop.time() >= next_renewal_at:
-                    sent_at = loop.time()
+                if renewing is None and time.monotonic() >= next_renewal_at:
+                    sent_at = time.monotonic()
+                    next_renewal_at = sent_at + interval
                     renewing = asyncio.create_task(self._opener.renew(session_id))
         finally:
             if renewing is not None:

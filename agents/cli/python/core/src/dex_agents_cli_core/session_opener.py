@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -46,6 +47,7 @@ from dex_agents import (
 from dex_agents_cli_core.session_lease import (
     LEASE_CALL_TIMEOUT_SECONDS,
     LEASE_RELEASE_TIMEOUT_SECONDS,
+    RENEWAL_SAFETY_MARGIN_RATIO,
     SessionLeaseHolder,
 )
 from dex_agents_cli_core.session_task_queues import (
@@ -388,6 +390,9 @@ class SessionOpener:
         self._turn_refusal = turn_refusal
         self._opened_sessions: dict[str, OpenableSession] = {}
         self._pending_takeovers: dict[str, _PendingTakeover] = {}
+        # Monotonic send times of the acquires that gave this process each session's lease.
+        self._acquired_sent_at: dict[str, float] = {}
+        self._unknown_outcome_guards: dict[str, asyncio.Task[None]] = {}
 
     @property
     def holder(self) -> SessionLeaseHolder:
@@ -446,7 +451,8 @@ class SessionOpener:
         the pulling again. An acquire whose outcome is unknown, such as a
         timeout, reads the stored lease: this holder's lease counts as
         acquired, another one stops the pulling and raises, and a failed read
-        keeps the Worker and raises, so the next attempt decides.
+        keeps the Worker and raises, so the next attempt decides; a guard stops
+        that Worker before the lease the acquire may have taken could expire.
 
         Returns:
             The lease RPC's result, or a refusal that names the stored holder.
@@ -459,7 +465,11 @@ class SessionOpener:
         session_id = session.session_id
         self._opened_sessions[session_id] = session
         if not session.has_session_task_queue:
-            return await self._acquire(session.sessions, session_id)
+            sent_at = time.monotonic()
+            result = await self._acquire(session.sessions, session_id)
+            if result.is_acquired:
+                self._acquired_sent_at[session_id] = sent_at
+            return result
         stored = await self._client.get_attributes(
             session_id, SESSION_TERMINAL_LEASE, SESSION_LAST_TERMINAL_ENVIRONMENT, AGENT_STATE
         )
@@ -484,18 +494,31 @@ class SessionOpener:
             self._turn_refusal.refuse_turn(session_id, taken_over_turn_id)
         await self._session_worker.pull(session_task_queue(session_id))
         # A cancelled call may still have taken the lease; its release then needs this Worker.
+        sent_at = time.monotonic()
         try:
             result = await self._acquire(self._sessions, session_id)
         except Exception as error:
-            result = await self._resolve_unknown_acquisition(session_id, error)
+            result = await self._resolve_unknown_acquisition(session_id, error, sent_at)
         if not result.is_acquired:
+            self._cancel_unknown_outcome_guard(session_id)
             self._session_worker.stop()
             return result
+        self._cancel_unknown_outcome_guard(session_id)
+        self._acquired_sent_at[session_id] = sent_at
         if is_takeover and last_environment is not None:
             self._pending_takeovers[session_id] = _PendingTakeover(
                 dict(last_environment), taken_over_turn_id
             )
         return result
+
+    def acquired_sent_at(self, session_id: str) -> float | None:
+        """Return when the acquire that gave this process the session's lease was sent.
+
+        Returns:
+            The ``time.monotonic()`` reading taken right before that acquire
+            was sent, or ``None`` when no acquire gave this process the lease.
+        """
+        return self._acquired_sent_at.get(session_id)
 
     async def renew(self, session_id: str) -> SessionTerminalLeaseResult:
         """Renew the lease of a session that ``attempt`` acquired.
@@ -569,6 +592,7 @@ class SessionOpener:
 
     def leave(self, session_id: str) -> None:
         """Stop pulling a session's task queue without releasing its lease."""
+        self._cancel_unknown_outcome_guard(session_id)
         session = self._opened_sessions.get(session_id)
         if (
             session is not None
@@ -578,12 +602,19 @@ class SessionOpener:
             self._session_worker.stop()
 
     async def _resolve_unknown_acquisition(
-        self, session_id: str, error: Exception
+        self, session_id: str, error: Exception, sent_at: float
     ) -> SessionTerminalLeaseResult:
         """Decide an acquire whose outcome is unknown, such as a lost response, from the store.
 
         The Worker keeps pulling while the outcome stays unknown, because the
-        lease may be this command's; the next attempt then decides.
+        lease may be this command's; the next attempt then decides. A guard
+        stops it before a lease that this acquire may have taken could expire,
+        unless an acquire confirms the lease first.
+
+        Args:
+            session_id: The session.
+            error: The acquire's error.
+            sent_at: The ``time.monotonic()`` reading taken right before the acquire was sent.
 
         Returns:
             An acquired result when the stored lease is this holder's.
@@ -595,6 +626,7 @@ class SessionOpener:
         try:
             stored = await self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE)
         except Exception:
+            self._guard_unknown_outcome(session_id, sent_at)
             raise error from None
         lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
         if lease is not None and lease.holder_id == self._holder.holder_id:
@@ -602,6 +634,35 @@ class SessionOpener:
             return SessionTerminalLeaseResult(is_acquired=True, lease=lease)
         self._session_worker.stop()
         raise error
+
+    def _guard_unknown_outcome(self, session_id: str, sent_at: float) -> None:
+        """Stop the session Worker at the safety margin before the earliest unknown acquire's lease.
+
+        An existing guard keeps its earlier deadline: a later unknown acquire
+        may never have reached the server.
+        """
+        if session_id in self._unknown_outcome_guards:
+            return
+        ttl = self._holder.ttl_seconds
+        deadline = sent_at + ttl - ttl * RENEWAL_SAFETY_MARGIN_RATIO
+        self._unknown_outcome_guards[session_id] = asyncio.create_task(
+            self._stop_worker_at(session_id, deadline)
+        )
+
+    async def _stop_worker_at(self, session_id: str, deadline: float) -> None:
+        await asyncio.sleep(max(0.0, deadline - time.monotonic()))
+        self._unknown_outcome_guards.pop(session_id, None)
+        if self._session_worker.task_queue == session_task_queue(session_id):
+            self._session_worker.stop()
+            _LOGGER.warning(
+                "session Worker stopped: an acquire's outcome stayed unknown: session=%s",
+                session_id,
+            )
+
+    def _cancel_unknown_outcome_guard(self, session_id: str) -> None:
+        guard = self._unknown_outcome_guards.pop(session_id, None)
+        if guard is not None:
+            guard.cancel()
 
     async def _is_turn_cancelled(self, session_id: str, turn_id: str) -> bool:
         """Cancel a taken over turn; return whether it is confirmed no longer active."""

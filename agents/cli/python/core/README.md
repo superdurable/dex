@@ -73,20 +73,27 @@ Opening a session of the harness's Flow type follows these steps:
    Worker and wait again. When its outcome is unknown, such as after a
    timeout or a lost answer, keep the session Worker and read the lease: the
    command holds the session when the stored holder is its own. Otherwise
-   it stops the session Worker, or keeps it when that read fails too, and
-   tries again.
+   it stops the session Worker and tries again. When that read fails too, it
+   keeps the session Worker, but stops it at a fifth of the TTL before the
+   lease that acquire may have taken would expire, unless a later acquire
+   confirms the session first.
 5. On exit or on a terminal UI switch, release the lease while the session
    Worker still serves the RPC, then stop it.
 
-The held lease counts as confirmed until the local time at which its last
-successful acquire or renewal was sent, plus the TTL (15 seconds). The command
-renews it every third of the TTL. When no renewal confirms it again by that
-time less a fifth of the TTL, the command stops pulling the session's task
-queue, stops the chat, prints one line, and exits with 1 without releasing the
-lease. When the stored lease already names another terminal, such as after
-the process was paused, it ends as for a lost lease instead. The lease then
-expires before another terminal can take the session,
-so two commands never run its Steps at once because of a lost renewal.
+The held lease counts as confirmed until the time at which its last
+successful acquire or renewal was sent, plus the TTL (15 seconds), on the
+monotonic clock, so a change of the wall clock never moves it. The guard
+starts from the acquire's send time as soon as the acquire succeeds, before
+the takeover cancels a turn. The command renews the lease every third of the
+TTL, and a renewal without an answer within that interval counts as failed,
+so the next one starts in time. When no renewal confirms it again by that time less a fifth of the TTL,
+the command stops pulling the session's task queue, stops the chat, or does
+not start it when this happens during the takeover, prints one line, and
+exits with 1 without releasing the lease. When the stored lease already names
+another terminal, such as after the process was paused, it ends as for a lost
+lease instead. The lease then expires before another terminal can take the
+session, so two commands never run its Steps at once because of a lost or
+late renewal.
 
 The acquire request carries this command's environment: the
 `start_environment` values below. When the call gives the lease to a new

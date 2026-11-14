@@ -148,6 +148,7 @@ from dex_agents_cli_core.session_lease import (
 )
 from dex_agents_cli_core.session_list import collect_sessions_for_list
 from dex_agents_cli_core.session_opener import (
+    STORED_LEASE_READ_TIMEOUT_SECONDS,
     OpenableSession,
     SessionOpener,
     SessionQueueWorker,
@@ -1009,6 +1010,12 @@ async def _run_plain_chat(
         await _wait_for_session_lease(session, lease, environment)
         for line in await session_worker.opener.complete_takeover(session_id):
             print(line, file=sys.stderr)
+        # The renewal guard runs from the acquire on; it may end the lease during the takeover.
+        if lease.is_confirmation_overdue and await lease.has_ended_within(
+            STORED_LEASE_READ_TIMEOUT_SECONDS + 1
+        ):
+            _report_ended_lease(lease)
+            return 1
         print(f"Session {session_id}")
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
@@ -1071,12 +1078,17 @@ async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) ->
             await _end_cancelled_chat(chatting)
     # The newline ends the prompt line, which is on standard output.
     print(flush=True)
+    _report_ended_lease(lease)
+    return False
+
+
+def _report_ended_lease(lease: HeldSessionLease) -> None:
+    """Print the line of a lease that another terminal took or no renewal confirmed."""
     if lease.lost.done():
         session_id, holder = lease.lost.result()
         print(build_lease_lost_line(session_id, format_lease_holder(holder)), file=sys.stderr)
     else:
         print(build_lease_unconfirmed_line(lease.unconfirmed.result()), file=sys.stderr)
-    return False
 
 
 async def _end_cancelled_chat(chatting: asyncio.Task[bool]) -> None:
