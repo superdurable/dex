@@ -42,6 +42,7 @@ import {
 import {
   cancelledTurnLine,
   describeSessionEnvironmentIdentity,
+  foreignTaskQueueSessionError,
   isLegacySessionFlowType,
   isOtherSessionEnvironment,
   otherEnvironmentLegacySessionError,
@@ -410,7 +411,7 @@ export class SessionOpener {
    * Returns the session to open, after `DescribeFlow` showed that it runs with a Flow type this command serves.
    * @param sessionId - The session.
    * @throws {UnopenableSessionError} When the session does not exist, does not run, or belongs to another harness or
-   * to another execution environment's environment-hashed Flow type.
+   * to another execution environment's environment-hashed Flow type, or runs on another task queue than its own.
    */
   public async describeOpenableSession(sessionId: string): Promise<OpenableSession> {
     const { client, harnessFlowType, sessionFlow, legacySessionFlow, commandName } = this.options;
@@ -435,6 +436,10 @@ export class SessionOpener {
     }
     if (info.status !== "running") {
       throw new UnopenableSessionError(`session ${sessionId} is ${info.status}, so it cannot continue`);
+    }
+    // Another client may start a session of this Flow type without its queue; no Worker of a command serves it.
+    if (session.hasSessionTaskQueue && (await client.getFlowState(sessionId)).taskQueue !== sessionTaskQueue(sessionId)) {
+      throw new UnopenableSessionError(foreignTaskQueueSessionError(sessionId, commandName));
     }
     return session;
   }

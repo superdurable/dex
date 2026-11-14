@@ -12,8 +12,10 @@ section: Added
   the sessions of every environment, with where each was last open, stored in
   the session's **SessionLastTerminalEnvironment** Attribute. Sessions that
   earlier releases started keep resuming only in their own environment. The
-  commands need server-zd 0.1.30, which dexcli 1.47.5 runs.
-  [Reference](/reference/agents/cli#other-environments).
+  commands need server-zd 0.1.30, which dexcli 1.47.5 runs. **--resume** of a
+  session of the harness's Flow type that another client started without its
+  own task queue, such as from the Dex Web **Start** dialog, exits with code 2
+  at once. [Reference](/reference/agents/cli#other-environments).
 - Python and TypeScript CLI commands: a command that cannot renew its session
   lease stops its chat with one line and exit code 1 before the lease expires,
   so another terminal that then takes the session never runs it at the same

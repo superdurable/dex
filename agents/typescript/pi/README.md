@@ -33,7 +33,7 @@ are peer dependencies. The application installs exactly one copy of each,
 because the Dex Registry matches Flow classes and RPC registrations by
 identity, and the session recognizes `ToolExecutionError` only from its own
 copy of the core. Requirements: Node `^22.19.0 || ^24.0.0` (pi-ai needs
-22.19), `@superdurable/dex` 1.45.2, and `@earendil-works/pi-ai` `^1.5.1` (the
+22.19), `@superdurable/dex` 1.45.3, and `@earendil-works/pi-ai` `^1.5.1` (the
 tests run 1.5.1). The package does not depend on `@earendil-works/pi-agent-core`
 or `@earendil-works/pi-durable`: it reads their tools through structural types.
 The example below also imports `@earendil-works/pi-agent-core` for the

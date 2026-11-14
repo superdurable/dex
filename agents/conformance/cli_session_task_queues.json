@@ -1,5 +1,5 @@
 {
-  "description": "How the CLI cores route sessions to task queues and what they print about where a session runs. Hand-written for the CLI cores. Every new session has the harness's Flow type and runs on its own task queue: s- and the first 20 lowercase hexadecimal characters of the SHA-256 of the session ID in UTF-8. A legacy session has the harness's Flow type, -, and 6 lowercase base36 characters (see cli_session_flow_types.json); it runs on the default task queue. A session environment is the string map the CLI core records as a session's start_environment and sends as the acquire request's environment; its text is host_name, a colon, and workspace, or the em dash when both are empty or missing. Two environments are other environments when host_name, user_id, config_identity, or workspace differ, a missing key counting as empty. The identity text names them: user_name, or user_id without it, then @, host_name, a colon, workspace, a space, and config_identity in parentheses. When a command takes a session whose SessionLastTerminalEnvironment is another environment, it prints takeover_line to standard error, or as an info notice in the terminal UI. When the turn that was in progress there is still active, it refuses that turn's model and tool calls in its own process with taken_over_turn_reason and calls cancel_turn. It prints cancelled_turn_line after takeover_line only when that turn is no longer active within the wait; otherwise it prints turn_not_cancelled_line and keeps refusing the turn's calls. --resume refuses another execution environment's legacy session with other_environment_legacy_session_error and a session of another Flow type with other_harness_session_error. A server whose protocol has no named task queues fails the command with named_task_queue_server_error. app_worker_id is the session Worker's app Worker ID: dex-agents-, the harness name, -, the host name cut so the whole ID has at most 63 characters, -, the process ID, and -suffix when given.",
+  "description": "How the CLI cores route sessions to task queues and what they print about where a session runs. Hand-written for the CLI cores. Every new session has the harness's Flow type and runs on its own task queue: s- and the first 20 lowercase hexadecimal characters of the SHA-256 of the session ID in UTF-8. A legacy session has the harness's Flow type, -, and 6 lowercase base36 characters (see cli_session_flow_types.json); it runs on the default task queue. A session environment is the string map the CLI core records as a session's start_environment and sends as the acquire request's environment; its text is host_name, a colon, and workspace, or the em dash when both are empty or missing. Two environments are other environments when host_name, user_id, config_identity, or workspace differ, a missing key counting as empty. The identity text names them: user_name, or user_id without it, then @, host_name, a colon, workspace, a space, and config_identity in parentheses. When a command takes a session whose SessionLastTerminalEnvironment is another environment, it prints takeover_line to standard error, or as an info notice in the terminal UI. When the turn that was in progress there is still active, it refuses that turn's model and tool calls in its own process with taken_over_turn_reason and calls cancel_turn. It prints cancelled_turn_line after takeover_line only when that turn is no longer active within the wait; otherwise it prints turn_not_cancelled_line and keeps refusing the turn's calls. --resume refuses another execution environment's legacy session with other_environment_legacy_session_error and a session of another Flow type with other_harness_session_error. A server whose protocol has no named task queues fails the command with named_task_queue_server_error. app_worker_id is the session Worker's app Worker ID: dex-agents-, the harness name, -, the host name cut so the whole ID has at most 63 characters, -, the process ID, and -suffix when given. Before it opens a session of the harness's Flow type, a command reads the session's task queue with GetFlowState, which needs no Worker; when it is not the session's own task queue, such as for a session that another client started without one, the command fails at once with foreign_task_queue_session_error and exit code 2, without trying the lease.",
   "harness_flow_type": "DexAgentsBuiltinCliSession",
   "task_queue_cases": [
     {
@@ -93,7 +93,8 @@
     "other_environment_legacy_session_error": "session {session_id} is a {flow_type} session of another execution environment, from a release before sessions could move; resume it as the user, with the configuration file and workspace, that started it",
     "other_harness_session_error": "session {session_id} is a {flow_type} session, which {command_name} does not run; resume it with the command that started it",
     "named_task_queue_server_error": "{command_name} needs a Dex server with named task queues, such as the one dexcli 1.47.5 or later starts; this server is older. Upgrade it, or stop the dexcli dev this command reuses",
-    "turn_not_cancelled_line": "Could not confirm that the turn in progress there was cancelled; this command still refuses its model and tool calls."
+    "turn_not_cancelled_line": "Could not confirm that the turn in progress there was cancelled; this command still refuses its model and tool calls.",
+    "foreign_task_queue_session_error": "session {session_id} was not started by {command_name}, so it runs on another task queue and cannot be opened here"
   },
   "template_cases": [
     {
@@ -150,6 +151,14 @@
         "command_name": "dex-agents-builtin"
       },
       "line": "dex-agents-builtin needs a Dex server with named task queues, such as the one dexcli 1.47.5 or later starts; this server is older. Upgrade it, or stop the dexcli dev this command reuses"
+    },
+    {
+      "template": "foreign_task_queue_session_error",
+      "values": {
+        "session_id": "builtin-web-1",
+        "command_name": "dex-agents-builtin"
+      },
+      "line": "session builtin-web-1 was not started by dex-agents-builtin, so it runs on another task queue and cannot be opened here"
     }
   ],
   "app_worker_id_cases": [

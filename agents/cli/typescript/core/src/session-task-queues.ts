@@ -126,6 +126,11 @@ export function otherHarnessSessionError(sessionId: string, flowType: string, co
   return `session ${sessionId} is a ${flowType} session, which ${commandName} does not run; resume it with the command that started it`;
 }
 
+/** Returns the error for a session of the harness's Flow type that runs on another task queue than its own. */
+export function foreignTaskQueueSessionError(sessionId: string, commandName: string): string {
+  return `session ${sessionId} was not started by ${commandName}, so it runs on another task queue and cannot be opened here`;
+}
+
 /** Returns the error for a Dex server without named task queues. */
 export function namedTaskQueueServerError(commandName: string): string {
   return (

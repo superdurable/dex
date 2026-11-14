@@ -145,7 +145,10 @@ that it could not confirm it and keeps refusing the turn's calls. The lines
 and rules are in
 [`agents/conformance/cli_session_task_queues.json`](../../../conformance/cli_session_task_queues.json).
 `--resume` of another harness's session, or of another environment's
-environment-hashed session, exits with 2. A server whose protocol has no named
+environment-hashed session, exits with 2. So does `--resume` of a session of the
+harness's Flow type whose task queue, read with `Client.getFlowState` without a
+Worker, is not its own, such as one another client started on the default task
+queue; it fails before any lease call. A server whose protocol has no named
 task queues, older than server-zd 0.1.30, stops the command with one line.
 
 Sessions that releases before 0.6.7 started keep the environment-hashed Flow

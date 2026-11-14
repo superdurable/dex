@@ -2,9 +2,9 @@
 section: Changed
 ---
 - The TypeScript agents packages and CLI commands depend on, and peer-depend
-  on, `@superdurable/dex` 1.45.2, so an application can use
-  `PullWorkerOptions.taskQueue` and `StartFlowOptions.taskQueue` from that
-  release.
+  on, `@superdurable/dex` 1.45.3, so an application can use
+  `PullWorkerOptions.taskQueue`, `StartFlowOptions.taskQueue`, and
+  `FlowState.taskQueue` from that release.
 - The CLI commands download dexcli 1.47.5 when **DEXCLI** names none.
 - `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: after a
   terminal UI session switch, the launcher's chat launch document carries the

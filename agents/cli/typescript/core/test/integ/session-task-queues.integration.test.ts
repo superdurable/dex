@@ -21,6 +21,7 @@ import { leaseUnconfirmedLine, tookOverLine } from "../../src/session-terminal-l
 import {
   cancelledTurnLine,
   describeSessionEnvironmentIdentity,
+  foreignTaskQueueSessionError,
   otherEnvironmentLegacySessionError,
   takeoverLine,
   turnNotCancelledLine,
@@ -403,6 +404,23 @@ describe("session task queues", () => {
       other.stderr.all.includes(otherEnvironmentLegacySessionError(sessionId, homeA.legacySessionFlowType())),
       other.stderr.all,
     );
+  });
+
+  test("a session of the harness's Flow type that another client started without its task queue fails at once", async () => {
+    const home = newEnvironment();
+    const sessions = await sessionClients.of(home);
+    const sessionId = `scripted-foreign-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    // Started like the Dex Web Start dialog does: the harness's Flow type on the default task queue.
+    await startAgentSession(sessions.client, sessions.flow, sessionId);
+    const startedAt = Date.now();
+    const cli = start(home, ["--resume", sessionId]);
+    assert.equal(await cli.waitForExit(30_000), 2, cli.stderr.all);
+    assert.ok(Date.now() - startedAt < 15_000, "no lease wait");
+    assert.ok(
+      cli.stderr.all.includes(foreignTaskQueueSessionError(sessionId, `dex-agents-${home.harness.name}`)),
+      cli.stderr.all,
+    );
+    assert.equal(await readLease(home, sessionId), undefined, "the command never tried the lease");
   });
 
   test("sessions lists every environment's sessions with where each was last open", async () => {

@@ -17,6 +17,7 @@ import {
   cancelledTurnLine,
   describeSessionEnvironment,
   describeSessionEnvironmentIdentity,
+  foreignTaskQueueSessionError,
   isLegacySessionFlowType,
   isOtherSessionEnvironment,
   namedTaskQueueServerError,
@@ -76,6 +77,8 @@ const renderers: Readonly<Record<string, (values: Readonly<Record<string, string
   other_harness_session_error: (values) =>
     otherHarnessSessionError(values.session_id ?? "", values.flow_type ?? "", values.command_name ?? ""),
   named_task_queue_server_error: (values) => namedTaskQueueServerError(values.command_name ?? ""),
+  foreign_task_queue_session_error: (values) =>
+    foreignTaskQueueSessionError(values.session_id ?? "", values.command_name ?? ""),
 };
 
 describe("CLI session task queue conformance", () => {
