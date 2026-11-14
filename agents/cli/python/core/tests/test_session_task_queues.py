@@ -33,6 +33,8 @@ from dex import (
     BlobCacheConfig,
     ClientOptions,
     ErrorSubStatus,
+    PullQueueRegistrationState,
+    PullRegistrationState,
     Registry,
     RpcLockConflictError,
     open_blob_cache,
@@ -921,6 +923,48 @@ async def test_a_confirmation_after_the_deadline_expires_the_pull_permit_before_
     assert not permit.confirm(time.monotonic())
 
 
+async def test_an_expired_permits_listeners_hear_though_it_is_cancelled_before_the_notice() -> None:
+    events: list[str] = []
+    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: events.append("stopped pulling"))
+    permit.when_expired(lambda: events.append("told the chat"))
+    assert not permit.confirm(time.monotonic())
+    # Registered between the expiry and its notice.
+    permit.when_expired(lambda: events.append("told the launcher"))
+    # Rebuilding the session's permit cancels this one before the notice runs.
+    permit.cancel()
+    await asyncio.sleep(0)
+    assert events == ["stopped pulling", "told the chat", "told the launcher"]
+
+
+def _permit_opener(session_worker: SessionQueueWorker) -> SessionOpener:
+    return SessionOpener(
+        client=cast(AsyncClient, None),
+        harness_flow_type=SCRIPTED_FLOW_TYPE,
+        session_flow=build_session_flow_without_tools(SCRIPTED_FLOW_TYPE),
+        legacy_session_flow=build_session_flow_without_tools(f"{SCRIPTED_FLOW_TYPE}-abcdef"),
+        command_name="dex-agents-scripted",
+        holder=SessionLeaseHolder.for_this_process(15),
+        environment={"host_name": "host-b", "user_id": "501", "workspace": "/b"},
+        session_worker=session_worker,
+        turn_refusal=TakenOverTurnRefusal(),
+    )
+
+
+async def test_a_permit_rebuilt_before_its_expiry_notice_still_ends_the_chat() -> None:
+    events: list[str] = []
+    opener = _permit_opener(_recording_queue_worker(events))
+    # Its deadline passed already.
+    expired = opener._arm_permit("session-1", time.monotonic() - 15)
+    opener.when_permit_expires("session-1", lambda: events.append("told the chat"))
+    # A late answer expires it; the notice waits for the next loop turn.
+    assert not expired.confirm(time.monotonic())
+    # A concurrent attempt rebuilds the session's permit in that window, then fails.
+    opener._arm_permit("session-1", time.monotonic())
+    opener.leave("session-1")
+    await asyncio.sleep(0)
+    assert events == ["told the chat"]
+
+
 async def test_a_cancelled_pull_permit_takes_no_confirmation_and_never_stops_pulling() -> None:
     events: list[str] = []
     # 0.1 s remain before the old deadline.
@@ -948,10 +992,20 @@ class _RecordingWorker:
     async def wait_pull_registered(self, timeout: float | None = None) -> None:
         return None
 
+    def pull_registration_state(self) -> PullRegistrationState:
+        return _registration_state(has_registered_stream=True)
+
     async def close(self) -> None:
         # Like AsyncWorker.close, it stops new tasks before it first waits.
         self._events.append(f"closed {self._name}")
         self._closed.set()
+
+
+def _registration_state(*, has_registered_stream: bool) -> PullRegistrationState:
+    return PullRegistrationState(
+        is_ready=False,
+        queues=(PullQueueRegistrationState("STEP_AND_RPC", has_registered_stream, None),),
+    )
 
 
 def _recording_queue_worker(events: list[str]) -> SessionQueueWorker:
@@ -1030,6 +1084,9 @@ class _SlowStartWorker:
     async def wait_pull_registered(self, timeout: float | None = None) -> None:
         await self._pulling.wait()
 
+    def pull_registration_state(self) -> PullRegistrationState:
+        return _registration_state(has_registered_stream=self._pulling.is_set())
+
     async def close(self) -> None:
         self._events.append("closed")
         self._closed.set()
@@ -1056,6 +1113,53 @@ async def test_a_worker_stopped_while_it_starts_never_pulls_once_its_server_answ
         server_answered.set()
         await session_worker.close()
         assert events == ["closed"]
+    finally:
+        permit.cancel()
+
+
+class _PartlyRegisteredWorker:
+    """A session Worker with one registered stream running a task, before every slot registered."""
+
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+        self._has_registered_stream = False
+        self._closed = asyncio.Event()
+
+    async def start(self) -> None:
+        self._has_registered_stream = True
+        self._events.append("took a task")
+        await self._closed.wait()
+        # The stop's drain lets the task send its output.
+        self._events.append("sent the task output")
+
+    async def wait_pull_registered(self, timeout: float | None = None) -> None:
+        await self._closed.wait()
+
+    def pull_registration_state(self) -> PullRegistrationState:
+        return _registration_state(has_registered_stream=self._has_registered_stream)
+
+    async def close(self) -> None:
+        self._events.append("closed")
+        self._closed.set()
+
+
+async def test_a_worker_stopped_once_a_stream_registered_drains_its_task_without_a_cancel() -> None:
+    events: list[str] = []
+    session_worker = SessionQueueWorker(
+        lambda task_queue, app_worker_id: cast(AsyncWorker, _PartlyRegisteredWorker(events)),
+        lambda incarnation: f"worker-{incarnation}",
+        str,
+    )
+    permit = SessionPullPermit(60, time.monotonic(), lambda: None)
+    try:
+        pulling = asyncio.create_task(session_worker.pull("s-queue", "session", permit))
+        await _wait_for(lambda: 1.0 if "took a task" in events else None, 1)
+        # The permit expires before the Worker is ready.
+        session_worker.stop()
+        with pytest.raises(PullPermitExpiredError):
+            await pulling
+        await session_worker.close()
+        assert events == ["took a task", "closed", "sent the task output"]
     finally:
         permit.cancel()
 

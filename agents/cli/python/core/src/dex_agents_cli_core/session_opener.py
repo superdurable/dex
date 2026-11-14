@@ -195,13 +195,18 @@ class SessionPullPermit:
         if self._were_listeners_told:
             listener()
             return
+        if self._is_expired:
+            # Queued behind the pending notification, so it too hears after the Worker stopped.
+            asyncio.get_running_loop().call_soon(listener)
+            return
         self._expiry_listeners.append(listener)
 
     def cancel(self) -> None:
         """Disarm it for good without stopping pulling or calling its listeners.
 
         The caller stops pulling. A later confirmation, such as a renewal's
-        answer, fails and never arms it again.
+        answer, fails and never arms it again. Listeners of a permit that
+        expired already still hear, even when the expiry's notice is pending.
         """
         self._is_cancelled = True
         if self._timer is not None:
@@ -224,14 +229,13 @@ class SessionPullPermit:
         self._timer = None
         # Pulling stops before anything else, so no Step of the session runs here past the lease.
         self._stop_pulling()
-        # Queued after the Worker's close, which stops new tasks in its first step.
-        asyncio.get_running_loop().call_soon(self._tell_listeners)
-
-    def _tell_listeners(self) -> None:
-        if self._is_cancelled:
-            return
-        self._were_listeners_told = True
+        # Taken now, so a later cancel, such as rebuilding the session's permit, cannot drop them.
         listeners, self._expiry_listeners = self._expiry_listeners, []
+        # Queued after the Worker's close, which stops new tasks in its first step.
+        asyncio.get_running_loop().call_soon(self._tell_listeners, listeners)
+
+    def _tell_listeners(self, listeners: list[Callable[[], None]]) -> None:
+        self._were_listeners_told = True
         for listener in listeners:
             listener()
 
@@ -359,9 +363,13 @@ async def _close_pulling_worker(pulling: _PullingWorker) -> None:
         and not pulling.started.cancelled()
         and pulling.started.exception() is None
     )
+    has_registered_stream = any(
+        queue.has_registered_stream for queue in pulling.worker.pull_registration_state().queues
+    )
     pulling.started.cancel()
-    if not has_pulled:
-        # A start that resumes after close would still pull; cancelling it prevents that.
+    if not has_pulled and not has_registered_stream:
+        # Before any stream registers, cancelling keeps a resumed start from pulling.
+        # Once one registered, close stops and drains instead.
         pulling.serving.cancel()
     try:
         await pulling.worker.close()
