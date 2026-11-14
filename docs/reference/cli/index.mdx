@@ -119,6 +119,47 @@ apply to **/mcp**, so a tunnel name added for Dex Web does not expose tool
 calls. A request whose **Origin** is not an **http** loopback origin, or that a
 browser marks as cross-site, also gets HTTP 403.
 
+### Serve only the Connectors MCP server {#connectors-mcp-command}
+
+Since 1.47.7. **dexcli connectors mcp** serves the Connectors MCP server
+without Dex Server or Dex Web. Use it when an agent works against a remote Dex
+server, such as Dex Cloud, and still needs the Connector tools authorized on
+this machine. The Dex Agents CLI commands run it for **connectors.mcp: auto**.
+
+It prepares the server in the same order as **dexcli dev**, with the same
+state directory and instance lock. So it reuses the server of a running
+**dexcli dev** for the same **connections.json**, and a later **dexcli dev**
+reuses the server it started. Only one server runs for each
+**connections.json**, so credential refreshes never run twice.
+
+It serves its own **/mcp** proxy on a free loopback port. The proxy URL stays
+the same while the server behind it restarts, and it has the same **Host** and
+**Origin** checks as **/mcp** on the Dex Web port.
+
+| Flag | Default and meaning |
+| --- | --- |
+| **--connector-config-dir** | **$HOME/.dex/connectors**; the directory whose **connections.json** the server reads. |
+| **--connectors-mcp-version** | As for **dexcli dev**. |
+| **--connectors-mcp-binary** | As for **dexcli dev**. |
+| **--connectors-mcp-connection** | As for **dexcli dev**. |
+| **--exit-on-stdin-close** | **false**; also stop when standard input closes. A caller that starts the command sets it, so the command stops even when the caller is killed. |
+
+The command waits until a server answers, then prints exactly one JSON line on
+stdout and serves until SIGINT or SIGTERM:
+
+```text
+{"type":"ready","url":"http://127.0.0.1:53124/mcp","pid":4242,"connectionsFile":"/home/me/.dex/connectors/connections.json"}
+```
+
+**url** is the proxy URL. **pid** is the dexcli process; stop it to stop the
+proxy. When no server can run, such as offline with an empty cache or after
+5 failed starts in a row, it prints
+**{"type":"error","message":"..."}** and exits with code 1. Logs go to stderr.
+
+On exit it stops a server it started. It never stops a server it reused. A
+**dexcli dev** that reused its server starts its own server after a short
+delay.
+
 ## Connect to Dex
 
 Commands connect to **127.0.0.1:8801** by default. Set

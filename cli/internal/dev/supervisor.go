@@ -209,22 +209,8 @@ func (s *supervisor) mountConnectorsMCP(
 	proxy := newConnectorsMCPProxy()
 	webListener := newWebListenerServer(webServer, proxy)
 	resources.webListener = webListener
-	resolver := newConnectorsMCPReleaseResolver(
-		&s.cfg.ConnectorsMCP, &http.Client{}, runtime.GOOS+"-"+runtime.GOARCH, s.stderr)
-	manager := newConnectorsMCPManager(
-		&s.cfg.ConnectorsMCP, resolver, newLoopbackHTTPClient(), proxy, s.stderr, proxyURL)
+	manager := newConnectorsMCPManagerForThisPlatform(&s.cfg.ConnectorsMCP, proxy, s.stderr, proxyURL)
 	return manager, webListener, nil
-}
-
-// newLoopbackHTTPClient returns a client that never sends loopback requests through an HTTP proxy.
-func newLoopbackHTTPClient() *http.Client {
-	transport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		panic("http.DefaultTransport is not an *http.Transport")
-	}
-	loopbackTransport := transport.Clone()
-	loopbackTransport.Proxy = nil
-	return &http.Client{Transport: loopbackTransport}
 }
 
 func (s *supervisor) printUpdateNotice(ctx context.Context) {
