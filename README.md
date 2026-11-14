@@ -30,38 +30,32 @@ dexcli dev                             # starts a local Dex server and web UI
 Then follow the [Quick Start](https://docs.superdurable.io/quick-start), or let a coding agent build your first Flow with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill).
 
 > [!TIP]
-> Building an AI agent? Keep your framework (Claude Agent SDK, OpenAI Agents SDK, and more) and start with the **[Agent Quick Start](https://docs.superdurable.io/agent-frameworks/quick-start)**.
+> Building an AI agent? Make it durable on the framework you already use (Claude Agent SDK, OpenAI Agents SDK, and more). A session survives a killed instance or a service outage, with durable timers and retries. Start with the **[Agent Quick Start](https://docs.superdurable.io/agent-frameworks/quick-start)**.
 
 ## Why use Dex?
 
-Dex keeps *any* long-running agent or workflow running until it finishes, with [no replay](#no-replay) and [zero dependencies](#zero-dependencies):
+Dex keeps *any* long-running agent or workflow running until it finishes:
 
-- **[Durable agents](https://docs.superdurable.io/agent-frameworks)**: Build agents that survive crashes, deploys, and outages, retry failed calls, and resume from their last model or tool call.
-- **[Human-in-the-loop](https://docs.superdurable.io/agent-frameworks/approvals)**: Pause for a person's approval or reply, for minutes or days. The wait survives restarts and deploys.
-- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store a whole LLM context or thousands of messages in the Flow itself, and use Dex as your key-value store.
-- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Call Stripe, Gmail, and other products through a large and growing library of ready-made Steps and Triggers, from prototype to production.
-- **[Visibility and time travel](https://docs.superdurable.io/components/operate-and-debug)**: See every step's input and output in Dex Web, and rewind a failed run to an earlier step after a fix.
-
-### No Replay
-
-Most durable execution engines recover a process by *replay*: they run your code again from the top and feed it logged results, so the code must behave the same on every run. Dex takes a fundamentally different approach. Its structured programming model makes each step explicit, so Dex saves a step's result and continues from the next one. Nothing is replayed:
-
-- **Simpler, cleaner APIs**: fewer primitives, less code, fewer bugs.
-- **No non-determinism errors**: a step can read the clock, use random values, and call any library.
-- **No manual history rollover**: a Flow runs for months as a single run.
-- **No sticky cache**: Workers keep no workflow state in memory.
-- **Visualizable**: Dex can draw a Flow as a graph from source code that follows a [supported format](https://docs.superdurable.io/reference/web/flow-visualization).
+- **[No replay](https://docs.superdurable.io/intro/what-is-dex)**: Write ordinary code. Most engines recover a process by running your code again from the top, so the code must behave the same on every run. Dex's structured programming model saves each step's result and continues from the next step, with fewer primitives, less code, and fewer bugs. Without replay, Dex:
+  - eliminates non-determinism errors completely: a step can read the clock, use random values, and call any library
+  - supports long-running Flows without manual history rollover
+  - needs no "sticky cache": Workers keep no workflow state in memory
+- **[Zero dependencies](https://docs.superdurable.io/components/server)**: Run Dex on object storage alone: Amazon S3 or a compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS. With no database, message queue, or coordination service, Dex is:
+  - easy to operate: one binary and one bucket, or none with [Dex Cloud](https://docs.superdurable.io/components/dex-cloud)
+  - fast: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K Steps/s and 67K read RPCs/s, with reads at about 0.5 ms at half that load
+- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store data in the Flow itself, through an explicit primitive, because no real process runs without data. Use Dex as your key-value store: a whole LLM context or thousands of messages in an agent run needs no other database.
+- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate products such as Stripe and Gmail as Steps or Triggers, through a large and growing library, from prototype to production.
+- **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph: its definition is a JSON file uploaded to the server, and Dex Web draws it. Dex Web also shows the history of every run, with each step's input and output, and operations like time travel.
 
 [Dex is built](https://superdurable.io/about/) by the original creator of [iWF](https://github.com/indeedeng/iwf), with deep, firsthand experience from generations of durable execution technology.
 
-### Zero Dependencies
+## Under the hood
 
-Dex needs no database, message queue, or coordination service. All it needs is object storage: Amazon S3 or a compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS.
+The whole engine is written in Rust, with RocksDB, and built for performance:
 
-Under the hood, a Rust engine on RocksDB commits every write to object storage first, as a **command log** batched to save PUT costs, then applies it to a local cache. Snapshots follow in the background, so a standby or a restarted node rebuilds its state in seconds. The SDKs cache large values on local disk.
-
-- **High throughput with low latency**: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K Steps/s and 67K read RPCs/s, with reads at about 0.5 ms at half that load.
-- **Easy to operate**: one binary and one bucket, or none with [Dex Cloud](https://docs.superdurable.io/components/dex-cloud).
+- Every write is committed to object storage first, as a **command log** batched to save PUT costs, and then applied to RocksDB as a local cache.
+- RocksDB snapshots are uploaded in the background. After a crash, a standby or a restarted node loads the latest snapshot, re-applies the log, and rebuilds its state in seconds.
+- The SDKs cache Attribute values on local disk, which cuts network transfer for large values.
 
 ## SDKs
 
