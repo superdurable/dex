@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.2.2 - 2026-11-14
+
+- Correct the Worker dispatch rules in `dex-sdk`: each Worker serves one task queue, a Flow type name must be unique within one task queue rather than on a whole Server, and sticky routing never crosses task queues.
+
 ## 1.2.1 - 2026-11-12
 
 - Move release-specific UI details and edge-case semantics out of the Skills into the Developer reference, and keep one short rule with a link in each place. The Developer reference now holds Step cancellation, completion requests, and Flow outputs (new Step and Flow close page), Attribute lock order, Channel waiter order, Join edge cases, and SubFlow reuse by later parent runs and parent close.
