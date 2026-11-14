@@ -6,22 +6,6 @@ for the Dex SDK and framework versions each release supports.
 
 ## 0.6.6 (2026-11-13)
 
-### Breaking
-
-- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` now
-  implements `AgentFrameworkRunner<DeferredToolOutcome>`, and its
-  `executeDeferredToolCall` returns `Promise<DeferredToolOutcome>` instead of
-  `Promise<ToolExecutionResult>`. `createClaudeAgentSessionFlow` returns
-  `AgentSessionFlow<ClaudeAgentRunner>` instead of `AgentSessionFlow`, as
-  `createBuiltinAgentSessionFlow` returns `AgentSessionFlow<BuiltinLoopAgentRunner>`.
-  Code that annotates the Flow as a bare `AgentSessionFlow` no longer
-  compiles: drop the annotation, or write
-  `AgentSessionFlow<ClaudeAgentRunner>`. A parameter that takes the Flow of
-  any adapter can use `AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>`.
-  A subclass that overrides `executeDeferredToolCall` declares
-  `Promise<DeferredToolOutcome>`, and code that reads `.output` from its
-  result first checks that the outcome has no `kind`.
-
 ### Added
 
 - Python Claude Agent SDK adapter: `ClaudeAgentRunner` polls and cancels the
@@ -69,6 +53,22 @@ for the Dex SDK and framework versions each release supports.
   without it was polled inside its tool Step, so the retried attempt keeps
   polling it there and sends the call again with the same idempotency key
   when the server no longer knows the task.
+
+### Fixed
+
+- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` now
+  implements `AgentFrameworkRunner<DeferredToolOutcome>`, and its
+  `executeDeferredToolCall` returns `Promise<DeferredToolOutcome>` instead of
+  `Promise<ToolExecutionResult>`. `createClaudeAgentSessionFlow` returns
+  `AgentSessionFlow<ClaudeAgentRunner>` instead of `AgentSessionFlow`, as
+  `createBuiltinAgentSessionFlow` returns `AgentSessionFlow<BuiltinLoopAgentRunner>`.
+  The tool tasks and questions above need these types. Code that annotates
+  the Flow as a bare `AgentSessionFlow` drops the annotation, or writes
+  `AgentSessionFlow<ClaudeAgentRunner>`. A parameter that takes the Flow of
+  any adapter can use `AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>`.
+  A subclass that overrides `executeDeferredToolCall` declares
+  `Promise<DeferredToolOutcome>`, and code that reads `.output` from its
+  result first checks that the outcome has no `kind`.
 
 ## 0.6.5 (2026-11-13)
 
