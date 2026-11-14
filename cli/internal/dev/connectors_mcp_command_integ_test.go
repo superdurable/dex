@@ -124,32 +124,6 @@ func TestDexcliDevReusesTheServerOfARunningConnectorsMCPCommand(t *testing.T) {
 	require.NotEqual(t, commandResult.InstanceID, restarted.InstanceID, "dexcli dev starts its own server after the command exits")
 }
 
-func TestConnectorsMCPCommandAliasesOfOneConnectionsFileShareOneServer(t *testing.T) {
-	recordDirectory := t.TempDir()
-	t.Setenv("FAKE_CONNECTORS_MCP_RECORD_DIR", recordDirectory)
-	fakeBinary := buildFakeConnectorsMCP(t)
-	realConfig := testConnectorsMCPCommandConfig(t, fakeBinary)
-	realConfig.ConnectorConfigDirectory = filepath.Join(t.TempDir(), "connectors")
-	require.NoError(t, os.MkdirAll(realConfig.ConnectorConfigDirectory, 0o700))
-	aliasDirectory := filepath.Join(t.TempDir(), "connectors-alias")
-	require.NoError(t, os.Symlink(realConfig.ConnectorConfigDirectory, aliasDirectory))
-	aliasConfig := testConnectorsMCPCommandConfig(t, fakeBinary)
-	aliasConfig.StateDirectory = realConfig.StateDirectory
-	aliasConfig.ConnectorConfigDirectory = aliasDirectory
-
-	realCommand := startTestConnectorsMCPCommand(t, realConfig)
-	aliasCommand := startTestConnectorsMCPCommand(t, aliasConfig)
-	realReady := realCommand.readReadyLine(t)
-	aliasReady := aliasCommand.readReadyLine(t)
-
-	require.Equal(t, realConfig.ConnectorsMCP.StateDirectory, aliasConfig.ConnectorsMCP.StateDirectory)
-	require.Equal(t, realReady.ConnectionsFile, aliasReady.ConnectionsFile)
-	realResult := waitForProxiedMCPResult(t, strings.TrimSuffix(realReady.URL, "/mcp"), "")
-	aliasResult := waitForProxiedMCPResult(t, strings.TrimSuffix(aliasReady.URL, "/mcp"), "")
-	require.Equal(t, realResult.InstanceID, aliasResult.InstanceID, "one server serves both paths")
-	require.Len(t, uniqueRunningStarts(t, recordDirectory), 1, "only one server runs")
-}
-
 func TestConnectorsMCPCommandPrintsErrorLineWhenNoServerStarts(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	stdout := &synchronizedBuffer{}
@@ -195,18 +169,6 @@ func decodeOnlyConnectorsMCPErrorLine(t *testing.T, output string) connectorsMCP
 	require.NoError(t, json.Unmarshal([]byte(output), &errorLine), output)
 	require.Equal(t, "error", errorLine.Type)
 	return errorLine
-}
-
-// uniqueRunningStarts returns the recorded server starts whose process still runs.
-func uniqueRunningStarts(t *testing.T, recordDirectory string) []fakeConnectorsMCPStart {
-	t.Helper()
-	var running []fakeConnectorsMCPStart
-	for _, start := range readFakeConnectorsMCPStarts(t, recordDirectory) {
-		if isProcessAlive(start.PID) {
-			running = append(running, start)
-		}
-	}
-	return running
 }
 
 func TestConnectorsMCPCommandParsesSharedFlags(t *testing.T) {

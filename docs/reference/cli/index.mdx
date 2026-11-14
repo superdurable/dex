@@ -131,8 +131,9 @@ It prepares the server in the same order as **dexcli dev**, with the same
 state directory and instance lock. So it reuses the server of a running
 **dexcli dev** for the same **connections.json**, and a later **dexcli dev**
 reuses the server it started. Only one server runs for each
-**connections.json**, so credential refreshes never run twice. Paths that
-reach the same file through a symlink count as the same **connections.json**.
+**connections.json**, so credential refreshes never run twice. The
+**connections.json** is identified by its path as given. To share one server,
+pass the same path, not a symlink alias of it.
 
 It serves its own **/mcp** proxy on a free loopback port. The proxy URL stays
 the same while the server behind it restarts, and it has the same **Host** and
