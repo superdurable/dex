@@ -39,6 +39,10 @@ pub enum StoreError {
     },
     #[error("at least one of the preconditions did not hold")]
     PreconditionFailed,
+    #[error("append position {position} does not equal the object length {object_size}")]
+    AppendPositionMismatch { position: u64, object_size: u64 },
+    #[error("the object is not appendable")]
+    ObjectNotAppendable,
     #[error("the object was not modified")]
     NotModified,
     #[error("the requested range is not satisfiable for an object of {object_size} bytes")]

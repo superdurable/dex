@@ -13,12 +13,12 @@ use dexzd_api::{CredentialAuthenticatorConfig, FlowDefinitionsConfig, FlowServic
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
-    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HistoryReadsConfig,
-    HistoryUploadLimits, HotStandbyConfig, LocalStoreConfig, RecoveryConfig, SnapshotConfig,
-    default_run_settings,
+    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HardDeletePrefixListing,
+    HistoryReadsConfig, HistoryUploadLimits, HotStandbyConfig, LocalStoreConfig, RecoveryConfig,
+    SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
-use dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES;
+use dexzd_object_store::{ListingConsistency, VERSION_OBJECT_KEY_SUFFIX_BYTES};
 use dexzd_protocol::dexzd::v1::RunSettings;
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::RocksDbStoreOptions;
@@ -27,12 +27,15 @@ use dexzd_worker_dispatch::MatchingConfig;
 
 use crate::ServerError;
 use crate::config::{
-    Config, ObjectStoreConfig, ObjectStoreProvider, StandbyConfig, StandbyMode, StreamStoreBackend,
-    available_cpu_count,
+    Config, MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT, ObjectStoreConfig, ObjectStoreProvider,
+    StandbyConfig, StandbyMode, StreamStoreBackend, available_cpu_count,
 };
 
 /// OSS limits object keys to 1023 bytes, one less than S3.
 const ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES: usize = 1;
+
+/// COS limits object keys to 850 bytes, 174 less than S3.
+const TENCENT_COS_KEY_LIMIT_SHORTFALL_BYTES: usize = 1024 - 850;
 
 /// The incarnation of this node's log stream; one node writes one stream until multi-node support.
 const LOG_STREAM_INCARNATION: u32 = 1;
@@ -59,6 +62,8 @@ pub(crate) struct ComponentConfigs {
     pub(crate) standby: StandbyConfig,
     /// Set in `hot` standby mode; `None` waits for the lease as a cold standby.
     pub(crate) hot_standby: Option<HotStandbyConfig>,
+    /// Follows the effective provider of the hard-delete store.
+    pub(crate) hard_delete_prefix_listing: HardDeletePrefixListing,
 }
 
 impl ComponentConfigs {
@@ -124,6 +129,25 @@ impl ComponentConfigs {
             "history.supersededValueGracePeriod",
             config.history.superseded_value_grace_period,
         )?;
+        // COS may serve an earlier listing of a prefix for seconds.
+        let (listing_consistency, tail_probe_misses) = match config.object_store.provider {
+            // Every tencentCOS writer, old or new, has at most this many batch writes in flight.
+            ObjectStoreProvider::TencentCos => (
+                ListingConsistency::Eventual,
+                to_usize(
+                    "commit.maxInFlight",
+                    u64::from(MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT),
+                )?,
+            ),
+            ObjectStoreProvider::S3
+            | ObjectStoreProvider::Db9
+            | ObjectStoreProvider::AliyunOss
+            | ObjectStoreProvider::AzureBlob
+            | ObjectStoreProvider::GoogleCloudStorage => (
+                ListingConsistency::Strong,
+                LogReadAheadConfig::default().tail_probe_misses,
+            ),
+        };
         let engine_node = EngineNodeConfig {
             node: NodeConfig {
                 node_id: config.cluster.node_id.clone(),
@@ -196,6 +220,10 @@ impl ComponentConfigs {
                     u64::from(config.snapshot.retained_count),
                 )?,
                 deletion_delay: config.snapshot.log_deletion_delay,
+                // COS cannot create an empty object exclusively; such a log holds no data.
+                should_skip_empty_write_ahead_log_files: config.object_store.provider
+                    == ObjectStoreProvider::TencentCos,
+                listing_consistency,
                 ..SnapshotConfig::default()
             },
             recovery: RecoveryConfig {
@@ -209,6 +237,8 @@ impl ComponentConfigs {
                         "recovery.readAheadBytes",
                         config.recovery.read_ahead_bytes,
                     )?,
+                    listing_consistency,
+                    tail_probe_misses,
                 },
                 compact_after_replay_bytes: config.local_storage.compact_after_replay_bytes,
                 retained_set_aside_store_count: to_usize(
@@ -386,6 +416,12 @@ impl ComponentConfigs {
                 behind_lag_threshold: config.standby.behind_lag_threshold,
                 ..HotStandbyConfig::default()
             }),
+            hard_delete_prefix_listing: HardDeletePrefixListing {
+                listing_consistency: listing_consistency_of(hard_delete_provider(
+                    &config.object_store,
+                )),
+                ..HardDeletePrefixListing::default()
+            },
         })
     }
 
@@ -424,7 +460,8 @@ fn attribute_sync_config(config: &Config) -> Result<AttributeSyncConfig, ServerE
 /// Returns the bytes that the object store adds to a logical key before the 1024-byte S3 limit.
 ///
 /// S3, Azure Blob Storage, and GCS add the prefix and a slash; db9 adds the prefix alone. aliyunOSS also adds a version
-/// suffix to replaced keys, and OSS allows one byte less than S3.
+/// suffix to replaced keys, and OSS allows one byte less than S3. tencentCOS adds the same version
+/// suffix, and COS allows 850 bytes.
 fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
     let prefix_bytes = if config.prefix.is_empty() {
         0
@@ -439,6 +476,31 @@ fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
         ObjectStoreProvider::AliyunOss => {
             prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES
         }
+        ObjectStoreProvider::TencentCos => {
+            prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + TENCENT_COS_KEY_LIMIT_SHORTFALL_BYTES
+        }
+    }
+}
+
+/// Returns the provider of the hard-delete store: its own, or the primary store's.
+fn hard_delete_provider(config: &ObjectStoreConfig) -> ObjectStoreProvider {
+    config
+        .hard_delete_store
+        .as_ref()
+        .map_or(config.provider, |location| {
+            location.effective_provider(config.provider)
+        })
+}
+
+/// Returns whether listings of `provider` show every object written before they started.
+fn listing_consistency_of(provider: ObjectStoreProvider) -> ListingConsistency {
+    match provider {
+        ObjectStoreProvider::TencentCos => ListingConsistency::Eventual,
+        ObjectStoreProvider::S3
+        | ObjectStoreProvider::Db9
+        | ObjectStoreProvider::AliyunOss
+        | ObjectStoreProvider::AzureBlob
+        | ObjectStoreProvider::GoogleCloudStorage => ListingConsistency::Strong,
     }
 }
 

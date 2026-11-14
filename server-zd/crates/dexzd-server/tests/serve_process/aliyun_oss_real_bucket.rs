@@ -17,8 +17,9 @@ use bytes::Bytes;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, InstrumentedObjectStore, MANIFEST_OBJECT_KEY, ObjectStore, S3ApiDialect,
-    S3Credentials, S3ObjectStore, S3ObjectStoreConfig, WriteCondition, WriteOutcome,
-    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider, startup_self_check,
+    S3Credentials, S3ObjectStore, S3ObjectStoreConfig, VersionDiscovery, WriteCondition,
+    WriteOutcome, check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
+    startup_self_check,
 };
 use dexzd_protocol::dex::GetFlowSummaryRequest;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
@@ -146,7 +147,15 @@ impl RealBucket {
 #[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/README.md"]
 async fn real_aliyun_oss_bucket_passes_the_object_store_checks() {
     RealBucket::from_environment()
-        .run_then_delete_prefix(check_object_store)
+        .run_then_delete_prefix(|bucket| check_object_store(bucket, VersionDiscovery::Listing))
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/README.md"]
+async fn real_aliyun_oss_bucket_passes_the_object_store_checks_with_head_probing() {
+    RealBucket::from_environment()
+        .run_then_delete_prefix(|bucket| check_object_store(bucket, VersionDiscovery::HeadProbing))
         .await;
 }
 
@@ -154,11 +163,19 @@ async fn real_aliyun_oss_bucket_passes_the_object_store_checks() {
 #[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/README.md"]
 async fn real_aliyun_oss_bucket_serves_and_recovers_after_a_restart() {
     RealBucket::from_environment()
-        .run_then_delete_prefix(check_serve_and_restart)
+        .run_then_delete_prefix(|bucket| check_serve_and_restart(bucket, "list"))
         .await;
 }
 
-async fn check_object_store(bucket: RealBucket) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/README.md"]
+async fn real_aliyun_oss_bucket_serves_and_recovers_after_a_restart_with_head_probing() {
+    RealBucket::from_environment()
+        .run_then_delete_prefix(|bucket| check_serve_and_restart(bucket, "head"))
+        .await;
+}
+
+async fn check_object_store(bucket: RealBucket, version_discovery: VersionDiscovery) {
     let inner: Arc<dyn ObjectStore> = Arc::new(bucket.physical_store().await);
     check_no_data_of_another_provider(inner.as_ref())
         .await
@@ -167,10 +184,11 @@ async fn check_object_store(bucket: RealBucket) {
         .await
         .expect("the bucket honors x-oss-forbid-overwrite");
     eprintln!("PASS: create-only writes");
-    let adapter = Arc::new(AliyunOssObjectStore::new(
+    let adapter = Arc::new(AliyunOssObjectStore::with_version_discovery(
         Arc::clone(&inner),
         dexzd_object_store::MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
         dexzd_metrics::NodeMetrics::unregistered(),
+        version_discovery,
     ));
     adapter
         .remove_stale_startup_probes()
@@ -277,7 +295,7 @@ async fn check_object_store(bucket: RealBucket) {
     eprintln!("PASS: batch delete");
 }
 
-async fn check_serve_and_restart(bucket: RealBucket) {
+async fn check_serve_and_restart(bucket: RealBucket, version_discovery: &'static str) {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let local_directory = directory.path().join("store");
     let flow_id = format!("real-aliyun-oss-{NODE_ID}");
@@ -285,7 +303,13 @@ async fn check_serve_and_restart(bucket: RealBucket) {
     for restart in 0..2 {
         let address = free_loopback_address();
         let config = directory.path().join(format!("serve-{restart}.yaml"));
-        write_real_bucket_config(&config, &bucket, &local_directory, address);
+        write_real_bucket_config(
+            &config,
+            &bucket,
+            &local_directory,
+            address,
+            version_discovery,
+        );
         let mut process = ServeProcess::spawn_with_static_keys(
             &config,
             address,
@@ -320,9 +344,10 @@ fn write_real_bucket_config(
     bucket: &RealBucket,
     local_directory: &Path,
     listen: std::net::SocketAddr,
+    version_discovery: &str,
 ) {
     let contents = format!(
-        "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\nobjectStore:\n  provider: aliyunOSS\n  endpoint: {endpoint}\n  region: {region}\n  bucket: {name}\n  prefix: {prefix}\n  credentialsSource: environment\nlocalStorage:\n  directory: {directory}\n  blockCacheBytes: 16777216\nlease:\n  duration: 30s\n  failIfHeld: true\napi:\n  listen: \"{listen}\"\nsearch:\n  backend: builtin\n",
+        "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\nobjectStore:\n  provider: aliyunOSS\n  versionDiscovery: {version_discovery}\n  endpoint: {endpoint}\n  region: {region}\n  bucket: {name}\n  prefix: {prefix}\n  credentialsSource: environment\nlocalStorage:\n  directory: {directory}\n  blockCacheBytes: 16777216\nlease:\n  duration: 30s\n  failIfHeld: true\napi:\n  listen: \"{listen}\"\nsearch:\n  backend: builtin\n",
         endpoint = bucket.endpoint,
         region = bucket.region,
         name = bucket.bucket,

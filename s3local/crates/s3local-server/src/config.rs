@@ -68,6 +68,11 @@ pub struct ServerConfig {
     /// with 400 NotImplemented and honor `x-oss-forbid-overwrite: true` with 409 FileAlreadyExists,
     /// UploadPart responses omit checksum headers, and DeleteObjects requires `Content-MD5`. As in OSS,
     /// a bucket whose versioning was ever enabled or suspended ignores `x-oss-forbid-overwrite`.
+    /// `tencent-cos` emulates the S3-compatible endpoint of Tencent COS: PutObject and
+    /// CompleteMultipartUpload ignore `If-None-Match`, `If-Match`, and `x-cos-forbid-overwrite`,
+    /// `POST ?append&position=N` serves AppendObject with an atomic position check and 409
+    /// `AppendPositionErr`, UploadPart responses omit checksum headers, and DeleteObjects requires
+    /// `Content-MD5`.
     #[arg(long, env = "S3LOCAL_API_DIALECT", value_enum, default_value_t = S3ApiDialect::AmazonS3)]
     pub api_dialect: S3ApiDialect,
 }
@@ -110,6 +115,7 @@ pub enum ControlAuthentication {
 pub enum S3ApiDialect {
     AmazonS3,
     AliyunOss,
+    TencentCos,
 }
 
 /// Command-line ETag representation.

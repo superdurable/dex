@@ -14,7 +14,7 @@ mod hot_standby_failover;
 mod lease_epochs;
 mod node_group;
 mod object_store_endpoints;
-mod readiness_router;
+pub(crate) mod readiness_router;
 mod standby_connections;
 mod step_down;
 
@@ -64,6 +64,7 @@ const LOAD_SHAPE: LoadShape = LoadShape {
     timer_starters: 2,
     call_timeout: Duration::from_secs(3),
     increment_resend_budget: Some(Duration::from_secs(30)),
+    pause_between_calls: Duration::ZERO,
 };
 const COUNTER_COUNT: usize = 3;
 /// New acknowledged calls between failures, so each failure lands mid-load.

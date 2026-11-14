@@ -66,11 +66,11 @@ impl Controls {
                             "probability must be between zero and one".into(),
                         ));
                     }
-                    if matches!(rule.action, FaultAction::Error { status } if ![403, 409, 500, 503].contains(&status))
+                    if matches!(rule.action, FaultAction::Error { status } | FaultAction::CommitThenError { status } if ![403, 409, 416, 500, 503].contains(&status))
                     {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "error status must be 403, 409, 500, or 503".into(),
+                            "error status must be 403, 409, 416, 500, or 503".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::CorruptBody {})
@@ -92,20 +92,22 @@ impl Controls {
                             "missing_key_access_denied requires GetObject or HeadObject".into(),
                         ));
                     }
-                    if matches!(rule.action, FaultAction::CommitThenDrop {})
-                        && !matches!(
-                            rule.operation,
-                            Some(
-                                S3OperationName::PutObject
-                                    | S3OperationName::CopyObject
-                                    | S3OperationName::UploadPart
-                                    | S3OperationName::CompleteMultipartUpload
-                            )
+                    if matches!(
+                        rule.action,
+                        FaultAction::CommitThenDrop {} | FaultAction::CommitThenError { .. }
+                    ) && !matches!(
+                        rule.operation,
+                        Some(
+                            S3OperationName::PutObject
+                                | S3OperationName::AppendObject
+                                | S3OperationName::CopyObject
+                                | S3OperationName::UploadPart
+                                | S3OperationName::CompleteMultipartUpload
                         )
-                    {
+                    ) {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "commit_then_drop requires operation PutObject, CopyObject, UploadPart, or CompleteMultipartUpload".into(),
+                            "commit_then_drop and commit_then_error require operation PutObject, AppendObject, CopyObject, UploadPart, or CompleteMultipartUpload".into(),
                         ));
                     }
                 }
@@ -115,6 +117,32 @@ impl Controls {
                         return Err((
                             StatusCode::BAD_REQUEST,
                             "delay must not exceed 600000 milliseconds".into(),
+                        ));
+                    }
+                    if matches!(
+                        rule.action,
+                        FaultAction::AppendPlaceholder { .. } | FaultAction::InterruptedAppend {}
+                    ) && rule.operation != Some(S3OperationName::AppendObject)
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "append_placeholder and interrupted_append require operation AppendObject".into(),
+                        ));
+                    }
+                    if matches!(rule.action, FaultAction::AppendPlaceholder { milliseconds } if milliseconds > 600_000)
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "append_placeholder must not exceed 600000 milliseconds".into(),
+                        ));
+                    }
+                    if let FaultAction::StaleListing { ttl_milliseconds } = rule.action
+                        && (rule.operation != Some(S3OperationName::ListObjectsV2)
+                            || !(1..=600_000).contains(&ttl_milliseconds))
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "stale_listing requires operation ListObjectsV2 and 1 to 600000 milliseconds".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::TruncateResponse {})
@@ -139,11 +167,13 @@ impl Controls {
                 let mut state = self.state.lock().expect("control operations cannot panic");
                 state.rules = replacement.rules;
                 state.random_state = self.config.fault_seed;
+                state.stale_listings.clear();
                 Ok(json!({"rules": state.rules, "seed": self.config.fault_seed}))
             }
             (&Method::DELETE, "/_s3local/faults") => {
                 let mut state = self.state.lock().expect("control operations cannot panic");
                 state.rules.clear();
+                state.stale_listings.clear();
                 self.fault_reset
                     .send_modify(|generation| *generation = generation.wrapping_add(1));
                 state.random_state = self.config.fault_seed;

@@ -121,6 +121,15 @@ impl From<StoreError> for S3Error {
             StoreError::NotModified => {
                 S3Error::new(StatusCode::NOT_MODIFIED, "NotModified", message)
             }
+            // Tencent COS answers this message for every append at a wrong position.
+            StoreError::AppendPositionMismatch { .. } => S3Error::new(
+                StatusCode::CONFLICT,
+                "AppendPositionErr",
+                "Position not equal object length.",
+            ),
+            StoreError::ObjectNotAppendable => {
+                S3Error::new(StatusCode::CONFLICT, "ObjectNotAppendable", message)
+            }
             StoreError::InvalidRange { object_size } => {
                 S3Error::new(StatusCode::RANGE_NOT_SATISFIABLE, "InvalidRange", message)
                     .with_header("content-range", format!("bytes */{object_size}"))

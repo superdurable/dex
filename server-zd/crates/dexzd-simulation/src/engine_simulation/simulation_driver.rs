@@ -184,6 +184,7 @@ impl Simulation {
                 id_source: Arc::new(SeededEngineIdSourceForTest::new(seed, id_clock)),
                 retention_after_close,
                 profile: config.profile,
+                listing_consistency: config.object_store_semantics.listing_consistency(),
                 origin,
                 close_hold_dry_runs: Arc::default(),
             },

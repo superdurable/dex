@@ -491,6 +491,7 @@ impl ServerNode {
                 clock.clone(),
                 partition_hasher.clone(),
                 services.id_source.clone(),
+                components.hard_delete_prefix_listing,
             );
             let (effect_runner, effect_tasks) = EffectRunner::new(
                 &components.effects,

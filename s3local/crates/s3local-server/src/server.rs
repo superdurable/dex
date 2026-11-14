@@ -270,9 +270,23 @@ async fn handle_request(
     };
     observation.injected_fault = fault.clone();
     if let Some(FaultAction::Delay { milliseconds }) = fault {
-        tokio::select! {
-            () = tokio::time::sleep(Duration::from_millis(milliseconds)) => {},
-            result = fault_reset.changed() => { if let Err(error) = result { tracing::debug!(%error, "fault reset sender closed"); } },
+        sleep_unless_faults_reset(milliseconds, &mut fault_reset).await;
+    }
+    if matches!(controls.config.api_dialect, S3ApiDialect::TencentCos)
+        && let Some(FaultAction::AppendPlaceholder { .. } | FaultAction::InterruptedAppend {}) =
+            fault
+    {
+        crate::controls::create_append_placeholder(&store, &observation.bucket, &observation.key)
+            .await;
+        if let Some(FaultAction::AppendPlaceholder { milliseconds }) = fault {
+            sleep_unless_faults_reset(milliseconds, &mut fault_reset).await;
+        } else {
+            observation.duration_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+            controls.record(observation);
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "injected interrupted append",
+            ));
         }
     }
     let result = match verified {
@@ -280,6 +294,26 @@ async fn handle_request(
         Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
             None => match routing::route(request.method(), request.uri(), request.headers()) {
+                Ok(S3Operation::ListObjectsV2 { bucket, query })
+                    if let Some(FaultAction::StaleListing { ttl_milliseconds }) = fault =>
+                {
+                    let prefix = query.get("prefix").unwrap_or_default().to_owned();
+                    let listed_bucket = bucket.clone();
+                    controls
+                        .serve_stale_listing(
+                            &listed_bucket,
+                            &prefix,
+                            Duration::from_millis(ttl_milliseconds),
+                            dispatch(
+                                store,
+                                request,
+                                S3Operation::ListObjectsV2 { bucket, query },
+                                identity,
+                                controls.config.api_dialect,
+                            ),
+                        )
+                        .await
+                }
                 Ok(operation) => {
                     dispatch(
                         store,
@@ -320,6 +354,13 @@ async fn handle_request(
             "injected drop after commit",
         ));
     }
+    let result = match (
+        result,
+        fault.as_ref().and_then(FaultAction::error_after_commit),
+    ) {
+        (Ok(response), Some(error)) if response.status().is_success() => Err(error),
+        (result, _) => result,
+    };
     let mut response = match result {
         Ok(response) => response,
         Err(error) => render_error(error, &request_id, is_head),
@@ -341,6 +382,17 @@ async fn handle_request(
     )
     .boxed();
     Ok(Response::from_parts(parts, body))
+}
+
+/// Sleeps for `milliseconds`, or until the fault rules are replaced or deleted.
+async fn sleep_unless_faults_reset(
+    milliseconds: u64,
+    fault_reset: &mut tokio::sync::watch::Receiver<u64>,
+) {
+    tokio::select! {
+        () = tokio::time::sleep(Duration::from_millis(milliseconds)) => {},
+        result = fault_reset.changed() => { if let Err(error) = result { tracing::debug!(%error, "fault reset sender closed"); } },
+    }
 }
 
 fn add_response_identity(headers: &mut http::HeaderMap, request_id: &str) {
@@ -459,6 +511,14 @@ async fn dispatch(
         S3Operation::PutObject { bucket, key } => {
             handlers::put_object(store, bucket, key, parts.headers, body, api_dialect).await
         }
+        S3Operation::AppendObject { bucket, key, query } => match api_dialect {
+            S3ApiDialect::TencentCos => {
+                handlers::append_object(store, bucket, key, query, parts.headers, body).await
+            }
+            S3ApiDialect::AmazonS3 | S3ApiDialect::AliyunOss => {
+                Err(S3Error::not_implemented("AppendObject"))
+            }
+        },
         S3Operation::CopyObject {
             bucket,
             key,

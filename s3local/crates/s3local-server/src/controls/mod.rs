@@ -9,11 +9,14 @@
 //! Deterministic fault selection and bounded request observations shared by all connections.
 
 mod admin;
+mod append_placeholder;
 mod credential_admin;
 mod observation;
 mod operation;
+mod stale_listing;
 
 pub(crate) use admin::admin_error;
+pub(crate) use append_placeholder::create_append_placeholder;
 use operation::S3OperationName;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -46,12 +49,30 @@ fn default_probability() -> f64 {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum FaultAction {
     CommitThenDrop {},
-    Delay { milliseconds: u64 },
-    Error { status: u16 },
+    /// Lets a write commit, then answers with the error of `status` instead of its success.
+    CommitThenError {
+        status: u16,
+    },
+    Delay {
+        milliseconds: u64,
+    },
+    Error {
+        status: u16,
+    },
     MissingKeyAccessDenied {},
     FailBeforeCommit {},
     CorruptBody {},
     TruncateResponse {},
+    /// Serves the first successful listing of each bucket and exact prefix for `ttl_milliseconds`.
+    StaleListing {
+        ttl_milliseconds: u64,
+    },
+    /// Shows a missing key as an empty appendable object for `milliseconds` before the append.
+    AppendPlaceholder {
+        milliseconds: u64,
+    },
+    /// Leaves an empty appendable object at a missing key and drops the append uncommitted.
+    InterruptedAppend {},
 }
 
 impl FaultAction {
@@ -61,14 +82,27 @@ impl FaultAction {
             Self::FailBeforeCommit {} => 500,
             _ => return None,
         };
-        let (status, code) = match status {
-            403 => (http::StatusCode::FORBIDDEN, "AccessDenied"),
-            409 => (http::StatusCode::CONFLICT, "ConditionalRequestConflict"),
-            503 => (http::StatusCode::SERVICE_UNAVAILABLE, "SlowDown"),
-            _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),
-        };
-        Some(S3Error::new(status, code, "injected testing fault"))
+        Some(injected_error(status))
     }
+
+    /// Returns the error that replaces a committed write's success, for `commit_then_error`.
+    pub(crate) fn error_after_commit(&self) -> Option<S3Error> {
+        match self {
+            Self::CommitThenError { status } => Some(injected_error(*status)),
+            _ => None,
+        }
+    }
+}
+
+fn injected_error(status: u16) -> S3Error {
+    let (status, code) = match status {
+        403 => (http::StatusCode::FORBIDDEN, "AccessDenied"),
+        409 => (http::StatusCode::CONFLICT, "ConditionalRequestConflict"),
+        416 => (http::StatusCode::RANGE_NOT_SATISFIABLE, "InvalidRange"),
+        503 => (http::StatusCode::SERVICE_UNAVAILABLE, "SlowDown"),
+        _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),
+    };
+    S3Error::new(status, code, "injected testing fault")
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -95,6 +129,7 @@ struct ControlState {
     random_state: u64,
     counters: Counters,
     requests: VecDeque<RequestObservation>,
+    stale_listings: stale_listing::StaleListingCache,
 }
 
 impl Controls {
@@ -105,6 +140,7 @@ impl Controls {
                 random_state: config.fault_seed,
                 counters: Counters::default(),
                 requests: VecDeque::new(),
+                stale_listings: stale_listing::StaleListingCache::default(),
             }),
             fault_reset: tokio::sync::watch::channel(0).0,
             config,

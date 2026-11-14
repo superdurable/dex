@@ -63,6 +63,21 @@ pub enum SimulatedObjectStoreSemantics {
     /// Create-only writes only; mutable object keys are replaced through versions, as with
     /// `AliyunOssObjectStore` on Aliyun OSS.
     CreateOnlyWithVersionedMutableKeys,
+    /// Create-only writes, and listings that repeat for seconds, as on Tencent COS; versions use
+    /// HEAD probing.
+    CreateOnlyWithStaleListings,
+}
+
+impl SimulatedObjectStoreSemantics {
+    /// Returns whether listings of this storage show every write at once.
+    pub(crate) fn listing_consistency(self) -> dexzd_object_store::ListingConsistency {
+        match self {
+            Self::EtagReplacementOnEveryKey | Self::CreateOnlyWithVersionedMutableKeys => {
+                dexzd_object_store::ListingConsistency::Strong
+            }
+            Self::CreateOnlyWithStaleListings => dexzd_object_store::ListingConsistency::Eventual,
+        }
+    }
 }
 
 impl Default for EngineSimulationConfig {

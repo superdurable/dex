@@ -15,7 +15,7 @@ use dexzd_clock::WallClock;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, FaultAction, FaultInjector, InMemoryObjectStore,
-    InMemoryObjectStoreOptions, ObjectStore, ObjectStoreOperation,
+    InMemoryObjectStoreOptions, ObjectStore, ObjectStoreOperation, VersionDiscovery,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -29,6 +29,8 @@ const PHYSICAL_DELAY_SEED_SALT: u64 = 0x0a11_0055_de1a_0000;
 const VERSION_ID_SEED_SALT: u64 = 0x0a11_0055_1d50_0000;
 /// Short enough that a simulated run of a few minutes reclaims versions under faults.
 const SIMULATED_MINIMUM_SUPERSEDED_AGE: Duration = Duration::from_secs(60);
+/// How long a stale listing repeats itself; Tencent COS was measured at 1 to 3 seconds.
+const SIMULATED_STALE_LISTING_LIFETIME: Duration = Duration::from_secs(3);
 
 /// Delays every physical call by a few milliseconds, so versioned writes of processes
 /// interleave between their create and its confirmation.
@@ -62,7 +64,34 @@ pub(crate) fn shared_store_with_semantics(
         SimulatedObjectStoreSemantics::CreateOnlyWithVersionedMutableKeys => {
             versioned_shared_store(seed, clock)
         }
+        SimulatedObjectStoreSemantics::CreateOnlyWithStaleListings => {
+            stale_listing_shared_store(seed, clock)
+        }
     }
+}
+
+/// Returns a HEAD-probing `AliyunOssObjectStore` over an in-memory create-only store whose
+/// listings repeat for [`SIMULATED_STALE_LISTING_LIFETIME`].
+fn stale_listing_shared_store(seed: u64, clock: Arc<dyn WallClock>) -> Arc<dyn ObjectStore> {
+    let physical = InMemoryObjectStore::with_options_and_stale_listings(
+        InMemoryObjectStoreOptions {
+            injector: Some(Arc::new(PhysicalCallDelays {
+                rng: Mutex::new(ChaCha8Rng::seed_from_u64(seed ^ PHYSICAL_DELAY_SEED_SALT)),
+            })),
+            clock: Some(clock),
+            rejects_replace_if_etag_matches: true,
+        },
+        SIMULATED_STALE_LISTING_LIFETIME,
+    );
+    Arc::new(
+        AliyunOssObjectStore::with_seeded_version_ids_and_discovery_for_test(
+            Arc::new(physical),
+            seed ^ VERSION_ID_SEED_SALT,
+            SIMULATED_MINIMUM_SUPERSEDED_AGE,
+            NodeMetrics::unregistered(),
+            VersionDiscovery::HeadProbing,
+        ),
+    )
 }
 
 /// Returns an `AliyunOssObjectStore` over an in-memory store that rejects ETag replacement.

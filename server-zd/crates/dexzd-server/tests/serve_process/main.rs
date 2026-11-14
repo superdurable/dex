@@ -24,6 +24,7 @@ mod lease_validity;
 mod local_command;
 mod metrics;
 mod object_store_compatibility;
+mod object_store_soak;
 mod purging_reads;
 mod queued_restart;
 mod removed_history_keys;
@@ -35,6 +36,8 @@ mod standby_health;
 mod standby_takeover;
 mod startup_calls;
 mod stream_store_backend;
+mod tencent_cos_provider;
+mod tencent_cos_real_bucket;
 
 use std::time::Duration;
 

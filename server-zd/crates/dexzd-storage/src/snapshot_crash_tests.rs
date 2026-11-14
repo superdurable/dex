@@ -18,7 +18,7 @@ use tokio::sync::Notify;
 
 use crate::{
     InMemoryLocalStore, LocalReadView, RocksDbLocalStore, RocksDbStoreOptions, SnapshotIdentity,
-    StorageError, create_snapshot,
+    SnapshotUploadOptions, StorageError, create_snapshot,
 };
 
 /// Lands the armed manifest with a lost response, then stalls the read that reconciles it.
@@ -79,7 +79,7 @@ async fn a_crash_after_the_manifest_lands_leaves_the_next_snapshot_number_usable
     // Dropping the upload once the manifest landed stands in for the process dying.
     tokio::select! {
         biased;
-        result = create_snapshot(&store, &object_store, &crashing_identity, 1, &node_meta_lock) => {
+        result = create_snapshot(&store, &object_store, &crashing_identity, 1, &node_meta_lock, SnapshotUploadOptions::default()) => {
             panic!("the upload must stall after the manifest lands: {result:?}");
         }
         () = faults.manifest_read_started.notified() => {}
@@ -102,6 +102,7 @@ async fn a_crash_after_the_manifest_lands_leaves_the_next_snapshot_number_usable
         &identity(20),
         next_snapshot_number(&store),
         &Mutex::new(()),
+        SnapshotUploadOptions::default(),
     )
     .await
     .expect("the restarted node takes a snapshot");
@@ -128,7 +129,8 @@ async fn a_conflicting_manifest_costs_only_one_snapshot_attempt() {
             &object_store,
             &identity(10),
             next_snapshot_number(&store),
-            &Mutex::new(())
+            &Mutex::new(()),
+            SnapshotUploadOptions::default(),
         )
         .await,
         Err(StorageError::SnapshotManifestConflict { .. })
@@ -139,6 +141,7 @@ async fn a_conflicting_manifest_costs_only_one_snapshot_attempt() {
         &identity(20),
         next_snapshot_number(&store),
         &Mutex::new(()),
+        SnapshotUploadOptions::default(),
     )
     .await
     .expect("the retry uses the next snapshot number");

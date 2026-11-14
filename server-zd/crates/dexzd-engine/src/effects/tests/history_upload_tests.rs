@@ -347,7 +347,7 @@ pub(super) async fn wait_until(harness: &EffectHarness, what: &str, condition: i
     panic!("timed out waiting until {what}");
 }
 
-async fn wait_until_uploaded(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
+pub(super) async fn wait_until_uploaded(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     wait_until(harness, "every sealed segment is acknowledged", || {
         is_fully_uploaded(harness, flow_id, run_id)
     })
@@ -1141,6 +1141,7 @@ async fn a_node_restored_from_a_snapshot_before_the_acknowledgments_finishes_the
         history_objects: None,
         local_store: Arc::new(InMemoryLocalStore::new()),
         clock: Arc::clone(&durable.clock),
+        hard_delete_prefix_listing: durable.hard_delete_prefix_listing,
     };
     let second = EffectHarness::with_config(restored, EffectsConfig::default());
     for (flow_id, run_id) in flow_ids.iter().zip(&run_ids) {

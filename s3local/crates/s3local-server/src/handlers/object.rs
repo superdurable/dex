@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! PutObject, GetObject, HeadObject, and DeleteObject.
+//! PutObject, GetObject, HeadObject, DeleteObject, and the Tencent COS AppendObject.
 
 use std::sync::Arc;
 
@@ -17,13 +17,13 @@ use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
 use s3local::{
     DeleteObjectRequest, ObjectReadRequest, ObjectSelection, ObjectWriter, PutObjectRequest, Store,
-    StoreError, UploadChecksumExpectations, VersioningState,
+    StoreError, UploadChecksumExpectations, VersioningState, WriteCondition,
 };
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 
-use super::api_dialect::DialectWriteCondition;
+use super::api_dialect::{DialectWriteCondition, tencent_cos_user_metadata};
 use super::bucket::status_response;
 use crate::aws_chunked::AwsChunkedDecoder;
 use crate::config::S3ApiDialect;
@@ -67,6 +67,7 @@ pub(crate) async fn put_object(
         content_headers: content_headers(&headers),
         user_metadata: user_metadata(&headers),
         write_condition: dialect_condition.condition.clone(),
+        is_appendable: false,
     };
     let content_md5_base64 = header_text(&headers, "content-md5").map(str::to_owned);
     let writer = {
@@ -108,6 +109,138 @@ pub(crate) async fn put_object(
         .map(|(name, value)| (*name, value.as_str()))
         .collect();
     status_response(StatusCode::OK, &borrowed)
+}
+
+/// Tencent COS AppendObject (`POST ?append&position=N`), which creates or extends an appendable object.
+///
+/// The position check runs in the commit transaction, so concurrent appends at one position have
+/// one winner. As in COS, an empty appendable object accepts position 0 again. `Content-MD5`
+/// and checksum headers are verified only at position 0, where the body is the whole object.
+pub(crate) async fn append_object(
+    store: Arc<Store>,
+    bucket: String,
+    key: String,
+    query: QueryParameters,
+    headers: HeaderMap,
+    body: crate::server::RequestBody,
+) -> Result<S3Response, S3Error> {
+    let position: u64 = query
+        .get("position")
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| S3Error::invalid_argument("position must be a non-negative integer"))?;
+    if !headers.contains_key("content-length") {
+        return Err(S3Error::new(
+            StatusCode::LENGTH_REQUIRED,
+            "MissingContentLength",
+            "You must provide the Content-Length HTTP header.",
+        ));
+    }
+    let encoding = body_encoding(&headers)?;
+    let checksum_plan = upload_checksum_plan(&headers)?;
+    let content_md5_base64 = header_text(&headers, "content-md5").map(str::to_owned);
+    let request_content_headers = content_headers(&headers);
+    let mut request_user_metadata = user_metadata(&headers);
+    request_user_metadata.extend(tencent_cos_user_metadata(&headers));
+    let (writer, base) = {
+        let (bucket, key) = (bucket.clone(), key.clone());
+        let algorithm = checksum_plan.algorithm;
+        run_store_operation(&store, move |store| {
+            let mut writer = store.begin_put(&bucket, &key, algorithm)?;
+            if position == 0 {
+                return Ok((writer, None));
+            }
+            let current = store.read_object(&bucket, &key, &ObjectReadRequest::default());
+            let mut current = match current {
+                Ok(current) => current,
+                Err(StoreError::NoSuchKey { .. } | StoreError::DeleteMarker { .. }) => {
+                    return Err(StoreError::AppendPositionMismatch {
+                        position,
+                        object_size: 0,
+                    });
+                }
+                Err(error) => return Err(error),
+            };
+            let record = current.selection.record.clone();
+            if !record.is_appendable {
+                return Err(StoreError::ObjectNotAppendable);
+            }
+            if record.size != position {
+                return Err(StoreError::AppendPositionMismatch {
+                    position,
+                    object_size: record.size,
+                });
+            }
+            copy_base_object(&mut current.file, current.length, &mut writer)?;
+            Ok((writer, Some(record)))
+        })
+        .await?
+    };
+    let (writer, trailers) = stream_upload(writer, body, encoding).await?;
+    let expectations = if position == 0 {
+        UploadChecksumExpectations {
+            content_md5_base64,
+            algorithm: Some(checksum_plan.algorithm),
+            expected_value_base64: expected_checksum(&checksum_plan, &trailers)?,
+        }
+    } else {
+        UploadChecksumExpectations::default()
+    };
+    let request = match &base {
+        None => PutObjectRequest {
+            content_headers: request_content_headers,
+            user_metadata: request_user_metadata,
+            write_condition: WriteCondition::AppendAtPosition {
+                position,
+                base_internal_version: None,
+            },
+            is_appendable: true,
+        },
+        Some(base) => PutObjectRequest {
+            content_headers: base.content_headers.clone(),
+            user_metadata: base.user_metadata.clone(),
+            write_condition: WriteCondition::AppendAtPosition {
+                position,
+                base_internal_version: Some(base.internal_version.clone()),
+            },
+            is_appendable: true,
+        },
+    };
+    let next_position = run_store_operation(&store, move |store| {
+        let staged = writer.finish(&expectations)?;
+        let size = staged.size();
+        store.commit_put(&bucket, &key, staged, request)?;
+        Ok(size)
+    })
+    .await?;
+    // Real COS answers with the next position; s3local sends no ETag, so clients must not need one.
+    status_response(
+        StatusCode::OK,
+        &[("x-cos-next-append-position", &next_position.to_string())],
+    )
+}
+
+/// Copies the `length` bytes of the object that an append extends into `writer`.
+fn copy_base_object(
+    file: &mut std::fs::File,
+    length: u64,
+    writer: &mut ObjectWriter,
+) -> Result<(), StoreError> {
+    let mut buffer = vec![0; DOWNLOAD_READ_BUFFER_BYTES];
+    let mut remaining = length;
+    while remaining > 0 {
+        let wanted = usize::try_from(remaining.min(buffer.len() as u64))
+            .expect("the read size is at most the buffer size");
+        let read = std::io::Read::read(file, &mut buffer[..wanted])?;
+        if read == 0 {
+            return Err(StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "the appended object ended early",
+            )));
+        }
+        writer.write_all(&buffer[..read])?;
+        remaining -= read as u64;
+    }
+    Ok(())
 }
 
 /// Streams the request body into the writer on a blocking thread and returns the aws-chunked trailers.

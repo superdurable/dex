@@ -42,6 +42,7 @@ pub(crate) enum S3OperationName {
     PutBucketCors,
     GetBucketCors,
     DeleteBucketCors,
+    AppendObject,
 }
 
 impl std::fmt::Display for S3OperationName {

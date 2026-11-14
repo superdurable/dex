@@ -37,7 +37,8 @@ async fn create_snapshot<S: SnapshotSource>(
     identity: &SnapshotIdentity,
     number: u64,
 ) -> StorageResult<(String, SnapshotManifest)> {
-    crate::create_snapshot(store, objects, identity, number, &Mutex::new(())).await
+    let options = crate::SnapshotUploadOptions::default();
+    crate::create_snapshot(store, objects, identity, number, &Mutex::new(()), options).await
 }
 
 #[derive(Default)]

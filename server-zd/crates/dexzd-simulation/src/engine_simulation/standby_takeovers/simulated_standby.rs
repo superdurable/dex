@@ -69,6 +69,7 @@ impl SimulatedStandby {
                 LocalStoreConfig::ExistingForTest(Arc::clone(&configured_store)),
                 incarnation,
                 environment.profile,
+                environment.listing_consistency,
             ),
             HotStandbyConfig::default(),
             HotStandbyDependencies {

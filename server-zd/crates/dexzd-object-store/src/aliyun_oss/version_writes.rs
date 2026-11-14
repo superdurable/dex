@@ -9,15 +9,13 @@
 //! Conditional writes and deletes of mutable keys: create the next generation, then confirm it.
 
 use bytes::Bytes;
-use dexzd_metrics::{VersionedListingStaleCounters, VersionedListingStaleSite};
+use dexzd_metrics::VersionedListingStaleSite;
 
 use crate::aliyun_oss::VersionIdSource;
 use crate::aliyun_oss::version_body::{VersionEtag, VersionHeader};
+use crate::aliyun_oss::version_discovery::{NewestVersionLocator, VersionDiscovery};
 use crate::aliyun_oss::version_keys::{version_generation, version_object_key, version_prefix};
-use crate::aliyun_oss::version_reads::{
-    VersionReadExtent, inner_error, read_newest_version, read_version_header,
-    record_stale_version_listing,
-};
+use crate::aliyun_oss::version_reads::{VersionReadExtent, inner_error, read_version_header};
 use crate::aliyun_oss::version_reclamation::VersionReclaimer;
 use crate::{
     ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
@@ -32,7 +30,7 @@ pub(super) struct VersionedObjectWriter<'a> {
     pub(super) inner: &'a dyn ObjectStore,
     pub(super) version_ids: &'a dyn VersionIdSource,
     pub(super) reclaimer: &'a VersionReclaimer,
-    pub(super) listing_stale: &'a VersionedListingStaleCounters,
+    pub(super) locator: &'a NewestVersionLocator,
 }
 
 impl VersionedObjectWriter<'_> {
@@ -62,13 +60,10 @@ impl VersionedObjectWriter<'_> {
     pub(super) async fn delete(&self, logical_key: &str) -> ObjectStoreResult<()> {
         let operation = ObjectStoreOperation::Delete;
         for _ in 0..MAX_TOMBSTONE_ATTEMPTS {
-            let Some(newest) = read_newest_version(
-                self.inner,
-                operation,
-                logical_key,
-                VersionReadExtent::HeaderOnly,
-            )
-            .await?
+            let Some(newest) = self
+                .locator
+                .read_newest_version(operation, logical_key, VersionReadExtent::HeaderOnly)
+                .await?
             else {
                 return Ok(());
             };
@@ -99,13 +94,10 @@ impl VersionedObjectWriter<'_> {
     /// Creates the key when it is absent or its newest version is a tombstone.
     async fn create(&self, logical_key: &str, payload: Bytes) -> ObjectStoreResult<WriteOutcome> {
         let operation = ObjectStoreOperation::Put;
-        let newest = read_newest_version(
-            self.inner,
-            operation,
-            logical_key,
-            VersionReadExtent::HeaderOnly,
-        )
-        .await?;
+        let newest = self
+            .locator
+            .read_newest_version(operation, logical_key, VersionReadExtent::HeaderOnly)
+            .await?;
         let (generation, predecessor_id) = match newest {
             None => (1, None),
             Some(newest) if newest.header.is_tombstone => (
@@ -136,13 +128,10 @@ impl VersionedObjectWriter<'_> {
             return Ok(WriteOutcome::PreconditionFailed);
         };
         // Only the newest version gets a successor; a hidden or forged version never does.
-        let newest = read_newest_version(
-            self.inner,
-            operation,
-            logical_key,
-            VersionReadExtent::HeaderOnly,
-        )
-        .await?;
+        let newest = self
+            .locator
+            .read_newest_version(operation, logical_key, VersionReadExtent::HeaderOnly)
+            .await?;
         let is_expected_version = newest.is_some_and(|newest| {
             newest.generation == expected.generation
                 && newest.header.version_id == expected.version_id
@@ -188,13 +177,122 @@ impl VersionedObjectWriter<'_> {
             WriteOutcome::PreconditionFailed => return Ok(WriteOutcome::PreconditionFailed),
             WriteOutcome::Written { .. } => {}
         }
-        let outcome = self
-            .confirm_created_version(operation, logical_key, generation, header.version_id)
-            .await?;
+        let outcome = match self.locator.discovery {
+            VersionDiscovery::Listing => {
+                self.confirm_created_version(operation, logical_key, generation, header.version_id)
+                    .await?
+            }
+            VersionDiscovery::HeadProbing => {
+                self.confirm_created_version_by_neighbors(
+                    operation,
+                    logical_key,
+                    generation,
+                    &header,
+                )
+                .await?
+            }
+        };
         if matches!(outcome, WriteOutcome::Written { .. }) {
+            self.locator
+                .remember_created_generation(logical_key, generation, header.version_id);
             self.reclaimer.reclaim_below(logical_key, generation);
         }
         Ok(outcome)
+    }
+
+    /// Confirms the created `generation` with `header` by reading its neighbors, without listing.
+    ///
+    /// Returns `Written` when the created object is the first one ever stored at `generation`,
+    /// and `PreconditionFailed` after deleting it when a stale writer recreated a reclaimed
+    /// generation. Returns `OutcomeUnknown` when both neighbors and the version itself are gone.
+    async fn confirm_created_version_by_neighbors(
+        &self,
+        operation: ObjectStoreOperation,
+        logical_key: &str,
+        generation: u64,
+        header: &VersionHeader,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        let version_id = header.version_id;
+        // Reclamation deletes from the oldest up, so a present predecessor keeps this generation.
+        let has_predecessor = match header.predecessor_id {
+            Some(predecessor_id) => {
+                let predecessor = read_version_header(
+                    self.inner,
+                    operation,
+                    logical_key,
+                    generation.saturating_sub(1),
+                )
+                .await
+                .map_err(|error| unconfirmed(operation, logical_key, &error.to_string()))?;
+                predecessor.is_some_and(|predecessor| predecessor.version_id == predecessor_id)
+            }
+            None => !self
+                .locator
+                .is_anchored(operation, logical_key)
+                .await
+                .map_err(|error| unconfirmed(operation, logical_key, &error.to_string()))?,
+        };
+        if has_predecessor {
+            return Ok(written(generation, version_id));
+        }
+        let Some(next_generation) = generation.checked_add(1) else {
+            return Err(unconfirmed(
+                operation,
+                logical_key,
+                "the predecessor is gone and the generation has no successor",
+            ));
+        };
+        let successor = read_version_header(self.inner, operation, logical_key, next_generation)
+            .await
+            .map_err(|error| unconfirmed(operation, logical_key, &error.to_string()))?;
+        if let Some(successor) = successor {
+            return self
+                .check_successor(logical_key, generation, version_id, &successor)
+                .await;
+        }
+        // Both neighbors are gone, so the first version of this generation was reclaimed too.
+        let created = read_version_header(self.inner, operation, logical_key, generation)
+            .await
+            .map_err(|error| unconfirmed(operation, logical_key, &error.to_string()))?;
+        if created.is_some_and(|created| created.version_id == version_id) {
+            self.delete_resurrected_version(logical_key, generation)
+                .await;
+            return Ok(WriteOutcome::PreconditionFailed);
+        }
+        Err(unconfirmed(
+            operation,
+            logical_key,
+            "the version and both of its neighbors were reclaimed before it could be confirmed",
+        ))
+    }
+
+    /// Returns `Written` when `successor` names this version as its predecessor, and otherwise
+    /// `PreconditionFailed` after deleting this resurrected version.
+    async fn check_successor(
+        &self,
+        logical_key: &str,
+        generation: u64,
+        version_id: u128,
+        successor: &VersionHeader,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        if successor.predecessor_id == Some(version_id) {
+            return Ok(written(generation, version_id));
+        }
+        self.delete_resurrected_version(logical_key, generation)
+            .await;
+        Ok(WriteOutcome::PreconditionFailed)
+    }
+
+    /// Deletes generation `generation`, which holds only resurrected objects, best effort.
+    async fn delete_resurrected_version(&self, logical_key: &str, generation: u64) {
+        let physical_key = version_object_key(logical_key, generation);
+        if let Err(error) = self.inner.delete(&physical_key).await {
+            tracing::warn!(
+                key = %physical_key,
+                %error,
+                "a resurrected version could not be deleted; reclamation removes it later"
+            );
+        }
     }
 
     /// Returns `Written` for a real version, and `PreconditionFailed` after deleting a resurrected
@@ -224,8 +322,7 @@ impl VersionedObjectWriter<'_> {
             .first()
             .and_then(|newest| version_generation(&newest.key, &prefix));
         let Some(newest_generation) = newest_generation else {
-            record_stale_version_listing(
-                self.listing_stale,
+            self.locator.record_stale_listing(
                 VersionedListingStaleSite::ConfirmCreatedVersion,
                 logical_key,
                 generation,
@@ -241,8 +338,7 @@ impl VersionedObjectWriter<'_> {
             return Ok(written);
         }
         if newest_generation < generation {
-            record_stale_version_listing(
-                self.listing_stale,
+            self.locator.record_stale_listing(
                 VersionedListingStaleSite::ConfirmCreatedVersion,
                 logical_key,
                 generation,
@@ -277,6 +373,17 @@ impl VersionedObjectWriter<'_> {
             );
         }
         Ok(WriteOutcome::PreconditionFailed)
+    }
+}
+
+/// Returns the outcome of a confirmed write of `generation` with `version_id`.
+fn written(generation: u64, version_id: u128) -> WriteOutcome {
+    WriteOutcome::Written {
+        etag: VersionEtag {
+            generation,
+            version_id,
+        }
+        .to_string(),
     }
 }
 

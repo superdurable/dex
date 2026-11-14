@@ -35,7 +35,7 @@ pub(crate) use multipart::{
     abort_multipart_upload, complete_multipart_upload, create_multipart_upload,
     list_multipart_uploads, list_parts, upload_part,
 };
-pub(crate) use object::{delete_object, get_object, head_object, put_object};
+pub(crate) use object::{append_object, delete_object, get_object, head_object, put_object};
 
 /// Owner reported in listings; s3local has a single implicit account.
 const OWNER_ID: &str = "s3local";

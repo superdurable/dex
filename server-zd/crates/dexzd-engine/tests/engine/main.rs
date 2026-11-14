@@ -9,6 +9,7 @@
 //! Engine tests with paused time, in-memory object storage, and a counting applier.
 
 mod commit_path;
+mod eventual_snapshot_retention;
 mod harness;
 mod history_offload_mode;
 mod hot_standby;

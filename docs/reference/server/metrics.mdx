@@ -87,12 +87,12 @@ label's values.
 | **dexzd_object_store_request_errors_total** | counter, failed requests after retries | **operation** | **basic** |
 | **dexzd_object_store_requests_total** | counter, including failed requests | **operation**, **object_kind** | **advanced** |
 | **dexzd_object_store_put_bytes_total** | counter, uploaded bytes | none | **advanced** |
-| **dexzd_object_store_versioned_listing_stale_total** | counter, version listings that missed a version the node had just written; **aliyunOSS** only | **site** | **advanced** |
+| **dexzd_object_store_versioned_listing_stale_total** | counter, version listings that did not show the newest version; **aliyunOSS** and **tencentCOS** only | **site** | **advanced** |
 
 Since 0.1.29, **dexzd_object_store_versioned_listing_stale_total** counts
-listings of versioned objects that missed a version the node had just written.
-Only the **aliyunOSS** provider writes such versions, so other providers stay
-at 0. Its **site** label is one of:
+listings of versioned objects that did not show the newest version. Only the
+**aliyunOSS** provider and, since 0.1.30, **tencentCOS** write such versions,
+so other providers stay at 0. Its **site** label is one of:
 
 - **confirm_created_version**: the listing right after a write did not show
   the new version as the newest. The write fails with an unknown outcome, and
@@ -101,11 +101,20 @@ at 0. Its **site** label is one of:
   version the node had confirmed, and no version two or more generations newer
   exists that could have deleted it. The node deletes nothing in that pass;
   the key's next write tries again.
+- **newest_version_lookup**, since 0.1.30, with
+  **objectStore.versionDiscovery: head** only, as on **tencentCOS**: a read
+  started from the newest version that a listing showed, and that version was
+  not the newest or was gone. The read then looks for the newest version with
+  HEAD requests and returns only a version it has confirmed. A COS listing can
+  repeat an earlier listing for a few seconds, and another node can write
+  between the listing and the HEAD requests, so expect this to increase.
 
-Alert on any increase. In every test so far, an OSS listing showed each write
-at once, so an increase means a listing lagged behind a write. Once every node
-runs 0.1.29 or later, replacements stay correct while that lag is shorter than
-10 minutes. See
+**head** counts only at **newest_version_lookup**, because it confirms writes
+and deletes old versions without trusting a listing. Alert on any
+increase of **confirm_created_version** or **reclamation**. In every test so
+far, an OSS listing showed each write at once, so an increase means a listing
+lagged behind a write. Once every node runs 0.1.29 or later, replacements stay
+correct while that lag is shorter than 10 minutes. See
 [Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
 
 ### Snapshots, recovery, and local disk {#catalog-recovery}
@@ -261,7 +270,7 @@ counts.
 | **standby_mode** | **hot**, **cold** |
 | **store_source** | **hot_standby**, **restored** |
 | **kind**, **source** | **page** or **blob**; **local**, **cache**, or **object_store** |
-| **site** | **confirm_created_version**, **reclamation** |
+| **site** | **confirm_created_version**, **reclamation**, **newest_version_lookup** |
 
 **rpc_class** labels the latency histogram only for the unary classes, so
 **worker_poll** has no latency series. Only a standby in **following** is hot.

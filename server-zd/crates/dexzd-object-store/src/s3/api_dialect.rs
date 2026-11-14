@@ -31,6 +31,9 @@ pub enum S3ApiDialect {
     AmazonS3,
     /// The S3-compatible endpoint of Aliyun OSS (Alibaba Cloud Object Storage Service).
     AliyunOss,
+    /// The S3-compatible endpoint of Tencent COS (Tencent Cloud Object Storage), whose create-only
+    /// writes use AppendObject at position 0.
+    TencentCos,
 }
 
 impl S3ApiDialect {
@@ -48,7 +51,38 @@ impl S3ApiDialect {
             }
             (Self::AliyunOss, WriteCondition::CreateOnly) => is_file_already_exists(error),
             (Self::AliyunOss, WriteCondition::ReplaceIfEtagMatches { .. }) => false,
+            // Tencent COS conditional writes never use PutObject or CompleteMultipartUpload.
+            (Self::TencentCos, _) => false,
         }
+    }
+
+    /// Returns whether uploads and DeleteObjects must carry `Content-MD5` instead of CRC32.
+    pub(super) fn requires_content_md5(self) -> bool {
+        match self {
+            Self::AmazonS3 => false,
+            Self::AliyunOss | Self::TencentCos => true,
+        }
+    }
+
+    /// Returns whether reads treat a 0-byte object, such as a COS append placeholder, as absent.
+    pub(super) fn reads_empty_objects_as_absent(self) -> bool {
+        match self {
+            Self::AmazonS3 | Self::AliyunOss => false,
+            Self::TencentCos => true,
+        }
+    }
+
+    /// Fails before any request when a write would store an object that reads as absent.
+    pub(super) fn reject_empty_body(self, key: &str, size: u64) -> Result<(), ObjectStoreError> {
+        if size > 0 || !self.reads_empty_objects_as_absent() {
+            return Ok(());
+        }
+        Err(ObjectStoreError::new(
+            ObjectStoreOperation::Put,
+            key,
+            ObjectStoreErrorKind::Permanent,
+            "the Tencent COS dialect reads an empty object as absent, so it writes no empty object",
+        ))
     }
 
     /// Maps a failed PutObject or CompleteMultipartUpload that was not a failed condition.

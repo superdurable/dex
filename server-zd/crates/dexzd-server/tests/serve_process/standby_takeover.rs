@@ -48,6 +48,13 @@ async fn aliyun_oss_waiting_standby_takes_over_without_losing_writes() {
         .await;
 }
 
+/// The same takeover with `objectStore.provider: tencentCOS`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tencent_cos_waiting_standby_takes_over_without_losing_writes() {
+    assert_waiting_standby_takes_over_without_losing_writes(TestObjectStoreProvider::TencentCos)
+        .await;
+}
+
 async fn assert_waiting_standby_takes_over_without_losing_writes(
     provider: TestObjectStoreProvider,
 ) {
@@ -57,6 +64,14 @@ async fn assert_waiting_standby_takes_over_without_losing_writes(
         provider.api_dialect(),
     )
     .await;
+    if provider == TestObjectStoreProvider::TencentCos {
+        // Listings repeat for two seconds, as on real COS, so takeover reads stale listings.
+        primary
+            .set_fault_rules(
+                r#"[{"operation":"ListObjectsV2","action":{"type":"stale_listing","ttl_milliseconds":2000}}]"#,
+            )
+            .await;
+    }
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let serve_config = |name: &str, listen| {
