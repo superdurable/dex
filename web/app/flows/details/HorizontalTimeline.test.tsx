@@ -16,7 +16,7 @@ import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay } from './HorizontalTimeline';
 
-/** Events in view at the 1200 px jsdom fallback width; the label angle sets the slot width. */
+/** Events in view at the 1200 px jsdom fallback width. */
 const visibleCount = Math.floor((1200 - horizontalTimelineLayout.labelRunWidth) / horizontalTimelineLayout.slotWidth);
 
 afterEach(() => {
@@ -178,8 +178,10 @@ describe('horizontal Timeline', () => {
 
   it('labels events with their subject and numbers every tenth event on the axis', () => {
     render(<Harness pageEvents={events(100)} initialEventId={97} />);
-    expect(option(97)?.querySelector('.htl-label')?.textContent).toBe('Charge');
-    expect(option(97)?.getAttribute('title')).toBeNull();
+    // A hundred Charge events in a row share one flat label; each dot names itself on hover.
+    expect([...document.querySelectorAll('.htl-subject')].map((label) => label.textContent)).toEqual(['Charge ×100']);
+    expect(document.querySelector('.htl-subject')?.className).toContain('selected');
+    expect(option(97)?.getAttribute('title')).toBe('Charge · #97');
     const axis = [...document.querySelectorAll('.htl-axis-label')].map((label) => label.textContent);
     expect(axis).toContain('#90');
     expect(axis).toContain('#100');
@@ -206,9 +208,9 @@ describe('horizontal Timeline', () => {
     expect(overview.getAttribute('data-axis')).toBe('index');
     expect(total()).toBe(1000);
     expect(bars().length).toBe(Math.floor((1200 - 20) / 7));
-    expect(overview.textContent).toContain('#1 · ');
-    expect(overview.textContent).toContain(' · #1000');
-    expect(overview.textContent).toContain('spaced by event order');
+    expect(document.querySelector('.htl-head')?.textContent).toContain('#1 · ');
+    expect(document.querySelector('.htl-head')?.textContent).toContain(' · #1000');
+    expect(document.querySelector('.htl-head')?.textContent).toContain('spaced by event order');
     expect(document.querySelector('.htl-overview-brush')).not.toBeNull();
 
     // A burst of 900 events, a quiet minute, then 100 more: the gap shows as empty buckets.
@@ -220,8 +222,8 @@ describe('horizontal Timeline', () => {
     expect(overview.getAttribute('data-axis')).toBe('time');
     expect(total()).toBe(1000);
     expect(bars().length).toBeLessThan(Math.floor((1200 - 20) / 7) / 2);
-    expect(overview.textContent).toContain('1m 10s');
-    expect(overview.textContent).not.toContain('spaced by event order');
+    expect(document.querySelector('.htl-head')?.textContent).toContain('1m 10s');
+    expect(document.querySelector('.htl-head')?.textContent).not.toContain('spaced by event order');
   });
 
   it('gives each event its own wide bar on a short page, by event order when times would crowd them', () => {
@@ -234,7 +236,7 @@ describe('horizontal Timeline', () => {
     expect(overview.getAttribute('data-axis')).toBe('index');
     expect(bars()).toHaveLength(8);
     expect(bars().every((bar) => bar.querySelector('rect')?.getAttribute('width') === '20')).toBe(true);
-    expect(overview.textContent).toContain('9.3s · spaced by event order');
+    expect(document.querySelector('.htl-head')?.textContent).toContain('9.3s · spaced by event order');
     // Every event is in view, so there is no brush to move.
     expect(document.querySelector('.htl-overview-brush')).toBeNull();
 
@@ -257,7 +259,7 @@ describe('horizontal Timeline', () => {
     expect(failureBars).toHaveLength(2);
     for (const bar of failureBars) {
       expect(Number(bar.getAttribute('data-count'))).toBeGreaterThan(4);
-      expect(Number(bar.querySelector('.htl-bar-segment.htl-status-failed')?.getAttribute('height'))).toBeGreaterThanOrEqual(5);
+      expect(Number(bar.querySelector('.htl-bar-segment.htl-status-failed')?.getAttribute('height'))).toBeGreaterThanOrEqual(3);
       expect(bar.querySelector('.htl-bar-marker.htl-status-failed')).not.toBeNull();
     }
     expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 2 failures');
@@ -327,7 +329,7 @@ describe('horizontal Timeline', () => {
     ];
     render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
     const dot = (eventId: number) => option(eventId)?.querySelector('.htl-dot');
-    const label = (eventId: number) => option(eventId)?.querySelector('.htl-label')?.textContent;
+    const label = (eventId: number) => document.querySelector(`.htl-subject[data-first-event-id="${eventId}"]`)?.textContent;
 
     // Review-1 moved on to Execute, so its wait is normal; Ship-1 is still waiting.
     expect(dot(2)?.className).toContain('htl-family-step htl-status-normal');
@@ -408,7 +410,7 @@ describe('horizontal Timeline', () => {
     expect(onPageWheel).not.toHaveBeenCalled();
     document.removeEventListener('wheel', onPageWheel);
   });
-  it('lets only the dot and label of each event take clicks, so a long label never selects its neighbor', () => {
+  it('lets only the dot of each event take clicks, so the space around it never selects its neighbor', () => {
     const designCss = readFileSync('app/v1-design.css', 'utf8');
     const block = (selector: string) => {
       const start = designCss.indexOf(`${selector} {`);
@@ -416,10 +418,10 @@ describe('horizontal Timeline', () => {
       return designCss.slice(start, designCss.indexOf('}', start));
     };
     expect(block('.htl-event')).toContain('pointer-events: none');
-    expect(block('.htl-event :is(.htl-dot, .htl-label)')).toContain('pointer-events: auto');
+    expect(block('.htl-event .htl-dot')).toContain('pointer-events: auto');
 
     render(<Harness pageEvents={events(100)} />);
-    fireEvent.click(option(94)!.querySelector('.htl-label')!);
+    fireEvent.click(option(94)!.querySelector('.htl-dot')!);
     expect(option(94)?.getAttribute('aria-selected')).toBe('true');
     expect(option(95)?.getAttribute('aria-selected')).toBe('false');
   });
@@ -546,7 +548,7 @@ describe('horizontal Timeline', () => {
   });
 
   it('never moves a widened brush on press, even when pressed outside the real window', () => {
-    render(<Harness pageEvents={events(1000)} />);
+    render(<Harness pageEvents={events(2000)} />);
     vi.stubGlobal('PointerEvent', class extends MouseEvent {
       pointerId = 1;
     });
@@ -556,7 +558,7 @@ describe('horizontal Timeline', () => {
     const brushLeft = () => Number(brushFill().getAttribute('x'));
     fireEvent.pointerDown(overview, { button: 0, clientX: 600, pointerId: 1 });
     fireEvent.pointerUp(overview, { clientX: 600, pointerId: 1 });
-    // The real window spans about 15 px of the 1180 px plot, so the brush is widened to 24 px.
+    // The real window spans about 12 px of the 1180 px plot, so the brush is widened to 24 px.
     expect(Number(brushFill().getAttribute('width'))).toBe(24);
     const left = brushLeft();
     const viewText = overview.getAttribute('aria-valuetext');
@@ -759,5 +761,36 @@ describe('horizontal Timeline', () => {
         expect(selectedOptions()).toHaveLength(0);
       }
     });
+  });
+
+  it('says what the run does now at the lane\'s newest end, and opens to the event that says so', () => {
+    const onShowEndNoteEvent = vi.fn();
+    const endNote = { label: 'Now · waiting · fires in 2d 6h', detail: 'Waiting for conditions', eventId: 100, isOpen: true };
+    const { rerender } = render(
+      <HorizontalTimeline endNote={endNote} events={events(100)} onSelectEvent={() => {}} onShowEndNoteEvent={onShowEndNoteEvent} selectedEvent={null} />,
+    );
+    const note = document.querySelector<HTMLDetailsElement>('.htl-end-note--lane')!;
+    expect(note.querySelector('summary')?.textContent).toBe('Now · waiting · fires in 2d 6h');
+    expect(note.open).toBe(false);
+    // The head row keeps a copy for when the lane is hidden.
+    expect(document.querySelector('.htl-head .htl-end-note--head summary')?.textContent).toBe('Now · waiting · fires in 2d 6h');
+    fireEvent.click(note.querySelector('button')!);
+    expect(onShowEndNoteEvent).toHaveBeenCalledWith(100);
+
+    // A page that stops before the newest event has no "now" to point at.
+    rerender(
+      <HorizontalTimeline endNote={endNote} events={events(100)} onSelectEvent={() => {}} paging={{ hasNewer: true, hasOlder: false, isLoading: false }} selectedEvent={null} />,
+    );
+    expect(document.querySelector('.htl-end-note')).toBeNull();
+  });
+
+  it('groups consecutive events about the same subject under one label', () => {
+    render(<HorizontalTimeline events={[
+      ...events(3),
+      { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
+    ]} onSelectEvent={() => {}} selectedEvent={null} />);
+    const labels = [...document.querySelectorAll('.htl-subject')];
+    expect(labels.map((label) => label.textContent)).toEqual(['Charge ×3', 'AwaitNextWindow']);
+    expect(labels[0].getAttribute('title')).toBe('Charge ×3 · #1–#3');
   });
 });

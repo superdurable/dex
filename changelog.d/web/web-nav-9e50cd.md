@@ -5,7 +5,11 @@ section: Changed
 - Early features carry the word **Experimental** in place of a violet dot.
 - The run tabs are Timeline, Graph and State, plus More. Graph was Execution graph. The run page has no Design tab; a Flow type's design is on Designs, and old Design links open it under Graph. State was Overview. More holds Streams under Advanced and Actions under Experimental. A Dex Agents session's run opens on its first tab, Conversation, which was Agent session. Links that name a former tab still open its view.
 - Live moved out of the bar to the event range above Timeline and Graph. It reads **Live** while the page follows the run, and **Updates paused · Resume** after a click.
-- **Input** and **Result** on the line under the bar select Flow started and Flow closed, which show the run's start input and how it ended.
+- **Input** and **Result** beside the event range above Timeline and Graph select Flow started and Flow closed, which show the run's start input and how it ended.
 - On screens 1600 pixels wide or more, each event row has a bar on the page's time axis, so slow Steps stand out; a page whose bars would all be ticks shows none.
 - **Group by type**, on by default, on the Flows page groups the page's runs by Flow type, with counts by status and a link to the type's design.
 - `web/embedded`: `Target.HasHostNavigation` tells Dex Web that your page draws the navigation around it, so Dex Web draws no rail.
+- The Timeline strip is about half as tall. Labels lie flat, one for each run of consecutive events about the same subject, such as **SyncBatch ×20**; a short page spreads its events so every name fits. The overview is a thin strip under the lane, one row above it holds the time range and failure count, and **Legend** opens over the strip.
+- A running or ended run no longer has a line under the bar for its state. The Timeline lane's newest end says what the run does now, such as **Now · waiting · fires in 2d 6h**, and opens to the newest event. A failed run keeps its error line.
+- The event pager reads **Oldest**, **Older**, **Newer** and **Latest**, older pages on the left as in the strip.
+- The selected event panel puts **JSON** in its header in place of the Details and Raw JSON switch, names related events in one line under the title, and starts **Context** folded to one line that opens to Timing, Attempt, and Worker and retry.

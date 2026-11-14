@@ -2458,7 +2458,7 @@ html:has(.v1-page .stream-scroll--entries) {
 /* The overview is a histogram of the page, like a log explorer's: density, problems, and the view. */
 .htl-minimap {
   position: relative;
-  margin: 2px 0 14px;
+  margin: 6px 0 0;
   border-radius: var(--ui-radius-control);
   cursor: pointer;
   touch-action: none;
@@ -2575,6 +2575,39 @@ html:has(.v1-page .stream-scroll--entries) {
   fill: color-mix(in srgb, var(--ui-ink) 10%, transparent);
 }
 
+/* One row over the lane: the page's time range, its span, and the lane's tools. */
+.htl-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+  color: var(--ui-ink-3);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.htl-head-range {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.htl-head-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--ui-font-sans);
+}
+
+.htl-lane {
+  position: relative;
+}
+
 .htl-overview-axis {
   display: flex;
   gap: 12px;
@@ -2662,7 +2695,7 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-strip {
   position: relative;
   overscroll-behavior: contain;
-  height: 268px;
+  height: 98px;
   overflow: hidden;
   border-radius: var(--ui-radius-item);
   background: var(--ui-well);
@@ -2672,23 +2705,23 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-strip::before {
   position: absolute;
   right: 0;
-  bottom: 75px;
+  bottom: 60px;
   left: 0;
   height: 1px;
   content: '';
   background: var(--ui-hairline);
 }
 
-/* Slots overlap their neighbors' slanted labels, so only the dot and label take clicks. */
+/* Only the dot takes clicks, so the space around it never selects a neighbor. */
 .htl-event {
   position: absolute;
-  top: 0;
-  bottom: 62px;
+  top: 22px;
+  bottom: 46px;
   width: var(--htl-slot-width, 40px);
   pointer-events: none;
 }
 
-.htl-event :is(.htl-dot, .htl-label) {
+.htl-event .htl-dot {
   cursor: pointer;
   pointer-events: auto;
 }
@@ -2813,32 +2846,26 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-fail);
 }
 
-/* Labels rise at the strip's label angle, so neighbors share space like angled parking. */
-.htl-label {
+/* One flat label per run of events about the same subject, over a hairline that spans the run. */
+.htl-subject {
   position: absolute;
-  bottom: 30px;
-  left: calc(50% - 4px);
-  max-width: var(--htl-label-max-width, 240px);
+  top: 3px;
   overflow: hidden;
+  padding-top: 3px;
+  border-top: 2px solid var(--ui-hairline);
   color: var(--ui-ink-2);
-  font-size: var(--ui-text-sm);
-  line-height: 17px;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  line-height: 14px;
   text-overflow: ellipsis;
-  transform: rotate(var(--htl-label-angle, -20deg));
-  transform-origin: left bottom;
   white-space: nowrap;
 }
 
-.htl-event:hover .htl-label,
-.htl-event.linked .htl-label {
+.htl-subject.selected {
+  border-top-color: var(--tone-accent);
   color: var(--ui-ink);
 }
 
-/* Only the selection gets the strong label, so it reads apart from linked events. */
-.htl-event.selected .htl-label {
-  color: var(--ui-ink);
-  font-weight: 600;
-}
 
 .htl-event.selected .htl-dot {
   box-shadow: 0 0 0 3px var(--tone-accent);
@@ -2856,7 +2883,7 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-axis {
   position: absolute;
   right: 0;
-  bottom: 44px;
+  bottom: 28px;
   left: 0;
   height: 18px;
   pointer-events: none;
@@ -2895,6 +2922,91 @@ html:has(.v1-page .stream-scroll--entries) {
 .htl-arc.kind-condition-wait {
   stroke: var(--tone-wait);
   stroke-dasharray: 4 3;
+}
+
+/* What the run is doing now, beside the newest event; it opens to the full sentence. */
+.htl-end-note {
+  position: relative;
+  z-index: 5;
+  max-width: 230px;
+  font-family: var(--ui-font-sans);
+}
+
+.htl-end-note--lane {
+  position: absolute;
+  top: 34px;
+}
+
+/* The head copy stands in only while the lane is hidden. */
+.htl-end-note--head {
+  display: none;
+}
+
+.htl-host.is-lane-hidden .htl-end-note--head {
+  display: block;
+}
+
+.htl-host.is-lane-hidden .htl-end-jump {
+  display: none;
+}
+
+.htl-end-note > summary {
+  display: block;
+  padding: 2px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  cursor: pointer;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  list-style: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.htl-end-note > summary::-webkit-details-marker {
+  display: none;
+}
+
+.htl-end-note.is-open-run > summary {
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+}
+
+.htl-end-note-mark {
+  display: inline-block;
+  width: 2px;
+  height: 11px;
+  margin-right: 6px;
+  border-radius: 1px;
+  background: currentColor;
+  vertical-align: -1px;
+}
+
+.htl-end-note-card {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: max-content;
+  max-width: min(420px, 80vw);
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--ui-radius-item);
+  color: var(--ui-ink);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-section-shadow), 0 8px 24px color-mix(in srgb, var(--ui-ink) 14%, transparent);
+  font-size: var(--ui-text-sm);
+  white-space: normal;
+}
+
+.htl-end-note-card p {
+  margin: 0;
+}
+
+.htl-end-note-card .pager-button {
+  justify-self: start;
 }
 
 

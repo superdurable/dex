@@ -96,6 +96,16 @@ function contextOf(event: FlowHistoryEvent): Record<string, unknown> {
   return context && typeof context === 'object' ? context as Record<string, unknown> : {};
 }
 
+/** A few words on what the run does now, such as "Now · waiting · fires in 2d 6h". */
+export function runStateShortLabel(state: RunState, nowMs: number): string {
+  if (!state.isOpen) return 'Ended';
+  const doing = state.title === 'Waiting for conditions' ? 'waiting' : state.title.toLowerCase();
+  if (!state.timer) return `Now · ${doing}`;
+  return state.timer.firesAtMs > nowMs
+    ? `Now · ${doing} · fires in ${formatTimelineOffset((state.timer.firesAtMs - nowMs) / 1000)}`
+    : `Now · ${doing} · timer due`;
+}
+
 /** What a run that did not fail is doing, or how it ended, for the run line. */
 export function RunStateBody({ state }: { state: RunState }) {
   const Icon = state.isOpen ? Activity : CircleCheck;

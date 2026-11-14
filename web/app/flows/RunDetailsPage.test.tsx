@@ -698,9 +698,9 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     const stub = await screen.findByRole('button', {
       name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
     });
-    const jump = await screen.findByRole('button', { name: 'Go to #2' });
-    expect(jump.getAttribute('aria-describedby')).toBeTruthy();
-    expect(document.getElementById(jump.getAttribute('aria-describedby') ?? '')?.textContent).toBe('older page');
+    // The panel's relation line names the event and says which way its page is.
+    const jump = await screen.findByRole('button', { name: 'from Review-1 WaitFor completed, event #2 (older page)' });
+    expect(jump.getAttribute('title')).toBe('Go to #2');
     fireEvent.click(stub);
 
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
@@ -749,7 +749,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(horizontalOption(3000)).not.toBeNull());
     expect(document.querySelector('.timeline-row')).toBeNull();
     fireEvent.click(horizontalOption(3000)!);
-    fireEvent.click(await screen.findByRole('button', { name: 'Go to #2' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'from Review-1 WaitFor completed, event #2 (older page)' }));
 
     await waitFor(() => expect(horizontalOption(2)?.className).toContain('jump-highlighted'));
     expect(horizontalOption(2)?.getAttribute('aria-selected')).toBe('true');

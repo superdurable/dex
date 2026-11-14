@@ -720,17 +720,134 @@ body {
   font-size: var(--ui-text-sm);
 }
 
-/* The event's one action sits on its title row. */
-.v1-page .selected-event-anchor:has(> .selected-event-time-travel) {
+/* The event's actions sit on its title row; its relations take one line under it. */
+.v1-page .selected-event-anchor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 12px;
 }
 
-.v1-page .selected-event-anchor > .selected-event-time-travel {
+.v1-page .selected-event-anchor > .selected-event-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   grid-row: 1 / span 2;
   grid-column: 2;
+}
+
+.selected-event-json {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--ui-text-sm);
+}
+
+.selected-event-json[aria-pressed='true'] {
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+}
+
+.v1-page .selected-event-anchor > .related-events-line {
+  grid-column: 1 / -1;
+}
+
+.related-events-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: var(--ui-text-sm);
+  list-style: none;
+}
+
+.related-event-inline {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.related-event-inline .related-event-relation {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.related-event-link {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--tone-accent-ink, var(--tone-accent));
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-event-link:hover {
+  text-decoration: underline;
+}
+
+.related-event-link:disabled {
+  color: var(--ui-ink-3);
+  cursor: default;
+}
+
+.related-event-inline .related-event-hint {
+  color: var(--ui-ink-3);
+  font-weight: 400;
+}
+
+/* Context starts folded to one summary line, so Input and Output lead. */
+.semantic-context-fold > summary {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.semantic-context-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.semantic-context-fold > summary::before {
+  color: var(--ui-ink-3);
+  content: '▸';
+}
+
+.semantic-context-fold[open] > summary::before {
+  content: '▾';
+}
+
+.v1-page .semantic-context-fold > summary > h4 {
+  margin: 0;
+}
+
+.semantic-context-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-context-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px 24px;
+  margin-top: 10px;
+}
+
+.v1-page .semantic-context-groups > .semantic-subsection + .semantic-subsection {
+  margin-top: 0;
 }
 
 /* The event pager is the head of the view it pages. */
@@ -750,7 +867,7 @@ body {
 
 
 .htl-legend-fold {
-  margin: -4px 0 6px;
+  position: relative;
 }
 
 .htl-legend-fold > summary {
@@ -771,7 +888,22 @@ body {
 }
 
 .htl-legend-fold[open] > summary {
-  margin-bottom: 8px;
+  color: var(--ui-ink);
+}
+
+/* The legend opens over the lane, so a closed legend costs one button. */
+.htl-legend-fold > .htl-legend {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: min(560px, 86vw);
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ui-radius-item);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-section-shadow), 0 8px 24px color-mix(in srgb, var(--ui-ink) 14%, transparent);
 }
 
 /* On a phone a run page drops the section from its trail; the run's name needs the room. */
@@ -997,19 +1129,11 @@ body {
 }
 
 
-/* Page buttons are icons with names for screen readers and tooltips, so the pager stays one short row. */
-.run-events-pager--icons .pager-button {
-  min-width: 30px;
-  padding: 0 7px;
-}
-
-.run-events-pager--icons .pager-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+/* Page buttons say where they go, so the pager reads without tooltips. */
+.run-events-pager--words .pager-button {
+  gap: 2px;
+  padding: 0 8px;
+  font-size: var(--ui-text-xs);
 }
 
 .run-primary > .run-events-tile .run-fact-label {
@@ -1113,19 +1237,6 @@ body {
   white-space: nowrap;
 }
 
-/* Labels of events just left of the view fade out instead of ending in a hard cut. */
-.v1-page .htl-strip::after {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 34px;
-  background: linear-gradient(to right, var(--ui-well), transparent);
-  content: '';
-  pointer-events: none;
-}
-
 /* ------------------------------------------------ desktop Timeline: event list */
 
 /* With the event list beside the selection, the labelled lane is optional and starts hidden. */
@@ -1136,7 +1247,7 @@ body {
   visibility: hidden;
 }
 
-.v1-page .htl-host.is-lane-hidden .htl-legend-fold {
+.v1-page .htl-host.is-lane-hidden :is(.htl-legend-fold, .htl-end-note--lane) {
   display: none;
 }
 
@@ -1367,6 +1478,11 @@ body {
 .run-context-line {
   color: var(--ui-ink-2);
   background: var(--ui-chip);
+}
+
+/* Alone on its line, the run's relations start at the left instead of trailing empty space. */
+.run-context-line > .run-context {
+  margin-left: 0;
 }
 
 .run-facts-attempt-control {

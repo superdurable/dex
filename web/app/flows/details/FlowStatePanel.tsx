@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useRef } from 'react';
-import { History } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Braces, History } from 'lucide-react';
 import { formatDate } from '@/lib/format';
 import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import {
@@ -18,7 +18,7 @@ import {
 } from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { EventDetails, eventTitle } from './EventDetails';
+import { EventDetails, eventTitle, type EventPayloadView } from './EventDetails';
 
 function canScroll(element: HTMLElement, deltaY: number): boolean {
   if (deltaY < 0) return element.scrollTop > 0;
@@ -70,6 +70,7 @@ export function FlowStatePanel({
 }) {
   const sidebar = useRef<HTMLDivElement>(null);
   const { timezone } = usePreferences();
+  const [payloadView, setPayloadView] = useState<EventPayloadView>('details');
   const eventMs = selectedEvent?.eventTime ? Date.parse(selectedEvent.eventTime) : Number.NaN;
   const startMs = runStartTime ? Date.parse(runStartTime) : Number.NaN;
   const offset = Number.isFinite(eventMs) && Number.isFinite(startMs)
@@ -89,16 +90,28 @@ export function FlowStatePanel({
         <>
           <header aria-label="Selected event" className="selected-event-anchor" data-selected-event-target>
             <h3>{eventTitle(selectedEvent)}</h3>
-            {onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent) && (
+            <span className="selected-event-actions">
               <button
-                className="button ghost selected-event-time-travel"
-                onClick={() => onTimeTravelFromEvent(selectedEvent)}
+                aria-pressed={payloadView === 'raw'}
+                className="button ghost selected-event-json"
+                onClick={() => setPayloadView((view) => view === 'raw' ? 'details' : 'raw')}
+                title={payloadView === 'raw' ? 'Show the details' : 'Show the raw JSON'}
                 type="button"
               >
-                <History aria-hidden="true" size={13} strokeWidth={2.25} />
-                Time travel from here…
+                <Braces aria-hidden="true" size={13} strokeWidth={2.25} />
+                JSON
               </button>
-            )}
+              {onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent) && (
+                <button
+                  className="button ghost selected-event-time-travel"
+                  onClick={() => onTimeTravelFromEvent(selectedEvent)}
+                  type="button"
+                >
+                  <History aria-hidden="true" size={13} strokeWidth={2.25} />
+                  Time travel from here…
+                </button>
+              )}
+            </span>
             <div className="event-meta">
               <span className="mono">#{selectedEvent.eventId}</span>
               <span title={selectedEvent.eventTime ?? undefined}>
@@ -106,20 +119,21 @@ export function FlowStatePanel({
               </span>
               {offset && <span>{offset}</span>}
             </div>
+            {relatedEvents.length > 0 && (
+              <RelatedEvents
+                relatedEvents={relatedEvents}
+                isJumpDisabled={isJumpDisabled}
+                onJumpToEvent={onJumpToEvent}
+                onSelectRelatedEvent={onSelectRelatedEvent}
+              />
+            )}
           </header>
-          {relatedEvents.length > 0 && (
-            <RelatedEvents
-              relatedEvents={relatedEvents}
-              isJumpDisabled={isJumpDisabled}
-              onJumpToEvent={onJumpToEvent}
-              onSelectRelatedEvent={onSelectRelatedEvent}
-            />
-          )}
           <section className="sidebar-section selected-event-body">
             <EventDetails
               event={selectedEvent}
               history={history}
               parentFlowId={parentFlowId}
+              payloadView={payloadView}
             />
           </section>
         </>
@@ -139,6 +153,7 @@ const relationTitles: Record<TimelineRelatedEvent['relation'], string> = {
   started: 'Started execution',
 };
 
+/** The selected event's relations as one line under its title; each target is its own link. */
 function RelatedEvents({
   relatedEvents,
   isJumpDisabled,
@@ -151,25 +166,19 @@ function RelatedEvents({
   onJumpToEvent?: (eventId: number) => void;
 }) {
   return (
-    <section aria-label="Related events" className="sidebar-section related-events">
-      <h4>Related events</h4>
-      <ul>
-        {relatedEvents.map((related) => (
-          <li className={`related-event location-${related.location}`} key={related.id}>
-            <span className="related-event-relation">{relationTitles[related.relation]}</span>
-            <span className="related-event-label" title={timelineRelatedEventLabel(related)}>
-              {timelineRelatedEventLabel(related)}
-            </span>
-            <RelatedEventAction
-              related={related}
-              isJumpDisabled={isJumpDisabled}
-              onJumpToEvent={onJumpToEvent}
-              onSelectRelatedEvent={onSelectRelatedEvent}
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
+    <ul aria-label="Related events" className="related-events-line">
+      {relatedEvents.map((related) => (
+        <li className={`related-event-inline location-${related.location}`} key={related.id}>
+          <span className="related-event-relation">{relationTitles[related.relation]}</span>
+          <RelatedEventAction
+            related={related}
+            isJumpDisabled={isJumpDisabled}
+            onJumpToEvent={onJumpToEvent}
+            onSelectRelatedEvent={onSelectRelatedEvent}
+          />
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -185,38 +194,34 @@ function RelatedEventAction({
   onJumpToEvent?: (eventId: number) => void;
 }) {
   const eventId = related.eventId;
+  const label = timelineRelatedEventLabel(related);
   if (related.location === 'loaded' && eventId !== undefined && onSelectRelatedEvent) {
     return (
-      <button className="button ghost related-event-action" onClick={() => onSelectRelatedEvent(eventId)} type="button">
-        Show #{eventId}
+      <button className="related-event-link" onClick={() => onSelectRelatedEvent(eventId)} title={`Show #${eventId}`} type="button">
+        {label}
       </button>
     );
   }
   if (related.location === 'other-page' && eventId !== undefined && onJumpToEvent) {
-    // A jump loads a window around the event, so only the direction of its page is exact.
-    const pageHint = related.direction === 'older' ? 'older page' : 'newer page';
+    // The label already names the direction of the event's page.
     return (
-      <span className="related-event-action related-event-jump">
-        <button
-          aria-describedby={`${related.id}-page-hint`}
-          className="button ghost"
-          disabled={isJumpDisabled}
-          onClick={() => onJumpToEvent(eventId)}
-          type="button"
-        >
-          Go to #{eventId}
-        </button>
-        <span className="related-event-hint" id={`${related.id}-page-hint`}>{pageHint}</span>
-      </span>
+      <button
+        className="related-event-link"
+        disabled={isJumpDisabled}
+        onClick={() => onJumpToEvent(eventId)}
+        title={`Go to #${eventId}`}
+        type="button"
+      >
+        {label}
+      </button>
     );
   }
-  if (related.location === 'pruned') {
-    return (
-      <span className="related-event-action related-event-unavailable" title={prunedRelatedEventTooltip(related)}>
-        Outside the retention window
-      </span>
-    );
-  }
-  if (related.location === 'loaded') return <span className="related-event-action related-event-unavailable">On this page</span>;
-  return <span className="related-event-action related-event-unavailable">Not on this page</span>;
+  return (
+    <span
+      className="related-event-label related-event-unavailable"
+      title={related.location === 'pruned' ? prunedRelatedEventTooltip(related) : undefined}
+    >
+      {label}
+    </span>
+  );
 }

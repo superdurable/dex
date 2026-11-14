@@ -60,11 +60,11 @@ import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './deta
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { rememberRecentRun } from '../components/frame/recentRuns';
-import { RunFailureBody, runFailureOf, RunLineJump, RunStateBody, runStateOf } from './details/RunFailureLine';
+import { RunFailureBody, runFailureOf, RunLineJump, RunStateBody, runStateOf, runStateShortLabel } from './details/RunFailureLine';
 import { LiveStatus, RunInputOutputButtons, RunViewTabs, type RunView } from './details/RunTabs';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
-import { HorizontalTimeline } from './details/HorizontalTimeline';
+import { HorizontalTimeline, type TimelineEndNote } from './details/HorizontalTimeline';
 import { useRunHistory } from './useRunHistory';
 import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
@@ -912,7 +912,12 @@ export function RunDetailsPage({
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
-  const isRunStateShown = runState !== null && (shownTab === 'timeline' || shownTab === 'steps' || shownTab === 'overview');
+  const timelineEndNote: TimelineEndNote | null = runState ? {
+    label: runStateShortLabel(runState, now),
+    detail: <RunStateBody state={runState} />,
+    eventId: runState.eventId,
+    isOpen: runState.isOpen,
+  } : null;
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
@@ -965,8 +970,6 @@ export function RunDetailsPage({
     ? [...history].reverse().find((event) => event.type === 'FlowClosed') ?? null
     : null;
   const isEventListShown = shownTab === 'timeline' || shownTab === 'steps';
-  // Result already selects the close event, so the line's jump appears only when it goes elsewhere.
-  const lineJumpEventId = runFailure ? runFailure.eventId : runState?.eventId ?? 0;
   const liveStatus = isRunOpen ? <LiveStatus isLive={isLive} onChange={resumeOrPauseLive} /> : null;
   const inputOutputButtons = (
     <RunInputOutputButtons
@@ -1013,6 +1016,7 @@ export function RunDetailsPage({
         <RunViewTabs onSelect={selectTab} shownView={shownTab} views={views} />
       </AppBarSlot>
       <AppBarSlot name="actions">
+        {!isEventListShown && liveStatus}
         <OperateMenu
           isRunning={isRunOpen}
           failedEventId={failedEvent?.eventId}
@@ -1023,18 +1027,18 @@ export function RunDetailsPage({
       </AppBarSlot>
 
       {/* One line with fixed slots, so the attempt picker in it never remounts as the run loads. */}
-      {(runFailure || isRunStateShown || runContext) && (
+      {/* An open run's state sits at the Timeline lane's end, so this line holds only failures and relations. */}
+      {(runFailure || runContext) && (
         <div
-          className={runFailure ? 'run-failure-line' : isRunStateShown ? `run-state-line${runState?.isOpen ? ' is-open' : ''}` : 'run-state-line run-context-line'}
+          className={runFailure ? 'run-failure-line' : 'run-state-line run-context-line'}
           role={runFailure ? 'alert' : undefined}
         >
-          {runFailure ? <RunFailureBody failure={runFailure} /> : isRunStateShown && runState ? <RunStateBody state={runState} /> : null}
+          {runFailure ? <RunFailureBody failure={runFailure} /> : null}
           {runContext}
-          {inputOutputButtons}
-          {!isEventListShown && liveStatus}
-          {(runFailure || (isRunStateShown && runState)) && lineJumpEventId !== closeEvent?.eventId && (
+          {/* Result already selects the close event, so the jump appears only when it goes elsewhere. */}
+          {runFailure && runFailure.eventId !== closeEvent?.eventId && (
             <RunLineJump
-              eventId={lineJumpEventId}
+              eventId={runFailure.eventId}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
             />
           )}
@@ -1097,6 +1101,7 @@ export function RunDetailsPage({
               onPageSizeChange={changeHistoryPageSize}
               status={liveStatus}
             >
+              {inputOutputButtons}
               {shownTab === 'timeline' && isHorizontalTimeline && hasTimelineEventList && (
                 <button
                   aria-pressed={isTimelineLaneShown}
@@ -1157,6 +1162,8 @@ export function RunDetailsPage({
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
+              endNote={timelineEndNote}
+              onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
             />
             </div>
           )}
