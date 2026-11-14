@@ -10,12 +10,23 @@ This page lists user-visible changes to the Python SDK, newest first; each secti
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0).
+Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0); 1.45.1 released 2026-11-14 as [sdk-python/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.1).
 
 ### Added
 
 - **WorkerOptions.flow_definition_paths** and **WorkerOptions.flow_definitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/python/workers#flow-definitions).
 - **Client.upload_flow_definitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. **AsyncClient** has the same coroutine. [Reference](/reference/python/workers#flow-definitions).
+- Named task queues. **PullWorkerOptions.task_queue** makes a Worker poll one named task queue,
+  and **StartFlowOptions.task_queue** starts a Flow on one. Only Workers on that task queue
+  receive the Flow's Steps and RPCs. **SubFlowOptions.task_queue** moves a SubFlow to another
+  task queue, or to the default one with **dex.default**; empty inherits the parent's task queue.
+  Empty everywhere keeps the default task queue, so existing code works as before. See
+  [Named task queues](/reference/python/workers#named-task-queues). Since 1.45.1.
+- A named task queue needs Dex Server protocol version 5. Against an older Server, the
+  Worker's **start** raises **RuntimeError** before it opens task streams, and **start_flow**
+  raises it before it sends the request. A stream that the Server registers under another task
+  queue is closed and reported as a permanent rejection through **PullRegistrationError** and
+  **pull_registration_state**, whose entries and errors now carry **task_queue**. Since 1.45.1.
 
 ### Breaking
 
