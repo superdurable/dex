@@ -189,11 +189,11 @@ describe("one terminal per session", () => {
 
   test("a chat whose lease another terminal took while it was paused stops with one line and exits 1", async () => {
     const home = newHome();
-    const first = start(home);
+    const first = start(home, [], expiringTtl);
     const sessionId = await first.waitForSession();
     await waitForLeaseHolder(home, sessionId, first.pid);
 
-    // Paused past its default lease. The wait is about as long as Dex takes to stop routing the session's RPCs to
+    // Paused past its short lease. The wait is about as long as Dex takes to stop routing the session's RPCs to
     // the paused command's streams anyway.
     first.signal("SIGSTOP");
     const second = start(home, ["--resume", sessionId]);

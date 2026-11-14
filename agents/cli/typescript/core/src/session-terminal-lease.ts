@@ -22,8 +22,14 @@ import type {
   SessionTerminalLeaseResult,
 } from "@superdurable/dex-agents";
 
-/** How long a lease lasts unless its holder renews it. */
-export const defaultSessionLeaseTtlSeconds = 15;
+import { defaultSessionLeaseTtlSeconds } from "./cli-config.js";
+
+export { defaultSessionLeaseTtlSeconds };
+
+/** The longest TTL `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` sets, the longest the session accepts. */
+const maximumSessionLeaseTtlSeconds = 3_600;
+/** The longest wait before a failed renewal is tried again; a shorter renewal interval wins. */
+const renewalRetryIntervalMs = 5_000;
 /** The spinner of the animated waiting line, one frame per {@link waitingFrameIntervalMs}. */
 export const waitingSpinnerFrames: readonly string[] = [..."⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"];
 /** How often the animated waiting line is redrawn. */
@@ -65,9 +71,35 @@ export function newSessionLeaseHolder(processId: number): SessionLeaseHolder {
  * @param text - The variable's value.
  */
 export function readSessionLeaseTtlSeconds(text: string | undefined): number {
+  return readSessionLeaseTtlOverrideSeconds(text) ?? defaultSessionLeaseTtlSeconds;
+}
+
+/**
+ * Returns the TTL that `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` sets, an integer from 1 to 3600, else `undefined`.
+ *
+ * @param text - The variable's value.
+ * @since 0.6.9
+ */
+export function readSessionLeaseTtlOverrideSeconds(text: string | undefined): number | undefined {
   const trimmed = (text ?? "").trim();
   const seconds = Number(trimmed);
-  return /^\d+$/.test(trimmed) && seconds >= 1 && seconds <= 3_600 ? seconds : defaultSessionLeaseTtlSeconds;
+  return /^\d+$/.test(trimmed) && seconds >= 1 && seconds <= maximumSessionLeaseTtlSeconds ? seconds : undefined;
+}
+
+/**
+ * Returns the session lease TTL a command uses: a valid `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` first, then the
+ * configuration file's `sessions.lease_ttl_seconds`, then {@link defaultSessionLeaseTtlSeconds}.
+ *
+ * @param overrideSeconds - `CliEnvironment.sessionLeaseTtlSeconds`, set only by a valid variable.
+ * @param configuredSeconds - `sessions.lease_ttl_seconds` of the effective configuration, if any.
+ * @returns The TTL in seconds.
+ * @since 0.6.9
+ */
+export function resolveSessionLeaseTtlSeconds(
+  overrideSeconds: number | undefined,
+  configuredSeconds: number | undefined,
+): number {
+  return overrideSeconds ?? configuredSeconds ?? defaultSessionLeaseTtlSeconds;
 }
 
 /** Returns the local time, HH:MM, of an RFC 3339 time; `timeZone` overrides the local zone. */
@@ -279,12 +311,16 @@ class SessionLeaseWaitingDisplay {
 
 /**
  * Renews the lease of the current session every third of its TTL. A refusal that names another holder ends it as
- * lost. Failed renewals are tried again at the next tick. The session's pull permit, which only confirmed renewals
- * extend, decides when an unconfirmed lease ends the chat; see `SessionPullPermit`.
+ * lost. A failed renewal is tried again after 5 seconds, or at the next tick when that comes sooner. The session's
+ * pull permit, which only confirmed renewals extend, decides when an unconfirmed lease ends the chat; see
+ * `SessionPullPermit`.
+ *
+ * Changed in 0.6.9: a failed renewal is tried again within 5 seconds instead of at the next tick.
  */
 export class SessionLeaseRenewal {
   private sessionId: string | undefined;
   private timer: NodeJS.Timeout | undefined;
+  private retryTimer: NodeJS.Timeout | undefined;
   private isRenewing = false;
 
   /**
@@ -322,6 +358,8 @@ export class SessionLeaseRenewal {
   public stop(): void {
     clearInterval(this.timer);
     this.timer = undefined;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     this.sessionId = undefined;
   }
 
@@ -344,10 +382,25 @@ export class SessionLeaseRenewal {
       ) {
         this.stop();
         this.onLost(sessionId, lease);
+      } else if (result === undefined && this.sessionId === sessionId) {
+        this.retrySoon();
       }
     } finally {
       this.isRenewing = false;
     }
+  }
+
+  /** A long TTL renews rarely; a retry within seconds survives a brief outage. */
+  private retrySoon(): void {
+    if (renewalRetryIntervalMs >= this.intervalMs) {
+      return;
+    }
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      void this.tick();
+    }, renewalRetryIntervalMs);
+    this.retryTimer.unref();
   }
 }
 

@@ -41,6 +41,7 @@ DEFAULT_CONNECTORS_MCP = "auto"
 DEFAULT_WORKSPACE = "~/dex-agent-workspace"
 DEFAULT_MEDIA_STORE = "auto"
 DEFAULT_SESSION_SUMMARY = "auto"
+DEFAULT_SESSION_LEASE_TTL_SECONDS = 600
 MAX_PORT = 65535
 URL_PARTS = re.compile(r"https?://(?P<host>\[[^\]]*\]|[^:/]+)(?::(?P<port>[0-9]+))?(?:/.*)?", re.S)
 
@@ -116,6 +117,7 @@ def resolve_config(
         raise ConfigError("model_required", "/model")
     local_tools = config.get("local_tools", {})
     shell = local_tools.get("shell", {})
+    sessions = config.get("sessions", {})
     return {
         "model": model,
         "system_prompt": config.get("system_prompt"),
@@ -149,7 +151,12 @@ def resolve_config(
             "browser": local_tools.get("browser", True),
         },
         "media": {"store": media.get("store", DEFAULT_MEDIA_STORE), "endpoint": endpoint},
-        "sessions": {"summary": config.get("sessions", {}).get("summary", DEFAULT_SESSION_SUMMARY)},
+        "sessions": {
+            "summary": sessions.get("summary", DEFAULT_SESSION_SUMMARY),
+            "lease_ttl_seconds": int(
+                sessions.get("lease_ttl_seconds", DEFAULT_SESSION_LEASE_TTL_SECONDS)
+            ),
+        },
         "harness_options": copy.deepcopy(config.get(harness_section, {})),
     }
 

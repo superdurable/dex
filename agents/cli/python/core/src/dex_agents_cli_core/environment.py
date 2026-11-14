@@ -44,14 +44,23 @@ DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 #:
 #: .. versionadded:: 0.6.0
 OPEN_BROWSER_ENVIRONMENT_VARIABLE = "DEX_AGENTS_OPEN_BROWSER"
-#: Seconds a session's terminal lease lasts, from 1 to 3600; for tests. Others are ignored.
+#: Seconds a session's terminal lease lasts, from 1 to 3600. Others are ignored.
+#: A valid value overrides ``sessions.lease_ttl_seconds`` of the configuration file.
 #:
 #: .. versionadded:: 0.6.3
+#:
+#: .. versionchanged:: 0.6.9
+#:    It overrides ``sessions.lease_ttl_seconds``.
 SESSION_LEASE_TTL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"
-#: How long a session's terminal lease lasts without a renewal.
+#: How long a session's terminal lease lasts without a renewal, unless the
+#: configuration file or ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` sets it.
 #:
 #: .. versionadded:: 0.6.3
-DEFAULT_SESSION_LEASE_TTL_SECONDS = 15
+#:
+#: .. versionchanged:: 0.6.9
+#:    600 seconds instead of 15.
+DEFAULT_SESSION_LEASE_TTL_SECONDS = 600
+_MAXIMUM_SESSION_LEASE_TTL_SECONDS = 3600
 #: The variables that may give the Dex connection settings, with ``dexcli``'s names.
 #:
 #: .. versionadded:: 0.6.2
@@ -125,9 +134,16 @@ class CommandEnvironment:
         session_lease_ttl_seconds: How long the lease that marks a session open
             in this terminal lasts without a renewal; the command renews it
             every third of that. ``DEFAULT_SESSION_LEASE_TTL_SECONDS`` unless
-            ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` sets 1 to 3600.
+            ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` sets 1 to 3600. A command
+            uses ``resolve_session_lease_ttl_seconds``, which also reads the
+            configuration file.
 
             .. versionadded:: 0.6.3
+        has_session_lease_ttl_override: Whether
+            ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` set a valid TTL, which
+            then wins over the configuration file.
+
+            .. versionadded:: 0.6.9
     """
 
     home: Path
@@ -143,6 +159,7 @@ class CommandEnvironment:
     terminal_variables: Mapping[str, str] = field(default_factory=dict)
     dex_connection_variables: Mapping[str, str] = field(default_factory=dict)
     session_lease_ttl_seconds: int = DEFAULT_SESSION_LEASE_TTL_SECONDS
+    has_session_lease_ttl_override: bool = False
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> CommandEnvironment:
@@ -161,6 +178,9 @@ class CommandEnvironment:
         dexcli = values.get(DEXCLI_ENVIRONMENT_VARIABLE)
         dex_port = values.get(DEX_PORT_ENVIRONMENT_VARIABLE)
         web_port = values.get(WEB_PORT_ENVIRONMENT_VARIABLE)
+        lease_ttl_override = _parse_session_lease_ttl_override(
+            values.get(SESSION_LEASE_TTL_ENVIRONMENT_VARIABLE)
+        )
         return cls(
             home=Path(values.get("HOME") or Path.home()),
             dexcli=Path(dexcli) if dexcli else None,
@@ -187,10 +207,30 @@ class CommandEnvironment:
                 for name in DEX_CONNECTION_ENVIRONMENT_NAMES
                 if values.get(name, "").strip()
             },
-            session_lease_ttl_seconds=_parse_session_lease_ttl(
-                values.get(SESSION_LEASE_TTL_ENVIRONMENT_VARIABLE)
-            ),
+            session_lease_ttl_seconds=DEFAULT_SESSION_LEASE_TTL_SECONDS
+            if lease_ttl_override is None
+            else lease_ttl_override,
+            has_session_lease_ttl_override=lease_ttl_override is not None,
         )
+
+    def resolve_session_lease_ttl_seconds(self, configured_seconds: int) -> int:
+        """Return the session lease TTL a command uses.
+
+        A valid ``DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`` wins; otherwise the
+        configuration file's ``sessions.lease_ttl_seconds``, whose default is
+        ``DEFAULT_SESSION_LEASE_TTL_SECONDS``.
+
+        Args:
+            configured_seconds: ``sessions.lease_ttl_seconds`` of the effective configuration.
+
+        Returns:
+            The TTL in seconds.
+
+        .. versionadded:: 0.6.9
+        """
+        if self.has_session_lease_ttl_override:
+            return self.session_lease_ttl_seconds
+        return configured_seconds
 
     @property
     def dex_directory(self) -> Path:
@@ -228,12 +268,12 @@ class CommandEnvironment:
         return path if path.is_absolute() else relative_to / path
 
 
-def _parse_session_lease_ttl(text: str | None) -> int:
+def _parse_session_lease_ttl_override(text: str | None) -> int | None:
     with contextlib.suppress(ValueError):
         seconds = int((text or "").strip())
-        if 1 <= seconds <= 3600:
+        if 1 <= seconds <= _MAXIMUM_SESSION_LEASE_TTL_SECONDS:
             return seconds
-    return DEFAULT_SESSION_LEASE_TTL_SECONDS
+    return None
 
 
 def _parse_port(text: str | None, default: int) -> int:

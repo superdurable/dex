@@ -375,6 +375,7 @@ media:
   store: auto
 sessions:
   summary: auto
+  lease_ttl_seconds: 600
 claude: {}
 ```
 
@@ -401,6 +402,7 @@ claude: {}
 | **media.store** | **auto** | Where the session's images are stored. **auto** is **~/.dex/agents/media** on this machine. **s3://BUCKET** or **s3://BUCKET/PREFIX** is an S3 bucket. See [Images](#images). |
 | **media.endpoint** | None, which means AWS S3 | The http or https URL of an S3-compatible service, such as **http://127.0.0.1:9000**. Valid only with an **s3://** store. |
 | **sessions.summary** | **auto** | Since 0.6.0. Whether each session keeps the indexed title, last activity time, and turn count that **sessions** shows. **auto** keeps it with **dex.server: auto** only, and leaves a Dex server URL alone, because that server may be shared. **on** keeps it with any server, and **off** never. The command refuses to start when its harness builds a session Flow whose declared persistence schema does not follow this setting. The check verifies what the Flow declares; it does not sandbox harness code. See [List sessions](/reference/agents/approvals#list-sessions) for what it stores and the index keys it registers. |
+| **sessions.lease_ttl_seconds** | **600** | Since 0.6.9. How many seconds a session's terminal lease lasts without a renewal, from 10 to 3600. **DEX_AGENTS_SESSION_LEASE_TTL_SECONDS** overrides it. See [One terminal per session](#one-terminal-per-session). |
 | **claude**, **openai**, **pydantic_ai**, **deepagents**, **google_adk**, **vercel_ai**, **mastra**, **pi**, **builtin** | Empty | The options of one harness. Each command reads only its own section. |
 
 Other keys are errors, and **null** is never valid: omit a field to take its
@@ -729,19 +731,31 @@ waited, and how to quit.
 - Ctrl-C while waiting exits with code 130. SIGTERM and SIGHUP exit with 128
   plus the signal number.
 
-The lease lasts 15 seconds, and the command renews it every 5 seconds. A
-command that exits releases it at once. A command that was killed, or paused
-for longer than the lease, such as with Ctrl-Z, frees the session when its
-lease expires. When a paused command continues and finds that another command
-took its session, its chat stops with one line and exit code 1:
+By default the lease lasts 600 seconds, and the command renews it every third
+of that, every 200 seconds. A failed renewal is tried again within 5 seconds. A command
+that exits releases the lease at once, and a waiting command takes the session
+within about a second, however long the lease lasts. A command that was
+killed, or paused for longer than the lease, such as with Ctrl-Z or a laptop
+that sleeps, holds the session until its lease expires: up to 10 minutes by
+default. When a paused command continues and finds that another command took
+its session, its chat stops with one line and exit code 1:
 
 ```text
 Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
 ```
 
+Changed in 0.6.9: the lease lasts 600 seconds instead of 15, and a failed
+renewal is tried again within 5 seconds instead of at the next renewal.
+**sessions.lease_ttl_seconds** in the [configuration file](#configuration)
+sets the lease, from 10 to 3600 seconds. The environment variable
+**DEX_AGENTS_SESSION_LEASE_TTL_SECONDS**, from 1 to 3600 seconds, overrides
+the file; the command ignores any other value of it. A shorter lease lets
+another machine take a session sooner after a crash. It also renews more
+often, and a command that loses its connection to Dex stops sooner.
+
 Since 0.6.8, a command pulls a session's task queue only while Dex has
 recently confirmed its lease. Each confirmed acquire or renewal allows it to
-pull until 12 seconds, the lease minus a fifth, after that request was sent;
+pull until the lease minus a fifth, 480 seconds by default, after that request was sent;
 the time also starts when it begins to pull. When the time runs out, such as
 when the command loses its connection to Dex, it stops pulling first. Before
 the chat starts, it then waits and tries again, and a late answer from Dex

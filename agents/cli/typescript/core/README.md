@@ -55,12 +55,19 @@ session another terminal has open, with `--resume` or by switching to it in the
 terminal UI, waits and shows one line that updates in place, with the other
 terminal's host, process ID, and opening time, the time waited, and how to
 quit. Without a terminal it prints that line once. It asks again every second
-and takes the session as soon as the other terminal exits, or 15 seconds after
-that terminal stopped renewing, such as after it was killed, and then prints
-`Took over session <id>.` Ctrl-C while waiting exits with 130. A chat whose
-session another terminal took, such as after the process was paused for longer
-than that, stops with one line and exits with 1. Commands of earlier releases
-do not take the lease.
+and takes the session as soon as the other terminal exits, or one lease TTL
+after that terminal stopped renewing, such as after it was killed, and then
+prints `Took over session <id>.` Ctrl-C while waiting exits with 130. A chat
+whose session another terminal took, such as after the process was paused for
+longer than that, stops with one line and exits with 1. Commands of earlier
+releases do not take the lease.
+
+The lease TTL is 600 seconds unless the configuration file's
+`sessions.lease_ttl_seconds`, from 10 to 3600, sets it.
+`DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, from 1 to 3600, overrides both; any
+other value of it is ignored. The command renews the lease every third of the
+TTL and tries a failed renewal again within 5 seconds. Changed in 0.6.9: the
+TTL was 15 seconds and came only from the variable.
 
 `/image <path>` attaches an image file to the next message. A leading `~` is
 the home directory, and a relative path is relative to the current directory.
