@@ -17,8 +17,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/images/dex-system-dark.png" />
-    <img width="720" alt="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC. Dex Server invokes Steps and RPCs on the Worker and persists Flow instances and their execution." src=".github/images/dex-system-light.png" />
+    <source media="(prefers-color-scheme: dark)" srcset=".github/images/dex-system-dark.gif" />
+    <img width="720" alt="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC. Dex Server invokes Steps and RPCs on the Worker and persists Flow instances and their execution. dexcli runs Dex locally and manages Flows; Dex Web inspects and acts on Flows." src=".github/images/dex-system-light.gif" />
   </picture>
 </p>
 
