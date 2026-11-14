@@ -23,6 +23,9 @@ import (
 	"time"
 )
 
+const connectorsMCPCommandHint = "dexcli connectors mcp exits. Use --connectors-mcp-binary to run a local " +
+	"dex-connectors-mcp."
+
 var connectorsMCPCommandFlagOrder = []string{
 	"connector-config-dir",
 	"connectors-mcp-binary",
@@ -70,14 +73,35 @@ func ExecuteConnectors(ctx context.Context, args []string, stdin io.Reader, stdo
 		printConnectorsUsage(stderr)
 		return fmt.Errorf("unknown connectors command %q", args[0])
 	}
-	cfg, err := parseConnectorsMCPCommandConfig(args[1:], stderr)
+	output := &connectorsMCPCommandOutput{stdout: stdout}
+	err := executeConnectorsMCP(ctx, args[1:], stdin, output, stderr)
+	if err == nil || errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	// Every startup failure reaches the caller as the one error line, unless a line was already attempted.
+	if writeErr := output.writeLine(connectorsMCPCommandErrorLine{Type: "error", Message: err.Error()}); writeErr != nil {
+		return errors.Join(err, writeErr)
+	}
+	return err
+}
+
+// executeConnectorsMCP parses the flags and runs dexcli connectors mcp. It returns flag.ErrHelp after printing help.
+func executeConnectorsMCP(
+	ctx context.Context,
+	args []string,
+	stdin io.Reader,
+	output *connectorsMCPCommandOutput,
+	stderr io.Writer,
+) error {
+	cfg, err := parseConnectorsMCPCommandConfig(args, stderr)
 	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
 		return err
 	}
-	return runConnectorsMCPCommand(ctx, cfg, stdin, stdout, stderr)
+	var stdinClosed <-chan struct{}
+	if cfg.IsExitingOnStdinClose {
+		stdinClosed = observeStdinClose(stdin)
+	}
+	return runConnectorsMCPCommand(ctx, cfg, stdinClosed, output, stderr)
 }
 
 func printConnectorsUsage(output io.Writer) {
@@ -134,12 +158,12 @@ func parseConnectorsMCPCommandConfig(args []string, output io.Writer) (*Connecto
 	return cfg, nil
 }
 
-// runConnectorsMCPCommand serves a loopback /mcp proxy, prints one ready or error line, and stops only servers it started.
+// runConnectorsMCPCommand serves a loopback /mcp proxy and prints its ready line. It stops only servers it started.
 func runConnectorsMCPCommand(
 	ctx context.Context,
 	cfg *ConnectorsMCPCommandConfig,
-	stdin io.Reader,
-	stdout io.Writer,
+	stdinClosed <-chan struct{},
+	output *connectorsMCPCommandOutput,
 	stderr io.Writer,
 ) (runErr error) {
 	if err := cfg.ConnectorsMCP.resolvePaths(cfg.StateDirectory, cfg.ConnectorConfigDirectory); err != nil {
@@ -175,14 +199,16 @@ func runConnectorsMCPCommand(
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if cfg.IsExitingOnStdinClose {
-		go func() {
-			// Any read error means the caller is gone, the same as EOF.
-			_, _ = io.Copy(io.Discard, stdin)
+	// A nil stdinClosed never fires; this goroutine ends with runCtx when the function returns.
+	go func() {
+		select {
+		case <-stdinClosed:
 			cancel()
-		}()
-	}
-	manager := newConnectorsMCPManagerForThisPlatform(&cfg.ConnectorsMCP, proxy, stderr, proxyURL)
+		case <-runCtx.Done():
+		}
+	}()
+	manager := newConnectorsMCPManagerForThisPlatform(
+		&cfg.ConnectorsMCP, proxy, stderr, proxyURL, connectorsMCPCommandHint)
 	manager.Start(runCtx)
 	defer func() { runErr = errors.Join(runErr, manager.Stop()) }()
 
@@ -190,15 +216,12 @@ func runConnectorsMCPCommand(
 		if runCtx.Err() != nil {
 			return nil
 		}
-		if writeErr := writeConnectorsMCPCommandLine(stdout, connectorsMCPCommandErrorLine{Type: "error", Message: err.Error()}); writeErr != nil {
-			return errors.Join(err, writeErr)
-		}
 		return fmt.Errorf("Connectors MCP server is unavailable: %w", err)
 	}
 	ready := connectorsMCPCommandReadyLine{
 		Type: "ready", URL: proxyURL, PID: os.Getpid(), ConnectionsFile: cfg.ConnectorsMCP.ConnectionsFile,
 	}
-	if err := writeConnectorsMCPCommandLine(stdout, ready); err != nil {
+	if err := output.writeLine(ready); err != nil {
 		return err
 	}
 	select {
@@ -209,15 +232,38 @@ func runConnectorsMCPCommand(
 	}
 }
 
-func writeConnectorsMCPCommandLine(stdout io.Writer, line any) error {
+// connectorsMCPCommandOutput writes the one stdout line of dexcli connectors mcp, at most once.
+type connectorsMCPCommandOutput struct {
+	stdout      io.Writer
+	isAttempted bool
+}
+
+// writeLine writes line unless a line was already attempted, and returns the write error.
+func (output *connectorsMCPCommandOutput) writeLine(line any) error {
+	if output.isAttempted {
+		return nil
+	}
+	output.isAttempted = true
 	content, err := json.Marshal(line)
 	if err != nil {
 		panic("encode a Connectors MCP command line: " + err.Error())
 	}
-	if _, err := stdout.Write(append(content, '\n')); err != nil {
+	if _, err := output.stdout.Write(append(content, '\n')); err != nil {
 		return fmt.Errorf("write the Connectors MCP command line: %w", err)
 	}
 	return nil
+}
+
+// observeStdinClose returns a channel that closes when stdin reaches EOF or fails.
+// Only the process entry calls it; the reader goroutine lives as long as the process.
+func observeStdinClose(stdin io.Reader) <-chan struct{} {
+	closed := make(chan struct{})
+	go func() {
+		// Any read error means the caller is gone, the same as EOF.
+		_, _ = io.Copy(io.Discard, stdin)
+		close(closed)
+	}()
+	return closed
 }
 
 // shutdownConnectorsMCPProxy stops the proxy server, waits for Serve to return, and returns the shutdown error.

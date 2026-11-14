@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -123,17 +124,89 @@ func TestDexcliDevReusesTheServerOfARunningConnectorsMCPCommand(t *testing.T) {
 	require.NotEqual(t, commandResult.InstanceID, restarted.InstanceID, "dexcli dev starts its own server after the command exits")
 }
 
-func TestConnectorsMCPCommandPrintsErrorLineWhenNoServerStarts(t *testing.T) {
-	cfg := testConnectorsMCPCommandConfig(t, filepath.Join(t.TempDir(), "missing-dex-connectors-mcp"))
-	command := startTestConnectorsMCPCommand(t, cfg)
+func TestConnectorsMCPCommandAliasesOfOneConnectionsFileShareOneServer(t *testing.T) {
+	recordDirectory := t.TempDir()
+	t.Setenv("FAKE_CONNECTORS_MCP_RECORD_DIR", recordDirectory)
+	fakeBinary := buildFakeConnectorsMCP(t)
+	realConfig := testConnectorsMCPCommandConfig(t, fakeBinary)
+	realConfig.ConnectorConfigDirectory = filepath.Join(t.TempDir(), "connectors")
+	require.NoError(t, os.MkdirAll(realConfig.ConnectorConfigDirectory, 0o700))
+	aliasDirectory := filepath.Join(t.TempDir(), "connectors-alias")
+	require.NoError(t, os.Symlink(realConfig.ConnectorConfigDirectory, aliasDirectory))
+	aliasConfig := testConnectorsMCPCommandConfig(t, fakeBinary)
+	aliasConfig.StateDirectory = realConfig.StateDirectory
+	aliasConfig.ConnectorConfigDirectory = aliasDirectory
 
-	line := command.readLine(t)
-	var errorLine connectorsMCPCommandErrorLine
-	require.NoError(t, json.Unmarshal(line, &errorLine))
-	require.Equal(t, "error", errorLine.Type)
-	require.Contains(t, errorLine.Message, "is not executable")
-	err := command.wait(t)
+	realCommand := startTestConnectorsMCPCommand(t, realConfig)
+	aliasCommand := startTestConnectorsMCPCommand(t, aliasConfig)
+	realReady := realCommand.readReadyLine(t)
+	aliasReady := aliasCommand.readReadyLine(t)
+
+	require.Equal(t, realConfig.ConnectorsMCP.StateDirectory, aliasConfig.ConnectorsMCP.StateDirectory)
+	require.Equal(t, realReady.ConnectionsFile, aliasReady.ConnectionsFile)
+	realResult := waitForProxiedMCPResult(t, strings.TrimSuffix(realReady.URL, "/mcp"), "")
+	aliasResult := waitForProxiedMCPResult(t, strings.TrimSuffix(aliasReady.URL, "/mcp"), "")
+	require.Equal(t, realResult.InstanceID, aliasResult.InstanceID, "one server serves both paths")
+	require.Len(t, uniqueRunningStarts(t, recordDirectory), 1, "only one server runs")
+}
+
+func TestConnectorsMCPCommandPrintsErrorLineWhenNoServerStarts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	stdout := &synchronizedBuffer{}
+
+	err := ExecuteConnectors(context.Background(), []string{
+		"mcp", "--connectors-mcp-binary", filepath.Join(t.TempDir(), "missing-dex-connectors-mcp"),
+	}, strings.NewReader(""), stdout, io.Discard)
+
 	require.ErrorContains(t, err, "Connectors MCP server is unavailable")
+	errorLine := decodeOnlyConnectorsMCPErrorLine(t, stdout.String())
+	require.Contains(t, errorLine.Message, "is not executable")
+}
+
+func TestConnectorsMCPCommandPrintsErrorLineForInvalidFlags(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for name, arguments := range map[string][]string{
+		"invalid version":          {"mcp", "--connectors-mcp-version=not-a-version"},
+		"empty config directory":   {"mcp", "--connector-config-dir="},
+		"unknown flag":             {"mcp", "--no-such-flag"},
+		"version and binary given": {"mcp", "--connectors-mcp-version=0.1.4", "--connectors-mcp-binary=x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stdout := &synchronizedBuffer{}
+			err := ExecuteConnectors(context.Background(), arguments, strings.NewReader(""), stdout, io.Discard)
+			require.Error(t, err)
+			errorLine := decodeOnlyConnectorsMCPErrorLine(t, stdout.String())
+			require.Equal(t, err.Error(), errorLine.Message)
+		})
+	}
+}
+
+func TestConnectorsMCPCommandHelpPrintsNoProtocolLine(t *testing.T) {
+	stdout := &synchronizedBuffer{}
+	require.NoError(t, ExecuteConnectors(context.Background(), []string{"mcp", "--help"}, strings.NewReader(""), stdout, io.Discard))
+	require.Empty(t, stdout.String())
+}
+
+// decodeOnlyConnectorsMCPErrorLine requires output to be exactly one error line and returns it.
+func decodeOnlyConnectorsMCPErrorLine(t *testing.T, output string) connectorsMCPCommandErrorLine {
+	t.Helper()
+	require.Equal(t, 1, strings.Count(output, "\n"), output)
+	var errorLine connectorsMCPCommandErrorLine
+	require.NoError(t, json.Unmarshal([]byte(output), &errorLine), output)
+	require.Equal(t, "error", errorLine.Type)
+	return errorLine
+}
+
+// uniqueRunningStarts returns the recorded server starts whose process still runs.
+func uniqueRunningStarts(t *testing.T, recordDirectory string) []fakeConnectorsMCPStart {
+	t.Helper()
+	var running []fakeConnectorsMCPStart
+	for _, start := range readFakeConnectorsMCPStarts(t, recordDirectory) {
+		if isProcessAlive(start.PID) {
+			running = append(running, start)
+		}
+	}
+	return running
 }
 
 func TestConnectorsMCPCommandParsesSharedFlags(t *testing.T) {
@@ -171,35 +244,40 @@ func testConnectorsMCPCommandConfig(t *testing.T, binaryPath string) *Connectors
 }
 
 type testConnectorsMCPCommand struct {
-	stdinWriter *io.PipeWriter
-	stdout      *bufio.Reader
-	logs        *synchronizedBuffer
-	done        chan struct{}
-	err         error
+	stdinClosed    chan struct{}
+	closeStdinOnce sync.Once
+	stdout         *bufio.Reader
+	logs           *synchronizedBuffer
+	done           chan struct{}
+	err            error
 }
 
-// startTestConnectorsMCPCommand runs dexcli connectors mcp for cfg in this process, with piped stdin and stdout.
+// startTestConnectorsMCPCommand runs dexcli connectors mcp for cfg in this process, with a piped stdout.
 func startTestConnectorsMCPCommand(t *testing.T, cfg *ConnectorsMCPCommandConfig) *testConnectorsMCPCommand {
 	t.Helper()
-	stdinReader, stdinWriter := io.Pipe()
 	stdoutReader, stdoutWriter := io.Pipe()
 	command := &testConnectorsMCPCommand{
-		stdinWriter: stdinWriter,
+		stdinClosed: make(chan struct{}),
 		stdout:      bufio.NewReader(stdoutReader),
 		logs:        &synchronizedBuffer{},
 		done:        make(chan struct{}),
 	}
+	output := &connectorsMCPCommandOutput{stdout: stdoutWriter}
 	go func() {
-		command.err = runConnectorsMCPCommand(context.Background(), cfg, stdinReader, stdoutWriter, command.logs)
+		command.err = runConnectorsMCPCommand(context.Background(), cfg, command.stdinClosed, output, command.logs)
 		// Closing a pipe writer always succeeds; it only ends the test's reads.
 		_ = stdoutWriter.Close()
 		close(command.done)
 	}()
 	t.Cleanup(func() {
-		require.NoError(t, stdinWriter.Close())
+		command.closeStdin()
 		<-command.done
 	})
 	return command
+}
+
+func (command *testConnectorsMCPCommand) closeStdin() {
+	command.closeStdinOnce.Do(func() { close(command.stdinClosed) })
 }
 
 func (command *testConnectorsMCPCommand) readLine(t *testing.T) []byte {
@@ -234,7 +312,7 @@ func (command *testConnectorsMCPCommand) readReadyLine(t *testing.T) connectorsM
 
 func (command *testConnectorsMCPCommand) closeStdinAndWait(t *testing.T) error {
 	t.Helper()
-	require.NoError(t, command.stdinWriter.Close())
+	command.closeStdin()
 	return command.wait(t)
 }
 

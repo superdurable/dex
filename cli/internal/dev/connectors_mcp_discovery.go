@@ -95,7 +95,7 @@ func discoverConnectorsMCPServer(
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf("server at %s: %v", announcement.URL, err)
 	}
 	if !filepath.IsAbs(announcement.ConnectionsFile) ||
-		filepath.Clean(announcement.ConnectionsFile) != filepath.Clean(cfg.ConnectionsFile) {
+		resolveExistingSymlinks(announcement.ConnectionsFile) != filepath.Clean(cfg.ConnectionsFile) {
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf(
 			"server at %s reads %s, not %s", announcement.URL, announcement.ConnectionsFile, cfg.ConnectionsFile)
 	}

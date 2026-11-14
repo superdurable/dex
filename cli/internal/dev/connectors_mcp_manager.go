@@ -48,10 +48,12 @@ type connectorsMCPManager struct {
 	localClient *http.Client
 	proxy       *connectorsMCPProxy
 	logs        io.Writer
-	// proxyURL is the stable /mcp URL on the Dex Web port.
+	// proxyURL is the stable /mcp URL on the Dex Web port, or the one dexcli connectors mcp serves.
 	proxyURL string
-	cancel   context.CancelFunc
-	done     chan struct{}
+	// unavailableHint follows the unavailable line and says what the command does next.
+	unavailableHint string
+	cancel          context.CancelFunc
+	done            chan struct{}
 	// binary is resolved once, on the first start.
 	binary connectorsMCPResolvedBinary
 	// stopErr is the error of stopping a started server; run sets it before done closes.
@@ -68,26 +70,28 @@ func newConnectorsMCPManager(
 	proxy *connectorsMCPProxy,
 	logs io.Writer,
 	proxyURL string,
+	unavailableHint string,
 ) *connectorsMCPManager {
 	if cfg == nil || resolver == nil || localClient == nil || proxy == nil || logs == nil {
 		panic("connectors MCP manager dependencies must not be nil")
 	}
 	return &connectorsMCPManager{
 		cfg: cfg, resolver: resolver, localClient: localClient, proxy: proxy, logs: logs, proxyURL: proxyURL,
-		firstOutcome: make(chan error, 1),
+		unavailableHint: unavailableHint, firstOutcome: make(chan error, 1),
 	}
 }
 
-// newConnectorsMCPManagerForThisPlatform returns a manager that resolves releases for this platform and proxies
-// through proxy. cfg must have its paths resolved.
+// newConnectorsMCPManagerForThisPlatform returns a manager that resolves releases for this platform.
+// cfg must have its paths resolved.
 func newConnectorsMCPManagerForThisPlatform(
 	cfg *ConnectorsMCPConfig,
 	proxy *connectorsMCPProxy,
 	logs io.Writer,
 	proxyURL string,
+	unavailableHint string,
 ) *connectorsMCPManager {
 	resolver := newConnectorsMCPReleaseResolver(cfg, &http.Client{}, runtime.GOOS+"-"+runtime.GOARCH, logs)
-	return newConnectorsMCPManager(cfg, resolver, newLoopbackHTTPClient(), proxy, logs, proxyURL)
+	return newConnectorsMCPManager(cfg, resolver, newLoopbackHTTPClient(), proxy, logs, proxyURL, unavailableHint)
 }
 
 // newLoopbackHTTPClient returns a client that never sends loopback requests through an HTTP proxy.
@@ -122,8 +126,7 @@ func (m *connectorsMCPManager) Stop() error {
 	return m.stopErr
 }
 
-// WaitForFirstOutcome returns nil once a server is first available behind the proxy, the error when the manager
-// gives up before that, or ctx's error when ctx ends first.
+// WaitForFirstOutcome returns nil once a server is available, the give-up error, or ctx's error.
 func (m *connectorsMCPManager) WaitForFirstOutcome(ctx context.Context) error {
 	select {
 	case err := <-m.firstOutcome:
@@ -277,7 +280,7 @@ func (m *connectorsMCPManager) reportReady(server connectorsMCPServer) {
 func (m *connectorsMCPManager) reportUnavailable(err error) {
 	reason := err.Error()
 	m.proxy.setUnavailable("the Connectors MCP server is unavailable: " + reason)
-	fmt.Fprintf(m.logs, "Connectors MCP: unavailable: %s. %s\n", reason, connectorsMCPHint)
+	fmt.Fprintf(m.logs, "Connectors MCP: unavailable: %s. %s\n", reason, m.unavailableHint)
 	m.reportFirstOutcome(err)
 }
 

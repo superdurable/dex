@@ -209,7 +209,7 @@ func (s *supervisor) mountConnectorsMCP(
 	proxy := newConnectorsMCPProxy()
 	webListener := newWebListenerServer(webServer, proxy)
 	resources.webListener = webListener
-	manager := newConnectorsMCPManagerForThisPlatform(&s.cfg.ConnectorsMCP, proxy, s.stderr, proxyURL)
+	manager := newConnectorsMCPManagerForThisPlatform(&s.cfg.ConnectorsMCP, proxy, s.stderr, proxyURL, connectorsMCPHint)
 	return manager, webListener, nil
 }
 
