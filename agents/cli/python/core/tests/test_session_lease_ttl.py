@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import io
 import signal
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob
 
 from dex_agents import SESSION_TERMINAL_LEASE, SessionTerminalLease
 from dex_agents.session_flow import SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS
+from dex_agents.testing import wait_until
 from dex_agents_cli_core.config import CONFIG_SCHEMA
 from dex_agents_cli_core.environment import DEFAULT_SESSION_LEASE_TTL_SECONDS
 from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
@@ -35,6 +36,8 @@ from tests.test_session_lease import (
 from tests.test_terminal_ui_handoff import pause, start_chat
 
 CONFIGURED_TTL_SECONDS = 45
+# The shortest lease the file takes; its renewals every 3 1/3 s show within a test.
+SHORT_TTL_SECONDS = 10
 
 
 def with_lease_ttl(seconds: object) -> dict[str, Any]:
@@ -135,6 +138,49 @@ async def test_the_terminal_ui_worker_host_uses_sessions_lease_ttl_seconds(
 
     lease = await read_lease(cli_home, tmp_path, session_id)
     assert CONFIGURED_TTL_SECONDS <= lease_seconds(lease) < 2 * CONFIGURED_TTL_SECONDS
+    chat.kill(signal.SIGTERM)
+    assert await wait_for_exit(chat) == 143
+
+
+async def wait_for_renewals_past_the_ttl(
+    cli_home: CliHome, tmp_path: Path, session_id: str, ttl_seconds: int
+) -> SessionTerminalLease:
+    """Wait until renewals kept the lease a whole TTL: expiry minus opened_at is twice the TTL."""
+    first = await read_lease(cli_home, tmp_path, session_id)
+
+    async def renewed_lease() -> SessionTerminalLease | None:
+        lease = await read_lease(cli_home, tmp_path, session_id)
+        assert lease.holder_id == first.holder_id
+        return lease if lease_seconds(lease) >= 2 * ttl_seconds else None
+
+    return await wait_until(
+        "renewals past one TTL", renewed_lease, timeout=timedelta(seconds=6 * ttl_seconds)
+    )
+
+
+async def test_the_plain_chat_renews_a_short_configured_lease_and_keeps_running(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(config_yaml(with_lease_ttl(SHORT_TTL_SECONDS)))
+    first, session_id = await open_first_chat(cli_home)
+
+    await wait_for_renewals_past_the_ttl(cli_home, tmp_path, session_id, SHORT_TTL_SECONDS)
+    first.sendline("still here")
+    await expect(first, "echo: still here")
+    first.sendeof()
+    assert await wait_for_exit(first) == 0
+
+
+async def test_the_terminal_ui_worker_host_renews_a_short_configured_lease(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(300_000)]))
+    chat = start_chat(cli_home, fake, io.StringIO(), with_lease_ttl(SHORT_TTL_SECONDS))
+    session_id = await read_session_id(chat)
+    await fake.wait_for("sent", type="ready")
+
+    await wait_for_renewals_past_the_ttl(cli_home, tmp_path, session_id, SHORT_TTL_SECONDS)
+    assert chat.isalive(), "the chat ended although its renewals were confirmed"
     chat.kill(signal.SIGTERM)
     assert await wait_for_exit(chat) == 143
 

@@ -12,6 +12,9 @@ section: Changed
   unchanged: the command renews every third of the TTL, a clean exit releases
   the lease at once, and a waiting command still asks every second. A killed
   or paused command now holds its session for up to 10 minutes by default.
+  Each lease read of an attempt waits at most 5 seconds, also while a pull
+  permit is active, so an unanswered read never holds a waiting command for
+  the rest of the longer permit.
   New: `SessionsConfig.lease_ttl_seconds`,
   `CommandEnvironment.has_session_lease_ttl_override` and
   `resolve_session_lease_ttl_seconds`, `defaultSessionLeaseTtlSeconds` in the

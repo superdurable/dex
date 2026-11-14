@@ -71,8 +71,13 @@ const storedLeaseReadTimeoutMs = 2_000;
 const storedLeaseReadRetryBudgetMs = 6_000;
 /** The pause between two reads of a stored lease. */
 const storedLeaseReadRetryIntervalMs = 250;
-/** How long the read of a stored lease before pulling may take. */
+/** How long one lease read of an attempt may take; an active pull permit's remaining time bounds it too. */
 const leaseReadTimeoutMs = 5_000;
+
+/** Returns the bound of one lease read, so an unanswered read never stalls the waiting loop. */
+function leaseReadTimeoutWithin(permit: SessionPullPermit | undefined): number {
+  return permit === undefined ? leaseReadTimeoutMs : Math.min(leaseReadTimeoutMs, permit.remainingMs());
+}
 
 /**
  * Returns `dex-agents-<harness>-<host>-<pid>`, plus `-<suffix>` when given, cutting the host name so the ID has at
@@ -547,7 +552,7 @@ export class SessionOpener {
         sessionFlow.sessionLastTerminalEnvironment,
         sessionFlow.agentState,
       ),
-      this.activePermit(sessionId)?.remainingMs() ?? leaseReadTimeoutMs,
+      leaseReadTimeoutWithin(this.activePermit(sessionId)),
     );
     const isHeldHere = lease?.holderId === holder.holderId;
     if (lease !== undefined && !isHeldHere && !isLeaseExpiredHere(lease, new Date())) {
@@ -617,8 +622,8 @@ export class SessionOpener {
 
   /**
    * Decides an acquire whose answer never arrived, such as after a timeout: the RPC may have taken the lease, and
-   * only this command's session Worker serves its release. The read is bounded by the permit, which stops the
-   * Worker on its own when no confirmation comes.
+   * only this command's session Worker serves its release. The read is bounded by 5 seconds and by the permit, which
+   * stops the Worker on its own when no confirmation comes.
    * @param sessionId - The session.
    * @param error - The acquire's failure.
    * @param permit - The session's pull permit.
@@ -634,7 +639,10 @@ export class SessionOpener {
     const { client, sessionFlow, holder } = this.options;
     let stored;
     try {
-      [stored] = await withinTimeout(client.getAttributes(sessionId, sessionFlow.sessionTerminalLease), permit.remainingMs());
+      [stored] = await withinTimeout(
+        client.getAttributes(sessionId, sessionFlow.sessionTerminalLease),
+        leaseReadTimeoutWithin(permit),
+      );
     } catch {
       throw error;
     }

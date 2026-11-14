@@ -14,13 +14,32 @@ import type { SessionTerminalLease } from "@superdurable/dex-agents";
 
 import { tookOverLine } from "../../src/session-terminal-lease.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
-import { FakeTerminalUi, PseudoTerminalCli, chatTranscript, isReceived } from "../fixtures/terminal-ui-test-support.js";
+import {
+  FakeTerminalUi,
+  PseudoTerminalCli,
+  chatTranscript,
+  isReceived,
+  type Transcript,
+} from "../fixtures/terminal-ui-test-support.js";
 
 const quietConfig = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
 const configuredTtlSeconds = 45;
+/** The shortest lease the file takes; its renewals every 3 1/3 s show within a test. */
+const shortTtlSeconds = 10;
 
 function withLeaseTtl(seconds: string): string {
   return `${quietConfig}sessions: {lease_ttl_seconds: ${seconds}}\n`;
+}
+
+/** Returns the relaunch transcript after a switch: the resumed session's launch and `ready`, then a long pause. */
+function resumedTranscriptThatHolds(): Transcript {
+  const transcript = chatTranscript("chat_resumed_holds_the_session", [{ pause_ms: 300_000, role: "tui" }]);
+  const [launch, ...rest] = transcript.steps;
+  const message = launch?.message as { session: Record<string, unknown> };
+  // A relaunch after a switch named the left session before 0.6.8, which this test does not fix.
+  const ignore = [...((launch as { ignore?: string[] }).ignore ?? []), "session.previous_session_id"];
+  const resumed = { ...launch, ignore, message: { ...message, session: { ...message.session, is_resumed: true } } };
+  return { ...transcript, steps: [resumed, ...rest] };
 }
 
 /** Returns how long a lease lasts past its first acquire; a renewal keeps `openedAt` and moves `expiresAt`. */
@@ -120,6 +139,64 @@ describe("the session lease TTL", () => {
     const [sessionId] = /scripted-\d{8}-\d{6}-[0-9a-f]{6}/.exec(listing.stdout.all) ?? [];
     assert.ok(sessionId !== undefined, listing.stdout.all);
     const seconds = leaseSeconds(await waitForLease(home, sessionId));
+    assert.ok(seconds >= configuredTtlSeconds && seconds < 2 * configuredTtlSeconds, `${seconds} s`);
+  });
+
+  /** Waits until renewals kept the lease a whole TTL: expiry minus opening is twice the TTL. */
+  async function waitForRenewalsPastTheTtl(home: TestHome, sessionId: string, ttlSeconds: number): Promise<void> {
+    const first = await waitForLease(home, sessionId);
+    const sessions = await sessionClients.of(home);
+    await pollUntil(
+      async () => {
+        const [lease] = await sessions.client.getAttributes(sessionId, sessions.flow.sessionTerminalLease);
+        assert.equal(lease?.holderId, first.holderId);
+        return lease !== undefined && leaseSeconds(lease) >= 2 * ttlSeconds ? lease : undefined;
+      },
+      { timeoutMs: 6 * ttlSeconds * 1_000, description: `renewals of ${sessionId} past one TTL` },
+    );
+  }
+
+  test("the plain chat renews a short configured lease and keeps running", async () => {
+    const home = newHome(withLeaseTtl(String(shortTtlSeconds)));
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    await waitForRenewalsPastTheTtl(home, sessionId, shortTtlSeconds);
+    cli.writeLine("still here");
+    await cli.stdout.waitFor("echo: still here");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0, cli.stderr.all);
+  });
+
+  test("the terminal UI's Worker host renews a short configured lease", async () => {
+    const home = newHome(withLeaseTtl(String(shortTtlSeconds)));
+    const fake = new FakeTerminalUi([chatTranscript("chat_holds_the_session", [{ pause_ms: 300_000, role: "tui" }])]);
+    const terminal = PseudoTerminalCli.start(home, [], { DEXCLI: fake.executable });
+    terminals.push(terminal);
+    await pollUntil(() => fake.record().find(isReceived("launch")), { timeoutMs: 60_000, description: "the launch" });
+    const listing = start(home, ["sessions"]);
+    assert.equal(await listing.waitForExit(), 0, listing.stderr.all);
+    const [sessionId] = /scripted-\d{8}-\d{6}-[0-9a-f]{6}/.exec(listing.stdout.all) ?? [];
+    assert.ok(sessionId !== undefined, listing.stdout.all);
+    await waitForRenewalsPastTheTtl(home, sessionId, shortTtlSeconds);
+    // Renewals past the first permit's end mean each one was confirmed, so the chat still runs.
+    assert.doesNotMatch(terminal.terminal.all, /could not renew its lease in time/);
+  });
+
+  test("a switch_session in the terminal UI takes the chosen session with the configured lease", async () => {
+    const home = newHome(withLeaseTtl(String(configuredTtlSeconds)));
+    const other = start(home);
+    const otherSessionId = await other.waitForSession();
+    other.writeLine("/exit");
+    assert.equal(await other.waitForExit(), 0, other.stderr.all);
+    const switching = chatTranscript("chat_switch_session", [
+      { from: "tui", message: { type: "switch_session", session_id: otherSessionId, is_resumed: true } },
+    ]);
+    const fake = new FakeTerminalUi([switching, resumedTranscriptThatHolds()]);
+    const terminal = PseudoTerminalCli.start(home, [], { DEXCLI: fake.executable });
+    terminals.push(terminal);
+
+    const lease = await waitForLease(home, otherSessionId);
+    const seconds = leaseSeconds(lease);
     assert.ok(seconds >= configuredTtlSeconds && seconds < 2 * configuredTtlSeconds, `${seconds} s`);
   });
 

@@ -853,6 +853,38 @@ async def test_a_hanging_lease_read_after_a_lost_acquire_answer_cannot_keep_the_
         assert await reader.read(session_id, SESSION_TERMINAL_LEASE) is None
 
 
+async def test_unanswered_lease_reads_under_a_long_permit_keep_the_attempts_coming(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    environment = _new_environment(tmp_path, "a")
+    faults = tmp_path / "faults"
+    faults.mkdir()
+    # The default 600 s lease: each read must give up after seconds, not when the permit ends.
+    (faults / LOSE_NEXT_ACQUIRE_MARKER).write_text(THEN_HANG_LEASE_READS)
+    cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
+    child = cli_home.spawn(*environment.arguments())
+    log = cli_home.home / ".dex" / "agents" / "scripted.log"
+
+    async def failed_attempts() -> list[str] | None:
+        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        failures = [line for line in lines if "cannot acquire the session lease" in line]
+        return failures if len(failures) >= 3 else None
+
+    failures = await wait_until(
+        "three failed attempts while lease reads hang",
+        failed_attempts,
+        timeout=timedelta(seconds=40),
+    )
+    first, third = _logged_time(failures[0]), _logged_time(failures[2])
+    assert third - first < timedelta(seconds=20), failures
+    assert PERMIT_EXPIRED_MARKER not in log.read_text(encoding="utf-8")
+
+    (faults / HANG_LEASE_READ_MARKER).unlink()
+    await _read_session_id(child)
+    await expect(child, PROMPT)
+    await _exit_chat(child)
+
+
 def _logged_time(line: str) -> datetime:
     """Return the local time at the start of a log line."""
     return datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f").astimezone()
