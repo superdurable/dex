@@ -41,7 +41,7 @@ Code credentials, such as `ANTHROPIC_API_KEY`, exactly as a plain Claude Agent
 SDK program does. Per Anthropic's terms, products built on the Claude Agent SDK
 authenticate with an API key (`ANTHROPIC_API_KEY`); see the
 [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview). Connector tools also need `@superdurable/connectors-sdk`
-0.9.0 or a later 0.9.x, the optional peer of `@superdurable/dex-agents/connectors`, and each
+0.9.x or 0.10.x, the optional peer of `@superdurable/dex-agents/connectors`, and each
 Connector package the agent uses.
 
 Every segment after the first resumes the Claude session from a temporary config directory that the
