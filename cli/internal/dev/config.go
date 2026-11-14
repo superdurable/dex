@@ -158,24 +158,8 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		cfg.ConnectorsMCP.IsEnabled,
 		"find or start the Dex Connectors MCP server and proxy it at /mcp on the Dex Web port (loopback --bind-address only)",
 	)
-	flags.StringVar(
-		&cfg.ConnectorsMCP.Version,
-		"connectors-mcp-version",
-		"",
-		"Connectors MCP server release X.Y.Z to run (default the newest compatible release)",
-	)
-	flags.StringVar(
-		&cfg.ConnectorsMCP.BinaryPath,
-		"connectors-mcp-binary",
-		cfg.ConnectorsMCP.BinaryPath,
-		"local dex-connectors-mcp executable to run instead of a downloaded release (default "+connectorsMCPBinaryEnvironment+")",
-	)
 	connectorsMCPConnections := connectorsMCPConnectionFlag{}
-	flags.Var(
-		&connectorsMCPConnections,
-		"connectors-mcp-connection",
-		"connection the Connectors MCP server offers, as connectorId/connectionName[=tool,...] (repeatable; default every authorized connection)",
-	)
+	addConnectorsMCPServerFlags(flags, &cfg.ConnectorsMCP, &connectorsMCPConnections)
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(

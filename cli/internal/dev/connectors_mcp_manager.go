@@ -15,7 +15,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,14 +48,19 @@ type connectorsMCPManager struct {
 	localClient *http.Client
 	proxy       *connectorsMCPProxy
 	logs        io.Writer
-	// proxyURL is the stable /mcp URL on the Dex Web port.
+	// proxyURL is the stable /mcp URL on the Dex Web port, or the one dexcli connectors mcp serves.
 	proxyURL string
-	cancel   context.CancelFunc
-	done     chan struct{}
+	// unavailableHint follows the unavailable line and says what the command does next.
+	unavailableHint string
+	cancel          context.CancelFunc
+	done            chan struct{}
 	// binary is resolved once, on the first start.
 	binary connectorsMCPResolvedBinary
 	// stopErr is the error of stopping a started server; run sets it before done closes.
 	stopErr error
+	// firstOutcome receives nil when a server first becomes available, or the error when the manager gives up first.
+	firstOutcome     chan error
+	firstOutcomeOnce sync.Once
 }
 
 func newConnectorsMCPManager(
@@ -63,13 +70,39 @@ func newConnectorsMCPManager(
 	proxy *connectorsMCPProxy,
 	logs io.Writer,
 	proxyURL string,
+	unavailableHint string,
 ) *connectorsMCPManager {
 	if cfg == nil || resolver == nil || localClient == nil || proxy == nil || logs == nil {
 		panic("connectors MCP manager dependencies must not be nil")
 	}
 	return &connectorsMCPManager{
 		cfg: cfg, resolver: resolver, localClient: localClient, proxy: proxy, logs: logs, proxyURL: proxyURL,
+		unavailableHint: unavailableHint, firstOutcome: make(chan error, 1),
 	}
+}
+
+// newConnectorsMCPManagerForThisPlatform returns a manager that resolves releases for this platform.
+// cfg must have its paths resolved.
+func newConnectorsMCPManagerForThisPlatform(
+	cfg *ConnectorsMCPConfig,
+	proxy *connectorsMCPProxy,
+	logs io.Writer,
+	proxyURL string,
+	unavailableHint string,
+) *connectorsMCPManager {
+	resolver := newConnectorsMCPReleaseResolver(cfg, &http.Client{}, runtime.GOOS+"-"+runtime.GOARCH, logs)
+	return newConnectorsMCPManager(cfg, resolver, newLoopbackHTTPClient(), proxy, logs, proxyURL, unavailableHint)
+}
+
+// newLoopbackHTTPClient returns a client that never sends loopback requests through an HTTP proxy.
+func newLoopbackHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		panic("http.DefaultTransport is not an *http.Transport")
+	}
+	loopbackTransport := transport.Clone()
+	loopbackTransport.Proxy = nil
+	return &http.Client{Transport: loopbackTransport}
 }
 
 // Start runs the manager in the background until Stop or ctx ends.
@@ -91,6 +124,16 @@ func (m *connectorsMCPManager) Stop() error {
 	m.cancel()
 	<-m.done
 	return m.stopErr
+}
+
+// WaitForFirstOutcome returns nil once a server is available, the give-up error, or ctx's error.
+func (m *connectorsMCPManager) WaitForFirstOutcome(ctx context.Context) error {
+	select {
+	case err := <-m.firstOutcome:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *connectorsMCPManager) run(ctx context.Context) {
@@ -231,12 +274,19 @@ func (m *connectorsMCPManager) reportReady(server connectorsMCPServer) {
 	for _, warning := range server.announcement.Warnings {
 		fmt.Fprintf(m.logs, "Connectors MCP: warning: %s\n", strings.TrimSpace(string(warning)))
 	}
+	m.reportFirstOutcome(nil)
 }
 
 func (m *connectorsMCPManager) reportUnavailable(err error) {
 	reason := err.Error()
 	m.proxy.setUnavailable("the Connectors MCP server is unavailable: " + reason)
-	fmt.Fprintf(m.logs, "Connectors MCP: unavailable: %s. %s\n", reason, connectorsMCPHint)
+	fmt.Fprintf(m.logs, "Connectors MCP: unavailable: %s. %s\n", reason, m.unavailableHint)
+	m.reportFirstOutcome(err)
+}
+
+// reportFirstOutcome delivers only the first outcome; firstOutcome has room for it, so it never blocks.
+func (m *connectorsMCPManager) reportFirstOutcome(err error) {
+	m.firstOutcomeOnce.Do(func() { m.firstOutcome <- err })
 }
 
 // mustParseLoopbackHTTPURL parses a URL that validateEndpoint already accepted.

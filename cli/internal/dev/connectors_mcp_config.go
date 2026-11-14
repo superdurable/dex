@@ -11,6 +11,7 @@ package dev
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,7 +120,8 @@ func (c *ConnectorsMCPConfig) resolvePaths(stateDirectory string, connectorConfi
 	if err != nil {
 		return fmt.Errorf("resolve connections file: %w", err)
 	}
-	c.ConnectionsFile = absoluteConnectionsFile
+	// Aliases of one physical file must share one state directory and instance lock.
+	c.ConnectionsFile = resolveExistingSymlinks(absoluteConnectionsFile)
 	if c.StateDirectory == "" {
 		c.StateDirectory = connectorsMCPStateDirectory(absoluteStateDirectory, c.ConnectionsFile)
 	}
@@ -131,13 +133,35 @@ func (c *ConnectorsMCPConfig) resolvePaths(stateDirectory string, connectorConfi
 
 // connectorsMCPStateDirectory returns <state>/connectors-mcp for the default connections file, and a directory
 // suffixed with a digest of any other file, so each connections file gets its own server and call state.
+// connectionsFile must have its symlinks resolved.
 func connectorsMCPStateDirectory(stateDirectory string, connectionsFile string) string {
-	defaultConnectionsFile := filepath.Join(stateDirectory, "connectors", connectorConnectionsFileName)
+	defaultConnectionsFile := resolveExistingSymlinks(
+		filepath.Join(stateDirectory, "connectors", connectorConnectionsFileName))
 	if filepath.Clean(connectionsFile) == defaultConnectionsFile {
 		return filepath.Join(stateDirectory, "connectors-mcp")
 	}
 	digest := sha256.Sum256([]byte(filepath.Clean(connectionsFile)))
 	return filepath.Join(stateDirectory, "connectors-mcp-"+hex.EncodeToString(digest[:])[:12])
+}
+
+// resolveExistingSymlinks returns the absolute path with symlinks resolved in its longest existing prefix. The
+// missing rest, such as a connections file Dex Web has not written yet, is appended unchanged.
+func resolveExistingSymlinks(absolutePath string) string {
+	existingPrefix := filepath.Clean(absolutePath)
+	var missingParts []string
+	for {
+		resolved, err := filepath.EvalSymlinks(existingPrefix)
+		if err == nil {
+			return filepath.Join(append([]string{resolved}, missingParts...)...)
+		}
+		parent := filepath.Dir(existingPrefix)
+		if parent == existingPrefix {
+			// Nothing resolves, not even the root; the cleaned path is the best identity left.
+			return filepath.Clean(absolutePath)
+		}
+		missingParts = append([]string{filepath.Base(existingPrefix)}, missingParts...)
+		existingPrefix = parent
+	}
 }
 
 func (c *ConnectorsMCPConfig) validate() error {
@@ -160,6 +184,27 @@ func (c *ConnectorsMCPConfig) validate() error {
 		return fmt.Errorf("connectors MCP release index must be an https URL: %q", c.IndexURL)
 	}
 	return nil
+}
+
+// addConnectorsMCPServerFlags defines the Connectors MCP server flags that dexcli dev and dexcli connectors mcp share.
+func addConnectorsMCPServerFlags(flags *flag.FlagSet, cfg *ConnectorsMCPConfig, connections *connectorsMCPConnectionFlag) {
+	flags.StringVar(
+		&cfg.Version,
+		"connectors-mcp-version",
+		"",
+		"Connectors MCP server release X.Y.Z to run (default the newest compatible release)",
+	)
+	flags.StringVar(
+		&cfg.BinaryPath,
+		"connectors-mcp-binary",
+		cfg.BinaryPath,
+		"local dex-connectors-mcp executable to run instead of a downloaded release (default "+connectorsMCPBinaryEnvironment+")",
+	)
+	flags.Var(
+		connections,
+		"connectors-mcp-connection",
+		"connection the Connectors MCP server offers, as connectorId/connectionName[=tool,...] (repeatable; default every authorized connection)",
+	)
 }
 
 // connectorsMCPConnectionFlag collects repeatable --connectors-mcp-connection values.
