@@ -40,6 +40,7 @@ type v2StartRequest struct {
 	FlowID                  string          `json:"flowId"`
 	WorkerTargetAddress     *string         `json:"workerTargetAddress"`
 	WorkerTargetPull        *bool           `json:"workerTargetPull"`
+	WorkerTargetTaskQueue   string          `json:"workerTargetTaskQueue"`
 	BypassWorkerHealthCheck bool            `json:"bypassWorkerHealthCheck"`
 	Input                   json.RawMessage `json:"input"`
 }
@@ -81,7 +82,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	workerTarget, err := validateStartWorkerTarget(body.WorkerTargetAddress, body.WorkerTargetPull)
+	workerTarget, err := validateStartWorkerTarget(body.WorkerTargetAddress, body.WorkerTargetPull, body.WorkerTargetTaskQueue)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -131,14 +132,15 @@ func (h *v2Handler) checkWorkerHealth(response http.ResponseWriter, request *htt
 }
 
 // validateStartWorkerTarget returns a pull target because Dex routes Flow work only to pull Workers.
-func validateStartWorkerTarget(address *string, isPull *bool) (*dexpb.WorkerTarget, error) {
+// The server validates taskQueue; empty selects the default task queue.
+func validateStartWorkerTarget(address *string, isPull *bool, taskQueue string) (*dexpb.WorkerTarget, error) {
 	if address != nil {
 		return nil, fmt.Errorf("workerTargetAddress is not supported: Dex routes Flow work to pull Workers")
 	}
 	if isPull != nil && !*isPull {
 		return nil, fmt.Errorf("workerTargetPull must be true: Dex routes Flow work to pull Workers")
 	}
-	return &dexpb.WorkerTarget{IsPullMode: true}, nil
+	return &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: taskQueue}, nil
 }
 
 func validateWorkerAddress(address string) (string, error) {

@@ -10,7 +10,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StartFlowDialog } from './StartFlowDialog';
+import { StartFlowDialog, startTaskQueueError } from './StartFlowDialog';
 
 const definition = { stepType: 'StartFlow', input: { kind: 'null' as const } };
 
@@ -45,6 +45,40 @@ describe('Start Flow', () => {
     expect(JSON.parse(request.body as string)).toEqual({
       flowType: 'ExampleFlow', flowId: 'new-flow', workerTargetPull: true, input: null,
     });
+  });
+
+  it('starts on a named task queue', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ flowId: 'new-flow' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onStarted = vi.fn();
+    renderDialog(onStarted);
+
+    fireEvent.change(screen.getByLabelText('Flow ID'), { target: { value: 'new-flow' } });
+    fireEvent.change(screen.getByLabelText('Task queue'), { target: { value: ' env-1 ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start Flow' }));
+
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith('new-flow'));
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toEqual({
+      flowType: 'ExampleFlow', flowId: 'new-flow', workerTargetPull: true, workerTargetTaskQueue: 'env-1', input: null,
+    });
+  });
+
+  it.each(['dex.internal', 'q'.repeat(64), 'env 1'])('rejects the task queue name %s', async (taskQueue) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText('Flow ID'), { target: { value: 'new-flow' } });
+    fireEvent.change(screen.getByLabelText('Task queue'), { target: { value: taskQueue } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start Flow' }));
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('Task queue names'));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['', 'dex.default', 'q'.repeat(63), 'env-1.A_b'])('accepts the task queue name %j', (taskQueue) => {
+    expect(startTaskQueueError(taskQueue)).toBeUndefined();
   });
 });
 
