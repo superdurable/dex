@@ -160,9 +160,14 @@ public final class Worker implements AutoCloseable {
      * {@link WorkerOptions.Builder#flowDefinitions(java.util.List)}. An upload failure is logged as
      * a warning and does not stop the Worker.
      *
+     * <p>Changed in 1.45.1: a Worker configured with
+     * {@link PullWorkerOptions.Builder#taskQueue(String)} requires Server protocol 5 and fails
+     * before syncing Attribute indexes when the Server is older.
+     *
      * @throws PullRegistrationError if an uncovered permanent stream rejection stops the Worker
      *     with stopOnPermanentStreamRejection enabled, before or after readiness
-     * @throws IllegalStateException if the worker was already started or startup fails
+     * @throws IllegalStateException if the worker was already started or startup fails, including
+     *     when a named task queue is configured and the Server protocol is older than 5
      */
     public void start() {
         synchronized (this) {
@@ -270,6 +275,8 @@ public final class Worker implements AutoCloseable {
             }
             serverProtocol.recordNegotiatedVersion(
                     ServerProtocolCompatibility.negotiate(serverInfo, sdkVersion));
+            serverProtocol.requireNamedTaskQueueSupport(
+                    options.getPull().getTaskQueue(), "pull Worker registration");
             final FlowServiceGrpc.FlowServiceBlockingStub attributeIndexService = flowService
                     .withDeadlineAfter(options.getAttributeIndexSyncTimeout().toMillis(),
                             TimeUnit.MILLISECONDS);

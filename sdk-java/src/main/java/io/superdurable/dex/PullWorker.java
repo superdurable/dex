@@ -74,6 +74,7 @@ final class PullWorker {
     private final List<PollWorkerSlotKind> slotKinds;
     private final List<PullStream> streams = new ArrayList<PullStream>();
     private final String appWorkerID;
+    private final String taskQueue;
     private final String sdkVersion;
     private final Random jitter = new SecureRandom();
     private final Map<PollWorkerSlotKind, SlotRegistration> slotRegistrations =
@@ -134,6 +135,7 @@ final class PullWorker {
         this.flowTypes = Collections.unmodifiableList(registered);
         this.appWorkerID = options.getAppWorkerID().isEmpty()
                 ? generateAppWorkerID(defaultWorkerIdentity()) : options.getAppWorkerID();
+        this.taskQueue = options.getTaskQueue();
         if (registered.contains(appWorkerID)) {
             scheduler.shutdownNow();
             throw new IllegalArgumentException("appWorkerID conflicts with Flow type " + appWorkerID);
@@ -311,7 +313,7 @@ final class PullWorker {
 
     // Each throw gets a fresh exception so callers never share stack or suppressed state.
     private static PullRegistrationError copyRegistrationError(final PullRegistrationError error) {
-        return new PullRegistrationError(error.getQueue(), error.getCause());
+        return new PullRegistrationError(error.getQueue(), error.getTaskQueue(), error.getCause());
     }
 
     synchronized PullRegistrationState registrationState() {
@@ -321,7 +323,7 @@ final class PullWorker {
             final SlotRegistration registration = slotRegistrations.get(slotKind);
             final boolean hasRegisteredStream = registration.registeredStreams > 0;
             snapshots.add(new PullQueueRegistrationState(
-                    slotKind.name(), hasRegisteredStream, registration.lastPermanentError));
+                    slotKind.name(), taskQueue, hasRegisteredStream, registration.lastPermanentError));
             if (!hasRegisteredStream && registration.lastPermanentError != null) {
                 isReady = false;
             }
@@ -355,9 +357,10 @@ final class PullWorker {
             stream.isRegistered = false;
             registration.registeredStreams--;
         }
-        if (!stream.shouldRetryRejectedTokenImmediately && isPermanentStreamError(failure)) {
+        if (!stream.shouldRetryRejectedTokenImmediately && isPermanentStreamError(stream, failure)) {
             registration.lastPermanentError = failure;
-            final PullRegistrationError rejection = new PullRegistrationError(stream.slotKind.name(), failure);
+            final PullRegistrationError rejection =
+                    new PullRegistrationError(stream.slotKind.name(), taskQueue, failure);
             if (registration.registeredStreams == 0) {
                 if (!hasRegisteredRequiredSlotKinds && initialRegistrationError == null) {
                     initialRegistrationError = rejection;
@@ -371,7 +374,10 @@ final class PullWorker {
         notifyAll();
     }
 
-    private boolean isPermanentStreamError(final Throwable failure) {
+    private boolean isPermanentStreamError(final PullStream stream, final Throwable failure) {
+        if (failure != null && failure == stream.taskQueueMismatch) {
+            return true;
+        }
         final Status.Code code = failure == null ? Status.Code.OK : Status.fromThrowable(failure).getCode();
         return code == Status.Code.UNAUTHENTICATED
                 || code == Status.Code.PERMISSION_DENIED
@@ -476,6 +482,7 @@ final class PullWorker {
         private ScheduledFuture<?> closeTimer;
         private Thread handlerThread;
         private Throwable closeFailure;
+        private Throwable taskQueueMismatch;
         private String taskID;
         private volatile Status.Code cancellationStatus;
         private long backoffMillis = 100L;
@@ -504,6 +511,7 @@ final class PullWorker {
             hasUnconfirmedFinalOutput = false;
             isFinalFrameSent = false;
             closeFailure = null;
+            taskQueueMismatch = null;
             final PullConnection opened = new PullConnection(Context.ROOT.withCancellation());
             connection = opened;
             try {
@@ -536,6 +544,7 @@ final class PullWorker {
                                 .setSupportsReservedSlotDispatch(true)
                                 .setSlotKind(slotKind)
                                 .setAppWorkerId(appWorkerID)
+                                .setTaskQueue(taskQueue)
                                 .addAllFlowTypes(flowTypes)
                                 .setSdkName("java")
                                 .setSdkVersion(sdkVersion)
@@ -561,6 +570,11 @@ final class PullWorker {
                         isDraining = true;
                         halfClose();
                     } else if (response.hasRegistered()) {
+                        final String registeredTaskQueue = response.getRegistered().getTaskQueue();
+                        if (!registeredTaskQueue.equals(taskQueue)) {
+                            rejectTaskQueueMismatch(registeredTaskQueue);
+                            return;
+                        }
                         if (!isRegistrationWithinServerLimit(response)) {
                             isDraining = true;
                             halfClose();
@@ -600,6 +614,18 @@ final class PullWorker {
                     }
                 }
             }
+        }
+
+        // A Server without named task queues silently registers the default task queue.
+        private void rejectTaskQueueMismatch(final String registeredTaskQueue) {
+            taskQueueMismatch = Status.FAILED_PRECONDITION.withDescription(
+                    "Server registered task queue \"" + registeredTaskQueue + "\" instead of \""
+                            + taskQueue + "\"; it may not support named task queues")
+                    .asRuntimeException();
+            shouldRetryRejectedTokenImmediately = false;
+            recordStreamResult(this, taskQueueMismatch);
+            // Half-close so Dex returns tasks sent after Registered without consuming an attempt.
+            halfClose();
         }
 
         // Checks the Server's per-Worker slot limit on the first registration after start only.
@@ -1032,12 +1058,13 @@ final class PullWorker {
             close(failure, callToken == null ? null : callToken.get(), openGeneration);
         }
 
-        private void close(final Throwable failure, final String rejectedToken,
+        private void close(final Throwable reportedFailure, final String rejectedToken,
                 final int generation) {
             synchronized (PullWorker.this) {
                 if (isClosed || generation != openGeneration) {
                     return;
                 }
+                final Throwable failure = taskQueueMismatch != null ? taskQueueMismatch : reportedFailure;
                 shouldRetryRejectedTokenImmediately = failure != null
                         && Status.fromThrowable(failure).getCode() == Status.Code.UNAUTHENTICATED
                         && credential instanceof RejectedTokenCredential && rejectedToken != null
@@ -1049,7 +1076,9 @@ final class PullWorker {
                 isClosed = true;
                 // The call has ended; cancelling releases its context and drops unsent frames.
                 cancelConnection(failure == null ? Status.CANCELLED.asRuntimeException() : failure);
-                recordStreamResult(this, failure);
+                if (taskQueueMismatch == null) {
+                    recordStreamResult(this, failure);
+                }
                 closeFailure = failure;
                 if (closeTimer != null) {
                     closeTimer.cancel(false);
@@ -1074,11 +1103,7 @@ final class PullWorker {
             }
             final Status.Code code = failure == null ? Status.Code.OK
                     : Status.fromThrowable(failure).getCode();
-            final boolean isPermanent = code == Status.Code.UNAUTHENTICATED
-                    || code == Status.Code.PERMISSION_DENIED
-                    || code == Status.Code.INVALID_ARGUMENT
-                    || code == Status.Code.UNIMPLEMENTED
-                    || code == Status.Code.RESOURCE_EXHAUSTED;
+            final boolean isPermanent = isPermanentStreamError(this, failure);
             if (code == Status.Code.UNIMPLEMENTED && !hasLoggedUnsupported) {
                 hasLoggedUnsupported = true;
                 LOGGER.log(Level.SEVERE, "pull Worker polling is unsupported by this Dex server", failure);

@@ -42,6 +42,7 @@ public final class SubFlowOptions {
     private final RetryPolicy retryPolicy;
     private final List<AttributeInitialization> attributes;
     private final FlowConfig configOverride;
+    private final String taskQueue;
     private final SubFlowReusePolicy reusePolicy;
     private final String conditionId;
 
@@ -54,6 +55,7 @@ public final class SubFlowOptions {
         attributes = Collections.unmodifiableList(
                 new ArrayList<AttributeInitialization>(builder.attributes));
         configOverride = builder.configOverride;
+        taskQueue = builder.taskQueue;
         reusePolicy = builder.reusePolicy;
         conditionId = builder.conditionId;
     }
@@ -95,6 +97,10 @@ public final class SubFlowOptions {
         return configOverride;
     }
 
+    String getTaskQueue() {
+        return taskQueue;
+    }
+
     SubFlowReusePolicy getReusePolicy() {
         return reusePolicy;
     }
@@ -118,6 +124,7 @@ public final class SubFlowOptions {
         private final List<AttributeInitialization> attributes =
                 new ArrayList<AttributeInitialization>();
         private FlowConfig configOverride;
+        private String taskQueue = "";
         private SubFlowReusePolicy reusePolicy =
                 SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY;
         private String conditionId;
@@ -240,6 +247,30 @@ public final class SubFlowOptions {
          */
         public Builder configOverride(final FlowConfig value) {
             configOverride = value;
+            return this;
+        }
+
+        /**
+         * Sets the named task queue whose Workers execute the SubFlow; empty inherits the parent's task queue.
+         *
+         * <p>Set {@code dex.default} to run the SubFlow on the default task queue while the parent
+         * runs on a named one. Any other name follows the rules of
+         * {@link StartFlowOptions.Builder#taskQueue(String)}. A non-empty name while the Server
+         * protocol is older than 5 fails the Step's waitFor attempt with IllegalStateException,
+         * like any other waitFor error.
+         *
+         * <pre>{@code
+         * return Wait.until(SubFlow.run(ReportFlow.class, input,
+         *         SubFlowOptions.newBuilder().taskQueue("reports").build()));
+         * }</pre>
+         *
+         * @param value the task queue name, {@code dex.default}, or empty to inherit
+         * @return this builder
+         * @throws IllegalArgumentException if value is null, reserved, or malformed
+         * @since 1.45.1
+         */
+        public Builder taskQueue(final String value) {
+            taskQueue = TaskQueueNames.validateFlowTaskQueue(value);
             return this;
         }
 

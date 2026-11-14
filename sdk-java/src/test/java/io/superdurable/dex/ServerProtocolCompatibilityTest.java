@@ -262,7 +262,7 @@ final class ServerProtocolCompatibilityTest {
     void reportsNewerAndInvalidServerProtocolsWithoutClaimingAnOlderServer() {
         final IllegalStateException newer = assertThrows(IllegalStateException.class,
                 () -> ServerProtocolCompatibility.negotiate(ServerInfo.newBuilder().setServerVersion("next")
-                        .setMinimumSupportedProtocolVersion(5).setCurrentProtocolVersion(6).build(), "test"));
+                        .setMinimumSupportedProtocolVersion(6).setCurrentProtocolVersion(7).build(), "test"));
         assertTrue(newer.getMessage().contains("Upgrade the Java SDK"), newer.getMessage());
         assertFalse(newer.getMessage().contains("Upgrade the Server"), newer.getMessage());
         for (ServerInfo invalid : Arrays.asList(ServerInfo.getDefaultInstance(),
@@ -278,8 +278,12 @@ final class ServerProtocolCompatibilityTest {
         assertTrue(older.getMessage().contains("protocol version "
                 + ServerProtocolCompatibility.MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION + " or later"));
         assertTrue(older.getMessage().contains("Upgrade the Server"));
-        assertEquals(4, ServerProtocolCompatibility.negotiate(ServerInfo.newBuilder()
+        assertEquals(5, ServerProtocolCompatibility.negotiate(ServerInfo.newBuilder()
                 .setMinimumSupportedProtocolVersion(1).setCurrentProtocolVersion(9).build(), "test"));
+        assertEquals(5, ServerProtocolCompatibility.negotiate(ServerInfo.newBuilder()
+                .setMinimumSupportedProtocolVersion(4).setCurrentProtocolVersion(5).build(), "test"));
+        assertEquals(4, ServerProtocolCompatibility.negotiate(ServerInfo.newBuilder()
+                .setMinimumSupportedProtocolVersion(1).setCurrentProtocolVersion(4).build(), "test"));
     }
 
     @Test

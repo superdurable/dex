@@ -102,6 +102,11 @@ rejection leaves a slot kind without registered streams. Since 1.14.0.
 A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
 **POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
 
+Since 1.45.1, each **PullQueueRegistrationState** in the snapshot and each
+**PullRegistrationError** also report **getTaskQueue()**, the Worker's task
+queue. The empty string means the default task queue. See
+[Task queues](#task-queues).
+
 Call the boolean helper from your probe endpoint and return 200 when true or
 503 when false.
 
@@ -112,6 +117,59 @@ Call the boolean helper from your probe endpoint and return 200 when true or
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
+
+## Task queues {#task-queues}
+
+Since 1.45.1. A named task queue chooses which Workers execute a Flow,
+independently of its Flow type. Only Workers that pull the Flow's task queue and
+register its Flow type run its Steps and RPCs. Workers on other task queues
+never take that work, even for the same Flow type. A Flow without a task queue
+runs on the default task queue, as before.
+
+| Setting | Java name |
+| --- | --- |
+| Task queue a Worker pulls | **taskQueue** of [PullWorkerOptions.Builder](pathname:///api/java/latest/io/superdurable/dex/PullWorkerOptions.Builder.html#taskQueue(java.lang.String)) |
+| Task queue a Flow starts on | **taskQueue** of [StartFlowOptions.Builder](./start-flow-options.mdx#task-queue) |
+| Task queue of a SubFlow | **taskQueue** of [SubFlowOptions.Builder](./subflow.mdx#task-queue) |
+| Task queue in readiness | **getTaskQueue()** of **PullQueueRegistrationState** and **PullRegistrationError** |
+
+- One Worker pulls exactly one task queue. To serve several task queues,
+  construct one Worker per task queue. The Workers can share one Registry and
+  one blob cache. Give each Worker its own **appWorkerID** when you set one.
+- A name has 1 to 63 ASCII letters, digits, periods, underscores, or hyphens.
+  Names that start with **dex.** are reserved. A Worker rejects every reserved
+  name, including **dex.default**: the builder method throws
+  **IllegalArgumentException**.
+- Leaving **taskQueue** unset, or setting the empty string, pulls the default
+  task queue.
+- A sticky Worker serves a Flow again only when it pulls the Flow's task queue.
+  Otherwise Dex routes the Flow to any Worker of that task queue.
+
+### Server protocol 5 {#task-queue-protocol}
+
+A non-empty task queue requires Server protocol 5. The SDK checks it in three
+places:
+
+- **Worker.start** throws **IllegalStateException** before it syncs Attribute
+  indexes or opens task streams when the Server reports an older protocol.
+- **Client.startFlow** throws **IllegalStateException** before it sends the
+  request.
+- A **waitFor** that returns a SubFlow with a task queue fails its attempt.
+
+The Worker also checks every registration. The Server echoes the task queue it
+registered each stream under. When the echo differs from the Worker's task
+queue, the Worker half-closes that stream and records a permanent rejection,
+so Dex returns tasks already sent to it without spending an attempt. The
+rejection's gRPC code is **FAILED_PRECONDITION**:
+
+- **waitPullRegistered** throws a **PullRegistrationError** whose cause is that
+  gRPC error. With **stopOnPermanentStreamRejection**, **start** throws it after
+  draining.
+- In **getPullRegistrationState()**, the slot kind's
+  **getLastPermanentError()** holds the gRPC error, and **isReady()** is false
+  while no stream of that slot kind is registered.
+- The Worker retries the stream after the usual delay for a permanent
+  rejection, about one minute.
 
 ## Upload Flow definitions {#upload-flow-definitions}
 

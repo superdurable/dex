@@ -56,4 +56,23 @@ final class NegotiatedServerProtocol {
                         + " or later, but the negotiated Server protocol version " + negotiated
                         + "; upgrade the Dex Server before writing this Attribute");
     }
+
+    // An older Server ignores task_queue and would silently use the default task queue.
+    void requireNamedTaskQueueSupport(final String taskQueue, final String operation) {
+        if (taskQueue.isEmpty()) {
+            return;
+        }
+        final int version = negotiatedVersion;
+        if (version >= ServerProtocolCompatibility.NAMED_TASK_QUEUE_PROTOCOL_VERSION) {
+            return;
+        }
+        final String negotiated = version == NOT_NEGOTIATED
+                ? "has not been negotiated"
+                : "is " + version;
+        throw new IllegalStateException(
+                operation + " with task queue \"" + taskQueue + "\" requires Server protocol version "
+                        + ServerProtocolCompatibility.NAMED_TASK_QUEUE_PROTOCOL_VERSION
+                        + " or later, but the negotiated Server protocol version " + negotiated
+                        + "; upgrade the Dex Server or use the default task queue");
+    }
 }
