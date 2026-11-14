@@ -31,6 +31,7 @@ pub(crate) fn start_flow_request(
     flow_id: &str,
     marker: &str,
     has_step_failure_policies: bool,
+    task_queue: &str,
 ) -> StartFlowRequest {
     // Step failure profile timeouts expire before most runs close, so timeout handlers run.
     let flow_timeout_seconds = if rng.random_bool(0.2) {
@@ -96,7 +97,7 @@ pub(crate) fn start_flow_request(
             flow_config_override: Some(FlowConfig {
                 worker_target: Some(WorkerTarget {
                     is_pull_mode: true,
-                    ..WorkerTarget::default()
+                    task_queue: task_queue.to_owned(),
                 }),
                 ..FlowConfig::default()
             }),

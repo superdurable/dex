@@ -52,10 +52,6 @@ impl StreamSlot {
 
 /// Returns the Flow types whose durable queues a registration may claim from.
 pub(super) fn backlog_flow_types(registration: &PollWorkerTaskRegister) -> Vec<String> {
-    // Durable queue rows name no task queue yet, so only default-queue streams claim them.
-    if !registration.task_queue.is_empty() {
-        return Vec::new();
-    }
     if !registration.supports_reserved_slot_dispatch {
         return (registration.queue != registration.app_worker_id)
             .then(|| registration.queue.clone())

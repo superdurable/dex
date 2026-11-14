@@ -150,6 +150,7 @@ pub(super) async fn reserve_step_stream(
     };
     let queue_name = DispatchQueueName {
         tenant_id: dexzd_keyspace::TenantId(request.tenant_id),
+        task_queue: request.task_queue.clone(),
         flow_type: request.flow_type.clone(),
         step_type: request.step_type.clone(),
     };

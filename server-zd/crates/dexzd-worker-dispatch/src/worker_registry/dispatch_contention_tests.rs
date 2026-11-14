@@ -237,6 +237,7 @@ fn queued_step(partition: u16, step_type: &str) -> QueuedTaskRef {
         partition: PartitionId(partition),
         queue: DispatchQueueName {
             tenant_id: TenantId(TENANT_ID),
+            task_queue: String::new(),
             flow_type: "Flow".to_owned(),
             step_type: step_type.to_owned(),
         },

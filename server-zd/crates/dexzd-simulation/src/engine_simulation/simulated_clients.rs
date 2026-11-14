@@ -121,8 +121,8 @@ enum CallOutcome<T> {
 pub(crate) struct SimulatedClient {
     pub(crate) client_label: String,
     rng: ChaCha8Rng,
-    /// Whether started Flows' Steps carry failure policies, as in the Step failure profile.
-    has_step_failure_policies: bool,
+    /// Decides the Step failure policies and task queues of started Flows.
+    profile: EngineSimulationProfile,
     serving: ServingNode,
     committed_log: Arc<CommittedLog>,
     records: Arc<Mutex<ClientRecords>>,
@@ -134,7 +134,7 @@ impl SimulatedClient {
     pub(crate) fn new(
         client_label: String,
         seed: u64,
-        has_step_failure_policies: bool,
+        profile: EngineSimulationProfile,
         serving: ServingNode,
         committed_log: Arc<CommittedLog>,
         records: Arc<Mutex<ClientRecords>>,
@@ -143,7 +143,7 @@ impl SimulatedClient {
         Self {
             client_label,
             rng: ChaCha8Rng::seed_from_u64(seed),
-            has_step_failure_policies,
+            profile,
             serving,
             committed_log,
             records,
@@ -174,7 +174,8 @@ impl SimulatedClient {
                     &mut self.rng,
                     flow_id,
                     &marker,
-                    self.has_step_failure_policies,
+                    self.profile.has_step_failure_policies(),
+                    self.profile.task_queue_of(flow_id),
                 );
                 let outcome = self
                     .call("StartFlow", flow_id, |registry| {
@@ -251,7 +252,9 @@ impl SimulatedClient {
                     self.acknowledge(&marker, "InvokeRpc", flow_id, None);
                 }
             }
-            72..=79 if self.has_step_failure_policies => self.skip_flow_timeout(flow_id).await,
+            72..=79 if self.profile.has_step_failure_policies() => {
+                self.skip_flow_timeout(flow_id).await
+            }
             72..=89 => self.read_attributes(flow_id).await,
             _ => {
                 self.read_channel_messages(flow_id).await;
@@ -534,8 +537,13 @@ pub(crate) async fn start_held_runs(
 ) {
     for flow_id in ENGINE_FLOW_IDS {
         let marker = format!("{OPERATION_MARKER_PREFIX}tail-{flow_id}");
-        let mut request =
-            start_flow_request(rng, flow_id, &marker, profile.has_step_failure_policies());
+        let mut request = start_flow_request(
+            rng,
+            flow_id,
+            &marker,
+            profile.has_step_failure_policies(),
+            profile.task_queue_of(flow_id),
+        );
         if let Some(options) = request.flow_start_options.as_mut() {
             options.flow_already_started_options = Some(FlowAlreadyStartedOptions {
                 ignore_already_started_error: true,

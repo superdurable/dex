@@ -91,6 +91,8 @@ pub enum EngineSimulationProfile {
     StepFailurePolicies,
     /// The fixed set's environment plus a hot standby; most serving crashes end in a takeover.
     HotStandbyTakeovers,
+    /// The fixed set's environment with Flows spread over the default and two named task queues.
+    NamedTaskQueues,
 }
 
 impl EngineSimulationProfile {
@@ -103,7 +105,19 @@ impl EngineSimulationProfile {
             }
             Self::StepFailurePolicies => "step_failure_policies_keep_every_invariant",
             Self::HotStandbyTakeovers => "hot_standby_takeovers_keep_every_invariant",
+            Self::NamedTaskQueues => "named_task_queues_keep_every_invariant",
         }
+    }
+
+    /// Returns the task queue a client starts `flow_id` on; empty for the default task queue.
+    ///
+    /// The named task queue profile picks it from the Flow ID alone, so it draws nothing.
+    fn task_queue_of(self, flow_id: &str) -> &'static str {
+        if self != Self::NamedTaskQueues {
+            return "";
+        }
+        let byte_sum: u32 = flow_id.bytes().map(u32::from).sum();
+        ["", "sim-queue-a", "sim-queue-b"][usize::try_from(byte_sum % 3).expect("a small index")]
     }
 
     /// Whether generated Steps and timeout handlers carry failure policies and total durations.

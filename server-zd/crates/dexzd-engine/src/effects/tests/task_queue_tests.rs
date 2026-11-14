@@ -911,7 +911,8 @@ async fn a_failing_committed_read_backs_off_and_the_holder_stops_at_shutdown() {
         .expect("the holder stops at shutdown");
 }
 
-/// TB18: rebuild Heads seeks once per partition and once per nonempty queue, not per row.
+/// TB18: rebuild Heads seeks once per DispatchQueue index kind of each partition and once per
+/// nonempty queue, not per row.
 #[tokio::test(start_paused = true)]
 async fn rebuild_heads_seek_once_per_queue_however_long_the_backlog() {
     let harness = EffectHarness::new();
@@ -953,8 +954,8 @@ async fn rebuild_heads_seek_once_per_queue_however_long_the_backlog() {
     );
     assert_eq!(
         seeks.load(Ordering::SeqCst),
-        16 + nonempty_queues.len(),
-        "one seek per partition plus one per nonempty queue"
+        2 * 16 + nonempty_queues.len(),
+        "one seek per index kind of each partition plus one per nonempty queue"
     );
     assert_eq!(
         command_count(&harness, is_attempt_queued),
@@ -1038,6 +1039,7 @@ fn queue_entry(priority: u8, pending_since_micros: i64, step_type: &str) -> Disp
         partition: PartitionId(2),
         queue: DispatchQueueName {
             tenant_id: TenantId(7),
+            task_queue: String::new(),
             flow_type: "OrderFlow".to_owned(),
             step_type: step_type.to_owned(),
         },

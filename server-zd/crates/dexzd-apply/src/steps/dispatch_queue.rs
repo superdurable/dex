@@ -55,6 +55,7 @@ pub fn dispatch_queue_entry(
         partition,
         queue: DispatchQueueName {
             tenant_id: TenantId(run.tenant_id),
+            task_queue: run_task_queue(run).to_owned(),
             flow_type: run.flow_type.clone(),
             step_type: step.step_type.clone(),
         },

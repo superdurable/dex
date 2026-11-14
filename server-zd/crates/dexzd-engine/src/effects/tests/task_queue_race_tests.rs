@@ -601,8 +601,8 @@ async fn a_rebuild_reports_one_head_per_queue_of_every_tenant() {
             .flow_effect_operations
             .committed_queue_seeks
             .load(Ordering::SeqCst),
-        usize::from(partition_count) + nonempty_queues,
-        "one skip-scan seek per partition plus one per nonempty queue"
+        2 * usize::from(partition_count) + nonempty_queues,
+        "one skip-scan seek per index kind of each partition plus one per nonempty queue"
     );
     assert_eq!(
         harness

@@ -123,8 +123,8 @@ struct HeadsScan {
 #[derive(Default)]
 pub(crate) struct TaskBacklog {
     queues: HashMap<DispatchQueueName, QueueBacklog>,
-    /// Step types with a claimable head, per (tenant, Flow type).
-    claimable_step_types: HashMap<(u64, String), BTreeSet<String>>,
+    /// Step types with a claimable head, per (tenant, task queue, Flow type).
+    claimable_step_types: HashMap<(u64, String, String), BTreeSet<String>>,
     next_claim_id: u64,
     next_token_id: u64,
     scans: HashMap<PartitionId, HeadsScan>,
@@ -194,24 +194,27 @@ impl TaskBacklog {
         !self.claimable_step_types.is_empty()
     }
 
-    /// Returns the earliest eligible claimable head among `flow_types`.
+    /// Returns the earliest eligible claimable head among `flow_types` of `task_queue`.
     pub(crate) fn earliest_claimable<'a>(
         &self,
         tenant_id: u64,
+        task_queue: &str,
         flow_types: impl Iterator<Item = &'a String>,
         mut is_eligible: impl FnMut(&DispatchQueueName) -> bool,
     ) -> Option<(DispatchQueueName, PartitionId)> {
         let mut best: Option<(HeadOrder, DispatchQueueName)> = None;
         for flow_type in flow_types {
-            let Some(step_types) = self
-                .claimable_step_types
-                .get(&(tenant_id, flow_type.clone()))
-            else {
+            let Some(step_types) = self.claimable_step_types.get(&(
+                tenant_id,
+                task_queue.to_owned(),
+                flow_type.clone(),
+            )) else {
                 continue;
             };
             for step_type in step_types {
                 let name = DispatchQueueName {
                     tenant_id: dexzd_keyspace::TenantId(tenant_id),
+                    task_queue: task_queue.to_owned(),
                     flow_type: flow_type.clone(),
                     step_type: step_type.clone(),
                 };
@@ -507,7 +510,11 @@ impl TaskBacklog {
                 self.partition_queues.remove(&partition);
             }
         }
-        let type_key = (name.tenant_id.0, name.flow_type.clone());
+        let type_key = (
+            name.tenant_id.0,
+            name.task_queue.clone(),
+            name.flow_type.clone(),
+        );
         if queue.claimable.is_empty() {
             if let Some(step_types) = self.claimable_step_types.get_mut(&type_key) {
                 step_types.remove(&name.step_type);

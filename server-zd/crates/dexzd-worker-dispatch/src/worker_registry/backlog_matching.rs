@@ -103,8 +103,8 @@ pub(super) struct QueueMatching {
     pub(super) backlog: TaskBacklog,
     claims: VecDeque<PendingClaim>,
     claims_ready: Arc<Notify>,
-    /// Connected Step-capable streams per (tenant, Flow type), grouped by app Worker.
-    step_workers: HashMap<(u64, String), HashMap<String, HashSet<Uuid>>>,
+    /// Connected Step-capable streams per Flow type queue of a task queue, grouped by app Worker.
+    step_workers: HashMap<MatchingQueueKey, HashMap<String, HashSet<Uuid>>>,
     /// How often each partition was removed; a delivered Claim must not start after a removal.
     partition_removals: HashMap<PartitionId, u64>,
 }
@@ -118,7 +118,11 @@ impl QueueMatching {
     pub(super) fn add_step_stream(&mut self, worker: &WorkerStream) {
         for flow_type in &worker.backlog_flow_types {
             self.step_workers
-                .entry((worker.tenant_id, flow_type.clone()))
+                .entry(MatchingQueueKey::new(
+                    worker.tenant_id,
+                    &worker.task_queue,
+                    flow_type,
+                ))
                 .or_default()
                 .entry(worker.app_worker_id.clone())
                 .or_default()
@@ -128,7 +132,7 @@ impl QueueMatching {
 
     pub(super) fn remove_step_stream(&mut self, worker: &WorkerStream) {
         for flow_type in &worker.backlog_flow_types {
-            let key = (worker.tenant_id, flow_type.clone());
+            let key = MatchingQueueKey::new(worker.tenant_id, &worker.task_queue, flow_type);
             let Some(workers) = self.step_workers.get_mut(&key) else {
                 continue;
             };
@@ -207,6 +211,7 @@ impl WorkerDispatch {
             tracing::warn!(
                 partition = task.partition.0,
                 tenant_id = task.queue.tenant_id.0,
+                task_queue = %task.queue.task_queue,
                 flow_type = %task.queue.flow_type,
                 step_type = %task.queue.step_type,
                 waited_seconds,
@@ -465,7 +470,8 @@ impl Registry {
             return;
         }
         // The Flow type's queue holds every idle stream that may claim its backlog.
-        let flow_type_key = MatchingQueueKey::new(name.tenant_id.0, "", &name.flow_type);
+        let flow_type_key =
+            MatchingQueueKey::new(name.tenant_id.0, &name.task_queue, &name.flow_type);
         loop {
             let Some(queue) = self.queues.get(&flow_type_key) else {
                 return;
@@ -500,6 +506,7 @@ impl Registry {
         }
         let earliest = self.queue_matching.backlog.earliest_claimable(
             worker.tenant_id,
+            &worker.task_queue,
             worker.backlog_flow_types.iter(),
             |name| !self.is_unsupported_on(&step_type_key(name), worker),
         );
@@ -526,6 +533,7 @@ impl Registry {
     /// Returns whether `worker` may claim a head of `name` now.
     fn may_claim_for(&self, worker: &WorkerStream, name: &DispatchQueueName) -> bool {
         worker.slot.may_run_steps()
+            && worker.task_queue == name.task_queue
             && worker.backlog_flow_types.contains(&name.flow_type)
             && !self.is_promised_to_waiter(worker)
             && worker.step_backoff_end(Instant::now()).is_none()
@@ -548,11 +556,11 @@ impl Registry {
     /// Returns whether any connected Step stream may serve `name`, in time proportional to
     /// the Workers that declined its Step type.
     pub(super) fn backlog_service(&self, name: &DispatchQueueName) -> BacklogService {
-        let Some(workers) = self
-            .queue_matching
-            .step_workers
-            .get(&(name.tenant_id.0, name.flow_type.clone()))
-        else {
+        let Some(workers) = self.queue_matching.step_workers.get(&MatchingQueueKey::new(
+            name.tenant_id.0,
+            &name.task_queue,
+            &name.flow_type,
+        )) else {
             return BacklogService::NoWorker;
         };
         // Agrees with Claim eligibility, which also excludes evicted declines awaiting a reprobe.
@@ -572,7 +580,7 @@ impl Registry {
 fn step_type_key(name: &DispatchQueueName) -> TaskTypeKey {
     TaskTypeKey {
         tenant_id: name.tenant_id.0,
-        task_queue: String::new(),
+        task_queue: name.task_queue.clone(),
         flow_type: name.flow_type.clone(),
         kind: TaskKind::Step,
         name: name.step_type.clone(),

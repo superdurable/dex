@@ -42,6 +42,8 @@ const READINESS_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTa
 pub(crate) struct DevServer {
     server: Option<RunningServer>,
     channel: Channel,
+    /// The `--config` override file, kept for a restart on the same data.
+    config: Option<std::path::PathBuf>,
     _data_directory: TempDir,
 }
 
@@ -62,12 +64,19 @@ impl DevServer {
         Self::start_on_data(data_directory, config).await
     }
 
+    /// Stops the server gracefully and starts it again on the same data and config overrides.
+    pub(crate) async fn restart(mut self) -> Self {
+        let config = self.config.take();
+        let data_directory = self.shutdown_keeping_data().await;
+        Self::start_on_data(data_directory, config).await
+    }
+
     async fn start_on_data(data_directory: TempDir, config: Option<std::path::PathBuf>) -> Self {
         let server = dexzd_server::start_dev_server(&DevCommandOptions {
             data_dir: data_directory.path().to_path_buf(),
             listen: Some(free_loopback_address()),
             log_dir: None,
-            config,
+            config: config.clone(),
             attribute_store_config: None,
             // Per-test servers skip fsync for speed; strict is the dev default.
             durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
@@ -85,6 +94,7 @@ impl DevServer {
         Self {
             server: Some(server),
             channel,
+            config,
             _data_directory: data_directory,
         }
     }

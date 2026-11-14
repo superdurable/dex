@@ -15,6 +15,7 @@ use dexzd_keyspace::{FlowHash, RunId, TenantId};
 fn queue_name(step_type: &str) -> DispatchQueueName {
     DispatchQueueName {
         tenant_id: TenantId(7),
+        task_queue: String::new(),
         flow_type: "Flow".to_owned(),
         step_type: step_type.to_owned(),
     }

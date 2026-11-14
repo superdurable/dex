@@ -903,6 +903,7 @@ fn queued_ref(partition: u16, step_type: &str, pending_since_micros: i64) -> Que
         partition: PartitionId(partition),
         queue: DispatchQueueName {
             tenant_id: TenantId(0),
+            task_queue: String::new(),
             flow_type: "Flow".to_owned(),
             step_type: step_type.to_owned(),
         },

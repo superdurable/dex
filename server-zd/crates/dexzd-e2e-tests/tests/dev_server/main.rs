@@ -19,6 +19,7 @@ mod harness;
 mod history_paging;
 mod history_segment_reads;
 mod history_uploads;
+mod named_task_queue_backlog;
 mod named_task_queues;
 mod queued_state;
 mod queued_time_travel;
