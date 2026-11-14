@@ -14,13 +14,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -29,18 +27,17 @@ import (
 	"github.com/superdurable/dex/agents/go/core/agentstest"
 	"github.com/superdurable/dex/agents/go/core/builtinloop"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/web/scripts/local-demo/demoworker"
 )
 
 // demoAgentFlowType must match flow.name in the session graph that run.sh writes.
 const demoAgentFlowType = "DemoAgent"
 
 const (
-	defaultFlowServiceAddress = "127.0.0.1:8811"
-	startupTimeout            = 30 * time.Second
-	turnTimeout               = 60 * time.Second
-	turnPollInterval          = 200 * time.Millisecond
-	firstUserMessage          = "Hello, who are you?"
-	secondUserMessage         = "Where is my order?"
+	turnTimeout       = 60 * time.Second
+	turnPollInterval  = 200 * time.Millisecond
+	firstUserMessage  = "Hello, who are you?"
+	secondUserMessage = "Where is my order?"
 )
 
 func main() {
@@ -52,12 +49,9 @@ func main() {
 func run() error {
 	sessionID := flag.String("session-id", fmt.Sprintf("demo-agent-session-%d", time.Now().Unix()),
 		"Flow ID of the session to start")
+	blobCacheDir := flag.String("blob-cache-dir", "", "BlobCache directory; empty uses a temporary directory")
 	flag.Parse()
 
-	address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
-	if address == "" {
-		address = defaultFlowServiceAddress
-	}
 	flow, err := newDemoAgentSessionFlow()
 	if err != nil {
 		return err
@@ -66,46 +60,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	cacheDir, err := os.MkdirTemp("", "dex-local-demo-agent-session-")
-	if err != nil {
-		return err
-	}
-	defer removeDirectory(cacheDir)
-	workerCache, err := agentstest.OpenTestBlobCache(filepath.Join(cacheDir, "worker"))
-	if err != nil {
-		return err
-	}
-	clientCache, err := agentstest.OpenTestBlobCache(filepath.Join(cacheDir, "client"))
-	if err != nil {
-		return err
-	}
-	worker, err := dex.NewWorker(registry, workerCache, dex.WorkerOptions{FlowServiceAddress: address})
-	if err != nil {
-		return err
-	}
-	client, err := dex.NewClient(registry, clientCache, dex.ClientOptions{FlowServiceAddress: address})
-	if err != nil {
-		return err
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	workerResult := make(chan error, 1)
-	go func() { workerResult <- worker.Start() }()
-	startupCtx, cancelStartup := context.WithTimeout(ctx, startupTimeout)
-	defer cancelStartup()
-	if err := worker.WaitPullRegistered(startupCtx); err != nil {
-		return errors.Join(err, worker.Stop(context.Background()), client.Close())
-	}
-
-	if err := startTwoTurnSession(ctx, dexagents.NewAgentSessionClient(client, flow), *sessionID); err != nil {
-		return errors.Join(err, worker.Stop(context.Background()), client.Close())
-	}
-	select {
-	case err = <-workerResult:
-	case <-ctx.Done():
-	}
-	return errors.Join(err, worker.Stop(context.Background()), client.Close())
+	return demoworker.Serve(ctx, registry, *blobCacheDir, func(ctx context.Context, client *dex.Client) error {
+		return startTwoTurnSession(ctx, dexagents.NewAgentSessionClient(client, flow), *sessionID)
+	})
 }
 
 // newDemoAgentSessionFlow builds a session Flow whose scripted model answers without a network call.
@@ -194,11 +153,5 @@ func waitForTurnCount(ctx context.Context, sessions *dexagents.AgentSessionClien
 			return fmt.Errorf("wait for turn %d of session %s: %w", turnCount, sessionID, waitCtx.Err())
 		case <-ticker.C:
 		}
-	}
-}
-
-func removeDirectory(directory string) {
-	if err := os.RemoveAll(directory); err != nil {
-		log.Printf("remove %s: %v", directory, err)
 	}
 }

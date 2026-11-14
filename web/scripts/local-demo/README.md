@@ -14,9 +14,11 @@ web/scripts/local-demo/run.sh
 
 The script builds Dex Web and `dexcli` from this checkout, builds the Go
 programs, starts everything in the background, waits for readiness, and prints
-the links. Press Ctrl+C to stop everything it started. From another terminal,
-`web/scripts/local-demo/run.sh stop` does the same. It stops only the processes
-it started.
+the links. Press Ctrl+C, or close the terminal, to stop everything it started.
+From another terminal, `web/scripts/local-demo/run.sh stop` does the same. It
+stops only the processes it started, which it records in
+`$TMPDIR/dex-web-local-demo-<uid>/web-<web port>.pid`. When the script itself
+was killed, `run.sh stop` still stops the processes recorded there.
 
 Requirements: Go, Node.js 22+, `curl`, and a `dex-server-zd` binary.
 
@@ -35,9 +37,15 @@ The script derives `demo-agent.json` from
 `dex.agents.action`. Both graph files are written to the run directory, not to
 the repository.
 
-Each run uses new Flow IDs with a timestamp suffix, and a new server-zd state
-directory. Logs, binaries, graphs, and state stay in the run directory that the
-script prints.
+Each run uses new Flow IDs with a timestamp suffix. Without
+`DEX_DEMO_RUN_DIR`, each run also gets a new run directory, so server-zd starts
+empty. With `DEX_DEMO_RUN_DIR`, a later run reuses that directory's server-zd
+state and Dex Web also lists the earlier runs.
+
+The script deletes the run directory's `bin/` on exit and keeps the logs, graphs,
+BlobCaches, and server-zd state. These can reach a few hundred MB. Delete old run
+directories with `rm -rf "${TMPDIR:-/tmp}"/dex-web-local-demo.*` while no kit is
+running.
 
 ## Settings
 
@@ -55,8 +63,12 @@ script prints.
 Without `DEX_SERVER_ZD_BINARY`, the script uses `dex-server-zd` next to
 `dexcli`, then on `PATH`, then `server-zd/target/release/dex-server-zd`.
 
-The script refuses to start when a port is in use, because `dexcli dev` would
-otherwise move to the next free port silently.
+The script checks all three ports before it builds anything. A busy port then
+fails in seconds instead of after the build. `dexcli dev` would also refuse a
+busy explicit port, but the examples server starts only later.
+
+The Web build runs `npm ci` when `web/node_modules` is missing or older than
+`web/package-lock.json`.
 
 ## Run a piece by hand
 
@@ -70,4 +82,6 @@ GOWORK=off go run ./many-events -flow-id my-run -rounds 1100
 ```
 
 Both read `DEX_FLOW_SERVICE_ADDRESS`, default `127.0.0.1:8811`, and keep
-serving as a Worker until Ctrl+C.
+serving as a Worker until Ctrl+C. `-blob-cache-dir` chooses their BlobCache
+directory; without it they use a temporary directory and delete it on exit.
+Web CI runs `go vet` on this module.

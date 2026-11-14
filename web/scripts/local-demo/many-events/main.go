@@ -13,24 +13,16 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
-)
-
-const (
-	defaultFlowServiceAddress = "127.0.0.1:8811"
-	startupTimeout            = 30 * time.Second
-	blobCacheBytes            = 1 << 28
+	"github.com/superdurable/dex/web/scripts/local-demo/demoworker"
 )
 
 // TimelineDensityFlow loops SyncBatch, with a Checkpoint every tenth round, then completes.
@@ -90,65 +82,25 @@ func main() {
 func run() error {
 	flowID := flag.String("flow-id", fmt.Sprintf("many-events-%d", time.Now().Unix()), "Flow ID of the run to start")
 	rounds := flag.Int("rounds", 1100, "Step rounds to run; each round records at least one history event")
+	blobCacheDir := flag.String("blob-cache-dir", "", "BlobCache directory; empty uses a temporary directory")
 	flag.Parse()
 	if *rounds <= 0 {
 		return fmt.Errorf("-rounds must be positive, got %d", *rounds)
 	}
 
-	address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
-	if address == "" {
-		address = defaultFlowServiceAddress
-	}
 	flow := &TimelineDensityFlow{}
 	registry, err := dex.NewRegistry([]dex.Flow{flow})
 	if err != nil {
 		return err
 	}
-	cacheDir, err := os.MkdirTemp("", "dex-local-demo-many-events-")
-	if err != nil {
-		return err
-	}
-	defer removeDirectory(cacheDir)
-	workerCache, err := blobcache.New(&blobcache.Config{Dir: filepath.Join(cacheDir, "worker"), MaxBytes: blobCacheBytes})
-	if err != nil {
-		return err
-	}
-	clientCache, err := blobcache.New(&blobcache.Config{Dir: filepath.Join(cacheDir, "client"), MaxBytes: blobCacheBytes})
-	if err != nil {
-		return err
-	}
-	worker, err := dex.NewWorker(registry, workerCache, dex.WorkerOptions{FlowServiceAddress: address})
-	if err != nil {
-		return err
-	}
-	client, err := dex.NewClient(registry, clientCache, dex.ClientOptions{FlowServiceAddress: address})
-	if err != nil {
-		return err
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	workerResult := make(chan error, 1)
-	go func() { workerResult <- worker.Start() }()
-	startupCtx, cancelStartup := context.WithTimeout(ctx, startupTimeout)
-	defer cancelStartup()
-	if err := worker.WaitPullRegistered(startupCtx); err != nil {
-		return errors.Join(err, worker.Stop(context.Background()), client.Close())
-	}
-	runID, err := client.StartFlow(ctx, flow, *flowID, *rounds, dex.StartFlowOptions{})
-	if err != nil {
-		return errors.Join(fmt.Errorf("start flow %s: %w", *flowID, err), worker.Stop(context.Background()), client.Close())
-	}
-	fmt.Println("FLOW", *flowID, "RUN", runID)
-	select {
-	case err = <-workerResult:
-	case <-ctx.Done():
-	}
-	return errors.Join(err, worker.Stop(context.Background()), client.Close())
-}
-
-func removeDirectory(directory string) {
-	if err := os.RemoveAll(directory); err != nil {
-		log.Printf("remove %s: %v", directory, err)
-	}
+	return demoworker.Serve(ctx, registry, *blobCacheDir, func(ctx context.Context, client *dex.Client) error {
+		runID, err := client.StartFlow(ctx, flow, *flowID, *rounds, dex.StartFlowOptions{})
+		if err != nil {
+			return fmt.Errorf("start flow %s: %w", *flowID, err)
+		}
+		fmt.Println("FLOW", *flowID, "RUN", runID)
+		return nil
+	})
 }

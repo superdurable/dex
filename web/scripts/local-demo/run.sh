@@ -8,11 +8,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-# Starts a local Dex Web demo: dexcli dev, the Go examples server, an agent
-# session Worker, and a many-events Worker. See README.md in this directory.
-#
-#   run.sh [start]   start everything; Ctrl+C or `run.sh stop` stops it
-#   run.sh stop      stop the kit that `run.sh start` started on the same ports
+# Usage: run.sh [start|stop]. Starts or stops the local Dex Web demo; see README.md.
 
 set -euo pipefail
 
@@ -26,13 +22,16 @@ READY_TIMEOUT_SECONDS="${DEX_DEMO_READY_TIMEOUT_SECONDS:-180}"
 DEX_ADDRESS="127.0.0.1:$DEX_PORT"
 WEB_URL="http://127.0.0.1:$WEB_PORT"
 EXAMPLES_URL="http://127.0.0.1:$EXAMPLES_PORT"
-PID_FILE="${TMPDIR:-/tmp}/dex-web-local-demo-$WEB_PORT.pid"
+STATE_DIR="${TMPDIR:-/tmp}/dex-web-local-demo-$(id -u)"
+PID_FILE="$STATE_DIR/web-$WEB_PORT.pid"
 
+RUN_DIR=""
 CHILD_PIDS=()
 CHILD_NAMES=()
 
+# log tolerates a closed terminal. The subshell drops output that a failed write leaves buffered.
 log() {
-  printf '[local-demo] %s\n' "$*" >&2
+  (printf '[local-demo] %s\n' "$*" 2>/dev/null) >&2 || true
 }
 
 fail() {
@@ -40,34 +39,118 @@ fail() {
   exit 1
 }
 
+# --- PID file ---------------------------------------------------------------
+# Lines: "supervisor <pid>", "script <dir>", "run_dir <dir>", and "child <name> <pgid> <executable>".
+
+prepare_state_dir() {
+  if [[ -L "$STATE_DIR" ]]; then
+    fail "$STATE_DIR is a symlink; remove it"
+  fi
+  mkdir -p -m 700 "$STATE_DIR"
+  if [[ ! -O "$STATE_DIR" ]]; then
+    fail "$STATE_DIR is not owned by the current user"
+  fi
+}
+
+# pid_file_value uses only builtins, so cleanup does not depend on a child process.
+pid_file_value() {
+  local key value
+  [[ -f "$PID_FILE" ]] || return 0
+  while read -r key value; do
+    if [[ "$key" == "$1" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done <"$PID_FILE"
+}
+
+is_process_alive() {
+  [[ -n "$1" ]] && kill -0 "$1" 2>/dev/null
+}
+
+# is_recorded_child_alive PGID EXECUTABLE checks that the group leader is still the process the kit started.
+is_recorded_child_alive() {
+  local pgid="$1" executable="$2" command
+  is_process_alive "$pgid" || return 1
+  command="$(ps -p "$pgid" -o command= 2>/dev/null)" || return 1
+  [[ "$command" == "$executable"* ]]
+}
+
+has_live_recorded_child() {
+  local name pgid executable
+  while read -r name pgid executable; do
+    if is_recorded_child_alive "$pgid" "$executable"; then
+      return 0
+    fi
+  done < <(awk '$1 == "child" { print $2, $3, $4 }' "$PID_FILE" 2>/dev/null)
+  return 1
+}
+
+is_recorded_supervisor_alive() {
+  local supervisor_pid
+  supervisor_pid="$(pid_file_value supervisor)"
+  is_process_alive "$supervisor_pid" || return 1
+  [[ "$(ps -p "$supervisor_pid" -o command= 2>/dev/null)" == *run.sh* ]] || return 1
+  [[ "$(pid_file_value script)" == "$SCRIPT_DIR" ]]
+}
+
+# acquire_pid_file creates the PID file atomically; noclobber refuses an existing file or symlink.
+acquire_pid_file() {
+  if [[ -e "$PID_FILE" || -L "$PID_FILE" ]]; then
+    if is_recorded_supervisor_alive || has_live_recorded_child; then
+      fail "a kit is already running on Web port $WEB_PORT; run '$0 stop' first"
+    fi
+    log "removing stale $PID_FILE"
+    rm -f "$PID_FILE"
+  fi
+  if ! (set -o noclobber; printf 'supervisor %s\nscript %s\nrun_dir %s\n' "$$" "$SCRIPT_DIR" "$RUN_DIR" >"$PID_FILE") 2>/dev/null; then
+    fail "another run.sh created $PID_FILE first"
+  fi
+}
+
 # --- stop -------------------------------------------------------------------
 
 stop_running_kit() {
-  if [[ ! -f "$PID_FILE" ]]; then
+  if [[ ! -e "$PID_FILE" ]]; then
     log "no kit is running on Web port $WEB_PORT ($PID_FILE is missing)"
     return 0
   fi
+  if [[ "$(pid_file_value script)" != "$SCRIPT_DIR" ]]; then
+    fail "$PID_FILE belongs to the kit in $(pid_file_value script); run that checkout's run.sh stop"
+  fi
   local supervisor_pid
-  supervisor_pid="$(cat "$PID_FILE")"
-  if ! kill -0 "$supervisor_pid" 2>/dev/null; then
-    log "removing stale $PID_FILE (process $supervisor_pid is gone)"
-    rm -f "$PID_FILE"
-    return 0
+  supervisor_pid="$(pid_file_value supervisor)"
+  if is_recorded_supervisor_alive; then
+    log "stopping kit supervisor $supervisor_pid"
+    kill -TERM "$supervisor_pid"
+    wait_for_exit "$supervisor_pid" 60 || log "supervisor $supervisor_pid did not stop within 60 seconds"
   fi
-  if [[ "$(ps -p "$supervisor_pid" -o command= 2>/dev/null)" != *local-demo/run.sh* ]]; then
-    fail "process $supervisor_pid in $PID_FILE is not run.sh; remove the file by hand if it is stale"
-  fi
-  log "stopping kit supervisor $supervisor_pid"
-  kill -TERM "$supervisor_pid"
-  local waited=0
-  while kill -0 "$supervisor_pid" 2>/dev/null; do
-    if (( waited >= 60 )); then
-      fail "supervisor $supervisor_pid did not stop within 30 seconds"
+  # The supervisor may have died without cleanup, for example after SIGKILL.
+  local name pgid executable
+  while read -r name pgid executable; do
+    if is_recorded_child_alive "$pgid" "$executable"; then
+      log "stopping leftover $name (process group $pgid)"
+      stop_process_group "$pgid"
     fi
-    sleep 0.5
-    waited=$((waited + 1))
-  done
+  done < <(awk '$1 == "child" { print $2, $3, $4 }' "$PID_FILE" 2>/dev/null)
+  rm -f "$PID_FILE"
   log "stopped"
+}
+
+# wait_for_exit PID SECONDS returns 1 when PID is still alive after SECONDS.
+wait_for_exit() {
+  local deadline=$((SECONDS + $2))
+  while is_process_alive "$1"; do
+    (( SECONDS < deadline )) || return 1
+    sleep 0.5
+  done
+}
+
+stop_process_group() {
+  kill -TERM -- "-$1" 2>/dev/null || true
+  if ! wait_for_exit "$1" 20; then
+    kill -KILL -- "-$1" 2>/dev/null || true
+  fi
 }
 
 # --- start helpers ----------------------------------------------------------
@@ -82,48 +165,52 @@ require_free_port() {
   fi
 }
 
-# start_child NAME LOG_FILE COMMAND... runs COMMAND in its own process group.
+# start_child NAME LOG_FILE EXECUTABLE ARGS... starts a process group led by EXECUTABLE and records it.
 start_child() {
   local name="$1" log_file="$2"
   shift 2
+  set -m
   "$@" >"$log_file" 2>&1 &
-  CHILD_PIDS+=("$!")
+  local pid="$!"
+  set +m
+  CHILD_PIDS+=("$pid")
   CHILD_NAMES+=("$name")
-  log "started $name (pid $!, log $log_file)"
-}
-
-is_child_running() {
-  kill -0 "$1" 2>/dev/null
+  printf 'child %s %s %s\n' "$name" "$pid" "$1" >>"$PID_FILE"
+  log "started $name (pid $pid, log $log_file)"
 }
 
 stop_children() {
   local index pid
   for (( index=${#CHILD_PIDS[@]}-1; index>=0; index-- )); do
     pid="${CHILD_PIDS[index]}"
-    if is_child_running "$pid"; then
+    if is_process_alive "$pid"; then
       log "stopping ${CHILD_NAMES[index]} (pid $pid)"
-      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
     fi
   done
-  local waited=0
+  local deadline=$((SECONDS + 20))
   for pid in "${CHILD_PIDS[@]}"; do
-    while is_child_running "$pid" && (( waited < 40 )); do
+    while is_process_alive "$pid" && (( SECONDS < deadline )); do
       sleep 0.5
-      waited=$((waited + 1))
     done
-    if is_child_running "$pid"; then
-      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    if is_process_alive "$pid"; then
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
     fi
   done
 }
 
+# cleanup ignores further signals so a second Ctrl+C or SIGHUP cannot skip the SIGKILL fallback.
 cleanup() {
-  trap - EXIT INT TERM
+  set +e
+  trap '' INT TERM HUP
   stop_children
-  if [[ -f "$PID_FILE" && "$(cat "$PID_FILE")" == "$$" ]]; then
+  if [[ "$(pid_file_value supervisor)" == "$$" ]]; then
     rm -f "$PID_FILE"
   fi
-  log "logs kept in $RUN_DIR/logs"
+  if [[ -n "$RUN_DIR" ]]; then
+    rm -rf "$RUN_DIR/bin"
+    log "logs kept in $RUN_DIR/logs"
+  fi
 }
 
 # wait_until DESCRIPTION WATCHED_PID COMMAND... polls COMMAND until it succeeds.
@@ -132,7 +219,7 @@ wait_until() {
   shift 2
   local deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
   until "$@"; do
-    if ! is_child_running "$watched_pid"; then
+    if ! is_process_alive "$watched_pid"; then
       fail "process $watched_pid exited while waiting for $description"
     fi
     if (( SECONDS >= deadline )); then
@@ -143,7 +230,7 @@ wait_until() {
 }
 
 is_web_ready() {
-  curl -fsS -o /dev/null "$WEB_URL/readyz" 2>/dev/null
+  curl -fsS --max-time 10 -o /dev/null "$WEB_URL/readyz" 2>/dev/null
 }
 
 is_log_line_present() {
@@ -156,15 +243,17 @@ resolve_dexcli() {
     log "using DEXCLI=$DEXCLI"
     return 0
   fi
-  if [[ "${DEX_DEMO_SKIP_WEB_BUILD:-}" == "1" && -f "$REPO_ROOT/web/assets/dist/index.html" ]]; then
+  local web_dir="$REPO_ROOT/web"
+  if [[ "${DEX_DEMO_SKIP_WEB_BUILD:-}" == "1" && -f "$web_dir/assets/dist/index.html" ]]; then
     log "reusing web/assets/dist (DEX_DEMO_SKIP_WEB_BUILD=1)"
   else
     log "building Dex Web assets"
-    if [[ ! -d "$REPO_ROOT/web/node_modules" ]]; then
-      (cd "$REPO_ROOT/web" && npm ci) >"$RUN_DIR/logs/web-build.log" 2>&1 \
+    if [[ ! -f "$web_dir/node_modules/.package-lock.json" \
+      || "$web_dir/package-lock.json" -nt "$web_dir/node_modules/.package-lock.json" ]]; then
+      (cd "$web_dir" && npm ci) >"$RUN_DIR/logs/web-build.log" 2>&1 \
         || fail "npm ci failed; see $RUN_DIR/logs/web-build.log"
     fi
-    (cd "$REPO_ROOT/web" && npm run build) >>"$RUN_DIR/logs/web-build.log" 2>&1 \
+    (cd "$web_dir" && npm run build) >>"$RUN_DIR/logs/web-build.log" 2>&1 \
       || fail "Dex Web build failed; see $RUN_DIR/logs/web-build.log"
   fi
   log "building dexcli from cli/"
@@ -206,11 +295,19 @@ write_flow_graphs() {
     "$REPO_ROOT/agents/python/core/src/dex_agents/session_flow_graph.json" >"$graph_dir/demo-agent.json"
 }
 
+is_flow_present() {
+  curl -fsS --max-time 10 -o /dev/null "$WEB_URL/api/flows/summary?flowId=$1" 2>/dev/null
+}
+
+# start_agentic_refund is safe to retry: a run that an earlier attempt started counts as success.
 start_agentic_refund() {
   local flow_id="$1"
+  if is_flow_present "$flow_id"; then
+    return 0
+  fi
   local body
   body="{\"flowId\":\"$flow_id\",\"case\":{\"caseId\":\"$flow_id\",\"customer\":\"customer-2\",\"customerEmail\":\"customer-2@example.com\",\"customerNote\":\"Please review this charge\",\"amountCents\":1400000,\"orderAgeDays\":8}}"
-  curl -fsS -X POST "$EXAMPLES_URL/products/customer-refund/agentic/start" \
+  curl -fsS --max-time 10 -X POST "$EXAMPLES_URL/products/customer-refund/agentic/start" \
     -H 'content-type: application/json' -d "$body" >>"$RUN_DIR/logs/agentic-refund-start.log" 2>&1
 }
 
@@ -219,28 +316,25 @@ start_agentic_refund() {
 start_kit() {
   command -v go >/dev/null 2>&1 || fail "go is not on PATH"
   command -v curl >/dev/null 2>&1 || fail "curl is not on PATH"
+  # Fail before the long build; dexcli dev also refuses busy explicit ports, but the examples server binds later.
   require_free_port "$DEX_PORT" "Dex" DEX_DEMO_DEX_PORT
   require_free_port "$WEB_PORT" "Dex Web" DEX_DEMO_WEB_PORT
   require_free_port "$EXAMPLES_PORT" "examples HTTP" DEX_DEMO_EXAMPLES_PORT
-  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-    fail "a kit is already running (pid $(cat "$PID_FILE")); run '$0 stop' first"
-  fi
 
+  prepare_state_dir
   RUN_DIR="${DEX_DEMO_RUN_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dex-web-local-demo.XXXXXX")}"
   mkdir -p "$RUN_DIR/logs" "$RUN_DIR/bin"
+  acquire_pid_file
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
   log "run directory: $RUN_DIR"
 
   resolve_dexcli
   resolve_server_zd
   build_go_programs
   write_flow_graphs
-
-  echo "$$" >"$PID_FILE"
-  trap cleanup EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  # Each background child leads its own process group, so stopping it also stops its children.
-  set -m
 
   local suffix
   suffix="$(date +%Y%m%d-%H%M%S)"
@@ -257,14 +351,14 @@ start_kit() {
   log "Dex on $DEX_ADDRESS and Dex Web on $WEB_URL are ready"
 
   export DEX_FLOW_SERVICE_ADDRESS="$DEX_ADDRESS"
-  DEX_EXAMPLES_HTTP_ADDRESS="127.0.0.1:$EXAMPLES_PORT" DEX_BLOB_CACHE_DIR="$RUN_DIR/examples-blobs" \
+  DEX_EXAMPLES_HTTP_ADDRESS="127.0.0.1:$EXAMPLES_PORT" DEX_BLOB_CACHE_DIR="$RUN_DIR/blobs/examples-server" \
     start_child examples-server "$RUN_DIR/logs/examples-server.log" "$RUN_DIR/bin/examples-server"
   local examples_pid="${CHILD_PIDS[1]}"
   start_child agent-session "$RUN_DIR/logs/agent-session.log" \
-    "$RUN_DIR/bin/agent-session" -session-id "$session_flow_id"
+    "$RUN_DIR/bin/agent-session" -session-id "$session_flow_id" -blob-cache-dir "$RUN_DIR/blobs/agent-session"
   local agent_pid="${CHILD_PIDS[2]}"
   start_child many-events "$RUN_DIR/logs/many-events.log" \
-    "$RUN_DIR/bin/many-events" -flow-id "$many_events_flow_id"
+    "$RUN_DIR/bin/many-events" -flow-id "$many_events_flow_id" -blob-cache-dir "$RUN_DIR/blobs/many-events"
   local many_events_pid="${CHILD_PIDS[3]}"
 
   wait_until "the examples server on $EXAMPLES_URL" "$examples_pid" is_port_open "$EXAMPLES_PORT"
@@ -291,16 +385,15 @@ Dex Web local demo is running.
 Press Ctrl+C, or run '$0 stop', to stop everything.
 EOF
 
-  while is_child_running "$dexcli_pid"; do
+  while is_process_alive "$dexcli_pid"; do
     local index
     for index in 1 2 3; do
-      if [[ -n "${CHILD_PIDS[index]}" ]] && ! is_child_running "${CHILD_PIDS[index]}"; then
+      if [[ -n "${CHILD_PIDS[index]}" ]] && ! is_process_alive "${CHILD_PIDS[index]}"; then
         log "WARNING: ${CHILD_NAMES[index]} exited; see $RUN_DIR/logs/${CHILD_NAMES[index]}.log"
         CHILD_PIDS[index]=""
       fi
     done
-    sleep 1 &
-    wait "$!" || true
+    sleep 1
   done
   fail "dexcli exited; see $RUN_DIR/logs/dexcli.log"
 }
