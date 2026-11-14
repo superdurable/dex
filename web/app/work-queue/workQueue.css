@@ -1,0 +1,1169 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/* Work Queue only: every rule starts at the page shell, `.wq`, so no other page changes. */
+
+/* No borders. Colour marks the primary action, the selection and status; the rest stays grey. */
+
+html .v2-shell.wq {
+  --wq-accent: #6d28d9;
+  --wq-accent-fill: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  --wq-accent-glow: rgba(109, 40, 217, 0.7);
+  --wq-accent-wash: rgba(124, 58, 237, 0.09);
+  --wq-waiting: #c2410c;
+  --wq-active: #2563eb;
+  --wq-success: #047857;
+  --wq-danger: #b91c1c;
+  --wq-live: #10b981;
+  --wq-pane: var(--ui-well);
+  --wq-surface: var(--ui-surface);
+  --wq-raised: #ffffff;
+  --wq-raised-shadow: 0 1px 2px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --wq-hover: rgba(15, 23, 42, 0.045);
+  --wq-track: rgba(15, 23, 42, 0.05);
+  --wq-chip: rgba(15, 23, 42, 0.05);
+  --wq-chip-hover: rgba(15, 23, 42, 0.09);
+  --wq-ink: var(--ui-ink);
+  --wq-ink-2: var(--ui-ink-2);
+  --wq-ink-3: var(--ui-ink-3);
+  --wq-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  background: var(--wq-surface);
+  font-family: var(--ui-font-sans);
+}
+
+html[data-theme='dark'] .v2-shell.wq {
+  --wq-accent: #c4b5fd;
+  --wq-accent-glow: rgba(124, 58, 237, 0.55);
+  --wq-accent-wash: rgba(167, 139, 250, 0.14);
+  --wq-waiting: #fdba74;
+  --wq-active: #93c5fd;
+  --wq-success: #6ee7b7;
+  --wq-danger: #fca5a5;
+  --wq-live: #34d399;
+  --wq-pane: var(--ui-page);
+  --wq-raised: #222226;
+  --wq-raised-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --wq-hover: rgba(255, 255, 255, 0.045);
+  --wq-track: rgba(148, 163, 184, 0.1);
+  --wq-chip: rgba(255, 255, 255, 0.06);
+  --wq-chip-hover: rgba(255, 255, 255, 0.1);
+}
+
+/* ---------------------------------------------------------------- list pane */
+
+.wq .wq-list {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 16px 0;
+  background: var(--wq-pane);
+  color: var(--wq-ink);
+}
+
+.wq .wq-list[data-collapsed='true'] {
+  padding: 8px 0;
+}
+
+.wq .wq-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.wq .wq-head-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The Flow type is the list's heading: the bar above already says Work Queue. */
+.wq .wq-flowtype {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 0 0 0 -8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--wq-ink);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* The whole name, on up to two lines; the tooltip carries it past that. */
+.wq .wq-flowtype-name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.wq label.wq-flowtype {
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.wq label.wq-flowtype:hover {
+  background: var(--wq-hover);
+}
+
+.wq label.wq-flowtype:focus-within {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
+}
+
+html .wq .wq-flowtype > select:not(#wq-specificity) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  opacity: 0;
+  appearance: none;
+}
+
+.wq .wq-flowtype > svg {
+  flex: none;
+  color: var(--wq-ink-3);
+}
+
+.wq .wq-live {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--wq-ink-3);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.wq .wq-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--wq-live);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wq-live) 22%, transparent);
+}
+
+.wq .wq-live[data-liveness='loading'] .wq-live-dot {
+  background: var(--wq-ink-3);
+  box-shadow: none;
+}
+
+.wq .wq-live[data-liveness='stale'] .wq-live-dot {
+  background: var(--wq-waiting);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wq-waiting) 22%, transparent);
+}
+
+.wq .wq-live[data-liveness='unreachable'] .wq-live-dot {
+  background: var(--wq-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wq-danger) 22%, transparent);
+}
+
+/* The page's one filled accent. */
+.wq .wq-start {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px 7px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--wq-accent-fill);
+  box-shadow: 0 6px 16px -8px var(--wq-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition:
+    box-shadow 150ms ease,
+    filter 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+.wq .wq-start:hover {
+  box-shadow: 0 10px 22px -10px var(--wq-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  filter: brightness(1.08);
+}
+
+.wq .wq-start:active {
+  transform: scale(0.97);
+}
+
+/* Runs or Agents, as one segmented switch. Neutral, so it never competes with Start Flow. */
+.wq .wq-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--wq-track);
+}
+
+.wq .wq-modes a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: var(--wq-ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.wq .wq-modes a:hover {
+  color: var(--wq-ink);
+}
+
+.wq .wq-modes a[aria-current='page'] {
+  background: var(--wq-raised);
+  box-shadow: var(--wq-raised-shadow);
+  color: var(--wq-ink);
+}
+
+/* ---------------------------------------------------------------- filter bar */
+
+.wq .wq-scope {
+  margin-bottom: 4px;
+}
+
+.wq .wq-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wq .wq-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+}
+
+.wq .wq-status-chip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--wq-ink-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+.wq .wq-status-chip > svg {
+  color: var(--wq-ink-3);
+  transition: color 150ms ease;
+}
+
+.wq .wq-status-chip:hover {
+  background: var(--wq-chip);
+  color: var(--wq-ink);
+}
+
+.wq .wq-status-chip:active {
+  transform: scale(0.96);
+}
+
+.wq .wq-status-chip[aria-checked='true'],
+.wq .wq-status-more[data-checked='true'] {
+  background: var(--wq-raised);
+  box-shadow: var(--wq-raised-shadow);
+  color: var(--wq-ink);
+}
+
+.wq .wq-status-chip[aria-checked='true'][data-tone='waiting'] > svg {
+  color: var(--wq-waiting);
+}
+
+.wq .wq-status-chip[aria-checked='true'][data-tone='success'] > svg {
+  color: var(--wq-success);
+}
+
+.wq .wq-status-chip[aria-checked='true'][data-tone='danger'] > svg {
+  color: var(--wq-danger);
+}
+
+.wq .wq-status-chip[aria-checked='true'][data-tone='neutral'] > svg,
+.wq .wq-status-more[data-checked='true'] > svg {
+  color: var(--wq-ink);
+}
+
+.wq .wq-status-more {
+  padding: 0 7px;
+}
+
+.wq .wq-status-more:focus-within {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+html .wq .wq-status-more > select:not(#wq-specificity) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  opacity: 0;
+  appearance: none;
+}
+
+.wq .wq-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A native select dressed as a chip: the browser keeps the menu, the keyboard and the label. */
+.wq .wq-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--wq-chip);
+  color: var(--wq-ink-2);
+  font-size: 12.5px;
+  font-weight: 550;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.wq .wq-chip:hover {
+  background: var(--wq-chip-hover);
+  color: var(--wq-ink);
+}
+
+.wq .wq-chip:focus-within {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+.wq .wq-chip > svg {
+  flex: none;
+  color: var(--wq-ink-3);
+  transition: color 150ms ease;
+}
+
+.wq .wq-chip[data-active='true'] {
+  background: var(--wq-accent-wash);
+  color: var(--wq-accent);
+}
+
+.wq .wq-chip[data-active='true'] > svg {
+  color: var(--wq-accent);
+}
+
+.wq .wq-chip-label {
+  color: var(--wq-ink-3);
+  white-space: nowrap;
+}
+
+html .wq .wq-chip-select:not(#wq-specificity) {
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0 17px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  appearance: none;
+  field-sizing: content;
+  outline: none;
+}
+
+.wq .wq-chip > .wq-chip-chevron {
+  position: absolute;
+  right: 9px;
+  pointer-events: none;
+}
+
+.wq .wq-note.wq-permission-note {
+  display: flex;
+  flex-basis: 100%;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.wq .wq-permission-note > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------------- advanced search */
+
+.wq .wq-adv {
+  margin: 0;
+}
+
+.wq .wq-adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--wq-ink-3);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  list-style: none;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.wq .wq-adv-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.wq .wq-adv-toggle:hover,
+.wq .wq-adv[open] > .wq-adv-toggle {
+  color: var(--wq-ink);
+}
+
+.wq .wq-adv-toggle:hover {
+  background: var(--wq-hover);
+}
+
+.wq .wq-adv-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--wq-accent);
+}
+
+.wq .wq-adv-chevron {
+  transition: transform 180ms var(--wq-ease);
+}
+
+.wq .wq-adv[open] .wq-adv-chevron {
+  transform: rotate(180deg);
+}
+
+.wq .wq-adv-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--wq-track);
+  animation: wq-reveal 200ms var(--wq-ease);
+}
+
+@keyframes wq-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.wq .wq-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.wq .wq-field-label {
+  padding: 0;
+  color: var(--wq-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+html .wq .wq-input:not(#wq-specificity) {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--wq-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wq-ink-3) 24%, transparent);
+  color: var(--wq-ink);
+  font: inherit;
+  font-size: 13px;
+  transition: box-shadow 150ms ease;
+}
+
+html .wq .wq-input:not(#wq-specificity):focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--wq-accent);
+}
+
+html .wq .wq-input:not(#wq-specificity):disabled {
+  color: var(--wq-ink-3);
+}
+
+.wq .wq-compare {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+}
+
+html .wq .wq-compare > select.wq-input:not(#wq-specificity) {
+  width: auto;
+  min-width: 76px;
+}
+
+.wq .wq-checklist {
+  display: flex;
+  overflow: auto;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 136px;
+}
+
+.wq .wq-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: 8px;
+  color: var(--wq-ink);
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: background-color 150ms ease;
+}
+
+.wq .wq-checklist label:hover {
+  background: var(--wq-hover);
+}
+
+.wq .wq-checklist input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--wq-accent);
+}
+
+.wq .wq-checklist span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wq .wq-checklist input:disabled + span {
+  color: var(--wq-ink-3);
+}
+
+.wq .wq-note {
+  display: block;
+  color: var(--wq-ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wq .wq-adv-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wq .wq-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+.wq .wq-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.wq .wq-button-strong {
+  background: var(--wq-ink);
+  color: var(--wq-surface);
+}
+
+.wq .wq-button-strong:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.wq .wq-button-strong:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.wq .wq-button-quiet {
+  background: transparent;
+  color: var(--wq-ink-2);
+}
+
+.wq .wq-button-quiet:hover {
+  background: var(--wq-hover);
+  color: var(--wq-ink);
+}
+
+/* ---------------------------------------------------------------- states */
+
+.wq .wq-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--wq-track);
+  color: var(--wq-ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.wq .wq-state > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Unreachable and stale must not read as an empty queue. */
+.wq .wq-state[data-liveness='unreachable'],
+.wq .wq-state[data-liveness='stale'] {
+  background: color-mix(in srgb, var(--wq-danger) 10%, transparent);
+  color: var(--wq-danger);
+}
+
+.wq .wq-spin {
+  animation: wq-spin 900ms linear infinite;
+}
+
+@keyframes wq-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- rows */
+
+.wq .wq-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: 14px -8px 0;
+  padding: 0 8px 18px;
+}
+
+.wq .wq-list-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 16px;
+  color: var(--wq-ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  animation: wq-case-in 220ms var(--wq-ease);
+}
+
+.wq .wq-list-empty > p {
+  max-width: 32ch;
+  margin: 0;
+}
+
+.wq .wq-group + .wq-group {
+  margin-top: 18px;
+}
+
+.wq .wq-grouphead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 0 10px;
+  color: var(--wq-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.wq .wq-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--wq-track);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.wq .wq-rows {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wq .wq-row {
+  position: relative;
+  display: grid;
+  width: 100%;
+  align-items: center;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  column-gap: 10px;
+  cursor: pointer;
+  font: inherit;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  row-gap: 2px;
+  text-align: left;
+  transition:
+    background-color 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+/* The selected row's bar grows in rather than appearing. */
+.wq .wq-row::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--wq-accent);
+  content: '';
+  opacity: 0;
+  transform: scaleY(0.2);
+  transition:
+    opacity 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+.wq .wq-row:hover {
+  background: var(--wq-hover);
+}
+
+.wq .wq-row:active {
+  transform: scale(0.995);
+}
+
+.wq .wq-row[aria-current='true'] {
+  background: var(--wq-accent-wash);
+}
+
+.wq .wq-row[aria-current='true']::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.wq .wq-row-icon {
+  display: grid;
+  align-self: start;
+  grid-row: 1 / 3;
+  margin-top: 1px;
+  place-items: center;
+  color: var(--wq-ink-3);
+}
+
+.wq .wq-row-icon[data-tone='waiting'] {
+  color: var(--wq-waiting);
+}
+
+.wq .wq-row-icon[data-tone='active'] {
+  color: var(--wq-active);
+}
+
+.wq .wq-row-icon[data-tone='success'] {
+  color: var(--wq-success);
+}
+
+.wq .wq-row-icon[data-tone='danger'] {
+  color: var(--wq-danger);
+}
+
+.wq .wq-row-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--wq-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wq .wq-row-time {
+  justify-self: end;
+  color: var(--wq-ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.wq .wq-row-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--wq-ink-2);
+  font-size: 12.5px;
+  grid-column: 2 / 4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wq .wq-row-closed {
+  font-weight: 600;
+}
+
+.wq .wq-row-closed::after {
+  margin: 0 6px;
+  color: var(--wq-ink-3);
+  content: '·';
+  font-weight: 400;
+}
+
+.wq .wq-row-meta[data-tone='danger'] > .wq-row-closed {
+  color: var(--wq-danger);
+}
+
+.wq .wq-row-meta[data-tone='success'] > .wq-row-closed {
+  color: var(--wq-success);
+}
+
+.wq .wq-row-flowtype {
+  color: var(--wq-ink-3);
+}
+
+.wq .wq-row-flowtype::before {
+  margin: 0 6px;
+  content: '·';
+}
+
+.wq .wq-row-stranded {
+  color: var(--wq-danger);
+  font-size: 12px;
+  grid-column: 2 / 4;
+}
+
+.wq .wq-item[data-stranded='true'] .wq-row-title {
+  color: var(--wq-ink-2);
+}
+
+.wq .wq-more {
+  margin: 14px 10px 0;
+  color: var(--wq-ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ---------------------------------------------------------------- case panel */
+
+html .v2-shell.wq .v2-work-queue-case {
+  background: var(--wq-surface);
+}
+
+.wq .wq-case-enter {
+  animation: wq-case-in 220ms var(--wq-ease);
+}
+
+@keyframes wq-case-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.wq .wq-seemore {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 6px 10px 6px 12px;
+  border-radius: 999px;
+  background: var(--wq-track);
+  color: var(--wq-ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.wq .wq-seemore:hover {
+  background: var(--wq-chip-hover);
+  color: var(--wq-ink);
+}
+
+.wq .wq-seemore > svg {
+  transition: transform 180ms var(--wq-ease);
+}
+
+.wq .wq-seemore:hover > svg {
+  transform: translate(1px, -1px);
+}
+
+.wq .wq-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--wq-ink-3);
+  cursor: pointer;
+  place-items: center;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.wq .wq-close:hover {
+  background: var(--wq-hover);
+  color: var(--wq-ink);
+}
+
+.wq .wq-empty {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 48px 24px;
+  color: var(--wq-ink-2);
+  text-align: center;
+  animation: wq-case-in 220ms var(--wq-ease);
+}
+
+.wq .wq-empty-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 10px;
+  border-radius: 16px;
+  background: var(--wq-accent-wash);
+  color: var(--wq-accent);
+  place-items: center;
+}
+
+.wq .wq-empty[data-kind='no-runs'] .wq-empty-icon {
+  background: var(--wq-track);
+  color: var(--wq-ink-3);
+}
+
+.wq .wq-empty h2 {
+  margin: 0;
+  color: var(--wq-ink);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.wq .wq-empty p {
+  max-width: 38ch;
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.wq .wq-empty .wq-empty-count {
+  margin-top: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--wq-track);
+  color: var(--wq-ink-3);
+  font-size: 12.5px;
+}
+
+/* ---------------------------------------------------------------- Work as */
+
+/* Where only Working as locks an Action, the card offers Work as, as the Conversation tab does. */
+.wq .ses-workas-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--wq-ink-3);
+  font-size: 12px;
+}
+
+.wq .ses-workas {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fb923c, #ea580c);
+  box-shadow: 0 6px 14px -8px rgba(234, 88, 12, 0.8);
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  transition:
+    filter 150ms ease,
+    transform 180ms var(--wq-ease);
+}
+
+.wq .ses-workas:hover {
+  filter: brightness(1.08);
+}
+
+.wq .ses-workas:active {
+  transform: scale(0.97);
+}
+
+.wq .ses-acting-as {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 10px;
+  color: var(--wq-ink-3);
+  font-size: 12.5px;
+}
+
+.wq .ses-acting-as-change {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--wq-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html .wq .ses-acting-as select:not(#wq-specificity) {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--wq-chip);
+  color: inherit;
+  font: inherit;
+}
+
+/* ---------------------------------------------------------------- phone */
+
+/* One column: the list, or the selected run with its close button. */
+@media (max-width: 640px) {
+  html .v2-shell.wq .wq-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wq .wq-body > .v2-split,
+  .wq .wq-body[data-selected='true'] > .wq-list,
+  .wq .wq-body:not([data-selected='true']) > .v2-work-queue-case {
+    display: none;
+  }
+
+  .wq .wq-list {
+    padding: 16px 16px 0;
+  }
+
+  html .v2-shell.wq .v2-work-queue-case .v2-case {
+    padding: 18px 16px 28px;
+  }
+}
+
+/* ---------------------------------------------------------------- motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .wq .wq-spin,
+  .wq .wq-adv-body,
+  .wq .wq-list-empty,
+  .wq .wq-case-enter,
+  .wq .wq-empty {
+    animation: none;
+  }
+
+  .wq label.wq-flowtype,
+  .wq .wq-start,
+  .wq .wq-modes a,
+  .wq .wq-status-chip,
+  .wq .wq-status-chip > svg,
+  .wq .wq-chip,
+  .wq .wq-chip > svg,
+  .wq .wq-adv-toggle,
+  .wq .wq-adv-chevron,
+  .wq .wq-input,
+  .wq .wq-checklist label,
+  .wq .wq-button,
+  .wq .wq-row,
+  .wq .wq-row::before,
+  .wq .wq-seemore,
+  .wq .wq-seemore > svg,
+  .wq .wq-close,
+  .wq .ses-workas {
+    transition: none !important;
+  }
+}

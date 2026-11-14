@@ -8,20 +8,18 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  LIST_WIDTH_DEFAULT,
-  LIST_WIDTH_KEY,
-  SplitHandle,
-  useCollapsibleColumn,
-} from '../workspace/SplitHandle';
+import { ArrowUpRight, MousePointerClick, Plus, SearchX, X } from 'lucide-react';
+import { SplitHandle, useCollapsibleColumn } from '../workspace/SplitHandle';
 import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, sessionRunPath, workQueuePath } from '../routes';
 import '../workspace/css/workspace.css';
 import '../workspace/css/experimental.css';
+import './workQueue.css';
 import { RUN_COPY } from '../workspace/runCopy';
 import { useFlowTypesDefinitions, useV2Catalog } from '../catalog/WebCatalogProvider';
 import { drawableDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { StartFlowDialog } from '../start/StartFlowDialog';
 import { SESSION_COPY } from '../agents/copy';
+import { WorkingAsChoiceProvider } from '../agents/WorkingAsChoice';
 import { agentSessionFlowTypes, NewSessionDialog } from '../agents/NewSessionDialog';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
@@ -32,6 +30,7 @@ import {
   searchedFlowTypes,
   stepTypeOptions,
 } from '../workspace/runQuery';
+import type { FilterRow } from '../workspace/filters';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useRunQuery } from '../workspace/useRunQuery';
@@ -42,6 +41,10 @@ import { inboxSessionSchemas } from './agentInbox';
 import { WORK_QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
 import { WorkingAsControl, WorkQueueModeSwitch } from './WorkQueueControls';
+
+/** Its own key and a wider default than Connectors' list, because the filter chips need the room. */
+const WORK_QUEUE_LIST_WIDTH_KEY = 'dex-web.work-queue-list-w';
+const WORK_QUEUE_LIST_WIDTH_DEFAULT = 380;
 
 /**
  * What has arrived for the reader. No canvas: clearing work does not need the shape of the
@@ -90,7 +93,7 @@ function RunQueueWorkspace() {
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
+  const listPane = useCollapsibleColumn(WORK_QUEUE_LIST_WIDTH_KEY, WORK_QUEUE_LIST_WIDTH_DEFAULT);
 
   useEffect(() => {
     if (definitionUpdateKey > 0) {
@@ -126,11 +129,15 @@ function RunQueueWorkspace() {
   const isSessionFlowType = sessionFlowTypes.includes(entry.flowType);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
-    <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
-      <div className="v2-run-body" ref={bodyRef}>
+    <div className="v2-shell v2-run wq" ref={shellRef} style={paneStyle}>
+      <div className="v2-run-body wq-body" data-selected={flowId !== '' ? 'true' : undefined} ref={bodyRef}>
         <RunList
           collapsed={listPane.isCollapsed}
-          emptyText={emptyRunsText(runQuery.appliedFilters, searchFlowTypes, WORK_QUEUE_COPY.clear)}
+          emptyText={emptyRunsText(
+            runQuery.appliedFilters,
+            searchFlowTypes,
+            isOpenWorkSearch(runQuery.appliedFilters) ? WORK_QUEUE_COPY.clear : WORK_QUEUE_COPY.noMatch,
+          )}
           entry={entry}
           flowTypes={catalog.flows}
           heading={WORK_QUEUE_COPY.appName}
@@ -139,27 +146,31 @@ function RunQueueWorkspace() {
           headerAction={(
             <>
               {entry.definition.start && (
-                <button className="button primary sq-start" onClick={() => setStartOpen(true)} type="button">
+                <button className="wq-start" onClick={() => setStartOpen(true)} type="button">
+                  <Plus aria-hidden="true" size={15} strokeWidth={2.4} />
                   Start Flow
                 </button>
               )}
               {!entry.definition.start && isSessionFlowType && (
-                <button className="button primary sq-start" onClick={() => setNewSessionOpen(true)} type="button">
+                <button className="wq-start" onClick={() => setNewSessionOpen(true)} type="button">
+                  <Plus aria-hidden="true" size={15} strokeWidth={2.4} />
                   {SESSION_COPY.newSession}
                 </button>
               )}
-              <WorkQueueModeSwitch
-                hasAgents={inboxSessionSchemas(catalog.flows).size > 0}
-                mode="runs"
-              />
             </>
           )}
-          permissionControl={workingAs.permissionOptions.length > 0 ? (
-            <WorkingAsControl definitions={searchedDefinitions} workingAs={workingAs} />
-          ) : undefined}
+          modeSwitch={(
+            <WorkQueueModeSwitch
+              hasAgents={inboxSessionSchemas(catalog.flows).size > 0}
+              mode="runs"
+            />
+          )}
           scope={(
             <RunSearch
               busy={search.loading}
+              permissionControl={workingAs.permissionOptions.length > 0 ? (
+                <WorkingAsControl definitions={searchedDefinitions} workingAs={workingAs} />
+              ) : undefined}
               definition={entry.definition}
               flowType={entry.flowType}
               flowTypes={catalog.flows.map((candidate) => candidate.flowType)}
@@ -169,6 +180,7 @@ function RunQueueWorkspace() {
                 runQuery.query.activeStepTypes,
               )}
               query={runQuery.query}
+              onApply={runQuery.apply}
               onChange={runQuery.setQuery}
               onClear={runQuery.clear}
               onSubmit={runQuery.submit}
@@ -198,32 +210,48 @@ function RunQueueWorkspace() {
         />
         <section className="v2-work-queue-case" aria-label={flowId || WORK_QUEUE_COPY.appName}>
           {flowId ? (
-            <SelectedRunPanel
-              definition={entry.definition}
-              flowId={flowId}
-              flowStatusCode={selectedFlow?.flowStatusCode}
-              flowType={entry.flowType}
-              order="evidence-first"
-              onStranded={rememberStranded}
-              workQueuePermissions={workQueuePermissions}
-              footer={(
-                <>
-                  <Link className="v2-seemore" to={runPath(flowId)}>
-                    {WORK_QUEUE_COPY.seeProcess}
-                  </Link>
-                  <button
-                    aria-label={WORK_QUEUE_COPY.close}
-                    className="rhd-close"
-                    onClick={() => navigate(workQueuePath(entry.flowType))}
-                    type="button"
-                  >
-                    ✕
-                  </button>
-                </>
-              )}
-            />
+            <div className="wq-case-enter" key={flowId}>
+              <WorkingAsChoiceProvider
+                value={{
+                  permission: workingAs.permission,
+                  options: workingAs.permissionOptions,
+                  choose: workingAs.setPermission,
+                }}
+              >
+                <SelectedRunPanel
+                  definition={entry.definition}
+                  flowId={flowId}
+                  flowStatusCode={selectedFlow?.flowStatusCode}
+                  flowType={entry.flowType}
+                  order="evidence-first"
+                  onStranded={rememberStranded}
+                  workQueuePermissions={workQueuePermissions}
+                  footer={(
+                    <>
+                      <Link className="wq-seemore" to={runPath(flowId)}>
+                        {WORK_QUEUE_COPY.seeProcess}
+                        <ArrowUpRight aria-hidden="true" size={14} />
+                      </Link>
+                      <button
+                        aria-label={WORK_QUEUE_COPY.close}
+                        className="wq-close"
+                        onClick={() => navigate(workQueuePath(entry.flowType))}
+                        type="button"
+                      >
+                        <X aria-hidden="true" size={16} />
+                      </button>
+                    </>
+                  )}
+                />
+              </WorkingAsChoiceProvider>
+            </div>
           ) : (
-            <p className="sc-none v2-work-queue-empty">{WORK_QUEUE_COPY.selectPrompt}</p>
+            <WorkQueueEmptyState
+              hasRuns={search.flows.length > 0}
+              hasMore={search.hasNextPage}
+              runCount={search.flows.length}
+              settled={search.liveness === 'ok'}
+            />
           )}
         </section>
       </div>
@@ -256,6 +284,31 @@ function RunQueueWorkspace() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** "Nothing open" is true only of a search for open runs. */
+function isOpenWorkSearch(filters: readonly FilterRow[]): boolean {
+  return filters.some((filter) => filter.field === 'executionStatus'
+    && filter.value === flowStatusQueryValue(openFlowStatusLabel()));
+}
+
+/** The case panel before a run is chosen: what to do next, and how many runs are listed. */
+function WorkQueueEmptyState({ hasRuns, hasMore, runCount, settled }: {
+  hasRuns: boolean;
+  hasMore: boolean;
+  runCount: number;
+  settled: boolean;
+}) {
+  const isClear = settled && !hasRuns;
+  const Icon = isClear ? SearchX : MousePointerClick;
+  return (
+    <div className="wq-empty" data-kind={isClear ? 'no-runs' : 'select'}>
+      <span className="wq-empty-icon"><Icon aria-hidden="true" size={22} strokeWidth={1.9} /></span>
+      <h2>{isClear ? WORK_QUEUE_COPY.noRunsHeading : WORK_QUEUE_COPY.selectHeading}</h2>
+      <p>{isClear ? WORK_QUEUE_COPY.noRunsPrompt : WORK_QUEUE_COPY.selectPrompt}</p>
+      {hasRuns && <p className="wq-empty-count">{WORK_QUEUE_COPY.listedRuns(runCount, hasMore)}</p>}
     </div>
   );
 }

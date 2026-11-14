@@ -26,6 +26,7 @@ export const WORK_QUEUE_COPY = {
     return `Includes runs that offer or previously offered ${labels.join(' or ')}.`;
   },
   clear: 'Nothing open on this page.',
+  noMatch: 'No runs match these filters.',
   loading: 'Asking the process…',
   unreachable: 'Cannot reach the process, so this list is not the whole picture.',
   stale: 'Showing the last answer — the process did not respond just now.',
@@ -35,6 +36,14 @@ export const WORK_QUEUE_COPY = {
   actionsProvenance: 'Which Actions are available is decided per run when you open it.',
 
   selectPrompt: 'Select a run to see what it reports and which Actions are available.',
+  selectHeading: 'Select a run',
+  noRunsHeading: 'No runs to show',
+  noRunsPrompt: 'Widen the filters to see more runs.',
+  listedRuns(count: number, hasMore: boolean): string {
+    const runs = count === 1 ? '1 run' : `${count} runs`;
+    return hasMore ? `${runs} listed, and more match.` : `${runs} listed.`;
+  },
+  moreStatuses: 'More',
   seeProcess: 'See the process',
   close: 'Close this item',
 

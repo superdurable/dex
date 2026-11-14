@@ -47,6 +47,7 @@ export function useFlowSearch(
   const [page, setPage] = useState(0);
 
   const flowTypesKey = flowTypes.join('\n');
+  const workQueuePermissionsKey = workQueuePermissions.join('\n');
 
   const executeSearch = useCallback(async (token = '', nextPage = 0) => {
     if (flowTypes.length === 0 || !definition) return;
@@ -92,7 +93,7 @@ export function useFlowSearch(
   // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {
     if (flowTypes.length > 0 && definition) void executeSearch();
-  }, [definition, filters, flowTypesKey]);
+  }, [definition, filters, flowTypesKey, workQueuePermissionsKey]);
 
   const runSearch = useCallback(() => {
     setPageTokens(['']);
