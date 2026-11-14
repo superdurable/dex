@@ -693,6 +693,10 @@ npm run dev
 
 Vite proxies `/api/*` and `/healthz` to `http://127.0.0.1:8902`.
 
+To look at Dex Web with sample data (Design graphs, an agent Conversation, and
+a dense Timeline), run `web/scripts/local-demo/run.sh`; see
+[scripts/local-demo](scripts/local-demo/README.md).
+
 ## Build
 
 ```bash
