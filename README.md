@@ -47,7 +47,7 @@ Dex runs *any* long-running agent or workflow to completion:
   - easy to operate: one binary and one bucket, or neither on [Dex Cloud](https://docs.superdurable.io/components/dex-cloud)
   - fast: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K Steps/s and 67K read RPCs/s
 - **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store and stream data through explicit primitives, Attributes and Streams, because no real process runs without data. An agent keeps its whole LLM context or thousands of messages in Attributes, as in a key-value store, and streams model output as it arrives.
-- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate with products such as Stripe and Gmail, from prototype to production, through a large and growing library of ready-made Steps, Triggers, and agent tools.
+- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Call products such as Stripe and Gmail through a growing library of more than 200 connectors, as ready-made Steps, Triggers, or agent tools.
 - **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph: a JSON file describing the Flow is uploaded to the server, and Dex Web draws it.
 
 Dex is created by [Quanzheng Long](https://superdurable.io/about/), core contributor to Uber Cadence (forked as Temporal), and the original creator of [iWF](https://github.com/indeedeng/iwf).
