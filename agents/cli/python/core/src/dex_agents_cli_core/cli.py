@@ -468,9 +468,10 @@ class _CommandDexServer:
                 _LOGGER.info("dexcli connectors mcp serves the Connectors MCP at %s", start.url)
                 return replace(endpoint, connectors_mcp_url=start.url)
             off_reason = (
-                "Connectors are off: connectors.mcp is auto, which needs dexcli "
-                f"{CONNECTORS_MCP_COMMAND_MINIMUM_DEXCLI_VERSION} or later to serve this machine's "
-                f"Connectors, and {dexcli} is older. Update it, or set connectors.mcp to a URL."
+                f"Connectors are off: {dexcli} may not support dexcli connectors mcp, which "
+                f"needs dexcli {CONNECTORS_MCP_COMMAND_MINIMUM_DEXCLI_VERSION} or later; see "
+                f"{connectors_mcp_command_log_path(self._environment)}. Update it, or set "
+                "connectors.mcp to a URL."
                 if start.is_unsupported
                 else f"Connectors are off: dexcli connectors mcp failed: {start.failure}."
             )

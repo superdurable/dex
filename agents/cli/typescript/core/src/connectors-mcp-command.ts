@@ -8,7 +8,9 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { constants } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { CliEnvironment } from "./cli-environment.js";
 
@@ -17,14 +19,20 @@ export const connectorsMcpCommandMinimumDexcliVersion = "1.47.7";
 
 // The first start may download the Connectors MCP server and retry five failed starts.
 const readyTimeoutMs = 120_000;
+// A child that closed its output without a line exits at once when it hit a usage error.
+const exitWaitAfterOutputEndMs = 5_000;
 const stdinCloseWaitMs = 10_000;
-const killWaitMs = 5_000;
+const groupStopWaitMs = 5_000;
+const groupPollIntervalMs = 50;
+// The same bound as dexcli's connectorsMCPMaxAnnouncementBytes.
+const maximumReadyLineBytes = 1 << 20;
+const maximumReasonCharacters = 500;
 // dexcli answers an unknown command with this usage exit code.
 const usageExitCode = 2;
 
 /** How `dexcli connectors mcp` ended its startup. */
 export type ConnectorsMcpCommandStart =
-  | { readonly kind: "ready"; readonly url: string; readonly process: StartedConnectorsMcpCommand }
+  | { readonly kind: "ready"; readonly url: string }
   | { readonly kind: "unsupported" }
   | { readonly kind: "failed"; readonly reason: string };
 
@@ -45,75 +53,44 @@ export function readLocalConnectionsState(environment: CliEnvironment): LocalCon
     return "missing";
   }
   try {
-    const parsed = JSON.parse(content) as { connections?: unknown };
-    return Array.isArray(parsed.connections) && parsed.connections.length === 0 ? "empty" : "present";
+    const parsed = JSON.parse(content) as { connections?: unknown } | null;
+    return parsed !== null && Array.isArray(parsed.connections) && parsed.connections.length === 0 ? "empty" : "present";
   } catch {
     return "present";
   }
 }
 
+/** `~/.dex/agents/dexcli-connectors-mcp.log`, the stderr of the last `dexcli connectors mcp` a command ran. */
+export function connectorsMcpCommandLogPath(environment: CliEnvironment): string {
+  return join(environment.agentsDirectory, "dexcli-connectors-mcp.log");
+}
+
 /**
- * Runs `dexcli connectors mcp` and waits for its one JSON line.
+ * Starts `dexcli connectors mcp --exit-on-stdin-close`; the caller owns the returned process from now on.
  *
- * The child runs in its own process group, so a Ctrl-C at the terminal does not stop it. It stops when its stdin
+ * The child leads its own process group, so a Ctrl-C at the terminal does not stop it. It stops when its stdin
  * closes, which happens when this process exits for any reason. Its stderr goes to
- * `~/.dex/agents/dexcli-connectors-mcp.log`.
+ * {@link connectorsMcpCommandLogPath}.
  *
  * @param dexcli - The `dexcli` executable.
  * @param environment - The command's environment settings.
- * @returns `ready` with the proxy URL and the owned process; `unsupported` for a `dexcli` without the command;
- * `failed` with the reason otherwise.
+ * @returns The started process; {@link StartedConnectorsMcpCommand.awaitReady} reads its URL.
+ * @throws {Error} When the log file cannot be opened.
  */
-export async function startConnectorsMcpCommand(
-  dexcli: string,
-  environment: CliEnvironment,
-): Promise<ConnectorsMcpCommandStart> {
+export function spawnConnectorsMcpCommand(dexcli: string, environment: CliEnvironment): StartedConnectorsMcpCommand {
   mkdirSync(environment.agentsDirectory, { recursive: true });
   const logPath = connectorsMcpCommandLogPath(environment);
   const logFile = openSync(logPath, "w");
-  let child: ChildProcess;
   try {
-    child = spawn(dexcli, ["connectors", "mcp", "--exit-on-stdin-close"], {
+    const child = spawn(dexcli, ["connectors", "mcp", "--exit-on-stdin-close"], {
       detached: true,
       stdio: ["pipe", "pipe", logFile],
       env: environment.childProcessVariables,
     });
+    return new StartedConnectorsMcpCommand(child, logPath);
   } finally {
     closeSync(logFile);
   }
-  const started = new StartedConnectorsMcpCommand(child);
-  const outcome = await readFirstLine(child, readyTimeoutMs);
-  if (outcome.kind === "line") {
-    let parsed: { type?: unknown; url?: unknown; message?: unknown };
-    try {
-      parsed = JSON.parse(outcome.line) as typeof parsed;
-    } catch {
-      parsed = {};
-    }
-    if (parsed.type === "ready" && typeof parsed.url === "string" && isLoopbackHttpUrl(parsed.url)) {
-      child.stdout?.destroy();
-      // Its stdin stays open until the command exits, but must not keep the event loop alive.
-      (child.stdin as { unref?: () => void } | null)?.unref?.();
-      child.unref();
-      return { kind: "ready", url: parsed.url, process: started };
-    }
-    await started.stop();
-    const reason = typeof parsed.message === "string" ? parsed.message : `unexpected output: ${outcome.line}`;
-    return { kind: "failed", reason: `${reason}; see ${logPath}` };
-  }
-  if (outcome.kind === "exited") {
-    if (outcome.exitCode === usageExitCode) {
-      return { kind: "unsupported" };
-    }
-    return { kind: "failed", reason: `dexcli connectors mcp exited with ${outcome.exitCode ?? outcome.signal}; see ${logPath}` };
-  }
-  await started.stop();
-  return { kind: "failed", reason: `${outcome.reason}; see ${logPath}` };
-}
-
-/** `~/.dex/agents/dexcli-connectors-mcp.log`, the stderr of the last `dexcli connectors mcp` a command ran. */
-export function connectorsMcpCommandLogPath(environment: CliEnvironment): string {
-  return join(environment.agentsDirectory, "dexcli-connectors-mcp.log");
 }
 
 /** A `dexcli connectors mcp` this command started; stopping it stops a server it started, never a reused one. */
@@ -122,10 +99,14 @@ export class StartedConnectorsMcpCommand {
   private stopping: Promise<void> | undefined;
 
   /**
-   * Owns a spawned `dexcli connectors mcp`.
-   * @param child - The spawned process, with piped stdin.
+   * Owns a spawned `dexcli connectors mcp`, the leader of its own process group.
+   * @param child - The spawned process, with piped stdin and stdout.
+   * @param logPath - Its stderr log, which failure reasons name.
    */
-  public constructor(private readonly child: ChildProcess) {
+  public constructor(
+    private readonly child: ChildProcess,
+    private readonly logPath: string,
+  ) {
     this.exited = new Promise((resolve) => {
       if (child.exitCode !== null || child.signalCode !== null) {
         resolve();
@@ -135,29 +116,172 @@ export class StartedConnectorsMcpCommand {
     });
     // A child that exits closes its stdin; the write error must not end the command.
     child.stdin?.on("error", () => undefined);
+    child.once("error", () => undefined);
   }
 
   /**
-   * Stops it once: closes its stdin, then sends SIGTERM, then SIGKILL.
-   * @returns A Promise that resolves after it exited or the last wait ended.
+   * Waits for the one JSON line, at most 120 seconds. Every outcome but `ready` stops the process first.
+   * @returns `ready` with the proxy URL; `unsupported` for a `dexcli` that may lack the command; `failed` otherwise.
+   */
+  public async awaitReady(): Promise<ConnectorsMcpCommandStart> {
+    let start: ConnectorsMcpCommandStart;
+    try {
+      start = this.interpret(await readFirstLine(this.child, readyTimeoutMs));
+    } catch (error: unknown) {
+      start = { kind: "failed", reason: boundedReason(error instanceof Error ? error.message : String(error)) };
+    }
+    if (start.kind === "ready") {
+      this.child.stdout?.destroy();
+      // Its stdin stays open until the command exits, but must not keep the event loop alive.
+      (this.child.stdin as { unref?: () => void } | null)?.unref?.();
+      this.child.unref();
+      return start;
+    }
+    // Unread output must not block the child while it stops.
+    this.child.stdout?.destroy();
+    await this.stop();
+    return start.kind === "failed" ? { kind: "failed", reason: `${start.reason}; see ${this.logPath}` } : start;
+  }
+
+  /**
+   * Stops it once: closes its stdin, then signals its whole process group with SIGTERM and then SIGKILL until no
+   * member is left, also when the leader exited first.
+   * @returns A Promise that resolves after the group is gone or the last wait ended.
    */
   public stop(): Promise<void> {
     this.stopping ??= this.doStop();
     return this.stopping;
   }
 
+  /** Kills its whole process group at once, as a second signal during a stop does. */
+  public kill(): void {
+    this.signalGroup("SIGKILL");
+  }
+
+  private interpret(outcome: FirstLineOutcome): ConnectorsMcpCommandStart {
+    switch (outcome.kind) {
+      case "failed":
+        return { kind: "failed", reason: outcome.reason };
+      case "exited":
+        return outcome.exitCode === usageExitCode
+          ? { kind: "unsupported" }
+          : { kind: "failed", reason: `dexcli connectors mcp exited with ${outcome.exitCode ?? outcome.signal}` };
+      case "line":
+        return interpretReadyLine(outcome.line);
+    }
+  }
+
   private async doStop(): Promise<void> {
     this.child.stdin?.end();
-    if (await resolvesWithin(this.exited, stdinCloseWaitMs)) {
+    if ((await resolvesWithin(this.exited, stdinCloseWaitMs)) && !this.isGroupAlive()) {
       return;
     }
-    signalIgnoringExit(this.child, "SIGTERM");
-    if (await resolvesWithin(this.exited, killWaitMs)) {
+    this.signalGroup("SIGTERM");
+    if (await this.isGoneWithin(groupStopWaitMs)) {
       return;
     }
-    signalIgnoringExit(this.child, "SIGKILL");
-    await resolvesWithin(this.exited, killWaitMs);
+    this.signalGroup("SIGKILL");
+    await this.isGoneWithin(groupStopWaitMs);
   }
+
+  private async isGoneWithin(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    if (!(await resolvesWithin(this.exited, timeoutMs))) {
+      return false;
+    }
+    while (this.isGroupAlive()) {
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await delay(groupPollIntervalMs);
+    }
+    return true;
+  }
+
+  /** Signal 0 delivers nothing; a group ID cannot be reused while a member is left. */
+  private isGroupAlive(): boolean {
+    const pid = this.child.pid;
+    if (pid === undefined) {
+      return false;
+    }
+    if (process.platform === "win32") {
+      return this.child.exitCode === null && this.child.signalCode === null;
+    }
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (error: unknown) {
+      return (error as NodeJS.ErrnoException).code === "EPERM";
+    }
+  }
+
+  private signalGroup(signal: NodeJS.Signals): void {
+    const pid = this.child.pid;
+    if (pid === undefined) {
+      return;
+    }
+    try {
+      if (process.platform === "win32") {
+        this.child.kill(signal);
+      } else {
+        process.kill(-pid, signal);
+      }
+    } catch {
+      // The group is already gone.
+    }
+  }
+}
+
+/**
+ * Makes SIGTERM, SIGHUP, and SIGINT stop `started` and exit with 128 plus the signal number; a second signal kills
+ * its group at once.
+ * @param started - The process the command waits for.
+ * @returns A function that removes the listeners.
+ */
+export function stopOnSignalWhileWaiting(started: StartedConnectorsMcpCommand): () => void {
+  let isStopping = false;
+  const listeners = new Map<NodeJS.Signals, () => void>();
+  for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
+    const listener = (): void => {
+      const exitCode = 128 + constants.signals[signal];
+      if (isStopping) {
+        started.kill();
+        process.exit(exitCode);
+      }
+      isStopping = true;
+      void started.stop().then(() => process.exit(exitCode));
+    };
+    listeners.set(signal, listener);
+    process.on(signal, listener);
+  }
+  return () => {
+    for (const [signal, listener] of listeners) {
+      process.off(signal, listener);
+    }
+  };
+}
+
+/** Reads a ready line: a JSON object with type ready and a loopback http url, or the reason it is not one. */
+function interpretReadyLine(line: string): ConnectorsMcpCommandStart {
+  if (line === "") {
+    return { kind: "failed", reason: "dexcli connectors mcp printed an empty line" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const fields = parsed as { type?: unknown; url?: unknown; message?: unknown };
+    if (fields.type === "ready" && typeof fields.url === "string" && isLoopbackHttpUrl(fields.url)) {
+      return { kind: "ready", url: fields.url };
+    }
+    if (fields.type === "error" && typeof fields.message === "string") {
+      return { kind: "failed", reason: boundedReason(fields.message) };
+    }
+  }
+  return { kind: "failed", reason: `unexpected output: ${boundedReason(line)}` };
 }
 
 type FirstLineOutcome =
@@ -165,41 +289,59 @@ type FirstLineOutcome =
   | { readonly kind: "exited"; readonly exitCode: number | null; readonly signal: NodeJS.Signals | null }
   | { readonly kind: "failed"; readonly reason: string };
 
-/** Resolves with the first stdout line; a line printed just before exit still wins, since it ends stdout first. */
+/**
+ * Resolves with the first stdout line, at most {@link maximumReadyLineBytes}. A line printed just before exit still
+ * wins, since it ends stdout first. Output that ends without a line waits a little for the exit code.
+ */
 function readFirstLine(child: ChildProcess, timeoutMs: number): Promise<FirstLineOutcome> {
   return new Promise((resolve) => {
-    let buffered = "";
-    let isStdoutEnded = child.stdout === null;
+    const chunks: Buffer[] = [];
+    let bufferedBytes = 0;
+    let exitWaitTimer: NodeJS.Timeout | undefined;
     let exit: { exitCode: number | null; signal: NodeJS.Signals | null } | undefined;
+    let isOutputEnded = child.stdout === null;
     const finish = (outcome: FirstLineOutcome): void => {
       clearTimeout(timer);
+      clearTimeout(exitWaitTimer);
       child.stdout?.off("data", onData);
-      child.stdout?.off("end", onStdoutEnd);
+      child.stdout?.off("end", onOutputEnd);
       child.off("exit", onExit);
       child.off("error", onError);
       resolve(outcome);
     };
-    const finishAfterExit = (): void => {
-      if (exit === undefined || !isStdoutEnded) {
+    const finishAfterOutputEnds = (): void => {
+      if (!isOutputEnded) {
         return;
       }
-      const line = buffered.trim();
-      finish(line === "" ? { kind: "exited", ...exit } : { kind: "line", line });
-    };
-    const onData = (chunk: Buffer): void => {
-      buffered += chunk.toString("utf8");
-      const newline = buffered.indexOf("\n");
-      if (newline >= 0) {
-        finish({ kind: "line", line: buffered.slice(0, newline).trim() });
+      const line = Buffer.concat(chunks).toString("utf8").trim();
+      if (line !== "") {
+        finish({ kind: "line", line });
+      } else if (exit !== undefined) {
+        finish({ kind: "exited", ...exit });
+      } else {
+        exitWaitTimer ??= setTimeout(() => {
+          finish({ kind: "failed", reason: "dexcli connectors mcp closed its output without a line" });
+        }, exitWaitAfterOutputEndMs);
       }
     };
-    const onStdoutEnd = (): void => {
-      isStdoutEnded = true;
-      finishAfterExit();
+    const onData = (chunk: Buffer): void => {
+      const newline = chunk.indexOf(0x0a);
+      const kept = newline >= 0 ? chunk.subarray(0, newline) : chunk;
+      chunks.push(kept);
+      bufferedBytes += kept.length;
+      if (bufferedBytes > maximumReadyLineBytes) {
+        finish({ kind: "failed", reason: `dexcli connectors mcp printed more than ${maximumReadyLineBytes} bytes without a newline` });
+      } else if (newline >= 0) {
+        finish({ kind: "line", line: Buffer.concat(chunks).toString("utf8").trim() });
+      }
+    };
+    const onOutputEnd = (): void => {
+      isOutputEnded = true;
+      finishAfterOutputEnds();
     };
     const onExit = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       exit = { exitCode, signal };
-      finishAfterExit();
+      finishAfterOutputEnds();
     };
     const onError = (error: Error): void => {
       finish({ kind: "failed", reason: `dexcli connectors mcp could not start: ${error.message}` });
@@ -208,10 +350,14 @@ function readFirstLine(child: ChildProcess, timeoutMs: number): Promise<FirstLin
       finish({ kind: "failed", reason: `dexcli connectors mcp printed no line within ${timeoutMs / 1000} seconds` });
     }, timeoutMs);
     child.stdout?.on("data", onData);
-    child.stdout?.once("end", onStdoutEnd);
+    child.stdout?.once("end", onOutputEnd);
     child.once("exit", onExit);
     child.once("error", onError);
   });
+}
+
+function boundedReason(text: string): string {
+  return text.length <= maximumReasonCharacters ? text : `${text.slice(0, maximumReasonCharacters)}...`;
 }
 
 function isLoopbackHttpUrl(value: string): boolean {
@@ -220,14 +366,6 @@ function isLoopbackHttpUrl(value: string): boolean {
     return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]");
   } catch {
     return false;
-  }
-}
-
-function signalIgnoringExit(child: ChildProcess, signal: NodeJS.Signals): void {
-  try {
-    child.kill(signal);
-  } catch {
-    // It exited between the wait and the signal.
   }
 }
 

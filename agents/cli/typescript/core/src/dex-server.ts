@@ -183,6 +183,16 @@ export function readStartedDexcliDev(environment: CliEnvironment): StartedDexcli
   }
 }
 
+/** Processes that may use a started `dexcli dev`, which stop before it. */
+export interface DexcliDevDependents {
+  /** Stops them; it resolves once they are gone. */
+  stop(): Promise<void>;
+  /** Kills them at once. */
+  kill(): void;
+}
+
+const noDexcliDevDependents: DexcliDevDependents = { stop: () => Promise.resolve(), kill: () => undefined };
+
 /** The `dexcli dev` one command spawned; stopping it ends its process group and removes its record. */
 export class StartedDexcliDevProcess {
   private child: ChildProcess | undefined;
@@ -194,10 +204,12 @@ export class StartedDexcliDevProcess {
    * Owns no process yet.
    * @param environment - Locates the record.
    * @param log - Writes the stopped line.
+   * @param dependents - Stopped before this server, also when a signal stops it, and killed with it.
    */
   public constructor(
     private readonly environment: CliEnvironment,
     private readonly log: (line: string) => void,
+    private readonly dependents: DexcliDevDependents = noDexcliDevDependents,
   ) {}
 
   /**
@@ -222,6 +234,7 @@ export class StartedDexcliDevProcess {
    * @param exitCode - The process exit code.
    */
   public killAndExit(exitCode: number): never {
+    this.dependents.kill();
     const pid = this.child?.pid;
     if (pid !== undefined) {
       this.killGroupWhileLeaderRuns();
@@ -268,6 +281,7 @@ export class StartedDexcliDevProcess {
       return;
     }
     this.listenForTerminationSignals();
+    await this.dependents.stop();
     removeRecordOf(this.environment, pid);
     const wasRunning = this.isLeaderRunning();
     if (wasRunning) {
@@ -314,6 +328,7 @@ export class StartedDexcliDevProcess {
       return;
     }
     // A signal during the grace period means: do not wait any longer.
+    this.dependents.kill();
     this.killGroupWhileLeaderRuns();
     process.exit(exitCode);
   }

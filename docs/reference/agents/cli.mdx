@@ -944,7 +944,10 @@ server. With **connectors.mcp: auto**, the command serves the Connector tools
 authorized on this machine, from **~/.dex/connectors/connections.json**. It
 runs [dexcli connectors mcp](/reference/cli/#connectors-mcp-command) with the
 **dexcli** it finds as for [dex.server](#dex-server), and uses the URL that
-command prints. It stops that command when it exits. Changed in 0.6.9: this
+command prints. When the command exits, it stops that command first, before a
+**dexcli dev** it started, also on SIGTERM, SIGHUP, or Ctrl-C. It closes the
+command's input, then sends SIGTERM and SIGKILL to its process group until no
+process of the group is left. Changed in 0.6.9: this
 also works with **dex.server** set to a URL, such as Dex Cloud, and needs no
 **dexcli dev**. Before 0.6.9, **auto** used the **/mcp** path of the
 **dexcli dev** Dex Web port, and Connector tools were off with a URL
@@ -960,8 +963,11 @@ With **dex.server** set to a URL, Connector tools are off when
 hint to authorize one on the Connectors page of Dex Web in a local
 **dexcli dev**. They are also off when **dexcli connectors mcp** cannot start.
 The command then prints the reason, and the log is in
-**~/.dex/agents/dexcli-connectors-mcp.log**. A **DEXCLI** older than 1.47.7
-has no **dexcli connectors mcp**, and the hint names that version. With
+**~/.dex/agents/dexcli-connectors-mcp.log**. It waits at most 120 seconds for
+the ready line and reads at most 1 MiB of it. When **dexcli connectors mcp**
+prints nothing and exits with code 2, as a **DEXCLI** older than 1.47.7 does,
+the hint says that this **dexcli** may not support the command and names that
+version. With
 **dex.server: auto**, either failure falls back to the **/mcp** path of the
 **dexcli dev** Dex Web port.
 

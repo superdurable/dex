@@ -94,7 +94,9 @@ import {
   connectorsMcpCommandLogPath,
   connectorsMcpCommandMinimumDexcliVersion,
   readLocalConnectionsState,
-  startConnectorsMcpCommand,
+  spawnConnectorsMcpCommand,
+  stopOnSignalWhileWaiting,
+  type ConnectorsMcpCommandStart,
 } from "./connectors-mcp-command.js";
 import { DexcliVariableError, resolveDexcliExecutable } from "./dexcli-binary.js";
 import {
@@ -427,7 +429,11 @@ export class AgentCliCommand {
     this.environment = readCliEnvironment(io.environment);
     // Tools, browsers, and dexcli dev inherit process.env; the credential stays in this.environment.
     removeDexSecretVariables(process.env);
-    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
+    // dexcli connectors mcp may reuse the Connectors MCP server of a started dexcli dev, so it stops first.
+    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log, {
+      stop: async () => this.startedConnectorsMcp?.stop(),
+      kill: () => this.startedConnectorsMcp?.kill(),
+    });
   }
 
   /**
@@ -598,17 +604,26 @@ export class AgentCliCommand {
     let offReason: string;
     try {
       const dexcli = await resolveDexcliExecutable(this.environment, this.log);
-      const start = await startConnectorsMcpCommand(dexcli, this.environment);
+      // Owned from the spawn on, so a signal during the wait stops it before a started dexcli dev.
+      const started = spawnConnectorsMcpCommand(dexcli, this.environment);
+      this.startedConnectorsMcp = started;
+      // A started dexcli dev's signal handling stops it first; otherwise these listeners do during the wait.
+      const removeWaitListeners = server.origin === "started" ? () => undefined : stopOnSignalWhileWaiting(started);
+      let start: ConnectorsMcpCommandStart;
+      try {
+        start = await started.awaitReady();
+      } finally {
+        removeWaitListeners();
+      }
       if (start.kind === "ready") {
-        this.startedConnectorsMcp = start.process;
         this.writeLogLine(`dexcli connectors mcp serves the Connectors MCP server at ${start.url}`);
         return { ...server, autoConnectorsMcpUrl: start.url };
       }
       offReason =
         start.kind === "unsupported"
-          ? `Connectors are off: connectors.mcp is auto, which needs dexcli ${connectorsMcpCommandMinimumDexcliVersion} ` +
-            `or later to serve this machine's Connectors, and ${dexcli} is older. Update it, or set connectors.mcp to ` +
-            "a URL."
+          ? `Connectors are off: ${dexcli} may not support dexcli connectors mcp, which needs dexcli ` +
+            `${connectorsMcpCommandMinimumDexcliVersion} or later; see ${connectorsMcpCommandLogPath(this.environment)}. ` +
+            "Update it, or set connectors.mcp to a URL."
           : `Connectors are off: dexcli connectors mcp failed: ${start.reason}.`;
     } catch (error: unknown) {
       if (error instanceof DexcliVariableError) {
