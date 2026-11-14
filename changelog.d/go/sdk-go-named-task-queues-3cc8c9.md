@@ -1,0 +1,4 @@
+---
+section: Added
+---
+- Named task queues give one Flow type separate Worker pools. **PullWorkerOptions.TaskQueue** names the one task queue a Worker serves, **StartFlowOptions.TaskQueue** places a Flow on a task queue for its whole run, and **SubFlowOptions.TaskQueue** moves a SubFlow off its parent's task queue; **DefaultTaskQueue** selects the default task queue explicitly. Named task queues require Server protocol 5: against an older Server, **Worker.Start**, **Client.StartFlow**, and a WaitFor that starts such a SubFlow return **TaskQueueUnsupportedError** instead of using the default task queue. A Worker stream that the Server registers on another task queue is closed and reported as a permanent rejection, and **PullRegistrationState** entries and **PullRegistrationError** carry the task queue. [Go Workers](/reference/go/workers#task-queue) and [API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions).

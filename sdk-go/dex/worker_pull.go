@@ -33,6 +33,7 @@ type pullWorker struct {
 	service                        *workerService
 	client                         dexpb.WorkerTaskServiceClient
 	appWorkerID                    string
+	taskQueue                      string
 	flowTypes                      []string
 	queues                         []string
 	maxConcurrentTasks             int
@@ -139,6 +140,9 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 	if err := validateAppWorkerID(appWorkerID); err != nil {
 		return nil, err
 	}
+	if err := validateRegisteredTaskQueueName(options.TaskQueue); err != nil {
+		return nil, err
+	}
 	flowTypes := make([]string, 0, len(registry.flows))
 	for flowType := range registry.flows {
 		flowTypes = append(flowTypes, flowType)
@@ -160,7 +164,7 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 	}
 	return &pullWorker{
 		service: service, client: dexpb.NewWorkerTaskServiceClient(conn), appWorkerID: appWorkerID,
-		flowTypes: flowTypes, queues: queues,
+		taskQueue: options.TaskQueue, flowTypes: flowTypes, queues: queues,
 		queueRegistrations: queueRegistrations, registrationChanged: make(chan struct{}), permanentStreamRejected: make(chan struct{}),
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
@@ -369,7 +373,7 @@ func (worker *pullWorker) registrationState() PullRegistrationState {
 		registration := worker.queueRegistrations[queue]
 		hasRegisteredStream := registration.registeredStreams > 0
 		state.Queues = append(state.Queues, PullQueueRegistrationState{
-			Queue: queue, HasRegisteredStream: hasRegisteredStream, LastPermanentError: registration.lastPermanentError,
+			Queue: queue, TaskQueue: worker.taskQueue, HasRegisteredStream: hasRegisteredStream, LastPermanentError: registration.lastPermanentError,
 		})
 		if !hasRegisteredStream && registration.lastPermanentError != nil {
 			state.IsReady = false
@@ -433,7 +437,7 @@ func (worker *pullWorker) recordStreamResult(stream *pullStream, err error) {
 	}
 	if isPermanentPullStreamError(err) {
 		registration.lastPermanentError = err
-		rejection := &PullRegistrationError{Queue: stream.queue, Err: err}
+		rejection := &PullRegistrationError{Queue: stream.queue, TaskQueue: worker.taskQueue, Err: err}
 		if registration.registeredStreams == 0 && !worker.hasRegisteredAllQueues && worker.initialRegistrationError == nil {
 			worker.initialRegistrationError = rejection
 		}
@@ -538,6 +542,13 @@ func (stream *pullStream) run() {
 	}
 }
 
+// taskQueueRegistrationMismatchError is permanent because an older Server ignores the requested task queue.
+func taskQueueRegistrationMismatchError(requestedTaskQueue string, registeredTaskQueue string) error {
+	return status.Errorf(codes.InvalidArgument,
+		"dex: requested task queue %q but the Server registered the stream on task queue %q; upgrade the Server to protocol version %d or later",
+		requestedTaskQueue, registeredTaskQueue, taskQueueProtocolVersion)
+}
+
 func isPermanentPullStreamError(err error) bool {
 	switch status.Code(err) {
 	case codes.Unauthenticated, codes.PermissionDenied, codes.InvalidArgument, codes.Unimplemented, codes.ResourceExhausted:
@@ -547,7 +558,14 @@ func isPermanentPullStreamError(err error) bool {
 	}
 }
 
-func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
+// poll reports a task queue echo mismatch as its error even after the Server ends the stream normally.
+func (stream *pullStream) poll(observer *rejectedTokenObserver) (wasRegistered bool, pollErr error) {
+	var taskQueueMismatch error
+	defer func() {
+		if taskQueueMismatch != nil {
+			wasRegistered, pollErr = false, taskQueueMismatch
+		}
+	}()
 	pollCtx, cancel := context.WithCancel(stream.ctx)
 	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer))
 	if err != nil {
@@ -572,6 +590,7 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	}()
 	register := &dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Register{Register: &dexpb.PollWorkerTaskRegister{
 		SupportsReservedSlotDispatch: true, SlotKind: stream.slotKind, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
+		TaskQueue: stream.worker.taskQueue,
 	}}}
 	if err := stream.send(register); err != nil {
 		return false, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
@@ -582,7 +601,6 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	if isDraining {
 		stream.closeSend()
 	}
-	wasRegistered := false
 	for {
 		select {
 		case response := <-responses:
@@ -601,6 +619,13 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 					return false, fmt.Errorf("dex: Worker task stream did not register")
 				}
 				wasRegistered = true
+				if registeredTaskQueue := response.GetRegistered().GetTaskQueue(); registeredTaskQueue != stream.worker.taskQueue {
+					taskQueueMismatch = taskQueueRegistrationMismatchError(stream.worker.taskQueue, registeredTaskQueue)
+					// Half-close so the Server returns any task it already sent without counting an attempt.
+					stream.markDraining()
+					stream.closeSend()
+					continue
+				}
 				if err := stream.worker.recordRegisteredStream(stream, response.GetRegistered()); err != nil {
 					// A reset could cost an attempt for a task sent right after Registered; half-close and drop it instead.
 					stream.markDraining()

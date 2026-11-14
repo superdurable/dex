@@ -157,6 +157,46 @@ func (e *HardDeleteAttributeUnsupportedError) Error() string {
 	)
 }
 
+// TaskQueueUnsupportedError reports a named task queue sent to a Server that cannot route it.
+//
+// Named task queues require Server protocol version 5 or later. An older Server would ignore the
+// task queue and run the work on the default task queue, so the SDK refuses instead.
+// Worker.Start returns this error when PullWorkerOptions.TaskQueue is set.
+// Client.StartFlow returns it, before sending the request, when StartFlowOptions.TaskQueue is set.
+// A Step whose WaitFor starts a SubFlow with SubFlowOptions.TaskQueue fails with this error, and
+// Dex retries it according to its retry policy.
+// Upgrade the Dex Server to resolve it.
+//
+// Example:
+//
+//	var unsupported *dex.TaskQueueUnsupportedError
+//	if errors.As(err, &unsupported) {
+//		log.Printf("upgrade Dex: task queue %s needs protocol %d", unsupported.TaskQueue, unsupported.RequiredServerProtocolVersion)
+//	}
+//
+// Since 1.46.0.
+type TaskQueueUnsupportedError struct {
+	// TaskQueue is the refused task queue name.
+	TaskQueue string
+	// NegotiatedServerProtocol is the protocol version agreed with the Server.
+	NegotiatedServerProtocol uint32
+	// RequiredServerProtocolVersion is the minimum Server protocol version for named task queues.
+	RequiredServerProtocolVersion uint32
+}
+
+// Error describes the refused task queue and the required Server protocol version.
+func (e *TaskQueueUnsupportedError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf(
+		"dex: task queue %q requires Server protocol %d or later, but the Server negotiated %d",
+		e.TaskQueue,
+		e.RequiredServerProtocolVersion,
+		e.NegotiatedServerProtocol,
+	)
+}
+
 // ValueMappingError reports a Dex value conversion failure.
 type ValueMappingError struct {
 	// Operation describes whether encoding, decoding, indexing, or hydration failed.

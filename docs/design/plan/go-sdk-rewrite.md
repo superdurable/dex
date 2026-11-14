@@ -655,7 +655,7 @@ credential to every FlowService call. A Dex server with authentication enabled
 requires it on every public API call.
 
 `WorkerOptions.Pull` tunes `MaxConcurrentTasks`, `IdleStreamsPerQueue`, optional
-`AppWorkerID`, and `StopDrainTimeout`. Workers connect outbound through
+`AppWorkerID`, `StopDrainTimeout`, and the one `TaskQueue` the Worker serves. Workers connect outbound through
 `FlowServiceAddress`, using the same `Credential`. The SDK keeps one task per
 stream and polls the sticky Worker ID queue plus each registered Flow type
 queue. A Flow type must be unique within one Dex server for pull routing.
@@ -2741,6 +2741,8 @@ type StartFlowOptions struct {
 	ConfigOverride *FlowConfig
 	AlreadyStarted *AlreadyStartedOptions
 	RequestID      *string
+	// Task queue of the Flow's pull Workers; empty means the default task queue.
+	TaskQueue      string
 }
 
 type FlowTimeoutPolicy uint8
@@ -2769,6 +2771,8 @@ type SubFlowOptions struct {
 	ConfigOverride *FlowConfig
 	ReusePolicy    SubFlowReusePolicy
 	ConditionID    string
+	// Empty keeps the parent's task queue; DefaultTaskQueue selects the default one.
+	TaskQueue      string
 }
 
 type IDReusePolicy uint8
@@ -3172,6 +3176,20 @@ Temporal-backed.
 ## UI/UX
 
 N/A: no in-repo web UI.
+
+## Named task queue contract
+
+`PullWorkerOptions.TaskQueue` names the one task queue a Worker serves; empty
+serves the default task queue. Every registration frame carries it. A Worker
+with a named task queue requires negotiated Server protocol 5 and compares the
+`PollWorkerTaskRegistered.task_queue` echo with its own. On a mismatch it
+half-closes that stream and records an `InvalidArgument` permanent rejection,
+which readiness reports. `StartFlowOptions.TaskQueue` and
+`SubFlowOptions.TaskQueue` set `WorkerTarget.task_queue`; the Client and the
+Worker refuse a non-empty name before protocol 5 with
+`TaskQueueUnsupportedError`. Names follow the Server rules: 1 to 63 characters
+from `[A-Za-z0-9._-]`, the `dex.` prefix reserved, and `DefaultTaskQueue`
+(`dex.default`) accepted only in a target.
 
 ## Pull Worker RPC reserve contract
 

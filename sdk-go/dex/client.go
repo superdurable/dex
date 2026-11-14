@@ -62,7 +62,7 @@ type ClientOptions struct {
 // A Client is safe for concurrent use. Calls use their context for cancellation and
 // return an error after Close. The Client owns its gRPC connection; callers should
 // close it when the application shuts down. Before its first request of any method, it negotiates
-// Server protocol 4 with one GetServerInfo request, which concurrent first calls share.
+// Server protocol 4 or 5 with one GetServerInfo request, which concurrent first calls share.
 // Each call's context bounds both that negotiation and the request itself.
 // A Server that reports no protocol in common with the SDK returns an upgrade error, which is
 // cached and returned on later calls. A failed GetServerInfo request returns a *ServiceError
@@ -508,6 +508,11 @@ type HealthInfo struct {
 // A lost response can leave start acceptance unknown. Retry with the same RequestID and IgnoreError
 // rather than preflighting with a status read. Use IDReuseDisallow if this logical start must not
 // create another execution after closure; see StartFlowOptions for the retry example.
+// When options set a non-empty TaskQueue and the Server negotiated a protocol older than
+// version 5, StartFlow returns *TaskQueueUnsupportedError before it sends the request.
+//
+// Changed in 1.46.0: StartFlow sends StartFlowOptions.TaskQueue and returns
+// *TaskQueueUnsupportedError when the Server cannot route a named task queue.
 func (client *Client) StartFlow(
 	ctx context.Context,
 	flow Flow,
@@ -544,6 +549,9 @@ func (client *Client) StartFlow(
 		return "", err
 	}
 	if err := client.requireHardDeleteAttributeSupport(ctx, flowOptions.Attributes); err != nil {
+		return "", err
+	}
+	if err := client.serverProtocol.requireTaskQueueSupport(options.TaskQueue); err != nil {
 		return "", err
 	}
 	requestID, err := resolveStartRequestID(options.RequestID)
