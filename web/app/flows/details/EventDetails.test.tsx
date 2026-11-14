@@ -583,6 +583,18 @@ describe('selected step event details', () => {
 });
 
 describe('RPC event details', () => {
+  it.each([
+    [{ isPullMode: true }, 'default'],
+    [{ isPullMode: true, taskQueue: 'env-1' }, 'env-1'],
+  ])('shows the Flow task queue of a pull RPC for %j', (workerTarget, expected) => {
+    const start: FlowHistoryEvent = { eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: { flowConfig: { workerTarget } } };
+    const rpc: FlowHistoryEvent = { eventId: 2, eventTime: null, type: 'RpcExecutionCompleted', payload: { rpcName: 'getStatus', servedByAppWorkerId: 'worker-a' } };
+    expect(renderDetails(rpc, [start, rpc])).toMatch(new RegExp(`>Task queue<.*>${expected}<`));
+  });
+  it('omits the RPC task queue when the start event is not loaded', () => {
+    const rpc: FlowHistoryEvent = { eventId: 2, eventTime: null, type: 'RpcExecutionCompleted', payload: { rpcName: 'getStatus', servedByAppWorkerId: 'worker-a' } };
+    expect(renderDetails(rpc)).not.toContain('>Task queue<');
+  });
   it('renders external SetAttributes without exposing its system RPC', () => {
     const event: FlowHistoryEvent = {
       eventId: 9,
@@ -757,7 +769,18 @@ describe('routing context and dispatch failures', () => {
     const markup = renderDetails(event);
     expect(markup).toContain('worker-new');
     expect(markup).toContain('worker-old');
-    expect(markup).toContain('Task queue');
+    expect(markup).toContain('Flow type queue');
+    expect(markup).toMatch(/>Task queue<.*>default</);
+  });
+  it('shows the named dispatch task queue in method context', () => {
+    const event = executeEvent(1);
+    (event.payload.context as Record<string, unknown>).pullRouting = { servedByAppWorkerId: 'worker-new', source: 1, taskQueue: 'env-1' };
+    const markup = renderDetails(event);
+    expect(markup).toMatch(/>Task queue<.*>env-1</);
+    expect(markup).toContain('Sticky queue');
+  });
+  it('omits the task queue when method context has no routing', () => {
+    expect(renderDetails(executeEvent(1))).not.toContain('>Task queue<');
   });
   it.each([
     ['no Worker available for queue PaymentFlow', 'No Worker available'],

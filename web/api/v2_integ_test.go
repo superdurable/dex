@@ -954,9 +954,11 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 		workerTarget string
 		wantStatus   int
 		wantError    string
+		wantQueue    string
 	}{
 		{name: "address", workerTarget: `"workerTargetAddress":"worker:9000",`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
 		{name: "pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK},
+		{name: "pull on a named task queue", workerTarget: `"workerTargetPull":true,"workerTargetTaskQueue":"env-1.A_b",`, wantStatus: http.StatusOK, wantQueue: "env-1.A_b"},
 		{name: "both", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":true,`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
 		{name: "both with empty address", workerTarget: `"workerTargetAddress":"","workerTargetPull":true,`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
 		{name: "neither", wantStatus: http.StatusOK},
@@ -1004,7 +1006,7 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 				t.Fatalf("StartFlow requests = %d", len(client.startRequests))
 			}
 			target := client.startRequests[0].GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
-			if !target.GetIsPullMode() {
+			if !target.GetIsPullMode() || target.GetTaskQueue() != testCase.wantQueue {
 				t.Fatalf("Worker target = %+v", target)
 			}
 		})

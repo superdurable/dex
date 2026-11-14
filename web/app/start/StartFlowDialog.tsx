@@ -38,6 +38,7 @@ export function StartFlowDialog({
   onStarted: (flowID: string) => void;
 }) {
   const [flowID, setFlowID] = useState('');
+  const [taskQueue, setTaskQueue] = useState('');
   const [draft, setDraft] = useState(() => createStartInputDraft(definition.input));
   const [errors, setErrors] = useState<StartInputError[]>([]);
   const [submitError, setSubmitError] = useState('');
@@ -58,6 +59,8 @@ export function StartFlowDialog({
     event.preventDefault();
     const nextErrors: StartInputError[] = [];
     if (flowID.trim() === '') nextErrors.push({ path: 'flowId', message: 'Flow ID is required.' });
+    const taskQueueError = startTaskQueueError(taskQueue.trim());
+    if (taskQueueError) nextErrors.push({ path: 'taskQueue', message: taskQueueError });
     const input = serializeStartInput(definition.input, draft);
     nextErrors.push(...input.errors);
     setErrors(nextErrors);
@@ -75,6 +78,7 @@ export function StartFlowDialog({
         flowType,
         flowId: flowID.trim(),
         workerTargetPull: true,
+        ...(taskQueue.trim() ? { workerTargetTaskQueue: taskQueue.trim() } : {}),
       });
       const body = `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
       const headers = {
@@ -125,6 +129,17 @@ export function StartFlowDialog({
               onChange={(event) => setFlowID(event.target.value)}
             />
             <FieldError errors={errors} path="flowId" />
+          </label>
+          <label className="sfd-field">
+            <span>Task queue</span>
+            <input
+              data-start-path="taskQueue"
+              id="start-flow-task-queue"
+              placeholder="default"
+              value={taskQueue}
+              onChange={(event) => setTaskQueue(event.target.value)}
+            />
+            <FieldError errors={errors} path="taskQueue" />
           </label>
           <fieldset className="sfd-input" disabled={submitting}>
             <legend>Start input</legend>
@@ -340,6 +355,16 @@ function ScalarInput({ draft, label, path, schema, onChange }: {
       onChange={(event) => { draft.scalar = event.target.value; onChange(); }}
     />
   );
+}
+
+const taskQueueNamePattern = /^[A-Za-z0-9._-]{1,63}$/;
+
+/** Returns why a Start Flow task queue name is invalid, or undefined; empty selects the default task queue. */
+export function startTaskQueueError(taskQueue: string): string | undefined {
+  if (taskQueue === '' || taskQueue === 'dex.default') return undefined;
+  if (taskQueue.startsWith('dex.')) return 'Task queue names starting with "dex." are reserved; use dex.default for the default task queue.';
+  if (!taskQueueNamePattern.test(taskQueue)) return 'Task queue names have 1 to 63 characters from A-Z, a-z, 0-9, ".", "_", and "-".';
+  return undefined;
 }
 
 function FieldError({ errors, path }: { errors: StartInputError[]; path: string }) {

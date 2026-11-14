@@ -1154,13 +1154,20 @@ function pullDispatchFailureLabel(reason: unknown, value: unknown): string | und
   return undefined;
 }
 
+/** Names a task queue for display; the empty name is the default task queue. */
+export function taskQueueLabel(taskQueue: unknown): string {
+  return typeof taskQueue === 'string' && taskQueue !== '' ? taskQueue : 'default';
+}
+
 /** Where a method was routed; hideEmpty leaves unknown fields empty instead of a dash. */
 function pullRoutingFields(value: unknown, hideEmpty: boolean): Field[] {
   const routing = asData(value);
   const blank = hideEmpty ? undefined : '—';
-  const queueSource = routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Task queue' : blank;
+  const queueSource = routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Flow type queue' : blank;
+  const hasRouting = Boolean(routing.servedByAppWorkerId || routing.stickyAppWorkerId || routing.source || routing.taskQueue);
   return [
     ['Serving Worker ID', routing.servedByAppWorkerId || blank],
+    ['Task queue', hasRouting ? taskQueueLabel(routing.taskQueue) : blank],
     ['Queue source', queueSource],
     ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || blank],
   ];

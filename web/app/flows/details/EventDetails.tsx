@@ -32,6 +32,7 @@ import {
   displayValue,
   flowTimeoutFields,
   isPresent,
+  taskQueueLabel,
   type Data,
 } from './StepMethodSections';
 
@@ -164,11 +165,16 @@ function ChannelDeletionDetails({ payload }: { payload: Data }) {
   );
 }
 
-function RPCDetails({ payload, isPull }: { payload: Data; isPull: boolean }) {
+function RPCDetails({ payload, isPull, workerTarget }: { payload: Data; isPull: boolean; workerTarget: Data }) {
   return (
     <>
       <DetailSection title="RPC call">
-        <Fields values={[['RPC name', payload.rpcName], ['Serving Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined]]} />
+        <Fields values={[
+          ['RPC name', payload.rpcName],
+          ['Serving Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined],
+          // The Flow's task queue is fixed at start; unknown when the start event is not loaded.
+          ['Task queue', workerTarget.isPullMode === true ? taskQueueLabel(workerTarget.taskQueue) : undefined],
+        ]} />
         <ValueBlock label="Input" value={payload.input} />
         <ValueBlock label="Output" value={payload.output} />
       </DetailSection>
@@ -209,7 +215,10 @@ export function SemanticEventDetails({
   }
   if (event.type === 'ChannelExternalDelete') return <ChannelDeletionDetails payload={event.payload} />;
   if (isSetAttributesEvent(event)) return <SetAttributesDetails payload={event.payload} />;
-  if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} isPull={Boolean(event.payload.servedByAppWorkerId) || asData(asData(history.find((candidate) => candidate.type === 'FlowStartedOrContinued')?.payload.flowConfig).workerTarget).isPullMode === true} />;
+  if (event.type === 'RpcExecutionCompleted') {
+    const workerTarget = asData(asData(history.find((candidate) => candidate.type === 'FlowStartedOrContinued')?.payload.flowConfig).workerTarget);
+    return <RPCDetails payload={event.payload} isPull={Boolean(event.payload.servedByAppWorkerId) || workerTarget.isPullMode === true} workerTarget={workerTarget} />;
+  }
   return (
     <DetailSection title="Published messages">
       <ChannelMessages values={event.payload.messages} />
