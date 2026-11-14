@@ -75,7 +75,7 @@ is_process_alive() {
 
 # process_started PID prints the start time that tells a live process from a reused PID.
 process_started() {
-  ps -p "$1" -o lstart= 2>/dev/null || true
+  LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null || true
 }
 
 # is_recorded_process_alive PID STARTED checks that PID still names the process started at STARTED.
