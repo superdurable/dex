@@ -1,7 +1,9 @@
 # Docs Revisit: Structure, Reader Paths, and the Writing Guide
 
-Status: design only. No docs page, sidebar, or check changes yet. The
-[Rollout](#rollout) lists the pull requests that build it.
+Status: built (2026-11-12 to 2026-11-13). The restructure shipped in #1692 and
+the pull requests listed in [As built](#as-built), which records where the
+result differs from the decisions below. Still open: the stubs, the remaining
+lints, and the agent-facing pieces listed there.
 
 Builds on: the 2026-11 readability pass (#1513, #1524, #1530, #1533, #1543).
 That pass fixed sentences and gave each fact one home. This plan changes what
@@ -83,21 +85,41 @@ Measured on `main` at the start of this plan:
 | H | Home page as a wayfinder with an agent prompt strip at the top. See [Home page](#home-page). | Persona doors ("coming from X"). A language-by-goal grid. One golden path. |
 | D3 | Quick Start with two doors, a copyable agent prompt and the steps by hand, around a smaller example with a step that stops the Worker. | Keep order processing and add a crash step. A scaffold command first. |
 | D4 | A fixed skeleton per page type. Edge cases move to the Developer reference. | An "In short" box with details folded on the same page. |
-| D5 | No page or sidebar entry per framework. Each framework is a tab on the Agent Quick Start and How sessions work. The old framework URLs redirect to the matching tab. | One complete page per framework. Short framework pages next to the tabs. |
+| D5 | No page or sidebar entry per framework. Each framework is a tab, in alphabetical order, on the Agent Quick Start and on the concept pages where frameworks differ. The built-in agent loop keeps its own page, listed last, because most agents use a framework. The old framework URLs redirect to the Agent Quick Start. | One complete page per framework. Short framework pages next to the tabs. The built-in loop as the first tab. |
 | D6 | One comparison page for existing durable execution tools. The home page names no other product. | One page per neighbouring product. |
-| D7 | One interactive crash timeline, reused on the home page, Why Dex, the Quick Start, and How sessions work. | Mermaid sequence diagrams only. |
+| D7 | One interactive crash timeline, reused on the home page, Why Dex, the Quick Start, and Sessions. | Mermaid sequence diagrams only. |
 | D8 | Code font for identifiers in prose. Bold only for a term's first definition and for UI labels. | Bold for identifiers, as today. |
 | D9 | Ship the static agent-facing pieces now. A docs MCP server later. | A docs MCP server in this round. |
 | W1 | A fixed form for each sentence type. See [Voice](#voice). | Impersonal throughout. "You" as the default subject. |
 | W2 | One clause per sentence. Order shows cause and effect. | Join cause and effect in one sentence. |
 | W3 | Enforce the guide with `docs-prose-check` lints and a filled-in checklist in each rewrite PR, plus reading every page in a browser. | The guide and human review only. |
-| R1 | Build with AI stays its own top-level group, right after Get Started. | Build with AI inside Get Started. |
+| R1 | Build with AI stays its own top-level group, right after Get Started. It lists Dex App Builder and Dex SDK. Its overview links Dex Connector Contributor, which has no sidebar entry. | Build with AI inside Get Started. All three skill pages in the sidebar. |
 | R2 | Design Patterns and Examples stay separate groups. | One Examples group holding products and patterns. |
 | R3 | Durable Agents comes right after Build with AI, before Concepts. | Durable Agents after Concepts. |
-| R4 | The AI Agent example moves into Durable Agents. Examples keeps a link to it. | It stays only in Examples. |
-| R5 | Components becomes Run Dex, with two task pages: Run locally and Add Dex to your app. | Keep the label Components. |
-| T | The current Quick Start does not become a tutorial. Its six-step structure stays, around a new, smaller example. The order-processing code moves to an Examples page. Its integration rules move to Add Dex to your app. | A tutorial page in Get Started. Fold it into Why Dex. Delete it. |
+| R4 | Every example lives in Examples. AI Agent and Order Support Agent come first, and the Durable Agents pages link to them. Order Support Agent holds the full per-framework example code. | Examples inside Durable Agents. |
+| R5 | Components becomes Run Dex. It adds a Run Locally page. The rules for adding Dex to a service go into the Application page, listed as Your Application. | Keep the label Components. A separate Add Dex to your app page. |
+| T | The current Quick Start does not become a tutorial. Its six-step structure stays, around a new, smaller example. The order-processing code moves to an Examples page, Order Processing. Its integration rules move to the Application page. Why Dex keeps its text and Flow graph, and links to Order Processing for the code. | A tutorial page in Get Started. Fold it into Why Dex. Delete it. |
 | — | Why Dex keeps its opening as written, including "platform". | — |
+| E | Evaluate Dex is a top-level group for readers deciding whether to adopt Dex: Why Dex?, Compared to Database, Compared to Existing Durable Execution, and Correctness and Expressiveness. Its header opens Why Dex?. | Comparisons under Get Started. Comparisons in the Developer Reference, which holds versioned API details. |
+| G | Get Started opens a short landing page that routes readers to the Quick Start, Build with AI, the Agent Quick Start, or Concepts. The Quick Start is listed under it. | Get Started opening Why Dex? with the full order example. |
+| P | Primitives open a short overview page with the primitives table from Concepts. Attribute stays in the list. | The Primitives header opening Attribute. |
+| DP | Design Patterns lists pattern families and their variants, at most two levels. The overview page keeps the Flow control, Reliability, Messaging, and Data groups. | Four group headers above the families in the sidebar. |
+| AQ | The Agent Quick Start has four steps: install, make the agent durable (a diff of the changes), run it, and stop the Worker while **cancel_order** waits for approval. After a restart and an approval, the Timeline shows that nothing before the restart ran again and the write ran once. | A Quick Start that only shows an approval. Stopping the Worker during a model call, which is hard to time. The full example as the Quick Start. |
+| AC | Durable Agents has four concept pages for what Dex adds to any framework: Sessions, Tool Calls, Approvals, and Connectors as Tools. Tool Calls and Approvals are separate: one decides whether a call may run again, the other whether it should run at all. | One Tools and Approvals page. A How Sessions Work page. |
+| H2 | Group headers that have a landing page open it on click. A page that a header opens is not listed again under that header. | Headers that only expand. |
+| NV | (2026-11-11) Two-row header. Row 1: the logo, linking to the Super Durable homepage; a centered Search box (⌘K, local search index, English and Chinese); icon-only Discord and GitHub links; the theme toggle; and a small "Sign up Cloud" button. Both rows run full width, aligned with the sidebar and the table of contents. Row 2: four tabs, Docs, Quickstart, AI Agents, Examples, as extra navigation beside the full sidebar, with the language dropdown at the far right, shown as text. Dex Connectors, Blog, About, Log in and Sign up move to the footer. Refines N. | Language picker as an icon in row 1. No top tabs. |
+| H3 | (2026-11-11) Home page as grouped icon cards (option H-A): Quick Start and Why Dex buttons, an SDK row, then First time here?, What are you building?, Evaluating Dex?, Run Dex and Reference. Reuses the production section icons and colours. Supersedes the text "Pick a path" list. | Language-first cards (H-B). The production 10-card grid restored (H-C). |
+| G2 | (2026-11-11) Get Started uses the same cards (option G-A). No path's first pass takes more than 15 minutes. Deeper reading goes under "Go deeper" without a time. Times are computed from the Markdown sections each path uses and from timed clean runs of the Quick Starts, checked by AI reviewers' skip notes and one human timing, and enforced by `npm run check`. Cards and buttons show no time labels; the 15-minute limit is a design rule checked by the script, not a label. | Hand-written estimates. Time labels on some cards but not others. |
+| F | (2026-11-11) Familiarity is an eighth persona review dimension for all four personas (option F-A), judged against docs each persona already uses. | Agent builder only. |
+| RN | (2026-11-11) Renames: Limits and Sharp Edges → Limits (production defaults move to Run Dex in Production; Release status and License move to Limits, one home each). Performance and Maturity → Performance. Agents in Your App → Add Dex to Your Agent. Port Your Process → Add Dex to Existing Code, whose intro names functions, queue consumers, cron and background jobs, webhook handlers, service chains and scripts; it links Your Application's install section as step 0, and the home "Add to your app" card points to it (revises R5's rejected separate page). The path "Fix a process that breaks halfway" → "Make existing code survive crashes". Old URLs and anchors redirect. | Migrate Existing Code. Make Existing Code Durable. |
+| SB | (2026-11-11, co-founder note, corrected by Zane) Clicking any group header opens that group's overview page. The overview is not listed again under the header, and no item is labelled "Overview". Every header's page is a real overview of the group, so Evaluate Dex gets its own short overview page and Why Dex becomes its first child. Keeps H2's click behaviour and fixes the headers that opened a specific page. | A child item labelled Overview. Headers that only expand. |
+| PF | (2026-11-11, co-founder note) Each paragraph, list item and callout opens with what is true; a negation follows as a clarification. A negation that only restates what the positive already implies is cut (for example "dexcli does not run on Windows" after "macOS or Linux"). A lint flags negation-first openings in English and Chinese, with marked exceptions for real warnings. Reviewers quote any they find; one on their path caps Readability at 4.5, three or more at 4. | Reviewer judgement only. |
+| RM | (2026-11-11, co-founder note) Docs never link to READMEs in the repo. Example links go to the example's source folder; the CLI README link goes to the CLI reference; the benchmark reproduce steps move onto Performance. A lint enforces it. READMEs keep developer notes and link to the docs. | Linking READMEs for detail. |
+| RV | (2026-11-11) Each review round adds one fresh reviewer who has seen no earlier round and reports what feels unfamiliar or odd, for the four resumed reviewers to verify and score. | Only resumed reviewers. |
+| DL | (2026-11-11, docs-lead review) Dex Cloud is real: a "Choose how to run Dex" page compares Dex Cloud and self-hosting, and the "no hosted service" claims go. Home is the router (hero, SDK chips, First time here?, Choose a path with four cards, then Run Dex and Reference as link rows); Get Started holds each path's ordered first pass and Go deeper, with no second card grid. The Quick Start downloads one self-contained example folder with one command instead of cloning the repo; a `dexcli init` may replace that later. Install steps sit at the top of every quick start page without scrolling, repeated at most twice across pages. Agent Markdown is one file per framework. The Step page splits its advanced guarantees out. Failover and Deploys and Change Flow Code move under Run Dex. Every page ends with one "Next" section. llms.txt gets proper nesting and an llms-full.txt. Search improvements wait. | Template repos per language. Keeping 19 home cards plus a Get Started card grid. |
+| NP | (2026-11-11) No curated reading-list paths and no circular or matrix navigation. Every card or link goes straight to the one page that does the job; sequence comes only from each page's "Next" section. Home's "What do you want to do?" has four direct cards: Add Dex to existing code, Build a durable agent, Let a coding agent write it, Evaluate Dex. Get Started is short: the Quick Start first, then the same four links. "Make existing code survive crashes" is dropped. Supersedes the path parts of G2 and DL. | Numbered reading lists per path. Path names that restate a page. |
+| CL | (2026-11-11, revised) The comparison pages are titled and labelled "Dex vs. Databases" and "Dex vs. Other Engines" (Chinese "Dex vs. 数据库", "Dex vs. 其他引擎"), so labels match titles. The header tab reads "Quick Start", matching the page titles. Dex Cloud facts come only from published sources; anything not found stays out of the docs. | Labels that differ from titles. "Quickstart" as one word. |
+| BC | (2026-11-11) One brand accent across all sections. Section icons stay, in a soft brand-green tile; links, heading dividers and active marks use the brand green, softened where they repeat. Diagrams use brand green where Dex is the focus. Supersedes per-section accent colours. | A different accent colour per top-level section. |
 
 ## Information architecture
 
@@ -105,35 +127,35 @@ Measured on `main` at the start of this plan:
 
 ```text
 Home
-Get Started          Why Dex · Quick Start · Compared to Database
-                     Compared to existing durable execution        (new)
-Build with AI        Dex Skills · Dex App Builder · Dex SDK · Dex Connector Contributor
-Durable Agents       Overview · Agent Quick Start (new) · How sessions work (new)
-                     Any other framework (new) · AI Agent example
-                     (each framework is a tab on these pages, not a sidebar entry)
-Concepts             Flow · Step · Primitives ▸ · Client · Connector
-Design Patterns      Flow Control ▸ · Reliability ▸ · Messaging ▸ · Data ▸
-Examples             Order processing (new) · 8 product examples · link to AI Agent
-Run Dex              Overview · Run locally (new) · Add Dex to your app (new)
-                     Application · Server · CLI · Web
+Get Started          (opens the Get Started landing page) · Quick Start
+Build with AI        (opens Dex Skills) · Dex App Builder · Dex SDK
+Durable Agents       (opens the overview) · Agent Quick Start (new)
+                     Sessions · Tool Calls · Approvals · Connectors as Tools (new)
+                     Built-in Agent Loop
+                     (each framework is a tab, in alphabetical order, not a sidebar entry)
+Concepts             Flow · Step · Primitives ▸ (opens a new overview) · Client · Connector
+Design Patterns      pattern families ▸ variants, at most two levels
+Examples             AI Agent · Order Support Agent (new) · Order Processing (new) · 8 more
+Run Dex              Run Locally (new) · Your Application · Server · CLI · Web
+Evaluate Dex         (opens Why Dex?) · Compared to Database
+                     Compared to Existing Durable Execution (new)
+                     Correctness and Expressiveness ▸
 Developer Reference ▸
-Correctness and Expressiveness ▸
 Glossary
 ```
 
-- **Get Started** takes the Intro and Quick Start group and the new comparison
-  page.
+- **Get Started** opens a short landing page. Only the Quick Start sits under
+  it.
 - **Durable Agents** replaces the Agent Frameworks label, because the built-in
   agent loop is not a framework. The `/agent-frameworks/...` URLs stay.
-- **Design Patterns** uses the four groups of its overview page: Flow Control,
-  Reliability, Messaging, and Data. Today the sidebar shows 13 items at one
-  level.
+- **Design Patterns** lists pattern families directly. The overview page keeps
+  the Flow control, Reliability, Messaging, and Data groups.
 - **Examples** replaces the Product Examples label. The `/use-cases/...` URLs
   stay.
 - **Run Dex** replaces Components. The `/components/...` URLs stay.
-- **Correctness and Expressiveness** stays a top-level group, as #1530 decided.
-  It moves below the Developer Reference. Why Dex and the Guarantees sections
-  link to it.
+- **Evaluate Dex** holds the material for deciding whether to adopt Dex:
+  Why Dex?, both comparison pages, and Correctness and Expressiveness, which
+  keeps its own sub-group as #1530 decided.
 - The internal section keys in `docsSections.tsx` stay. Section colours and
   icons do not change.
 
@@ -164,11 +186,12 @@ The home page orients the reader. It does not ask who they are. In order:
 
 | Page today | Becomes |
 | --- | --- |
-| Quick Start (3,183 words) | A new Quick Start at `/quick-start`. The order-processing code moves to an Examples page, Order processing. The integration rules move to Add Dex to your app. |
-| Agent Frameworks overview (3,179 words) | An overview of about 400 words at `/agent-frameworks`. How sessions work, about 1,200 words, covers tool policies, approvals, outcomes, and Connectors as tools. The crash and outcome matrices, the write-order rules, and the reconcile steps move to the existing Agents reference pages for failures and Connector tools. |
-| 8 framework pages (1,400 to 2,600 words) | Removed as pages. Install, the example code, Worker, routes, run steps, Dex Web approval, and Connect Connectors wiring move into the Agent Quick Start, under that framework's tab. What the adapter does, how a turn maps to Steps, how it differs, and its limits move into How sessions work, under the same tab. Each old URL redirects to its tab on the Agent Quick Start. |
-| Built-in agent loop (3,340 words) | The first tab, and the default. Its extra features (durable context, steering, questions, plans, MCP tools, live events, and session access) become a section of How sessions work that shows on the built-in tab. |
-| New | Compared to existing durable execution. Any other framework. Run locally. Add Dex to your app. Order processing. Agent Quick Start. |
+| Quick Start (3,183 words) | A new Quick Start at `/quick-start`. The order-processing code moves to an Examples page, Order Processing. The integration rules move to the Application page. |
+| Agent Frameworks overview (3,179 words) | An overview of about 400 words at `/agent-frameworks`. Sessions, Tool Calls, Approvals, and Connectors as Tools take the shared rules, for every framework. The crash and outcome matrices, the write-order rules, and the reconcile steps move to the existing Agents reference pages for failures and Connector tools. |
+| 7 framework pages (1,400 to 2,600 words) | Removed as pages. Install, the example code, Worker, routes, run steps, Dex Web approval, and Connect Connectors wiring move into the Agent Quick Start, under that framework's tab. What the adapter does and how a turn maps to Steps open the Agent Quick Start, under the same tab. Each framework's limits move to the Agents reference. Each old URL redirects to the Agent Quick Start. |
+| Built-in agent loop (3,340 words) | Keeps its page and URL, listed last under Durable Agents. It holds its own turn model and the features only it has: durable context, steering, questions, plans, MCP tools, live events, and session access. |
+| Why Dex? (2,462 words) | Keeps its text and Flow graph, about 700 words. The code moves to Order Processing. |
+| New | Get Started landing page. Primitives overview. Compared to Existing Durable Execution. Run Locally. Order Processing. Order Support Agent. Agent Quick Start. Sessions. Tool Calls. Approvals. Connectors as Tools. |
 | `production/*`, `references/*` stubs | Entries in `redirects.json`. The frozen reference snapshots link to these stubs, so the links in those snapshots are rewritten with `snapshot-reference.mjs --rewrite-links` before the stubs are deleted. |
 
 Moved anchors on the Agent Frameworks overview, such as `#session-routes` and
@@ -220,37 +243,41 @@ installing anything else.
 the approve and describe handlers, the Worker and Client, and the run and
 `curl` steps. Why Dex and the Examples overview link to it.
 
-**Add Dex to your app** is a short rules page in Run Dex. It covers passing
-services through the Flow constructor, never through a setter or a global.
-It also says where the Worker and Client live in a service, and how to start a
-Flow from a handler and wait for a Step. It links to Order processing for the
-full code.
+**Your Application** (the Application page) gains the rules for adding Dex to
+a service: pass services through the Flow constructor, never through a setter
+or a global; start a Flow from a handler and wait for a Step; and send commands
+and read state through RPCs. It links to Order Processing for the full code.
 
 ## Durable Agents
 
-- The overview says what a durable session gives the reader in a few
-  sentences, then offers the framework choice table and the example.
-- How sessions work is the single home for the stable rules: tool policies and
-  effect classes, approvals, tool call outcomes, and Connectors as tools.
-- The Agent Quick Start and the shared task pages carry a framework tab. The tab
-  remembers the reader's choice, the same way the SDK tabs remember a language.
-  At phone width, the tab bar becomes a dropdown.
-- The Markdown export writes one file per framework, such as
-  `agent-quick-start.langgraph.md`. An agent then fetches one framework, not
-  eight.
-- Each framework tab of How sessions work has its own "How a turn maps to
-  Steps" diagram, because the Claude Agent SDK and LangGraph map turns onto
-  Steps differently from the others.
-- A tab can be linked to directly, such as `/agent-frameworks/quick-start/#langgraph`.
-  The old framework URLs redirect to these links. The Durable Agents PR checks
-  that the redirect plugin keeps the hash. If it does not, each old URL gets a
-  small page that sets the tab and moves on.
-- Each framework tab of the Agent Quick Start opens with "What changes in your
-  code" as a diff.
-- Frameworks have no sidebar entries. Readers who search for one framework land
-  on its tab through the redirect and the page's per-framework Markdown file.
-- Any other framework is a checklist for adapting a framework that has no
-  adapter.
+- The overview says what a durable session gives the reader, lists the pages,
+  links the two agent examples, and offers the framework choice table. The
+  built-in loop is the last row.
+- **Agent Quick Start** (four steps, see AQ). Step 2 shows only the changes to
+  a plain agent, as a diff per framework. It needs a small example per
+  framework under `examples/`.
+- **Sessions**: what a session keeps, and how each framework's turn maps onto
+  Steps (framework tabs).
+- **Tool Calls**: tool policies, effect classes, retries versus at most once,
+  tool call outcomes, and reconciling `outcome_unknown`. Every framework user
+  sets a policy for every tool, so this is the page they need most.
+- **Approvals**: how an approval waits, deadlines, and approving in Dex Web.
+- **Connectors as Tools**: which operations are offered, their effect classes
+  and outcomes, write order, crashes, and the per-framework wiring (tabs).
+- Per-framework limits are volatile. They move to the Agents reference.
+- **Built-in Agent Loop** keeps its page, listed last, for new agents without a
+  framework.
+- Framework tabs are in alphabetical order, remember the reader's choice, and
+  `?framework=` selects a tab in a link. The tab bar is one row that scrolls
+  sideways when it is too wide. Links to one framework use `?framework=`.
+- The Markdown export writes each framework under its own label. A later PR
+  writes one file per framework.
+- The redirect check in `site-smoke.mjs` accepts only a page path as a target.
+  So the old framework URLs open the Agent Quick Start on its default tab.
+  Opening the matching tab needs a change to that check or a small redirect
+  page.
+- No page covers frameworks without an adapter. Dex documents only the
+  frameworks it ships adapters for.
 
 ## Comparison page
 
@@ -275,7 +302,7 @@ the current Dex semantics before it ships.
 | The shape of a Flow | The Flow Definition Graph from the Dex Web Design view, as today. |
 | How a concept works | The concept diagrams, as redesigned in 2026-11. |
 | What a crash does | A new step-through crash timeline. Its `markdownDescription` tells the same story as numbered text. |
-| How an agent turn maps to Steps | A sequence diagram on each framework tab of How sessions work. |
+| How an agent turn maps to Steps | A sequence diagram under each framework tab of the Agent Quick Start. |
 | Where to find something in Dex Web | Screenshots, checked against the current Dex Web when a page changes. |
 
 The 2026-11 visual direction stays: few borders, one or two accent colours,
@@ -333,7 +360,8 @@ headings; the task section; and a lookup of details.
 | Design pattern | Use it when (one sentence and one scenario), Flow graph, How it works, Code, Rules and pitfalls, Related | Concept pages |
 | Product example | Goal, Requirements in product terms only, Flow design (graph, and which requirement maps to which Dex feature), Implementation, Run it | Design patterns |
 | Framework tab | What the adapter does, Install, How a turn maps to Steps, How this framework differs, Limits | Agents reference |
-| Task page with framework tabs | Goal, Steps with framework tabs, Check it worked | How sessions work |
+| Task page with framework tabs | Goal, Steps with framework tabs, Check it worked | The Durable Agents concept pages |
+| Quick start | One sentence on what the reader will run and how long it takes, What you will build, Before you start, Numbered steps, one closing sentence that names what the reader just did ("You have run your first durable agent."), Next | Examples, concept pages |
 | How-to and operate | Goal, Before you start, Numbered steps with expected output, Check it worked, Troubleshooting with symptom headings | Server, CLI, and Web reference |
 | Comparison | What they share, then for each product: term map, the same example, differences, when the other fits; Last checked date | Concepts |
 
@@ -486,34 +514,207 @@ Each rewritten page follows these steps. Step 2 keeps facts from being lost.
 
 ## Rollout
 
-Each step is one PR or a small group of PRs, in both locales:
+The structure only works as a whole. A regrouped sidebar points to pages that
+do not exist until the new pages ship, so the structure and its pages ship in
+one PR. Code ships first, because snippets come only from runnable examples.
 
 1. **This plan.**
-2. **Guide and structure.** The writing guide goes into
+2. **Example code (D3, D5, T).** The new Quick Start example in five SDKs, a
+   small example for each agent framework, and their tests. Engineering
+   reviews it. The docs PR waits for it.
+3. **Docs restructure (N, R1 to R5, H, D3, D4, D5, T).** The writing guide in
    `.cursor/rules/docs-writing.mdc`, with pointers from `AGENTS.md` and
-   `CLAUDE.md`. The sidebar is regrouped (N, R1 to R5). The home page cards
-   follow the new order. The site smoke test checks the new order.
-3. **Identifiers in code font (D8).** `docs-prose-check` allows inline code. A
-   script converts bold identifiers to code font, and a reviewer checks the
-   list of converted names. The three agent rule files change with it.
-4. **Agent-facing basics (D9).** Frontmatter descriptions, the `llms.txt`
-   sections, `llms-full.txt`, per-language Markdown, and the page menu.
-5. **Durable Agents (D4, D5).** Three sample pages first, for review: the
-   overview, the LangGraph page, and Polling as a non-agent sample. Then the
-   overview split, How sessions work, the Agent Quick Start with framework
-   tabs, the framework tabs on How sessions work, the redirects from the old framework pages, and Any other framework.
-6. **Quick Start (D3, T).** The new example in five SDKs with tests, the new
-   page, Order processing in Examples, and Add Dex to your app.
-7. **Home page and visuals (H, D7).** The home page, the crash timeline, and
-   the docs navbar shortcuts after their visual review.
-8. **Comparison page (D6).** Engineering checks each term map first.
-9. **The remaining pages.** Design patterns, examples, Run Dex, and concepts,
-   each against its skeleton. The `docs-prose-check` lints from W3 start as
-   warnings and become errors when a section is done.
-10. **Stubs.** Rewrite snapshot links, add redirects, and delete the
-    `production/*` and `references/*` stubs. The three rule files still say to
-    put volatile facts in those folders until the Developer reference exists.
-    That text is removed in the same PR.
+   `CLAUDE.md`. The regrouped sidebar, the Get Started page, the home page, the
+   Durable Agents pages with framework tabs, the Quick Start, Order Processing
+   in Examples, Run Locally, the Application page rules, the Primitives
+   overview, the trimmed Why Dex, the redirects from moved URLs, and the site
+   smoke test for the new order. Both locales.
+4. **Comparison page (D6).** Engineering checks each term map first. It ships
+   on its own so the check does not hold back step 3.
+
+Later, each on its own and in any order:
+
+- **Identifiers in code font (D8).** `docs-prose-check` allows inline code. A
+  script converts bold identifiers to code font, and a reviewer checks the list
+  of converted names. The three agent rule files change with it.
+- **Agent-facing basics (D9).** Frontmatter descriptions, the `llms.txt`
+  sections, `llms-full.txt`, per-language Markdown, and the page menu.
+- **Visuals (N, D7).** The crash timeline and the docs navbar shortcuts, after
+  their visual review.
+- **The remaining pages.** Design patterns, examples, Run Dex, and concepts,
+  each against its skeleton. The `docs-prose-check` lints from W3 start as
+  warnings and become errors when a section is done.
+- **Stubs.** Rewrite snapshot links, add redirects, and delete the
+  `production/*` and `references/*` stubs. The three rule files still say to
+  put volatile facts in those folders until the Developer reference exists.
+  That text is removed in the same PR.
+
+## As built
+
+The docs restructure shipped in #1692 and was refined over the next two days.
+Where this section differs from the sections above, the docs follow this
+section. `.cursor/rules/docs-writing.mdc` ("Page structure and voice") holds
+the writing guide as it is enforced.
+
+### Pull requests
+
+| PR | What it built |
+| --- | --- |
+| #1686 | The standalone Quick Start example in five SDKs, the agent quick-start modules, and the one-file agent starter. |
+| #1692 | The restructure: two-row header, home cards, Evaluate Dex, Run Dex pages, Durable Agents pages with framework tabs, the crash timeline, per-language and per-framework Markdown, `llms.txt` and `llms-full` files, identifiers in code font, and the structure and positive-first lints. |
+| #1718 | All Chinese pages and the Glossary, translated sidebar labels, overviews as wayfinders, statement headings. |
+| #1723 | Diagram components with fixed color roles, the coding agent box, Framework Support split from Sessions, Run Agents in Production. |
+| #1731, #1736 | UI details and edge-case semantics moved to the Developer reference; Pi added to every framework page. |
+| #1756 | The current sidebar, the Developer Reference "in Depth" groups, Dex vs. Temporal, How Durable Agents Work, Run on Dex Cloud, Self-Host Dex, Operate and Debug, the Quick Start run card. |
+| #1769 | Dex vs. Temporal compares the core design and its effects. |
+| #1772 | Each main-path page leads with its main answer. The Get Started page is removed, and the Quick Start is the single entry. |
+| #1774, #1776, #1777 | The compact coding agent box, the "Welcome to Dex" home heading, and wording fixes. |
+
+### Sidebar
+
+```text
+Home
+Quick Start          (opens the Quick Start) · Add Dex to Existing Code
+                     Test Your Flows · Build with AI
+Durable Agents       (opens the overview) · Agent Quick Start
+                     Add Dex to Your Agent · Framework Support
+                     How Durable Agents Work · Run Agents in Production
+Run Dex              (opens the overview) · Run on Dex Cloud · Self-Host Dex
+                     Run Dex in Production · Operate and Debug
+                     Deploy Code Changes
+Concepts             Flow · Step · Primitives ▸ · Client · Connector
+                     Dex and Your Database
+Design Patterns      pattern families ▸ variants
+Examples             AI Agent · Order Support Agent · Order Processing · 8 more
+Evaluate Dex         (opens its overview) · Why Dex? · Dex vs. Databases
+                     Dex vs. Temporal · Performance · Limits
+                     Correctness and Expressiveness ▸
+Developer Reference  components ▸
+                     Running Dex in Depth: Run Locally · Your Application ·
+                       Dex Server · CLI · Web · Failover and Deploys
+                     Agents in Depth: Sessions · Tool Calls · Approvals ·
+                       Connectors as Tools · Built-in Agent Loop ·
+                       How Each Framework Runs on Dex
+                     Dex Skills in Depth: the three skill pages
+Glossary
+```
+
+What changed from the decisions above:
+
+- **No Get Started page (replaces G, and the Get Started parts of DL and
+  NP).** The first group is Quick Start, and its header opens the Quick Start
+  tutorial. That tutorial owns the install, and it is the one exception to the
+  wayfinder rule. `/get-started` redirects to `/quick-start`.
+- **Build with AI is one page in the Quick Start group (replaces R1).** The
+  three skill pages sit under Developer Reference › Dex Skills in Depth.
+- **The main sections keep task pages only.** Pages that hold depth moved
+  under three Developer Reference groups and kept their URLs: Running Dex in
+  Depth, Agents in Depth, and Dex Skills in Depth. This moves Run Locally and
+  Your Application (R5), and Sessions, Tool Calls, Approvals, and Connectors as
+  Tools (AC), out of the main path.
+- **Durable Agents has five task pages.** How Durable Agents Work maps
+  agent-framework terms to Dex. Framework Support is a support grid and a
+  limits table. How Each Framework Runs on Dex keeps the per-framework detail.
+- **Run Dex has its own task pages.** Run on Dex Cloud, Self-Host Dex, Run Dex
+  in Production, Operate and Debug, and Deploy Code Changes (the Change Flow
+  Code page, retitled). Choose How to Run Dex folded into the Run Dex overview
+  and redirects there.
+- **Dex and Your Database sits under Concepts.**
+- **Advanced Step Guarantees sits under Correctness and Expressiveness**, at
+  `/correctness-and-expressiveness/step-guarantees`, with a redirect.
+- **Sidebar labels are translated** in Chinese (reverses the open question
+  below). Each Chinese group overview uses the translated label as its title.
+
+### Header and home page
+
+- **Header (NV, CL).** Row 1: the Super Durable wordmark, local search with
+  ⌘K, icon links to Discord and GitHub, the theme switch, and **Sign up
+  Cloud**. Row 2: the tabs Docs, Quick Start, AI Agents, and Examples, with
+  the language switch at the right. The company links are in the footer. This
+  answers the navbar open question below.
+- **Home page (replaces H, H3, and the card list in NP).** "Welcome to Dex",
+  two sentences on what Dex does, then two card groups. Start here: Quick
+  Start, Durable Agents, Examples. Common tasks: Add Dex to existing code,
+  Build a durable agent, Add Dex to your agent, Build with AI, Run Dex,
+  Evaluate Dex. A row of Quick Start links, one per SDK, closes the page. The
+  home page has no agent prompt strip and no crash timeline.
+- **Coding agent box.** The prompt block is a compact box at the top of six
+  task guides. It gives one shell line per coding agent that starts the agent
+  with a one-line prompt pointing at the page's Markdown. Only the Quick Start
+  box includes the Dex Skills install. The box is left out of the Markdown
+  export, because the Markdown is what the prompt points the agent at.
+
+### Quick Start and Agent Quick Start
+
+- **Quick Start (D3, T).** Seven steps: install Dex and download the example,
+  read the Flow, add a Worker and a Client, start a Flow, stop the Worker,
+  stop the Worker inside a Step, and see the run in Dex Web. Step 1 downloads
+  one example folder from the repository archive with `curl` and `tar`, with no
+  clone. Step 2 draws the Flow with the Dex Web canvas. Step 7 shows the crash
+  timeline and a run card styled like Dex Web.
+- **Agent Quick Start (AQ).** Four steps: get the example and run it, approve
+  a write, stop the program while the agent waits, and stop it while a tool
+  runs. `--approve` lets a coding agent approve without a terminal. A last
+  section, "What made it durable", shows the changes.
+- **Framework tabs (D5).** Alphabetical, shared by every tab group on a page,
+  remembered in the browser, and selected in a link by `?framework=`. The tab
+  bar is one row that scrolls sideways at phone width; there is no dropdown.
+  The old framework URLs redirect to the Agent Quick Start on its default tab.
+- **The built-in agent loop** keeps its page under Agents in Depth. It is a
+  tab on Connectors as Tools only, because the Agent Quick Start has no
+  built-in loop example yet.
+
+### Comparison, visuals, and agent-facing docs
+
+- **Dex vs. Temporal (replaces D6 and the "Dex vs. Other Engines" label in
+  CL).** The page compares Dex with the most common replay-based engine: the
+  design difference, running the server, concurrency defaults, what they
+  share, the same process in both, and a term map. An "Other engines" section
+  covers journal-based runtimes, database-backed libraries, step function
+  services, and agent framework checkpoints, with when each fits better. It
+  names Temporal in its title, so D6's "the home page names no other product"
+  still holds and the comparison page itself is the exception. It has no "last
+  checked" date.
+- **Visuals (D7, BC).** Diagrams are docs components with fixed color roles:
+  green is Dex, blue is a third-party service or framework, grey is your own
+  code, and amber marks a failure. The crash timeline is on the Quick Start and
+  the Agent Quick Start, honours reduced motion, and has a text version in the
+  Markdown export.
+- **Agent-facing docs (D9).** Built: `llms.txt` with whole-sentence
+  descriptions, grouped by sidebar section; `llms-full.txt` and one
+  `llms-full.<language>.txt` per SDK language; a `.md` file per page, per SDK
+  language, and per framework; and a "View as Markdown" link on every page.
+  Not built: the Copy page and Open in menu, `Accept: text/markdown`, the
+  recommended `AGENTS.md` snippet, and the docs MCP server.
+- **Identifiers in code font (D8).** Done. `docs-prose-fix` is a no-op.
+
+### Checks
+
+`npm run check` runs `lint:structure`, which holds three scripts:
+
+- `tests/docs-structure.mjs`: no README links; every group header opens its
+  overview, titled with the group's name in both locales; pages end with Next;
+  no reading lists on the home page; every page has a left nav; statement
+  headings; and SDK, server image, and Dex Web version pins against
+  `reference/versions.json`.
+- `tests/docs-positive-first.mjs`: positive-first openings and headings in
+  both locales (PF).
+- `tests/docs-locale-sections.mjs`: each Chinese page has as many H2 sections
+  as its English page.
+
+The other W3 lints were not built: opening length, banned words, generic
+headings, bold density, a lead-in before each snippet, and an anchor on every
+second-level heading.
+
+### Still open
+
+- The `production/*` and `references/*` stubs still exist. They now show the
+  left nav, and deleting them is the Stubs step of the rollout.
+- A built-in agent loop example for the Agent Quick Start, so the loop can be
+  a tab there.
+- Dex Cloud connection details, regions, pricing, and status, until they are
+  published.
+- The remaining W3 lints and the agent-facing pieces listed as not built.
 
 ## Tests
 
@@ -548,7 +749,9 @@ in the same PR as the move.
 
 ## Open questions
 
-- Where the docs navbar shortcuts sit relative to the company header. A second
-  row is proposed.
-- The sidebar category labels show in English on Chinese pages today. This
-  plan keeps that and does not add translations.
+Both questions are settled; see [As built](#as-built).
+
+- Where the docs navbar shortcuts sit relative to the company header. Built as
+  the second header row.
+- The sidebar category labels show in English on Chinese pages. Reversed:
+  they are translated (#1718).
