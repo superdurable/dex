@@ -23,6 +23,8 @@ holds ``then-hang-lease-reads`` creates ``hang-lease-read`` instead, and while t
 exists every such read waits. A ``slow-next-acquire`` that holds a number of milliseconds is
 deleted, and the next acquire is sent and answers that much later. Each acquire answer
 appends its UTC time, in ISO 8601, as one line to ``acquire-answers``.
+``DEX_AGENTS_TEST_SESSION_START_GATE_DIR`` holds each session's first Step until the test
+writes ``start.go`` there, and touches ``message.sent`` once a user message was sent.
 """
 
 import asyncio
@@ -32,9 +34,10 @@ from pathlib import Path
 from typing import Any
 
 import grpc
-from dex import AsyncClient, DexServiceError, ErrorSubStatus
+from dex import AsyncClient, AsyncContext, DexServiceError, ErrorSubStatus, StepDecision
 
-from dex_agents import SESSION_TERMINAL_LEASE, AgentSessionClient
+from dex_agents import SESSION_TERMINAL_LEASE, AgentSessionClient, AgentSessionStartInput
+from dex_agents.session_flow import StartAgentSession
 from dex_agents_cli_core import run_agent_cli
 from tests.scripted_harness import (
     FORCED_SUMMARY_ENVIRONMENT_VARIABLE,
@@ -44,6 +47,8 @@ from tests.scripted_harness import (
 
 #: The directory of the lease gate markers; unset runs without a gate.
 LEASE_GATE_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_LEASE_GATE_DIR"
+#: The directory of the session start gate markers; unset runs without a gate.
+SESSION_START_GATE_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_SESSION_START_GATE_DIR"
 #: The directory of the lease fault markers; unset runs without faults.
 LEASE_FAULT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_CLI_TEST_LEASE_FAULT_DIR"
 #: While this file exists in the fault directory, every acquire fails before it is sent.
@@ -85,6 +90,28 @@ def _install_lease_gate(directory: Path) -> None:
 
     AgentSessionClient.acquire_session_terminal_lease = gated_acquire  # type: ignore[method-assign, assignment]
     AgentSessionClient.release_session_terminal_lease = gated_release  # type: ignore[method-assign, assignment]
+
+
+def _install_session_start_gate(directory: Path) -> None:
+    execute = StartAgentSession.execute
+    send_user_message = AgentSessionClient.send_user_message
+
+    # Registration requires execute to name context and input.
+    async def gated_execute(
+        self: StartAgentSession, context: AsyncContext, input: AgentSessionStartInput
+    ) -> StepDecision:
+        await _pass_gate(directory, "start")
+        return await execute(self, context, input)
+
+    async def marked_send_user_message(
+        self: AgentSessionClient, *arguments: Any, **options: Any
+    ) -> Any:
+        result = await send_user_message(self, *arguments, **options)
+        (directory / "message.sent").touch()
+        return result
+
+    StartAgentSession.execute = gated_execute  # type: ignore[method-assign]
+    AgentSessionClient.send_user_message = marked_send_user_message  # type: ignore[method-assign]
 
 
 def _injected_fault(detail: str) -> DexServiceError:
@@ -143,6 +170,9 @@ if __name__ == "__main__":
     fault = os.environ.get(LEASE_FAULT_ENVIRONMENT_VARIABLE)
     if fault:
         _install_lease_fault(Path(fault))
+    start_gate = os.environ.get(SESSION_START_GATE_ENVIRONMENT_VARIABLE)
+    if start_gate:
+        _install_session_start_gate(Path(start_gate))
     supports_images = os.environ.get(WITHOUT_IMAGES_ENVIRONMENT_VARIABLE) != "1"
     forced = os.environ.get(FORCED_SUMMARY_ENVIRONMENT_VARIABLE)
     raise SystemExit(

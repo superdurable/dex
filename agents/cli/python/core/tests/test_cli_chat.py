@@ -56,6 +56,7 @@ from tests.reasoning_effort_cli import (
     REASONING_EFFORTS_ENVIRONMENT_VARIABLE,
     SUGGESTED_MODELS_ENVIRONMENT_VARIABLE,
 )
+from tests.scripted_cli import SESSION_START_GATE_ENVIRONMENT_VARIABLE
 from tests.scripted_harness import FORCED_SUMMARY_ENVIRONMENT_VARIABLE, SCRIPTED_FLOW_TYPE
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
@@ -495,6 +496,34 @@ async def _wait_for_the_next_second() -> None:
     """Wait for a later second, since session activity times have one-second precision."""
     started = datetime.now(UTC).replace(microsecond=0)
     while datetime.now(UTC) < started + timedelta(seconds=1):
+        await asyncio.sleep(0.05)
+
+
+async def test_a_message_sent_before_the_session_initialized_runs_once_it_does(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    gate = tmp_path / "start-gate"
+    gate.mkdir()
+    cli_home.extra_environment[SESSION_START_GATE_ENVIRONMENT_VARIABLE] = str(gate)
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    await wait_for_marker(gate / "start.reached")
+    # The session's first Step is held, so the chat sees a session without state.
+    child.sendline("hello")
+    await wait_for_marker(gate / "message.sent")
+    (gate / "start.go").touch()
+    await expect(child, "echo: hello")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert "[session failed]" not in str(child.before)
+
+
+async def wait_for_marker(path: Path) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 60
+    while not path.exists():
+        assert loop.time() < deadline, f"{path} never appeared"
         await asyncio.sleep(0.05)
 
 
