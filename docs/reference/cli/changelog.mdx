@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.47 {#v1-47}
 
-Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6).
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7).
 
 ### Added
 
@@ -54,6 +54,7 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
   one file are blocking diagnostics. Such a source no longer reports
   **typescript_wait_for_unsupported**.
   [Reference](/reference/web/flow-visualization#supported-source-profile). Since 1.47.3.
+- **dexcli connectors mcp** serves only the Connectors MCP server, without Dex Server or Dex Web, on its own loopback **/mcp** proxy. It prints the URL as one JSON line on stdout, reuses the server of a running **dexcli dev** for the same **connections.json**, and stops only a server it started. An agent that works against a remote Dex server uses it to reach the Connector tools authorized on this machine. [Reference](/reference/cli/#connectors-mcp-command). Since 1.47.7.
 
 ### Changed
 
