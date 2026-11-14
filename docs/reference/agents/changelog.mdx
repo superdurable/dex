@@ -80,7 +80,6 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
   and exits with code 1. Since 0.6.3.
 - TypeScript Claude Agent SDK adapter: **createClaudeAgentSessionFlow** now returns an **AgentSessionFlow** typed with **ClaudeAgentRunner**, as the built-in agent loop's Flow is typed with **BuiltinLoopAgentRunner**, and the runner's **executeDeferredToolCall** returns a **DeferredToolOutcome**, which a tool task or a question needs. Code that annotates the Flow as a plain **AgentSessionFlow** must drop the annotation or type it with **ClaudeAgentRunner**. Since 0.6.6.
 
-
 ## 0.5 {#v0-5}
 
 Released 2026-11-11 as [agents/v0.5.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.5.0).
