@@ -156,24 +156,75 @@ describe('Flow config card', () => {
       <FlowConfigCard summary={runningSummary} flowConfig={{ attributeStoreNames: { names: ['primary'] } }} onSaved={onSaved} />,
     );
     const lastBody = () => JSON.parse(fetchMock.mock.calls.at(-1)![1]!.body as string);
+    const save = () => screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Step durability' }));
     expect(screen.queryByRole('button', { name: 'Edit Active step search' })).toBeNull();
+    // An unset select opens with nothing chosen, so Save waits for a choice.
+    expect((screen.getByLabelText('Step durability') as HTMLSelectElement).value).toBe('');
+    expect(save().disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Step durability'), { target: { value: '2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(save());
     await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ stepDurability: 2 }, runningSummary));
     expect(lastBody()).toEqual({ flowId: 'session-1', runId: 'run-1', stepDurability: 2 });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit Active step search' }));
     fireEvent.change(screen.getByLabelText('Active step search'), { target: { value: '3' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(save());
     await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ activeStepSearchMode: 3 }, runningSummary));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit Attribute stores' }));
-    fireEvent.change(screen.getByLabelText('Attribute stores (comma-separated)'), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const names = screen.getByLabelText('Attribute store names (comma-separated)') as HTMLInputElement;
+    expect(names.value).toBe('primary');
+    expect(save().disabled).toBe(true);
+    // Clearing the box is not a way to turn sync off.
+    fireEvent.change(names, { target: { value: '' } });
+    expect(save().disabled).toBe(true);
+    expect(screen.getByText('Enter at least one store name, or choose Turn sync off.')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Turn sync off for this run'));
+    expect(screen.getByText(/stop syncing to any store/)).toBeTruthy();
+    fireEvent.click(save());
     await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ attributeStoreNames: { names: [] } }, runningSummary));
     expect(lastBody()).toEqual({ flowId: 'session-1', runId: 'run-1', attributeStoreNames: [] });
+  });
+
+  it('opens each editor on the current value and keeps Save off until it changes', () => {
+    render(
+      <FlowConfigCard
+        summary={runningSummary}
+        flowConfig={{ historyWindowEvents: 5000, stepDurability: 1, activeStepSearchMode: 2 }}
+        onSaved={vi.fn()}
+      />,
+    );
+    const save = () => screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    const windowInput = screen.getByLabelText('Retention window (events)') as HTMLInputElement;
+    expect(windowInput.value).toBe('5000');
+    expect(save().disabled).toBe(true);
+    expect(screen.getByText(/Current value: Last 5,000 events\. A saved value cannot return to Server default later\./)).toBeTruthy();
+    fireEvent.change(windowInput, { target: { value: '800' } });
+    expect(save().disabled).toBe(false);
+    expect(screen.getByText(/smaller than 5,000 events, so older events are deleted for good/)).toBeTruthy();
+    fireEvent.change(windowInput, { target: { value: '9000' } });
+    expect(screen.queryByText(/deleted for good/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Step durability' }));
+    expect((screen.getByLabelText('Step durability') as HTMLSelectElement).value).toBe('1');
+    expect(save().disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Active step search' }));
+    expect((screen.getByLabelText('Active step search') as HTMLSelectElement).value).toBe('2');
+    expect(save().disabled).toBe(true);
+  });
+
+  it('lays a row being edited across the card, below its name', () => {
+    render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    const row = screen.getByLabelText('Retention window (events)').closest('dd')!.parentElement!;
+    expect(row.className).toBe('is-editing');
+    expect(row.querySelector('dt')?.textContent).toContain('Retention window');
   });
 
   it('shows a server rejection inline and stays in edit mode', async () => {
@@ -202,13 +253,14 @@ describe('Flow config card', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
     fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '0' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    const alert = screen.getByRole('alert');
-    expect(alert.textContent).toBe('Enter a positive whole number of events.');
+    expect(screen.getByText('Enter a positive whole number of events.')).toBeTruthy();
     const windowInput = screen.getByLabelText('Retention window (events)');
     expect(windowInput.getAttribute('aria-invalid')).toBe('true');
-    expect(windowInput.getAttribute('aria-describedby')).toBe(alert.id);
+    const notes = document.getElementById(windowInput.getAttribute('aria-describedby')!);
+    expect(notes?.textContent).toContain('Enter a positive whole number of events.');
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -26,8 +26,17 @@ vi.mock('../design/FlowDesignGraph', () => ({
   ),
 }));
 vi.mock('../agents/SessionView', () => ({
-  SessionView: ({ flowId, workQueuePermissions }: { flowId: string; workQueuePermissions: string[] }) => (
-    <div data-testid="session-view" data-flow-id={flowId} data-permissions={workQueuePermissions.join(',')} />
+  SessionView: ({ flowId, workQueuePermissions, workingAsOptions = [], onChooseWorkingAs }: {
+    flowId: string;
+    workQueuePermissions: string[];
+    workingAsOptions?: readonly string[];
+    onChooseWorkingAs?: (permission: string) => void;
+  }) => (
+    <div data-testid="session-view" data-flow-id={flowId} data-permissions={workQueuePermissions.join(',')}>
+      {workingAsOptions[0] && (
+        <button onClick={() => onChooseWorkingAs?.(workingAsOptions[0])} type="button">{`Work as ${workingAsOptions[0]}`}</button>
+      )}
+    </div>
   ),
 }));
 
@@ -492,10 +501,11 @@ describe('Run page experimental tabs', () => {
     });
     renderRun('/v1/flows/run-flow/run-1?view=session');
     await screen.findByTestId('session-view');
-    const sessionWorkingAs = screen.getByRole('combobox', { name: 'Working as' }) as HTMLSelectElement;
-    const permission = [...sessionWorkingAs.options].map((option) => option.value).find((value) => value !== '');
-    expect(permission).toBeTruthy();
-    fireEvent.change(sessionWorkingAs, { target: { value: permission } });
+    // Conversation has no Working as selector of its own; its controls set it where it blocks them.
+    expect(screen.queryByRole('combobox', { name: 'Working as' })).toBeNull();
+    const workAs = screen.getByRole('button', { name: /^Work as / });
+    const permission = workAs.textContent!.replace('Work as ', '');
+    fireEvent.click(workAs);
     expect(screen.getByTestId('session-view').getAttribute('data-permissions')).toBe(permission);
 
     fireEvent.click(screen.getByRole('tab', { name: /^Actions/ }));

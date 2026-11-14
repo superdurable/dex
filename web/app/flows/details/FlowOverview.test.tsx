@@ -345,6 +345,22 @@ describe('redesigned Overview', () => {
     expect(side).toEqual(['Configuration', 'Identity', 'Start input', 'Completed outputs', 'Queued steps']);
   });
 
+  it('leaves the start-time Flow configuration out of Start input, since Configuration shows current values', () => {
+    const started: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-10T00:00:00Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        initialStart: { startStepType: 'Intake', stepInput: { order: 7 } },
+        flowConfig: { stepDurability: 2, activeStepSearchMode: 3 },
+      },
+    };
+    render(<FlowOverview summary={runningSummary} events={[started]} state={emptyState} />);
+    const startInput = screen.getByRole('heading', { name: 'Start input' }).closest('section')!;
+    expect(startInput.textContent).toContain('Intake');
+    expect(within(startInput).queryByText('Flow configuration')).toBeNull();
+  });
+
   it('shows the first run ID only when it differs from the run ID', () => {
     const sameRun = renderToStaticMarkup(<FlowOverview summary={runningSummary} events={[]} state={emptyState} />);
     expect(sameRun).not.toContain('First run ID');
