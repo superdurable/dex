@@ -10,7 +10,7 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0); 1.45.1 released 2026-11-13 as [sdk-typescript/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.1); 1.45.2 released 2026-11-14 as [sdk-typescript/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.2).
+Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0); 1.45.1 released 2026-11-13 as [sdk-typescript/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.1); 1.45.2 released 2026-11-14 as [sdk-typescript/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-typescript/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.3).
 
 ### Added
 
@@ -18,6 +18,7 @@ Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/
 - **Client.uploadFlowDefinitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/typescript/workers#flow-definitions).
 - **Client.getFlowState** reads the open Step executions of the current or latest Flow run and returns a **FlowState**. Each **ActiveStepExecution** reports its Step type, execution number, phase, the open WaitFor or Execute call as a **StepMethodInvocation** (pending, running, or retry backoff, with its attempt), and the latest failed attempt as a **StepMethodFailureInfo** (attempt, error type, message, and stack trace). Use it to tell a Flow that is still running from one whose active Step is failing and retrying. [Reference](/reference/typescript/client#api-names). Since 1.45.1.
 - **PullWorkerOptions.taskQueue** makes a Worker pull one named task queue, and **StartFlowOptions.taskQueue** starts a Flow on one. Only Workers of that task queue run the Flow's Steps and RPCs, even when Workers of other task queues register the same Flow type. **SubFlowOptions.taskQueue** sends a SubFlow to another task queue; a SubFlow without it inherits its parent's task queue, and **dex.default** selects the default task queue. To serve several task queues, run one Worker per task queue. **PullQueueRegistrationState.taskQueue** and **PullRegistrationError.taskQueue** report the Worker's task queue. A named task queue requires Server protocol 5: the Worker and Client refuse it on an older Server, and a stream that the Server registers on a different task queue becomes a permanent rejection. [Reference](/reference/typescript/workers). Since 1.45.2.
+- **FlowState.taskQueue** names the task queue of the Flow that **Client.getFlowState** reads. An empty string means the default task queue. A Client without a Worker can read it to see which Workers must serve the Flow. Since 1.45.3.
 
 ### Breaking
 
