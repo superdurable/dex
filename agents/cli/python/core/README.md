@@ -116,9 +116,12 @@ turn's calls. The lines and rules are in
 and
 [`agents/conformance/cli_session_lease.json`](../../../conformance/cli_session_lease.json).
 `--resume` of another harness's session, or of another environment's
-environment-hashed session, exits with code 2. A server whose protocol has no
-named task queues, older than server-zd 0.1.30, stops the command with one
-line.
+environment-hashed session, exits with code 2. So does `--resume` of a session
+of the harness's Flow type whose task queue, read with
+`AsyncClient.get_flow_state` without a Worker, is not its own, such as one
+another client started on the default task queue; it fails before any lease
+call. A server whose protocol has no named task queues, older than server-zd
+0.1.30, stops the command with one line.
 
 Sessions that releases before 0.6.7 started keep the environment-hashed Flow
 type `<flow_type>-<suffix>` on the default task queue. The suffix is 6

@@ -158,6 +158,14 @@ def other_harness_session_error(session_id: str, flow_type: str, command_name: s
     )
 
 
+def foreign_task_queue_session_error(session_id: str, command_name: str) -> str:
+    """Return the error for a session of the harness's Flow type on another task queue."""
+    return (
+        f"session {session_id} was not started by {command_name}, so it runs on another "
+        "task queue and cannot be opened here"
+    )
+
+
 def named_task_queue_server_error(command_name: str) -> str:
     """Return the error for a Dex server without named task queues."""
     return (

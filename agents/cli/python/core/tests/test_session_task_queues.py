@@ -69,6 +69,7 @@ from dex_agents_cli_core.session_task_queues import (
     cli_app_worker_id,
     describe_session_environment,
     describe_session_environment_identity,
+    foreign_task_queue_session_error,
     is_legacy_session_flow_type,
     is_other_session_environment,
     named_task_queue_server_error,
@@ -119,6 +120,9 @@ _RENDERERS = {
     ),
     "named_task_queue_server_error": lambda values: named_task_queue_server_error(
         values["command_name"]
+    ),
+    "foreign_task_queue_session_error": lambda values: foreign_task_queue_session_error(
+        values["session_id"], values["command_name"]
     ),
 }
 
@@ -442,6 +446,26 @@ async def test_an_environment_hashed_session_resumes_in_its_own_environment_only
         session_id, first_environment.legacy_flow_type
     )
     assert expected in other.stderr, other.stderr
+
+
+async def test_a_session_of_the_harness_flow_type_another_client_started_fails_at_once(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    environment = _new_environment(tmp_path, "a")
+    session_id = f"scripted-foreign-{os.urandom(4).hex()}"
+    async with _session_reader(cli_home, tmp_path) as reader:
+        # Started as another client may: the harness's Flow type on the default task queue.
+        await reader.sessions.start_session(session_id)
+        started_at = time.monotonic()
+        resumed = await asyncio.to_thread(
+            cli_home.run, *environment.arguments("--resume", session_id)
+        )
+        assert resumed.returncode == 2, resumed.stderr
+        assert time.monotonic() - started_at < 15, "no lease wait"
+        expected = foreign_task_queue_session_error(session_id, "dex-agents-scripted")
+        assert expected in resumed.stderr, resumed.stderr
+        lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
+        assert lease is None, "the command never tried the lease"
 
 
 async def test_sessions_lists_every_environments_sessions_with_where_each_was_last_open(

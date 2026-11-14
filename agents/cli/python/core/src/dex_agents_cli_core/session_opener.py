@@ -57,6 +57,7 @@ from dex_agents_cli_core.session_task_queues import (
     TURN_NOT_CANCELLED_LINE,
     build_takeover_line,
     describe_session_environment_identity,
+    foreign_task_queue_session_error,
     is_legacy_session_flow_type,
     is_other_session_environment,
     other_environment_legacy_session_error,
@@ -513,7 +514,8 @@ class SessionOpener:
         Raises:
             UnopenableSessionError: If the session does not exist, does not
                 run, or belongs to another harness or to another execution
-                environment's environment-hashed Flow type.
+                environment's environment-hashed Flow type, or runs on another
+                task queue than its own.
         """
         try:
             info = await self._client.describe_flow(session_id)
@@ -538,6 +540,13 @@ class SessionOpener:
             raise UnopenableSessionError(
                 f"session {session_id} is {info.status.value}, so it cannot continue"
             )
+        # Another client may start a session of this Flow type without its queue; nothing serves it.
+        if session.has_session_task_queue:
+            state = await self._client.get_flow_state(session_id)
+            if state.task_queue != session_task_queue(session_id):
+                raise UnopenableSessionError(
+                    foreign_task_queue_session_error(session_id, self._command_name)
+                )
         return session
 
     def started_session(self, session_id: str) -> OpenableSession:

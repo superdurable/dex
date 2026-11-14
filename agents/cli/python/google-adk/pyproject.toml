@@ -18,7 +18,7 @@ dependencies = [
     "dex-agents==0.1.0",
     "dex-agents-cli-core==0.1.0",
     "dex-agents-google-adk==0.1.0",
-    "dex-python-sdk==1.45.1",
+    "dex-python-sdk==1.45.2",
     "google-adk>=2.13,<3",
 ]
 

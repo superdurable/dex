@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "dex-agents==0.1.0",
-    "dex-python-sdk==1.45.1",
+    "dex-python-sdk==1.45.2",
     "openai-agents>=0.24,<0.25",
 ]
 
