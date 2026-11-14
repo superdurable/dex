@@ -395,7 +395,7 @@ RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guar
 
 <a id="容量和关闭"></a>
 
-Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在持久任务队列中等待。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
+Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在 Dex 中持久地等待，直到有 Worker 接手。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
 
 [Workers and the task queue](/reference/server/workers)（英文）介绍就绪检查、路由、容量、关闭和网络设置。
 
