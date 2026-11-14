@@ -931,7 +931,7 @@ While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
 string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
-The State tab's **Flow config** card shows the run's `FlowConfig` in plain
+The State tab's **Configuration** card shows the run's `FlowConfig` in plain
 words: **Retention window** (`history_window_events`), **Step durability**,
 **Active step search**, **Attribute stores**, and **Offload history**. An unset
 field reads **Server default**, and unset `offload_history` reads

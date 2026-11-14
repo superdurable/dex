@@ -110,7 +110,7 @@ describe('Flow config card', () => {
   it('says when the config is not loaded', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={undefined} onSaved={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull();
-    expect(screen.getByText(/Flow config is not loaded/)).toBeTruthy();
+    expect(screen.getByText(/configuration is not loaded/)).toBeTruthy();
   });
 
   it('sends only the edited window and refreshes the run state', async () => {

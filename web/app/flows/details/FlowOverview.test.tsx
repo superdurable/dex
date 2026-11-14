@@ -327,7 +327,7 @@ describe('redesigned Overview', () => {
     const headings = (column: string) => [...container.querySelectorAll(`.${column} > .overview-section h2`)]
       .map((heading) => heading.firstChild?.textContent);
     expect(headings('run-overview-main')).toEqual(['Active steps', 'Attributes', 'Channels']);
-    expect(headings('run-overview-side')).toEqual(['Flow config', 'Identity', 'Start input']);
+    expect(headings('run-overview-side')).toEqual(['Configuration', 'Identity', 'Start input']);
     expect(container.querySelector('.run-overview-side > .overview-quiet-line')?.textContent)
       .toBe('No queued steps · No completed outputs');
     expect(screen.queryByRole('heading', { name: 'Details' })).toBeNull();
@@ -342,7 +342,7 @@ describe('redesigned Overview', () => {
     const { container } = render(<FlowOverview summary={runningSummary} events={[]} state={state} />);
     const side = [...container.querySelectorAll('.run-overview-side > .overview-section h2')]
       .map((heading) => heading.firstChild?.textContent);
-    expect(side).toEqual(['Flow config', 'Identity', 'Start input', 'Completed outputs', 'Queued steps']);
+    expect(side).toEqual(['Configuration', 'Identity', 'Start input', 'Completed outputs', 'Queued steps']);
   });
 
   it('shows the first run ID only when it differs from the run ID', () => {

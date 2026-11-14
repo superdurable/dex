@@ -133,8 +133,8 @@ export function FlowConfigCard({
   if (!flowConfig) {
     return (
       <section className="overview-section history-settings-card">
-        <header className="overview-section-head"><h2>Flow config</h2></header>
-        <p className="overview-quiet">The run&apos;s Flow config is not loaded.</p>
+        <header className="overview-section-head"><h2>Configuration</h2></header>
+        <p className="overview-quiet">The run&apos;s configuration is not loaded.</p>
       </section>
     );
   }
@@ -203,7 +203,7 @@ export function FlowConfigCard({
         }),
       }));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Flow config update failed');
+      setError(saveError instanceof Error ? saveError.message : 'Configuration update failed');
       setSaving(false);
       return;
     }
@@ -300,7 +300,7 @@ export function FlowConfigCard({
 
   return (
     <section className="overview-section history-settings-card">
-      <header className="overview-section-head"><h2>Flow config</h2></header>
+      <header className="overview-section-head"><h2>Configuration</h2></header>
       <dl className="definition-list flow-config-list">
         {row('historyWindowEvents', windowLabel(windowEvents), retentionWindowHint)}
         {row('stepDurability', stepDurability ? stepDurabilityLabels[stepDurability] ?? String(stepDurability) : SERVER_DEFAULT)}
@@ -311,7 +311,7 @@ export function FlowConfigCard({
         {row('attributeStoreNames', attributeStoresLabel(attributeStoreNames))}
         {row('offloadHistory', offloadHistoryLabel(flowConfig), 'Set when the run starts.')}
       </dl>
-      {!isRunning && <p className="overview-note">The run is closed, so its Flow config no longer changes.</p>}
+      {!isRunning && <p className="overview-note">The run is closed, so its configuration no longer changes.</p>}
     </section>
   );
 }
