@@ -60,8 +60,18 @@ export interface DexServerConnection {
   /**
    * The connectors MCP URL that `connectors.mcp: auto` uses: the one `dexcli dev` printed, else `<webUrl>/mcp`;
    * `null` when the Dex Web URL is unknown.
+   *
+   * Changed in 0.6.9: a command that runs `dexcli connectors mcp` sets it to the URL that command prints, also with a
+   * URL `dex.server`, and to `null` with {@link connectorsOffReason} when Connector tools are off.
    */
   readonly autoConnectorsMcpUrl: string | null;
+  /**
+   * The line that says why `connectors.mcp: auto` has no URL, such as no authorized connection on this machine;
+   * absent when it has one or no command looked.
+   *
+   * @since 0.6.9
+   */
+  readonly connectorsOffReason?: string;
   /** What happened: an explicit server, a reused `dexcli dev`, or one this command started. */
   readonly origin: "configured" | "reused" | "started";
 }

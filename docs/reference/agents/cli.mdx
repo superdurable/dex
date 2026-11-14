@@ -335,9 +335,9 @@ Shell commands, the browser, downloads, and **dexcli dev** never see them, so
 an agent cannot read them with a tool. Only the command's own Worker process
 and the terminal UI get the one variable that **dex.auth** needs.
 
-With **dex.server** set to a URL, **connectors.mcp: auto** has no Connectors
-MCP server, so Connector tools are off; see [Connectors](#connectors).
-**sessions.summary: auto** is off too. Sessions on a shared server resume only
+With **dex.server** set to a URL, **connectors.mcp: auto** serves the
+Connector tools authorized on this machine; see [Connectors](#connectors).
+**sessions.summary: auto** is off. Sessions on a shared server resume only
 from the host, user, configuration file, and workspace that started them; see
 [Resume a session](#resume). See
 [Authentication](/reference/server/authentication) for how the server checks
@@ -388,7 +388,7 @@ claude: {}
 | **dex.auth.token_url**, **dex.auth.server_id** | None | Since 0.6.2. With **api_key**: the token endpoint that exchanges **DEX_API_KEY**, and the server ID of the access tokens. |
 | **dex.auth.source**, **dex.auth.file** | None | Since 0.6.2. With **bearer**: **env** reads the token from **DEX_CREDENTIAL**; **file** reads it from the file that **file** names. |
 | **dex.tls.ca_file**, **dex.tls.server_name** | None | Since 0.6.2. With an **https** **dex.server**: a PEM file of root CAs to trust as well, and the name the server certificate must match. |
-| **connectors.mcp** | **auto** | The Connectors MCP server. **auto** uses the one **dexcli dev** serves. Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. |
+| **connectors.mcp** | **auto** | The Connectors MCP server. **auto** runs **dexcli connectors mcp** for this machine's **~/.dex/connectors/connections.json**, with any **dex.server**; see [Connectors](#connectors). Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. Changed in 0.6.9: **auto** used the server of **dexcli dev**, and had none with a URL **dex.server**. |
 | **connectors.enabled** | Every authorized connection | The connections, and their operations, that the agent may call. See [Connectors](#connectors). |
 | **mcp_servers** | Empty | Since 0.6.4. Remote MCP servers whose tools the agent may call, by name. See [Remote MCP servers](#mcp-servers). |
 | **approval.always** | Empty | Tool names, as the agent sees them, whose every call waits for approval. They add to the approvals the tools already require. |
@@ -927,11 +927,30 @@ Each Deep Agents tool runs only while the turn switches its group on.
 ## Connectors {#connectors}
 
 The agent calls Connector operations as tools through the Connectors MCP
-server. With **connectors.mcp: auto**, the command uses the server that
-**dexcli dev** serves at the **/mcp** path of the Dex Web port. See
-[Connectors MCP server](/reference/cli/#connectors-mcp). With an explicit
-**dex.server**, **auto** has no server, so Connector tools are off with a hint
-to set the URL.
+server. With **connectors.mcp: auto**, the command serves the Connector tools
+authorized on this machine, from **~/.dex/connectors/connections.json**. It
+runs [dexcli connectors mcp](/reference/cli/#connectors-mcp-command) with the
+**dexcli** it finds as for [dex.server](#dex-server), and uses the URL that
+command prints. It stops that command when it exits. Changed in 0.6.9: this
+also works with **dex.server** set to a URL, such as Dex Cloud, and needs no
+**dexcli dev**. Before 0.6.9, **auto** used the **/mcp** path of the
+**dexcli dev** Dex Web port, and Connector tools were off with a URL
+**dex.server**.
+
+There is one Connectors MCP server for each **connections.json**. With
+**dex.server: auto**, the command starts **dexcli connectors mcp** after
+**dexcli dev** is ready, so it reuses the server of that **dexcli dev**. A
+**dexcli dev** started later reuses the server of **dexcli connectors mcp**.
+
+With **dex.server** set to a URL, Connector tools are off when
+**connections.json** is missing or lists no connection. The command prints a
+hint to authorize one on the Connectors page of Dex Web in a local
+**dexcli dev**. They are also off when **dexcli connectors mcp** cannot start.
+The command then prints the reason, and the log is in
+**~/.dex/agents/dexcli-connectors-mcp.log**. A **DEXCLI** older than 1.47.7
+has no **dexcli connectors mcp**, and the hint names that version. With
+**dex.server: auto**, either failure falls back to the **/mcp** path of the
+**dexcli dev** Dex Web port.
 
 Authorize connections on the Dex Web Connectors page, at **/v1/connectors** on
 the Dex Web URL. Credentials stay in those connections, never in the

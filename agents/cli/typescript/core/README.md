@@ -450,9 +450,13 @@ Each call is one Dex tool Step, recorded in the session.
 
 ## Connectors
 
-`connectors.mcp: auto` uses the connectors MCP server that `dexcli dev`
-serves at `<Dex Web URL>/mcp`. When the CLI core starts `dexcli dev`, it takes
-the URL from the `Connectors MCP:` line of its output. When an `auto` server is
+`connectors.mcp: auto` runs `dexcli connectors mcp` for this machine's
+`~/.dex/connectors/connections.json`, with any `dex.server`, and uses the URL
+that it prints. It starts after `dexcli dev` is ready, so it reuses the server
+of that `dexcli dev`, and the command stops it when it exits. With
+`dex.server: auto`, a failed start falls back to `<Dex Web URL>/mcp`. With a
+URL `dex.server`, connector tools are off without a local connection or when
+it fails, with a hint that says why. When an `auto` server is
 not available, such as one answering 503 while it starts, or an older
 `dexcli` without `/mcp`, the command warns and continues; each model call
 lists the server again, so its tools appear once it is ready. The terminal

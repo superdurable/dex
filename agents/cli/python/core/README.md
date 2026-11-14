@@ -436,10 +436,13 @@ starts nothing.
 
 ## Connector tools
 
-`connectors.mcp: auto` uses the connectors MCP server that `dexcli dev` serves
-at `<Dex Web URL>/mcp`. When the command started `dexcli dev`, it takes the URL
-from the `Connectors MCP:` line of its output. With an explicit `dex.server`,
-`auto` has no server, so connectors are off with a hint to set the URL.
+`connectors.mcp: auto` runs `dexcli connectors mcp` for this machine's
+`~/.dex/connectors/connections.json`, with any `dex.server`, and uses the URL
+that it prints. It starts after `dexcli dev` is ready, so it reuses the server
+of that `dexcli dev`, and the command stops it when it exits. With
+`dex.server: auto`, a failed start falls back to `<Dex Web URL>/mcp`. With a
+URL `dex.server`, connectors are off without a local connection or when it
+fails, with a hint that says why.
 
 `ConnectorsMcpToolSource` offers the server's tools through `McpToolSource`,
 so each call is a Dex tool Step with the server's effect class, approval,

@@ -25,7 +25,7 @@ from dex_agents_cli_core.terminal_ui.contract import (
 )
 
 #: The ``dexcli`` release a command downloads when none is installed.
-DEXCLI_VERSION = "1.47.5"
+DEXCLI_VERSION = "1.47.7"
 #: Where ``dexcli`` releases are published; each tag is ``cli-v<version>``.
 DEXCLI_RELEASE_BASE_URL = "https://github.com/superdurable/dex/releases/download"
 #: The ports a running ``dexcli dev`` uses by default.
