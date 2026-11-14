@@ -149,6 +149,7 @@ func integrationFlows() []dex.Flow {
 		getAttributesFlow{},
 		stepErrorRetryFlow{},
 		rpcFlow{},
+		requestIDCounterFlow{},
 		selectiveRPCFlow{},
 		channelFlow{},
 		joinFlow{},

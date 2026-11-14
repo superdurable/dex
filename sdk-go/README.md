@@ -1158,6 +1158,28 @@ The SDK generates request IDs for StartFlow and InvokeRPC. A
 separate calls. Step completion and Attribute waits accept an optional request
 ID, but the server does not read it.
 
+`RPCInvokeOptions.RequestID` sets a stable request ID for
+`InvokeRPCWithOptions`. With the same request ID on every attempt on the same
+Flow run, Dex applies the RPC's Flow state changes at most once. A repeat of a
+transactional or locking RPC returns the recorded reply without running the
+handler again. A repeat of any other RPC runs the handler again, and returns
+its new output when that attempt changes no Flow state and records no event.
+Use a transactional or locking RPC, for example when an event that is delivered
+at least once invokes an RPC. The field's doc comment gives the deduplication
+window and the error for a reused ID.
+
+```go
+requestID := event.ID + "/IncrementCounter"
+err := client.InvokeRPCWithOptions(
+	ctx,
+	flowID,
+	counterFlow.IncrementCounter,
+	event.Delta,
+	&total,
+	dex.RPCInvokeOptions{RequestID: &requestID},
+)
+```
+
 A stable request ID alone does not make a StartFlow retry succeed. A retried
 StartFlow returns the existing run only when `AlreadyStarted.IgnoreError` is
 true and the request ID matches the one that started that run. Without
@@ -1315,7 +1337,8 @@ Initial indexed values are validated by `dex.InitialAttribute` and
 `dex.InitialAttributeMapValue`.
 
 The SDK generates UUIDs for StartFlow and InvokeRPC.
-`StartFlowOptions.RequestID` may override the generated start ID. Step
+`StartFlowOptions.RequestID` may override the generated start ID, and
+`RPCInvokeOptions.RequestID` may override the generated RPC ID. Step
 completion and Attribute waits accept a request ID, but the server does not
 read it.
 
