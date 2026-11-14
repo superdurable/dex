@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '../providers';
 import { WebCatalogProvider } from '../catalog/WebCatalogProvider';
 import { SEARCH_COPY } from '../workspace/searchCopy';
+import { WORK_QUEUE_COPY } from './copy';
 import { WorkQueueWorkspace } from './WorkQueueWorkspace';
 
 const view = (rpcName: string) => ({ rpcName, fields: [] });
@@ -304,5 +305,60 @@ describe('Work Queue search', () => {
 
     await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow']));
     expect(screen.getByLabelText('location').textContent).toBe('/v1/work-queue/OrderFlow');
+  });
+
+  it('searches as soon as a status or time chip is chosen', async () => {
+    const searches = stubServer(() => []);
+    renderQueue();
+    const statuses = await screen.findByRole('radiogroup', { name: SEARCH_COPY.statusLabel });
+    await waitFor(() => expect(searches).toHaveLength(1));
+    expect(lastSearch(searches).filters).toContainEqual({ field: 'executionStatus', operator: 'eq', values: ['Running'] });
+    expect(within(statuses).getByRole('radio', { name: 'Running' }).getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(within(statuses).getByRole('radio', { name: 'Failed' }));
+    await waitFor(() => expect(lastSearch(searches).filters)
+      .toContainEqual({ field: 'executionStatus', operator: 'eq', values: ['Failed'] }));
+    expect(within(statuses).getByRole('radio', { name: 'Failed' }).getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.change(screen.getByLabelText(`${SEARCH_COPY.statusLabel}: ${WORK_QUEUE_COPY.moreStatuses}`), {
+      target: { value: 'TimedOut' },
+    });
+    await waitFor(() => expect(lastSearch(searches).filters)
+      .toContainEqual({ field: 'executionStatus', operator: 'eq', values: ['TimedOut'] }));
+    expect(within(statuses).getByTitle(WORK_QUEUE_COPY.moreStatuses).getAttribute('data-checked')).toBe('true');
+
+    fireEvent.click(within(statuses).getByRole('radio', { name: 'All' }));
+    await waitFor(() => expect(lastSearch(searches).filters.map((filter) => filter.field)).not.toContain('executionStatus'));
+
+    fireEvent.change(screen.getByLabelText(SEARCH_COPY.sinceLabel), { target: { value: '24h' } });
+    await waitFor(() => expect(lastSearch(searches).filters.map((filter) => filter.field)).toContain('startTime'));
+    expect(searches).toHaveLength(5);
+
+    fireEvent.change(screen.getByLabelText('Working as'), { target: { value: 'refund.manage' } });
+    await waitFor(() => expect(lastSearch(searches).workQueuePermissions).toEqual(['refund.manage']));
+    expect(searches).toHaveLength(6);
+  });
+
+  it('names the Flow type instead of repeating the page title, and guides the empty panel', async () => {
+    stubServer(() => [run('refund-1', 'RefundFlow', { 'case-title': 'Damaged item' })]);
+    renderQueue();
+
+    expect(await screen.findByText(WORK_QUEUE_COPY.selectHeading)).toBeTruthy();
+    expect(await screen.findByText(WORK_QUEUE_COPY.listedRuns(1, false))).toBeTruthy();
+    expect(screen.queryByText(WORK_QUEUE_COPY.appName, { selector: 'span, h2' })).toBeNull();
+    expect((screen.getByLabelText(SEARCH_COPY.flowTypeLabel) as HTMLSelectElement).value).toBe('RefundFlow');
+
+    const row = (await screen.findByText('Damaged item')).closest('button') as HTMLElement;
+    fireEvent.click(row);
+    await waitFor(() => expect(row.getAttribute('aria-current')).toBe('true'));
+    expect(screen.queryByText(WORK_QUEUE_COPY.selectHeading)).toBeNull();
+  });
+
+  it('points at the filters when nothing matches', async () => {
+    stubServer(() => []);
+    renderQueue();
+
+    expect(await screen.findByText(WORK_QUEUE_COPY.noRunsHeading)).toBeTruthy();
+    expect(screen.getByText(WORK_QUEUE_COPY.noRunsPrompt)).toBeTruthy();
   });
 });

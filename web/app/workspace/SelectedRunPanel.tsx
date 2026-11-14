@@ -21,6 +21,7 @@ import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Action
 import { WORK_QUEUE_COPY } from '../work-queue/copy';
 import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../work-queue/liveness';
 import { RUN_COPY } from './runCopy';
+import { statusTone } from './statusTone';
 import { leadFields } from './uiSlots';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { QRCodeScannerDialog } from './QRCodeScannerDialog';
@@ -357,15 +358,6 @@ function actionState(
 /** A field that names where the run stands reads as a chip. */
 function isStatusField(field: { uiSlot?: string; description: string }): boolean {
   return field.uiSlot === 'status' || /\bstatus$/i.test(field.description.trim());
-}
-
-/** A status chip's colour, from common words in its value; anything else stays neutral. */
-function statusTone(text: string): 'attention' | 'success' | 'danger' | 'neutral' {
-  const value = text.toLowerCase();
-  if (/(fail|error|reject|denied|cancel)/.test(value)) return 'danger';
-  if (/(await|wait|pending|review|approval|blocked)/.test(value)) return 'attention';
-  if (/(done|complete|approved|success|resolved|closed)/.test(value)) return 'success';
-  return 'neutral';
 }
 
 function editableValue(value: unknown, valueType: V2ValueType): string {

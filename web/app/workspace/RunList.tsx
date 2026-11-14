@@ -7,21 +7,46 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { ReactNode } from 'react';
-import { formatTimeOfDay, type TimezonePreference } from '@/lib/format';
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleDashed,
+  CircleDot,
+  CircleMinus,
+  CircleX,
+  Inbox,
+  LoaderCircle,
+  Unplug,
+  WifiOff,
+  type LucideIcon,
+} from 'lucide-react';
+import { formatDate, type TimezonePreference } from '@/lib/format';
 import type { V2CatalogEntry, V2Flow } from '@/lib/types';
 import { usePreferences } from '../providers';
 import { WORK_QUEUE_COPY } from '../work-queue/copy';
+import { isOpenFlowStatusCode } from '../work-queue/liveness';
+import { formatRelativeAge, runRowTone, useNowMs, type RunRowTone } from '../work-queue/runRowTone';
 import { RUN_COPY } from './runCopy';
 import { groupRuns } from './runOrder';
 import { SEARCH_COPY } from './searchCopy';
 import { runRow, uiSlotsOf, type UISlotMap } from './uiSlots';
 import type { FlowSearch } from './useFlowSearch';
 
+const TONE_ICON: Record<RunRowTone, LucideIcon> = {
+  waiting: CircleDot,
+  active: CircleDashed,
+  success: CircleCheck,
+  danger: CircleX,
+  muted: CircleMinus,
+};
+
 /**
  * One run list keeps Run and Work Queue in the same visual language.
  *
  * Everything either view needs to differ on arrives as a prop: the heading, the note beside it,
  * and an optional scope control. The rows themselves are identical by construction.
+ *
+ * The page bar already names the page, so the list leads with the Flow type instead of a title.
  */
 export function RunList({
   entry,
@@ -32,8 +57,8 @@ export function RunList({
   heading,
   headerNote,
   headerAction,
+  modeSwitch,
   scope,
-  permissionControl,
   emptyText,
   showFlowType = false,
   collapsed = false,
@@ -46,13 +71,14 @@ export function RunList({
   search: FlowSearch;
   selectedFlowID: string;
   strandedFlowIDs: ReadonlySet<string>;
+  /** Names the list for assistive technology and the collapsed rail. */
   heading: string;
   headerNote?: string;
   headerAction?: ReactNode;
+  /** Runs or Agents, above everything else. */
+  modeSwitch?: ReactNode;
   /** What the list is narrowed to, and the control that narrowed it. */
   scope?: ReactNode;
-  /** Which permission scopes the Work Queue. */
-  permissionControl?: ReactNode;
   emptyText: string;
   /** Names each row's Flow type, for a list that spans several. */
   showFlowType?: boolean;
@@ -62,7 +88,8 @@ export function RunList({
   onSelectRun: (flow: V2Flow) => void;
 }) {
   const { timezone } = usePreferences();
-  const { flows, liveness, loading } = search;
+  const nowMs = useNowMs();
+  const { flows, liveness } = search;
   const groups = groupRuns(flows);
   // Per Flow type, because a row reads the slots its own Flow declared.
   const uiSlotsByFlowType = new Map(flowTypes.map((candidate) => [candidate.flowType, uiSlotsOf(candidate.definition)]));
@@ -72,65 +99,76 @@ export function RunList({
       ? WORK_QUEUE_COPY.unreachable
       : liveness === 'stale'
         ? WORK_QUEUE_COPY.stale
-        : flows.length === 0
-          ? emptyText
-          : '';
+        : '';
+  const isEmpty = stateText === '' && flows.length === 0;
   return (
-    <aside className="rsw" aria-label={heading} data-collapsed={collapsed ? 'true' : undefined}>
+    <aside className="wq-list" aria-label={heading} data-collapsed={collapsed ? 'true' : undefined}>
       {collapsed ? (
         <button className="v2-rail" onClick={onExpand} title={RUN_COPY.expandList} type="button">
           {heading}
         </button>
       ) : (
         <>
-      <div className="sq-head">
-        <span className="sq-title" title={RUN_COPY.selectPrompt}>{heading}</span>
-        {headerNote !== undefined && <span className="sq-live">{headerNote}</span>}
-        {headerAction}
+      <div className="wq-head">
+        {modeSwitch}
+        <div className="wq-head-line">
+          {flowTypes.length > 1 ? (
+            <label className="wq-flowtype">
+              <select
+                aria-label={SEARCH_COPY.flowTypeLabel}
+                value={entry.flowType}
+                onChange={(event) => onSelectFlowType(event.target.value)}
+              >
+                {flowTypes.map((candidate) => (
+                  <option key={candidate.flowType} value={candidate.flowType}>{candidate.flowType}</option>
+                ))}
+              </select>
+              <ChevronDown aria-hidden="true" size={16} />
+            </label>
+          ) : (
+            <h2 className="wq-flowtype" title={entry.flowType}><span>{entry.flowType}</span></h2>
+          )}
+          {headerNote !== undefined && (
+            <span className="wq-live" data-liveness={liveness}>
+              <span aria-hidden="true" className="wq-live-dot" />
+              {headerNote}
+            </span>
+          )}
+          {headerAction}
+        </div>
       </div>
-      {flowTypes.length > 1 && (
-        <section className="rsw-zone" data-zone="pick">
-          <select
-            aria-label={SEARCH_COPY.flowTypeLabel}
-            className="rsw-flowtype"
-            value={entry.flowType}
-            onChange={(event) => onSelectFlowType(event.target.value)}
-          >
-            {flowTypes.map((candidate) => (
-              <option key={candidate.flowType} value={candidate.flowType}>{candidate.flowType}</option>
-            ))}
-          </select>
-        </section>
-      )}
-      {permissionControl !== undefined && (
-        <section className="rsw-zone" data-zone="permission">{permissionControl}</section>
-      )}
-      {scope !== undefined && (
-        <section className="rsw-zone" data-zone="find">
-          <h3 className="rsw-zonehead">{SEARCH_COPY.findHeading}</h3>
-          {scope}
-        </section>
-      )}
+      {scope !== undefined && <section className="wq-scope">{scope}</section>}
       {stateText !== '' && (
-        <p className="sq-state" data-liveness={liveness}>{stateText}</p>
+        <p className="wq-state" data-liveness={liveness} role="status">
+          <LivenessIcon liveness={liveness} />
+          {stateText}
+        </p>
       )}
-      {search.hasNextPage && flows.length > 0 && (
-        <p className="sq-state">{SEARCH_COPY.moreRuns(flows.length)}</p>
-      )}
-      <div className="rsw-scroll" data-zone="list">
+      <div className="wq-scroll" data-zone="list">
+        {isEmpty && (
+          <div className="wq-list-empty">
+            <Inbox aria-hidden="true" size={22} strokeWidth={1.75} />
+            <p>{emptyText}</p>
+          </div>
+        )}
         {groups.map((group) => (
-          <section className="rsw-group" data-group={group.key} key={group.key}>
-            {groups.length > 1 && <h3 className="rsw-grouphead">{group.label}</h3>}
-            <ul className="rsw-list">
+          <section className="wq-group" data-group={group.key} key={group.key}>
+            <h3 className="wq-grouphead">
+              <span>{group.label}</span>
+              <span className="wq-count">{group.flows.length}</span>
+            </h3>
+            <ul className="wq-rows">
               {group.flows.map((flow) => (
                 <li
-                  className="rsw-item"
+                  className="wq-item"
                   data-selected={flow.flowId === selectedFlowID ? 'true' : undefined}
                   data-stranded={strandedFlowIDs.has(flow.flowId) ? 'true' : undefined}
                   key={flow.flowId}
                 >
                   <RunRowButton
                     flow={flow}
+                    isSelected={flow.flowId === selectedFlowID}
+                    nowMs={nowMs}
                     showFlowType={showFlowType}
                     uiSlots={uiSlotsByFlowType.get(flow.flowType) ?? {}}
                     stranded={strandedFlowIDs.has(flow.flowId)}
@@ -142,11 +180,19 @@ export function RunList({
             </ul>
           </section>
         ))}
+        {search.hasNextPage && flows.length > 0 && (
+          <p className="wq-more">{SEARCH_COPY.moreRuns(flows.length)}</p>
+        )}
       </div>
         </>
       )}
     </aside>
   );
+}
+
+function LivenessIcon({ liveness }: { liveness: FlowSearch['liveness'] }) {
+  if (liveness === 'loading') return <LoaderCircle aria-hidden="true" className="wq-spin" size={14} />;
+  return <WifiOff aria-hidden="true" size={14} />;
 }
 
 /**
@@ -155,8 +201,10 @@ export function RunList({
  * No denser than the row it replaces. What the Flow declares for `recommendation` and `reason` is
  * deliberately left to the drawer — a list of reasons stops being a list.
  */
-function RunRowButton({ flow, showFlowType, uiSlots, stranded, timezone, onSelect }: {
+function RunRowButton({ flow, isSelected, nowMs, showFlowType, uiSlots, stranded, timezone, onSelect }: {
   flow: V2Flow;
+  isSelected: boolean;
+  nowMs: number;
   showFlowType: boolean;
   uiSlots: UISlotMap;
   stranded: boolean;
@@ -164,18 +212,36 @@ function RunRowButton({ flow, showFlowType, uiSlots, stranded, timezone, onSelec
   onSelect: (flow: V2Flow) => void;
 }) {
   const row = runRow(flow, uiSlots);
+  const tone = stranded ? 'muted' : runRowTone(flow.flowStatusCode, row.status);
+  const ToneIcon = stranded ? Unplug : TONE_ICON[tone];
   return (
-    <button className="rsw-row" onClick={() => onSelect(flow)} type="button">
+    <button
+      aria-current={isSelected ? 'true' : undefined}
+      className="wq-row"
+      onClick={() => onSelect(flow)}
+      type="button"
+    >
+      <span className="wq-row-icon" data-tone={tone} title={flow.flowStatus}>
+        <ToneIcon aria-hidden="true" size={16} strokeWidth={2.2} />
+      </span>
       <span
-        className={row.titleIsFlowID ? 'rsw-id t-mono' : 'rsw-id'}
+        className={row.titleIsFlowID ? 'wq-row-title t-mono' : 'wq-row-title'}
         title={flow.flowId}
       >
         {row.title}
       </span>
-      <span className="rsw-time">{formatTimeOfDay(flow.startTime, timezone)}</span>
-      {showFlowType && <span className="rsw-state">{flow.flowType}</span>}
-      <span className="rsw-state">{row.status}</span>
-      {stranded && <span className="rsw-stranded">{WORK_QUEUE_COPY.strandedRow}</span>}
+      <time className="wq-row-time" dateTime={flow.startTime ?? undefined} title={formatDate(flow.startTime, timezone)}>
+        {formatRelativeAge(flow.startTime, nowMs, timezone)}
+      </time>
+      <span className="wq-row-meta" data-tone={tone}>
+        {/* A closed run's last reported status is stale, so its execution status leads. */}
+        {!isOpenFlowStatusCode(flow.flowStatusCode) && row.status !== flow.flowStatus && (
+          <span className="wq-row-closed">{flow.flowStatus}</span>
+        )}
+        {row.status}
+        {showFlowType && <span className="wq-row-flowtype">{flow.flowType}</span>}
+      </span>
+      {stranded && <span className="wq-row-stranded">{WORK_QUEUE_COPY.strandedRow}</span>}
     </button>
   );
 }
