@@ -18,11 +18,10 @@ import os
 import signal
 import socket
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import grpc
@@ -44,7 +43,6 @@ from dex_agents import (
     SESSION_TERMINAL_LEASE,
     AgentSessionClient,
     AgentState,
-    SessionTerminalLeaseResult,
 )
 from dex_agents.testing import wait_until
 from dex_agents_cli_core import session_flow_type, session_opener, session_task_queue
@@ -53,13 +51,13 @@ from dex_agents_cli_core.harness import (
     session_start_environment,
 )
 from dex_agents_cli_core.session_lease import (
-    HeldSessionLease,
     SessionLeaseHolder,
     build_lease_unconfirmed_line,
     build_took_over_line,
 )
 from dex_agents_cli_core.session_opener import (
     SessionOpener,
+    SessionPullPermit,
     SessionQueueWorker,
     TakenOverTurnRefusal,
     _PendingTakeover,
@@ -83,12 +81,13 @@ from dex_agents_cli_core.session_task_queues import (
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.fake_terminal_ui import FakeTerminalUi, chat_transcript
 from tests.scripted_cli import (
+    ACQUIRE_ANSWERS_FILE,
     FAIL_ACQUIRE_MARKER,
-    FAIL_LEASE_READ_MARKER,
+    HANG_LEASE_READ_MARKER,
     LEASE_FAULT_ENVIRONMENT_VARIABLE,
     LOSE_NEXT_ACQUIRE_MARKER,
     SLOW_NEXT_ACQUIRE_MARKER,
-    THEN_FAIL_LEASE_READS,
+    THEN_HANG_LEASE_READS,
 )
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE, build_session_flow_without_tools
 from tests.test_terminal_ui_handoff import pause, start_chat
@@ -599,7 +598,7 @@ async def test_a_lease_no_renewal_confirms_ends_the_chat_before_another_terminal
         left_lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
         assert left_lease is not None, "the unconfirmed chat released nothing"
         # It stopped pulling before the lease expired; its exit may come later, after cleanup.
-        stopped_at = _logged_unconfirmed_time(cli_home, session_id)
+        stopped_at = _logged_permit_expiry_time(cli_home, session_id)
         assert stopped_at < datetime.fromisoformat(left_lease.expires_at)
         await expect(second, build_took_over_line(session_id), timeout=20)
         assert await _read_session_id(second) == session_id
@@ -612,13 +611,30 @@ async def test_a_lease_no_renewal_confirms_ends_the_chat_before_another_terminal
     await _exit_chat(second)
 
 
-def _logged_unconfirmed_time(cli_home: CliHome, session_id: str) -> datetime:
-    """Return the local time of the log line that says the chat stopped pulling the session."""
+#: The log line of a pull permit that expired, after its session Worker stopped pulling.
+PERMIT_EXPIRED_MARKER = "session pull permit expired; stopped pulling its task queue: session="
+
+
+def _logged_permit_expiry_time(cli_home: CliHome, session_id: str) -> datetime:
+    """Return the local time of the log line that says the command stopped pulling the session."""
     log = (cli_home.home / ".dex" / "agents" / "scripted.log").read_text(encoding="utf-8")
-    marker = f"session lease unconfirmed; stopped pulling its task queue: session={session_id}"
+    marker = f"{PERMIT_EXPIRED_MARKER}{session_id}"
     (line,) = [line for line in log.splitlines() if line.endswith(marker)]
-    logged = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f")
-    return logged.astimezone()
+    return _logged_time(line)
+
+
+async def _wait_for_permit_expiry(cli_home: CliHome) -> tuple[str, datetime]:
+    """Wait for the first pull permit expiry in the log; return its session and local time."""
+    log = cli_home.home / ".dex" / "agents" / "scripted.log"
+
+    async def expired_line() -> str | None:
+        if not log.exists():
+            return None
+        lines = log.read_text(encoding="utf-8").splitlines()
+        return next((line for line in lines if PERMIT_EXPIRED_MARKER in line), None)
+
+    line = await wait_until("the pull permit to expire", expired_line)
+    return line.split(PERMIT_EXPIRED_MARKER, 1)[1], _logged_time(line)
 
 
 async def test_an_acquire_whose_answer_was_lost_still_opens_the_session(
@@ -751,57 +767,53 @@ async def test_a_terminal_ui_whose_lease_no_renewal_confirms_stops_with_one_line
     assert "Traceback" not in screen.getvalue()
 
 
-async def test_a_slow_first_acquire_ends_the_command_before_its_lease_can_expire(
+async def test_an_acquire_answer_slower_than_the_lease_stops_pulling_and_opens_nothing_late(
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     environment = _new_environment(tmp_path, "a")
     faults = tmp_path / "faults"
     faults.mkdir()
-    # With a 3 s lease and a 0.6 s margin, an answer 2.7 s after the send is already too late.
-    (faults / SLOW_NEXT_ACQUIRE_MARKER).write_text("2700")
+    # Dex grants the lease at once; its answer arrives after the whole 3 s lease.
+    (faults / SLOW_NEXT_ACQUIRE_MARKER).write_text("4000")
     cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
     child = cli_home.spawn(*environment.arguments())
-    await asyncio.to_thread(child.expect, r"Session (\S+) could not renew its lease in time")
-    match = child.match
-    assert match is not None
-    session_id = str(match.group(1))
-    assert await wait_for_exit(child) == 1
+    session_id, stopped_at = await _wait_for_permit_expiry(cli_home)
     async with _session_reader(cli_home, tmp_path) as reader:
-        lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
-    assert lease is not None, "the command released nothing"
-    stopped_at = _logged_unconfirmed_time(cli_home, session_id)
-    assert stopped_at < datetime.fromisoformat(lease.expires_at)
+        granted_lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
+    assert granted_lease is not None, "Dex granted the lease before the slow answer"
+    assert stopped_at < datetime.fromisoformat(granted_lease.expires_at)
+
+    # The command waits, pulls again, and opens the session only on a newer, confirmed acquire.
+    assert await _read_session_id(child) == session_id
+    answers = (faults / ACQUIRE_ANSWERS_FILE).read_text(encoding="utf-8").split()
+    assert any(datetime.fromisoformat(answer) > stopped_at for answer in answers), answers
+    await expect(child, PROMPT)
+    child.sendline("hello after the late grant")
+    await expect(child, "echo: hello after the late grant")
+    await expect(child, PROMPT)
+    await _exit_chat(child)
 
 
-async def test_an_unknown_acquire_that_cannot_be_read_stops_the_worker_before_its_lease_expires(
+async def test_a_hanging_lease_read_after_a_lost_acquire_answer_cannot_keep_the_worker_pulling(
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     environment = _new_environment(tmp_path, "a")
     faults = tmp_path / "faults"
     faults.mkdir()
-    # The first acquire's answer is lost, then every lease read fails.
-    (faults / LOSE_NEXT_ACQUIRE_MARKER).write_text(THEN_FAIL_LEASE_READS)
+    # The first acquire's answer is lost, then every lease read waits.
+    (faults / LOSE_NEXT_ACQUIRE_MARKER).write_text(THEN_HANG_LEASE_READS)
     cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = SHORT_TTL_SECONDS
     cli_home.extra_environment[LEASE_FAULT_ENVIRONMENT_VARIABLE] = str(faults)
     child = cli_home.spawn(*environment.arguments())
-    marker = "session Worker stopped: an acquire's outcome stayed unknown: session="
-
-    async def stopped_line() -> str | None:
-        log = cli_home.home / ".dex" / "agents" / "scripted.log"
-        if not log.exists():
-            return None
-        lines = [line for line in log.read_text(encoding="utf-8").splitlines() if marker in line]
-        return lines[0] if lines else None
-
-    line = await wait_until("the session Worker to stop", stopped_line)
-    session_id = line.split(marker, 1)[1]
+    session_id, stopped_at = await _wait_for_permit_expiry(cli_home)
     async with _session_reader(cli_home, tmp_path) as reader:
         lease = await reader.read(session_id, SESSION_TERMINAL_LEASE)
-        assert lease is not None, "the lost acquire took the lease"
-        assert _logged_time(line) < datetime.fromisoformat(lease.expires_at)
+        assert lease is not None, "the acquire whose answer was lost took the lease"
+        assert stopped_at < datetime.fromisoformat(lease.expires_at)
 
-        (faults / FAIL_LEASE_READ_MARKER).unlink()
+        # Once the lease reads answer again, the command opens the session.
+        (faults / HANG_LEASE_READ_MARKER).unlink()
         assert await _read_session_id(child) == session_id
         await expect(child, PROMPT)
         await _exit_chat(child)
@@ -813,77 +825,76 @@ def _logged_time(line: str) -> datetime:
     return datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f").astimezone()
 
 
-class _RenewalProbeOpener:
-    """An opener stand-in whose first renewal jumps the wall clock and succeeds; later ones fail."""
-
-    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self.holder = SessionLeaseHolder("holder-1", "host-a", 1, 1)
-        self._monkeypatch = monkeypatch
-        self._acquired_sent_at = 0.0
-        self.renewal_sends: list[float] = []
-
-    async def attempt(self, session: Any) -> SessionTerminalLeaseResult:
-        self._acquired_sent_at = time.monotonic()
-        return SessionTerminalLeaseResult(is_acquired=True, lease=None)
-
-    def acquired_sent_at(self, session_id: str) -> float:
-        return self._acquired_sent_at
-
-    async def renew(self, session_id: str) -> SessionTerminalLeaseResult:
-        self.renewal_sends.append(time.monotonic())
-        if len(self.renewal_sends) > 1:
-            raise TimeoutError("the renewal got no answer")
-        wall_time = time.time()
-        self._monkeypatch.setattr(time, "time", lambda: wall_time + 3600)
-        return SessionTerminalLeaseResult(is_acquired=True, lease=None)
-
-    def leave(self, session_id: str) -> None:
-        pass
-
-    async def read_stored_lease(self, session_id: str) -> None:
-        return None
-
-    async def release(self, session_id: str) -> None:
-        pass
+async def _wait_for(read: Callable[[], float | None], timeout: float) -> float | None:
+    """Return the first value ``read`` returns within ``timeout`` seconds, or ``None``."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = read()
+        if value is not None:
+            return value
+        await asyncio.sleep(0.01)
+    return read()
 
 
-async def test_a_wall_clock_jump_never_moves_the_renewal_deadline(
+async def test_a_pull_permit_expires_a_fifth_of_the_ttl_early_and_stops_pulling_first() -> None:
+    events: list[str] = []
+    expired_at: list[float] = []
+    started_at = time.monotonic()
+    permit = SessionPullPermit(1, started_at, lambda: events.append("stopped pulling"))
+
+    def tell_the_chat() -> None:
+        events.append("told the chat")
+        expired_at.append(time.monotonic())
+
+    permit.when_expired(tell_the_chat)
+    fired_at = await _wait_for(lambda: expired_at[0] if expired_at else None, 2)
+    assert fired_at is not None
+    assert 0.79 <= fired_at - started_at < 1.0, f"expired {fired_at - started_at:.3f} s in"
+    assert events == ["stopped pulling", "told the chat"]
+    assert permit.is_expired
+    assert permit.remaining_seconds() == 0
+
+
+async def test_only_a_confirmation_extends_a_pull_permit_from_the_confirmed_send() -> None:
+    expired_at: list[float] = []
+    # Pulling started 0.7 s ago, so 0.1 s remain.
+    permit = SessionPullPermit(1, time.monotonic() - 0.7, lambda: None)
+    permit.when_expired(lambda: expired_at.append(time.monotonic()))
+    sent_at = time.monotonic()
+    assert permit.confirm(sent_at)
+    # A confirmation of an older request never shortens the permit.
+    assert permit.confirm(sent_at - 0.5)
+    fired_at = await _wait_for(lambda: expired_at[0] if expired_at else None, 2)
+    assert fired_at is not None
+    assert 0.79 <= fired_at - sent_at < 1.0, f"expired {fired_at - sent_at:.3f} s after the send"
+
+
+async def test_an_answer_after_a_pull_permit_expired_grants_nothing() -> None:
+    stopped_at: list[float] = []
+    permit = SessionPullPermit(1, time.monotonic() - 1, lambda: stopped_at.append(time.monotonic()))
+    await _wait_for(lambda: stopped_at[0] if stopped_at else None, 1)
+    assert permit.is_expired
+    assert not permit.confirm(time.monotonic())
+    assert permit.is_expired
+    told: list[bool] = []
+    permit.when_expired(lambda: told.append(True))
+    assert told == [True], "a listener of an expired permit hears at once"
+
+
+async def test_a_pull_permit_runs_on_the_monotonic_clock_so_a_wall_clock_jump_never_moves_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    opener = _RenewalProbeOpener(monkeypatch)
-    lease = HeldSessionLease(cast(SessionOpener, opener))
-    session = cast(Any, SimpleNamespace(session_id="session-1"))
-    assert (await lease.try_acquire(session)).is_acquired
-    unconfirmed_session_id = await asyncio.wait_for(lease.unconfirmed, 5)
-    ended_at = time.monotonic()
-    assert unconfirmed_session_id == "session-1"
-    confirmed_renewal_sent_at = opener.renewal_sends[0]
-    # The deadline is that renewal's send plus 0.8 of the 1 s lease, on the monotonic clock.
-    assert 0.7 < ended_at - confirmed_renewal_sent_at < 1.1
-    await lease.release()
-
-
-class _UnansweredRenewalOpener(_RenewalProbeOpener):
-    """An opener stand-in whose first renewal never answers; every later one succeeds."""
-
-    async def renew(self, session_id: str) -> SessionTerminalLeaseResult:
-        self.renewal_sends.append(time.monotonic())
-        if len(self.renewal_sends) == 1:
-            await asyncio.Event().wait()
-        return SessionTerminalLeaseResult(is_acquired=True, lease=None)
-
-
-async def test_an_unanswered_renewal_counts_as_failed_after_one_interval(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    opener = _UnansweredRenewalOpener(monkeypatch)
-    lease = HeldSessionLease(cast(SessionOpener, opener))
-    session = cast(Any, SimpleNamespace(session_id="session-1"))
-    assert (await lease.try_acquire(session)).is_acquired
-    # A 1 s lease: renewals every third of a second, deadline 0.8 s after a confirmed send.
-    await asyncio.sleep(1.5)
-    assert not lease.unconfirmed.done(), "the next renewal confirmed the lease in time"
-    assert not lease.lost.done()
-    first, second = opener.renewal_sends[:2]
-    assert 0.25 < second - first < 0.5, "the next renewal started one interval after the first"
-    await lease.release()
+    wall_time = time.time()
+    expired_at: list[float] = []
+    started_at = time.monotonic()
+    permit = SessionPullPermit(1, started_at, lambda: None)
+    permit.when_expired(lambda: expired_at.append(time.monotonic()))
+    try:
+        monkeypatch.setattr(time, "time", lambda: wall_time - 3600)
+        assert permit.confirm(started_at + 0.1)
+        monkeypatch.setattr(time, "time", lambda: wall_time + 3600)
+        fired_at = await _wait_for(lambda: expired_at[0] if expired_at else None, 2)
+        assert fired_at is not None, "the permit expired despite the wall clock jumps"
+        assert 0.89 <= fired_at - started_at < 1.2, f"expired {fired_at - started_at:.3f} s in"
+    finally:
+        permit.cancel()

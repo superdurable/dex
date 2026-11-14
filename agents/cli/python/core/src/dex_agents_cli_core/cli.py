@@ -137,6 +137,7 @@ from dex_agents_cli_core.mcp_servers import (
 )
 from dex_agents_cli_core.session_lease import (
     HeldSessionLease,
+    PullPermitExpiredError,
     SessionLeaseHolder,
     SessionLeaseWaitInterrupted,
     build_lease_lost_line,
@@ -148,7 +149,6 @@ from dex_agents_cli_core.session_lease import (
 )
 from dex_agents_cli_core.session_list import collect_sessions_for_list
 from dex_agents_cli_core.session_opener import (
-    STORED_LEASE_READ_TIMEOUT_SECONDS,
     OpenableSession,
     SessionOpener,
     SessionQueueWorker,
@@ -566,8 +566,11 @@ class _HostedSessionLease:
             result = await self._lease.try_acquire(session)
         except (UnopenableSessionError, SessionWorkerStartError) as error:
             return RequestOutcome.failed(SESSION_UNAVAILABLE, str(error), is_remembered=False)
-        except (DexServiceError, TimeoutError) as error:
-            return RequestOutcome.failed("lease_call_failed", str(error), is_remembered=False)
+        except (DexServiceError, TimeoutError, PullPermitExpiredError) as error:
+            # Asked again later: an expired pull permit pulls and confirms again on the next try.
+            return RequestOutcome.failed(
+                "lease_call_failed", str(error) or type(error).__name__, is_remembered=False
+            )
         lease = None if result.lease is None else dataclasses.asdict(result.lease)
         if not result.is_acquired:
             return RequestOutcome.succeeded({"is_acquired": False, "lease": lease})
@@ -1010,10 +1013,9 @@ async def _run_plain_chat(
         await _wait_for_session_lease(session, lease, environment)
         for line in await session_worker.opener.complete_takeover(session_id):
             print(line, file=sys.stderr)
-        # The renewal guard runs from the acquire on; it may end the lease during the takeover.
-        if lease.is_confirmation_overdue and await lease.has_ended_within(
-            STORED_LEASE_READ_TIMEOUT_SECONDS + 1
-        ):
+        # The pull permit runs from the acquire on; it may end the lease during the takeover.
+        if lease.is_ending:
+            await lease.wait_until_ended()
             _report_ended_lease(lease)
             return 1
         print(f"Session {session_id}")
@@ -1060,17 +1062,17 @@ async def _wait_for_session_lease(
 
 
 async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) -> bool:
-    """Run the chat until it ends, another terminal takes the session, or no renewal confirms it.
+    """Run the chat until it ends, another terminal takes the session, or its pull permit expires.
 
     Returns:
         The chat's result, or ``False`` when the lease was lost or unconfirmed.
     """
     chatting = asyncio.create_task(chat.run())
     try:
-        waited: set[asyncio.Future[Any]] = {chatting, lease.lost, lease.unconfirmed}
+        waited: set[asyncio.Future[Any]] = {chatting, lease.ending}
         await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
         # A chat whose lease ended may fail at the same time; the lease explains it.
-        if not lease.lost.done() and not lease.unconfirmed.done():
+        if not lease.is_ending:
             return chatting.result()
     finally:
         chatting.cancel()
@@ -1078,6 +1080,7 @@ async def _chat_while_lease_held(chat: TerminalChat, lease: HeldSessionLease) ->
             await _end_cancelled_chat(chatting)
     # The newline ends the prompt line, which is on standard output.
     print(flush=True)
+    await lease.wait_until_ended()
     _report_ended_lease(lease)
     return False
 

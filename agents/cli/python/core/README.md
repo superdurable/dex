@@ -70,30 +70,34 @@ Opening a session of the harness's Flow type follows these steps:
 3. Otherwise start the session Worker on the session's task queue, then
    acquire the lease through the RPC, which that Worker serves.
 4. When the acquire fails because another terminal won, stop the session
-   Worker and wait again. When its outcome is unknown, such as after a
-   timeout or a lost answer, keep the session Worker and read the lease: the
-   command holds the session when the stored holder is its own. Otherwise
-   it stops the session Worker and tries again. When that read fails too, it
-   keeps the session Worker, but stops it at a fifth of the TTL before the
-   lease that acquire may have taken would expire, unless a later acquire
-   confirms the session first.
+   Worker and wait again. When its answer never arrives, such as after a
+   timeout, read the stored lease: this command's holder counts as the
+   acquire's confirmation; another holder or none stops the session Worker;
+   a failed read keeps the session Worker within its pull permit, below,
+   until the next attempt decides.
 5. On exit or on a terminal UI switch, release the lease while the session
    Worker still serves the RPC, then stop it.
 
-The held lease counts as confirmed until the time at which its last
-successful acquire or renewal was sent, plus the TTL (15 seconds), on the
-monotonic clock, so a change of the wall clock never moves it. The guard
-starts from the acquire's send time as soon as the acquire succeeds, before
-the takeover cancels a turn. The command renews the lease every third of the
-TTL, and a renewal without an answer within that interval counts as failed,
-so the next one starts in time. When no renewal confirms it again by that time less a fifth of the TTL,
-the command stops pulling the session's task queue, stops the chat, or does
-not start it when this happens during the takeover, prints one line, and
-exits with 1 without releasing the lease. When the stored lease already names
-another terminal, such as after the process was paused, it ends as for a lost
-lease instead. The lease then expires before another terminal can take the
-session, so two commands never run its Steps at once because of a lost or
-late renewal.
+One pull permit, `SessionPullPermit`, bounds how long the session Worker
+pulls without a confirmed lease. It is armed when the Worker starts pulling,
+before the first acquire is sent, and runs until that moment plus the TTL
+(15 seconds) minus a fifth of the TTL, on the monotonic clock, so a change of
+the wall clock never moves it. Only an acquire or renewal that the session
+confirmed extends it, to that request's send time plus the same span. Every
+lease read, acquire, and renewal is bounded by the time the permit has left,
+and a renewal, sent every third of the TTL, also by one renewal interval.
+When the permit expires, whatever is in progress, the session Worker stops
+pulling first. Before the lease is held, the command then waits and tries
+again: an acquire answer that arrives after the permit expired grants
+nothing, and the next attempt pulls and confirms again. Once the lease is
+held, the chat ends with one line and exit code 1 without releasing the
+lease, so the lease expires before another terminal can take the session;
+this also applies while a takeover cancels a turn, and the chat then never
+starts. The line is the lease lost line when the stored lease already names
+another holder, such as after the process was paused. In the terminal UI the
+Worker host tells the launcher, which stops the terminal UI the same way. A
+session from before 0.6.7 gets the same permit, armed at its first acquire;
+its expiry ends the chat, and the shared Worker keeps pulling.
 
 The acquire request carries this command's environment: the
 `start_environment` values below. When the call gives the lease to a new

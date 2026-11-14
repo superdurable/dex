@@ -207,6 +207,9 @@ async def test_a_chat_whose_session_another_terminal_took_stops_with_one_line(
     first, session_id = await open_first_chat(cli_home)
     # Paused past its lease, as a suspended laptop would be.
     os.kill(first.pid, signal.SIGSTOP)
+    # The paused command's streams stay registered, so the acquire may wait out Dex's sticky
+    # wait first; the default lease outlasts that wait, a 3 s lease's pull permit does not.
+    del cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"]
     second = cli_home.spawn("--plain", "--resume", session_id)
     try:
         # Its lease expired while it started, unless it still waits: either way it gets the session.
@@ -227,7 +230,7 @@ async def test_a_chat_whose_session_another_terminal_took_stops_with_one_line(
 async def expect_lease_ended(child: pexpect.spawn, session_id: str, other_pid: int) -> None:
     """Expect the lost lease line of a chat paused past its lease's expiry.
 
-    After the pause its overdue renewal deadline fires first; the stored lease
+    After the pause its overdue pull permit expires first; the stored lease
     then names the other terminal, so the chat still ends as lost.
     """
     await expect(
@@ -303,6 +306,8 @@ async def test_a_terminal_ui_whose_session_another_terminal_took_stops_with_one_
     await fake.wait_for("sent", type="ready")
     host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
     os.kill(host_pid, signal.SIGSTOP)
+    # As for the plain chat: the default lease outlasts Dex's sticky wait for the paused streams.
+    del cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"]
     try:
         second = cli_home.spawn("--plain", "--resume", session_id)
         assert await read_session_id(second) == session_id

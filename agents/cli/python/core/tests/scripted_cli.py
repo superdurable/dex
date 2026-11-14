@@ -18,13 +18,16 @@ lease acquire after it answered, until the test writes ``release.go`` or ``acqui
 there, every acquire fails before it is sent; when ``lose-next-acquire`` exists, the next
 acquire is sent, the file is deleted, and its answer is lost as a ``TimeoutError``. A
 ``lose-next-acquire`` that holds ``then-fail-lease-reads`` then creates ``fail-lease-read``,
-and while that file exists every Client read of ``SessionTerminalLease`` fails. A
-``slow-next-acquire`` that holds a number of milliseconds is deleted, and the next acquire is
-sent and answers that much later.
+and while that file exists every Client read of ``SessionTerminalLease`` fails. One that
+holds ``then-hang-lease-reads`` creates ``hang-lease-read`` instead, and while that file
+exists every such read waits. A ``slow-next-acquire`` that holds a number of milliseconds is
+deleted, and the next acquire is sent and answers that much later. Each acquire answer
+appends its UTC time, in ISO 8601, as one line to ``acquire-answers``.
 """
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,10 +52,16 @@ FAIL_ACQUIRE_MARKER = "fail-acquire"
 LOSE_NEXT_ACQUIRE_MARKER = "lose-next-acquire"
 #: The content of ``lose-next-acquire`` that also starts failing lease reads after the loss.
 THEN_FAIL_LEASE_READS = "then-fail-lease-reads"
+#: The content of ``lose-next-acquire`` that also starts holding lease reads after the loss.
+THEN_HANG_LEASE_READS = "then-hang-lease-reads"
 #: While this file exists in the fault directory, every Client read of the lease fails.
 FAIL_LEASE_READ_MARKER = "fail-lease-read"
+#: While this file exists in the fault directory, every Client read of the lease waits.
+HANG_LEASE_READ_MARKER = "hang-lease-read"
 #: When this file exists, the next acquire answers the milliseconds it holds later.
 SLOW_NEXT_ACQUIRE_MARKER = "slow-next-acquire"
+#: Each acquire answer appends one line with its ISO 8601 UTC time to this file.
+ACQUIRE_ANSWERS_FILE = "acquire-answers"
 
 
 async def _pass_gate(directory: Path, name: str) -> None:
@@ -92,21 +101,25 @@ def _install_lease_fault(directory: Path) -> None:
         if (directory / FAIL_ACQUIRE_MARKER).exists():
             raise _injected_fault("injected lease fault: the acquire was not sent")
         slow = directory / SLOW_NEXT_ACQUIRE_MARKER
+        delay_seconds = 0.0
         if slow.exists():
             delay_seconds = int(slow.read_text().strip()) / 1000
             slow.unlink()
-            result = await acquire(self, *arguments)
-            await asyncio.sleep(delay_seconds)
-            return result
         lost = directory / LOSE_NEXT_ACQUIRE_MARKER
-        if lost.exists():
-            is_failing_reads_next = lost.read_text().strip() == THEN_FAIL_LEASE_READS
+        if delay_seconds == 0 and lost.exists():
+            afterwards = lost.read_text().strip()
             await acquire(self, *arguments)
             lost.unlink()
-            if is_failing_reads_next:
+            if afterwards == THEN_FAIL_LEASE_READS:
                 (directory / FAIL_LEASE_READ_MARKER).touch()
+            elif afterwards == THEN_HANG_LEASE_READS:
+                (directory / HANG_LEASE_READ_MARKER).touch()
             raise TimeoutError("injected lease fault: the acquire's answer was lost")
-        return await acquire(self, *arguments)
+        result = await acquire(self, *arguments)
+        await asyncio.sleep(delay_seconds)
+        with (directory / ACQUIRE_ANSWERS_FILE).open("a", encoding="utf-8") as answers:
+            answers.write(f"{datetime.now(UTC).isoformat()}\n")
+        return result
 
     async def faulty_get_attributes(self: AsyncClient, flow_id: str, *definitions: Any) -> Any:
         is_lease_read = any(
@@ -115,6 +128,8 @@ def _install_lease_fault(directory: Path) -> None:
         )
         if is_lease_read and (directory / FAIL_LEASE_READ_MARKER).exists():
             raise _injected_fault("injected lease fault: the lease read failed")
+        while is_lease_read and (directory / HANG_LEASE_READ_MARKER).exists():
+            await asyncio.sleep(0.05)
         return await get_attributes(self, flow_id, *definitions)
 
     AgentSessionClient.acquire_session_terminal_lease = faulty_acquire  # type: ignore[method-assign, assignment]

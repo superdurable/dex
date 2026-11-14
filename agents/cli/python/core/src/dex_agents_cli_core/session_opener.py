@@ -10,7 +10,8 @@
 
 The order follows the session task queue plan: read the lease without a
 Worker, pull the session's task queue only while the session is free, then
-acquire the lease through the RPC that the pulling Worker serves.
+acquire the lease through the RPC that the pulling Worker serves. One pull
+permit per session bounds how long the Worker pulls without a confirmed lease.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from dex_agents_cli_core.session_lease import (
     LEASE_CALL_TIMEOUT_SECONDS,
     LEASE_RELEASE_TIMEOUT_SECONDS,
     RENEWAL_SAFETY_MARGIN_RATIO,
+    PullPermitExpiredError,
     SessionLeaseHolder,
 )
 from dex_agents_cli_core.session_task_queues import (
@@ -67,6 +69,8 @@ from dex_agents_cli_core.session_task_queues import (
 
 #: How long reading a stored lease may take when a lease ends unconfirmed.
 STORED_LEASE_READ_TIMEOUT_SECONDS = 2.0
+#: How long the read before an attempt may take while no pull permit is active.
+LEASE_READ_TIMEOUT_SECONDS = 5.0
 #: How long a session Worker may take to start pulling its task queue.
 SESSION_WORKER_START_TIMEOUT_SECONDS = 30.0
 # How long a takeover keeps trying cancel_turn while a short Step holds its lock.
@@ -117,6 +121,100 @@ class OpenableSession:
     sessions: AgentSessionClient
 
 
+class SessionPullPermit:
+    """The time a session Worker may pull a session's task queue without a confirmed lease.
+
+    It is armed when pulling starts, before the first acquire is sent, and
+    lasts the TTL minus ``RENEWAL_SAFETY_MARGIN_RATIO`` of it. Only an acquire
+    or renewal that the session confirmed extends it, to that request's send
+    time plus the same span. Every lease read, acquire, and renewal is bounded
+    by its remaining time. When it expires, pulling stops first, and then its
+    listeners hear: the session's lease, which lasts the TTL from the
+    Worker's handling of a request sent no earlier, expires only after that,
+    so another terminal never pulls the queue while this one does. It runs on
+    the monotonic clock, so a wall clock change never moves it.
+    """
+
+    def __init__(
+        self, ttl_seconds: float, started_at: float, stop_pulling: Callable[[], None]
+    ) -> None:
+        """Arm the permit.
+
+        Args:
+            ttl_seconds: The lease's TTL.
+            started_at: The ``time.monotonic()`` reading taken when pulling
+                started, or when the first acquire was sent.
+            stop_pulling: Stops the session Worker, when it still pulls this
+                session's task queue.
+        """
+        self._ttl_seconds = ttl_seconds
+        self._stop_pulling = stop_pulling
+        self._deadline = started_at + self._valid_seconds()
+        self._is_expired = False
+        self._timer: asyncio.TimerHandle | None = None
+        self._expiry_listeners: list[Callable[[], None]] = []
+        self._schedule()
+
+    @property
+    def is_expired(self) -> bool:
+        """Return whether it expired: pulling stopped, and no answer grants the session."""
+        return self._is_expired
+
+    def remaining_seconds(self) -> float:
+        """Return the seconds left before it expires, at least 0."""
+        return max(0.0, self._deadline - time.monotonic())
+
+    def confirm(self, sent_at: float) -> bool:
+        """Extend it after a request that the session confirmed.
+
+        Args:
+            sent_at: The ``time.monotonic()`` reading taken right before the
+                confirmed acquire or renewal was sent.
+
+        Returns:
+            Whether it was still valid, so the confirmation counts. An older
+            request's confirmation never shortens it.
+        """
+        if self._is_expired:
+            return False
+        self._deadline = max(self._deadline, sent_at + self._valid_seconds())
+        self._schedule()
+        return True
+
+    def when_expired(self, listener: Callable[[], None]) -> None:
+        """Call ``listener`` once when it expires; at once when it expired already."""
+        if self._is_expired:
+            listener()
+            return
+        self._expiry_listeners.append(listener)
+
+    def cancel(self) -> None:
+        """Disarm it without stopping pulling or calling its listeners; the caller stops pulling."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        self._expiry_listeners.clear()
+
+    def _valid_seconds(self) -> float:
+        return self._ttl_seconds * (1 - RENEWAL_SAFETY_MARGIN_RATIO)
+
+    def _schedule(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+        self._timer = asyncio.get_running_loop().call_later(self.remaining_seconds(), self._expire)
+
+    def _expire(self) -> None:
+        if self._is_expired:
+            return
+        self._is_expired = True
+        self._timer = None
+        # Pulling stops before anything else, so no Step of the session runs here past the lease.
+        self._stop_pulling()
+        listeners, self._expiry_listeners = self._expiry_listeners, []
+        for listener in listeners:
+            listener()
+
+
 @dataclass
 class _PullingWorker:
     task_queue: str
@@ -157,11 +255,16 @@ class SessionQueueWorker:
         """Return the task queue the current Worker pulls, or ``None``."""
         return None if self._current is None else self._current.task_queue
 
-    async def pull(self, task_queue: str) -> None:
+    async def pull(self, task_queue: str, session_id: str) -> None:
         """Pull a task queue from now on, instead of any other one.
+
+        Args:
+            task_queue: The session's task queue.
+            session_id: The session, for the error when the Worker stopped while it started.
 
         Raises:
             SessionWorkerStartError: If the Worker did not start pulling.
+            PullPermitExpiredError: If the Worker was stopped while it started.
         """
         if self._current is None or self._current.task_queue != task_queue:
             self.stop()
@@ -171,13 +274,13 @@ class SessionQueueWorker:
             started = asyncio.create_task(_wait_until_pulling(worker, serving))
             self._current = _PullingWorker(task_queue, worker, serving, started)
         current = self._current
-        try:
-            await asyncio.shield(current.started)
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            if self._current is current:
-                self.stop()
+        # Unlike awaiting it, waiting raises nothing when a stop cancels the start.
+        await asyncio.wait({current.started})
+        if self._current is not current:
+            raise PullPermitExpiredError(session_id)
+        error = current.started.exception()
+        if error is not None:
+            self.stop()
             raise SessionWorkerStartError(self._describe_start_failure(error)) from error
 
     def stop(self) -> None:
@@ -347,7 +450,8 @@ class SessionOpener:
     the session Worker pull the session's task queue and acquire the lease
     through the RPC that Worker serves. A session from before 0.6.7 keeps its
     environment-hashed Flow type and the default task queue, which the
-    command's other Worker always pulls.
+    command's other Worker always pulls. Each session gets one pull permit;
+    see ``SessionPullPermit``.
     """
 
     def __init__(
@@ -390,9 +494,8 @@ class SessionOpener:
         self._turn_refusal = turn_refusal
         self._opened_sessions: dict[str, OpenableSession] = {}
         self._pending_takeovers: dict[str, _PendingTakeover] = {}
-        # Monotonic send times of the acquires that gave this process each session's lease.
-        self._acquired_sent_at: dict[str, float] = {}
-        self._unknown_outcome_guards: dict[str, asyncio.Task[None]] = {}
+        # The pull permit of each session this command pulls or holds; see SessionPullPermit.
+        self._permits: dict[str, SessionPullPermit] = {}
 
     @property
     def holder(self) -> SessionLeaseHolder:
@@ -447,31 +550,42 @@ class SessionOpener:
         For a session on its own task queue, it reads the stored lease first.
         While another terminal's lease has not expired, it returns that lease
         and pulls nothing. Otherwise the session Worker pulls the session's
-        task queue, and the acquire RPC runs on it; a refused acquire stops
-        the pulling again. An acquire whose outcome is unknown, such as a
-        timeout, reads the stored lease: this holder's lease counts as
-        acquired, another one stops the pulling and raises, and a failed read
-        keeps the Worker and raises, so the next attempt decides; a guard stops
-        that Worker before the lease the acquire may have taken could expire.
+        task queue under a pull permit armed at the start of pulling, and the
+        acquire RPC runs on it; a refused acquire stops the pulling. When the
+        acquire's answer never arrives, the stored lease decides: this
+        command's holder counts as the acquire's confirmation. Only a
+        confirmation within the permit grants the session.
 
         Returns:
             The lease RPC's result, or a refusal that names the stored holder.
 
         Raises:
             SessionWorkerStartError: If the session Worker did not start.
+            PullPermitExpiredError: If the permit expired before a
+                confirmation; the next attempt pulls again.
             DexServiceError: If a Dex call failed.
-            TimeoutError: If the lease call took longer than ``LEASE_CALL_TIMEOUT_SECONDS``.
+            TimeoutError: If a lease call took longer than its bound.
         """
         session_id = session.session_id
         self._opened_sessions[session_id] = session
         if not session.has_session_task_queue:
-            sent_at = time.monotonic()
-            result = await self._acquire(session.sessions, session_id)
-            if result.is_acquired:
-                self._acquired_sent_at[session_id] = sent_at
-            return result
-        stored = await self._client.get_attributes(
-            session_id, SESSION_TERMINAL_LEASE, SESSION_LAST_TERMINAL_ENVIRONMENT, AGENT_STATE
+            # The shared Worker of earlier sessions keeps pulling; the permit only ends the chat.
+            legacy_permit = self._active_permit(session_id) or self._arm_permit(
+                session_id, time.monotonic()
+            )
+            legacy_sent_at = time.monotonic()
+            legacy_result = await self._acquire(
+                session.sessions, session_id, legacy_permit.remaining_seconds()
+            )
+            return self._granted_within(session_id, legacy_permit, legacy_result, legacy_sent_at)
+        active_permit = self._active_permit(session_id)
+        stored = await asyncio.wait_for(
+            self._client.get_attributes(
+                session_id, SESSION_TERMINAL_LEASE, SESSION_LAST_TERMINAL_ENVIRONMENT, AGENT_STATE
+            ),
+            LEASE_READ_TIMEOUT_SECONDS
+            if active_permit is None
+            else active_permit.remaining_seconds(),
         )
         lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
         last_environment: Mapping[str, str] | None = stored.get(SESSION_LAST_TERMINAL_ENVIRONMENT)
@@ -492,42 +606,64 @@ class SessionOpener:
         if taken_over_turn_id is not None:
             # Refused before the Worker pulls, so none of that turn's calls runs here.
             self._turn_refusal.refuse_turn(session_id, taken_over_turn_id)
-        await self._session_worker.pull(session_task_queue(session_id))
-        # A cancelled call may still have taken the lease; its release then needs this Worker.
+        # Armed before the Worker starts, so every moment of pulling counts against the permit.
+        permit = self._active_permit(session_id) or self._arm_permit(session_id, time.monotonic())
+        await self._session_worker.pull(session_task_queue(session_id), session_id)
         sent_at = time.monotonic()
         try:
-            result = await self._acquire(self._sessions, session_id)
+            result = await self._acquire(self._sessions, session_id, permit.remaining_seconds())
         except Exception as error:
-            result = await self._resolve_unknown_acquisition(session_id, error, sent_at)
-        if not result.is_acquired:
-            self._cancel_unknown_outcome_guard(session_id)
-            self._session_worker.stop()
-            return result
-        self._cancel_unknown_outcome_guard(session_id)
-        self._acquired_sent_at[session_id] = sent_at
-        if is_takeover and last_environment is not None:
+            result = await self._resolve_unknown_acquisition(session_id, error, permit)
+        granted = self._granted_within(session_id, permit, result, sent_at)
+        if granted.is_acquired and is_takeover and last_environment is not None:
             self._pending_takeovers[session_id] = _PendingTakeover(
                 dict(last_environment), taken_over_turn_id
             )
-        return result
+        return granted
 
-    def acquired_sent_at(self, session_id: str) -> float | None:
-        """Return when the acquire that gave this process the session's lease was sent.
+    def when_permit_expires(self, session_id: str, listener: Callable[[], None]) -> None:
+        """Call ``listener`` once when the pull permit of a session this command holds expires.
 
-        Returns:
-            The ``time.monotonic()`` reading taken right before that acquire
-            was sent, or ``None`` when no acquire gave this process the lease.
+        The session Worker stopped pulling first. It calls ``listener`` at
+        once when the permit expired already.
+
+        Args:
+            session_id: A session that ``attempt`` acquired.
+            listener: Ends the chat, or tells the launcher.
         """
-        return self._acquired_sent_at.get(session_id)
+        permit = self._permits.get(session_id)
+        if permit is None:
+            listener()
+            return
+        permit.when_expired(listener)
 
-    async def renew(self, session_id: str) -> SessionTerminalLeaseResult:
-        """Renew the lease of a session that ``attempt`` acquired.
+    async def renew(self, session_id: str, timeout: float) -> SessionTerminalLeaseResult:
+        """Renew the lease of a session that ``attempt`` acquired, within its permit.
+
+        A renewal that the session confirms extends the permit.
+
+        Args:
+            session_id: The session.
+            timeout: The longest the call may take, in seconds; the permit's
+                remaining time and ``LEASE_CALL_TIMEOUT_SECONDS`` bound it too.
 
         Raises:
+            PullPermitExpiredError: If the permit expired already.
             DexServiceError: If the call failed.
-            TimeoutError: If it took longer than ``LEASE_CALL_TIMEOUT_SECONDS``.
+            TimeoutError: If the call took longer than its bound.
         """
-        return await self._acquire(self._sessions_of(session_id), session_id)
+        permit = self._active_permit(session_id)
+        if permit is None:
+            raise PullPermitExpiredError(session_id)
+        sent_at = time.monotonic()
+        result = await self._acquire(
+            self._sessions_of(session_id),
+            session_id,
+            min(timeout, permit.remaining_seconds()),
+        )
+        if result.is_acquired:
+            permit.confirm(sent_at)
+        return result
 
     async def read_stored_lease(self, session_id: str) -> SessionTerminalLease | None:
         """Read a session's stored lease without a Worker, within a short timeout.
@@ -592,7 +728,10 @@ class SessionOpener:
 
     def leave(self, session_id: str) -> None:
         """Stop pulling a session's task queue without releasing its lease."""
-        self._cancel_unknown_outcome_guard(session_id)
+        # The permit is disarmed without its listeners: the caller ends the session on purpose.
+        permit = self._permits.pop(session_id, None)
+        if permit is not None:
+            permit.cancel()
         session = self._opened_sessions.get(session_id)
         if (
             session is not None
@@ -601,68 +740,85 @@ class SessionOpener:
         ):
             self._session_worker.stop()
 
-    async def _resolve_unknown_acquisition(
-        self, session_id: str, error: Exception, sent_at: float
+    def _granted_within(
+        self,
+        session_id: str,
+        permit: SessionPullPermit,
+        result: SessionTerminalLeaseResult,
+        sent_at: float,
     ) -> SessionTerminalLeaseResult:
-        """Decide an acquire whose outcome is unknown, such as a lost response, from the store.
+        """Return an attempt's result, once its permit took the confirmation.
 
-        The Worker keeps pulling while the outcome stays unknown, because the
-        lease may be this command's; the next attempt then decides. A guard
-        stops it before a lease that this acquire may have taken could expire,
-        unless an acquire confirms the lease first.
+        Raises:
+            PullPermitExpiredError: If the permit expired before the confirmation.
+        """
+        if not result.is_acquired:
+            self.leave(session_id)
+            return result
+        if not permit.confirm(sent_at):
+            # A late answer grants nothing: the Worker stopped, and the next attempt confirms again.
+            raise PullPermitExpiredError(session_id)
+        return result
+
+    async def _resolve_unknown_acquisition(
+        self, session_id: str, error: Exception, permit: SessionPullPermit
+    ) -> SessionTerminalLeaseResult:
+        """Decide an acquire whose answer never arrived, such as after a timeout, from the store.
+
+        The RPC may have taken the lease, and only this command's session
+        Worker serves its release. The read is bounded by the permit, which
+        stops the Worker on its own when no confirmation comes.
 
         Args:
             session_id: The session.
             error: The acquire's error.
-            sent_at: The ``time.monotonic()`` reading taken right before the acquire was sent.
+            permit: The session's pull permit.
 
         Returns:
-            An acquired result when the stored lease is this holder's.
+            The stored lease as acquired when this holder holds it.
 
         Raises:
-            Exception: ``error`` again when the stored lease is not this
-                holder's, which stops the Worker, or when the read fails.
+            Exception: ``error`` again otherwise: after stopping the Worker
+                when the read shows another holder or no lease, and keeping
+                it, within its permit, when the read fails too, so the next
+                attempt decides.
         """
         try:
-            stored = await self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE)
+            stored = await asyncio.wait_for(
+                self._client.get_attributes(session_id, SESSION_TERMINAL_LEASE),
+                permit.remaining_seconds(),
+            )
         except Exception:
-            self._guard_unknown_outcome(session_id, sent_at)
             raise error from None
         lease: SessionTerminalLease | None = stored.get(SESSION_TERMINAL_LEASE)
         if lease is not None and lease.holder_id == self._holder.holder_id:
             _LOGGER.info("the lost lease call took the lease: session=%s", session_id)
             return SessionTerminalLeaseResult(is_acquired=True, lease=lease)
-        self._session_worker.stop()
+        self.leave(session_id)
         raise error
 
-    def _guard_unknown_outcome(self, session_id: str, sent_at: float) -> None:
-        """Stop the session Worker at the safety margin before the earliest unknown acquire's lease.
+    def _active_permit(self, session_id: str) -> SessionPullPermit | None:
+        """Return a session's pull permit while it has not expired."""
+        permit = self._permits.get(session_id)
+        return None if permit is None or permit.is_expired else permit
 
-        An existing guard keeps its earlier deadline: a later unknown acquire
-        may never have reached the server.
-        """
-        if session_id in self._unknown_outcome_guards:
-            return
-        ttl = self._holder.ttl_seconds
-        deadline = sent_at + ttl - ttl * RENEWAL_SAFETY_MARGIN_RATIO
-        self._unknown_outcome_guards[session_id] = asyncio.create_task(
-            self._stop_worker_at(session_id, deadline)
-        )
+    def _arm_permit(self, session_id: str, started_at: float) -> SessionPullPermit:
+        """Arm a new pull permit for a session, which stops its pulling and logs when it expires."""
+        previous = self._permits.get(session_id)
+        if previous is not None:
+            previous.cancel()
 
-    async def _stop_worker_at(self, session_id: str, deadline: float) -> None:
-        await asyncio.sleep(max(0.0, deadline - time.monotonic()))
-        self._unknown_outcome_guards.pop(session_id, None)
-        if self._session_worker.task_queue == session_task_queue(session_id):
-            self._session_worker.stop()
+        def stop_pulling() -> None:
+            if self._session_worker.task_queue == session_task_queue(session_id):
+                self._session_worker.stop()
             _LOGGER.warning(
-                "session Worker stopped: an acquire's outcome stayed unknown: session=%s",
+                "session pull permit expired; stopped pulling its task queue: session=%s",
                 session_id,
             )
 
-    def _cancel_unknown_outcome_guard(self, session_id: str) -> None:
-        guard = self._unknown_outcome_guards.pop(session_id, None)
-        if guard is not None:
-            guard.cancel()
+        permit = SessionPullPermit(self._holder.ttl_seconds, started_at, stop_pulling)
+        self._permits[session_id] = permit
+        return permit
 
     async def _is_turn_cancelled(self, session_id: str, turn_id: str) -> bool:
         """Cancel a taken over turn; return whether it is confirmed no longer active."""
@@ -699,13 +855,14 @@ class SessionOpener:
         return result
 
     async def _acquire(
-        self, sessions: AgentSessionClient, session_id: str
+        self, sessions: AgentSessionClient, session_id: str, timeout: float
     ) -> SessionTerminalLeaseResult:
+        """Call the acquire RPC within ``timeout`` and ``LEASE_CALL_TIMEOUT_SECONDS``."""
         return await asyncio.wait_for(
             sessions.acquire_session_terminal_lease(
                 session_id, self._holder.acquire_request(self._environment)
             ),
-            LEASE_CALL_TIMEOUT_SECONDS,
+            max(0.0, min(timeout, LEASE_CALL_TIMEOUT_SECONDS)),
         )
 
     def _sessions_of(self, session_id: str) -> AgentSessionClient:
