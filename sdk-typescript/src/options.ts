@@ -489,6 +489,27 @@ export interface StartFlowOptions {
   /** Flow configuration applied over registered defaults. */
   readonly configOverride?: FlowConfig;
   /**
+   * Named task queue whose Workers execute this Flow; omitted or the empty string uses the default task queue.
+   *
+   * Only Workers whose `PullWorkerOptions.taskQueue` equals this name run the Flow's Steps and RPCs.
+   * The Flow keeps its task queue for its whole run; `Client.updateFlowConfig` cannot change it.
+   * Its SubFlows inherit it unless {@link SubFlowOptions.taskQueue} names another one. When no
+   * Worker pulls the task queue, Steps wait durably for one, and RPCs fail after the Server's
+   * Worker dispatch wait.
+   *
+   * A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens. Names starting with
+   * `dex.` are reserved; `dex.default` explicitly selects the default task queue. `startFlow` throws
+   * `TypeError` for an invalid name. A non-empty name requires Server protocol 5, and `startFlow`
+   * throws `Error` before sending the request to an older Server.
+   *
+   * @example
+   * ```ts
+   * await client.startFlow(orderFlow, "order-42", input, { taskQueue: "blue" });
+   * ```
+   * @since 1.45.2
+   */
+  readonly taskQueue?: string;
+  /**
    * Returns the existing run instead of raising an already-started error.
    *
    * It applies only when `requestId` matches the request ID that started the existing run.
@@ -968,6 +989,48 @@ export interface PullWorkerOptions {
   readonly idleStreamsPerQueue?: number;
   /** Process-unique Worker ID; defaults to host identity plus eight random base32 characters. Use a new ID after every restart. Values contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and cannot equal a registered Flow type. */
   readonly appWorkerID?: string;
+  /**
+   * Named task queue this Worker pulls from; omitted or the empty string pulls the default task queue.
+   *
+   * A task queue separates which Workers execute a Flow from the Flow's type. A Flow started with
+   * {@link StartFlowOptions.taskQueue} runs its Steps and RPCs only on Workers that pull that task
+   * queue and register its Flow type. A Flow started without one runs only on Workers of the default
+   * task queue, as before. Workers on different task queues never take each other's work, even for the
+   * same Flow type. A sticky Worker on another task queue is skipped.
+   *
+   * One Worker pulls exactly one task queue. To serve several task queues, construct one Worker per
+   * task queue; they can share the Registry and blob cache. Each Worker needs its own `appWorkerID`
+   * when you set one.
+   *
+   * A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens. Names starting with
+   * `dex.` are reserved, including `dex.default`; the Worker constructor throws `TypeError` for them
+   * and for any other invalid name.
+   *
+   * A non-empty task queue requires Server protocol 5. `Worker.start` rejects before opening task
+   * streams when the Server is older. When the Server confirms a stream for a different task queue,
+   * the Worker half-closes that stream and treats it as a permanent rejection with the gRPC code
+   * `FAILED_PRECONDITION`. `waitPullRegistered` rejects with a {@link PullRegistrationError} whose
+   * `cause` is that gRPC error. `Worker.start` does too when every stream is rejected before any
+   * registers, and so does `Worker.run` after draining when `stopOnPermanentStreamRejection` is set.
+   * In `pullRegistrationState`, the slot kind's `lastPermanentError` holds the gRPC error itself.
+   *
+   * @example
+   * ```ts
+   * const blueWorker = new Worker(registry, cache, { pull: { taskQueue: "blue" } });
+   * const greenWorker = new Worker(registry, cache, { pull: { taskQueue: "green" } });
+   * await Promise.all([blueWorker.start(), greenWorker.start()]);
+   * const client = new Client(registry, cache);
+   * try {
+   *   // Only blueWorker runs this Flow's Steps and RPCs.
+   *   await client.startFlow(orderFlow, "order-42", input, { taskQueue: "blue" });
+   * } finally {
+   *   await client.close();
+   *   await Promise.all([blueWorker.close(), greenWorker.close()]);
+   * }
+   * ```
+   * @since 1.45.2
+   */
+  readonly taskQueue?: string;
   /**
    * Milliseconds allowed for graceful shutdown and busy Reconnect final-frame delivery; defaults to 30000.
    * Requires a non-negative finite value; zero selects the default.

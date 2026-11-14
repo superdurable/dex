@@ -1,0 +1,4 @@
+---
+section: Added
+---
+- **PullWorkerOptions.taskQueue** makes a Worker pull one named task queue, and **StartFlowOptions.taskQueue** starts a Flow on one. Only Workers of that task queue run the Flow's Steps and RPCs, even when Workers of other task queues register the same Flow type. **SubFlowOptions.taskQueue** sends a SubFlow to another task queue; a SubFlow without it inherits its parent's task queue, and **dex.default** selects the default task queue. To serve several task queues, run one Worker per task queue. **PullQueueRegistrationState.taskQueue** and **PullRegistrationError.taskQueue** report the Worker's task queue. A named task queue requires Server protocol 5: the Worker and Client refuse it on an older Server, and a stream that the Server registers on a different task queue becomes a permanent rejection. [Reference](/reference/typescript/workers).

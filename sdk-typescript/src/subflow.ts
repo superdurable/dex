@@ -55,6 +55,21 @@ export interface SubFlowOptions {
   readonly attributes?: readonly InitialAttribute<any>[];
   /** Fields applied over the inherited parent Flow configuration. */
   readonly configOverride?: FlowConfig;
+  /**
+   * Named task queue whose Workers execute the SubFlow; omitted or the empty string inherits the parent's task queue.
+   *
+   * Set `dex.default` to run the SubFlow on the default task queue while the parent runs on a named
+   * one. Any other name follows the rules of {@link StartFlowOptions.taskQueue}. An invalid name, or a
+   * non-empty name while the Server protocol is older than 5, fails the Step's waitFor attempt like
+   * any other waitFor error.
+   *
+   * @example
+   * ```ts
+   * return Wait.until(SubFlow.run(reportFlow, input, { taskQueue: "reports" }));
+   * ```
+   * @since 1.45.2
+   */
+  readonly taskQueue?: string;
   /** Existing-execution policy; defaults to abnormal restart. */
   readonly reusePolicy?: SubFlowReusePolicy;
   /** Stable condition ID required by `Wait.anyCombinationOf`. */
