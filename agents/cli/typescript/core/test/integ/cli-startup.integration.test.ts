@@ -329,7 +329,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     home.writeConfig("model: scripted/old\n");
     const init = start(home, ["init", "--yes"]);
     assert.equal(await init.waitForExit(), 0);
-    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), written);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), { ...written, model: "scripted/old" });
   });
 
   const remoteServerConfig = {
@@ -382,15 +382,16 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     });
   });
 
-  test("init --yes resets the asked fields to the defaults and keeps every other field", async () => {
+  test("init --yes takes the file's values for the asked fields and keeps every other field", async () => {
     const home = new TestHome(enginePorts(engine));
     home.writeConfig(`${JSON.stringify(remoteServerConfig, null, 2)}\n`);
     const init = start(home, ["init", "--yes"]);
     assert.equal(await init.waitForExit(), 0);
     assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
-      model: "scripted/default",
+      model: "scripted/old",
+      system_prompt: "Old instructions.",
       dex: remoteServerConfig.dex,
-      connectors: {},
+      connectors: { enabled: ["slack/team"] },
       mcp_servers: remoteServerConfig.mcp_servers,
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: ["git status"] }, web_fetch: true, browser: true },

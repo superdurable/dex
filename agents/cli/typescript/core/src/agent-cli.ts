@@ -557,7 +557,7 @@ export class AgentCliCommand {
     const existing = readExistingConfigFile(configPath, this.harness);
     const existingDocument = existing.kind === "valid" ? existing.document : undefined;
     const answers = this.parsed.isYes || !this.io.isInteractive
-      ? defaultInitAnswers(this.harness)
+      ? defaultInitAnswers(this.harness, existingDocument)
       : await this.askInitQuestionsAtTerminal(existingDocument);
     if (answers === null) {
       this.io.stdout.write("\n");

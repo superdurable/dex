@@ -219,15 +219,25 @@ def merge_init_values(existing: dict[str, Any], init_values: dict[str, Any]) -> 
     return merged
 
 
-def default_config_values(harness: AgentHarness) -> dict[str, Any]:
+def default_config_values(
+    harness: AgentHarness, existing: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Return the values ``init --yes`` writes: the defaults, stated in full.
 
     Args:
         harness: The command's harness.
+        existing: The parsed existing valid file, or ``None`` for none.
 
     Returns:
-        The configuration file's values.
+        The configuration file's values; merge them into an existing file
+        with :func:`merge_init_values`.
+
+    .. versionchanged:: 0.6.9
+       With an existing file, the values are the file's, the same answers
+       that pressing Enter at every question gives.
     """
+    if existing is not None:
+        return ask_config_values(harness, _take_default_answer, existing)
     values: dict[str, Any] = {}
     if harness.default_model is not None:
         values["model"] = harness.default_model
@@ -393,6 +403,10 @@ def defaults_without_file(harness: AgentHarness, directory: Path) -> LoadedConfi
 
 def _is_yes(answer: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "true")
+
+
+def _take_default_answer(question: str, default: str) -> str:
+    return default
 
 
 def _yes_or_no(current: object) -> str:

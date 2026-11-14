@@ -116,6 +116,37 @@
       "expected": { "local_tools": { "files": true, "shell": { "enabled": true, "allow": ["ls"] }, "web_fetch": true, "browser": true } }
     },
     {
+      "name": "yes-on-an-existing-file-keeps-its-values",
+      "description": "With an existing file, --yes answers with the file's values, so init writes the file back and fills only missing sections.",
+      "existing": {
+        "model": "scripted/old",
+        "system_prompt": "Old instructions.",
+        "dex": { "server": "https://dex.example.com" },
+        "connectors": { "enabled": ["slack/team"] },
+        "local_tools": { "web_fetch": false, "shell": { "allow": ["git status"] } }
+      },
+      "init": {
+        "model": "scripted/old",
+        "system_prompt": "Old instructions.",
+        "dex": { "server": "auto" },
+        "connectors": { "mcp": "auto", "enabled": ["slack/team"] },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": true, "allow": [] }, "web_fetch": false, "browser": true },
+        "media": { "store": "auto" },
+        "sessions": { "summary": "auto" }
+      },
+      "expected": {
+        "model": "scripted/old",
+        "system_prompt": "Old instructions.",
+        "dex": { "server": "https://dex.example.com" },
+        "connectors": { "enabled": ["slack/team"] },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": { "files": true, "shell": { "enabled": true, "allow": ["git status"] }, "web_fetch": false, "browser": true },
+        "media": { "store": "auto" },
+        "sessions": { "summary": "auto" }
+      }
+    },
+    {
       "name": "keeps-unknown-sections-whole",
       "description": "Any other top-level key, such as another harness's section, stays as written.",
       "existing": { "claude": { "max_turns": 4 }, "sessions": { "summary": "off" } },

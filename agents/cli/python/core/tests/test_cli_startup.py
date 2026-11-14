@@ -199,14 +199,15 @@ async def test_init_at_a_terminal_offers_the_file_values_and_keeps_unasked_field
     }
 
 
-def test_init_yes_resets_the_asked_fields_and_keeps_every_other_field(cli_home: CliHome) -> None:
+def test_init_yes_takes_the_file_values_and_keeps_every_other_field(cli_home: CliHome) -> None:
     cli_home.write_config(config_yaml(_REMOTE_SERVER_CONFIG))
     completed = cli_home.run("init", "--yes")
     assert completed.returncode == 0, completed.stderr
     assert parse_config_yaml(cli_home.config_path.read_text()) == {
-        "model": "scripted-model",
+        "model": "scripted-old",
+        "system_prompt": "Old instructions.",
         "dex": _REMOTE_SERVER_CONFIG["dex"],
-        "connectors": {},
+        "connectors": {"enabled": ["slack/team"]},
         "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
         "workspace": "~/dex-agent-workspace",
         "local_tools": {

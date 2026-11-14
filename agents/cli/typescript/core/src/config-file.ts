@@ -177,10 +177,20 @@ export function describeReplacedInvalidConfigFile(configPath: string, backupPath
  * Returns the answers that `--yes` and non-interactive runs use: the command's default model, the harness
  * instructions, every authorized connection, the harness's default workspace, and every local tool group. For a
  * harness whose default workspace is the launch directory, the workspace is that directory and is not written.
+ *
+ * Changed in 0.6.9: with an existing valid file, the answers are the file's values, the same answers that pressing
+ * Enter at every question gives.
  * @param harness - The command's harness.
+ * @param existingDocument - The parsed existing file, or `undefined` for none.
  * @returns The default answers.
  */
-export function defaultInitAnswers(harness: AgentHarness): InitAnswers {
+export function defaultInitAnswers(
+  harness: AgentHarness,
+  existingDocument?: Readonly<Record<string, unknown>>,
+): InitAnswers {
+  if (existingDocument !== undefined) {
+    return existingInitAnswers(harness, existingDocument);
+  }
   const isLaunchDirectory = harness.defaultWorkspaceLocation === "launch_directory";
   return {
     model: harness.defaultModel,
@@ -208,8 +218,7 @@ export async function askInitQuestions(
   log: (line: string) => void,
   existingDocument?: Readonly<Record<string, unknown>>,
 ): Promise<InitAnswers | null> {
-  const defaults =
-    existingDocument === undefined ? defaultInitAnswers(harness) : existingInitAnswers(harness, existingDocument);
+  const defaults = defaultInitAnswers(harness, existingDocument);
   log(
     existingDocument === undefined
       ? `Creating the configuration of dex-agents-${harness.name}. Press Enter to take the default in brackets.`

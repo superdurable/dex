@@ -742,7 +742,7 @@ def _init(arguments: _Arguments, environment: CommandEnvironment, harness: Agent
     path = arguments.config_path or default_config_path(environment, harness)
     existing = read_existing_config_file(path, harness)
     if arguments.is_yes or not _is_interactive():
-        values = default_config_values(harness)
+        values = default_config_values(harness, existing.values)
     else:
         values = ask_config_values(harness, _ask, existing.values)
     if existing.values is not None:

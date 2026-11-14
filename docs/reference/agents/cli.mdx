@@ -136,8 +136,9 @@ it asks about: **model**, **system_prompt**, **connectors.enabled**,
 of a valid file as written, such as **dex.server**, **dex.auth**,
 **dex.tls**, **connectors.mcp**, **mcp_servers**, **approval**, **media**,
 **sessions**, and the harness sections. At a terminal, each question offers
-the file's current value as its default. With **--yes**, the asked fields
-take the command's defaults and the rest stays.
+the file's current value as its default. **--yes** takes those same
+defaults, so it keeps the file's values; without a file, or after replacing
+an invalid one, it takes the command's defaults.
 
 - A new system prompt removes **system_prompt_file**. An empty answer keeps
   either field.
