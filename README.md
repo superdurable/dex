@@ -55,7 +55,7 @@ Dex is created by [Quanzheng Long](https://superdurable.io/about/), core contrib
 The [engine](https://docs.superdurable.io/components/server#how-it-works) is written in Rust for performance and keeps RocksDB as a local cache:
 
 - Every write goes to object storage first, in a **command log** batched to save PUT costs, and is then applied to RocksDB.
-- Snapshots are uploaded in the background. After a crash, a standby or a restarted node loads the latest one, re-applies the log, and rebuilds its state in seconds.
+- Snapshots are uploaded in the background. After a crash, a standby or a restarted node loads the latest one and re-applies the log. A standby [takes over](https://docs.superdurable.io/reference/server/high-availability#lease) within 11 seconds by default.
 - The SDKs cache large Attribute values on local disk to cut network transfer.
 
 ## SDKs
