@@ -66,7 +66,7 @@ func (step pullKeepaliveStep) Execute(ctx dex.Context, input string) (*dex.StepD
 }
 
 func TestPullSDKKeepaliveThroughDataIdleProxy(t *testing.T) {
-	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullKeepaliveFlow", 25*time.Second, false)
+	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullKeepaliveFlow", 25*time.Second, keepaliveCountsWorkerData)
 	stepEntered := make(chan struct{}, 1)
 	rpcEntered := make(chan struct{}, 1)
 	stepRelease := make(chan struct{})
@@ -162,7 +162,7 @@ func (step pullServerKeepaliveStep) Execute(ctx dex.Context, input string) (*dex
 // server-to-client DATA.
 func TestPullSDKServerKeepaliveThroughServerDataIdleProxy(t *testing.T) {
 	pingInterval := integrationPingInterval(t)
-	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullServerKeepaliveFlow", pingInterval*5/2, true)
+	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullServerKeepaliveFlow", pingInterval*5/2, keepaliveCountsServerData)
 	flow := pullServerKeepaliveFlow{stepDuration: 6 * pingInterval}
 	workerRegistry, err := dex.NewRegistry([]dex.Flow{flow})
 	require.NoError(t, err)
@@ -215,17 +215,27 @@ func integrationPingInterval(t *testing.T) time.Duration {
 	return interval
 }
 
+// keepaliveCountedDirection selects which DATA direction a test proxy counts as stream activity.
+type keepaliveCountedDirection int
+
+const (
+	// keepaliveCountsWorkerData counts only Worker-to-server DATA, so only SDK Pongs keep a busy stream.
+	keepaliveCountsWorkerData keepaliveCountedDirection = iota
+	// keepaliveCountsServerData counts only server-to-Worker DATA, like an AWS ALB.
+	keepaliveCountsServerData
+)
+
 type keepaliveDataIdleProxy struct {
 	listener       net.Listener
 	backendAddress string
 	flowType       []byte
 	idleTimeout    time.Duration
-	// countsOnlyServerData resets the idle timer only on server-to-client DATA, like an AWS ALB.
-	countsOnlyServerData bool
-	mu                   sync.Mutex
-	connections          map[*keepaliveDataIdleConnection]struct{}
-	resetCount           int
-	trackedCount         int
+	// countedDirection is the DATA direction that resets a stream's idle timer.
+	countedDirection keepaliveCountedDirection
+	mu               sync.Mutex
+	connections      map[*keepaliveDataIdleConnection]struct{}
+	resetCount       int
+	trackedCount     int
 }
 
 type keepaliveDataIdleConnection struct {
@@ -243,11 +253,11 @@ type keepaliveHTTP2Observer struct {
 	buffer     []byte
 }
 
-func startKeepaliveDataIdleProxy(t *testing.T, backendAddress, flowType string, idleTimeout time.Duration, countsOnlyServerData bool) (string, *keepaliveDataIdleProxy) {
+func startKeepaliveDataIdleProxy(t *testing.T, backendAddress, flowType string, idleTimeout time.Duration, countedDirection keepaliveCountedDirection) (string, *keepaliveDataIdleProxy) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	proxy := &keepaliveDataIdleProxy{listener: listener, backendAddress: backendAddress, flowType: []byte(flowType), idleTimeout: idleTimeout, countsOnlyServerData: countsOnlyServerData, connections: make(map[*keepaliveDataIdleConnection]struct{})}
+	proxy := &keepaliveDataIdleProxy{listener: listener, backendAddress: backendAddress, flowType: []byte(flowType), idleTimeout: idleTimeout, countedDirection: countedDirection, connections: make(map[*keepaliveDataIdleConnection]struct{})}
 	go proxy.serve()
 	t.Cleanup(proxy.close)
 	return listener.Addr().String(), proxy
@@ -350,7 +360,7 @@ func (connection *keepaliveDataIdleConnection) observeFrame(isServer bool, frame
 	if !isTracked {
 		return
 	}
-	if frameType == 0 && len(payload) > 0 && (isServer || !connection.proxy.countsOnlyServerData) {
+	if frameType == 0 && len(payload) > 0 && isServer == (connection.proxy.countedDirection == keepaliveCountsServerData) {
 		connection.resetTimer(streamID)
 	} else if isServer && frameType == 1 && flags&1 != 0 {
 		timer.Stop()
