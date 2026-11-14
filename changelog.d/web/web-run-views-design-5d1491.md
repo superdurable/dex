@@ -30,3 +30,7 @@ section: Changed
 - The **Conversation** tab drops its Working as banner and selector. Controls
   that Working as blocks offer **Work as** in place, and a line by the message
   box reads **Acting as** with **Change**.
+- The horizontal Timeline gives each event its own label again, slanted at 30
+  degrees, and draws the overview above the lane. A page that fits the strip
+  puts each overview bar under its event dot; a longer page packs events
+  closer, and its overview window is tinted, outlined, and dims the rest.

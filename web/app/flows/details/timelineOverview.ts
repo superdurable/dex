@@ -256,3 +256,59 @@ export function brushPixelSpan(
   }
   return { left, right };
 }
+
+/** The widest slot: a short page spreads its events up to this width. */
+export const LANE_SLOT_MAX_WIDTH = 120;
+/**
+ * The narrowest slot: labels slanted at 30 degrees stay one 18 px line apart, since 36 * sin(30°) = 18.
+ * A page with more events than fit at this width scrolls, and the overview window moves it.
+ */
+export const LANE_SLOT_MIN_WIDTH = 36;
+
+/** Returns the lane's width per event: the whole page when it fits, from 120 px down to 36 px each, else 36 px. */
+export function timelineSlotWidth(eventCount: number, availableWidth: number): number {
+  const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
+  return Math.max(LANE_SLOT_MIN_WIDTH, Math.min(LANE_SLOT_MAX_WIDTH, fitWidth));
+}
+
+/**
+ * Returns the overview axis of a page that fits the lane: each event sits under its own dot, so the
+ * lane and the overview share one x mapping. Positions are ratios of the plot, which starts plotInset
+ * pixels into the strip and is plotWidth pixels wide.
+ */
+export function laneOverviewAxis(
+  events: readonly FlowHistoryEvent[],
+  slotWidth: number,
+  plotInset: number,
+  plotWidth: number,
+): OverviewAxis {
+  const times = monotonicEventTimes(events);
+  const positions = events.map((_, index) => (
+    Math.min(1, Math.max(0, ((index + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
+  ));
+  return {
+    kind: 'index',
+    positions,
+    edges: edgesFromPositions(positions),
+    startMs: times ? times[0] : null,
+    endMs: times ? times[events.length - 1] : null,
+    eventTimes: times,
+  };
+}
+
+/** Returns one bucket per event, in event order, for an overview that draws each event under its dot. */
+export function perEventOverviewBuckets(
+  statuses: readonly EventStatus[],
+  retried: readonly boolean[],
+): OverviewBucket[] {
+  const positions = statuses.map((_, index) => (index + 0.5) / statuses.length);
+  return bucketOverviewEvents({
+    kind: 'index',
+    positions,
+    edges: edgesFromPositions(positions),
+    startMs: null,
+    endMs: null,
+    eventTimes: null,
+  }, statuses, retried, statuses.length);
+}
+
