@@ -27,20 +27,20 @@ describe('pull routing', () => {
   });
   it('shows the named dispatch task queue and hides an empty routing', () => {
     const named = renderToStaticMarkup(<PullRouting value={{ servedByAppWorkerId: 'worker-a', source: 2, taskQueue: 'env-1' }} />);
-    expect(named).toMatch(/>Task queue<.*>env-1</);
+    expect(named).toMatch(/<dt>Task queue<\/dt><dd[^>]*>env-1<\/dd>/);
     expect(renderToStaticMarkup(<PullRouting value={{}} hideEmpty />)).toBe('');
   });
   it('shows the queue rows without a Worker target, even when the start event has no target', () => {
     const markup = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={{ workerTarget: {} }} />);
     expect(markup).not.toContain('Worker target');
-    expect(markup).toMatch(/>Task queue<.*>default</);
+    expect(markup).toMatch(/<dt>Task queue<\/dt><dd[^>]*>default<\/dd>/);
     expect(markup).not.toContain('PaymentFlow');
     expect(markup).toContain('>Sticky Worker ID<');
   });
   it('shows the Task queue and restores closed-run sticky data from Step history', () => {
     const routing = flowRoutingData(null, [{ eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: { flowConfig: { workerTarget: { isPullMode: true } } } }, { eventId: 2, eventTime: null, type: 'StepExecuteCompleted', payload: { context: { pullRouting: { servedByAppWorkerId: 'last-worker' } } } }]);
     const markup = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={routing} />);
-    expect(markup).toMatch(/>Task queue<.*>default</);
+    expect(markup).toMatch(/<dt>Task queue<\/dt><dd[^>]*>default<\/dd>/);
     expect(markup).not.toContain('PaymentFlow');
     expect(markup).toContain('last-worker');
     expect(markup).not.toContain('Worker target');
@@ -53,8 +53,8 @@ describe('pull routing', () => {
   it('shows the Flow task queue from its Worker target', () => {
     const routing = flowRoutingData({ flowConfig: { workerTarget: { isPullMode: true, taskQueue: 'env-1' } } } as never, []);
     const markup = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={routing} showFlowType />);
-    expect(markup).toMatch(/>Task queue<.*>env-1</);
-    expect(markup).toMatch(/>Flow type<.*>PaymentFlow</);
+    expect(markup).toMatch(/<dt>Task queue<\/dt><dd[^>]*>env-1<\/dd>/);
+    expect(markup).toMatch(/<dt>Flow type<\/dt><dd[^>]*>PaymentFlow<\/dd>/);
   });
   it('uses closed-run sticky state after an RPC and ignores failed method Workers', () => {
     const routing = flowRoutingData(null, [

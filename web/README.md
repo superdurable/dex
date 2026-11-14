@@ -224,7 +224,11 @@ between the check and dispatch.
 `POST /api/v2/start` accepts `flowType`, `flowId`, raw JSON `input`, and an
 optional `workerTargetPull: true`. It returns HTTP 400 for `workerTargetAddress`
 or `workerTargetPull: false`, because Dex routes Flow work to pull Workers. It
-accepts and ignores `bypassWorkerHealthCheck`. `POST /api/v2/worker-health`
+accepts and ignores `bypassWorkerHealthCheck`. Since 1.45.4, it accepts an
+optional `workerTargetTaskQueue` string, which the dialog's **Task queue** field
+sets. Empty selects the default task queue. Names follow the server's rules: 1 to
+63 characters from `[A-Za-z0-9._-]`, with `dex.` reserved except `dex.default`,
+which selects the default task queue. The server rejects an invalid name. `POST /api/v2/worker-health`
 still reports whether Dex Web can open a TCP connection to a `host:port`; the
 probe does not invoke a Worker method. Start requires `X-Dex-Flow-Definition-Revision`, reloads the current
 definition snapshot, validates every input field again, and rejects unknown

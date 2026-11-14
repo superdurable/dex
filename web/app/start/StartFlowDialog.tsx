@@ -59,7 +59,8 @@ export function StartFlowDialog({
     event.preventDefault();
     const nextErrors: StartInputError[] = [];
     if (flowID.trim() === '') nextErrors.push({ path: 'flowId', message: 'Flow ID is required.' });
-    const taskQueueError = startTaskQueueError(taskQueue.trim());
+    const trimmedTaskQueue = taskQueue.trim();
+    const taskQueueError = startTaskQueueError(trimmedTaskQueue);
     if (taskQueueError) nextErrors.push({ path: 'taskQueue', message: taskQueueError });
     const input = serializeStartInput(definition.input, draft);
     nextErrors.push(...input.errors);
@@ -78,7 +79,7 @@ export function StartFlowDialog({
         flowType,
         flowId: flowID.trim(),
         workerTargetPull: true,
-        ...(taskQueue.trim() ? { workerTargetTaskQueue: taskQueue.trim() } : {}),
+        ...(trimmedTaskQueue ? { workerTargetTaskQueue: trimmedTaskQueue } : {}),
       });
       const body = `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
       const headers = {

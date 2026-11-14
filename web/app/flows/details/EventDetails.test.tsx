@@ -589,7 +589,7 @@ describe('RPC event details', () => {
   ])('shows the Flow task queue of a pull RPC for %j', (workerTarget, expected) => {
     const start: FlowHistoryEvent = { eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: { flowConfig: { workerTarget } } };
     const rpc: FlowHistoryEvent = { eventId: 2, eventTime: null, type: 'RpcExecutionCompleted', payload: { rpcName: 'getStatus', servedByAppWorkerId: 'worker-a' } };
-    expect(renderDetails(rpc, [start, rpc])).toMatch(new RegExp(`>Task queue<.*>${expected}<`));
+    expect(renderDetails(rpc, [start, rpc])).toMatch(new RegExp(`<dt>Task queue</dt><dd[^>]*>${expected}</dd>`));
   });
   it('omits the RPC task queue when the start event is not loaded', () => {
     const rpc: FlowHistoryEvent = { eventId: 2, eventTime: null, type: 'RpcExecutionCompleted', payload: { rpcName: 'getStatus', servedByAppWorkerId: 'worker-a' } };
@@ -770,13 +770,13 @@ describe('routing context and dispatch failures', () => {
     expect(markup).toContain('worker-new');
     expect(markup).toContain('worker-old');
     expect(markup).toContain('Flow type queue');
-    expect(markup).toMatch(/>Task queue<.*>default</);
+    expect(markup).toMatch(/<dt>Task queue<\/dt><dd[^>]*>default<\/dd>/);
   });
   it('shows the named dispatch task queue in method context', () => {
     const event = executeEvent(1);
     (event.payload.context as Record<string, unknown>).pullRouting = { servedByAppWorkerId: 'worker-new', source: 1, taskQueue: 'env-1' };
     const markup = renderDetails(event);
-    expect(markup).toMatch(/>Task queue<.*>env-1</);
+    expect(markup).toMatch(/<dt>Task queue<\/dt><dd[^>]*>env-1<\/dd>/);
     expect(markup).toContain('Sticky queue');
   });
   it('omits the task queue when method context has no routing', () => {
