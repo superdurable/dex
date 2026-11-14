@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.32 {#v0-1-32}
+
+Released 2026-11-14 as [server-zd/v0.1.32](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.32).
+
+### Fixed
+
+- A busy pull Worker stream now gets an empty keepalive response every **matching.pingInterval**, as an idle stream gets a **Ping**. A load balancer or proxy that counts idleness only in the server-to-client direction no longer resets a stream while a long Step or RPC runs; busy streams behind an AWS ALB were observed being reset this way. Every released SDK ignores the keepalive and sends no reply. [Reference](/reference/server/workers#server-and-network-setup).
+
 ## 0.1.31 {#v0-1-31}
 
 Released 2026-11-14 as [server-zd/v0.1.31](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.31).
