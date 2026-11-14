@@ -13,7 +13,22 @@ import type { FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
 
 const maxInt32 = 2147483647;
-const retentionWindowHint = 'Older events are deleted.';
+const CHANGE_NOT_CLEAR = 'Once set, it can be changed but not cleared.';
+
+/** What each field does for the run, then whether it can change; from FlowConfig in protos/dex.proto. */
+export const flowConfigFieldHints = {
+  historyWindowEvents: 'About how many of the newest history events this run keeps for history reads and Time Travel. '
+    + `Older events are pruned. ${CHANGE_NOT_CLEAR}`,
+  stepDurability: 'The durability of Step methods that set none of their own. '
+    + 'Sync waits for each result to commit before the run moves on; Async moves on first. '
+    + `A change applies to method calls scheduled after it. ${CHANGE_NOT_CLEAR}`,
+  activeStepSearchMode: 'Which active Steps this run indexes for search: every active Step, only Steps that ran WaitFor, '
+    + `or none. ${CHANGE_NOT_CLEAR}`,
+  attributeStoreNames: 'Which Dex Server Attribute stores receive this run\'s Attributes that opt in to sync. '
+    + `Empty turns sync off. ${CHANGE_NOT_CLEAR}`,
+  offloadHistory: 'Whether Dex moves this run\'s history to object storage and keeps only recent history on local disk. '
+    + 'Chosen when the run starts and fixed for the run.',
+} as const;
 const SERVER_DEFAULT = 'Server default';
 
 export interface HistorySettings {
@@ -302,14 +317,19 @@ export function FlowConfigCard({
     <section className="overview-section history-settings-card">
       <header className="overview-section-head"><h2>Configuration</h2></header>
       <dl className="definition-list flow-config-list">
-        {row('historyWindowEvents', windowLabel(windowEvents), retentionWindowHint)}
-        {row('stepDurability', stepDurability ? stepDurabilityLabels[stepDurability] ?? String(stepDurability) : SERVER_DEFAULT)}
+        {row('historyWindowEvents', windowLabel(windowEvents), flowConfigFieldHints.historyWindowEvents)}
+        {row(
+          'stepDurability',
+          stepDurability ? stepDurabilityLabels[stepDurability] ?? String(stepDurability) : SERVER_DEFAULT,
+          flowConfigFieldHints.stepDurability,
+        )}
         {row(
           'activeStepSearchMode',
           activeStepSearchMode ? activeStepSearchModeLabels[activeStepSearchMode] ?? String(activeStepSearchMode) : SERVER_DEFAULT,
+          flowConfigFieldHints.activeStepSearchMode,
         )}
-        {row('attributeStoreNames', attributeStoresLabel(attributeStoreNames))}
-        {row('offloadHistory', offloadHistoryLabel(flowConfig), 'Set when the run starts.')}
+        {row('attributeStoreNames', attributeStoresLabel(attributeStoreNames), flowConfigFieldHints.attributeStoreNames)}
+        {row('offloadHistory', offloadHistoryLabel(flowConfig), flowConfigFieldHints.offloadHistory)}
       </dl>
       {!isRunning && <p className="overview-note">The run is closed, so its configuration no longer changes.</p>}
     </section>

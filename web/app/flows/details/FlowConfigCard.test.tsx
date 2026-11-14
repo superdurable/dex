@@ -12,7 +12,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
-import { buildHistorySettingsUpdate, FlowConfigCard } from './FlowConfigCard';
+import { buildHistorySettingsUpdate, FlowConfigCard, flowConfigFieldHints } from './FlowConfigCard';
 
 const runningSummary: FlowSummary = {
   flowId: 'session-1',
@@ -40,7 +40,16 @@ describe('Flow config card', () => {
     expect(value('Active step search')).toContain('Server default');
     expect(value('Attribute stores')).toContain('Server default');
     expect(value('Offload history')).toBe('On (default)');
-    expect(screen.getByRole('img', { name: 'Older events are deleted.' })).toBeTruthy();
+    // Every field explains what it does for the run, then whether it can change.
+    expect(screen.getAllByRole('img').map((hint) => hint.getAttribute('aria-label'))).toEqual([
+      flowConfigFieldHints.historyWindowEvents,
+      flowConfigFieldHints.stepDurability,
+      flowConfigFieldHints.activeStepSearchMode,
+      flowConfigFieldHints.attributeStoreNames,
+      flowConfigFieldHints.offloadHistory,
+    ]);
+    expect(flowConfigFieldHints.offloadHistory).toMatch(/^Whether Dex moves this run's history to object storage/);
+    expect(flowConfigFieldHints.historyWindowEvents).toMatch(/can be changed but not cleared\.$/);
   });
 
   it('shows run overrides and hides fields with no meaning to a reader', () => {
@@ -75,7 +84,7 @@ describe('Flow config card', () => {
       'Edit Active step search',
       'Edit Attribute stores',
     ]);
-    expect(screen.getByRole('img', { name: 'Set when the run starts.' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: flowConfigFieldHints.offloadHistory })).toBeTruthy();
   });
 
   it('treats a running run without a stored config as server defaults', () => {
