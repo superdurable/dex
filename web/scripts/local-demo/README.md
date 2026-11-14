@@ -17,8 +17,12 @@ programs, starts everything in the background, waits for readiness, and prints
 the links. Press Ctrl+C, or close the terminal, to stop everything it started.
 From another terminal, `web/scripts/local-demo/run.sh stop` does the same. It
 stops only the processes it started, which it records in
-`$TMPDIR/dex-web-local-demo-<uid>/web-<web port>.pid`. When the script itself
-was killed, `run.sh stop` still stops the processes recorded there.
+`$TMPDIR/dex-web-local-demo-<uid>/web-<web port>.pid` with each process's start
+time. A reused PID therefore never gets a signal. When the script itself was
+killed, `run.sh stop` still stops the processes recorded there. During a build
+step the script handles the stop only after that step ends. When it has not
+exited after 60 seconds, `run.sh stop` keeps the PID file and asks you to run it
+again.
 
 Requirements: Go, Node.js 22+, `curl`, and a `dex-server-zd` binary.
 
@@ -40,9 +44,12 @@ the repository.
 Each run uses new Flow IDs with a timestamp suffix. Without
 `DEX_DEMO_RUN_DIR`, each run also gets a new run directory, so server-zd starts
 empty. With `DEX_DEMO_RUN_DIR`, a later run reuses that directory's server-zd
-state and Dex Web also lists the earlier runs.
+state and Dex Web also lists the earlier runs. `DEX_DEMO_RUN_DIR` must name an
+empty directory or one that an earlier run made; the script marks it with a
+`.dex-web-local-demo-run` file and refuses any other non-empty directory.
 
-The script deletes the run directory's `bin/` on exit and keeps the logs, graphs,
+Binaries go to `local-demo-bin/` in the run directory, which the script creates
+with a marker file. It deletes that directory on exit and keeps the logs, graphs,
 BlobCaches, and server-zd state. These can reach a few hundred MB. Delete old run
 directories with `rm -rf "${TMPDIR:-/tmp}"/dex-web-local-demo.*` while no kit is
 running.
@@ -54,7 +61,7 @@ running.
 | `DEX_DEMO_DEX_PORT` | `8811` | Dex FlowService port. |
 | `DEX_DEMO_WEB_PORT` | `8812` | Dex Web port. It also names the `run.sh stop` PID file. |
 | `DEX_DEMO_EXAMPLES_PORT` | `8095` | Go examples HTTP port. |
-| `DEX_DEMO_RUN_DIR` | new `mktemp -d` directory | Logs, binaries, graphs, and server-zd state. |
+| `DEX_DEMO_RUN_DIR` | new `mktemp -d` directory | Logs, binaries, graphs, and server-zd state. Must be empty or made by an earlier run. |
 | `DEX_DEMO_READY_TIMEOUT_SECONDS` | `180` | How long each readiness wait may take. |
 | `DEX_DEMO_SKIP_WEB_BUILD` | empty | `1` reuses an existing `web/assets/dist` instead of running `npm run build`. |
 | `DEXCLI` | empty | An installed `dexcli` to use instead of building one, such as `DEXCLI=$(command -v dexcli)`. Dex Web then comes from that build, not this checkout. |

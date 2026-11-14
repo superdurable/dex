@@ -26,6 +26,9 @@ STATE_DIR="${TMPDIR:-/tmp}/dex-web-local-demo-$(id -u)"
 PID_FILE="$STATE_DIR/web-$WEB_PORT.pid"
 
 RUN_DIR=""
+BIN_DIR=""
+RUN_DIR_MARKER=".dex-web-local-demo-run"
+BIN_DIR_MARKER=".dex-web-local-demo-bin"
 CHILD_PIDS=()
 CHILD_NAMES=()
 
@@ -40,23 +43,25 @@ fail() {
 }
 
 # --- PID file ---------------------------------------------------------------
-# Lines: "supervisor <pid>", "script <dir>", "run_dir <dir>", and "child <name> <pgid> <executable>".
+# Tab-separated lines: supervisor_pid, supervisor_started, script, run_dir, and
+# "child <name> <pgid> <started> <executable>".
 
 prepare_state_dir() {
   if [[ -L "$STATE_DIR" ]]; then
     fail "$STATE_DIR is a symlink; remove it"
   fi
-  mkdir -p -m 700 "$STATE_DIR"
+  mkdir -p "$STATE_DIR"
   if [[ ! -O "$STATE_DIR" ]]; then
     fail "$STATE_DIR is not owned by the current user"
   fi
+  chmod 700 "$STATE_DIR"
 }
 
-# pid_file_value uses only builtins, so cleanup does not depend on a child process.
+# pid_file_value KEY prints the value of a one-value line.
 pid_file_value() {
   local key value
   [[ -f "$PID_FILE" ]] || return 0
-  while read -r key value; do
+  while IFS=$'\t' read -r key value; do
     if [[ "$key" == "$1" ]]; then
       printf '%s\n' "$value"
       return 0
@@ -68,28 +73,48 @@ is_process_alive() {
   [[ -n "$1" ]] && kill -0 "$1" 2>/dev/null
 }
 
-# is_recorded_child_alive PGID EXECUTABLE checks that the group leader is still the process the kit started.
+# process_started PID prints the start time that tells a live process from a reused PID.
+process_started() {
+  ps -p "$1" -o lstart= 2>/dev/null || true
+}
+
+# is_recorded_process_alive PID STARTED checks that PID still names the process started at STARTED.
+is_recorded_process_alive() {
+  [[ -n "$2" ]] || return 1
+  is_process_alive "$1" || return 1
+  [[ "$(process_started "$1")" == "$2" ]]
+}
+
 is_recorded_child_alive() {
-  local pgid="$1" executable="$2" command
-  is_process_alive "$pgid" || return 1
-  command="$(ps -p "$pgid" -o command= 2>/dev/null)" || return 1
-  [[ "$command" == "$executable"* ]]
+  local pgid="$1" started="$2" executable="$3"
+  [[ -n "$executable" ]] || return 1
+  is_recorded_process_alive "$pgid" "$started" || return 1
+  [[ "$(ps -p "$pgid" -o command= 2>/dev/null)" == "$executable"* ]]
+}
+
+# for_each_live_recorded_child COMMAND runs COMMAND NAME PGID for each live recorded child.
+for_each_live_recorded_child() {
+  local key name pgid started executable
+  [[ -f "$PID_FILE" ]] || return 0
+  while IFS=$'\t' read -r key name pgid started executable; do
+    if [[ "$key" == child ]] && is_recorded_child_alive "$pgid" "$started" "$executable"; then
+      "$1" "$name" "$pgid" || return 1
+    fi
+  done <"$PID_FILE"
+}
+
+report_live_child() {
+  return 1
 }
 
 has_live_recorded_child() {
-  local name pgid executable
-  while read -r name pgid executable; do
-    if is_recorded_child_alive "$pgid" "$executable"; then
-      return 0
-    fi
-  done < <(awk '$1 == "child" { print $2, $3, $4 }' "$PID_FILE" 2>/dev/null)
-  return 1
+  ! for_each_live_recorded_child report_live_child
 }
 
 is_recorded_supervisor_alive() {
   local supervisor_pid
-  supervisor_pid="$(pid_file_value supervisor)"
-  is_process_alive "$supervisor_pid" || return 1
+  supervisor_pid="$(pid_file_value supervisor_pid)"
+  is_recorded_process_alive "$supervisor_pid" "$(pid_file_value supervisor_started)" || return 1
   [[ "$(ps -p "$supervisor_pid" -o command= 2>/dev/null)" == *run.sh* ]] || return 1
   [[ "$(pid_file_value script)" == "$SCRIPT_DIR" ]]
 }
@@ -103,7 +128,11 @@ acquire_pid_file() {
     log "removing stale $PID_FILE"
     rm -f "$PID_FILE"
   fi
-  if ! (set -o noclobber; printf 'supervisor %s\nscript %s\nrun_dir %s\n' "$$" "$SCRIPT_DIR" "$RUN_DIR" >"$PID_FILE") 2>/dev/null; then
+  local started
+  started="$(process_started "$$")"
+  if ! (set -o noclobber
+    printf 'supervisor_pid\t%s\nsupervisor_started\t%s\nscript\t%s\nrun_dir\t%s\n' \
+      "$$" "$started" "$SCRIPT_DIR" "$RUN_DIR" >"$PID_FILE") 2>/dev/null; then
     fail "another run.sh created $PID_FILE first"
   fi
 }
@@ -119,22 +148,24 @@ stop_running_kit() {
     fail "$PID_FILE belongs to the kit in $(pid_file_value script); run that checkout's run.sh stop"
   fi
   local supervisor_pid
-  supervisor_pid="$(pid_file_value supervisor)"
+  supervisor_pid="$(pid_file_value supervisor_pid)"
   if is_recorded_supervisor_alive; then
     log "stopping kit supervisor $supervisor_pid"
     kill -TERM "$supervisor_pid"
-    wait_for_exit "$supervisor_pid" 60 || log "supervisor $supervisor_pid did not stop within 60 seconds"
+    # bash runs the TERM trap only after a foreground build step finishes.
+    if ! wait_for_exit "$supervisor_pid" 60; then
+      fail "supervisor $supervisor_pid is still building or stopping; run '$0 stop' again later"
+    fi
   fi
   # The supervisor may have died without cleanup, for example after SIGKILL.
-  local name pgid executable
-  while read -r name pgid executable; do
-    if is_recorded_child_alive "$pgid" "$executable"; then
-      log "stopping leftover $name (process group $pgid)"
-      stop_process_group "$pgid"
-    fi
-  done < <(awk '$1 == "child" { print $2, $3, $4 }' "$PID_FILE" 2>/dev/null)
+  for_each_live_recorded_child stop_leftover_child
   rm -f "$PID_FILE"
   log "stopped"
+}
+
+stop_leftover_child() {
+  log "stopping leftover $1 (process group $2)"
+  stop_process_group "$2"
 }
 
 # wait_for_exit PID SECONDS returns 1 when PID is still alive after SECONDS.
@@ -175,7 +206,7 @@ start_child() {
   set +m
   CHILD_PIDS+=("$pid")
   CHILD_NAMES+=("$name")
-  printf 'child %s %s %s\n' "$name" "$pid" "$1" >>"$PID_FILE"
+  printf 'child\t%s\t%s\t%s\t%s\n' "$name" "$pid" "$(process_started "$pid")" "$1" >>"$PID_FILE"
   log "started $name (pid $pid, log $log_file)"
 }
 
@@ -201,14 +232,16 @@ stop_children() {
 
 # cleanup ignores further signals so a second Ctrl+C or SIGHUP cannot skip the SIGKILL fallback.
 cleanup() {
-  set +e
+  set +eu
   trap '' INT TERM HUP
   stop_children
-  if [[ "$(pid_file_value supervisor)" == "$$" ]]; then
+  if [[ "$(pid_file_value supervisor_pid)" == "$$" ]]; then
     rm -f "$PID_FILE"
   fi
-  if [[ -n "$RUN_DIR" ]]; then
-    rm -rf "$RUN_DIR/bin"
+  if [[ -n "$BIN_DIR" && ! -L "$BIN_DIR" && -f "$BIN_DIR/$BIN_DIR_MARKER" ]]; then
+    rm -rf "$BIN_DIR"
+  fi
+  if [[ -n "$RUN_DIR" && -f "$RUN_DIR/$RUN_DIR_MARKER" ]]; then
     log "logs kept in $RUN_DIR/logs"
   fi
 }
@@ -257,9 +290,9 @@ resolve_dexcli() {
       || fail "Dex Web build failed; see $RUN_DIR/logs/web-build.log"
   fi
   log "building dexcli from cli/"
-  (cd "$REPO_ROOT/cli" && GOWORK=off go build -trimpath -o "$RUN_DIR/bin/dexcli" ./cmd/dexcli) \
+  (cd "$REPO_ROOT/cli" && GOWORK=off go build -trimpath -o "$BIN_DIR/dexcli" ./cmd/dexcli) \
     || fail "dexcli build failed"
-  DEXCLI="$RUN_DIR/bin/dexcli"
+  DEXCLI="$BIN_DIR/dexcli"
 }
 
 resolve_server_zd() {
@@ -280,9 +313,9 @@ resolve_server_zd() {
 
 build_go_programs() {
   log "building the demo Workers and the Go examples server"
-  (cd "$SCRIPT_DIR" && GOWORK=off go build -o "$RUN_DIR/bin/" ./agent-session ./many-events) \
+  (cd "$SCRIPT_DIR" && GOWORK=off go build -o "$BIN_DIR/" ./agent-session ./many-events) \
     || fail "demo Worker build failed"
-  (cd "$REPO_ROOT/examples/go" && GOWORK=off go build -o "$RUN_DIR/bin/examples-server" ./cmd/server) \
+  (cd "$REPO_ROOT/examples/go" && GOWORK=off go build -o "$BIN_DIR/examples-server" ./cmd/server) \
     || fail "examples server build failed"
 }
 
@@ -311,6 +344,23 @@ start_agentic_refund() {
     -H 'content-type: application/json' -d "$body" >>"$RUN_DIR/logs/agentic-refund-start.log" 2>&1
 }
 
+# prepare_run_dir writes only into an empty directory or one an earlier run marked.
+prepare_run_dir() {
+  mkdir -p "$RUN_DIR"
+  if [[ ! -f "$RUN_DIR/$RUN_DIR_MARKER" && -n "$(ls -A "$RUN_DIR")" ]]; then
+    fail "DEX_DEMO_RUN_DIR $RUN_DIR is not empty and was not made by this kit"
+  fi
+  touch "$RUN_DIR/$RUN_DIR_MARKER"
+  mkdir -p "$RUN_DIR/logs"
+  BIN_DIR="$RUN_DIR/local-demo-bin"
+  if [[ -L "$BIN_DIR" ]] || { [[ -e "$BIN_DIR" ]] && [[ ! -f "$BIN_DIR/$BIN_DIR_MARKER" ]]; }; then
+    fail "$BIN_DIR exists and was not made by this kit"
+  fi
+  rm -rf "$BIN_DIR"
+  mkdir "$BIN_DIR"
+  touch "$BIN_DIR/$BIN_DIR_MARKER"
+}
+
 # --- start ------------------------------------------------------------------
 
 start_kit() {
@@ -323,12 +373,12 @@ start_kit() {
 
   prepare_state_dir
   RUN_DIR="${DEX_DEMO_RUN_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/dex-web-local-demo.XXXXXX")}"
-  mkdir -p "$RUN_DIR/logs" "$RUN_DIR/bin"
   acquire_pid_file
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
+  prepare_run_dir
   log "run directory: $RUN_DIR"
 
   resolve_dexcli
@@ -352,13 +402,13 @@ start_kit() {
 
   export DEX_FLOW_SERVICE_ADDRESS="$DEX_ADDRESS"
   DEX_EXAMPLES_HTTP_ADDRESS="127.0.0.1:$EXAMPLES_PORT" DEX_BLOB_CACHE_DIR="$RUN_DIR/blobs/examples-server" \
-    start_child examples-server "$RUN_DIR/logs/examples-server.log" "$RUN_DIR/bin/examples-server"
+    start_child examples-server "$RUN_DIR/logs/examples-server.log" "$BIN_DIR/examples-server"
   local examples_pid="${CHILD_PIDS[1]}"
   start_child agent-session "$RUN_DIR/logs/agent-session.log" \
-    "$RUN_DIR/bin/agent-session" -session-id "$session_flow_id" -blob-cache-dir "$RUN_DIR/blobs/agent-session"
+    "$BIN_DIR/agent-session" -session-id "$session_flow_id" -blob-cache-dir "$RUN_DIR/blobs/agent-session"
   local agent_pid="${CHILD_PIDS[2]}"
   start_child many-events "$RUN_DIR/logs/many-events.log" \
-    "$RUN_DIR/bin/many-events" -flow-id "$many_events_flow_id" -blob-cache-dir "$RUN_DIR/blobs/many-events"
+    "$BIN_DIR/many-events" -flow-id "$many_events_flow_id" -blob-cache-dir "$RUN_DIR/blobs/many-events"
   local many_events_pid="${CHILD_PIDS[3]}"
 
   wait_until "the examples server on $EXAMPLES_URL" "$examples_pid" is_port_open "$EXAMPLES_PORT"

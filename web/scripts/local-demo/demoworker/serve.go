@@ -41,7 +41,7 @@ func FlowServiceAddress() string {
 // a Client. blobCacheDir holds the Worker and Client BlobCaches; an empty value
 // uses a temporary directory that Serve removes on return. Serve returns the
 // first startup or startDemo error joined with every shutdown error, or only the
-// shutdown errors after ctx ends.
+// shutdown errors after ctx ends, also when it ends during startup.
 func Serve(
 	ctx context.Context,
 	registry *dex.Registry,
@@ -84,10 +84,10 @@ func Serve(
 	registrationErr := worker.WaitPullRegistered(startupCtx)
 	cancelStartup()
 	if registrationErr != nil {
-		return errors.Join(registrationErr, worker.Stop(context.Background()), <-workerResult)
+		return errors.Join(startupError(ctx, registrationErr), worker.Stop(context.Background()), <-workerResult)
 	}
 	if err := startDemo(ctx, client); err != nil {
-		return errors.Join(err, worker.Stop(context.Background()), <-workerResult)
+		return errors.Join(startupError(ctx, err), worker.Stop(context.Background()), <-workerResult)
 	}
 	select {
 	case err := <-workerResult:
@@ -95,6 +95,14 @@ func Serve(
 	case <-ctx.Done():
 		return errors.Join(worker.Stop(context.Background()), <-workerResult)
 	}
+}
+
+// startupError returns nil when ctx ended, so a stop during startup exits cleanly.
+func startupError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
 }
 
 func removeDirectory(directory string) {
