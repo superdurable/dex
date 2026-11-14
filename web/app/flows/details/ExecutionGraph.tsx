@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Background,
+  ControlButton,
   Controls,
   Handle,
   MarkerType,
@@ -32,6 +33,7 @@ import {
   CircleX,
   Clock,
   Hourglass,
+  Maximize,
   Play,
   type LucideIcon,
 } from 'lucide-react';
@@ -81,6 +83,25 @@ const maxVisibleChannelNames = 2;
 const readableFitZoom = 0.6;
 /** A framed graph zooms out a little, so the selected Step shows its neighbors. */
 const framedGraphZoom = 0.8;
+const maximumGraphZoom = 2;
+/** The zoom-out limit of the controls, lowered further when only that fits the whole graph. */
+const controlMinimumZoom = 0.2;
+/** Fit View leaves a margin of 5% on each side. */
+const fitPadding = 0.9;
+
+/** Whether a node lies wholly inside the canvas at the current viewport. */
+function isNodeInView(
+  viewport: { x: number; y: number; zoom: number },
+  canvas: { width: number; height: number },
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+): boolean {
+  const left = position.x * viewport.zoom + viewport.x;
+  const top = position.y * viewport.zoom + viewport.y;
+  return left >= 0 && top >= 0
+    && left + size.width * viewport.zoom <= canvas.width
+    && top + size.height * viewport.zoom <= canvas.height;
+}
 
 const graphEdgeColor = 'var(--mark)';
 const connectedStepColor = 'var(--ink-dim)';
@@ -526,25 +547,6 @@ export function ExecutionGraph({
   const initialZoom = !isLeftToRight
     ? defaultGraphZoom(bounds.width, canvasWidth)
     : isWholeGraphShown ? fitZoom : Math.max(minimumGraphZoom, Math.min(framedGraphZoom, heightFitZoom));
-  // The graph opens framed on the selected Step, such as the failed or waiting one, once per mount.
-  const hasFramedSelection = useRef(false);
-  useEffect(() => {
-    if (hasFramedSelection.current || !flowInstance || !selectedEvent || isWholeGraphShown) return undefined;
-    const element = graphCanvas.current?.querySelector<HTMLElement>('.graph-method.is-selected')
-      ?.closest<HTMLElement>('.react-flow__node');
-    const node = element?.dataset.id ? flowInstance.getNode(element.dataset.id) : undefined;
-    if (!node) return undefined;
-    hasFramedSelection.current = true;
-    // Pan the graph, not the page, so the bar and the run line stay in view.
-    const width = node.measured?.width ?? node.width ?? 0;
-    const height = node.measured?.height ?? node.height ?? 0;
-    // A frame later, so the initial viewport below has been set first.
-    const frame = window.requestAnimationFrame(() => {
-      void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: flowInstance.getZoom() });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [flowInstance, isWholeGraphShown, nodes, selectedEvent]);
-
   useEffect(() => {
     const canvas = graphCanvas.current;
     if (!canvas) return undefined;
@@ -559,14 +561,55 @@ export function ExecutionGraph({
     return () => observer.disconnect();
   }, []);
 
+  // The first viewport is set once per mount; later events, layouts and resizes never undo a reader's zoom or pan.
+  const hasAppliedInitialViewport = useRef(false);
   useEffect(() => {
-    if (!flowInstance || canvasWidth <= 0) return;
+    if (hasAppliedInitialViewport.current || !flowInstance || canvasWidth <= 0) return;
+    hasAppliedInitialViewport.current = true;
     void flowInstance.setViewport({
       x: Math.max(0, (canvasWidth - bounds.width * initialZoom) / 2),
       y: isLeftToRight ? Math.max(0, (canvasSize.height - bounds.height * initialZoom) / 2) : 0,
       zoom: initialZoom,
     });
   }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isLeftToRight]);
+
+  // Frames the selected Step on first show, and later only when a newly selected Step is out of view.
+  const framedEventId = useRef<number | null>(null);
+  useEffect(() => {
+    if (!flowInstance || !selectedEvent || !hasAppliedInitialViewport.current) return undefined;
+    if (framedEventId.current === selectedEvent.eventId) return undefined;
+    const element = graphCanvas.current?.querySelector<HTMLElement>('.graph-method.is-selected')
+      ?.closest<HTMLElement>('.react-flow__node');
+    const node = element?.dataset.id ? flowInstance.getNode(element.dataset.id) : undefined;
+    if (!node) return undefined;
+    const isFirstFrame = framedEventId.current === null;
+    framedEventId.current = selectedEvent.eventId;
+    const width = node.measured?.width ?? node.width ?? 0;
+    const height = node.measured?.height ?? node.height ?? 0;
+    const shouldCenter = isFirstFrame
+      ? !isWholeGraphShown
+      : !isNodeInView(flowInstance.getViewport(), canvasSize, node.position, { width, height });
+    if (!shouldCenter) return undefined;
+    // Pan the graph, not the page; a frame later, after the first viewport.
+    const frame = window.requestAnimationFrame(() => {
+      void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: flowInstance.getZoom() });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [canvasSize, flowInstance, isWholeGraphShown, nodes, selectedEvent]);
+
+  const wholeGraphZoom = fittingGraphZoom(bounds, { width: canvasWidth * fitPadding, height: canvasSize.height * fitPadding });
+  /** Fits the whole graph into the box, however small, since Fit View must show everything. */
+  const fitWholeGraph = () => {
+    if (!flowInstance || canvasWidth <= 0) return;
+    const zoom = Math.min(maximumGraphZoom, wholeGraphZoom);
+    void flowInstance.setViewport({
+      x: (canvasWidth - bounds.width * zoom) / 2,
+      y: (canvasSize.height - bounds.height * zoom) / 2,
+      zoom,
+    }, { duration: 200 });
+  };
+  // Zooming out can always reach the whole graph.
+  const lowestZoom = Math.min(controlMinimumZoom, wholeGraphZoom);
 
   if (!nodes.length) return <div className="card empty-state"><h3>No execution topology loaded</h3></div>;
   return (
@@ -594,8 +637,8 @@ export function ExecutionGraph({
           nodes={nodes}
           edges={edges}
           nodeTypes={graphNodeTypes}
-          minZoom={minimumGraphZoom}
-          maxZoom={2}
+          minZoom={isLeftToRight ? lowestZoom : minimumGraphZoom}
+          maxZoom={maximumGraphZoom}
           elementsSelectable={false}
           nodesConnectable={false}
           nodesDraggable={false}
@@ -611,7 +654,12 @@ export function ExecutionGraph({
           }}
         >
           <Background gap={22} size={1} color="var(--line-faint)" />
-          <Controls position="top-right" />
+          {/* Nodes are never draggable or selectable, so the lock has nothing to toggle. */}
+          <Controls position="top-right" showFitView={false} showInteractive={false}>
+            <ControlButton aria-label="Fit view" className="react-flow__controls-fitview" onClick={fitWholeGraph} title="Fit view">
+              <Maximize aria-hidden="true" size={12} strokeWidth={2.5} />
+            </ControlButton>
+          </Controls>
           <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
             {isMiniMapExpanded && (
               <MiniMap

@@ -441,6 +441,7 @@ describe('Run page experimental tabs', () => {
     renderRun('/v1/flows/run-flow/run-1?view=session');
     const conversation = await screen.findByRole('region', { name: 'Conversation unavailable' });
     expect(conversation.textContent).toContain('This run is not a Dex Agents session.');
+    expect(within(conversation).getByRole('heading', { name: 'No conversation for this run' })).toBeTruthy();
     const frameworks = within(conversation).getByRole('link', { name: /Supported agent frameworks/ });
     expect(frameworks.getAttribute('href')).toBe('https://docs.superdurable.io/agent-frameworks/framework-support');
     expect(frameworks.getAttribute('target')).toBe('_blank');
@@ -448,6 +449,7 @@ describe('Run page experimental tabs', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Actions' }));
     const actions = await screen.findByRole('region', { name: 'Actions unavailable' });
     expect(actions.textContent).toContain('No Flow Definition Graph is loaded for the Flow type RefundFlow.');
+    expect(within(actions).getByRole('heading', { name: 'No actions for this run' })).toBeTruthy();
     expect(within(actions).getByRole('link', { name: /Load Flow definitions/ }).getAttribute('href'))
       .toBe('https://docs.superdurable.io/reference/web/flow-visualization#definition-sources');
     expect(within(actions).getByRole('link', { name: /Actions in Dex Web/ }).getAttribute('href'))

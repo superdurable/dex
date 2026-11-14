@@ -1815,37 +1815,54 @@ html .events-picture .v2-shell.dg {
   gap: 10px;
 }
 
-/* Conversation and Actions are always tabs; without content their panel says why. */
+/* Conversation and Actions are always tabs; without content the full-width card shows a calm empty state. */
 .run-tab-unavailable {
-  display: grid;
-  max-width: 720px;
-  gap: 8px;
-  padding: 20px 22px;
-  color: var(--ui-ink-2);
-  font-size: var(--ui-text-md);
-  line-height: 1.5;
+  display: flex;
+  justify-content: center;
+  padding: 48px 24px;
 }
 
-.run-tab-unavailable p {
+.run-tab-unavailable-body {
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.run-tab-unavailable-icon {
+  margin-bottom: 4px;
+  color: var(--ui-ink-3);
+}
+
+.run-tab-unavailable-title {
   margin: 0;
+  color: var(--ui-ink);
+  font-size: var(--ui-text-md);
+  font-weight: 500;
 }
 
-.run-tab-unavailable-lead {
-  color: var(--ui-ink);
-  font-weight: 600;
+.run-tab-unavailable-text {
+  margin: 0;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+  line-height: 1.55;
 }
 
 .run-tab-unavailable-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
+  justify-content: center;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  font-size: var(--ui-text-sm);
 }
 
 .run-tab-unavailable-links a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-weight: 600;
 }
 
 /* --------------------------------------------------------------- motion */
