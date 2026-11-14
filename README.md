@@ -13,12 +13,12 @@
   <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-Sustainable%20Use%201.0-blue" alt="License: Sustainable Use License 1.0" /></a>
 </p>
 
-**Dex** is a lightweight durable execution platform for AI agents and workflows. Write normal code, and Dex keeps it running through crashes, deploys, and long waits: every finished step is saved, so an agent or a workflow picks up exactly where it left off.
+**Dex** is a lightweight durable execution platform for AI agents and workflows. Write normal code as a Flow of Steps, and Dex keeps it running through crashes, deploys, and long waits: every finished Step is saved, so an agent or a workflow picks up exactly where it left off.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/images/dex-system-dark.png" />
-    <img width="600" alt="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC. Dex Server invokes Steps and RPCs on the Worker and persists Flow instances and their execution." src=".github/images/dex-system-light.png" />
+    <img width="720" alt="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC. Dex Server invokes Steps and RPCs on the Worker and persists Flow instances and their execution." src=".github/images/dex-system-light.png" />
   </picture>
 </p>
 
@@ -31,34 +31,34 @@ Then follow the [Quick Start](https://docs.superdurable.io/quick-start), or let 
 
 ## Durable agents
 
-A common use of Dex is to make AI agents durable. A session survives disruptions such as a killed instance or a service outage, with durable timers and retries. Dex Web shows every step's input and output, with operations like time travel.
+A common use of Dex is to make AI agents durable. Durable timers and retries carry a session through disruptions such as a killed instance or a service outage. Dex Web shows every Step's input and output, and can rerun a session from an earlier point (time travel).
 
 Keep your framework (Claude Agent SDK, OpenAI Agents SDK, and more) and start with the **[Agent Quick Start](https://docs.superdurable.io/agent-frameworks/quick-start)**.
 
 ## Why use Dex?
 
-Dex keeps *any* long-running agent or workflow running until it finishes:
+Dex runs *any* long-running agent or workflow to completion:
 
-- **[No replay](https://docs.superdurable.io/intro/what-is-dex)**: Write ordinary code. Most engines recover a process by running your code again from the top, so it must behave the same on every run. Dex's structured programming model saves each step's result and continues from the next step, with fewer primitives, less code, and fewer bugs. Without replay, Dex:
-  - eliminates non-determinism errors completely: a step can read the clock, use random values, and call any library
-  - supports long-running Flows without manual history rollover
+- **[No replay](https://docs.superdurable.io/intro/what-is-dex)**: Most engines recover a process by running your code again from the top, so it must behave the same on every run. Dex saves each Step's result and continues from the next Step, in a structured model with fewer primitives, less code, and fewer bugs. Without replay, Dex:
+  - eliminates non-determinism errors completely: a Step can read the clock, use random values, and call any library
+  - supports long-running Flows without manual history rollover: Dex prunes old history itself
   - needs no "sticky cache": Workers keep no workflow state in memory
-- **[Zero dependencies](https://docs.superdurable.io/components/server)**: Run Dex on object storage alone: Amazon S3 or a compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS. With no database, message queue, or coordination service, Dex is:
-  - easy to operate: one binary and one bucket, or none with [Dex Cloud](https://docs.superdurable.io/components/dex-cloud)
-  - fast: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K Steps/s and 67K read RPCs/s, with reads at about 0.5 ms at half that load
-- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store and stream data through explicit primitives, because no real process runs without data. An agent keeps its whole LLM context or thousands of messages in Dex, its key-value store, and streams model output as it arrives.
-- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate products such as Stripe and Gmail as Steps, Triggers, or agent tools, through a large and growing library, from prototype to production.
-- **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph. Its definition is a JSON file uploaded to the server, and Dex Web draws it.
+- **[Zero dependencies](https://docs.superdurable.io/components/server)**: Run Dex on object storage alone, such as Amazon S3 or a compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS. With no database, message queue, or coordination service, Dex is:
+  - easy to operate: one binary and one bucket, or neither on [Dex Cloud](https://docs.superdurable.io/components/dex-cloud)
+  - fast: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K Steps/s and 67K read RPCs/s
+- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: Store and stream data through explicit primitives, Attributes and Streams, because no real process runs without data. An agent keeps its whole LLM context or thousands of messages in Attributes, as in a key-value store, and streams model output as it arrives.
+- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Integrate with products such as Stripe and Gmail, from prototype to production, through a large and growing library of ready-made Steps, Triggers, and agent tools.
+- **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph: a JSON file describing the Flow is uploaded to the server, and Dex Web draws it.
 
-[Dex is built](https://superdurable.io/about/) by the original creator of [iWF](https://github.com/indeedeng/iwf), with deep, firsthand experience from generations of durable execution technology.
+Dex is built by [the original creator](https://superdurable.io/about/) of [iWF](https://github.com/indeedeng/iwf), with deep, firsthand experience of several generations of durable execution technology.
 
 ## Under the hood
 
-The engine is written in Rust, with RocksDB, and built for performance:
+The engine is written in Rust for performance and keeps RocksDB as a local cache:
 
-- Every write is committed to object storage first, as a **command log** batched to save PUT costs, and then applied to RocksDB as a local cache.
-- RocksDB snapshots are uploaded in the background. After a crash, a standby or a restarted node loads the latest snapshot, re-applies the log, and rebuilds its state in seconds.
-- The SDKs cache Attribute values on local disk, which cuts network transfer for large values.
+- Every write is committed to object storage first, in a **command log** that is batched to save PUT costs, and is then applied to RocksDB.
+- Snapshots are uploaded in the background. After a crash, a standby or a restarted node loads the latest one, re-applies the log, and rebuilds its state in seconds.
+- The SDKs cache large Attribute values on local disk to cut network transfer.
 
 ## SDKs
 
