@@ -165,6 +165,14 @@ func newHostApplication(t *testing.T, cfg *embedded.Config) *hostApplication {
 			return embedded.Target{}, errors.New("secret database password leaked")
 		case "bad-base-path":
 			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/../x"}, nil
+		case "linked":
+			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/linked", HostLink: &embedded.HostLink{
+				Name: `test <b>`, URL: "/servers/test?tab=overview&x=1",
+			}}, nil
+		case "bad-host-link":
+			return embedded.Target{FlowServiceClient: clientA, BasePath: "/dex-web/bad-host-link", HostLink: &embedded.HostLink{
+				Name: "test", URL: "javascript:alert(1)",
+			}}, nil
 		}
 		client, ok := clients[serverID]
 		if !ok {
@@ -277,6 +285,24 @@ func TestHandlerServesPagesUnderEachBasePath(t *testing.T) {
 	redirect := host.send(t, http.MethodGet, "/dex-web/server-a", "", nil)
 	if redirect.status/100 != 3 || redirect.header.Get("Location") != "/dex-web/server-a/" {
 		t.Fatalf("mount without slash = %d %v", redirect.status, redirect.header)
+	}
+}
+
+func TestHandlerRecordsTheHostLinkForTheTrail(t *testing.T) {
+	host := newHostApplication(t, &embedded.Config{})
+	linked := host.send(t, http.MethodGet, "/dex-web/linked/v1/flows", "", nil)
+	if linked.status != http.StatusOK ||
+		!strings.Contains(linked.body, `<meta name="dex-web-host-name" content="test &lt;b&gt;" />`) ||
+		!strings.Contains(linked.body, `<meta name="dex-web-host-url" content="/servers/test?tab=overview&amp;x=1" />`) {
+		t.Fatalf("linked page = %d %s", linked.status, linked.body)
+	}
+	plain := host.send(t, http.MethodGet, "/dex-web/server-a/v1/flows", "", nil)
+	if plain.status != http.StatusOK || strings.Contains(plain.body, "dex-web-host-") {
+		t.Fatalf("page without a host link = %d %s", plain.status, plain.body)
+	}
+	if bad := host.send(t, http.MethodGet, "/dex-web/bad-host-link/v1/flows", "", nil); bad.status != http.StatusInternalServerError ||
+		strings.Contains(bad.body, "javascript") {
+		t.Fatalf("page with an unsafe host link = %d %s", bad.status, bad.body)
 	}
 }
 

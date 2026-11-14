@@ -150,6 +150,8 @@ type targetRoutes struct {
 	// connectorSetup is nil when local Connector setup is disabled.
 	connectorSetup *connectorSetup
 	basePath       string
+	// hostLink is nil when no host page serves this Dex Web.
+	hostLink *HostLink
 }
 
 // newTargetRouteMux registers the API, probe, and page routes; paths are relative to the base path.
@@ -180,7 +182,7 @@ func (pages *sitePages) newTargetRouteMux(routes targetRoutes) *http.ServeMux {
 		routes.connectorSetup.registerHandlers(mux)
 	}
 	mux.HandleFunc("GET /readyz", readinessHandler(routes.client, routes.flowDefinitions))
-	mux.Handle("/", pages.spaHandler(routes.basePath, routes.connectorSetup != nil))
+	mux.Handle("/", pages.spaHandler(routes.basePath, routes.connectorSetup != nil, routes.hostLink))
 	return mux
 }
 

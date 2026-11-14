@@ -187,7 +187,7 @@ original error goes to the Dex Web log.
 
 Changed in 1.41.0: Dex Web has one UI. The **v1** and **v2** version picker is gone, and **/** opens **/v1/flows**. Every **/v2** URL redirects to its **/v1** equivalent and keeps its query and hash. The Run workspace of the former **v2** and its **Debug** view no longer exist. The **v1** run tabs cover them.
 
-Features that need Flow Definition Graphs, and features that are still changing, are **Experimental**. Each carries an **Experimental** label and appears only when it applies. The header has one **Experimental** menu with **Designs**, **Work Queue**, and **Connectors**. The run page shows **Design**, **Agent session**, and **Actions** as extra tabs. See [Flows and Run pages](#v1-pages).
+Features that need Flow Definition Graphs, and features that are still changing, are **Experimental**. Each carries a violet dot and appears only when it applies. Changed in 1.45.3: the bar's page menu lists **Designs**, **Work Queue**, and **Connectors** after **Flows**, in place of the header's **Experimental** menu. The run page shows **Agent session**, **Actions**, and **Design** as extra tabs. See [Flows and Run pages](#v1-pages).
 
 **Connectors** sets up the local Connector connections of **dexcli dev**. Changed in 1.42.0: it appears whenever **dexcli dev** runs, even with no Flow Definition Graph files, and **+ Add** adds a named connection that no loaded Flow uses, such as one an agent tool opens. See [Local Connector setup](/reference/web/local-connector-setup#add-a-connection).
 
@@ -250,31 +250,49 @@ tunnel stays the only way in.
 
 ## v1 Flows and Run pages {#v1-pages}
 
-Changed in 1.40.0: the **v1** Flows page and Run page were redesigned. Labels keep their written case. The logo links to the Super Durable website, and every **v1** page starts with a **Flows** breadcrumb that leads back to the Flows page.
+Changed in 1.40.0: the **v1** Flows page and Run page were redesigned. Labels keep their written case.
 
-The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query**. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns.
+Changed in 1.45.3: every page has one bar in place of the header and the page breadcrumbs.
 
-The Run page shows the Flow ID and Run ID in the breadcrumb, each with a copy button. A summary row shows the run status, **Started**, **Closed** for a closed run, **Duration**, and the **Run attempt** selector. See [Run attempts](#run-attempts).
+- The bar starts with a trail. Its first link is the Dex mark, which opens the Flows page. When a host page opens Dex Web, the first link is that page instead; see [Embed Dex Web](/reference/web/embed-dex-web). A dot beside it shows whether Dex Web reaches the Dex Server, from **/readyz**.
+- The trail's page link names the page you are on. On a run page it is **Flows**, and it returns to your last Flows search. Its menu switches to **Work Queue**, **Designs**, and **Connectors** when they apply.
+- A page adds what it is, its views, and its actions to the bar.
+- The search button, or ⌘K and Ctrl+K, lists Flows whose ID starts with what you type, opens a pasted run link, and shows this browser's recent runs and the pages. Arrow keys and Enter choose a match.
+- The settings button holds **Theme**, **Timezone**, and **Docs**.
 
-The **Events** tile in the summary row names the latest event, such as **Latest #120**, and the event range on screen. It pages through events with **Latest page**, **Newer page**, **Older page**, and **Oldest page**. **Page size** sets 100 or 1000 events per page. The default is 1000, and the browser remembers each viewer's choice. **Execution graph** and **Timeline** show the same page. **Overview** and **Streams** always read the newest events. **Live** adds new events to the latest page only. An older page stays in place, and **Latest page** returns to the live page.
+The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns. Changed in 1.45.3: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter.
+
+Changed in 1.45.3: the Run page puts the run in the bar, so the selected tab starts right below it.
+
+- The line under the bar names the run's relations: **Child of** a child Flow's parent, which links to the parent's current run, and a run's child Flows, such as **1 child · Completed**. **Overview** lists them under **Related Flows**, and **Run details** lists the first five child Flows with their status.
+- The bar shows the run status, its duration (counting up while it runs; hover for the start time), and the Flow ID in bold. A long Flow ID is shortened in the middle, so both its start and end stay visible. A child Flow's ID drops its `SubFlow:<parent>-` prefix in the bar, since the line under the bar names the parent; **Run details** shows IDs whole. The Flow type and copy buttons are in **Run details**. The bar shows the same items on every run, and keeps every tab's name at 1280 pixels and wider; on narrower screens later run tabs show only their icons, with their names on hover. Clicking the Flow ID opens **Run details**: **Started**, **Closed** for a closed run, **Duration**, **Run attempt** or **Run chain**, **Latest event**, **Flow type**, and copy buttons for the Flow ID and Run ID.
+- After time travel, the line under the bar also shows the **Run attempt** selector, and **Run details** repeats it. See [Run attempts](#run-attempts).
+- The run tabs follow. See [Run tabs](#run-tabs).
+- **Live** follows a running run's new events; click it to stop following, and it reads **Live off**. Turning it back on reads the run again. **Refresh** and **Copy link** are gone: resume **Live**, or use the address bar.
+- One action button follows the run's state. It is **Stop** while the run runs, with **Time travel…** in its menu. On a failed run it names the failed event, such as **Time travel from #6**, and opens the dialog set to that event, with **Time travel…** in its menu. On another ended run it is **Time travel**. Each opens the same dialogs as before.
+- A run that failed states its error under the bar, and opens with the failed Step event selected. The line's button selects it again, or **FlowClosed** when no Step failed.
+- Any other run has the same line. A running run reads **Now** with its newest event and Step type, plus the soonest timer its newest WaitFor set and when it fires, and an ended run reads **Ended**. Its button selects that event. The line also holds the run's relations and the **Run attempt** selector.
+- The selected event's panel has **Time travel from here…** when time travel can start at that event. It opens the dialog set to the event.
+
+The **Events** bar above **Timeline** and **Execution graph** names the latest event, such as **Latest #120**, and the event range on screen. It pages through events with **Latest page**, **Newer page**, **Older page**, and **Oldest page**. Changed in 1.45.3: the page buttons show only when the history has more than one page, as icons that name themselves on hover, and **Page size** hides when the whole history fits in 100 events. **Page size** sets 100 or 1000 events per page. The default is 1000, and the browser remembers each viewer's choice. **Execution graph** and **Timeline** show the same page. **Overview** and **Streams** always read the newest events. **Live** adds new events to the latest page only. An older page stays in place, and **Latest page** returns to the live page.
 
 **Overview** starts with **Active steps**: each active Step's phase, Step type, and what it waits for. A closed run shows its **Outcome** instead, with the failure type and message when it failed. **Attributes**, **Channels**, **Queued steps**, **Completed outputs**, and **Start input** follow. **Channels** groups pending messages by Channel name. **Details** shows the Flow type, **Task queue**, **Sticky Worker ID**, request ID, and the first run ID when it differs from the run ID. **History settings** shows the run's **Retention window**, read as "Last N events", or **Server default**. While the run is active, **Edit** changes it through **UpdateFlowConfig**. See [history window](/reference/server/configuration#history-window).
 
-On screens wider than 760 pixels, **Timeline** is a horizontal strip with the oldest event on the left. Each event label names its subject, such as the Step type, Channel name, or RPC name. The icon shows the event kind, and only waiting, failed, and canceled events are colored. A legend explains the icons and colors. The arrow keys, Page Up, Page Down, Home, and End move the selection. On narrower screens, Timeline is a vertical list.
+On screens wider than 760 pixels, **Timeline** is a horizontal strip with the oldest event on the left. Each event label names its subject, such as the Step type, Channel name, or RPC name. The icon shows the event kind, and only waiting, failed, and canceled events are colored. **Legend** explains the icons and colors. Changed in 1.45.3: the legend starts folded. The arrow keys, Page Up, Page Down, Home, and End move the selection. On narrower screens, Timeline is a vertical list.
 
 Changed in 1.41.0: the overview above the strip is a histogram of the page. Bars count events over time, so bursts and quiet gaps show. When timestamps would crowd the events, bars follow event order instead, and the axis says "spaced by event order". A page with fewer events than bars gets one wide bar per event. Failed events, and Steps retried after a failed attempt, are red. Waiting events are amber, and canceled events are grey. Hover a bar to see its time range, event count, and failures. The shaded brush shows the events in the strip. Drag it to scroll, or click elsewhere to jump there. With the overview focused, the arrow keys, Page Up, Page Down, Home, and End move the brush. In the strip, a Step event that succeeded only after failed attempts carries a red retry badge. Changed in 1.41.1: click a bar to select its event and center it in the strip. When the bar holds several events, the click selects its first failed event. Without one, it selects the first retried, waiting, or canceled event, in that order, and otherwise the first event. With the overview focused, Enter selects the event at the brush center.
 
-The selected event panel sits below the strip at full width. **Input**, **Output**, and **Context** are columns on wide screens, and empty sections are hidden. [Troubleshoot a Flow run](/reference/web/debugging#read-only-debugging-workflow) shows how to read them. **Execution graph** keeps the same panel beside the graph.
+The selected event panel sits below the strip at full width. Changed in 1.45.3: on screens 1280 pixels wide or more it sits beside the strip, as on **Execution graph**. Below 1440 pixels the panel takes at most 38% of the width, and event rows drop the execution ID. The strip there shows only its overview until you choose **Show lane**, and a one-line event list, newest first, scrolls under it. In the list, the arrow keys or J and K move the selection, T opens time travel at the selected event, and each row that time travel can start at has a time travel button on hover. J, K and T also work from elsewhere on the page. A time travel fork reads as a divider, and the row where a child Flow started links to it with its status. The selected event is kept in the address as `event=`, so a link or a reload opens the same event. **Input**, **Output**, and **Context** are columns when the panel is wide, and empty sections are hidden. [Troubleshoot a Flow run](/reference/web/debugging#read-only-debugging-workflow) shows how to read them. **Execution graph** keeps the same panel beside the graph. Changed in 1.45.3: **Execution graph** fits the window and opens centred on the selected Step, such as the failed one; the wheel and dragging pan it.
 
 ### Run tabs {#run-tabs}
 
-Changed in 1.41.0: the run tabs are **Overview**, **Execution graph**, **Timeline**, and **Streams**. Three **Experimental** tabs follow, and each appears only when it applies:
+Changed in 1.45.3: a run opens on the tab this browser last chose on that Flow, and other Flows open on **Timeline**. The run tabs are **Timeline**, **Execution graph**, **Overview**, and **Streams**, in that order. Three **Experimental** tabs follow, and each appears only when it applies. When the tab names do not fit in the bar, later tabs show only their icon first, and then all but the open tab; each keeps its name as a tooltip.
 
 | Tab | Appears when | Open it directly with |
 | --- | --- | --- |
-| **Design** | A loaded Flow Definition Graph matches the run's Flow type. | **?view=design** |
 | **Agent session** | The run is a Dex Agents session, by the rule in [Compatibility](#agent-session-compatibility). | **?view=session** |
 | **Actions** | The Flow Definition Graph declares Actions for the Flow type. | **?view=actions** |
+| **Design** | A loaded Flow Definition Graph matches the run's Flow type. | **?view=design** |
 
 **?view=** also accepts the other tab names. Changed in 1.41.1: a run opens on **Timeline** unless the browser remembers another tab, and a tab that does not apply to the run opens **Timeline** instead. A run without a matching definition shows only the four base tabs.
 
@@ -647,7 +665,7 @@ dexcli dev --flow-rendering-dir ./build
 Time travel keeps the run ID and creates a new run attempt. Run attempts are
 numbered from 1.
 
-The Run page shows a **Run attempt** selector in place of **Run chain**.
+The Run page's **Run details** show **Run attempt** in place of **Run chain**. Changed in 1.45.3: the line under the bar shows the **Run attempt** selector only when the run has more than one attempt.
 Choosing an earlier attempt adds **?runAttempt=N** to the page URL and shows
 that attempt's history. For an earlier attempt, live history stops. Live state always belongs to the
 current attempt. Time travel from that view searches the selected attempt. A **TimeTravelFork** event links to the previous run attempt.

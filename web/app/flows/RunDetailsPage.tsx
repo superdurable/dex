@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -34,24 +34,17 @@ import type {
 } from '@/lib/types';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import {
-  CalendarClock,
-  Flag,
-  History,
+  CornerDownRight,
+  CornerLeftUp,
   LayoutDashboard,
-  Layers,
-  Link as LinkIcon,
-  RefreshCw,
   Rows3,
   PencilRuler,
   Bot,
   MousePointerClick,
-  Square,
-  Timer,
   Waves,
   Workflow,
   type LucideIcon,
 } from 'lucide-react';
-import { CopyButton } from '../components/CopyButton';
 import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
@@ -63,19 +56,25 @@ import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialo
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
+import { EventList } from './details/EventList';
+import { OperateMenu } from './details/OperateMenu';
+import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './details/RunFactsMenu';
+import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
+import { AppBarSlot } from '../components/frame/AppBarSlots';
+import { rememberRecentRun } from '../components/frame/recentRuns';
+import { RunFailureBody, runFailureOf, RunLineJump, RunStateBody, runStateOf } from './details/RunFailureLine';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline } from './details/HorizontalTimeline';
 import { useRunHistory } from './useRunHistory';
 import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
-import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { DesignCanvasErrorBoundary } from '../design/DesignCanvasErrorBoundary';
 import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostics';
 import { useFlowTypeDefinitions, useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
-import { RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
+import { FLOWS_PATH, RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
 import { webURL } from '@/lib/basePath';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
@@ -114,6 +113,9 @@ const noOperatorDefinitions: FlowV2Definition[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
 /** The horizontal Timeline needs width; narrow screens keep the vertical one. */
 const horizontalTimelineQuery = '(min-width: 761px)';
+/** On desktop the strip gains the event list under it, so events can be scanned as rows. */
+const timelineEventListQuery = '(min-width: 1280px)';
+const RUN_EVENT_PARAM = 'event';
 
 /** Follows a media query; without matchMedia, such as in tests, it reports no match. */
 function useMediaQuery(query: string): boolean {
@@ -141,7 +143,7 @@ type SidebarKind = 'graph' | 'timeline';
 
 /** Timeline rows are short, so its event panel defaults wider; each tab remembers its own width. */
 const sidebarLayouts: Record<SidebarKind, { storageKey: string; defaultWidth: number; maximumWidth: number }> = {
-  graph: { storageKey: 'dex.run.selected-event-width', defaultWidth: 340, maximumWidth: 720 },
+  graph: { storageKey: 'dex.run.selected-event-width', defaultWidth: 600, maximumWidth: 720 },
   timeline: { storageKey: 'dex.run.selected-event-width.timeline', defaultWidth: 780, maximumWidth: 1040 },
 };
 
@@ -169,20 +171,45 @@ function persistSidebarWidth(kind: SidebarKind, width: number) {
   }
 }
 
-function storedRunTab(): RunTab {
+/** The tab this browser last chose on this run; another run opens on Timeline. */
+function storedRunTab(flowId: string): RunTab {
   if (typeof window === 'undefined') return 'timeline';
   try {
-    const tab = window.localStorage.getItem(runTabStorageKey);
-    return tab && runTabs.has(tab as RunTab) ? tab as RunTab : 'timeline';
+    const stored = window.localStorage.getItem(runTabStorageKey) ?? '';
+    // An older Dex Web saved a bare tab for every run; it still applies until the next choice.
+    if (runTabs.has(stored as RunTab)) return stored as RunTab;
+    const parsed = JSON.parse(stored || 'null') as { flowId?: unknown; tab?: unknown } | null;
+    return parsed?.flowId === flowId && isRunTab(typeof parsed.tab === 'string' ? parsed.tab : null)
+      ? parsed.tab as RunTab
+      : 'timeline';
   } catch (storageError) {
     console.warn('Unable to read the selected run tab preference.', storageError);
     return 'timeline';
   }
 }
 
-function persistRunTab(tab: RunTab) {
+const timelineLaneStorageKey = 'dex.run.timeline-lane';
+
+/** The desktop event list makes the labelled lane optional; it starts hidden. */
+function storedTimelineLaneShown(): boolean {
   try {
-    window.localStorage.setItem(runTabStorageKey, tab);
+    return window.localStorage.getItem(timelineLaneStorageKey) === 'shown';
+  } catch {
+    return false;
+  }
+}
+
+function persistTimelineLaneShown(isShown: boolean) {
+  try {
+    window.localStorage.setItem(timelineLaneStorageKey, isShown ? 'shown' : 'hidden');
+  } catch (storageError) {
+    console.warn('Unable to save the Timeline lane preference.', storageError);
+  }
+}
+
+function persistRunTab(flowId: string, tab: RunTab) {
+  try {
+    window.localStorage.setItem(runTabStorageKey, JSON.stringify({ flowId, tab }));
   } catch (storageError) {
     console.warn('Unable to save the selected run tab preference.', storageError);
   }
@@ -197,13 +224,10 @@ function selectedEventConnectorTone(event: FlowHistoryEvent): SelectedEventConne
 export function RunDetailsPage({
   flowId,
   runId,
-  breadcrumb,
   runPath,
 }: {
   flowId: string;
   runId: string;
-  /** Supplied by the host shell, which owns where "up" goes. */
-  breadcrumb: ReactNode;
   /** Where a sibling run in this chain lives under the host's routes. */
   runPath: (chainRunID: string) => string;
 }) {
@@ -218,7 +242,7 @@ export function RunDetailsPage({
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
-  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab()));
+  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
   const webCatalog = useOptionalWebCatalog();
   // A run page reads only its own Flow type's definitions.
   const runDefinitions = useFlowTypeDefinitions(summary?.flowType);
@@ -230,6 +254,11 @@ export function RunDetailsPage({
     [catalogEntry],
   );
   const workingAs = useWorkingAs(workingAsDefinitions);
+  const relations = useRunRelations(flowId);
+  useEffect(() => {
+    if (summary) rememberRecentRun({ flowId: summary.flowId, runId: summary.runId, flowType: summary.flowType, flowStatus: summary.flowStatus });
+  }, [summary]);
+  const now = useSecondClock(summary !== null && !terminalStatuses.has(summary.flowStatusCode));
   const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
   const history = runHistory.newest?.events ?? noHistoryEvents;
   const isViewingEarlierRunAttempt = summary !== null
@@ -258,6 +287,14 @@ export function RunDetailsPage({
   // Design draws only the definition: history, state and blobs wait until the reader leaves it.
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
+  const hasTimelineEventList = useMediaQuery(timelineEventListQuery);
+  const [isTimelineLaneShown, setIsTimelineLaneShown] = useState(storedTimelineLaneShown);
+  const toggleTimelineLane = useCallback(() => {
+    setIsTimelineLaneShown((isShown) => {
+      persistTimelineLaneShown(!isShown);
+      return !isShown;
+    });
+  }, []);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
@@ -600,22 +637,25 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  // Experimental tabs follow Streams, and each appears only when it applies to this run.
+  // Timeline leads; experimental tabs follow Streams, and each appears only when it applies to this run.
   const tabs: Array<{ id: RunTab; label: string; Icon: LucideIcon; isExperimental?: boolean }> = [
-    { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
-    { id: 'steps', label: 'Execution graph', Icon: Workflow },
     { id: 'timeline', label: 'Timeline', Icon: Rows3 },
+    { id: 'steps', label: 'Execution graph', Icon: Workflow },
+    { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
     { id: 'stream', label: 'Streams', Icon: Waves },
-    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
     ...(sessionSchema ? [{ id: 'session' as const, label: 'Agent session', Icon: Bot, isExperimental: true }] : []),
     ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
+    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
   ];
   const timelineWindow = runHistory.timelineWindow;
   const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
   const flowStartEvent = runHistory.flowStartEvent;
   const prunedEventIdRange = runHistory.prunedEventIdRange;
   const latestEvent = history.at(-1);
-  const selectedRaw = selectedEvent ?? latestEvent ?? null;
+  const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
+  const failedEvent = runFailure ? history.find((event) => event.eventId === runFailure.eventId) ?? null : null;
+  // A failed run opens on the event that failed, the one a reader came for.
+  const selectedRaw = selectedEvent ?? failedEvent ?? latestEvent ?? null;
   const selected = selectedRaw ? hydratedEvents[selectedRaw.eventId] ?? selectedRaw : null;
   // Views outside Timeline read the newest window, with FlowStart for start details and routing.
   const historyWithFlowStart = useMemo(() => withFlowStart(history, flowStartEvent), [flowStartEvent, history]);
@@ -653,13 +693,13 @@ export function RunDetailsPage({
   /** Shows a tab and keeps it in the URL, so reloading or sharing the page opens the same tab. */
   const selectTab = useCallback((nextTab: RunTab) => {
     setTab(nextTab);
-    persistRunTab(nextTab);
+    persistRunTab(flowId, nextTab);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set(RUN_VIEW_PARAM, nextTab);
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [flowId, setSearchParams]);
 
   useEffect(() => {
     if (isRunTab(requestedView)) setTab(requestedView);
@@ -677,6 +717,25 @@ export function RunDetailsPage({
       setError(jumpError instanceof Error ? jumpError.message : 'History page failed to load');
     }
   }, [jumpInTimeline, selectTab, selectedEvent]);
+
+  // The selected event lives in the URL, so a link or a reload opens the same event.
+  const requestedEventId = Number(searchParams.get(RUN_EVENT_PARAM)) || 0;
+  const hasOpenedRequestedEvent = useRef(false);
+  useEffect(() => {
+    if (hasOpenedRequestedEvent.current || requestedEventId <= 0 || history.length === 0) return;
+    hasOpenedRequestedEvent.current = true;
+    if (shownTab === 'timeline' || shownTab === 'steps') void jumpToEvent(requestedEventId);
+  }, [history.length, jumpToEvent, requestedEventId, shownTab]);
+  useEffect(() => {
+    if (!selectedEvent || (!hasOpenedRequestedEvent.current && requestedEventId > 0)) return;
+    hasOpenedRequestedEvent.current = true;
+    setSearchParams((current) => {
+      if (current.get(RUN_EVENT_PARAM) === String(selectedEvent.eventId)) return current;
+      const next = new URLSearchParams(current);
+      next.set(RUN_EVENT_PARAM, String(selectedEvent.eventId));
+      return next;
+    }, { replace: true });
+  }, [requestedEventId, selectedEvent, setSearchParams]);
 
   const selectTimelineEvent = useCallback((event: FlowHistoryEvent) => {
     highlightEvent(null);
@@ -828,6 +887,12 @@ export function RunDetailsPage({
     });
   }, [setSearchParams]);
 
+  /** Resuming Live reads the run again first, since another client may have changed it meanwhile. */
+  const resumeOrPauseLive = useCallback((isOn: boolean) => {
+    setAutoRefresh(isOn);
+    if (isOn) void refresh();
+  }, [refresh]);
+
   const handleTimeTraveled = useCallback((result: TimeTravelResult) => {
     if (result.runId !== runId) {
       navigate(runPath(result.runId));
@@ -843,113 +908,151 @@ export function RunDetailsPage({
   const currentRunAttempt = positiveRunAttempt(summary?.runAttempt);
   const displayedRunAttempt = summary && isViewingEarlierRunAttempt ? historyRunAttempt(summary) : currentRunAttempt;
 
+  const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
+  const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
+  const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
+  const isRunStateShown = runState !== null && (shownTab === 'timeline' || shownTab === 'steps' || shownTab === 'overview');
+  const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
+  const runFacts: RunFact[] = summary ? [
+    { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
+    ...(summary.closeTime ? [{ label: 'Closed', value: formatDate(summary.closeTime, timezone), icon: 'closed' as const }] : []),
+    { label: 'Duration', value: formatDuration(summary.startTime, summary.closeTime), icon: 'duration' },
+    // Past attempt 1 the popover's attempt picker says it, so the fact would repeat it.
+    ...(currentRunAttempt > 1 ? [] : [currentRunAttempt > 0
+      ? { label: 'Run attempt', value: `${displayedRunAttempt} of ${currentRunAttempt}`, icon: 'attempt' as const }
+      : { label: 'Run chain', value: String(runChain.length), icon: 'attempt' as const }]),
+    { label: 'Latest event', value: latestEvent ? `#${latestEvent.eventId}` : 'None yet', icon: 'events' },
+    { label: 'Flow type', value: summary.flowType, icon: 'type' },
+  ] : [];
+
+  // The run's relations and attempt sit in the line under the bar, so the bar is the same on every run.
+  const hasRunContext = Boolean(relations?.parentFlowId) || (relations?.children.length ?? 0) > 0
+    || (summary !== null && currentRunAttempt > 1);
+  const runContext = hasRunContext ? (
+    <span className="run-context">
+      {relations?.parentFlowId && (
+        <Link className="run-context-item" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
+          <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
+          Child of <span className="mono">{middleTruncate(relations.parentFlowId, 32)}</span>
+        </Link>
+      )}
+      {relations && relations.children.length > 0 && (
+        <Link
+          className="run-context-item"
+          title="Child Flows of this run"
+          to={relations.children.length === 1 && !relations.hasMoreChildren
+            ? currentRunPath(relations.children[0].flowId, relations.children[0].runId)
+            : childFlowsHref}
+        >
+          <CornerDownRight aria-hidden="true" size={13} strokeWidth={2.25} />
+          {relations.children.length === 1 && !relations.hasMoreChildren
+            ? `1 child · ${relations.children[0].flowStatus}`
+            : `${relations.children.length}${relations.hasMoreChildren ? '+' : ''} children`}
+        </Link>
+      )}
+      {summary && currentRunAttempt > 1 && (
+        <RunAttemptSelect
+          currentRunAttempt={currentRunAttempt}
+          displayedRunAttempt={displayedRunAttempt}
+          onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+        />
+      )}
+    </span>
+  ) : null;
+
   if (loading && !summary) return <LoadingIndicator label="Loading flow run…" />;
   const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
   return (
-    <div className="run-page v1-page">
-      <header className="run-header">
-        <h1 className="sr-only">Flow {flowId}, run {runId}</h1>
-        <div className="run-header-bar">
-          <div className="run-identity">
-            {breadcrumb}
-            <div className="run-identity-copy">
-              <CopyButton label="Copy Flow ID" value={flowId}>Flow ID</CopyButton>
-              <CopyButton label="Copy run ID" value={runId}>Run ID</CopyButton>
-            </div>
-          </div>
-          <div className="run-actions">
-            <label
-              className={`live-toggle${autoRefresh && summary && !terminalStatuses.has(summary.flowStatusCode) ? ' is-on' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(event) => setAutoRefresh(event.target.checked)}
-              />
-              <span aria-hidden="true" className="live-toggle-dot" />
-              Live
-            </label>
-            <CopyButton
-              className="button quiet"
-              icon={LinkIcon}
-              label="Copy link"
-              value={() => window.location.href}
-            >
-              Copy link
-            </CopyButton>
-            <button className="button quiet" onClick={() => void refresh()} type="button">
-              <RefreshCw aria-hidden="true" size={15} strokeWidth={2} />
-              Refresh
-            </button>
-            <button
-              className="button quiet danger"
-              disabled={!summary || terminalStatuses.has(summary.flowStatusCode)}
-              onClick={() => setStopOpen(true)}
-              type="button"
-            >
-              <Square aria-hidden="true" size={14} strokeWidth={2.25} />
-              Stop
-            </button>
-            <button
-              className="button quiet danger"
-              onClick={() => openTimeTravel(selectedEvent ? selected : null)}
-              type="button"
-            >
-              <History aria-hidden="true" size={15} strokeWidth={2} />
-              Time Travel
-            </button>
-          </div>
-        </div>
+    <div className="run-page v1-page" data-status={statusTone(summary?.flowStatus)}>
+      <h1 className="sr-only">Flow {flowId}, run {runId}</h1>
+      <AppBarSlot name="page">
+        <span aria-hidden="true" className="app-bar-separator">/</span>
+        {summary && <StatusBadge status={summary.flowStatus} />}
         {summary && (
-          <div className="run-summary">
-            <div className="run-summary-status">
-              <span className="sr-only">Status</span>
-              <StatusBadge status={summary.flowStatus} size="large" />
-            </div>
-            <dl className="run-facts">
-              <div>
-                <dt className="run-fact-label"><CalendarClock aria-hidden="true" size={14} strokeWidth={2} />Started</dt>
-                <dd>{formatDate(summary.startTime, timezone)}</dd>
-              </div>
-              {summary.closeTime && (
-                <div>
-                  <dt className="run-fact-label"><Flag aria-hidden="true" size={14} strokeWidth={2} />Closed</dt>
-                  <dd>{formatDate(summary.closeTime, timezone)}</dd>
-                </div>
-              )}
-              <div>
-                <dt className="run-fact-label"><Timer aria-hidden="true" size={14} strokeWidth={2} />Duration</dt>
-                <dd>{formatDuration(summary.startTime, summary.closeTime)}</dd>
-              </div>
-              {currentRunAttempt > 0 ? (
-                <div>
-                  <dt className="run-fact-label"><Layers aria-hidden="true" size={14} strokeWidth={2} />Run attempt</dt>
-                  <dd>
-                    <RunAttemptSelect
-                      currentRunAttempt={currentRunAttempt}
-                      displayedRunAttempt={displayedRunAttempt}
-                      onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
-                    />
-                  </dd>
-                </div>
-              ) : (
-                <div>
-                  <dt className="run-fact-label"><Layers aria-hidden="true" size={14} strokeWidth={2} />Run chain</dt>
-                  <dd>{runChain.length}</dd>
-                </div>
-              )}
-            </dl>
-            <RunEventsTile
-              latestEventId={latestEvent?.eventId ?? null}
-              paging={eventsPaging}
-              pageSize={historyPageSize}
-              onPageSizeChange={changeHistoryPageSize}
-            />
-          </div>
+          <span className="app-bar-duration" data-tick={now} title={`Started ${formatDate(summary.startTime, timezone)}`}>
+            {formatDuration(summary.startTime, summary.closeTime)}
+          </span>
         )}
-      </header>
+        <RunFactsMenu
+          parentFlowId={relations?.parentFlowId}
+          childFlows={relations?.children}
+          childFlowsHref={childFlowsHref}
+          facts={runFacts}
+          flowId={flowId}
+          hasMoreChildFlows={relations?.hasMoreChildren}
+          runId={runId}
+          attemptControl={summary && currentRunAttempt > 1 ? (
+            <RunAttemptSelect
+              currentRunAttempt={currentRunAttempt}
+              displayedRunAttempt={displayedRunAttempt}
+              label="Run attempt in run details"
+              onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+            />
+          ) : undefined}
+        />
+      </AppBarSlot>
+      <AppBarSlot name="views">
+        <div aria-label="Run views" className="run-tabs" role="tablist">
+          {tabs.map(({ id, label, Icon, isExperimental }) => (
+            <button
+              key={id}
+              aria-selected={shownTab === id}
+              className={shownTab === id ? 'active' : ''}
+              data-tab={id}
+              data-tooltip={isExperimental ? `${label} · early view` : label}
+              onClick={() => selectTab(id)}
+              role="tab"
+              type="button"
+            >
+              <Icon aria-hidden="true" size={15} strokeWidth={2} />
+              <span className="run-tab-label">{label}</span>
+              {isExperimental && <span aria-label="Experimental" className="experimental-dot" role="img" />}
+            </button>
+          ))}
+        </div>
+      </AppBarSlot>
+      <AppBarSlot name="actions">
+        {summary && !terminalStatuses.has(summary.flowStatusCode) && (
+          <label
+            className={`live-toggle${isLive ? ' is-on' : ''}`}
+            title={isLive ? 'Following new events. Click to stop following.' : 'Not following new events. Click to follow and read the run again.'}
+          >
+            <input
+              aria-label="Live"
+              checked={autoRefresh}
+              onChange={(event) => resumeOrPauseLive(event.target.checked)}
+              type="checkbox"
+            />
+            <span aria-hidden="true" className="live-toggle-dot" />
+            {isLive ? 'Live' : 'Live off'}
+          </label>
+        )}
+        <OperateMenu
+          isRunning={isRunOpen}
+          failedEventId={failedEvent?.eventId}
+          onTimeTravelFromFailure={failedEvent ? () => openTimeTravel(failedEvent) : undefined}
+          onStop={() => setStopOpen(true)}
+          onTimeTravel={() => openTimeTravel(selectedEvent ? selected : null)}
+        />
+      </AppBarSlot>
 
+      {/* One line with fixed slots, so the attempt picker in it never remounts as the run loads. */}
+      {(runFailure || isRunStateShown || runContext) && (
+        <div
+          className={runFailure ? 'run-failure-line' : isRunStateShown ? `run-state-line${runState?.isOpen ? ' is-open' : ''}` : 'run-state-line run-context-line'}
+          role={runFailure ? 'alert' : undefined}
+        >
+          {runFailure ? <RunFailureBody failure={runFailure} /> : isRunStateShown && runState ? <RunStateBody state={runState} /> : null}
+          {runContext}
+          {(runFailure || (isRunStateShown && runState)) && (
+            <RunLineJump
+              eventId={runFailure ? runFailure.eventId : runState?.eventId ?? 0}
+              onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+            />
+          )}
+        </div>
+      )}
       {isViewingEarlierRunAttempt && (
         <div className="warning-banner run-error">
           Showing the history of run attempt {displayedRunAttempt}. Time travel replaced it with run
@@ -963,23 +1066,6 @@ export function RunDetailsPage({
       {dataWarnings.map((warning) => (
         <div className="warning-banner run-error" key={warning}>{warning}</div>
       ))}
-
-      <div aria-label="Run views" className="run-tabs" role="group">
-        {tabs.map(({ id, label, Icon, isExperimental }) => (
-          <button
-            key={id}
-            aria-pressed={shownTab === id}
-            className={shownTab === id ? 'active' : ''}
-            data-tab={id}
-            onClick={() => selectTab(id)}
-            type="button"
-          >
-            <Icon aria-hidden="true" size={15} strokeWidth={2} />
-            {label}
-            {isExperimental && <ExperimentalBadge className="run-tab-badge" />}
-          </button>
-        ))}
-      </div>
 
       {isCurrentRunOnlyTabRequested && (
         <p className="run-experimental-hint">
@@ -1016,8 +1102,35 @@ export function RunDetailsPage({
           </svg>
         )}
         <section className="run-primary">
+          {(shownTab === 'steps' || shownTab === 'timeline') && summary && (
+            <RunEventsTile
+              latestEventId={latestEvent?.eventId ?? null}
+              paging={eventsPaging}
+              pageSize={historyPageSize}
+              onPageSizeChange={changeHistoryPageSize}
+            >
+              {shownTab === 'timeline' && isHorizontalTimeline && hasTimelineEventList && (
+                <button
+                  aria-pressed={isTimelineLaneShown}
+                  className="pager-button run-events-lane-toggle"
+                  onClick={() => toggleTimelineLane()}
+                  type="button"
+                >
+                  {isTimelineLaneShown ? 'Hide lane' : 'Show lane'}
+                </button>
+              )}
+            </RunEventsTile>
+          )}
           {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
             <LoadingIndicator className="card page-loading" label="Loading events…" />
+          )}
+          {shownTab === 'overview' && summary && relations && (
+            <RunRelations
+              childFlows={relations.children}
+              childFlowsHref={childFlowsHref}
+              hasMoreChildFlows={relations.hasMoreChildren}
+              parentFlowId={relations.parentFlowId}
+            />
           )}
           {shownTab === 'overview' && summary && (
             <FlowOverview
@@ -1042,6 +1155,7 @@ export function RunDetailsPage({
             />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
+            <div className={`htl-host${hasTimelineEventList && !isTimelineLaneShown ? ' is-lane-hidden' : ''}`}>
             <HorizontalTimeline
               events={displayedTimelineEvents}
               selectedEvent={selectedRaw}
@@ -1055,6 +1169,18 @@ export function RunDetailsPage({
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
+            />
+            </div>
+          )}
+          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && hasTimelineEventList && (
+            <EventList
+              childFlows={relations?.children}
+              flowId={flowId}
+              events={displayedTimelineEvents}
+              onSelectEvent={selectTimelineEvent}
+              onTimeTravelFromEvent={openTimeTravel}
+              runStartTime={summary?.startTime}
+              selectedEvent={selectedRaw}
             />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
@@ -1129,6 +1255,7 @@ export function RunDetailsPage({
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
               isJumpDisabled={runHistory.isLoadingTimelinePage}
+              onTimeTravelFromEvent={openTimeTravel}
             />
           </aside>
         )}
@@ -1197,12 +1324,31 @@ function hasGapAfterFlowStart(events: FlowHistoryEvent[]): boolean {
   return events[0]?.eventId === 1 && events.length > 1 && events[1].eventId > 2;
 }
 
+/** The current time, ticking each second only while isTicking, so an open run's duration counts up. */
+function useSecondClock(isTicking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isTicking) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isTicking]);
+  return now;
+}
+
+/** The tone of a Flow status, which tints the bar; matches StatusBadge's class names. */
+function statusTone(status: string | undefined): string | undefined {
+  return status ? status.toLowerCase().replaceAll(' ', '-') : undefined;
+}
+
 /** Lists every run attempt of a run, newest first. Run attempts are numbered from 1 without gaps. */
 function RunAttemptSelect({
   currentRunAttempt,
   displayedRunAttempt,
   onSelect,
+  label = 'Run attempt',
 }: {
+  /** The picker's accessible name; the popover's copy needs its own. */
+  label?: string;
   currentRunAttempt: number;
   displayedRunAttempt: number;
   onSelect: (runAttempt: number) => void;
@@ -1210,13 +1356,14 @@ function RunAttemptSelect({
   const attempts = Array.from({ length: currentRunAttempt }, (_, index) => currentRunAttempt - index);
   return (
     <select
-      aria-label="Run attempt"
+      aria-label={label}
+      className="run-attempt-select"
       value={displayedRunAttempt}
       onChange={(event) => onSelect(Number(event.target.value))}
     >
       {attempts.map((attempt) => (
         <option key={attempt} value={attempt}>
-          {attempt === currentRunAttempt ? `${attempt} (current)` : String(attempt)}
+          {`Attempt ${attempt} of ${currentRunAttempt}`}
         </option>
       ))}
     </select>

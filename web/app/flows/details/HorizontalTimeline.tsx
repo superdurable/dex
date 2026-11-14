@@ -244,8 +244,11 @@ export function eventSubject(event: FlowHistoryEvent): string {
   return eventTitle(event);
 }
 
+/** The icon and colour key, folded by default so the timeline leads. */
 function EventKindLegend() {
   return (
+    <details className="htl-legend-fold">
+      <summary>Legend</summary>
     <div className="htl-legend">
       <ul aria-label="Event kinds">
         {(['waitfor', 'execute', 'channel-publish', 'channel-delete', 'rpc', 'attributes', 'flow-start', 'flow-close', 'fork'] as EventKind[]).map((kind) => {
@@ -279,6 +282,7 @@ function EventKindLegend() {
         </li>
       </ul>
     </div>
+    </details>
   );
 }
 

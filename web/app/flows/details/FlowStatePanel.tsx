@@ -7,7 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useRef } from 'react';
+import { History } from 'lucide-react';
 import { formatDate } from '@/lib/format';
+import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import {
   formatTimelineOffset,
   prunedRelatedEventTooltip,
@@ -51,8 +53,11 @@ export function FlowStatePanel({
   onJumpToEvent,
   isJumpDisabled = false,
   runStartTime,
+  onTimeTravelFromEvent,
 }: {
   selectedEvent: FlowHistoryEvent | null;
+  /** Opens time travel prefilled at the selected event; shown only for events time travel can target. */
+  onTimeTravelFromEvent?: (event: FlowHistoryEvent) => void;
   /** The run's start time, for each event's offset from it. */
   runStartTime?: string | null;
   history: FlowHistoryEvent[];
@@ -84,6 +89,16 @@ export function FlowStatePanel({
         <>
           <header aria-label="Selected event" className="selected-event-anchor" data-selected-event-target>
             <h3>{eventTitle(selectedEvent)}</h3>
+            {onTimeTravelFromEvent && eventTimeTravelTarget(selectedEvent) && (
+              <button
+                className="button ghost selected-event-time-travel"
+                onClick={() => onTimeTravelFromEvent(selectedEvent)}
+                type="button"
+              >
+                <History aria-hidden="true" size={13} strokeWidth={2.25} />
+                Time travel from here…
+              </button>
+            )}
             <div className="event-meta">
               <span className="mono">#{selectedEvent.eventId}</span>
               <span title={selectedEvent.eventTime ?? undefined}>

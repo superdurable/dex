@@ -41,6 +41,9 @@ type EmbeddedSiteTarget struct {
 	// so a target needs no directory for them. A Flow type that a file in this directory declares comes only
 	// from the directory. Changed in 1.45.0: Dex Web reads uploaded definitions.
 	FlowRenderingDirectory string
+	// HostLink defaults nil, meaning the page's trail starts at the Dex mark. Otherwise the trail starts at
+	// this host page; ValidateHostLink lists its form.
+	HostLink *HostLink
 }
 
 // EmbeddedSite serves Dex Web for a target chosen per request. It shares only immutable pages between targets.
@@ -92,8 +95,15 @@ func (site *EmbeddedSite) ServeTarget(response http.ResponseWriter, request *htt
 		api.WriteCodedError(response, http.StatusInternalServerError, "TARGET_INVALID", "Dex Web target is invalid")
 		return
 	}
+	if target.HostLink != nil {
+		if err := ValidateHostLink(*target.HostLink); err != nil {
+			slog.Error("Dex Web target has an invalid host link", "error", err)
+			api.WriteCodedError(response, http.StatusInternalServerError, "TARGET_INVALID", "Dex Web target is invalid")
+			return
+		}
+	}
 	routes := site.pages.newTargetRouteMux(targetRoutes{
-		client: target.FlowServiceClient, flowDefinitions: flowDefinitions, basePath: basePath,
+		client: target.FlowServiceClient, flowDefinitions: flowDefinitions, basePath: basePath, hostLink: target.HostLink,
 	})
 	serveUnderBasePath(response, request, basePath, site.protection.wrap(refuseWorkerHealthProbes(routes)))
 }

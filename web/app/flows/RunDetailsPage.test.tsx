@@ -8,7 +8,7 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, configure, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, configure, within, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
@@ -142,7 +142,7 @@ function renderRun(initialEntry = '/v1/flows/order-1/run-1') {
     <MemoryRouter initialEntries={[initialEntry]}>
       <PreferencesProvider>
         <RunDetailsPage
-          breadcrumb={null}
+         
           flowId="order-1"
           runId="run-1"
           runPath={(runID) => `/v1/flows/order-1/${runID}`}
@@ -152,8 +152,27 @@ function renderRun(initialEntry = '/v1/flows/order-1/run-1') {
   );
 }
 
+/** Reads the latest event number from the run's details popover, opening it when closed. */
 function latestEventNumber(): string {
-  return document.querySelector('.run-events-latest')?.textContent?.replace(/^Latest /, '') ?? '';
+  if (!document.querySelector('[data-fact="events"]')) {
+    const button = screen.queryByRole('button', { name: /^Run details for / });
+    if (button) fireEvent.click(button);
+  }
+  const value = document.querySelector('[data-fact="events"] dd')?.textContent ?? '';
+  return value === 'None yet' ? '' : value;
+}
+
+/** Pausing and resuming Live reads the run again, which replaced the Refresh button. */
+function refreshByResumingLive() {
+  const live = screen.getByRole('checkbox', { name: 'Live' });
+  fireEvent.click(live);
+  fireEvent.click(live);
+}
+
+/** Opens the run's details popover, where the run facts and ID copy buttons live. */
+async function openRunFacts() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Run details for / }));
+  return screen.findByRole('dialog', { name: 'Run details' });
 }
 
 function eventsRange(): string {
@@ -202,9 +221,9 @@ describe('run attempts on the run page', () => {
     vi.stubGlobal('fetch', dex.fetch);
     renderRun();
 
-    const attemptSelect = await screen.findByRole('combobox', { name: 'Run attempt' }) as HTMLSelectElement;
-    expect(attemptSelect.value).toBe('1');
+    // A run on its first attempt offers no attempt picker.
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
+    expect(screen.queryByRole('combobox', { name: 'Run attempt' })).toBeNull();
     await waitFor(() => expect(dex.waitRequests).toHaveLength(1));
 
     dex.timeTravel();
@@ -214,8 +233,9 @@ describe('run attempts on the run page', () => {
     // Each load reads FlowStart and one newest page; none rereads the history from event 0.
     expect(historyReads(dex.historyRequests)).toEqual([['1', '2'], ['1', '1000'], ['1', '2'], ['1', '1000']]);
     expect(dex.historyRequests.every((params) => !params.has('runAttempt'))).toBe(true);
-    expect(screen.getByRole('option', { name: '2 (current)' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: '1' })).toBeTruthy();
+    const barAttempts = within(screen.getByRole('combobox', { name: 'Run attempt' }));
+    expect(barAttempts.getByRole('option', { name: 'Attempt 2 of 2' })).toBeTruthy();
+    expect(barAttempts.getByRole('option', { name: 'Attempt 1 of 2' })).toBeTruthy();
   });
 
   it('shows an earlier run attempt lineage without following live history', async () => {
@@ -239,7 +259,7 @@ describe('run attempts on the run page', () => {
     expect(dex.historyRequests.at(-1)?.has('runAttempt')).toBe(false);
   });
 
-  it('replaces the lineage on Refresh after another client time traveled while Live was off', async () => {
+  it('replaces the lineage on resuming Live after another client time traveled while Live was off', async () => {
     const dex = fakeDex();
     vi.stubGlobal('fetch', dex.fetch);
     renderRun();
@@ -247,7 +267,7 @@ describe('run attempts on the run page', () => {
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Live' }));
     dex.timeTravel();
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Live' }));
 
     await waitFor(() => expect((screen.getByRole('combobox', { name: 'Run attempt' }) as HTMLSelectElement).value).toBe('2'));
     await waitFor(() => expect(latestEventNumber()).toBe('#4'));
@@ -285,21 +305,21 @@ describe('run attempts on the run page', () => {
     vi.stubGlobal('fetch', dex.fetch);
     renderRun();
 
-    await screen.findByText('Run chain');
+    const facts = await openRunFacts();
+    await within(facts).findByText('Run chain');
     expect(screen.queryByRole('combobox', { name: 'Run attempt' })).toBeNull();
     // A running run shows no Closed fact, one hidden page heading, and copy buttons for its IDs.
-    expect(screen.queryByText('Closed')).toBeNull();
+    expect(within(facts).queryByText('Closed')).toBeNull();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Copy Flow ID' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Copy run ID' })).toBeTruthy();
-    // Copy link reuses the ID buttons' copy feedback.
+    expect(within(facts).getByRole('button', { name: 'Copy Flow ID' })).toBeTruthy();
+    // The ID copy buttons announce their result.
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
-    const copyLink = screen.getByRole('button', { name: 'Copy link' });
-    fireEvent.click(copyLink);
-    await waitFor(() => expect(copyLink.className).toContain('is-copied'));
-    expect(writeText).toHaveBeenCalledWith(window.location.href);
-    expect(copyLink.querySelector('[aria-live="polite"]')?.textContent).toBe('Copied');
+    const copyRunID = within(facts).getByRole('button', { name: 'Copy run ID' });
+    fireEvent.click(copyRunID);
+    await waitFor(() => expect(copyRunID.className).toContain('is-copied'));
+    expect(writeText).toHaveBeenCalledWith('run-1');
+    expect(copyRunID.querySelector('[aria-live="polite"]')?.textContent).toBe('Copied');
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
     expect(historyReads(historyRequests)).toEqual([['1', '2'], ['1', '1000']]);
     expect(warn).toHaveBeenCalledWith(
@@ -340,7 +360,7 @@ describe('time travel on the run page', () => {
           <Routes>
             <Route
               path="/v1/flows/order-1/run-1"
-              element={<RunDetailsPage breadcrumb={null} flowId="order-1" runId="run-1" runPath={runPath} />}
+              element={<RunDetailsPage flowId="order-1" runId="run-1" runPath={runPath} />}
             />
             <Route path="/v1/flows/order-1/run-2" element={<p>Run page for run-2</p>} />
           </Routes>
@@ -348,8 +368,9 @@ describe('time travel on the run page', () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText('Run chain');
-    fireEvent.click(screen.getByRole('button', { name: 'Time Travel' }));
+    // A running run leads with Stop, so Time travel sits under More run actions.
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
     fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
 
@@ -616,8 +637,8 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     // Timeline rows are short, so its event panel defaults wider than the graph's.
     const runContent = document.querySelector<HTMLElement>('.run-content');
     expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
-    fireEvent.click(screen.getByRole('button', { name: 'Execution graph' }));
-    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('340px');
+    fireEvent.click(screen.getByRole('tab', { name: 'Execution graph' }));
+    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('600px');
 
     const graph = await screen.findByTestId('execution-graph');
     // FlowStart is added for start details; the page holds events #101 to #1100.
@@ -643,7 +664,8 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRowIDs().slice(-2)).toEqual(['1001', '1']);
     expect(screen.getByText('Events #2 to #1000 were removed by the history window; FlowStart is kept.')).toBeTruthy();
     expect(eventsRange()).toBe('Showing #1–#1502 · Page 1 of 1');
-    expect(pageButtonsDisabled()).toEqual([true, true, true, true]);
+    // One page needs no page buttons.
+    expect(screen.queryByRole('group', { name: 'Event pages' })).toBeNull();
   });
 
   it('jumps from a cross-page stub to the far end, highlights it, and goes back', async () => {
@@ -884,7 +906,8 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     // Only FlowStart precedes the newest 1000 events, so the newest page is also the oldest.
     await screen.findByText('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
     expect(eventsRange()).toBe('Showing #1–#5000 · Page 1 of 1');
-    expect(pageButtonsDisabled()).toEqual([true, true, true, true]);
+    // One page needs no page buttons.
+    expect(screen.queryByRole('group', { name: 'Event pages' })).toBeNull();
     expect(timelineRowIDs().at(-1)).toBe('1');
     expect(timelineRowIDs().at(-2)).toBe('4001');
     fireEvent.click(timelineRow(4001));
@@ -1027,7 +1050,8 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRowIDs().slice(-2)).toEqual(['9001', '1']);
     // Time travel skips event IDs, so the page count is not exact.
     expect(eventsRange()).toBe('Showing #1–#10000 · Page 1');
-    expect(pageButtonsDisabled()).toEqual([true, true, true, true]);
+    // One page needs no page buttons.
+    expect(screen.queryByRole('group', { name: 'Event pages' })).toBeNull();
   });
 });
 
@@ -1103,7 +1127,7 @@ function runPage(runId: string) {
     <MemoryRouter initialEntries={['/v1/flows/order-1/run-1']}>
       <PreferencesProvider>
         <RunDetailsPage
-          breadcrumb={null}
+         
           flowId="order-1"
           runId={runId}
           runPath={(runID) => `/v1/flows/order-1/${runID}`}
@@ -1130,7 +1154,7 @@ describe('history settings on the run page', () => {
     await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = null;
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    refreshByResumingLive();
     await waitFor(() => expect(dex.heldStateReads).toHaveLength(1));
     await saveHistoryWindow('800');
     await waitFor(() => expect(dex.heldStateReads).toHaveLength(2));
@@ -1155,9 +1179,9 @@ describe('history settings on the run page', () => {
     await screen.findByText('GetFlowState failed');
     expect(screen.getByText('Last 800 events')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Streams' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Streams' }));
     await waitFor(() => expect(screen.queryByText('Last 800 events')).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
     expect(await screen.findByText('Last 800 events')).toBeTruthy();
     expect(screen.queryByText('Last 500 events')).toBeNull();
   });
@@ -1181,9 +1205,9 @@ describe('history settings on the run page', () => {
     await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = null;
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    refreshByResumingLive();
     await waitFor(() => expect(dex.heldStateReads).toHaveLength(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    refreshByResumingLive();
     await waitFor(() => expect(dex.heldStateReads).toHaveLength(2));
 
     dex.heldStateReads[1]({ historyWindowEvents: 900 });
@@ -1225,7 +1249,7 @@ describe('history settings on the run page', () => {
     await waitFor(() => expect(dex.heldConfigUpdates).toHaveLength(1));
     dex.runAttempt = 2;
     dex.immediateStateReply = { historyWindowEvents: 1500 };
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    refreshByResumingLive();
     // The card stays in edit mode while its save is pending, so the new value shows as the placeholder.
     await screen.findByPlaceholderText('Unchanged: Last 1,500 events');
 

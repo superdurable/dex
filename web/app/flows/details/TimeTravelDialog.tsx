@@ -18,6 +18,7 @@ import {
 } from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
+import { useModalFocus } from '../../components/useModalFocus';
 
 /** The run a time travel created. Servers with run attempts keep the run ID and return a new attempt. */
 export interface TimeTravelResult {
@@ -81,6 +82,7 @@ export function TimeTravelDialog({
     setError('');
   }, [initialEvent?.eventId, open]);
 
+  const modalRef = useModalFocus<HTMLDivElement>(open, onClose);
   if (!open) return null;
 
   async function submit() {
@@ -119,7 +121,7 @@ export function TimeTravelDialog({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal" ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{hasRunAttempts ? 'Time travel to a new run attempt' : 'Time travel to a new Flow run'}</h2>
           <button className="icon-button" onClick={onClose}>×</button>
@@ -174,7 +176,13 @@ export function TimeTravelDialog({
         )}
         <label>
           Reason
-          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
+          <textarea
+            aria-required="true"
+            placeholder="Required: why this run goes back"
+            rows={3}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
         </label>
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions">
