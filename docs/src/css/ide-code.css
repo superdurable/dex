@@ -132,9 +132,10 @@
 
 /* ---------- Body: gutter plus code, one row per line ---------- */
 
+/* The bottom space sits inside the scroller: Safari draws a horizontal scrollbar over it, not over the text. */
 .ide-code__body {
   display: flex;
-  padding-block: 0.85rem 1rem;
+  padding-block: 0.85rem 0;
   background: transparent !important;
   font: 400 0.84rem/1.65 var(--ide-font);
 }
@@ -184,7 +185,7 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  padding: 0 1.25rem 0 0;
+  padding: 0 1.25rem 1rem 0;
   overflow-x: auto;
   border-radius: 0;
   background: transparent !important;
