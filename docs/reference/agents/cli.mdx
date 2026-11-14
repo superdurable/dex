@@ -946,8 +946,8 @@ runs [dexcli connectors mcp](/reference/cli/#connectors-mcp-command) with the
 **dexcli** it finds as for [dex.server](#dex-server), and uses the URL that
 command prints. When the command exits, it stops that command first, before a
 **dexcli dev** it started, also on SIGTERM, SIGHUP, or Ctrl-C. It closes the
-command's input, then sends SIGTERM and SIGKILL to its process group until no
-process of the group is left. Changed in 0.6.9: this
+command's input, then sends SIGTERM and then SIGKILL to its process group while
+that command still runs. Changed in 0.6.9: this
 also works with **dex.server** set to a URL, such as Dex Cloud, and needs no
 **dexcli dev**. Before 0.6.9, **auto** used the **/mcp** path of the
 **dexcli dev** Dex Web port, and Connector tools were off with a URL

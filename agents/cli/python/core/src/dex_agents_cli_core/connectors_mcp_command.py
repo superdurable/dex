@@ -17,7 +17,6 @@ import os
 import signal
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -34,7 +33,6 @@ _READY_TIMEOUT_SECONDS = 120.0
 _EXIT_WAIT_AFTER_OUTPUT_END_SECONDS = 5.0
 _STDIN_CLOSE_WAIT_SECONDS = 10.0
 _GROUP_STOP_WAIT_SECONDS = 5.0
-_GROUP_POLL_SECONDS = 0.05
 # The same bound as dexcli's connectorsMCPMaxAnnouncementBytes.
 _MAXIMUM_READY_LINE_BYTES = 1 << 20
 _MAXIMUM_REASON_CHARACTERS = 500
@@ -92,8 +90,10 @@ class StartedConnectorsMcpCommand:
     def stop(self) -> None:
         """Stop it once: close its stdin, then signal its group with SIGTERM and SIGKILL.
 
-        It waits until no member of the group is left, also when the leader
-        exited first.
+        It signals the group only while the leader is not reaped, so the
+        group ID is still this group's. A real dexcli stops its own server
+        on stdin EOF, so nothing of the group outlives the leader. A later
+        call does nothing.
         """
         process, self._process = self._process, None
         if process is None:
@@ -102,13 +102,13 @@ class StartedConnectorsMcpCommand:
             # It may have exited already; closing a broken pipe changes nothing then.
             with contextlib.suppress(OSError):
                 process.stdin.close()
-        if _waits_for_exit(process, _STDIN_CLOSE_WAIT_SECONDS) and not _is_group_alive(process):
+        if _waits_for_exit(process, _STDIN_CLOSE_WAIT_SECONDS):
             return
-        _signal_group(process, signal.SIGTERM)
-        if _is_gone_within(process, _GROUP_STOP_WAIT_SECONDS):
+        _signal_group_while_leader_runs(process, signal.SIGTERM)
+        if _waits_for_exit(process, _GROUP_STOP_WAIT_SECONDS):
             return
-        _signal_group(process, _FORCE_STOP_SIGNAL)
-        _is_gone_within(process, _GROUP_STOP_WAIT_SECONDS)
+        _signal_group_while_leader_runs(process, _FORCE_STOP_SIGNAL)
+        _waits_for_exit(process, _GROUP_STOP_WAIT_SECONDS)
 
 
 @dataclass(frozen=True)
@@ -250,35 +250,16 @@ def _waits_for_exit(process: subprocess.Popen[bytes], timeout: float) -> bool:
     return True
 
 
-def _is_group_alive(process: subprocess.Popen[bytes]) -> bool:
-    """Signal 0 delivers nothing; a group ID cannot be reused while a member is left."""
-    if sys.platform == "win32":
-        return process.poll() is None
-    try:
-        os.killpg(process.pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _signal_group(process: subprocess.Popen[bytes], signal_number: signal.Signals) -> None:
+def _signal_group_while_leader_runs(
+    process: subprocess.Popen[bytes], signal_number: signal.Signals
+) -> None:
+    """Signal the group only while the leader is not reaped, so its group ID is still ours."""
+    if process.poll() is not None:
+        return
     if sys.platform == "win32":
         with contextlib.suppress(OSError):
             process.kill()
         return
-    # The group may be gone already.
+    # A leader exiting right after poll() stays a zombie until a wait, keeping the group ID.
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signal_number)
-
-
-def _is_gone_within(process: subprocess.Popen[bytes], timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    if not _waits_for_exit(process, timeout):
-        return False
-    while _is_group_alive(process):
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(_GROUP_POLL_SECONDS)
-    return True

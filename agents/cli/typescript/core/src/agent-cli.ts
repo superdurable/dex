@@ -95,7 +95,7 @@ import {
   connectorsMcpCommandMinimumDexcliVersion,
   readLocalConnectionsState,
   spawnConnectorsMcpCommand,
-  stopOnSignalWhileWaiting,
+  ConnectorsMcpSignalCleanup,
   type ConnectorsMcpCommandStart,
 } from "./connectors-mcp-command.js";
 import { DexcliVariableError, resolveDexcliExecutable } from "./dexcli-binary.js";
@@ -409,6 +409,8 @@ export class AgentCliCommand {
   private readonly startedDexcliDev: StartedDexcliDevProcess;
   /** The `dexcli connectors mcp` that serves `connectors.mcp: auto`, which {@link close} stops. */
   private startedConnectorsMcp: StartedConnectorsMcpCommand | undefined;
+  /** Stops {@link startedConnectorsMcp} on a signal while no started `dexcli dev`, chat, or terminal UI does. */
+  private connectorsMcpSignalCleanup: ConnectorsMcpSignalCleanup | undefined;
   private server: DexServerConnection | undefined;
   /** The lines printed while this command started a `dexcli dev`, which the terminal UI shows again. */
   private startedDexcliDevLines: readonly string[] = [];
@@ -574,6 +576,7 @@ export class AgentCliCommand {
     this.libraryConsole?.restore();
     // Before dexcli dev, whose Connectors MCP server it may reuse.
     await this.startedConnectorsMcp?.stop();
+    this.releaseConnectorsMcp();
     await this.startedDexcliDev.stop();
   }
 
@@ -607,18 +610,15 @@ export class AgentCliCommand {
       // Owned from the spawn on, so a signal during the wait stops it before a started dexcli dev.
       const started = spawnConnectorsMcpCommand(dexcli, this.environment);
       this.startedConnectorsMcp = started;
-      // A started dexcli dev's signal handling stops it first; otherwise these listeners do during the wait.
-      const removeWaitListeners = server.origin === "started" ? () => undefined : stopOnSignalWhileWaiting(started);
-      let start: ConnectorsMcpCommandStart;
-      try {
-        start = await started.awaitReady();
-      } finally {
-        removeWaitListeners();
-      }
+      // A started dexcli dev's signal handling stops it first; otherwise this does until the chat takes over.
+      this.connectorsMcpSignalCleanup = server.origin === "started" ? undefined : new ConnectorsMcpSignalCleanup(started);
+      const start: ConnectorsMcpCommandStart = await started.awaitReady();
       if (start.kind === "ready") {
         this.writeLogLine(`dexcli connectors mcp serves the Connectors MCP server at ${start.url}`);
         return { ...server, autoConnectorsMcpUrl: start.url };
       }
+      // awaitReady stopped it; a later signal must not reach its old process group.
+      this.releaseConnectorsMcp();
       offReason =
         start.kind === "unsupported"
           ? `Connectors are off: ${dexcli} may not support dexcli connectors mcp, which needs dexcli ` +
@@ -626,6 +626,8 @@ export class AgentCliCommand {
             "Update it, or set connectors.mcp to a URL."
           : `Connectors are off: dexcli connectors mcp failed: ${start.reason}.`;
     } catch (error: unknown) {
+      await this.startedConnectorsMcp?.stop();
+      this.releaseConnectorsMcp();
       if (error instanceof DexcliVariableError) {
         throw error;
       }
@@ -637,6 +639,13 @@ export class AgentCliCommand {
     }
     this.writeLogLine(`${offReason} See ${connectorsMcpCommandLogPath(this.environment)}.`);
     return { ...server, autoConnectorsMcpUrl: null, connectorsOffReason: offReason };
+  }
+
+  /** Drops the stopped `dexcli connectors mcp` and its signal cleanup. */
+  private releaseConnectorsMcp(): void {
+    this.connectorsMcpSignalCleanup?.release();
+    this.connectorsMcpSignalCleanup = undefined;
+    this.startedConnectorsMcp = undefined;
   }
 
   /** Returns the short error for a reused `dexcli dev` that stopped, or `undefined` when that did not happen. */
@@ -707,6 +716,7 @@ export class AgentCliCommand {
     const { opener, session, sessionId, leaseTtlSeconds: ttlSeconds } = opened;
     // From here Ctrl-C ends the wait for the lease, and then the chat handles it.
     this.startedDexcliDev.releaseInterrupt();
+    this.connectorsMcpSignalCleanup?.releaseInterrupt();
     // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
     const unanswered = new Set<string>();
     this.unansweredSessionLeases = { opener, sessionIds: unanswered };
@@ -830,6 +840,7 @@ export class AgentCliCommand {
   private listenForTerminationSignals(): void {
     // This sequence replaces the started server's own, which would stop it before the release.
     this.startedDexcliDev.releaseSignals();
+    this.connectorsMcpSignalCleanup?.release();
     for (const signal of ["SIGTERM", "SIGHUP"] as const) {
       const listener = (): void => {
         if (this.terminationSignal !== undefined) {
@@ -930,8 +941,14 @@ export class AgentCliCommand {
         dexConnectionVariables: this.environment.dexConnectionVariables ?? {},
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
         commandSignals: {
-          release: () => this.startedDexcliDev.releaseSignals(),
-          reclaim: () => this.startedDexcliDev.reclaimSignals(),
+          release: () => {
+            this.startedDexcliDev.releaseSignals();
+            this.connectorsMcpSignalCleanup?.release();
+          },
+          reclaim: () => {
+            this.startedDexcliDev.reclaimSignals();
+            this.connectorsMcpSignalCleanup?.reclaim();
+          },
         },
         openInBrowser: launchBrowser,
       },

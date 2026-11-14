@@ -10,7 +10,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { constants } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import type { CliEnvironment } from "./cli-environment.js";
 
@@ -23,7 +22,6 @@ const readyTimeoutMs = 120_000;
 const exitWaitAfterOutputEndMs = 5_000;
 const stdinCloseWaitMs = 10_000;
 const groupStopWaitMs = 5_000;
-const groupPollIntervalMs = 50;
 // The same bound as dexcli's connectorsMCPMaxAnnouncementBytes.
 const maximumReadyLineBytes = 1 << 20;
 const maximumReasonCharacters = 500;
@@ -97,6 +95,7 @@ export function spawnConnectorsMcpCommand(dexcli: string, environment: CliEnviro
 export class StartedConnectorsMcpCommand {
   private readonly exited: Promise<void>;
   private stopping: Promise<void> | undefined;
+  private isKillRevoked = false;
 
   /**
    * Owns a spawned `dexcli connectors mcp`, the leader of its own process group.
@@ -144,18 +143,22 @@ export class StartedConnectorsMcpCommand {
   }
 
   /**
-   * Stops it once: closes its stdin, then signals its whole process group with SIGTERM and then SIGKILL until no
-   * member is left, also when the leader exited first.
-   * @returns A Promise that resolves after the group is gone or the last wait ended.
+   * Stops it once: closes its stdin, then signals its process group with SIGTERM and then SIGKILL while the leader
+   * runs. A real dexcli stops its own server on stdin EOF, so nothing of the group outlives the leader.
+   * @returns A Promise that resolves after the leader exited or the last wait ended.
    */
   public stop(): Promise<void> {
-    this.stopping ??= this.doStop();
+    this.stopping ??= this.doStop().finally(() => {
+      this.isKillRevoked = true;
+    });
     return this.stopping;
   }
 
-  /** Kills its whole process group at once, as a second signal during a stop does. */
+  /** Kills its process group at once while the leader runs, as a second signal does; a no-op after {@link stop}. */
   public kill(): void {
-    this.signalGroup("SIGKILL");
+    if (!this.isKillRevoked) {
+      this.signalGroupWhileLeaderRuns("SIGKILL");
+    }
   }
 
   private interpret(outcome: FirstLineOutcome): ConnectorsMcpCommandStart {
@@ -173,51 +176,25 @@ export class StartedConnectorsMcpCommand {
 
   private async doStop(): Promise<void> {
     this.child.stdin?.end();
-    if ((await resolvesWithin(this.exited, stdinCloseWaitMs)) && !this.isGroupAlive()) {
+    if (await resolvesWithin(this.exited, stdinCloseWaitMs)) {
       return;
     }
-    this.signalGroup("SIGTERM");
-    if (await this.isGoneWithin(groupStopWaitMs)) {
+    this.signalGroupWhileLeaderRuns("SIGTERM");
+    if (await resolvesWithin(this.exited, groupStopWaitMs)) {
       return;
     }
-    this.signalGroup("SIGKILL");
-    await this.isGoneWithin(groupStopWaitMs);
+    this.signalGroupWhileLeaderRuns("SIGKILL");
+    await resolvesWithin(this.exited, groupStopWaitMs);
   }
 
-  private async isGoneWithin(timeoutMs: number): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs;
-    if (!(await resolvesWithin(this.exited, timeoutMs))) {
-      return false;
-    }
-    while (this.isGroupAlive()) {
-      if (Date.now() >= deadline) {
-        return false;
-      }
-      await delay(groupPollIntervalMs);
-    }
-    return true;
+  /** Node reaps the leader just before it sets these fields, so until then its group ID stays this group's. */
+  private isLeaderRunning(): boolean {
+    return this.child.exitCode === null && this.child.signalCode === null;
   }
 
-  /** Signal 0 delivers nothing; a group ID cannot be reused while a member is left. */
-  private isGroupAlive(): boolean {
+  private signalGroupWhileLeaderRuns(signal: NodeJS.Signals): void {
     const pid = this.child.pid;
-    if (pid === undefined) {
-      return false;
-    }
-    if (process.platform === "win32") {
-      return this.child.exitCode === null && this.child.signalCode === null;
-    }
-    try {
-      process.kill(-pid, 0);
-      return true;
-    } catch (error: unknown) {
-      return (error as NodeJS.ErrnoException).code === "EPERM";
-    }
-  }
-
-  private signalGroup(signal: NodeJS.Signals): void {
-    const pid = this.child.pid;
-    if (pid === undefined) {
+    if (pid === undefined || !this.isLeaderRunning()) {
       return;
     }
     try {
@@ -233,32 +210,68 @@ export class StartedConnectorsMcpCommand {
 }
 
 /**
- * Makes SIGTERM, SIGHUP, and SIGINT stop `started` and exit with 128 plus the signal number; a second signal kills
- * its group at once.
- * @param started - The process the command waits for.
- * @returns A function that removes the listeners.
+ * While a command owns a `dexcli connectors mcp` and no other handler does, SIGTERM, SIGHUP, and SIGINT stop it
+ * and exit with 128 plus the signal number; a second signal kills it at once. The chat and the terminal UI take
+ * the signals over with {@link releaseInterrupt} and {@link release}, as they do from a started `dexcli dev`.
  */
-export function stopOnSignalWhileWaiting(started: StartedConnectorsMcpCommand): () => void {
-  let isStopping = false;
-  const listeners = new Map<NodeJS.Signals, () => void>();
-  for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
-    const listener = (): void => {
-      const exitCode = 128 + constants.signals[signal];
-      if (isStopping) {
-        started.kill();
-        process.exit(exitCode);
-      }
-      isStopping = true;
-      void started.stop().then(() => process.exit(exitCode));
-    };
-    listeners.set(signal, listener);
-    process.on(signal, listener);
+export class ConnectorsMcpSignalCleanup {
+  private isStopping = false;
+  private readonly listeners = new Map<NodeJS.Signals, () => void>();
+
+  /**
+   * Starts listening at once.
+   * @param started - The process the command owns.
+   */
+  public constructor(private readonly started: StartedConnectorsMcpCommand) {
+    this.listen();
   }
-  return () => {
-    for (const [signal, listener] of listeners) {
-      process.off(signal, listener);
+
+  /** Leaves Ctrl-C to the chat, which cancels a turn on the first one. */
+  public releaseInterrupt(): void {
+    this.remove("SIGINT");
+  }
+
+  /** Leaves every signal to another handler, such as the plain chat's or the terminal UI handoff's. */
+  public release(): void {
+    for (const signal of [...this.listeners.keys()]) {
+      this.remove(signal);
     }
-  };
+  }
+
+  /** Takes the signals back after the terminal UI handoff, unless a stop already began. */
+  public reclaim(): void {
+    if (!this.isStopping) {
+      this.listen();
+    }
+  }
+
+  private listen(): void {
+    for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
+      if (!this.listeners.has(signal)) {
+        const listener = (): void => this.onSignal(signal);
+        this.listeners.set(signal, listener);
+        process.on(signal, listener);
+      }
+    }
+  }
+
+  private onSignal(signal: NodeJS.Signals): void {
+    const exitCode = 128 + constants.signals[signal];
+    if (this.isStopping) {
+      this.started.kill();
+      process.exit(exitCode);
+    }
+    this.isStopping = true;
+    void this.started.stop().then(() => process.exit(exitCode));
+  }
+
+  private remove(signal: NodeJS.Signals): void {
+    const listener = this.listeners.get(signal);
+    if (listener !== undefined) {
+      process.off(signal, listener);
+      this.listeners.delete(signal);
+    }
+  }
 }
 
 /** Reads a ready line: a JSON object with type ready and a loopback http url, or the reason it is not one. */

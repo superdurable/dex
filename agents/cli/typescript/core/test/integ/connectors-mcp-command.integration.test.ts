@@ -11,11 +11,14 @@
 
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, type AddressInfo, type Socket } from "node:net";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
+import { spawnConnectorsMcpCommand } from "../../src/connectors-mcp-command.js";
+import { readCliEnvironment } from "../../src/index.js";
 import { CliProcess, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 
@@ -42,10 +45,15 @@ if [ "$1" = "connectors" ] && [ "$2" = "mcp" ]; then
     null) echo null ;;
     bad-url) echo '{"type":"ready","url":"http://["}' ;;
     huge) head -c 1100000 /dev/zero | tr '\\0' a ;;
-    orphan)
-      sh -c 'trap "" TERM; echo $$ > "$0/descendant.pid"; while :; do sleep 1; done' "$markers" &
+    stubborn)
+      trap "" TERM
+      sh -c 'echo $$ > "$0/descendant.pid"; while :; do sleep 1; done' "$markers" &
       while [ ! -s "$markers/descendant.pid" ]; do sleep 0.05; done
-      printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$" ;;
+      printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$"
+      while :; do sleep 1; done ;;
+    ignore-eof)
+      printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$"
+      while :; do sleep 1; done ;;
     *) printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$" ;;
   esac
   cat > /dev/null
@@ -66,7 +74,8 @@ type ConnectorsMcpMode =
   | "null"
   | "bad-url"
   | "huge"
-  | "orphan";
+  | "stubborn"
+  | "ignore-eof";
 
 /** A test home whose `DEXCLI` is {@link connectorsMcpDexcliScript}. */
 class ConnectorsMcpDexcliHome extends TestHome {
@@ -233,20 +242,74 @@ describe("connectors.mcp: auto runs dexcli connectors mcp", () => {
     });
   }
 
-  test("stopping kills a descendant that ignores SIGTERM after the leader exits", async () => {
-    const home = new ConnectorsMcpDexcliHome({ dexPort: 1, webPort: 2 }, connectorsUrl, "orphan");
+  test("stopping kills the process group while a leader that ignores EOF and SIGTERM still runs", async () => {
+    const home = new ConnectorsMcpDexcliHome({ dexPort: 1, webPort: 2 }, connectorsUrl, "stubborn");
     home.writeConfig(remoteServerConfig);
     home.writeConnections([slackConnection]);
 
     const listed = await listConnectors(home);
     assert.equal(listed.exitCode, 0, listed.stdout);
-    const descendant = home.recordedPid("descendant.pid");
-    assert.ok(descendant !== undefined);
-    // The killed orphan may stay a zombie until init reaps it.
-    await pollUntil(() => (isProcessAlive(descendant) ? undefined : true), {
-      description: "the descendant that ignores SIGTERM to be gone",
-      timeoutMs: 5_000,
+    for (const name of ["connectors-mcp.pid", "descendant.pid"] as const) {
+      const pid = home.recordedPid(name);
+      assert.ok(pid !== undefined);
+      // A killed orphan may stay a zombie until init reaps it.
+      await pollUntil(() => (isProcessAlive(pid) ? undefined : true), {
+        description: `${name} to be gone`,
+        timeoutMs: 5_000,
+      });
+    }
+  });
+
+  test("kill is a no-op after the process stopped, also after a failed start", async () => {
+    for (const mode of ["ready", "error"] as const) {
+      const home = new ConnectorsMcpDexcliHome({ dexPort: 1, webPort: 2 }, connectorsUrl, mode);
+      const started = spawnConnectorsMcpCommand(home.environment().DEXCLI ?? "", readCliEnvironment(home.environment()));
+      const start = await started.awaitReady();
+      assert.equal(start.kind, mode === "ready" ? "ready" : "failed");
+      await started.stop();
+      const signals: unknown[] = [];
+      const originalKill = process.kill;
+      process.kill = ((pid: number, signal?: string | number) => {
+        signals.push([pid, signal]);
+        return true;
+      }) as typeof process.kill;
+      try {
+        started.kill();
+      } finally {
+        process.kill = originalKill;
+      }
+      assert.deepEqual(signals, [], `${mode}: kill sends no signal after the stop`);
+    }
+  });
+
+  test("a SIGTERM after the ready line, while the connectors probe waits, stops it and exits 143", async () => {
+    const accepted: Socket[] = [];
+    const silentServer = createServer((socket) => {
+      accepted.push(socket);
     });
+    await new Promise<void>((resolve) => silentServer.listen(0, "127.0.0.1", resolve));
+    const port = (silentServer.address() as AddressInfo).port;
+    try {
+      const home = new ConnectorsMcpDexcliHome({ dexPort: 1, webPort: 2 }, `http://127.0.0.1:${port}/mcp`, "ignore-eof");
+      home.writeConfig(remoteServerConfig);
+      home.writeConnections([slackConnection]);
+      const cli = CliProcess.start(home, ["connectors"]);
+      processes.push(cli);
+
+      await pollUntil(() => (accepted.length > 0 ? true : undefined), {
+        description: "the connectors probe to reach the silent server",
+      });
+      cli.signal("SIGTERM");
+      assert.equal(await cli.waitForExit(), 143, cli.stderr.all);
+      const pid = home.recordedPid("connectors-mcp.pid");
+      assert.ok(pid !== undefined);
+      assert.equal(isProcessAlive(pid), false, "the command stopped the child that ignores EOF before it exited");
+    } finally {
+      for (const socket of accepted) {
+        socket.destroy();
+      }
+      silentServer.close();
+    }
   });
 
   test("a SIGTERM while it waits for the ready line with a remote dex.server stops it and exits 143", async () => {

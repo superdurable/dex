@@ -22,6 +22,8 @@ from typing import Any
 import pytest
 
 from dex_agents.testing import PrivateDexEngine, find_free_ports
+from dex_agents_cli_core.connectors_mcp_command import start_connectors_mcp_command
+from dex_agents_cli_core.environment import CommandEnvironment
 from tests.conftest import CliHome, FakeConnectorsMcp, config_yaml, wait_for_exit
 
 # dex.server names a server, so no dexcli dev runs; listing connectors makes no Dex call.
@@ -48,10 +50,12 @@ if [ "$1" = "connectors" ] && [ "$2" = "mcp" ]; then
     null) echo null ;;
     bad-url) echo '{"type":"ready","url":"http://["}' ;;
     huge) head -c 1100000 /dev/zero | tr '\\0' a ;;
-    orphan)
-      sh -c 'trap "" TERM; echo $$ > "$0/descendant.pid"; while :; do sleep 1; done' "$markers" &
+    stubborn)
+      trap "" TERM
+      sh -c 'echo $$ > "$0/descendant.pid"; while :; do sleep 1; done' "$markers" &
       while [ ! -s "$markers/descendant.pid" ]; do sleep 0.05; done
-      printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$" ;;
+      printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$"
+      while :; do sleep 1; done ;;
     *) printf '{"type":"ready","url":"%s","pid":%s}\\n' "$DEX_TEST_CONNECTORS_MCP_URL" "$$" ;;
   esac
   cat > /dev/null
@@ -194,10 +198,10 @@ async def test_a_bad_ready_line_stops_the_child_and_keeps_connector_tools_off(
     assert (_markers(wrapped_home) / "connectors-mcp.stopped").exists(), "the child was stopped"
 
 
-async def test_stopping_kills_a_descendant_that_ignores_sigterm_after_the_leader_exits(
+async def test_stopping_kills_the_group_while_a_leader_ignoring_eof_and_sigterm_runs(
     wrapped_home: CliHome, fake_mcp: FakeConnectorsMcp
 ) -> None:
-    wrapped_home.extra_environment["DEX_TEST_CONNECTORS_MCP_MODE"] = "orphan"
+    wrapped_home.extra_environment["DEX_TEST_CONNECTORS_MCP_MODE"] = "stubborn"
     wrapped_home.extra_environment["DEX_TEST_CONNECTORS_MCP_URL"] = fake_mcp.url
     wrapped_home.write_config(config_yaml(REMOTE_SERVER))
     _write_connections(wrapped_home, [SLACK_CONNECTION])
@@ -205,13 +209,36 @@ async def test_stopping_kills_a_descendant_that_ignores_sigterm_after_the_leader
     completed = await asyncio.to_thread(wrapped_home.run, "connectors")
 
     assert completed.returncode == 0, completed.stderr
-    descendant = int((_markers(wrapped_home) / "descendant.pid").read_text().strip())
-    # The killed orphan may stay a zombie until init reaps it.
-    for _ in range(100):
-        if not _is_process_alive(descendant):
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError(f"descendant {descendant} that ignores SIGTERM still runs")
+    for name in ("connectors-mcp.pid", "descendant.pid"):
+        pid = int((_markers(wrapped_home) / name).read_text().strip())
+        # A killed orphan may stay a zombie until init reaps it.
+        for _ in range(100):
+            if not _is_process_alive(pid):
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError(f"{name} {pid} still runs")
+
+
+async def test_a_second_stop_sends_no_signal(
+    wrapped_home: CliHome, fake_mcp: FakeConnectorsMcp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = {
+        **wrapped_home.environment(),
+        "DEX_TEST_CONNECTORS_MCP_URL": fake_mcp.url,
+    }
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    command_environment = CommandEnvironment.from_environment(environment)
+    start = await start_connectors_mcp_command(Path(environment["DEXCLI"]), command_environment)
+    assert start.url == fake_mcp.url and start.process is not None
+    await asyncio.to_thread(start.process.stop)
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "killpg", lambda pid, number: signals.append((pid, number)))
+
+    start.process.stop()
+
+    assert signals == []
 
 
 async def test_a_sigterm_while_it_waits_stops_it_before_the_dexcli_dev_it_started(
