@@ -180,17 +180,11 @@ implementation follows this section where it differs from the sections above.
   ("Child of …", linking to its current run) and a run's child Flows, and holds
   the attempt picker. Overview lists the relations under **Related Flows**, and
   the event row where a child Flow started links to it.
-- **A state line under the bar.** A failed run states its error, and every
-  other run states its newest event and Step type. Its button selects that
-  event.
-- **Desktop Timeline.** At 1280px and wider the Timeline shows its overview, a
-  one-line event list in its own scroll box, and the selected event beside
-  them. J, K and the arrow keys move the selection, and T opens time travel at
-  it. The selected event is kept in the address as `event=`. A time travel
-  fork reads as a divider, and the row where a child Flow started links to it.
-  The labelled lane is behind **Show lane**.
-- **Time travel from an event.** The selected event's panel and each event row
-  open time travel set to that event.
+- **Failures under the bar.** A failed run states its error under the bar, and
+  its button selects the failed event. Other runs have no state line; see
+  the second round below.
+- **Time travel from an event.** The selected event's panel, and T, open time
+  travel set to that event.
 - **Jump box.** ⌘K or Ctrl+K suggests Flows by ID prefix, opens a pasted run
   link, and lists recent runs and pages.
 - **Reachability.** The dot reads `/readyz` every 30 seconds.
@@ -202,6 +196,49 @@ implementation follows this section where it differs from the sections above.
   click, and a status-only search keeps the search card one row.
 - **Known trade-off.** Without Refresh, a closed run that another client time
   travels shows the change after a reload.
+
+### Second round: navigation and the Events view
+
+A second review round, with the Timeline's heaviest users, changed these parts
+again. Where they differ, they replace the bullets above.
+
+- **One left rail.** A Dex Web on its own draws a collapsible rail: the Dex
+  mark with the reachability dot, **Flows**, then **Designs**, **Work Queue**
+  and **Connectors** under **Experimental**. It starts as icons and remembers
+  when it is expanded. The bar's section switcher is gone.
+- **Host navigation replaces the host link.** `embedded.Target.HasHostNavigation`
+  tells Dex Web that the embedding page draws the navigation. Dex Web then
+  draws no rail, no phone menu and no reachability dot, so a page has one left
+  rail. `Target.HostLink` never shipped.
+- **Run tabs.** **Events**, **State** and **Streams**, then **Actions** when it
+  applies, on one row; **More** is gone. **Events** shows the event page as
+  **Timeline** or **Graph**. A switch at the top of the event header changes
+  the view, and the browser remembers the choice for every run. The run page
+  has no Design view, because not every Flow type has a definition to draw.
+- **Experimental is a word.** It replaces the violet dot everywhere.
+- **One layout, one scroll.** The Timeline keeps its event panel below the
+  strip at every width above 760px. The one-line event list and **Show lane**
+  are gone, so the page never splits into two scroll boxes. A vertical wheel
+  over the strip scrolls the page; a sideways swipe or Shift+wheel scrolls the
+  strip. J, K and T work from anywhere on the page.
+- **A shorter time band.** Labels lie flat, one per run of consecutive events
+  about the same subject, such as "SyncBatch ×20". A short page spreads its
+  events so every name fits. The histogram is a thin overview strip under the
+  lane, and one row above the lane holds the time range, the span, the failure
+  count and **Legend**. The lane is 98px, down from about 220px.
+- **The run's state at the lane's end.** A running or ended run's state is a
+  short note at the lane's newest end, such as "Now · waiting · fires in 2d
+  6h". Clicking it selects that event.
+- **The event panel leads with values.** **Input** and **Output** come first,
+  then **Context** in Timing, Attempt, and Worker and retry groups. A stack
+  trace starts open. Related events are one line of links under the title, and
+  **JSON** in the header replaces the Details and Raw JSON switch.
+- **Pager in words.** **Oldest · Older · Newer · Latest**, with older pages on
+  the left as in the strip.
+- **Live, Input and Result** sit beside the event range. On other tabs, Live
+  sits in the bar.
+- **Flows grouped by type** by default, with counts by status and a link to
+  the type's design.
 
 ## Order and PRs
 
