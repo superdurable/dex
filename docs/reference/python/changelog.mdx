@@ -10,7 +10,7 @@ This page lists user-visible changes to the Python SDK, newest first; each secti
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0); 1.45.1 released 2026-11-14 as [sdk-python/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.1).
+Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0); 1.45.1 released 2026-11-14 as [sdk-python/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.1); 1.45.2 released 2026-11-14 as [sdk-python/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.2).
 
 ### Added
 
@@ -27,6 +27,7 @@ Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/
   raises it before it sends the request. A stream that the Server registers under another task
   queue is closed and reported as a permanent rejection through **PullRegistrationError** and
   **pull_registration_state**, whose entries and errors now carry **task_queue**. Since 1.45.1.
+- **Client.get_flow_state** and **AsyncClient.get_flow_state** read the open Step executions of the current or latest Flow run and return a **FlowState**. Each **ActiveStepExecution** reports its Step type, execution number, phase, the open WaitFor or Execute call as a **StepMethodInvocation** (pending, running, or retry backoff, with its attempt), and the latest failed attempt as a **StepMethodFailureInfo** (attempt, error type, message, and stack trace). **FlowState.task_queue** names the Flow's task queue; an empty string means the default task queue. Use it to tell a Flow that is still running from one whose active Step is failing and retrying, or to see which Workers must serve a Flow from a Client without a Worker. Since 1.45.2.
 
 ### Breaking
 
