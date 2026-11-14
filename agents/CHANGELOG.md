@@ -4,6 +4,20 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.7 (2026-11-13)
+
+### Fixed
+
+- `@superdurable/dex-agents`: the optional peer `@superdurable/connectors-sdk`
+  now accepts any 0.9.x or 0.10.x (`^0.9.0 || ^0.10.0`, that is
+  `>=0.9.0 <0.11.0`) instead of exactly 0.9.0. An application that installs
+  a later Connector SDK, such as 0.9.1 or 0.10.0, or a Connector package that
+  pins one, such as `@superdurable/connector-slack` 0.6.0, no longer fails
+  `npm install` with `ERESOLVE` or needs npm `overrides`. This also applies
+  through the adapters that peer-depend on `@superdurable/dex-agents`, such as
+  `@superdurable/dex-agents-pi`. Connector SDK 0.11 and later stay outside the
+  range.
+
 ## 0.6.6 (2026-11-13)
 
 ### Added
