@@ -72,6 +72,11 @@ rejection leaves a slot kind without registered streams. Since 1.14.0.
 A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
 kind.
 
+Since 1.45.1, each entry of **pull_registration_state().queues** and each
+**PullRegistrationError** also carries **task_queue**: the task queue the
+Worker polls, empty for the default task queue. The **queue** field stays the
+slot kind. See [Named task queues](#named-task-queues).
+
 Call the boolean helper from your probe endpoint and return 200 when true or
 503 when false.
 
@@ -93,6 +98,45 @@ Example: [examples/python/dex_examples/production/pull_workers.py](https://githu
 
 The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
 has no effect.
+
+## Named task queues {#named-task-queues}
+
+Since 1.45.1. A Worker polls one task queue, set by
+**PullWorkerOptions.task_queue**. The default, an empty name, polls the default
+task queue, which serves every Flow started without a task queue. A Flow
+started with **StartFlowOptions(task_queue=...)** runs its Steps and RPCs only
+on Workers that poll that task queue and register its Flow type. See
+[StartFlowOptions task queue](./start-flow-options.mdx#task-queue).
+
+| Setting | Python name |
+| --- | --- |
+| Task queue the Worker polls | **task_queue** on **PullWorkerOptions** |
+| Task queue in readiness snapshots | **task_queue** on **PullQueueRegistrationState** |
+| Task queue of a registration rejection | **task_queue** on **PullRegistrationError** |
+
+To serve several task queues from one process, construct one Worker for each
+task queue, each with its own **app_worker_id**.
+
+Rules and failure behavior:
+
+- A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens.
+  The **PullWorkerOptions** constructor raises **ValueError** for any other
+  name. Names starting with **dex.** are reserved, so a Worker cannot register
+  **dex.default**; leave the field empty to poll the default task queue.
+- A named task queue needs Dex Server protocol version 5 or later. Against an
+  older Server, **start** raises **RuntimeError** after the protocol check and
+  before it synchronizes Attribute indexes or opens task streams.
+- Each stream checks the task queue that the Server echoes when it registers
+  the stream. On a mismatch the Worker closes the stream without running any
+  task it received and records a permanent rejection.
+  **wait_pull_registered** raises **PullRegistrationError** before initial
+  readiness, **pull_registration_state()** reports the error in
+  **last_permanent_error**, and **stop_on_permanent_stream_rejection** applies
+  as for any permanent rejection.
+
+API reference: [PullWorkerOptions.task_queue](pathname:///api/python/latest/dex.html#PullWorkerOptions.task_queue),
+[PullQueueRegistrationState.task_queue](pathname:///api/python/latest/dex.html#PullQueueRegistrationState.task_queue),
+[PullRegistrationError](pathname:///api/python/latest/dex.html#PullRegistrationError).
 
 ## Reserved RPC capacity
 
