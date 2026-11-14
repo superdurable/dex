@@ -20,6 +20,26 @@ Each server you create in Dex Cloud has its own endpoint and API key. Your Worke
 - The key goes in an [API key credential](/reference/server/authentication#sdk-credentials).
 - TLS is the SDK's [TLS option](/reference/server/authentication#tls).
 
+The values come from the Dex Server page in Dex Cloud. Open **Management**, then the **Connect** tab. Its **Connection values** list the **Endpoint**, **Server ID**, and **Token URL**, each with a Copy button. The **API keys** tab creates an API key. Dex Cloud shows its secret once, when you create it.
+
+The Dex Agents CLI commands, such as `dex-agents-claude-sdk`, connect with the same values. Set `dex.server` in the configuration file to `https://` plus the endpoint. Set `dex.auth` to `api_key`, with the **Token URL** and **Server ID** you copied. Export the secret as `DEX_API_KEY`:
+
+```yaml
+dex:
+  server: https://ENDPOINT
+  auth:
+    mode: api_key
+    token_url: TOKEN_URL
+    server_id: SERVER_ID
+```
+
+```bash
+export DEX_API_KEY=...
+dex-agents-claude-sdk
+```
+
+[Run against a remote Dex server](/reference/agents/cli#remote-server) lists every setting, including `DEX_TOKEN_URL` and `DEX_SERVER_ID` as alternatives to the file.
+
 ## What runs where {#what-runs-where}
 
 | | Who runs it |
