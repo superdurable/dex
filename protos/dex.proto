@@ -306,6 +306,9 @@ enum PollWorkerTaskRejectReason {
 message PollWorkerTaskPong {}
 
 // Carries one server frame on a pull stream.
+// A response with no frame set is a keepalive. Dex sends it on a busy stream every
+// matching.pingInterval, so proxies that time out a silent server-to-Worker direction keep
+// the stream. A Worker ignores it and never replies to it.
 message PollWorkerTaskResponse {
   oneof frame {
     // Confirms that Dex accepted this stream's queue or reserved-slot registration.
@@ -316,7 +319,8 @@ message PollWorkerTaskResponse {
     PollWorkerTaskCancelTask cancel_task = 3;
     // Requests a reconnect after the current task finishes.
     PollWorkerTaskReconnect reconnect = 4;
-    // Checks whether an idle stream remains responsive.
+    // Checks whether an idle stream remains responsive. Dex sends it every
+    // matching.pingInterval to an idle stream only; a busy stream gets a keepalive instead.
     PollWorkerTaskPing ping = 5;
   }
 }

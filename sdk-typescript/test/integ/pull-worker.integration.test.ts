@@ -335,6 +335,51 @@ class RegistrationProbeFlow implements Flow<void> {
   public getSteps(): StepList<void> { return StepList.empty(); }
 }
 
+class KeepalivePullStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public constructor(private readonly durationMs: number) {}
+  public getStepType(): string { return "KeepalivePullStep"; }
+  public async execute(_context: Context, input: string): Promise<StepDecision> {
+    await new Promise((resolve) => setTimeout(resolve, this.durationMs));
+    return gracefulComplete(input);
+  }
+}
+
+class KeepalivePullFlow implements Flow<string> {
+  private readonly start: KeepalivePullStep;
+  public constructor(durationMs: number) { this.start = new KeepalivePullStep(durationMs); }
+  public getFlowType(): string { return "KeepalivePullFlow"; }
+  public getSteps() { return StepList.startStep(this.start); }
+}
+
+// run-integration-tests.sh shortens matching.pingInterval so the Step spans several keepalives.
+test("pull Worker completes a Step that spans several Server keepalives", async () => {
+  const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
+  const pingIntervalMs = Number(process.env.DEX_INTEG_MATCHING_PING_INTERVAL_MS ?? "20000");
+  const directory = mkdtempSync(join(tmpdir(), "dex-typescript-keepalive-"));
+  const cache = openBlobCache({ directory, maxBytes: 64 * 1_024 * 1_024 });
+  const flow = new KeepalivePullFlow(6 * pingIntervalMs);
+  const worker = new Worker(new Registry([flow]), cache, {
+    serverAddress, pull: { appWorkerID: `ts-keepalive-${flowId("w")}`, maxConcurrentTasks: 2 },
+  });
+  const client = new Client(new Registry([flow]), cache, { serverAddress });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 10_000 });
+    const id = flowId("pull-keepalive");
+    await client.startFlow(flow, id, "kept-alive");
+    assert.equal(
+      await client.waitForFlow(id, 12 * pingIntervalMs + 30_000).then((result) => result.singleOutput(stringCodec)),
+      "kept-alive",
+    );
+  } finally {
+    await client.close();
+    await worker.close();
+    cache.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("pull registration readiness succeeds and reports a real InvalidArgument", async () => {
   const directory = mkdtempSync(join(tmpdir(), "dex-typescript-registration-"));
   const cache = openBlobCache({ directory, maxBytes: 64 * 1_024 * 1_024 });

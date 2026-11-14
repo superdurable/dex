@@ -102,7 +102,9 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 # A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
-printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+# A short ping interval lets the keepalive test hold a Step across several intervals quickly.
+export DEX_INTEG_MATCHING_PING_INTERVAL=2s
+printf 'dev:\n  durabilityMode: processCrashSafe\nmatching:\n  pingInterval: %s\n' "$DEX_INTEG_MATCHING_PING_INTERVAL" >"$test_dir/zd-overrides.yaml"
 dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
 mkdir -p "$test_dir/definitions"
 for flow_package in webv2approval webv2reply; do

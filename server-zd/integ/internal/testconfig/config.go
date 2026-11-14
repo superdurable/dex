@@ -38,7 +38,7 @@ type MatchingConfig struct {
 	MaxFlowTypes int `yaml:"maxFlowTypes"`
 	// MaxFlowTypeLength bounds each declared Flow type. Default 256. Must be positive when set.
 	MaxFlowTypeLength int `yaml:"maxFlowTypeLength"`
-	// PingInterval sends an application Ping on idle poll streams. Default 20s. Must be positive when set.
+	// PingInterval sends an application Ping on idle poll streams and an empty keepalive response on busy ones. Default 20s. Must be positive when set.
 	PingInterval time.Duration `yaml:"pingInterval"`
 }
 

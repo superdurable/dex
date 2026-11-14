@@ -300,6 +300,39 @@ test("busy stream sends keepalive Pong without changing RPC result", async () =>
   }
 });
 
+test("busy stream ignores a Server keepalive with no frame and keeps its RPC result", async () => {
+  const harness = await startHarness();
+  let finishTask!: () => void;
+  const gate = new Promise<void>((resolve) => { finishTask = resolve; });
+  const worker = harness.worker(async () => {
+    await gate;
+    return InvokeWorkerRPCResponse.create({});
+  });
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    stream.call.write(rpcTask("busy-keepalive-rpc"));
+    await until(() => harness.invocationCount === 1);
+    const framesBeforeKeepalives = stream.frames.length;
+    for (let keepalive = 0; keepalive < 3; keepalive++) stream.call.write({ frame: undefined });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(stream.frames.slice(framesBeforeKeepalives), []);
+    finishTask();
+    const result = await stream.frame("taskFrame");
+    assert.equal(stream.frames.length, framesBeforeKeepalives + 1);
+    assert.equal(result.frame?.$case, "taskFrame");
+    if (result.frame?.$case === "taskFrame") {
+      assert.equal(result.frame.value.taskId, "busy-keepalive-rpc");
+      assert.equal(result.frame.value.output?.$case, "rpc");
+    }
+  } finally {
+    finishTask();
+    await worker.close();
+    await harness.close();
+  }
+});
+
 test("reopened stream answers Ping after a task ends on a closed stream", async () => {
   const harness = await startHarness();
   let finishTask!: () => void;

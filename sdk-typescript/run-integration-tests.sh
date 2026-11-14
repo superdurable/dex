@@ -89,7 +89,9 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
 fi
 export DEX_SERVER_ZD_BINARY
 # A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
-printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+# A short ping interval lets the keepalive test hold a Step across several intervals quickly.
+export DEX_INTEG_MATCHING_PING_INTERVAL_MS=1000
+printf 'dev:\n  durabilityMode: processCrashSafe\nmatching:\n  pingInterval: %sms\n' "$DEX_INTEG_MATCHING_PING_INTERVAL_MS" >"$test_dir/zd-overrides.yaml"
 dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
 
 "$binary_dir/dexcli" dev "${dev_args[@]}" >>"$log_file" 2>&1 &

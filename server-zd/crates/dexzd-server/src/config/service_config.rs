@@ -73,7 +73,7 @@ pub struct MetricsConfig {
     pub level: MetricsLevel,
 }
 
-/// Controls pull Worker dispatch waits, registration capacity, and idle pings.
+/// Controls pull Worker dispatch waits, registration capacity, and stream keepalives.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct MatchingConfig {
@@ -107,7 +107,8 @@ pub struct MatchingConfig {
     /// unsupported after a Worker declined them. The least recent pair is evicted when full;
     /// an evicted pair still excludes its Worker until that Worker completes a Step.
     pub unsupported_type_cache_entries: u32,
-    /// Defaults to 20 s; interval between pings on idle Worker streams.
+    /// Defaults to 20 s; must be positive. Interval between server-to-Worker keepalives on every
+    /// Worker stream: a Ping on an idle stream, an empty response on a busy one.
     #[serde(with = "humantime_serde")]
     pub ping_interval: Duration,
 }

@@ -1615,6 +1615,7 @@ dependencies = [
  "dexzd-protocol",
  "dexzd-request-validation",
  "futures",
+ "hyper-util",
  "prometheus-client",
  "thiserror",
  "tokio",

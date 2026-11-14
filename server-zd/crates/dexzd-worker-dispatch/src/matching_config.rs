@@ -22,7 +22,8 @@ pub struct MatchingConfig {
     pub sync_match_wait: Duration,
     /// Default 30 seconds. Preserves same-Flow affinity within a Flow type queue.
     pub affinity_duration: Duration,
-    /// Default 20 seconds. Sends pings only to idle Worker streams.
+    /// Default 20 seconds. Interval between server-to-Worker keepalives: a Ping on an idle
+    /// stream and an empty response on a busy one. A closing stream gets neither.
     pub ping_interval: Duration,
     /// Default 100000. Bounds registered streams on this node.
     pub max_streams: usize,

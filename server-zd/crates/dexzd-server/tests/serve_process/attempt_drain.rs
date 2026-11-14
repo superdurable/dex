@@ -795,6 +795,7 @@ impl DrainWorker {
                 match response.frame {
                     Some(poll_worker_task_response::Frame::Task(task)) => return task,
                     Some(poll_worker_task_response::Frame::Ping(_)) => self.pong(),
+                    None => {}
                     other => panic!("expected task or ping, got {other:?}"),
                 }
             }
@@ -832,7 +833,7 @@ impl DrainWorker {
                 assert!(
                     matches!(
                         response.frame,
-                        Some(poll_worker_task_response::Frame::Ping(_))
+                        Some(poll_worker_task_response::Frame::Ping(_)) | None
                     ),
                     "a half-closed stream gets no new task: {response:?}"
                 );
@@ -854,11 +855,7 @@ impl DrainWorker {
                     let response = response
                         .expect("the drain test fixture is valid and its operations succeed")
                         .expect("a busy Worker stream stays open during drain");
-                    assert!(
-                        matches!(response.frame, Some(poll_worker_task_response::Frame::Ping(_))),
-                        "a running Worker receives neither Reconnect nor new tasks: {response:?}"
-                    );
-                    self.pong();
+                    self.answer_keepalive(&response, "a running Worker receives neither Reconnect nor new tasks");
                 }
             }
         }
@@ -886,9 +883,7 @@ impl DrainWorker {
                 }
                 response = self.incoming.message() => {
                     let response = response.expect("the drain test fixture is valid and its operations succeed").expect("a busy Worker stream stays open during drain");
-                    assert!(matches!(response.frame, Some(poll_worker_task_response::Frame::Ping(_))),
-                        "a running Worker must receive neither Reconnect nor new tasks: {response:?}");
-                    self.pong();
+                    self.answer_keepalive(&response, "a running Worker must receive neither Reconnect nor new tasks");
                 }
             }
         }
@@ -956,6 +951,15 @@ impl DrainWorker {
                 )),
             })
             .expect("the drain test fixture is valid and its operations succeed");
+    }
+
+    /// Answers a Ping and ignores a keepalive with no frame; any other frame fails `expectation`.
+    fn answer_keepalive(&self, response: &PollWorkerTaskResponse, expectation: &str) {
+        match response.frame {
+            Some(poll_worker_task_response::Frame::Ping(_)) => self.pong(),
+            None => {}
+            _ => panic!("{expectation}: {response:?}"),
+        }
     }
 
     fn pong(&self) {

@@ -348,13 +348,22 @@ timeout, a Step with no Worker waits forever.
 
 Workers connect to the server's FlowService port, which is **api.listen**.
 Preserve bidirectional HTTP/2 streaming through any load balancer or proxy.
-While a task runs, current SDKs send upstream **Pong** frames every 20 seconds.
-Dex sends **Ping** frames to idle streams at **matching.pingInterval**. Set load
-balancer and proxy idle timeouts above both 20 seconds and
-**matching.pingInterval**, with margin for network delays. Workers on older
-SDKs, which do not send **Pong** frames, need idle timeouts above the longest
-task duration. [Pull Worker dispatch](#pull-worker-dispatch) lists the matching
-limits and wait settings.
+Dex keeps the server-to-Worker direction of every Worker stream active at
+**matching.pingInterval**. An idle stream gets a **Ping** frame, and a busy
+stream gets an empty keepalive response that the Worker ignores. Changed in
+0.1.32: before, a busy stream received nothing from Dex until its task ended.
+While a task runs, current SDKs also send upstream **Pong** frames every 20
+seconds. A load balancer or proxy that counts idleness only in the
+server-to-client direction resets its idle timer only on the server keepalive.
+Busy streams behind an AWS ALB were observed being reset at its idle timeout
+despite the upstream **Pong** frames.
+
+Set load balancer and proxy idle timeouts above both 20 seconds and
+**matching.pingInterval**, with margin for network delays. A server before
+0.1.32 needs idle timeouts above the longest task duration in two cases: behind
+a load balancer that counts only server-to-client traffic, and for Workers on
+older SDKs, which do not send **Pong** frames. [Pull Worker
+dispatch](#pull-worker-dispatch) lists the matching limits and wait settings.
 
 All five SDKs, **dexcli**, and Dex Web can send the required bearer credential.
 Workers and Clients have separate credential options. See the
@@ -392,7 +401,7 @@ matching:
 | **matching.maxQueueLength** | 256 | Longest Flow type or app Worker ID queue name, in characters. Named task queues have a fixed limit of 63 characters. |
 | **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
 | **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
-| **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
+| **matching.pingInterval** | 20s | Interval between server keepalives on every Worker stream: a **Ping** frame on an idle stream, an empty response on a busy one. Changed in 0.1.32: before, only idle streams got one. |
 
 A Worker that uses reserved-slot dispatch opens one stream for each execution
 slot. An idle stream is a free slot. It serves the Worker's sticky queue and

@@ -25,6 +25,7 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+hyper-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

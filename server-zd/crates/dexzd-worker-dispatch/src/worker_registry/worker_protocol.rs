@@ -198,12 +198,7 @@ async fn read_worker_stream(
                 }
                 Err(status) => { tracing::debug!(code = ?status.code(), "Worker stream receive failed"); break; }
             },
-            _ = ping.tick() => {
-                let state = worker.state.lock().expect("Worker state lock poisoned");
-                if !state.is_busy && !state.is_closing && worker.output.send(Ok(PollWorkerTaskResponse {
-                    frame: Some(poll_worker_task_response::Frame::Ping(PollWorkerTaskPing {})),
-                })).is_err() { break; }
-            },
+            _ = ping.tick() => { if !send_stream_keepalive(&worker) { break; } },
             changed = shutdown.changed() => {
                 if (changed.is_err() || *shutdown.borrow()) && begin_shutdown(&worker) { break; }
             },
@@ -212,6 +207,30 @@ async fn read_worker_stream(
         }
     }
     dispatch.disconnect(worker.id);
+}
+
+/// Sends a Ping to an idle stream and an empty keepalive response to a busy one.
+///
+/// Returns false when the response stream is closed, so the reader must stop; true otherwise,
+/// including when a closing stream gets nothing.
+fn send_stream_keepalive(worker: &WorkerStream) -> bool {
+    // Holding the state lock orders this frame against task assignment and completion.
+    let state = worker.state.lock().expect("Worker state lock poisoned");
+    if state.is_closing {
+        return true;
+    }
+    let frame = if state.is_busy {
+        // Go SDKs before 1.23.0 reset on a Ping after their final frame; all ignore no frame.
+        None
+    } else {
+        Some(poll_worker_task_response::Frame::Ping(
+            PollWorkerTaskPing {},
+        ))
+    };
+    worker
+        .output
+        .send(Ok(PollWorkerTaskResponse { frame }))
+        .is_ok()
 }
 
 fn begin_shutdown(worker: &WorkerStream) -> bool {
