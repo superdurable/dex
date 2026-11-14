@@ -160,8 +160,12 @@ async def test_plan_mode_drafts_a_plan_that_execute_plan_runs(
         # The draft is stored before its planning turn ends; execute_plan waits for that end.
         assert await execute_plan_when_turn_ends(sessions, session_id, draft.revision)
         await wait_for_plan(sessions, session_id, PlanStatus.ACTIVE)
-    running_request = command_home.model_api.model_requests()[before_running]
-    assert {"write_todos", "read_file"} <= tool_names(running_request.body)
+    # The planning turn's last request may land after before_running; it offers only write_todos.
+    later_tool_sets = [
+        tool_names(request.body)
+        for request in command_home.model_api.model_requests()[before_running:]
+    ]
+    assert any({"write_todos", "read_file"} <= tools for tools in later_tool_sets), later_tool_sets
     child.sendeof()
     assert await wait_for_exit(child) == 0
 
