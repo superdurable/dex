@@ -10,4 +10,5 @@ section: Fixed
   local **dexcli dev**. At a terminal, each question offers the file's value
   as its default, and **--yes** takes those same defaults. **init** replaces a file that is not YAML or fails the
   configuration rules, copies it to **HARNESS.yaml.bak** first, and says so.
-  Comments in the old file are not kept.
+  Comments in the old file are not kept. **init** writes through a temporary
+  file and a rename, so a crash never leaves a partial configuration file.

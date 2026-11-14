@@ -6,8 +6,24 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  fchmodSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { stringify } from "yaml";
 
@@ -63,6 +79,13 @@ export interface InitAnswers {
   readonly isWorkspaceWritten?: boolean;
   /** The local tool groups to switch on. */
   readonly localTools: ReadonlySet<LocalToolGroup>;
+  /**
+   * The shell commands that run without approval. Defaults to none. With an existing file, an empty list keeps the
+   * file's list.
+   *
+   * @since 0.6.9
+   */
+  readonly shellAllow?: readonly string[];
 }
 
 /**
@@ -87,6 +110,9 @@ export type ExistingConfigFile =
 
 /** Asks one question and returns the answer, or `null` when input ended. */
 export type AskQuestion = (question: string) => Promise<string | null>;
+
+// The configuration may hold Dex server settings, so a new file is private to its owner.
+const defaultConfigFileMode = 0o600;
 
 // init asks for the model, so an existing file without one is still kept.
 const modelPlaceholderForExistingFile = "init/model-placeholder";
@@ -152,13 +178,21 @@ export function readExistingConfigFile(configPath: string, harness: AgentHarness
 
 /**
  * Copies an invalid configuration file to `NAME.yaml.bak` before `init` replaces it.
+ *
+ * The copy replaces an earlier `NAME.yaml.bak`. When that path is a symbolic link, the copy replaces the link
+ * itself and leaves the file it pointed at unchanged.
  * @param configPath - The invalid file.
- * @returns The path of the copy, which replaces an earlier copy.
+ * @returns The path of the copy.
+ * @throws {Error} When the file cannot be read or the copy cannot be written.
  * @since 0.6.9
  */
 export function backUpInvalidConfigFile(configPath: string): string {
   const backupPath = `${configPath}.bak`;
-  copyFileSync(configPath, backupPath);
+  try {
+    replaceFileAtomically(backupPath, readFileSync(configPath), statSync(configPath).mode & 0o777);
+  } catch (error: unknown) {
+    throw new Error(`cannot back up ${configPath} to ${backupPath}: ${describeFileError(error)}`, { cause: error });
+  }
   return backupPath;
 }
 
@@ -267,8 +301,21 @@ export async function askInitQuestions(
   if (tools === null) {
     return null;
   }
+  const localTools = tools.trim() === "" ? defaults.localTools : parseLocalToolGroups(tools);
+  let shellAllow = defaults.shellAllow;
+  if (localTools.has("shell")) {
+    const allowDefault = shellAllow === undefined || shellAllow.length === 0 ? "none" : shellAllow.join(", ");
+    const allow = await ask(`Commands that run without approval, comma-separated [${allowDefault}]: `);
+    if (allow === null) {
+      return null;
+    }
+    if (allow.trim() !== "") {
+      shellAllow = splitList(allow);
+    }
+  }
   log("Put provider API keys in environment variables, never in the configuration file.");
   return {
+    ...(shellAllow === undefined ? {} : { shellAllow }),
     model,
     systemPrompt: prompt.trim() === "" ? defaults.systemPrompt : prompt.trim(),
     connectors: connectors.trim() === "" ? defaults.connectors : splitList(connectors),
@@ -278,7 +325,7 @@ export async function askInitQuestions(
           ...(defaults.isWorkspaceWritten === undefined ? {} : { isWorkspaceWritten: defaults.isWorkspaceWritten }),
         }
       : { workspace: workspace.trim() }),
-    localTools: tools.trim() === "" ? defaults.localTools : parseLocalToolGroups(tools),
+    localTools,
   };
 }
 
@@ -302,9 +349,96 @@ export function writeConfigFile(
 ): LoadedConfig {
   const text = renderConfigYaml(answers, harness, existingDocument);
   const effective = resolveHarnessConfig(parseConfigYaml(text), harness);
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, text);
+  const targetPath = resolveConfigFileTarget(configPath);
+  try {
+    mkdirSync(dirname(targetPath), { recursive: true });
+    replaceFileAtomically(targetPath, text, existingFileMode(targetPath) ?? defaultConfigFileMode);
+  } catch (error: unknown) {
+    throw new Error(`cannot write ${configPath}: ${describeFileError(error)}`, { cause: error });
+  }
   return { effective, configPath, isFromFile: true };
+}
+
+/** Returns the file a configuration path names: the target of a symbolic link, so the link stays. */
+function resolveConfigFileTarget(configPath: string): string {
+  let isSymbolicLink: boolean;
+  try {
+    isSymbolicLink = lstatSync(configPath).isSymbolicLink();
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return configPath;
+    }
+    throw error;
+  }
+  if (!isSymbolicLink) {
+    return configPath;
+  }
+  try {
+    return realpathSync(configPath);
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      // A dangling link: create the file it names.
+      return resolve(dirname(configPath), readlinkSync(configPath));
+    }
+    throw error;
+  }
+}
+
+function existingFileMode(path: string): number | undefined {
+  try {
+    return statSync(path).mode & 0o777;
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Writes a temporary file beside `path`, syncs it, and renames it over `path`.
+ *
+ * A crash or a full disk leaves either the old file or the new one, never a truncated file. The rename replaces a
+ * symbolic link at `path` rather than the file it points at.
+ */
+function replaceFileAtomically(path: string, content: string | Buffer, mode: number): void {
+  const temporaryPath = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  const descriptor = openSync(temporaryPath, "wx", mode);
+  try {
+    try {
+      fchmodSync(descriptor, mode);
+      writeFileSync(descriptor, content);
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    renameSync(temporaryPath, path);
+  } catch (error: unknown) {
+    rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+  syncDirectory(dirname(path));
+}
+
+function syncDirectory(directory: string): void {
+  // Windows cannot open a directory to sync it.
+  if (process.platform === "win32") {
+    return;
+  }
+  const descriptor = openSync(directory, "r");
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+function describeFileError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -459,6 +593,7 @@ function existingInitAnswers(harness: AgentHarness, document: Readonly<Record<st
     localTools: new Set(
       localToolGroups.filter((group) => (group === "shell" ? shell.enabled : localTools[group]) !== false),
     ),
+    ...(Array.isArray(shell.allow) ? { shellAllow: shell.allow.filter((command) => typeof command === "string") } : {}),
   };
 }
 
@@ -502,7 +637,7 @@ function initConfigDocument(answers: InitAnswers, harness: AgentHarness): Record
   }
   document.local_tools = {
     files: answers.localTools.has("files"),
-    shell: { enabled: answers.localTools.has("shell"), allow: [] },
+    shell: { enabled: answers.localTools.has("shell"), allow: [...(answers.shellAllow ?? [])] },
     web_fetch: answers.localTools.has("web_fetch"),
     browser: answers.localTools.has("browser"),
   };

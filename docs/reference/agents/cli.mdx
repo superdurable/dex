@@ -132,7 +132,8 @@ command runs on the defaults, writes nothing, and says to run **init**.
 
 Run **init** again at any time to update the file. It replaces only the fields
 it asks about: **model**, **system_prompt**, **connectors.enabled**,
-**workspace**, and the switches of **local_tools**. It keeps every other field
+**workspace**, the switches of **local_tools**, and
+**local_tools.shell.allow**. It keeps every other field
 of a valid file as written, such as **dex.server**, **dex.auth**,
 **dex.tls**, **connectors.mcp**, **mcp_servers**, **approval**, **media**,
 **sessions**, and the harness sections. At a terminal, each question offers
@@ -142,13 +143,23 @@ an invalid one, it takes the command's defaults.
 
 - A new system prompt removes **system_prompt_file**. An empty answer keeps
   either field.
-- **local_tools.shell.allow** stays unless you enter a new list.
+- **local_tools.shell.allow** stays unless you enter a new list when shell
+  commands are allowed.
 - A section missing from the file gets its default.
 - **init** writes the file again from its values, so comments in the old file
   are not kept.
+- **init** writes a temporary file beside the configuration and renames it
+  over the old one. A crash or a full disk leaves the old file or the new one,
+  never a partial file. When the configuration path is a symbolic link,
+  **init** writes the file it points at and keeps the link. A new file is
+  readable only by its owner; an existing file keeps its permissions.
 - A file that is not YAML or fails the configuration rules is replaced as if
-  there were none. The old file is copied to **HARNESS.yaml.bak**, and
-  **init** prints one line that says so.
+  there were none. The old file is copied to **HARNESS.yaml.bak**, which
+  replaces an earlier copy, and **init** prints one line that names it. A
+  symbolic link at that path is replaced by the copy; the file it pointed at
+  stays unchanged.
+- A file that exists but cannot be read stops **init** with an error and stays
+  unchanged.
 
 Changed in 0.6.9: **init** keeps the fields it does not ask about. Before, it
 wrote the whole file from its answers, so a configured Dex server and the

@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import io
-import shutil
+import os
+import secrets
+import stat
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +67,9 @@ class ExistingConfigFile:
     values: dict[str, Any] | None
     is_invalid: bool
 
+
+# The configuration may hold Dex server settings, so a new file is private to its owner.
+_DEFAULT_CONFIG_FILE_MODE = 0o600
 
 # init asks for the model, so an existing file without one is still kept.
 _MODEL_PLACEHOLDER_FOR_EXISTING_FILE = "init/model-placeholder"
@@ -149,16 +154,29 @@ def read_existing_config_file(path: Path, harness: AgentHarness) -> ExistingConf
 def back_up_invalid_config_file(path: Path) -> Path:
     """Copy an invalid configuration file to ``NAME.yaml.bak`` before ``init`` replaces it.
 
+    The copy replaces an earlier ``NAME.yaml.bak``. When that path is a
+    symbolic link, the copy replaces the link itself and leaves the file it
+    pointed at unchanged.
+
     Args:
         path: The invalid file.
 
     Returns:
-        The path of the copy, which replaces an earlier copy.
+        The path of the copy.
+
+    Raises:
+        ConfigFileError: If the file cannot be read or the copy cannot be
+            written.
 
     .. versionadded:: 0.6.9
     """
     backup_path = path.with_name(path.name + ".bak")
-    shutil.copyfile(path, backup_path)
+    try:
+        _replace_file_atomically(backup_path, path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
+    except OSError as error:
+        raise ConfigFileError(
+            f"cannot back up {path} to {backup_path}: {error.strerror or error}"
+        ) from error
     return backup_path
 
 
@@ -285,7 +303,9 @@ def ask_config_values(
     current_local_tools = _mapping(current.get("local_tools"))
     current_shell = _mapping(current_local_tools.get("shell"))
     values = default_config_values(harness)
-    model = ask("Model", current.get("model") or harness.default_model or "").strip()
+    model = _answer_or_exact_default(
+        ask, "Model", current.get("model") or harness.default_model or ""
+    )
     if model:
         values["model"] = model
     if "system_prompt" in current:
@@ -314,9 +334,9 @@ def ask_config_values(
         values["connectors"]["enabled"] = current_entries
     elif entries:
         values["connectors"]["enabled"] = entries
-    values["workspace"] = ask(
-        "Workspace for local files and commands", current.get("workspace") or DEFAULT_WORKSPACE
-    ).strip()
+    values["workspace"] = _answer_or_exact_default(
+        ask, "Workspace for local files and commands", current.get("workspace") or DEFAULT_WORKSPACE
+    )
     local_tools = values["local_tools"]
     local_tools["files"] = _is_yes(
         ask(
@@ -374,8 +394,18 @@ def write_config_file(path: Path, values: dict[str, Any], harness: AgentHarness)
         "# Provider keys stay in the environment. Schema: agents/cli/config.schema.json "
         "in the Dex repository.\n"
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(header + buffer.getvalue(), encoding="utf-8")
+    # A symbolic link stays: init writes the file it points at.
+    target = path.resolve() if path.is_symlink() else path
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        mode = _existing_file_mode(target)
+        _replace_file_atomically(
+            target,
+            (header + buffer.getvalue()).encode("utf-8"),
+            _DEFAULT_CONFIG_FILE_MODE if mode is None else mode,
+        )
+    except OSError as error:
+        raise ConfigFileError(f"cannot write {path}: {error.strerror or error}") from error
     return load_config_file(path, harness)
 
 
@@ -405,8 +435,54 @@ def _is_yes(answer: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "true")
 
 
+def _existing_file_mode(path: Path) -> int | None:
+    try:
+        return stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        return None
+
+
+def _replace_file_atomically(path: Path, content: bytes, mode: int) -> None:
+    """Write a temporary file beside ``path``, sync it, and rename it over ``path``.
+
+    A crash or a full disk leaves either the old file or the new one, never a
+    truncated file. The rename replaces a symbolic link at ``path`` rather than
+    the file it points at.
+    """
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(6)}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(descriptor, "wb") as file:
+            os.chmod(temporary, mode)
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    _sync_directory(path.parent)
+
+
+def _sync_directory(directory: Path) -> None:
+    # Windows cannot open a directory to sync it.
+    if os.name == "nt":
+        return
+    descriptor = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _take_default_answer(question: str, default: str) -> str:
     return default
+
+
+def _answer_or_exact_default(ask: Callable[[str, str], str], question: str, default: str) -> str:
+    """Return a typed answer, stripped, or the default exactly as the file has it."""
+    answer = ask(question, default)
+    return default if answer == default else answer.strip()
 
 
 def _yes_or_no(current: object) -> str:

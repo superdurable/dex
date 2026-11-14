@@ -151,6 +151,7 @@ _REMOTE_SERVER_CONFIG = {
     "dex": {"server": "https://dex.example.com", "auth": {"mode": "bearer", "source": "env"}},
     "connectors": {"enabled": ["slack/team"]},
     "mcp_servers": {"docs": {"url": "https://mcp.example.com/mcp"}},
+    "workspace": "~/agent workspace ",
     "local_tools": {"shell": {"allow": ["git status"]}},
     "sessions": {"summary": "off"},
     "builtin": {"temperature": 0.2},
@@ -171,7 +172,7 @@ async def test_init_at_a_terminal_offers_the_file_values_and_keeps_unasked_field
         "Workspace": "",
         "Allow file tools in the workspace? (y/n) [y]": "",
         "Allow shell commands? (y/n) [y]": "",
-        "Commands that run without approval, comma-separated [git status]": "",
+        "Commands that run without approval, comma-separated [git status]": "ls, pwd",
         "Allow web fetching": "n",
         "Allow a local browser": "",
     }
@@ -186,10 +187,10 @@ async def test_init_at_a_terminal_offers_the_file_values_and_keeps_unasked_field
         "dex": _REMOTE_SERVER_CONFIG["dex"],
         "connectors": {"enabled": ["hackernews"]},
         "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
-        "workspace": "~/dex-agent-workspace",
+        "workspace": "~/agent workspace ",
         "local_tools": {
             "files": True,
-            "shell": {"enabled": True, "allow": ["git status"]},
+            "shell": {"enabled": True, "allow": ["ls", "pwd"]},
             "web_fetch": False,
             "browser": True,
         },
@@ -209,7 +210,7 @@ def test_init_yes_takes_the_file_values_and_keeps_every_other_field(cli_home: Cl
         "dex": _REMOTE_SERVER_CONFIG["dex"],
         "connectors": {"enabled": ["slack/team"]},
         "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
-        "workspace": "~/dex-agent-workspace",
+        "workspace": "~/agent workspace ",
         "local_tools": {
             "files": True,
             "shell": {"enabled": True, "allow": ["git status"]},
@@ -220,6 +221,51 @@ def test_init_yes_takes_the_file_values_and_keeps_every_other_field(cli_home: Cl
         "sessions": {"summary": "off"},
         "builtin": {"temperature": 0.2},
     }
+
+
+def test_init_writes_through_a_symbolic_link_and_keeps_the_link(cli_home: CliHome) -> None:
+    target = cli_home.config_path.parent / "shared" / "scripted.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(config_yaml(_REMOTE_SERVER_CONFIG), encoding="utf-8")
+    cli_home.config_path.symlink_to(target)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert cli_home.config_path.is_symlink()
+    written = parse_config_yaml(target.read_text())
+    assert isinstance(written, dict)
+    assert written["dex"] == _REMOTE_SERVER_CONFIG["dex"]
+    assert written["media"] == {"store": "auto"}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory permissions")
+def test_a_failed_write_leaves_the_existing_config_unchanged(cli_home: CliHome) -> None:
+    original_text = config_yaml(_REMOTE_SERVER_CONFIG)
+    cli_home.write_config(original_text)
+    directory = cli_home.config_path.parent
+    # A read-only directory refuses the temporary file; only an in-place write could succeed.
+    directory.chmod(0o555)
+    try:
+        completed = cli_home.run("init", "--yes")
+    finally:
+        directory.chmod(0o755)
+    assert completed.returncode != 0
+    assert "cannot write" in completed.stdout + completed.stderr
+    assert cli_home.config_path.read_text() == original_text
+    assert [path.name for path in directory.iterdir() if path.name.endswith(".tmp")] == []
+
+
+def test_init_replaces_a_symbolic_link_at_the_backup_path(cli_home: CliHome) -> None:
+    invalid_text = "local_tools:\n  files: yes\n"
+    cli_home.write_config(invalid_text)
+    unrelated = cli_home.config_path.parent / "unrelated.txt"
+    unrelated.write_text("keep me\n", encoding="utf-8")
+    backup_path = cli_home.config_path.with_name(cli_home.config_path.name + ".bak")
+    backup_path.symlink_to(unrelated)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert unrelated.read_text() == "keep me\n"
+    assert not backup_path.is_symlink()
+    assert backup_path.read_text() == invalid_text
 
 
 def test_init_replaces_an_invalid_file_keeps_a_backup_and_says_so(cli_home: CliHome) -> None:
