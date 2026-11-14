@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import errno
 import io
 import os
 import secrets
@@ -70,6 +71,9 @@ class ExistingConfigFile:
 
 # The configuration may hold Dex server settings, so a new file is private to its owner.
 _DEFAULT_CONFIG_FILE_MODE = 0o600
+
+# Matches the MAXSYMLINKS limit of Linux.
+_MAXIMUM_SYMBOLIC_LINK_HOPS = 40
 
 # init asks for the model, so an existing file without one is still kept.
 _MODEL_PLACEHOLDER_FOR_EXISTING_FILE = "init/model-placeholder"
@@ -394,9 +398,8 @@ def write_config_file(path: Path, values: dict[str, Any], harness: AgentHarness)
         "# Provider keys stay in the environment. Schema: agents/cli/config.schema.json "
         "in the Dex repository.\n"
     )
-    # A symbolic link stays: init writes the file it points at.
-    target = path.resolve() if path.is_symlink() else path
     try:
+        target = _resolve_config_file_target(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = _existing_file_mode(target)
         _replace_file_atomically(
@@ -433,6 +436,24 @@ def defaults_without_file(harness: AgentHarness, directory: Path) -> LoadedConfi
 
 def _is_yes(answer: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "true")
+
+
+def _resolve_config_file_target(path: Path) -> Path:
+    """Return the end of a configuration path's chain of symbolic links, which may not exist yet.
+
+    Every link of the chain stays.
+
+    Raises:
+        OSError: ``ELOOP`` when the chain has more than
+            ``_MAXIMUM_SYMBOLIC_LINK_HOPS`` links.
+    """
+    current = path
+    for _ in range(_MAXIMUM_SYMBOLIC_LINK_HOPS + 1):
+        if not current.is_symlink():
+            return current
+        # A relative link target is relative to the directory of that link.
+        current = current.parent / current.readlink()
+    raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(path))
 
 
 def _existing_file_mode(path: Path) -> int | None:

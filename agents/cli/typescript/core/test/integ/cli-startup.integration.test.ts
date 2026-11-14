@@ -432,6 +432,33 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.deepEqual(written.media, { store: "auto" });
   });
 
+  test("init follows a chain of symbolic links to a missing file, creates it, and keeps every link", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const directory = dirname(home.configPath);
+    mkdirSync(directory, { recursive: true });
+    symlinkSync("missing.yaml", join(directory, "alias.yaml"));
+    symlinkSync("alias.yaml", home.configPath);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.equal(lstatSync(home.configPath).isSymbolicLink(), true);
+    assert.equal(lstatSync(join(directory, "alias.yaml")).isSymbolicLink(), true);
+    const written = parseConfigYaml(readFileSync(join(directory, "missing.yaml"), "utf8")) as Record<string, unknown>;
+    assert.equal(written.model, "scripted/default");
+  });
+
+  test("init stops at a loop of symbolic links and leaves the links unchanged", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const directory = dirname(home.configPath);
+    mkdirSync(directory, { recursive: true });
+    symlinkSync("loop.yaml", home.configPath);
+    symlinkSync(home.configPath, join(directory, "loop.yaml"));
+    const init = start(home, ["init", "--yes"]);
+    assert.notEqual(await init.waitForExit(), 0);
+    assert.match(init.stderr.all, /cannot write/);
+    assert.equal(lstatSync(home.configPath).isSymbolicLink(), true);
+    assert.equal(lstatSync(join(directory, "loop.yaml")).isSymbolicLink(), true);
+  });
+
   test("a failed write leaves the existing configuration file unchanged", { skip: process.platform === "win32" }, async () => {
     const home = new TestHome(enginePorts(engine));
     const originalText = `${JSON.stringify(remoteServerConfig, null, 2)}\n`;

@@ -237,6 +237,36 @@ def test_init_writes_through_a_symbolic_link_and_keeps_the_link(cli_home: CliHom
     assert written["media"] == {"store": "auto"}
 
 
+def test_init_follows_a_link_chain_to_a_missing_file_and_keeps_every_link(
+    cli_home: CliHome,
+) -> None:
+    directory = cli_home.config_path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    alias = directory / "alias.yaml"
+    alias.symlink_to("missing.yaml")
+    cli_home.config_path.symlink_to("alias.yaml")
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert cli_home.config_path.is_symlink()
+    assert alias.is_symlink()
+    written = parse_config_yaml((directory / "missing.yaml").read_text())
+    assert isinstance(written, dict)
+    assert written["model"] == "scripted-model"
+
+
+def test_init_stops_at_a_loop_of_symbolic_links(cli_home: CliHome) -> None:
+    directory = cli_home.config_path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    loop = directory / "loop.yaml"
+    cli_home.config_path.symlink_to("loop.yaml")
+    loop.symlink_to(cli_home.config_path)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode != 0
+    assert "cannot write" in completed.stdout + completed.stderr
+    assert cli_home.config_path.is_symlink()
+    assert loop.is_symlink()
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory permissions")
 def test_a_failed_write_leaves_the_existing_config_unchanged(cli_home: CliHome) -> None:
     original_text = config_yaml(_REMOTE_SERVER_CONFIG)

@@ -17,7 +17,6 @@ import {
   openSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -113,6 +112,9 @@ export type AskQuestion = (question: string) => Promise<string | null>;
 
 // The configuration may hold Dex server settings, so a new file is private to its owner.
 const defaultConfigFileMode = 0o600;
+
+// Matches the MAXSYMLINKS limit of Linux.
+const maximumSymbolicLinkHops = 40;
 
 // init asks for the model, so an existing file without one is still kept.
 const modelPlaceholderForExistingFile = "init/model-placeholder";
@@ -349,8 +351,8 @@ export function writeConfigFile(
 ): LoadedConfig {
   const text = renderConfigYaml(answers, harness, existingDocument);
   const effective = resolveHarnessConfig(parseConfigYaml(text), harness);
-  const targetPath = resolveConfigFileTarget(configPath);
   try {
+    const targetPath = resolveConfigFileTarget(configPath);
     mkdirSync(dirname(targetPath), { recursive: true });
     replaceFileAtomically(targetPath, text, existingFileMode(targetPath) ?? defaultConfigFileMode);
   } catch (error: unknown) {
@@ -359,29 +361,30 @@ export function writeConfigFile(
   return { effective, configPath, isFromFile: true };
 }
 
-/** Returns the file a configuration path names: the target of a symbolic link, so the link stays. */
+/**
+ * Returns the file a configuration path names: the end of its chain of symbolic links, which may not exist yet.
+ * Every link of the chain stays.
+ * @throws {Error} With code `ELOOP` when the chain has more than {@link maximumSymbolicLinkHops} links.
+ */
 function resolveConfigFileTarget(configPath: string): string {
-  let isSymbolicLink: boolean;
-  try {
-    isSymbolicLink = lstatSync(configPath).isSymbolicLink();
-  } catch (error: unknown) {
-    if (isMissingFileError(error)) {
-      return configPath;
+  let path = configPath;
+  for (let hop = 0; hop <= maximumSymbolicLinkHops; hop += 1) {
+    let isSymbolicLink: boolean;
+    try {
+      isSymbolicLink = lstatSync(path).isSymbolicLink();
+    } catch (error: unknown) {
+      if (isMissingFileError(error)) {
+        return path;
+      }
+      throw error;
     }
-    throw error;
-  }
-  if (!isSymbolicLink) {
-    return configPath;
-  }
-  try {
-    return realpathSync(configPath);
-  } catch (error: unknown) {
-    if (isMissingFileError(error)) {
-      // A dangling link: create the file it names.
-      return resolve(dirname(configPath), readlinkSync(configPath));
+    if (!isSymbolicLink) {
+      return path;
     }
-    throw error;
+    // A relative link target is relative to the directory of that link.
+    path = resolve(dirname(path), readlinkSync(path));
   }
+  throw Object.assign(new Error(`too many levels of symbolic links at ${configPath}`), { code: "ELOOP" });
 }
 
 function existingFileMode(path: string): number | undefined {
