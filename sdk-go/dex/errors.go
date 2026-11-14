@@ -174,7 +174,7 @@ func (e *HardDeleteAttributeUnsupportedError) Error() string {
 //		log.Printf("upgrade Dex: task queue %s needs protocol %d", unsupported.TaskQueue, unsupported.RequiredServerProtocolVersion)
 //	}
 //
-// Since 1.46.0.
+// Since 1.45.2.
 type TaskQueueUnsupportedError struct {
 	// TaskQueue is the refused task queue name.
 	TaskQueue string
