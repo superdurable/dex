@@ -37,10 +37,10 @@ describe('run views', () => {
     expect(onSelect).toHaveBeenCalledWith('stream');
   });
 
-  it('switches Events between Timeline and Graph, without Design when the Flow type has no design', () => {
+  it('always offers Timeline, Graph and Design', () => {
     const onChange = vi.fn();
     render(<EventsViewSwitch onChange={onChange} view="timeline" />);
-    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Timeline', 'Graph']);
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Timeline', 'Graph', 'Design']);
     expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
     expect(onChange).toHaveBeenCalledWith('graph');
@@ -48,7 +48,7 @@ describe('run views', () => {
 
   it('offers Design as a third option and slides the indicator to the pressed one', () => {
     const onChange = vi.fn();
-    render(<EventsViewSwitch hasDesign onChange={onChange} view="design" />);
+    render(<EventsViewSwitch onChange={onChange} view="design" />);
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Timeline', 'Graph', 'Design']);
     expect(screen.getByRole('button', { name: 'Design' }).getAttribute('aria-pressed')).toBe('true');
     const group = screen.getByRole('group', { name: 'Events view' });

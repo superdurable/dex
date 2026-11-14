@@ -362,33 +362,38 @@ describe('Run page experimental tabs', () => {
     expect(screen.queryByTestId('design-graph')).toBeNull();
   });
 
-  it('hides Design when no loaded definition matches the Flow type', async () => {
+  it('always offers Design, and says why when no loaded definition matches the Flow type', async () => {
     stubDexWeb({ flowType: 'RefundFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
     renderRun('/v1/flows/run-flow/run-1?view=steps');
     await screen.findByText('Running');
-    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(tabLabels()).toEqual(['timeline', 'overview', 'session', 'actions', 'stream']);
-    expect(screen.getByRole('button', { name: 'Graph' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Design' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Design' }));
+    const empty = await screen.findByRole('region', { name: 'Design unavailable' });
+    expect(empty.closest('.events-picture')?.getAttribute('data-view')).toBe('design');
+    expect(within(empty).getByRole('heading', { name: 'No design for this Flow type' })).toBeTruthy();
+    expect(empty.textContent).toContain('No usable Flow Definition Graph is loaded for the Flow type RefundFlow.');
+    expect(within(empty).getByRole('link', { name: /Load Flow definitions/ }).getAttribute('href'))
+      .toBe('https://docs.superdurable.io/reference/web/flow-visualization#definition-sources');
+    expect(within(empty).getByRole('link', { name: /Generate a Flow Definition Graph/ }).getAttribute('href'))
+      .toBe('https://docs.superdurable.io/reference/web/flow-visualization');
+    // The event panel below stays.
+    expect(screen.getByRole('region', { name: 'Selected event details' })).toBeTruthy();
   });
 
-  it('opens an old Design link on the Timeline when the Flow type has no design', async () => {
+  it('opens an old Design link on Design even when the Flow type has no design', async () => {
     stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
     renderRun('/v1/flows/run-flow/run-1?view=design');
-    await screen.findByText('Running');
-    await waitFor(() => expect(document.querySelector('.events-picture')?.getAttribute('data-view')).toBe('timeline'));
-    expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.queryByRole('button', { name: 'Design' })).toBeNull();
+    await screen.findByRole('region', { name: 'Design unavailable' });
+    expect(screen.getByRole('button', { name: 'Design' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('falls back to the Timeline for a remembered tab that does not apply', async () => {
+  it('opens a remembered Design view, with its reason, when the Flow type has no design', async () => {
     window.localStorage.setItem('dex.run.selected-tab', 'design');
     stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
     renderRun();
     await screen.findByText('Running');
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true'));
-    // Only loaded history draws an event, so the Timeline really read it.
-    await waitFor(() => expect(document.querySelector('[data-event-id="1"]')).not.toBeNull());
+    await screen.findByRole('region', { name: 'Design unavailable' });
   });
 
   it('opens on the Timeline when no tab is remembered', async () => {

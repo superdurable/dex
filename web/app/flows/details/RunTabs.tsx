@@ -61,17 +61,15 @@ const eventsViewOptions: { view: EventsView; label: string; Icon: LucideIcon }[]
   { view: 'design', label: 'Design', Icon: PencilRuler },
 ];
 
-/** Switches the picture above the event panel; Design appears only when the Flow type has a design. */
+/** Switches the picture above the event panel; Design says why when the Flow type has no design. */
 export function EventsViewSwitch({
   view,
-  hasDesign = false,
   onChange,
 }: {
   view: EventsView;
-  hasDesign?: boolean;
   onChange: (view: EventsView) => void;
 }) {
-  const options = eventsViewOptions.filter((option) => option.view !== 'design' || hasDesign);
+  const options = eventsViewOptions;
   const activeIndex = options.findIndex((option) => option.view === view);
   // Equal-width segments let one indicator slide to the pressed option.
   const indicatorStyle = { '--option-count': options.length, '--active-index': Math.max(0, activeIndex) } as CSSProperties;

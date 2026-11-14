@@ -70,7 +70,18 @@ const dotBandHeight = 30;
 const labelAngleDegrees = 30;
 const labelMaxWidth = 280;
 const labelAngle = (labelAngleDegrees * Math.PI) / 180;
-const labelBandHeight = Math.ceil(labelMaxWidth * Math.sin(labelAngle)) + 12;
+/** About the width of one label character at the label font, for sizing the band before layout. */
+const labelCharacterWidth = 7;
+
+/**
+ * Returns the strip height for the longest label on the page: its estimated width, at most
+ * labelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
+ */
+export function timelineStripHeight(subjects: readonly string[]): number {
+  const longest = subjects.reduce((max, subject) => Math.max(max, subject.length), 0);
+  const labelWidth = Math.min(labelMaxWidth, longest * labelCharacterWidth + 8);
+  return Math.ceil(labelWidth * Math.sin(labelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
 
 /** The strip geometry: slanted labels on top, then dots, event numbers, and link arcs. */
 export const horizontalTimelineLayout = {
@@ -80,7 +91,6 @@ export const horizontalTimelineLayout = {
   labelRunWidth: Math.ceil(labelMaxWidth * Math.cos(labelAngle)) + 10,
   /** Room at the right edge for the run's end note, when the strip shows one. */
   endNoteRunWidth: 240,
-  stripHeight: labelBandHeight + dotBandHeight + axisBandHeight + arcBandHeight,
 };
 const overscanSlots = 6;
 
@@ -500,6 +510,7 @@ export function HorizontalTimeline({
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
   const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
+  const stripHeight = useMemo(() => timelineStripHeight(chronological.map(eventSubject)), [chronological]);
   const statusList = useMemo(
     () => chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
     [chronological, states],
@@ -969,7 +980,7 @@ export function HorizontalTimeline({
           '--htl-slot-width': `${slotWidth}px`,
           '--htl-label-angle': `-${labelAngleDegrees}deg`,
           '--htl-label-max-width': `${labelMaxWidth}px`,
-          height: `${horizontalTimelineLayout.stripHeight}px`,
+          height: `${stripHeight}px`,
         } as CSSProperties}
         onKeyDown={handleStripKeyDown}
         ref={stripRef}

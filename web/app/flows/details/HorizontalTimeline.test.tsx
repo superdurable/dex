@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay } from './HorizontalTimeline';
+import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay, timelineStripHeight } from './HorizontalTimeline';
 import { timelineSlotWidth } from './timelineOverview';
 
 /** Events in view at the 1200 px jsdom fallback width, for a page of eventCount events. */
@@ -877,6 +877,19 @@ describe('horizontal Timeline layout', () => {
   });
 
   describe('lane density', () => {
+    it('sizes the label band to the longest label on the page, up to the widest label', () => {
+      const short = timelineStripHeight(['SyncBatch', 'Checkpoint']);
+      const long = timelineStripHeight(['StoreGeneratedCustomerMessageStep']);
+      expect(short).toBeLessThan(long);
+      expect(timelineStripHeight(['x'.repeat(200)])).toBe(timelineStripHeight(['x'.repeat(100)]));
+      render(<Harness pageEvents={events(1000)} />);
+      const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      const height = strip.style.height;
+      expect(height).toBe(`${timelineStripHeight(['Charge'])}px`);
+      fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+      expect(strip.style.height).toBe(height);
+    });
+
     it('spreads a short page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {
       expect(timelineSlotWidth(5, 1000)).toBe(120);
       expect(timelineSlotWidth(12, 1000)).toBe(83);

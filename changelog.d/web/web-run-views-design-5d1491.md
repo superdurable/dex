@@ -1,8 +1,9 @@
 ---
 section: Changed
 ---
-- The **Events** switch on the run page has a third option, **Design**, when the
-  run's Flow type has a loaded design. **?view=design** opens it.
+- The **Events** switch on the run page has a third option, **Design**, on
+  every run. Without a loaded design for the Flow type it says why and links to
+  the docs. **?view=design** opens it.
 - **Graph** and **Design** draw left to right in the strip's place, with the
   same selected event panel below. Switching views keeps the panel, the pager,
   and the selected event in place.
@@ -34,3 +35,4 @@ section: Changed
   degrees, and draws the overview above the lane. A page that fits the strip
   puts each overview bar under its event dot; a longer page packs events
   closer, and its overview window is tinted, outlined, and dims the rest.
+- The Timeline's label band is as tall as the page's longest label needs.

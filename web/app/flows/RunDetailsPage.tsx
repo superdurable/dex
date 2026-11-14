@@ -67,6 +67,7 @@ import { HorizontalTimeline, type TimelineEndNote } from './details/HorizontalTi
 import {
   RunActionsUnavailable,
   RunConversationUnavailable,
+  RunDesignUnavailable,
   type RunActionsUnavailableReason,
   type RunConversationUnavailableReason,
 } from './details/RunTabUnavailable';
@@ -315,8 +316,8 @@ export function RunDetailsPage({
   const tab: RunTab = isRememberedTabEmpty ? eventsTab : chosenTab ?? (sessionSchema ? 'session' : eventsTab);
   const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
     && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
-  // Design waits for the Flow type's definitions, then falls back to the Timeline without one.
-  const shownTab: RunTab = tab === 'design' && !designDefinition && isCatalogReady ? 'timeline' : tab;
+  // Design is always a view of Events; without a definition its picture says why.
+  const shownTab: RunTab = tab;
   const isEventsViewShown = isEventsTab(shownTab);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
@@ -1149,7 +1150,6 @@ export function RunDetailsPage({
               status={liveStatus}
               viewSwitch={(
                 <EventsViewSwitch
-                  hasDesign={designDefinition !== null}
                   onChange={changeEventsView}
                   view={eventsViewOf(shownTab)}
                 />
@@ -1167,6 +1167,8 @@ export function RunDetailsPage({
                     <FlowDesignGraph definition={designDefinition} opensWholeFlow zoomsOnGesture={false} />
                     <FlowDefinitionDiagnostics definition={designDefinition} />
                   </DesignCanvasErrorBoundary>
+                ) : isCatalogReady && summary ? (
+                  <RunDesignUnavailable flowType={summary.flowType} />
                 ) : (
                   <LoadingIndicator className="events-picture-loading" label="Loading the Flow design…" />
                 ))}
