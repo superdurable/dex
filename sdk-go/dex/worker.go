@@ -159,7 +159,7 @@ type PullWorkerOptions struct {
 	//		Pull: &dex.PullWorkerOptions{TaskQueue: "tenant-42"},
 	//	})
 	//
-	// Since 1.46.0.
+	// Since 1.45.2.
 	TaskQueue string
 }
 
@@ -182,7 +182,7 @@ type PullRegistrationError struct {
 	Queue string
 	// TaskQueue is the Worker's PullWorkerOptions.TaskQueue; empty means the default task queue.
 	//
-	// Since 1.46.0.
+	// Since 1.45.2.
 	TaskQueue string
 	// Err is the non-nil gRPC status error of the rejected stream. Usually the Server returned it.
 	// When the Server registered the stream on another task queue than TaskQueue, the SDK closes the
@@ -234,7 +234,7 @@ type PullQueueRegistrationState struct {
 	// TaskQueue is the task queue the slot kind serves, from PullWorkerOptions.TaskQueue.
 	// Empty means the default task queue. Every entry of one Worker has the same TaskQueue.
 	//
-	// Since 1.46.0.
+	// Since 1.45.2.
 	TaskQueue string
 	// HasRegisteredStream reports whether at least one acknowledged stream is currently held.
 	HasRegisteredStream bool
@@ -293,7 +293,7 @@ const (
 // outbound FlowService connection without opening task streams. The returned
 // Worker owns that connection; Start or Stop closes it.
 //
-// Changed in 1.46.0: NewWorker returns ClientOnlyFlowError for a client-only Flow.
+// Changed in 1.45.2: NewWorker returns ClientOnlyFlowError for a client-only Flow.
 func NewWorker(
 	registry *Registry,
 	cache *blobcache.Cache,
@@ -435,7 +435,7 @@ func validatePlaintextTarget(address string) error {
 // protocol (version 4 or 5), synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
 // With PullWorkerOptions.TaskQueue set, Start returns *TaskQueueUnsupportedError when the
-// negotiated protocol is older than version 5. Since 1.46.0.
+// negotiated protocol is older than version 5. Since 1.45.2.
 // It then uploads the Flow definitions of WorkerOptions.FlowDefinitionPaths and
 // WorkerOptions.FlowDefinitions whose Flow type is registered in the Registry, and
 // logs the skipped ones. Upload failures, including a Server without the upload API,

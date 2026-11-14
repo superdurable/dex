@@ -23,7 +23,7 @@ import (
 //
 //	return dex.AllOf(dex.SubFlow(auditFlow{}, input, dex.SubFlowOptions{TaskQueue: dex.DefaultTaskQueue})), nil
 //
-// Since 1.46.0.
+// Since 1.45.2.
 const DefaultTaskQueue = "dex.default"
 
 const (

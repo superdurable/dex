@@ -415,7 +415,7 @@ type StartFlowOptions struct {
 	//		TaskQueue: "tenant-42",
 	//	})
 	//
-	// Since 1.46.0.
+	// Since 1.45.2.
 	TaskQueue string
 }
 
@@ -489,7 +489,7 @@ type SubFlowOptions struct {
 	//
 	//	return dex.AllOf(dex.SubFlow(reportFlow{}, input, dex.SubFlowOptions{TaskQueue: "reports"})), nil
 	//
-	// Since 1.46.0.
+	// Since 1.45.2.
 	TaskQueue string
 }
 

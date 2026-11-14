@@ -90,7 +90,7 @@ type registeredStream struct {
 // NewRegistry records which Flows embed ClientOnlyFlow. A client-only Flow
 // that declares any Step is invalid. A Registry that holds a client-only Flow
 // serves Clients only: NewWorker rejects it with ClientOnlyFlowError.
-// Changed in 1.46.0: NewRegistry rejects a client-only Flow that declares Steps.
+// Changed in 1.45.2: NewRegistry rejects a client-only Flow that declares Steps.
 //
 //	registry, err := dex.NewRegistry([]dex.Flow{OrderFlow{}, RefundFlow{}})
 //	if err != nil {
