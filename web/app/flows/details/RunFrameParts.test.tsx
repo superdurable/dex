@@ -15,7 +15,7 @@ import type { FlowHistoryEvent } from '@/lib/types';
 import { flowIdPrefixQuery, linkedRunPathOf } from '../../components/frame/JumpTo';
 import { OperateMenu } from './OperateMenu';
 import { barFlowIdOf } from './RunFactsMenu';
-import { runFailureOf, runStateOf } from './RunFailureLine';
+import { runFailureOf, runStateOf, runStateShortLabel } from './RunFailureLine';
 
 afterEach(cleanup);
 
@@ -93,6 +93,15 @@ describe('run state line', () => {
     };
     expect(runStateOf([wait], true)?.timer).toEqual({ conditionId: 'sooner', firesAtMs: Date.parse('2026-01-01T00:01:00Z') });
     expect(runStateOf([wait], false)?.timer).toBeUndefined();
+  });
+
+  it('says in a few words what the run does now, for the end of the Timeline lane', () => {
+    const firesAtMs = Date.parse('2026-01-03T06:00:00Z');
+    const waiting = { isOpen: true, title: 'Waiting for conditions', stepType: 'AwaitNextWindow', eventId: 9, timer: { conditionId: 'next-sync-window', firesAtMs } };
+    expect(runStateShortLabel(waiting, Date.parse('2026-01-01T00:00:00Z'))).toBe('Now · waiting · fires in 2d 6h');
+    expect(runStateShortLabel(waiting, firesAtMs + 1)).toBe('Now · waiting · timer due');
+    expect(runStateShortLabel({ ...waiting, timer: undefined, title: 'Execute running' }, 0)).toBe('Now · execute running');
+    expect(runStateShortLabel({ ...waiting, isOpen: false }, 0)).toBe('Ended');
   });
 });
 

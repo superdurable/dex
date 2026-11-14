@@ -17,7 +17,8 @@ import {
   type QueryOperator,
 } from '@/lib/query';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowExecution, SearchFlowsResult } from '@/lib/types';
+import type { FlowDefinitionTypeList, FlowExecution, SearchFlowsResult } from '@/lib/types';
+import { DESIGNS_PATH } from '../routes';
 import {
   ArrowDown,
   ArrowUp,
@@ -27,6 +28,7 @@ import {
   Columns3,
   History,
   Inbox,
+  Layers,
   Plus,
   Search,
   X,
@@ -103,7 +105,7 @@ function newFilter(field = 'ExecutionStatus'): BasicFilter {
 /** A SubFlow reads as a child in the list: its name without the "SubFlow:" prefix, after a child mark. */
 function listFlowIdOf(flowId: string): string {
   return flowId.startsWith('SubFlow:') && flowId.length > 'SubFlow:'.length
-    ? `↳ ${middleTruncate(flowId.slice('SubFlow:'.length), 40)}`
+    ? `↳ ${middleTruncate(flowId.slice('SubFlow:'.length), 26)}`
     : flowId;
 }
 
@@ -147,6 +149,59 @@ export function selectVisibleIndexedAttributeKeys(flows: FlowExecution[]): strin
   return [...visibleIndexedAttributeKeys].sort();
 }
 
+// A new key, so a choice made while grouping was off by default does not carry over.
+const groupByTypeStorageKey = 'dex-web.flows.group-by-type';
+
+function storedIsGroupedByType(): boolean {
+  try {
+    // The landing page groups by Flow type until a viewer turns it off.
+    return window.localStorage.getItem(groupByTypeStorageKey) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function persistIsGroupedByType(isGrouped: boolean) {
+  try {
+    window.localStorage.setItem(groupByTypeStorageKey, String(isGrouped));
+  } catch (storageError) {
+    console.warn('Unable to save the Flows grouping preference.', storageError);
+  }
+}
+
+/** The page's runs grouped by Flow type, in the order each type first appears. */
+export function flowsByType(flows: readonly FlowExecution[]): Array<{ flowType: string; flows: FlowExecution[] }> {
+  const groups = new Map<string, FlowExecution[]>();
+  for (const flow of flows) groups.set(flow.flowType, [...(groups.get(flow.flowType) ?? []), flow]);
+  return [...groups].map(([flowType, groupFlows]) => ({ flowType, flows: groupFlows }));
+}
+
+/** Counts a group's runs by status, such as "1 failed · 2 completed", busiest first. */
+export function flowGroupCountsLabel(flows: readonly FlowExecution[]): string {
+  const counts = new Map<string, number>();
+  for (const flow of flows) {
+    const status = flow.flowStatus.toLowerCase();
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts].sort((left, right) => right[1] - left[1]).map(([status, count]) => `${count} ${status}`).join(' · ');
+}
+
+/** The Flow types with a loaded design, read only while the list is grouped. */
+function useDesignedFlowTypes(isGrouped: boolean): Set<string> {
+  const [flowTypes, setFlowTypes] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!isGrouped) return undefined;
+    const controller = new AbortController();
+    fetch(webURL('/api/flow-definition-types'), { signal: controller.signal })
+      .then((response) => readResponseJSON<FlowDefinitionTypeList>(response))
+      .then((list) => setFlowTypes(new Set(list.configured ? list.flowTypes.map((item) => item.flowType) : [])))
+      // Without the list, groups simply offer no Design link.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [isGrouped]);
+  return flowTypes;
+}
+
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
   const navigate = useNavigate();
@@ -166,6 +221,9 @@ export function FlowSearchPage() {
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [columns, setColumns] = useState<ColumnId[]>(defaultColumns);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [isGroupedByType, setIsGroupedByType] = useState(storedIsGroupedByType);
+  const flowGroups = useMemo(() => (isGroupedByType ? flowsByType(flows) : null), [flows, isGroupedByType]);
+  const designedFlowTypes = useDesignedFlowTypes(isGroupedByType);
   const [savedOpen, setSavedOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -553,6 +611,18 @@ export function FlowSearchPage() {
                 {[20, 50, 100, 200].map((size) => <option key={size}>{size}</option>)}
               </select>
             </label>
+            <button
+              aria-pressed={isGroupedByType}
+              className="button quiet flow-group-toggle"
+              onClick={() => {
+                persistIsGroupedByType(!isGroupedByType);
+                setIsGroupedByType(!isGroupedByType);
+              }}
+              type="button"
+            >
+              <Layers aria-hidden="true" size={15} strokeWidth={2} />
+              Group by type
+            </button>
             <div className="popover-wrap">
               <button aria-expanded={columnsOpen} className="button quiet" onClick={() => setColumnsOpen(!columnsOpen)} type="button">
                 <Columns3 aria-hidden="true" size={15} strokeWidth={2} />
@@ -599,7 +669,21 @@ export function FlowSearchPage() {
               </tr>
             </thead>
             <tbody>
-              {!loading && flows.map((flow) => (
+              {!loading && (flowGroups ?? [{ flowType: '', flows }]).flatMap((group) => [
+                ...(flowGroups ? [(
+                  <tr className="flow-group-row" key={`group-${group.flowType}`}>
+                    <td colSpan={columns.length + customAttributes.length}>
+                      <span className="flow-group-name">{group.flowType}</span>
+                      <span className="flow-group-counts">{flowGroupCountsLabel(group.flows)}</span>
+                      {designedFlowTypes.has(group.flowType) && (
+                        <Link className="flow-group-design" to={`${DESIGNS_PATH}?${new URLSearchParams({ flowType: group.flowType })}`}>
+                          Design ›
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                )] : []),
+                ...group.flows.map((flow) => (
                 <tr
                   className="flow-row"
                   key={`${flow.flowId}-${flow.runId}`}
@@ -620,7 +704,8 @@ export function FlowSearchPage() {
                     </td>
                   ))}
                 </tr>
-              ))}
+                )),
+              ])}
             </tbody>
           </table>
           {!loading && flows.length === 0 && (

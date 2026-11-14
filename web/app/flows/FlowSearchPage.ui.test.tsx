@@ -206,3 +206,27 @@ describe('Flow search storage', () => {
       .not.toContainEqual(expect.stringContaining('@'));
   });
 });
+
+describe('Flows grouped by Flow type', () => {
+  it('groups the runs by Flow type until the viewer turns it off', async () => {
+    // A choice saved under the old key, before grouping was the default, no longer applies.
+    localStorage.setItem('dex-web-group-by-type', 'false');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [flow('checkout-1'), flow('checkout-2')], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText('checkout-1');
+    const toggle = screen.getByRole('button', { name: 'Group by type' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('.flow-group-row')?.textContent).toContain('CheckoutFlow');
+    expect(document.querySelector('.flow-group-row')?.textContent).toContain('2 running');
+
+    fireEvent.click(toggle);
+    expect(document.querySelector('.flow-group-row')).toBeNull();
+    expect(localStorage.getItem('dex-web.flows.group-by-type')).toBe('false');
+  });
+});

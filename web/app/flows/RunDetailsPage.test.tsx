@@ -164,9 +164,13 @@ function latestEventNumber(): string {
 
 /** Pausing and resuming Live reads the run again, which replaced the Refresh button. */
 function refreshByResumingLive() {
-  const live = screen.getByRole('checkbox', { name: 'Live' });
-  fireEvent.click(live);
-  fireEvent.click(live);
+  toggleLive();
+  toggleLive();
+}
+
+/** Pauses Live when it is on, or resumes it when updates are paused. */
+function toggleLive() {
+  fireEvent.click(screen.getByRole('button', { name: /^Live: |^Updates paused/ }));
 }
 
 /** Opens the run's details popover, where the run facts and ID copy buttons live. */
@@ -265,9 +269,9 @@ describe('run attempts on the run page', () => {
     renderRun();
 
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Live' }));
+    toggleLive();
     dex.timeTravel();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Live' }));
+    toggleLive();
 
     await waitFor(() => expect((screen.getByRole('combobox', { name: 'Run attempt' }) as HTMLSelectElement).value).toBe('2'));
     await waitFor(() => expect(latestEventNumber()).toBe('#4'));
@@ -500,7 +504,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
-    expect(screen.getByText('Events')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Events' })).toBeTruthy();
     expect(latestEventNumber()).toBe('#2100');
     expect(eventsRange()).toBe('Showing #1101–#2100 · Page 1 of 3');
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
@@ -637,7 +641,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     // Timeline rows are short, so its event panel defaults wider than the graph's.
     const runContent = document.querySelector<HTMLElement>('.run-content');
     expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
-    fireEvent.click(screen.getByRole('tab', { name: 'Execution graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
     expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('600px');
 
     const graph = await screen.findByTestId('execution-graph');
@@ -694,9 +698,9 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     const stub = await screen.findByRole('button', {
       name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
     });
-    const jump = await screen.findByRole('button', { name: 'Go to #2' });
-    expect(jump.getAttribute('aria-describedby')).toBeTruthy();
-    expect(document.getElementById(jump.getAttribute('aria-describedby') ?? '')?.textContent).toBe('older page');
+    // The panel's relation line names the event and says which way its page is.
+    const jump = await screen.findByRole('button', { name: 'from Review-1 WaitFor completed, event #2 (older page)' });
+    expect(jump.getAttribute('title')).toBe('Go to #2');
     fireEvent.click(stub);
 
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
@@ -745,7 +749,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(horizontalOption(3000)).not.toBeNull());
     expect(document.querySelector('.timeline-row')).toBeNull();
     fireEvent.click(horizontalOption(3000)!);
-    fireEvent.click(await screen.findByRole('button', { name: 'Go to #2' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'from Review-1 WaitFor completed, event #2 (older page)' }));
 
     await waitFor(() => expect(horizontalOption(2)?.className).toContain('jump-highlighted'));
     expect(horizontalOption(2)?.getAttribute('aria-selected')).toBe('true');
@@ -1181,7 +1185,7 @@ describe('history settings on the run page', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Streams' }));
     await waitFor(() => expect(screen.queryByText('Last 800 events')).toBeNull());
-    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'State' }));
     expect(await screen.findByText('Last 800 events')).toBeTruthy();
     expect(screen.queryByText('Last 500 events')).toBeNull();
   });

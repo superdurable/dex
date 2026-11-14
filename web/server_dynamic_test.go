@@ -112,7 +112,7 @@ func TestStandaloneSPARejectsFraming(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
-	newStandaloneBasePathHandler("/", pages.framePolicy, pages.spaHandler("/", false, nil)).ServeHTTP(response, request)
+	newStandaloneBasePathHandler("/", pages.framePolicy, pages.spaHandler("/", false, false)).ServeHTTP(response, request)
 	if response.Header().Get("Content-Security-Policy") != "frame-ancestors 'none'" ||
 		response.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("standalone SPA headers = %v", response.Header())

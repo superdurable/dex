@@ -15,7 +15,7 @@ import type { SearchFlowsResult } from '@/lib/types';
 import { runPath } from '../../routes';
 import { StatusBadge } from '../StatusBadge';
 import { readRecentRuns } from './recentRuns';
-import type { AppSection } from './SectionMenu';
+import type { AppSection } from './appSections';
 import { usePopover } from './usePopover';
 
 /** Returns the run path of a pasted run link, or null when the text is not one. */

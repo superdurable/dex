@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
-import { AppBar } from './components/frame/AppBar';
+import { AppFrame } from './components/frame/AppBar';
 import { AppBarSlotsProvider } from './components/frame/AppBarSlots';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
@@ -26,12 +26,9 @@ export function App() {
       <ThemeProvider>
         <WebCatalogProvider>
           <AppBarSlotsProvider>
-            <div className="app-shell">
-              <AppBar />
-              <main className="app-main">
-                <AppRoutes />
-              </main>
-            </div>
+            <AppFrame>
+              <AppRoutes />
+            </AppFrame>
           </AppBarSlotsProvider>
         </WebCatalogProvider>
       </ThemeProvider>

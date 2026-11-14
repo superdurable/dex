@@ -48,7 +48,7 @@ export function OperateMenu({
     onSelect: onTimeTravel,
   };
   const fromFailure: OperateAction | null = onTimeTravelFromFailure ? {
-    id: 'time-travel', label: failedEventId === undefined ? 'Time travel' : `Time travel from #${failedEventId}`, narrowLabel: 'Time travel', menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
+    id: 'time-travel', label: failedEventId === undefined ? 'Time travel' : `Time travel from #${failedEventId}`, narrowLabel: failedEventId === undefined ? 'Time travel' : `Time travel #${failedEventId}`, menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
     Icon: History, onSelect: onTimeTravelFromFailure,
   } : null;
   const [primary, ...others] = isRunning ? [stop, timeTravel] : fromFailure ? [fromFailure, timeTravel] : [timeTravel];

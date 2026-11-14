@@ -217,23 +217,31 @@ export function SemanticEventDetails({
   );
 }
 
+export type EventPayloadView = 'details' | 'raw';
+
 export function EventDetails({
   event,
   history,
   parentFlowId,
+  payloadView,
 }: {
   event: FlowHistoryEvent;
   history: FlowHistoryEvent[];
   parentFlowId: string;
+  /** Set when the caller owns the Details and JSON switch; the built-in switch then hides. */
+  payloadView?: EventPayloadView;
 }) {
-  const [view, setView] = useState<'details' | 'raw'>('details');
+  const [ownView, setView] = useState<EventPayloadView>('details');
+  const view = payloadView ?? ownView;
   return (
     <div className="event-details">
       <div className="event-details-content">
-        <div className="event-detail-tabs" role="group" aria-label="Event payload view">
-          <button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} type="button" onClick={() => setView('details')}>Details</button>
-          <button aria-pressed={view === 'raw'} className={view === 'raw' ? 'active' : ''} type="button" onClick={() => setView('raw')}>Raw JSON</button>
-        </div>
+        {payloadView === undefined && (
+          <div className="event-detail-tabs" role="group" aria-label="Event payload view">
+            <button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} type="button" onClick={() => setView('details')}>Details</button>
+            <button aria-pressed={view === 'raw'} className={view === 'raw' ? 'active' : ''} type="button" onClick={() => setView('raw')}>Raw JSON</button>
+          </div>
+        )}
         {view === 'details'
           ? <div className="semantic-event"><SemanticEventDetails event={event} history={history} parentFlowId={parentFlowId} /></div>
           : <pre className="raw-event-json">{JSON.stringify(event.payload, storedValueJSONReplacer, 2)}</pre>}

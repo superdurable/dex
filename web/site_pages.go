@@ -14,7 +14,6 @@ import (
 	"html"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -24,33 +23,9 @@ import (
 
 // basePathMetaName names the index.html meta tag that tells the SPA its base path.
 const (
-	basePathMetaName = "dex-web-base-path"
-	hostNameMetaName = "dex-web-host-name"
-	hostURLMetaName  = "dex-web-host-url"
+	basePathMetaName       = "dex-web-base-path"
+	hostNavigationMetaName = "dex-web-host-navigation"
 )
-
-// HostLink names the host page that serves a Dex Web, which the page's trail starts from.
-type HostLink struct {
-	// Name is the host page's name, such as the Dex Server's name. It must not be blank.
-	Name string
-	// URL is the host page, an http or https URL or a path starting with "/".
-	URL string
-}
-
-// ValidateHostLink returns an error when link has a blank name or a URL that is neither http(s) nor rooted.
-func ValidateHostLink(link HostLink) error {
-	if strings.TrimSpace(link.Name) == "" {
-		return fmt.Errorf("host link name must not be blank")
-	}
-	if strings.HasPrefix(link.URL, "/") && !strings.HasPrefix(link.URL, "//") {
-		return nil
-	}
-	parsed, err := url.Parse(link.URL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return fmt.Errorf("host link URL must be http, https or a rooted path: %q", link.URL)
-	}
-	return nil
-}
 
 // sitePages serves the embedded SPA; it is immutable after construction, so many targets may share it.
 type sitePages struct {
@@ -89,7 +64,7 @@ func newSitePages(assets fs.FS, frameAncestors []string) (*sitePages, error) {
 }
 
 // spaHandler serves assets, and index.html for every other page path so the SPA router can resolve it.
-func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool, hostLink *HostLink) http.Handler {
+func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool, hasHostNavigation bool) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !hasConnectorSetup && strings.HasPrefix(request.URL.Path, "/api/v2/connector-") {
 			api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_SETUP_UNAVAILABLE", "Connector configuration is not available in this Dex Web")
@@ -101,7 +76,7 @@ func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool, host
 		}
 		requestPath := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
 		if requestPath == "." || requestPath == "" {
-			pages.serveIndex(response, request, basePath, hostLink)
+			pages.serveIndex(response, request, basePath, hasHostNavigation)
 			return
 		}
 		file, err := pages.assets.Open(requestPath)
@@ -117,24 +92,24 @@ func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool, host
 			api.WriteError(response, http.StatusNotFound, "API route not found", nil)
 			return
 		}
-		pages.serveIndex(response, request, basePath, hostLink)
+		pages.serveIndex(response, request, basePath, hasHostNavigation)
 	})
 }
 
-func (pages *sitePages) serveIndex(response http.ResponseWriter, request *http.Request, basePath string, hostLink *HostLink) {
+func (pages *sitePages) serveIndex(response http.ResponseWriter, request *http.Request, basePath string, hasHostNavigation bool) {
 	response.Header().Set("Cache-Control", "no-store")
-	index := renderIndexForBasePath(pages.indexTemplate, basePath, hostLink)
+	index := renderIndexForBasePath(pages.indexTemplate, basePath, hasHostNavigation)
 	http.ServeContent(response, request, "index.html", time.Time{}, bytes.NewReader(index))
 }
 
 // renderIndexForBasePath makes the relative asset URLs absolute under basePath and records basePath for the SPA.
-// A non-nil hostLink is recorded too, so the SPA's trail starts at the host page.
-func renderIndexForBasePath(indexTemplate string, basePath string, hostLink *HostLink) []byte {
+// hasHostNavigation is recorded too, so the SPA leaves the navigation to the host.
+func renderIndexForBasePath(indexTemplate string, basePath string, hasHostNavigation bool) []byte {
 	prefix := html.EscapeString(strings.TrimSuffix(basePath, "/"))
 	index := strings.NewReplacer(`src="./`, `src="`+prefix+`/`, `href="./`, `href="`+prefix+`/`).Replace(indexTemplate)
 	meta := metaTag(basePathMetaName, basePath)
-	if hostLink != nil {
-		meta += "\n  " + metaTag(hostNameMetaName, hostLink.Name) + "\n  " + metaTag(hostURLMetaName, hostLink.URL)
+	if hasHostNavigation {
+		meta += "\n  " + metaTag(hostNavigationMetaName, "true")
 	}
 	return []byte(strings.Replace(index, "</head>", meta+"\n  </head>", 1))
 }

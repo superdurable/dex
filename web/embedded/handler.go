@@ -100,23 +100,12 @@ type Target struct {
 	// JSON files under this directory on every definition request, which enables the Designs page, the Work
 	// Queue, and typed Flow start forms for this Dex Server.
 	FlowRenderingDirectory string
-	// HostLink defaults nil, which starts the page's trail at the Dex mark and its link to the Flows page. Set it
-	// when your own page opens Dex Web, so the trail starts at that page instead: Name is shown and URL is
-	// followed. Name must not be blank, and URL must be an http or https URL or a path starting with "/";
-	// otherwise the request gets HTTP 500.
+	// HasHostNavigation defaults false, which gives Dex Web its own left rail of pages and its home link. Set it
+	// when your page draws the navigation around Dex Web, such as a Dex Server's own rail in your console: Dex Web
+	// then draws no rail, and its bar starts with the name of the page it shows.
 	//
 	// Since 1.45.3.
-	HostLink *HostLink
-}
-
-// HostLink names the host page that opens a Dex Web, such as a Dex Server's page in your console.
-//
-// Since 1.45.3.
-type HostLink struct {
-	// Name is the page's name as Dex Web shows it, such as the Dex Server's name.
-	Name string
-	// URL is where the name links: an http or https URL, or a path starting with "/".
-	URL string
+	HasHostNavigation bool
 }
 
 // TargetResolver returns the Dex Server that a request reaches.
@@ -198,15 +187,8 @@ func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *h
 		FlowServiceClient:      target.FlowServiceClient,
 		BasePath:               target.BasePath,
 		FlowRenderingDirectory: target.FlowRenderingDirectory,
-		HostLink:               webHostLink(target.HostLink),
+		HasHostNavigation:      target.HasHostNavigation,
 	})
-}
-
-func webHostLink(link *HostLink) *web.HostLink {
-	if link == nil {
-		return nil
-	}
-	return &web.HostLink{Name: link.Name, URL: link.URL}
 }
 
 func (handler *dexWebHandler) writeResolveError(response http.ResponseWriter, request *http.Request, err error) {

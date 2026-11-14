@@ -174,7 +174,6 @@ body {
   white-space: nowrap;
 }
 
-
 .app-bar .status-badge {
   flex: none;
 }
@@ -250,26 +249,9 @@ body {
   transform: scaleX(1);
 }
 
-.experimental-dot {
-  display: inline-block;
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-left: 2px;
-  border-radius: 50%;
-  vertical-align: middle;
-  background: #8b5cf6;
-}
-
 .app-bar-actions {
   flex: none;
   gap: 4px;
-}
-
-.app-bar .live-toggle {
-  margin-right: 2px;
-  padding: 5px 10px 5px 9px;
-  transition: background-color 150ms ease, color 150ms ease;
 }
 
 .operate-menu-button {
@@ -703,26 +685,6 @@ body {
   background: var(--tone-accent-soft);
 }
 
-.run-state-label {
-  flex: none;
-  font-size: var(--ui-text-xs);
-  letter-spacing: 0.04em;
-  opacity: 0.75;
-  text-transform: uppercase;
-}
-
-.run-state-message {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-state-message .mono {
-  font-weight: 500;
-}
-
 .run-state-line .run-failure-jump {
   color: inherit;
   background: color-mix(in srgb, currentColor 12%, transparent);
@@ -735,17 +697,99 @@ body {
   font-size: var(--ui-text-sm);
 }
 
-/* The event's one action sits on its title row. */
-.v1-page .selected-event-anchor:has(> .selected-event-time-travel) {
+/* The event's actions sit on its title row; its relations take one line under it. */
+.v1-page .selected-event-anchor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 12px;
 }
 
-.v1-page .selected-event-anchor > .selected-event-time-travel {
+.v1-page .selected-event-anchor > .selected-event-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   grid-row: 1 / span 2;
   grid-column: 2;
+}
+
+.selected-event-json {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--ui-text-sm);
+}
+
+.selected-event-json[aria-pressed='true'] {
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+}
+
+.v1-page .selected-event-anchor > .related-events-line {
+  grid-column: 1 / -1;
+}
+
+.related-events-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: var(--ui-text-sm);
+  list-style: none;
+}
+
+.related-event-inline {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.related-event-inline .related-event-relation {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.related-event-link {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--tone-accent-ink, var(--tone-accent));
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-event-link:hover {
+  text-decoration: underline;
+}
+
+.related-event-link:disabled {
+  color: var(--ui-ink-3);
+  cursor: default;
+}
+
+.related-event-inline .related-event-hint {
+  color: var(--ui-ink-3);
+  font-weight: 400;
+}
+
+/* Context groups its fields into Timing, Attempt, and Worker and retry. */
+.semantic-context-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px 24px;
+  margin-top: 10px;
+}
+
+.v1-page .semantic-context-groups > .semantic-subsection + .semantic-subsection {
+  margin-top: 0;
 }
 
 /* The event pager is the head of the view it pages. */
@@ -762,10 +806,8 @@ body {
   border-top-right-radius: 0;
 }
 
-
-
 .htl-legend-fold {
-  margin: -4px 0 6px;
+  position: relative;
 }
 
 .htl-legend-fold > summary {
@@ -786,7 +828,22 @@ body {
 }
 
 .htl-legend-fold[open] > summary {
-  margin-bottom: 8px;
+  color: var(--ui-ink);
+}
+
+/* The legend opens over the lane, so a closed legend costs one button. */
+.htl-legend-fold > .htl-legend {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: min(560px, 86vw);
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ui-radius-item);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-section-shadow), 0 8px 24px color-mix(in srgb, var(--ui-ink) 14%, transparent);
 }
 
 /* On a phone a run page drops the section from its trail; the run's name needs the room. */
@@ -812,8 +869,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-
 
 .run-facts-children {
   display: grid;
@@ -878,9 +933,6 @@ body {
   color: var(--ui-ink-3);
 }
 
-@container app-bar (max-width: 1100px) {
-}
-
 /* A whole Flows row opens its run; long IDs shorten so every column fits a laptop screen. */
 .v1-page .flow-table .flow-row {
   cursor: pointer;
@@ -924,11 +976,6 @@ body {
   padding-left: 8px;
 }
 
-.app-bar .live-toggle {
-  min-width: 84px;
-  justify-content: center;
-}
-
 /* The Flow ID is what gives way first, down to a readable stub. */
 .app-bar-page > .run-facts-menu {
   flex: 0 1 auto;
@@ -953,7 +1000,6 @@ body {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
 
 .app-bar-jump-list {
   display: grid;
@@ -1007,28 +1053,18 @@ body {
   }
 }
 
-
-@container app-bar (max-width: 1360px) {
+@container app-bar (max-width: 1240px) {
   .app-bar.v1-page .run-tabs button {
     gap: 5px;
     padding: 0 8px;
   }
 }
 
-
-/* Page buttons are icons with names for screen readers and tooltips, so the pager stays one short row. */
-.run-events-pager--icons .pager-button {
-  min-width: 30px;
-  padding: 0 7px;
-}
-
-.run-events-pager--icons .pager-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+/* Page buttons say where they go, so the pager reads without tooltips. */
+.run-events-pager--words .pager-button {
+  gap: 2px;
+  padding: 0 8px;
+  font-size: var(--ui-text-xs);
 }
 
 .run-primary > .run-events-tile .run-fact-label {
@@ -1132,171 +1168,7 @@ body {
   white-space: nowrap;
 }
 
-/* Labels of events just left of the view fade out instead of ending in a hard cut. */
-.v1-page .htl-strip::after {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 34px;
-  background: linear-gradient(to right, var(--ui-well), transparent);
-  content: '';
-  pointer-events: none;
-}
-
 /* ------------------------------------------------ desktop Timeline: event list */
-
-/* With the event list beside the selection, the labelled lane is optional and starts hidden. */
-.v1-page .htl-host.is-lane-hidden .htl-strip {
-  height: 0 !important;
-  min-height: 0;
-  margin: 0;
-  visibility: hidden;
-}
-
-.v1-page .htl-host.is-lane-hidden .htl-legend-fold {
-  display: none;
-}
-
-.v1-page .htl-host.is-lane-hidden .htl-minimap {
-  margin-bottom: 0;
-}
-
-.v1-page .run-events-lane-toggle {
-  margin-left: auto;
-  padding: 0 10px;
-  border-radius: 999px;
-  color: var(--ui-ink-2);
-  background: var(--ui-chip);
-}
-
-.v1-page .run-events-lane-toggle[aria-pressed='true'] {
-  color: var(--tone-accent-ink);
-  background: var(--tone-accent-soft);
-}
-
-/* One line per event, in its own scroll box, so a long run is scanned without growing the page. */
-.v1-page .event-list {
-  position: relative;
-  max-height: calc(100vh - var(--header-h) - 24px);
-  margin-top: 12px;
-  padding: 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-radius: var(--ui-radius-section);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-section-shadow);
-  outline: none;
-}
-
-.v1-page .event-list:focus-visible {
-  box-shadow: var(--ui-section-shadow), 0 0 0 2px var(--ui-focus-outline);
-}
-
-.v1-page .event-list-row {
-  display: grid;
-  grid-template-columns: 10px 56px minmax(0, 11rem) minmax(0, 1fr) auto auto 26px;
-  align-items: center;
-  gap: 10px;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: var(--ui-radius-control);
-  color: var(--ui-ink);
-  cursor: pointer;
-  font-size: var(--ui-text-sm);
-}
-
-.v1-page .event-list-row:hover {
-  background: color-mix(in srgb, var(--ui-hover) 55%, transparent);
-}
-
-.v1-page .event-list-row.is-selected {
-  background: var(--ui-chip);
-  box-shadow: inset 4px 0 0 var(--ui-ink), inset 0 0 0 1px var(--ui-hairline);
-}
-
-/* Selection is neutral; a failed row keeps its own colour in the selection bar. */
-.v1-page .event-list-row.is-selected.tone-failed {
-  background: var(--tone-fail-soft);
-  box-shadow: inset 4px 0 0 var(--tone-fail);
-}
-
-/* A time travel fork marks where the run was replayed, so it reads as a divider. */
-.v1-page .event-list-row.tone-fork {
-  margin: 6px 0;
-  color: var(--tone-wait-ink);
-  background: var(--tone-wait-soft);
-}
-
-.v1-page .event-list-row.tone-fork .event-list-dot {
-  background: var(--tone-wait);
-  opacity: 1;
-}
-
-.v1-page .event-list-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--ui-ink-3);
-  opacity: 0.55;
-}
-
-.v1-page .event-list-row.tone-failed .event-list-dot { background: var(--tone-fail); opacity: 1; }
-.v1-page .event-list-row.tone-waiting .event-list-dot { background: var(--tone-wait); opacity: 1; }
-.v1-page .event-list-row.tone-closed .event-list-dot { background: var(--tone-done); opacity: 1; }
-.v1-page .event-list-row.tone-failed .event-list-title { color: var(--tone-fail-ink); }
-
-.v1-page .event-list-id,
-.v1-page .event-list-offset {
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.v1-page .event-list-title {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.v1-page .event-list-subject {
-  overflow: hidden;
-  color: var(--ui-ink-2);
-  font-size: var(--ui-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.v1-page .event-list-subject small {
-  color: var(--ui-ink-3);
-  font-size: inherit;
-}
-
-.v1-page .event-list-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: var(--ui-radius-control);
-  color: var(--ui-ink-2);
-  background: transparent;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.v1-page .event-list-row:is(:hover, .is-selected) .event-list-action {
-  opacity: 1;
-}
-
-.v1-page .event-list-action:hover {
-  background: var(--ui-chip);
-}
-
-
 
 /* Add filter lines up with the other controls of a one-row search. */
 .v1-page .query-card .filter-list > .text-button {
@@ -1310,27 +1182,6 @@ body {
   align-items: center;
   margin: 0;
   padding: 0;
-}
-
-/* On the desktop Timeline each row carries time travel, so the panel's copy would repeat it. */
-@media (min-width: 1280px) {
-  .v1-page .run-content--horizontal-timeline .selected-event-time-travel {
-    display: none;
-  }
-}
-
-.v1-page .event-list-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: 8px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  color: var(--tone-accent-ink);
-  background: var(--tone-accent-soft);
-  font-family: var(--ui-font, inherit);
-  font-weight: 600;
-  text-decoration: none;
 }
 
 /* At laptop widths the event toolbar stays one line; the page size keeps its name for screen readers. */
@@ -1388,6 +1239,11 @@ body {
   background: var(--ui-chip);
 }
 
+/* Alone on its line, the run's relations start at the left instead of trailing empty space. */
+.run-context-line > .run-context {
+  margin-left: 0;
+}
+
 .run-facts-attempt-control {
   margin: 4px 0 10px;
 }
@@ -1414,11 +1270,6 @@ body {
     display: inline;
   }
 
-  .app-bar .live-toggle {
-    min-width: 0;
-    padding: 0 9px;
-  }
-
   .app-bar-icon-button.app-bar-jump-button {
     padding: 0 4px;
   }
@@ -1435,21 +1286,6 @@ body {
   overflow-wrap: anywhere;
 }
 
-.v1-page .event-list-child-status {
-  width: 7px;
-  height: 7px;
-  margin-left: 3px;
-  border-radius: 999px;
-  background: var(--tone-done);
-}
-
-.v1-page .event-list-child-status:is(.status-running) { background: var(--tone-accent); }
-.v1-page .event-list-child-status:is(.status-failed, .status-timedout, .status-terminated) { background: var(--tone-fail); }
-
-.v1-page .run-state-timer {
-  font-weight: 500;
-}
-
 /* Run details lists each child Flow on its own row, under its heading. */
 .run-facts-children {
   display: grid;
@@ -1462,26 +1298,435 @@ body {
   gap: 6px;
 }
 
-/* The event list keeps room for the child mark, so a row with one lines up with its neighbours. */
-.v1-page .event-list-child-cell {
-  min-width: 64px;
+/* An early tab's marker is a quiet dot, not an unread badge. */
+
+/* -------------------------------------------------------------- left rail */
+
+/* The rail and the page column; the rail starts collapsed to its icons. */
+.app-shell {
+  --rail-w: 56px;
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 100vh;
 }
 
-/* At laptop widths the event list outranks the event panel: the panel takes less, and rows drop the execution ID. */
-@media (min-width: 1280px) and (max-width: 1439px) {
-  .v1-page .run-content.run-content--horizontal-timeline {
-    grid-template-columns: minmax(560px, 1fr) max(380px, min(var(--run-sidebar-width), 38%));
+.app-shell.has-expanded-rail {
+  --rail-w: 200px;
+}
+
+.app-column {
+  min-width: 0;
+}
+
+.app-rail {
+  position: sticky;
+  z-index: 32;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: var(--rail-w);
+  height: 100vh;
+  padding: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ui-surface) 70%, var(--ui-page));
+  box-shadow: 1px 0 0 var(--ui-hairline);
+  transition: width 150ms ease;
+}
+
+.app-rail-server,
+.app-rail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-rail-server {
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  box-shadow: 0 1px 0 var(--ui-hairline);
+}
+
+.app-rail-sections {
+  flex: 1;
+  min-height: 0;
+}
+
+.app-rail-item {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-rail-item:hover {
+  background: var(--ui-hover);
+  color: var(--ui-ink);
+}
+
+.app-rail-item:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: -2px;
+}
+
+.app-rail-item[aria-current='page'] {
+  color: var(--ui-ink);
+  background: var(--tone-accent-soft);
+}
+
+.app-rail-icon {
+  flex: none;
+}
+
+.app-rail-mark {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -2px;
+}
+
+.app-rail-host {
+  height: 42px;
+  color: var(--ui-ink);
+}
+
+.app-rail-host-page {
+  height: 32px;
+  font-weight: 500;
+}
+
+.app-rail-reach {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone-done);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-surface) 70%, var(--ui-page));
+}
+
+.app-rail-reach.is-unreachable {
+  background: var(--tone-fail);
+}
+
+.app-rail-label {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.app-rail.is-expanded .app-rail-label,
+.app-rail.is-phone-open .app-rail-label {
+  opacity: 1;
+}
+
+/* Collapsed, the Experimental heading is a dashed divider; expanded, it is a word. */
+.app-rail-heading {
+  height: 18px;
+  margin: 10px 10px 2px;
+  border-top: 1px dashed var(--ui-hairline);
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app-rail.is-expanded .app-rail-heading,
+.app-rail.is-phone-open .app-rail-heading {
+  height: auto;
+  margin: 14px 10px 4px;
+  border-top: 0;
+}
+
+.app-rail-toggle {
+  color: var(--ui-ink-3);
+}
+
+.app-bar-rail-button,
+.app-rail-backdrop {
+  display: none;
+}
+
+/* The word that marks an early feature, everywhere it appears. */
+.experimental-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--tone-wait) 45%, transparent);
+  border-radius: 4px;
+  color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+/* A phone has no room for a rail: it opens over the page from the bar's menu button. */
+@media (max-width: 720px) {
+  .app-shell,
+  .app-shell.has-expanded-rail {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .v1-page .event-list-subject small {
+  .app-rail {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: min(280px, 85vw);
+    height: auto;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+  }
+
+  .app-rail.is-phone-open {
+    transform: none;
+    box-shadow: 0 0 40px rgb(0 0 0 / 25%);
+  }
+
+  .app-rail-toggle {
     display: none;
   }
+
+  .app-bar-rail-button {
+    display: inline-flex;
+  }
+
+  .app-rail-backdrop {
+    position: fixed;
+    z-index: 31;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 30%);
+  }
 }
 
-/* An early tab's marker is a quiet dot, not an unread badge. */
-.app-bar.v1-page .run-tabs .experimental-dot {
-  width: 5px;
-  height: 5px;
-  background: var(--ui-ink-3);
-  opacity: 0.6;
+@media (prefers-reduced-motion: reduce) {
+  .app-rail,
+  .app-rail-label {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------- run views, round 2 */
+
+/* The tab list scrolls; its More menu hangs from the wrapper, so the list never clips it. */
+.run-views {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.app-bar.v1-page .run-tabs .experimental-tag {
+  margin-left: 0;
+}
+
+.live-status:focus-visible,
+.run-io-button:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
+}
+
+/* Live is the event list's own status, beside its pager, never in the bar. */
+.live-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.live-status.is-on {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.live-status b {
+  color: var(--ui-ink);
+}
+
+.live-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-accent) 22%, transparent);
+  animation: live-status-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-status-pulse {
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone-accent) 8%, transparent); }
+}
+
+.run-events-line .live-status {
+  align-self: center;
+  margin-left: 4px;
+}
+
+/* Input and Result sit on the run line, before its jump to the event that matters. */
+.run-io {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-io-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.run-io-button:hover {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.run-io-button[aria-pressed='true'] {
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-status-dot {
+    animation: none;
+  }
+}
+
+/* Grouped by Flow type, each group opens with its name, its counts on this page, and its design. */
+.v1-page .flow-group-toggle[aria-pressed='true'] {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.v1-page .flow-table .flow-group-row td {
+  padding-top: 14px;
+  padding-bottom: 8px;
+  background: color-mix(in srgb, var(--ui-chip) 60%, transparent);
+  font-size: var(--ui-text-sm);
+}
+
+.flow-group-name {
+  color: var(--ui-ink);
+  font-weight: 700;
+}
+
+.flow-group-counts {
+  margin-left: 10px;
+  color: var(--ui-ink-3);
+}
+
+.flow-group-design {
+  float: right;
+  color: var(--tone-accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.flow-group-design:hover {
+  text-decoration: underline;
+}
+
+/* On a phone the run line's message takes its own row, and its buttons wrap under it. */
+@media (max-width: 760px) {
+  .run-failure-line,
+  .run-state-line {
+    flex-wrap: wrap;
+  }
+
+  .run-failure-message {
+    flex-basis: calc(100% - 30px);
+  }
+
+  .run-failure-line .run-io,
+  .run-state-line .run-io {
+    margin-left: 0;
+  }
+}
+
+/* The host draws the navigation around this Dex Web, so the page is one column. */
+.app-shell.has-host-navigation {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Events' Timeline and Graph switch leads the event header; the pressed view reads as selected. */
+.events-view-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.events-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+}
+
+.events-view-switch button[aria-pressed='true'] {
+  color: var(--ui-ink);
+  background: var(--ui-surface);
+  box-shadow: 0 0 0 1px var(--ui-hairline);
+}
+
+.events-view-switch button:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
 }

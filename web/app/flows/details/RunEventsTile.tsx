@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { ChevronDown, ChevronsDown, ChevronsUp, ChevronUp, ListOrdered, Undo2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ListOrdered, Undo2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { HISTORY_PAGE_SIZES, type HistoryPageSize } from '@/lib/history';
 
@@ -38,8 +38,14 @@ export function RunEventsTile({
   paging,
   pageSize,
   onPageSizeChange,
+  status,
+  viewSwitch,
   children,
 }: {
+  /** The switch between the views this tile heads, shown first. */
+  viewSwitch?: ReactNode;
+  /** The page's own status, such as Live, which follows the event count. */
+  status?: ReactNode;
   /** Controls of the view the tile heads, after the page controls. */
   children?: ReactNode;
   latestEventId: number | null;
@@ -51,6 +57,7 @@ export function RunEventsTile({
   return (
     <div className="run-events-tile" role="group" aria-label="Events">
       <span className="run-fact-label"><ListOrdered aria-hidden="true" size={14} strokeWidth={2} />Events</span>
+      {viewSwitch}
       <div className="run-events-line">
         {paging && (
           <span className="run-events-range">
@@ -59,6 +66,7 @@ export function RunEventsTile({
           </span>
         )}
         <span className="run-events-latest">{latestEventId === null ? 'None yet' : `Latest #${latestEventId}`}</span>
+        {status}
       </div>
       <div className="run-events-controls">
         {paging && hasOtherPages(paging) && <RunEventsPager paging={paging} />}
@@ -95,37 +103,37 @@ function pageLabel(paging: RunEventsPaging): string {
   return paging.pageCount === null ? `Page ${paging.pageNumber}` : `Page ${paging.pageNumber} of ${paging.pageCount}`;
 }
 
+/** The page buttons in words, with older pages on the left like the lane. */
 function RunEventsPager({ paging }: { paging: RunEventsPaging }) {
-  const isNewerDisabled = paging.isLoading || paging.isNewest;
+  const isNewerDisabled = paging.isLoading || paging.isNewest || !paging.hasNewer;
   const isOlderDisabled = paging.isLoading || !paging.hasOlder;
   return (
-    <div aria-busy={paging.isLoading} aria-label="Event pages" className="run-events-pager run-events-pager--icons" role="group">
+    <div aria-busy={paging.isLoading} aria-label="Event pages" className="run-events-pager run-events-pager--words" role="group">
       {paging.canGoBack && (
-        <button className="pager-button" disabled={paging.isLoading} onClick={paging.onBack} title="Back" type="button">
-          <Undo2 aria-hidden="true" size={14} strokeWidth={2} />
-          <span className="pager-label">Back</span>
+        <button className="pager-button" disabled={paging.isLoading} onClick={paging.onBack} title="Back to where you were" type="button">
+          <Undo2 aria-hidden="true" size={13} strokeWidth={2} />
+          Back
         </button>
       )}
-      <button className="pager-button" disabled={isNewerDisabled} onClick={paging.onLatestPage} title="Latest page" type="button">
-        <ChevronsUp aria-hidden="true" size={14} strokeWidth={2} />
-        <span className="pager-label">Latest page</span>
+      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOldestPage} aria-label="Oldest page" type="button">
+        Oldest
+      </button>
+      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOlderPage} aria-label="Older page" type="button">
+        <ChevronLeft aria-hidden="true" size={13} strokeWidth={2.25} />
+        Older
+      </button>
+      <button className="pager-button" disabled={isNewerDisabled} onClick={paging.onNewerPage} aria-label="Newer page" type="button">
+        Newer
+        <ChevronRight aria-hidden="true" size={13} strokeWidth={2.25} />
       </button>
       <button
         className="pager-button"
-        disabled={isNewerDisabled || !paging.hasNewer}
-        onClick={paging.onNewerPage} title="Newer page"
+        disabled={paging.isLoading || paging.isNewest}
+        onClick={paging.onLatestPage}
+        aria-label="Latest page"
         type="button"
       >
-        <ChevronUp aria-hidden="true" size={14} strokeWidth={2} />
-        <span className="pager-label">Newer page</span>
-      </button>
-      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOlderPage} title="Older page" type="button">
-        <ChevronDown aria-hidden="true" size={14} strokeWidth={2} />
-        <span className="pager-label">Older page</span>
-      </button>
-      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOldestPage} title="Oldest page" type="button">
-        <ChevronsDown aria-hidden="true" size={14} strokeWidth={2} />
-        <span className="pager-label">Oldest page</span>
+        Latest
       </button>
     </div>
   );

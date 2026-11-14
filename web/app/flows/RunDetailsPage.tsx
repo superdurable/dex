@@ -38,12 +38,10 @@ import {
   CornerLeftUp,
   LayoutDashboard,
   Rows3,
-  PencilRuler,
   Bot,
   MousePointerClick,
   Waves,
   Workflow,
-  type LucideIcon,
 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
@@ -56,16 +54,16 @@ import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialo
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
-import { EventList } from './details/EventList';
 import { OperateMenu } from './details/OperateMenu';
 import { middleTruncate, RunFactsMenu, RunRelations, type RunFact } from './details/RunFactsMenu';
 import { childFlowsQuery, useRunRelations } from './details/useRunRelations';
 import { AppBarSlot } from '../components/frame/AppBarSlots';
 import { rememberRecentRun } from '../components/frame/recentRuns';
-import { RunFailureBody, runFailureOf, RunLineJump, RunStateBody, runStateOf } from './details/RunFailureLine';
+import { RunFailureBody, runFailureOf, RunLineJump, runStateOf, runStateShortLabel } from './details/RunFailureLine';
+import { EventsViewSwitch, LiveStatus, RunInputOutputButtons, RunViewTabs, type EventsView, type RunView } from './details/RunTabs';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
-import { HorizontalTimeline } from './details/HorizontalTimeline';
+import { HorizontalTimeline, type TimelineEndNote } from './details/HorizontalTimeline';
 import { useRunHistory } from './useRunHistory';
 import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
@@ -111,10 +109,27 @@ const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const noHistoryEvents: FlowHistoryEvent[] = [];
 const noOperatorDefinitions: FlowV2Definition[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
+const eventsViewStorageKey = 'dex.run.events-view';
+
+/** The Events view this browser last chose, Timeline or Graph, as the tab that shows it. */
+function storedEventsTab(): RunTab {
+  try {
+    return window.localStorage.getItem(eventsViewStorageKey) === 'graph' ? 'steps' : 'timeline';
+  } catch {
+    return 'timeline';
+  }
+}
+
+function persistEventsView(view: EventsView) {
+  try {
+    window.localStorage.setItem(eventsViewStorageKey, view);
+  } catch (storageError) {
+    console.warn('Unable to save the Events view preference.', storageError);
+  }
+}
 /** The horizontal Timeline needs width; narrow screens keep the vertical one. */
 const horizontalTimelineQuery = '(min-width: 761px)';
 /** On desktop the strip gains the event list under it, so events can be scanned as rows. */
-const timelineEventListQuery = '(min-width: 1280px)';
 const RUN_EVENT_PARAM = 'event';
 
 /** Follows a media query; without matchMedia, such as in tests, it reports no match. */
@@ -171,9 +186,9 @@ function persistSidebarWidth(kind: SidebarKind, width: number) {
   }
 }
 
-/** The tab this browser last chose on this run; another run opens on Timeline. */
-function storedRunTab(flowId: string): RunTab {
-  if (typeof window === 'undefined') return 'timeline';
+/** The tab this browser last chose on this run, or null; another run opens on its default tab. */
+function storedRunTab(flowId: string): RunTab | null {
+  if (typeof window === 'undefined') return null;
   try {
     const stored = window.localStorage.getItem(runTabStorageKey) ?? '';
     // An older Dex Web saved a bare tab for every run; it still applies until the next choice.
@@ -181,29 +196,10 @@ function storedRunTab(flowId: string): RunTab {
     const parsed = JSON.parse(stored || 'null') as { flowId?: unknown; tab?: unknown } | null;
     return parsed?.flowId === flowId && isRunTab(typeof parsed.tab === 'string' ? parsed.tab : null)
       ? parsed.tab as RunTab
-      : 'timeline';
+      : null;
   } catch (storageError) {
     console.warn('Unable to read the selected run tab preference.', storageError);
-    return 'timeline';
-  }
-}
-
-const timelineLaneStorageKey = 'dex.run.timeline-lane';
-
-/** The desktop event list makes the labelled lane optional; it starts hidden. */
-function storedTimelineLaneShown(): boolean {
-  try {
-    return window.localStorage.getItem(timelineLaneStorageKey) === 'shown';
-  } catch {
-    return false;
-  }
-}
-
-function persistTimelineLaneShown(isShown: boolean) {
-  try {
-    window.localStorage.setItem(timelineLaneStorageKey, isShown ? 'shown' : 'hidden');
-  } catch (storageError) {
-    console.warn('Unable to save the Timeline lane preference.', storageError);
+    return null;
   }
 }
 
@@ -242,7 +238,8 @@ export function RunDetailsPage({
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
-  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
+  const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
+  const [eventsTab, setEventsTab] = useState<RunTab>(storedEventsTab);
   const webCatalog = useOptionalWebCatalog();
   // A run page reads only its own Flow type's definitions.
   const runDefinitions = useFlowTypeDefinitions(summary?.flowType);
@@ -276,25 +273,19 @@ export function RunDetailsPage({
   // Agent session and Actions read and write the current run, so an earlier run does not offer them.
   const sessionSchema = displayedRunPosition === 'current' ? runSessionSchema : null;
   const hasActionsTab = displayedRunPosition === 'current' && runHasActions;
+  // An agent session is read as its conversation, so it opens there unless another tab was chosen.
+  const tab: RunTab = chosenTab ?? (sessionSchema ? 'session' : eventsTab);
   const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
     && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
   // A remembered or linked tab that does not apply to this run shows the Timeline instead.
   const shownTab: RunTab = (tab === 'design' && !designDefinition)
     || (tab === 'session' && !sessionSchema)
     || (tab === 'actions' && !hasActionsTab)
-    ? 'timeline'
+    ? eventsTab
     : tab;
   // Design draws only the definition: history, state and blobs wait until the reader leaves it.
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
-  const hasTimelineEventList = useMediaQuery(timelineEventListQuery);
-  const [isTimelineLaneShown, setIsTimelineLaneShown] = useState(storedTimelineLaneShown);
-  const toggleTimelineLane = useCallback(() => {
-    setIsTimelineLaneShown((isShown) => {
-      persistTimelineLaneShown(!isShown);
-      return !isShown;
-    });
-  }, []);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
@@ -637,15 +628,13 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  // Timeline leads; experimental tabs follow Streams, and each appears only when it applies to this run.
-  const tabs: Array<{ id: RunTab; label: string; Icon: LucideIcon; isExperimental?: boolean }> = [
-    { id: 'timeline', label: 'Timeline', Icon: Rows3 },
-    { id: 'steps', label: 'Execution graph', Icon: Workflow },
-    { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
+  // An agent session's conversation leads. Events holds Timeline and Graph; old Design links open under it.
+  const views: RunView<RunTab>[] = [
+    ...(sessionSchema ? [{ id: 'session' as const, label: 'Conversation', Icon: Bot, isExperimental: true }] : []),
+    { id: 'timeline', label: 'Events', Icon: Rows3, alsoSelectedFor: ['steps', 'design'] },
+    { id: 'overview', label: 'State', Icon: LayoutDashboard },
     { id: 'stream', label: 'Streams', Icon: Waves },
-    ...(sessionSchema ? [{ id: 'session' as const, label: 'Agent session', Icon: Bot, isExperimental: true }] : []),
     ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
-    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
   ];
   const timelineWindow = runHistory.timelineWindow;
   const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
@@ -704,6 +693,19 @@ export function RunDetailsPage({
   useEffect(() => {
     if (isRunTab(requestedView)) setTab(requestedView);
   }, [requestedView]);
+
+  /** The Events tab opens the view this browser last chose. */
+  const selectRunView = useCallback((view: RunTab) => {
+    selectTab(view === 'timeline' ? eventsTab : view);
+  }, [eventsTab, selectTab]);
+
+  const changeEventsView = useCallback((view: EventsView) => {
+    const nextTab: RunTab = view === 'graph' ? 'steps' : 'timeline';
+    persistEventsView(view);
+    setEventsTab(nextTab);
+    selectTab(nextTab);
+  }, [selectTab]);
+
 
   const jumpToEvent = useCallback(async (eventId: number) => {
     setError('');
@@ -911,7 +913,11 @@ export function RunDetailsPage({
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
-  const isRunStateShown = runState !== null && (shownTab === 'timeline' || shownTab === 'steps' || shownTab === 'overview');
+  const timelineEndNote: TimelineEndNote | null = runState ? {
+    label: runStateShortLabel(runState, now),
+    eventId: runState.eventId,
+    isOpen: runState.isOpen,
+  } : null;
   const isLive = autoRefresh && summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const runFacts: RunFact[] = summary ? [
     { label: 'Started', value: formatDate(summary.startTime, timezone), icon: 'started' },
@@ -960,6 +966,20 @@ export function RunDetailsPage({
     </span>
   ) : null;
 
+  const closeEvent = summary && terminalStatuses.has(summary.flowStatusCode)
+    ? [...history].reverse().find((event) => event.type === 'FlowClosed') ?? null
+    : null;
+  const isEventListShown = shownTab === 'timeline' || shownTab === 'steps';
+  const liveStatus = isRunOpen ? <LiveStatus isLive={isLive} onChange={resumeOrPauseLive} /> : null;
+  const inputOutputButtons = (
+    <RunInputOutputButtons
+      closeEventId={closeEvent?.eventId ?? null}
+      onShowEvent={(eventId) => void jumpToEvent(eventId)}
+      selectedEventId={isEventListShown ? selected?.eventId ?? null : null}
+      startEventId={flowStartEvent?.eventId ?? null}
+    />
+  );
+
   if (loading && !summary) return <LoadingIndicator label="Loading flow run…" />;
   const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
@@ -993,41 +1013,10 @@ export function RunDetailsPage({
         />
       </AppBarSlot>
       <AppBarSlot name="views">
-        <div aria-label="Run views" className="run-tabs" role="tablist">
-          {tabs.map(({ id, label, Icon, isExperimental }) => (
-            <button
-              key={id}
-              aria-selected={shownTab === id}
-              className={shownTab === id ? 'active' : ''}
-              data-tab={id}
-              data-tooltip={isExperimental ? `${label} · early view` : label}
-              onClick={() => selectTab(id)}
-              role="tab"
-              type="button"
-            >
-              <Icon aria-hidden="true" size={15} strokeWidth={2} />
-              <span className="run-tab-label">{label}</span>
-              {isExperimental && <span aria-label="Experimental" className="experimental-dot" role="img" />}
-            </button>
-          ))}
-        </div>
+        <RunViewTabs onSelect={selectRunView} shownView={shownTab} views={views} />
       </AppBarSlot>
       <AppBarSlot name="actions">
-        {summary && !terminalStatuses.has(summary.flowStatusCode) && (
-          <label
-            className={`live-toggle${isLive ? ' is-on' : ''}`}
-            title={isLive ? 'Following new events. Click to stop following.' : 'Not following new events. Click to follow and read the run again.'}
-          >
-            <input
-              aria-label="Live"
-              checked={autoRefresh}
-              onChange={(event) => resumeOrPauseLive(event.target.checked)}
-              type="checkbox"
-            />
-            <span aria-hidden="true" className="live-toggle-dot" />
-            {isLive ? 'Live' : 'Live off'}
-          </label>
-        )}
+        {!isEventListShown && liveStatus}
         <OperateMenu
           isRunning={isRunOpen}
           failedEventId={failedEvent?.eventId}
@@ -1038,16 +1027,18 @@ export function RunDetailsPage({
       </AppBarSlot>
 
       {/* One line with fixed slots, so the attempt picker in it never remounts as the run loads. */}
-      {(runFailure || isRunStateShown || runContext) && (
+      {/* An open run's state sits at the Timeline lane's end, so this line holds only failures and relations. */}
+      {(runFailure || runContext) && (
         <div
-          className={runFailure ? 'run-failure-line' : isRunStateShown ? `run-state-line${runState?.isOpen ? ' is-open' : ''}` : 'run-state-line run-context-line'}
+          className={runFailure ? 'run-failure-line' : 'run-state-line run-context-line'}
           role={runFailure ? 'alert' : undefined}
         >
-          {runFailure ? <RunFailureBody failure={runFailure} /> : isRunStateShown && runState ? <RunStateBody state={runState} /> : null}
+          {runFailure ? <RunFailureBody failure={runFailure} /> : null}
           {runContext}
-          {(runFailure || (isRunStateShown && runState)) && (
+          {/* Result already selects the close event, so the jump appears only when it goes elsewhere. */}
+          {runFailure && runFailure.eventId !== closeEvent?.eventId && (
             <RunLineJump
-              eventId={runFailure ? runFailure.eventId : runState?.eventId ?? 0}
+              eventId={runFailure.eventId}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
             />
           )}
@@ -1108,17 +1099,10 @@ export function RunDetailsPage({
               paging={eventsPaging}
               pageSize={historyPageSize}
               onPageSizeChange={changeHistoryPageSize}
+              status={liveStatus}
+              viewSwitch={<EventsViewSwitch onChange={changeEventsView} view={shownTab === 'steps' ? 'graph' : 'timeline'} />}
             >
-              {shownTab === 'timeline' && isHorizontalTimeline && hasTimelineEventList && (
-                <button
-                  aria-pressed={isTimelineLaneShown}
-                  className="pager-button run-events-lane-toggle"
-                  onClick={() => toggleTimelineLane()}
-                  type="button"
-                >
-                  {isTimelineLaneShown ? 'Hide lane' : 'Show lane'}
-                </button>
-              )}
+              {inputOutputButtons}
             </RunEventsTile>
           )}
           {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
@@ -1155,7 +1139,7 @@ export function RunDetailsPage({
             />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
-            <div className={`htl-host${hasTimelineEventList && !isTimelineLaneShown ? ' is-lane-hidden' : ''}`}>
+            <div className="htl-host">
             <HorizontalTimeline
               events={displayedTimelineEvents}
               selectedEvent={selectedRaw}
@@ -1169,19 +1153,11 @@ export function RunDetailsPage({
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
+              endNote={timelineEndNote}
+              onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
+              onTimeTravelFromEvent={openTimeTravel}
             />
             </div>
-          )}
-          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && hasTimelineEventList && (
-            <EventList
-              childFlows={relations?.children}
-              flowId={flowId}
-              events={displayedTimelineEvents}
-              onSelectEvent={selectTimelineEvent}
-              onTimeTravelFromEvent={openTimeTravel}
-              runStartTime={summary?.startTime}
-              selectedEvent={selectedRaw}
-            />
           )}
           {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
             <Timeline
@@ -1255,7 +1231,8 @@ export function RunDetailsPage({
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
               isJumpDisabled={runHistory.isLoadingTimelinePage}
-              onTimeTravelFromEvent={openTimeTravel}
+              // The bar's Operate already time travels from the failed event.
+              onTimeTravelFromEvent={failedEvent && selected?.eventId === failedEvent.eventId ? undefined : openTimeTravel}
             />
           </aside>
         )}
