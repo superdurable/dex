@@ -481,10 +481,10 @@ type SubFlowOptions struct {
 	// Empty, the default, keeps the parent Flow's task queue. DefaultTaskQueue selects the
 	// default task queue. Any other name selects that named task queue.
 	//
-	// Names follow the rules of StartFlowOptions.TaskQueue. A named task queue requires Server
-	// protocol version 5 or later. Against an older Server, or with an invalid name, the WaitFor
-	// that returns this SubFlow fails with an error, and Dex retries it according to the Step's
-	// retry policy.
+	// Names follow the rules of StartFlowOptions.TaskQueue. An invalid name fails serialization of
+	// the returned Wait, like other invalid SubFlowOptions. A named task queue requires Server
+	// protocol version 5 or later. Against an older Server, the WaitFor attempt fails with
+	// *TaskQueueUnsupportedError, and Dex retries it according to the Step's retry policy.
 	//
 	//	return dex.AllOf(dex.SubFlow(reportFlow{}, input, dex.SubFlowOptions{TaskQueue: "reports"})), nil
 	//

@@ -10,6 +10,7 @@ package integ
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var taskQueueRelease = dex.DefineChannel[string]("task-queue-release")
@@ -207,7 +210,7 @@ func TestTaskQueueFlowWaitsForItsWorker(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	_, err = client.WaitForFlow(waitCtx, flowID, dex.WaitForFlowOptions{})
-	require.Error(t, err)
+	require.True(t, errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded, "want a deadline error, got %v", err)
 	lateWorkerID := "tq-go-late-" + uuid.NewString()
 	startTaskQueueWorker(t, lateWorkerID, queue)
 	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{NeedsResults: true})
