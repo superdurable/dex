@@ -89,6 +89,15 @@ import {
   type ConnectorToolIdentity,
   type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
+import {
+  StartedConnectorsMcpCommand,
+  connectorsMcpCommandLogPath,
+  connectorsMcpCommandMinimumDexcliVersion,
+  readLocalConnectionsState,
+  spawnConnectorsMcpCommand,
+  ConnectorsMcpSignalCleanup,
+  type ConnectorsMcpCommandStart,
+} from "./connectors-mcp-command.js";
 import { DexcliVariableError, resolveDexcliExecutable } from "./dexcli-binary.js";
 import {
   StartedDexcliDevProcess,
@@ -228,6 +237,10 @@ function requireSessionSummarySetting(
  * with a short error that says so.
  *
  * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
+ *
+ * Changed in 0.6.9: with `connectors.mcp: auto`, `run` and `connectors` run `dexcli connectors mcp` for this
+ * machine's `connections.json`, with any `dex.server`, and stop it when the command exits, before a `dexcli dev`
+ * the command started.
  *
  * A harness command's bin calls it and exits with its result, because open connections can keep Node running. When
  * it returns or throws, its output on `io.stdout` and `io.stderr` has reached the operating system, so exiting at once
@@ -394,6 +407,10 @@ export class AgentCliCommand {
   private mediaStore: ClosableMediaStore | undefined;
   private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
   private readonly startedDexcliDev: StartedDexcliDevProcess;
+  /** The `dexcli connectors mcp` that serves `connectors.mcp: auto`, which {@link close} stops. */
+  private startedConnectorsMcp: StartedConnectorsMcpCommand | undefined;
+  /** Stops {@link startedConnectorsMcp} on a signal while no started `dexcli dev`, chat, or terminal UI does. */
+  private connectorsMcpSignalCleanup: ConnectorsMcpSignalCleanup | undefined;
   private server: DexServerConnection | undefined;
   /** The lines printed while this command started a `dexcli dev`, which the terminal UI shows again. */
   private startedDexcliDevLines: readonly string[] = [];
@@ -414,7 +431,11 @@ export class AgentCliCommand {
     this.environment = readCliEnvironment(io.environment);
     // Tools, browsers, and dexcli dev inherit process.env; the credential stays in this.environment.
     removeDexSecretVariables(process.env);
-    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
+    // dexcli connectors mcp may reuse the Connectors MCP server of a started dexcli dev, so it stops first.
+    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log, {
+      stop: async () => this.startedConnectorsMcp?.stop(),
+      kill: () => this.startedConnectorsMcp?.kill(),
+    });
   }
 
   /**
@@ -480,7 +501,15 @@ export class AgentCliCommand {
       serverLines.push(line);
       this.log(line);
     };
-    const server = await resolveDexServerForCommand(effective.dex.server, this.environment, logServerLine, this.startedDexcliDev);
+    const resolvedServer = await resolveDexServerForCommand(
+      effective.dex.server,
+      this.environment,
+      logServerLine,
+      this.startedDexcliDev,
+    );
+    // Started after dexcli dev is ready, so it reuses that dexcli dev's Connectors MCP server.
+    const server =
+      this.parsed.subcommand === "sessions" ? resolvedServer : await this.withAutoConnectorsMcp(effective, resolvedServer);
     this.server = server;
     if (server.origin === "started") {
       this.startedDexcliDevLines = serverLines;
@@ -545,7 +574,78 @@ export class AgentCliCommand {
       rmSync(this.blobCacheDirectory, { recursive: true, force: true });
     }
     this.libraryConsole?.restore();
+    // Before dexcli dev, whose Connectors MCP server it may reuse.
+    await this.startedConnectorsMcp?.stop();
+    this.releaseConnectorsMcp();
     await this.startedDexcliDev.stop();
+  }
+
+  /**
+   * Returns `server` with the URL `connectors.mcp: auto` uses: the one `dexcli connectors mcp` serves for this
+   * machine's `connections.json`. With `dex.server: auto`, a failed start keeps the `dexcli dev` URL. With a server
+   * URL, Connector tools are off without a local connection or when the start fails, and `connectorsOffReason`
+   * says why.
+   */
+  private async withAutoConnectorsMcp(
+    effective: EffectiveConfig,
+    server: DexServerConnection,
+  ): Promise<DexServerConnection> {
+    const isOff = effective.connectors.enabled !== null && effective.connectors.enabled.length === 0;
+    if (effective.connectors.mcp !== "auto" || isOff) {
+      return server;
+    }
+    const isRemote = server.origin === "configured";
+    if (isRemote && readLocalConnectionsState(this.environment) !== "present") {
+      return {
+        ...server,
+        autoConnectorsMcpUrl: null,
+        connectorsOffReason:
+          "Connectors are off: this machine has no authorized Connector connection. Authorize one on the Connectors " +
+          "page of Dex Web in a local dexcli dev, then run this command again.",
+      };
+    }
+    let offReason: string;
+    try {
+      const dexcli = await resolveDexcliExecutable(this.environment, this.log);
+      // Owned from the spawn on, so a signal during the wait stops it before a started dexcli dev.
+      const started = spawnConnectorsMcpCommand(dexcli, this.environment);
+      this.startedConnectorsMcp = started;
+      // A started dexcli dev's signal handling stops it first; otherwise this does until the chat takes over.
+      this.connectorsMcpSignalCleanup = server.origin === "started" ? undefined : new ConnectorsMcpSignalCleanup(started);
+      const start: ConnectorsMcpCommandStart = await started.awaitReady();
+      if (start.kind === "ready") {
+        this.writeLogLine(`dexcli connectors mcp serves the Connectors MCP server at ${start.url}`);
+        return { ...server, autoConnectorsMcpUrl: start.url };
+      }
+      // awaitReady stopped it; a later signal must not reach its old process group.
+      this.releaseConnectorsMcp();
+      offReason =
+        start.kind === "unsupported"
+          ? `Connectors are off: ${dexcli} may not support dexcli connectors mcp, which needs dexcli ` +
+            `${connectorsMcpCommandMinimumDexcliVersion} or later; see ${connectorsMcpCommandLogPath(this.environment)}. ` +
+            "Update it, or set connectors.mcp to a URL."
+          : `Connectors are off: dexcli connectors mcp failed: ${start.reason}.`;
+    } catch (error: unknown) {
+      await this.startedConnectorsMcp?.stop();
+      this.releaseConnectorsMcp();
+      if (error instanceof DexcliVariableError) {
+        throw error;
+      }
+      offReason = `Connectors are off: no dexcli can serve this machine's Connectors: ${describe(error)}.`;
+    }
+    if (!isRemote) {
+      this.writeLogLine(`${offReason} Using ${server.autoConnectorsMcpUrl ?? "no URL"} of dexcli dev instead.`);
+      return server;
+    }
+    this.writeLogLine(`${offReason} See ${connectorsMcpCommandLogPath(this.environment)}.`);
+    return { ...server, autoConnectorsMcpUrl: null, connectorsOffReason: offReason };
+  }
+
+  /** Drops the stopped `dexcli connectors mcp` and its signal cleanup. */
+  private releaseConnectorsMcp(): void {
+    this.connectorsMcpSignalCleanup?.release();
+    this.connectorsMcpSignalCleanup = undefined;
+    this.startedConnectorsMcp = undefined;
   }
 
   /** Returns the short error for a reused `dexcli dev` that stopped, or `undefined` when that did not happen. */
@@ -616,6 +716,7 @@ export class AgentCliCommand {
     const { opener, session, sessionId, leaseTtlSeconds: ttlSeconds } = opened;
     // From here Ctrl-C ends the wait for the lease, and then the chat handles it.
     this.startedDexcliDev.releaseInterrupt();
+    this.connectorsMcpSignalCleanup?.releaseInterrupt();
     // A try without an answer, such as one Ctrl-C ended, may still have taken the lease.
     const unanswered = new Set<string>();
     this.unansweredSessionLeases = { opener, sessionIds: unanswered };
@@ -739,6 +840,7 @@ export class AgentCliCommand {
   private listenForTerminationSignals(): void {
     // This sequence replaces the started server's own, which would stop it before the release.
     this.startedDexcliDev.releaseSignals();
+    this.connectorsMcpSignalCleanup?.release();
     for (const signal of ["SIGTERM", "SIGHUP"] as const) {
       const listener = (): void => {
         if (this.terminationSignal !== undefined) {
@@ -839,8 +941,14 @@ export class AgentCliCommand {
         dexConnectionVariables: this.environment.dexConnectionVariables ?? {},
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
         commandSignals: {
-          release: () => this.startedDexcliDev.releaseSignals(),
-          reclaim: () => this.startedDexcliDev.reclaimSignals(),
+          release: () => {
+            this.startedDexcliDev.releaseSignals();
+            this.connectorsMcpSignalCleanup?.release();
+          },
+          reclaim: () => {
+            this.startedDexcliDev.reclaimSignals();
+            this.connectorsMcpSignalCleanup?.reclaim();
+          },
         },
         openInBrowser: launchBrowser,
       },
@@ -1145,7 +1253,8 @@ export class AgentCliCommand {
     const url = isAuto ? server.autoConnectorsMcpUrl : effective.connectors.mcp;
     if (url === null) {
       this.log(
-        "Connectors are off: connectors.mcp is auto, but dex.server names a server, so no dexcli dev provides one. Set connectors.mcp to its URL.",
+        server.connectorsOffReason ??
+          "Connectors are off: connectors.mcp is auto, but dex.server names a server, so no dexcli dev provides one. Set connectors.mcp to its URL.",
       );
       return undefined;
     }
@@ -1257,7 +1366,9 @@ export class AgentCliCommand {
   private async listConnectors(effective: EffectiveConfig, server: DexServerConnection): Promise<number> {
     const url = effective.connectors.mcp === "auto" ? server.autoConnectorsMcpUrl : effective.connectors.mcp;
     if (url === null) {
-      this.io.stdout.write("connectors.mcp is auto, but dex.server names a server; set connectors.mcp to its URL.\n");
+      this.io.stdout.write(
+        `${server.connectorsOffReason ?? "connectors.mcp is auto, but dex.server names a server; set connectors.mcp to its URL."}\n`,
+      );
       return 1;
     }
     const availability = await probeConnectorsMcp(url);

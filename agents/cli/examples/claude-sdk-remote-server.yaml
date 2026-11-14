@@ -11,6 +11,6 @@ dex:
   tls:
     ca_file: ~/certs/dex-ca.pem                    # Only for a private CA. Or DEX_TLS_CA_FILE.
 connectors:
-  enabled: []      # connectors.mcp auto has no connectors MCP server with a remote Dex server.
+  enabled: []      # Remove to offer the Connector tools authorized on this machine.
 workspace: ~/dex-agent-workspace
 claude: {}
