@@ -62,6 +62,7 @@ from dex_agents_cli_core.mcp_servers import (
     mcp_server_secret_texts,
     resolve_mcp_servers,
 )
+from dex_agents_cli_core.session_task_queues import session_task_queue
 from dex_agents_cli_core.tool_policy import (
     is_local_tool_group_enabled,
     is_shell_command_approval_required,
@@ -117,5 +118,6 @@ __all__ = [
     "resolve_turn_tool_policy",
     "run_agent_cli",
     "session_flow_type",
+    "session_task_queue",
     "with_turn_config",
 ]

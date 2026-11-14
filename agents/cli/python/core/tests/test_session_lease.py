@@ -24,7 +24,6 @@ import pexpect
 from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob_cache
 
 from dex_agents import SESSION_TERMINAL_LEASE
-from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_core.session_lease import (
     DEFAULT_COLUMNS,
     FRAME_INTERVAL_SECONDS,
@@ -236,7 +235,7 @@ class SwitchingTerminalUi:
         )
         self.first = FakeTerminalUi(directory / "first", switching)
         resumed = chat_transcript([])
-        # The relaunch shows the left session first, as an in-place switch would.
+        # Since 0.6.7 the relaunch names no previous session: no Worker serves the one it left.
         resumed["steps"][0]["message"]["session"]["is_resumed"] = True
         resumed["steps"][0]["ignore"].append("session.previous_session_id")
         self.second = FakeTerminalUi(directory / "second", resumed)
@@ -338,10 +337,7 @@ async def test_a_session_switch_in_the_terminal_ui_waits_for_the_session_and_rel
 
 async def is_lease_free(cli_home: CliHome, tmp_path: Path, session_id: str) -> bool:
     """Return whether the session has no terminal lease; the read needs no Worker."""
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow = build_session_flow_without_tools(
-        session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
-    )
+    flow = build_session_flow_without_tools(SCRIPTED_FLOW_TYPE)
     cache_dir = tmp_path / "reader-cache"
     cache_dir.mkdir(exist_ok=True)
     blob_cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 * 1024 * 1024))

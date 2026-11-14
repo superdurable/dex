@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 from dex_agents import MAX_IMAGE_BYTES, MessageRole
-from dex_agents_cli_core import session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE, WITHOUT_IMAGES_ENVIRONMENT_VARIABLE
 from tests.test_cli_chat import read_session_id
@@ -82,8 +81,7 @@ async def test_an_attached_image_reaches_the_model_from_the_local_media_store(
     await expect(child, "echo: thanks")
     await expect(child, "> ")
     # The command's Worker answers the snapshot RPC, so read it before the command exits.
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         snapshot = await sessions.get_agent_snapshot(session_id)
     child.sendeof()

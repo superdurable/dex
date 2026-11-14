@@ -23,19 +23,21 @@ import os
 import signal
 import socket
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from dex import DexServiceError
 
 from dex_agents import (
     AcquireSessionTerminalLeaseRequest,
-    AgentSessionClient,
     SessionTerminalLease,
     SessionTerminalLeaseResult,
 )
+
+if TYPE_CHECKING:
+    from dex_agents_cli_core.session_opener import OpenableSession, SessionOpener
 
 #: The spinner of the waiting line, one frame each ``FRAME_INTERVAL_SECONDS``.
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -104,13 +106,21 @@ class SessionLeaseHolder:
         """Return how often the holder renews: a third of the lease."""
         return self.ttl_seconds / 3
 
-    def acquire_request(self) -> AcquireSessionTerminalLeaseRequest:
-        """Return the RPC request that acquires or renews this holder's lease."""
+    def acquire_request(
+        self, environment: Mapping[str, str] | None = None
+    ) -> AcquireSessionTerminalLeaseRequest:
+        """Return the RPC request that acquires or renews this holder's lease.
+
+        Args:
+            environment: This command's environment, which the session keeps
+                as where it was last open; ``None`` sends none.
+        """
         return AcquireSessionTerminalLeaseRequest(
             holder_id=self.holder_id,
             host_name=self.host_name,
             process_id=self.process_id,
             ttl_seconds=self.ttl_seconds,
+            environment=None if environment is None else dict(environment),
         )
 
 
@@ -118,20 +128,20 @@ class HeldSessionLease:
     """The lease one process holds on the session it shows, renewed in the background.
 
     It holds at most one session's lease. ``lost`` completes with the other
-    holder's lease when a renewal finds that another terminal took it. A try
-    that did not answer, such as one Ctrl-C cancelled, may still have taken
-    the lease, so ``release`` releases that session too.
+    holder's lease when a renewal finds that another terminal took it; the
+    opener then stops pulling that session's task queue. A try that did not
+    answer, such as one Ctrl-C cancelled, may still have taken the lease, so
+    ``release`` releases that session too.
     """
 
-    def __init__(self, sessions: AgentSessionClient, holder: SessionLeaseHolder) -> None:
-        """Hold leases through a session client.
+    def __init__(self, opener: SessionOpener) -> None:
+        """Hold leases through the command's session opener.
 
         Args:
-            sessions: The session client.
-            holder: This process's holder.
+            opener: Opens, renews, and leaves sessions.
         """
-        self._sessions = sessions
-        self._holder = holder
+        self._opener = opener
+        self._holder = opener.holder
         self._session_id: str | None = None
         self._unanswered_session_ids: set[str] = set()
         self._renewing: asyncio.Task[None] | None = None
@@ -144,15 +154,17 @@ class HeldSessionLease:
         """Return the session whose lease it holds, or ``None``."""
         return self._session_id
 
-    async def try_acquire(self, session_id: str) -> SessionTerminalLeaseResult:
+    async def try_acquire(self, session: OpenableSession) -> SessionTerminalLeaseResult:
         """Ask once for the session's lease; on success, renew it from now on.
 
         Raises:
             DexServiceError: If the call fails.
             TimeoutError: If the call takes longer than ``LEASE_CALL_TIMEOUT_SECONDS``.
+            SessionWorkerStartError: If the session Worker did not start pulling.
         """
+        session_id = session.session_id
         self._unanswered_session_ids.add(session_id)
-        result = await self._call_acquire(session_id)
+        result = await self._opener.attempt(session)
         self._unanswered_session_ids.discard(session_id)
         if result.is_acquired:
             self._stop_renewing()
@@ -163,9 +175,10 @@ class HeldSessionLease:
     async def release(self) -> None:
         """Release the held lease, and any a try without an answer may have taken.
 
-        It takes at most ``LEASE_RELEASE_TIMEOUT_SECONDS``. A failed release is
-        only logged: the lease expires anyway. Releasing a lease this holder
-        never got changes nothing.
+        Each release takes at most ``LEASE_RELEASE_TIMEOUT_SECONDS``, while the
+        session Worker still serves it; then the opener stops pulling that
+        session. A failed release is only logged: the lease expires anyway.
+        Releasing a lease this holder never got changes nothing.
         """
         self._stop_renewing()
         session_ids = {*self._unanswered_session_ids}
@@ -173,35 +186,13 @@ class HeldSessionLease:
             session_ids.add(self._session_id)
         self._session_id = None
         self._unanswered_session_ids.clear()
-        if not session_ids:
-            return
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*(self._release_one(session_id) for session_id in session_ids)),
-                LEASE_RELEASE_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
-            _LOGGER.warning("cannot release the session lease in time: sessions=%s", session_ids)
-
-    async def _release_one(self, session_id: str) -> None:
-        try:
-            await self._sessions.release_session_terminal_lease(session_id, self._holder.holder_id)
-        except DexServiceError as error:
-            _LOGGER.warning("cannot release the session lease: session=%s: %s", session_id, error)
-
-    async def _call_acquire(self, session_id: str) -> SessionTerminalLeaseResult:
-        return await asyncio.wait_for(
-            self._sessions.acquire_session_terminal_lease(
-                session_id, self._holder.acquire_request()
-            ),
-            LEASE_CALL_TIMEOUT_SECONDS,
-        )
+        await asyncio.gather(*(self._opener.release(session_id) for session_id in session_ids))
 
     async def _renew(self, session_id: str) -> None:
         while True:
             await asyncio.sleep(self._holder.renew_interval_seconds)
             try:
-                result = await self._call_acquire(session_id)
+                result = await self._opener.renew(session_id)
             except (DexServiceError, TimeoutError) as error:
                 _LOGGER.warning("cannot renew the session lease: session=%s: %s", session_id, error)
                 continue
@@ -209,6 +200,8 @@ class HeldSessionLease:
                 continue
             if self._session_id == session_id:
                 self._session_id = None
+            # The other terminal runs the session now, so this command stops pulling its queue.
+            self._opener.leave(session_id)
             if not self.lost.done():
                 self.lost.set_result((session_id, result.lease))
             return

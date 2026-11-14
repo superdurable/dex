@@ -659,10 +659,10 @@ the session's model calls and tool calls run there.
   configuration file, prints no line and keeps a running turn.
 - **--resume** of another command's session, such as a **dex-agents-pi**
   session in **dex-agents-builtin**, exits with code 2.
-- A session that no command has open does not run. A message sent to it from
-  Dex Web or another client waits for a command to open the session, for at
-  most the server's RPC dispatch wait, 10 seconds by default. After that the
-  send fails, and the message is not queued.
+- A session that no command has open does not run. A message, an approval, or
+  another session Action sent to it from Dex Web or another client waits for a
+  command to open the session, for at most the server's RPC dispatch wait, 10
+  seconds by default. After that the call fails, and nothing is queued.
 - The command stores where it opened a session in the session, in the
   **SessionLastTerminalEnvironment** Attribute: the host name, the user, the
   configuration file, and the workspace. Each new session also records them in
@@ -1077,7 +1077,9 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
   Choose it in **Working as** to send the session messages and to answer its
   approvals and questions in Dex Web. Anyone who opens the session in Dex Web
   can do the same, so on a shared Dex server colleagues can take part in the
-  chat.
+  chat. Since 0.6.7 the Actions work only while a command has the session
+  open; Dex Web still shows a session that no command has open. See
+  [Sessions in other environments](#other-environments).
 - The [terminal UI](#terminal-ui) shows each message from Dex Web, or from any
   other client, marked **(another client)**, and asks about the approvals of
   its turn too. Neither the terminal UI nor Dex Web shows who sent a message.
@@ -1119,10 +1121,11 @@ graph and its Actions.
   and workspace that started it. Without a **workspace** in the file,
   **dex-agents-pi** resumes such a session only from the directory it started
   in. See [Sessions in other environments](#other-environments).
-- **A session runs only while a command has it open.** A message that Dex Web
-  sends to a session that no command has open fails after the server's RPC
-  dispatch wait. Open the session with **--resume** first. See
-  [Sessions in other environments](#other-environments).
+- **A session runs only while a command has it open.** Dex Web sends a
+  message, an approval, **Stop turn**, and a settings change through the
+  session's RPCs. For a session that no command has open, each fails after
+  the server's RPC dispatch wait, and nothing is queued. Open the session with
+  **--resume** first. See [Sessions in other environments](#other-environments).
 - **The terminal UI lists one Flow type.** **/sessions** in the terminal UI
   lists only the sessions of the open session's Flow type, without where each
   was last open. Use the **sessions** subcommand to see every session with its

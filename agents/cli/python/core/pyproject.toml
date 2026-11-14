@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "dex-agents[mcp]==0.1.0",
-    "dex-python-sdk==1.45.0",
+    "dex-python-sdk==1.45.1",
     "jsonschema>=4.26,<5",
     "playwright>=1.55,<2",
     "ruamel.yaml>=0.18,<0.19",

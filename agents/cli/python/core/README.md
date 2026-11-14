@@ -46,12 +46,52 @@ answer, or a turn or session that failed during the chat; and 2 for a
 usage or configuration error. Ctrl-C at an `init` question exits with 130, and
 Ctrl-D there exits with 1; neither writes a file.
 
-### Sessions and Flow types
+### Sessions and execution environments
 
-The command registers its sessions under `<flow_type>-<suffix>`, the
-harness's Flow type namespaced by this machine, user, configuration file, and
-workspace. The suffix is 6 lowercase base36 characters (`0-9a-z`). Take the
-SHA-256 of the UTF-8 text
+Since 0.6.7, every new session has the harness's `flow_type` itself and its
+own task queue: `s-` and the first 20 lowercase hexadecimal characters of the
+SHA-256 of the session ID in UTF-8, from `session_task_queue`. Only the
+command that has the session open pulls that queue, so the session's Steps and
+RPCs run there, and a session that no command has open does not run. A
+message that Dex Web sends to it waits for a command within the server's RPC
+dispatch wait, then fails.
+
+The command runs two Workers. The session Worker pulls the open session's task
+queue with the harness's Flow type; each queue gets a new app Worker ID,
+`dex-agents-<name>-<host>-<pid>-<n>`. The other Worker pulls the default task
+queue with this environment's environment-hashed Flow type, so sessions that
+earlier releases started keep running and resuming here. The harness's
+`create_session_flow` is called once for each Flow type.
+
+Opening a session of the harness's Flow type follows these steps:
+
+1. Read `SessionTerminalLease` with `get_attributes`, which needs no Worker.
+2. While another terminal's lease has not expired, wait and pull nothing.
+3. Otherwise start the session Worker on the session's task queue, then
+   acquire the lease through the RPC, which that Worker serves.
+4. When the acquire fails because another terminal won, stop the session
+   Worker and wait again.
+5. On exit or on a terminal UI switch, release the lease while the session
+   Worker still serves the RPC, then stop it.
+
+The acquire request carries this command's environment: the
+`start_environment` values below. When the call gives the lease to a new
+holder, the session stores them in `SessionLastTerminalEnvironment`. A command
+that takes a session whose last environment had another host name or
+workspace prints one line that names both places. When a turn was still
+running there, it refuses that turn's model and tool calls in its own process
+before the session Worker pulls, cancels the turn with `cancel_turn`, waits up
+to 10 seconds for it to end, and prints one more line. The lines and rules are
+in
+[`agents/conformance/cli_session_task_queues.json`](../../../conformance/cli_session_task_queues.json).
+`--resume` of another harness's session, or of another environment's
+environment-hashed session, exits with code 2. A server whose protocol has no
+named task queues, older than server-zd 0.1.30, stops the command with one
+line.
+
+Sessions that releases before 0.6.7 started keep the environment-hashed Flow
+type `<flow_type>-<suffix>` on the default task queue. The suffix is 6
+lowercase base36 characters (`0-9a-z`). Take the SHA-256 of the UTF-8 text
 `"<hostname>\n<user>\n<config identity>\n<workspace>"`: the user is the
 numeric user ID, or the user name where there is none; the config identity is
 the configuration file's real path, or `defaults` without a file; and the
@@ -66,11 +106,14 @@ Each new session records these values in its start input,
 `AgentSessionStartInput.start_environment`, so a run shows where it was
 started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
 hashed values, and `user_name` is the user's name, left out when the system
-cannot tell it. They are not session settings and cannot change. Two commands that differ in any of these never take each other's
-tool Steps, so an approved write runs only with the workspace, tools, and
-connections it was approved under. `sessions` lists, and `--resume` continues,
-only sessions of the same Flow type; resuming another one exits with code 2
-and says to use the user, configuration file, and workspace that started it.
+cannot tell it. They are not session settings and cannot change.
+
+A Worker takes only the Steps of its own Flow type, so an approved write or
+shell command of an environment-hashed session always runs as the same user,
+with the same configuration file and workspace it was approved under.
+Changing the workspace, the file, or the user starts a new hashed type:
+`--resume` of such an older session then exits with code 2 and says to resume
+it in its original environment.
 
 ### The terminal chat
 
@@ -110,11 +153,16 @@ exits. Ctrl-C while idle, Ctrl-D, and `/exit` also exit. Exiting never ends the
 session: it stays in Dex, and the command prints the `--resume` line that
 continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
 
-`sessions` loads up to 250 sessions, sorts them by last activity, and says
-when more sessions exist. It prints one per line: the ID, the
-status, the start time, and, when the session has them, the time of its
-latest turn, its turn count, and its title, the first 80 Unicode code points
-of the first message. `sessions.summary` in the configuration file decides
+`sessions` lists the sessions of the harness's Flow type and of this
+environment's hashed Flow type. It loads up to 250 sessions of each, sorts
+them by last activity, and says when more sessions exist. It prints one per
+line: the ID, the status, the start time, and, when the session has them, the
+time of its latest turn, its turn count, where it was last open as
+`on <host>:<workspace>`, and its title, the first 80 Unicode code points of
+the first message. The last environment comes from
+`SessionLastTerminalEnvironment`, read for at most 8 sessions at a time; an
+environment-hashed session shows this environment, and a session no command
+has opened shows none. `sessions.summary` in the configuration file decides
 whether the session Flow keeps that summary (`summary_attributes_indexed`):
 `auto`, the default, keeps it only with `dex.server: auto`, because a Dex
 server URL may be shared; `on` keeps it with any server; `off` never. The CLI
@@ -127,7 +175,7 @@ Flow declares; it does not sandbox harness code. A session that a release before
 and has no time or turn count until its next turn:
 
 ```text
-builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
+builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  on laptop:/home/ada/dex-agent-workspace  Find open issues about flaky tests
 ```
 
 ### The terminal UI
@@ -151,7 +199,10 @@ The steps of a run:
 1. The launcher stops what a killed Worker host left behind (below), finds
    `dexcli` as `dexcli dev` does, and runs `dexcli agents-tui --describe`
    (5 s). An older `dexcli`, no common contract, or no chat mode prints
-   `Plain chat: <why>.` and continues in the plain chat.
+   `Plain chat: <why>.` and continues in the plain chat. Since 0.6.7 so does
+   a contract without the `launcher_session_switch` capability (before dexcli
+   1.47.2): an in-place switch would show a session whose task queue no Worker
+   pulls.
 2. It starts the Worker host with a `socketpair` control channel, passes the
    actual fd number with `--control-fd`, and waits for `worker_ready`. A
    startup failure exits with the code and message the plain chat would. A
@@ -681,8 +732,11 @@ harness may replace only `FILES` and `SHELL`.
 | `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a built-in loop function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
 | `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
 
-The returned Flow must use `context.flow_type`, which is namespaced as
-[Sessions and Flow types](#sessions-and-flow-types) describes. The CLI core wraps its runner so
+The returned Flow must use `context.flow_type`: the harness's `flow_type`, or
+the environment-hashed one, as
+[Sessions and execution environments](#sessions-and-execution-environments)
+describes. The CLI core calls `create_session_flow` once for each, and each
+call must build a new Flow. The CLI core wraps its runner so
 that each model call resolves the turn first, keeping the runner's optional
 protocols, such as `build_user_message_with_images`, and registers the result.
 

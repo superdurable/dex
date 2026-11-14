@@ -41,7 +41,6 @@ from dex_agents_cli_core import (
     mcp_server_secret_texts,
     resolve_config,
     resolve_mcp_servers,
-    session_flow_type,
 )
 from tests.conftest import (
     PACKAGE_DIR,
@@ -171,8 +170,7 @@ async def test_remote_mcp_tools_run_with_the_header_from_the_environment_and_the
     await expect(child, "[approval] lib__publish_asset")
     child.sendline("y")
     await expect(child, "done: lib__publish_asset=published a1")
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         snapshot = await sessions.get_agent_snapshot(session_id)
     child.sendeof()
@@ -244,8 +242,7 @@ async def test_a_server_that_echoes_the_header_in_its_errors_never_leaks_it(
     child.sendline("y")
     await expect(child, "done: raw__crash_with_echo=")
     await expect(child, "> ")
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         snapshot = await sessions.get_agent_snapshot(session_id)
     history = await read_flow_history_text(cli_home.address, session_id)

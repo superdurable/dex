@@ -36,12 +36,14 @@ from dex_agents import (
 from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
+    PrivateDexEngine,
     read_step_history,
     resolve_dexcli_path,
     wait_for_agent_snapshot,
     wait_until,
 )
-from dex_agents_cli_core import SESSION_ACTION_PERMISSION, session_flow_type
+from dex_agents_cli_core import SESSION_ACTION_PERMISSION
+from dex_agents_cli_core.session_task_queues import build_takeover_line
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.reasoning_effort_cli import (
     REASONING_EFFORTS_ENVIRONMENT_VARIABLE,
@@ -136,7 +138,7 @@ async def test_a_new_session_records_where_the_command_runs(cli_home: CliHome) -
     flow_type, start_input = await read_start_flow_input(cli_home, session_id)
     child.sendeof()
     assert await wait_for_exit(child) == 0
-    assert flow_type == session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    assert flow_type == SCRIPTED_FLOW_TYPE
     environment = start_input["start_environment"]
     assert environment.pop("user_name") != ""
     assert environment == {
@@ -167,11 +169,10 @@ async def read_flow_definitions(cli_home: CliHome, flow_type: str) -> list[dict[
 
 async def test_the_worker_uploads_the_session_graph_for_dex_web(cli_home: CliHome) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
-    workspace = cli_home.home / "dex-agent-workspace"
     child = cli_home.spawn()
     await read_session_id(child)
     await expect(child, "> ")
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     definitions = await read_flow_definitions(cli_home, flow_type)
     for _ in range(50):
         if definitions:
@@ -249,19 +250,37 @@ async def test_resume_continues_the_conversation(cli_home: CliHome) -> None:
     assert await wait_for_exit(second) == 0
 
 
-async def test_resume_with_another_workspace_fails_with_a_hint(
+async def test_resume_with_another_workspace_takes_the_session_over_there(
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
+    first_workspace = os.path.realpath(cli_home.home / "dex-agent-workspace")
     first = cli_home.spawn()
     session_id = await read_session_id(first)
     await expect(first, "> ")
     first.sendeof()
     assert await wait_for_exit(first) == 0
-    cli_home.write_config(config_yaml({**NO_CONNECTORS, "workspace": str(tmp_path / "other")}))
-    completed = await asyncio.to_thread(cli_home.run, "--resume", session_id)
-    assert completed.returncode == 2
-    assert "with the configuration file and workspace, that started it" in completed.stderr
+    other = tmp_path / "other"
+    cli_home.write_config(config_yaml({**NO_CONNECTORS, "workspace": str(other)}))
+    # Since 0.6.7 the other environment takes the session over, and its tool Steps then run there.
+    second = cli_home.spawn("--resume", session_id)
+    host = socket.gethostname()
+    await expect(
+        second,
+        build_takeover_line(
+            session_id, f"{host}:{first_workspace}", f"{host}:{os.path.realpath(other)}"
+        ),
+    )
+    assert await read_session_id(second) == session_id
+    await expect(second, "> ")
+    second.sendline('call write_file {"path": "from-other.txt", "content": "b"}')
+    await expect(second, "Approve? [y/N, or n <reason>]")
+    second.sendline("y")
+    await expect(second, "done: write_file=wrote 1 bytes to from-other.txt")
+    second.sendeof()
+    assert await wait_for_exit(second) == 0
+    assert (other / "from-other.txt").exists()
+    assert not (cli_home.home / "dex-agent-workspace" / "from-other.txt").exists()
 
 
 async def test_resume_of_an_unknown_session_fails(cli_home: CliHome) -> None:
@@ -284,9 +303,10 @@ async def test_sessions_lists_this_agents_sessions(cli_home: CliHome) -> None:
     completed = cli_home.run("sessions")
     assert completed.returncode == 0, completed.stderr
     minute = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
+    place = f"{socket.gethostname()}:{os.path.realpath(cli_home.home / 'dex-agent-workspace')}"
     assert re.search(
         rf"^{re.escape(session_id)}  running  started {minute}  updated {minute}  1 turn  "
-        r"hello the list$",
+        rf"on {re.escape(place)}  hello the list$",
         completed.stdout,
         re.MULTILINE,
     ), completed.stdout
@@ -323,10 +343,13 @@ async def test_sessions_summary_follows_the_config_and_the_server(
     completed = cli_home.run("sessions")
     assert completed.returncode == 0, completed.stderr
     (line,) = [line for line in completed.stdout.splitlines() if line.startswith(session_id)]
+    # The part before the title is where the session was last open.
     if is_indexed:
-        assert line.endswith("  1 turn  summary check"), line
+        assert re.search(r"  1 turn  on [^ ]+:[^ ]+  summary check$", line), line
     else:
-        assert re.fullmatch(rf"{re.escape(session_id)}  running  started [0-9: -]+", line), line
+        assert re.fullmatch(
+            rf"{re.escape(session_id)}  running  started [0-9: -]+  on [^ ]+:[^ ]+", line
+        ), line
 
 
 @pytest.mark.parametrize(
@@ -360,15 +383,28 @@ async def test_a_harness_that_ignores_sessions_summary_stops_the_command(
     assert "Session " not in completed.stdout
 
 
-async def test_sessions_sorts_several_pages_and_says_when_more_exist(
-    cli_home: CliHome, tmp_path: Path
-) -> None:
-    workspace = cli_home.home / "dex-agent-workspace"
+async def test_sessions_sorts_several_pages_and_says_when_more_exist(tmp_path: Path) -> None:
+    # Every environment's sessions share the harness's Flow type, so this test needs its own engine.
+    async with PrivateDexEngine(tmp_path / "own-engine") as engine:
+        home = CliHome(
+            home=tmp_path / "own-home",
+            dex_port=engine.dex_port,
+            web_port=engine.web_port,
+            opened_urls=tmp_path / "own-opened-urls.txt",
+        )
+        home.home.mkdir()
+        try:
+            await _check_sorted_session_pages(home, tmp_path)
+        finally:
+            home.close()
+
+
+async def _check_sorted_session_pages(cli_home: CliHome, tmp_path: Path) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
     child = cli_home.spawn()
     oldest = await read_session_id(child)
     await expect(child, "> ")
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         for index in range(60):
             await sessions.start_session(f"later-{index:03d}")
@@ -386,7 +422,10 @@ async def test_sessions_sorts_several_pages_and_says_when_more_exist(
         lines = [line for line in listed.stdout.splitlines() if "  started " in line]
         assert len(lines) == 61
         assert lines[0].startswith(f"{oldest}  running  "), listed.stdout
-        assert all(line.endswith("  0 turns") for line in lines[1:]), listed.stdout
+        # No Worker runs the sessions no command opened, so they have no summary or environment.
+        assert all(
+            re.fullmatch(r"later-\d{3}  running  started [0-9: -]+", line) for line in lines[1:]
+        ), listed.stdout
         assert "More sessions exist" not in listed.stdout
         assert listed.stdout.splitlines()[-1].startswith("Resume one with: "), listed.stdout
 
@@ -468,8 +507,7 @@ async def test_a_declared_reasoning_effort_reaches_the_next_turn_and_another_fai
     await expect(child, "> ")
     child.sendline("effort")
     await expect(child, "effort: default")
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         assert await sessions.update_session_settings(session_id, {"reasoning_effort": "high"})
         child.sendline("effort")
@@ -490,8 +528,7 @@ async def test_a_harness_without_reasoning_efforts_fails_a_turn_that_sets_one(
     child = cli_home.spawn()
     session_id = await read_session_id(child)
     await expect(child, "> ")
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         assert await sessions.update_session_settings(session_id, {"reasoning_effort": "low"})
         child.sendline("effort")
@@ -575,6 +612,8 @@ async def test_a_worker_whose_config_switches_shell_off_refuses_a_shell_step_mad
 ) -> None:
     workspace = cli_home.home / "dex-agent-workspace"
     cli_home.write_config(config_yaml(NO_CONNECTORS))
+    # A short lease, so the killed command's lease expires soon.
+    cli_home.extra_environment["DEX_AGENTS_SESSION_LEASE_TTL_SECONDS"] = "3"
     first = cli_home.spawn()
     session_id = await read_session_id(first)
     await expect(first, "> ")
@@ -582,14 +621,14 @@ async def test_a_worker_whose_config_switches_shell_off_refuses_a_shell_step_mad
     await expect(first, "[approval] run_shell_command")
     # The first command's Worker dies while its shell call waits for approval.
     os.kill(first.pid, signal.SIGKILL)
-    # The same file and workspace, edited to switch shell commands off, give the same Flow type.
+    # The same file and workspace, edited to switch shell commands off; the session resumes there.
     cli_home.write_config(
         config_yaml({**NO_CONNECTORS, "local_tools": {"shell": {"enabled": False}}})
     )
-    second = cli_home.spawn()
-    await read_session_id(second)
+    second = cli_home.spawn("--resume", session_id)
+    assert await read_session_id(second) == session_id
     await expect(second, "> ")
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         snapshot = await sessions.get_agent_snapshot(session_id)
         (interrupt,) = snapshot.pending_interrupts

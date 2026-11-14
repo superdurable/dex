@@ -28,7 +28,6 @@ from dex_agents_cli_core import (
     ConnectorsMcpToolSource,
     TurnConfigResolver,
     resolve_config,
-    session_flow_type,
 )
 from dex_agents_cli_core.connectors import (
     ConnectorsMcpUnavailableError,
@@ -103,8 +102,7 @@ async def test_a_connector_write_approval_names_the_operation_connection_and_arg
     }
     child.sendline("call slack_post_thread_reply " + json.dumps(arguments))
     await expect(child, "[approval] slack_post_thread_reply")
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         snapshot = await sessions.get_agent_snapshot(session_id)
     (interrupt,) = snapshot.pending_interrupts
@@ -198,8 +196,7 @@ async def test_session_settings_narrow_the_next_turn_and_widening_fails_it(
         "tools: ask_user,edit_file,gmail_get_message,hackernews_get_top_stories,list_directory,"
         "read_file,run_shell_command,search_files,slack_post_thread_reply,write_file",
     )
-    workspace = cli_home.home / "dex-agent-workspace"
-    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    flow_type = SCRIPTED_FLOW_TYPE
     async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         narrowed = {
             "model": "narrow-model",
