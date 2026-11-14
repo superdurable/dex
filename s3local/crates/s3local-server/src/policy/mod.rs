@@ -300,6 +300,7 @@ fn operation_permission(operation: &S3Operation) -> (&'static str, String) {
         | UploadPart { bucket, key, .. }
         | CompleteMultipartUpload { bucket, key, .. }
         | PutObject { bucket, key }
+        | AppendObject { bucket, key, .. }
         | CopyObject { bucket, key, .. } => ("s3:PutObject", object_arn(bucket, key)),
         AbortMultipartUpload { bucket, key, .. } => {
             ("s3:AbortMultipartUpload", object_arn(bucket, key))

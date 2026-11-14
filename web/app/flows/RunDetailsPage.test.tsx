@@ -638,11 +638,17 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
-    // Timeline rows are short, so its event panel defaults wider than the graph's.
+    // Every Events view shares one event panel: switching keeps the same element, its width and its event.
     const runContent = document.querySelector<HTMLElement>('.run-content');
     expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
+    const panel = screen.getByRole('region', { name: 'Selected event details' });
+    const selectedTitle = panel.querySelector('[data-selected-event-target]')?.textContent;
     fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
-    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('600px');
+    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
+    expect(screen.getByRole('region', { name: 'Selected event details' })).toBe(panel);
+    expect(panel.isConnected).toBe(true);
+    expect(panel.querySelector('[data-selected-event-target]')?.textContent).toBe(selectedTitle);
+    expect(document.querySelector('.events-picture')?.getAttribute('data-view')).toBe('graph');
 
     const graph = await screen.findByTestId('execution-graph');
     // FlowStart is added for start details; the page holds events #101 to #1100.
@@ -696,10 +702,10 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
     fireEvent.click(timelineRow(3000));
     const stub = await screen.findByRole('button', {
-      name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
+      name: '↓ From Review-1 · WaitFor completed · #2 (older page)',
     });
     // The panel's relation line names the event and says which way its page is.
-    const jump = await screen.findByRole('button', { name: 'from Review-1 WaitFor completed, event #2 (older page)' });
+    const jump = await screen.findByRole('button', { name: 'Review-1 · WaitFor completed · #2 (older page)' });
     expect(jump.getAttribute('title')).toBe('Go to #2');
     fireEvent.click(stub);
 
@@ -749,7 +755,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(horizontalOption(3000)).not.toBeNull());
     expect(document.querySelector('.timeline-row')).toBeNull();
     fireEvent.click(horizontalOption(3000)!);
-    fireEvent.click(await screen.findByRole('button', { name: 'from Review-1 WaitFor completed, event #2 (older page)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review-1 · WaitFor completed · #2 (older page)' }));
 
     await waitFor(() => expect(horizontalOption(2)?.className).toContain('jump-highlighted'));
     expect(horizontalOption(2)?.getAttribute('aria-selected')).toBe('true');
@@ -888,7 +894,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRowIDs()).toHaveLength(100);
     fireEvent.click(timelineRow(3000));
     fireEvent.click(await screen.findByRole('button', {
-      name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
+      name: '↓ From Review-1 · WaitFor completed · #2 (older page)',
     }));
 
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
@@ -916,7 +922,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRowIDs().at(-2)).toBe('4001');
     fireEvent.click(timelineRow(4001));
 
-    const stub = await screen.findByText('↓ from Step-2000 WaitFor completed (removed by the history window)');
+    const stub = await screen.findByText('↓ From Step-2000 · WaitFor completed (removed by the history window)');
     expect(stub.tagName).toBe('SPAN');
     expect(stub.querySelector('.timeline-pruned-badge')?.textContent).toBe('Pruned');
     expect(stub.getAttribute('title')).toContain('The server keeps only the most recent window of history');
@@ -963,11 +969,11 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('6000'));
     fireEvent.click(timelineRow(6000));
-    const stub = await screen.findByRole('button', { name: '↓ from Review-1 WaitFor completed, event #4500 (older page)' });
+    const stub = await screen.findByRole('button', { name: '↓ From Review-1 · WaitFor completed · #4500 (older page)' });
     server.events = server.events.filter((event) => event.eventId === 1 || event.eventId >= 5001);
     fireEvent.click(stub);
 
-    const prunedStub = await screen.findByText('↓ from Review-1 WaitFor completed (event #4500, removed by the history window)');
+    const prunedStub = await screen.findByText('↓ From Review-1 · WaitFor completed · #4500 (removed by the history window)');
     expect(prunedStub.tagName).toBe('SPAN');
     expect(screen.queryByText(/is not in the retained history/)).toBeNull();
     expect(timelineRowIDs()[0]).toBe('6000');
@@ -982,7 +988,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2000'));
     fireEvent.click(timelineRow(1500));
-    fireEvent.click(await screen.findByRole('button', { name: '↓ from Review-1 WaitFor completed, event #2 (older page)' }));
+    fireEvent.click(await screen.findByRole('button', { name: '↓ From Review-1 · WaitFor completed · #2 (older page)' }));
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
     server.requests.length = 0;
 
@@ -1007,7 +1013,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('6000'));
     fireEvent.click(timelineRow(6000));
-    const stub = await screen.findByText('↓ from Review-1 WaitFor completed (event #3000, removed by the history window)');
+    const stub = await screen.findByText('↓ From Review-1 · WaitFor completed · #3000 (removed by the history window)');
     expect(stub.tagName).toBe('SPAN');
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('5000'));
@@ -1048,7 +1054,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('10000'));
     fireEvent.click(timelineRow(10_000));
-    await screen.findByText('↓ from Review-1 WaitFor completed (event #4000, removed by the history window)');
+    await screen.findByText('↓ From Review-1 · WaitFor completed · #4000 (removed by the history window)');
 
     await screen.findByText('Events #2 to #5000 were removed by the history window; FlowStart is kept.');
     expect(timelineRowIDs().slice(-2)).toEqual(['9001', '1']);
@@ -1074,6 +1080,8 @@ interface HistorySettingsDex {
   heldConfigUpdates: Array<() => void>;
   heldBlobLoads: Array<() => void>;
   configUpdates: unknown[];
+  /** Fields that replace the summary's, such as a closed status. */
+  summaryOverride: Partial<FlowSummary>;
 }
 
 function historySettingsDex(): HistorySettingsDex {
@@ -1086,6 +1094,7 @@ function historySettingsDex(): HistorySettingsDex {
     heldConfigUpdates: [],
     heldBlobLoads: [],
     configUpdates: [],
+    summaryOverride: {},
   };
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
   const stateResponse = (reply: StateReply) => {
@@ -1098,7 +1107,7 @@ function historySettingsDex(): HistorySettingsDex {
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://dex.test');
     const runId = url.searchParams.get('runId') ?? 'run-1';
-    if (url.pathname === '/api/flows/summary') return json({ ...summary(dex.runAttempt), runId });
+    if (url.pathname === '/api/flows/summary') return json({ ...summary(dex.runAttempt), runId, ...dex.summaryOverride });
     if (url.pathname === '/api/flows/state') {
       const runReply = dex.stateReplyByRunId[runId];
       if (runReply) return stateResponse(runReply);
@@ -1107,7 +1116,7 @@ function historySettingsDex(): HistorySettingsDex {
         dex.heldStateReads.push((reply) => resolve(stateResponse(reply)));
       });
     }
-    if (url.pathname === '/api/flows/config/history') {
+    if (url.pathname === '/api/flows/config') {
       dex.configUpdates.push(JSON.parse(init?.body as string));
       if (dex.shouldHoldConfigUpdates) {
         await new Promise<void>((resolve) => dex.heldConfigUpdates.push(resolve));
@@ -1142,8 +1151,8 @@ function runPage(runId: string) {
 }
 
 async function saveHistoryWindow(windowEvents: string) {
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-  fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: windowEvents } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Retention window' }));
+  fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: windowEvents } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 }
 
@@ -1152,6 +1161,20 @@ function settleStateLoads() {
 }
 
 describe('history settings on the run page', () => {
+  it('shows a closed run\'s config read failure in the Configuration card and retries it', async () => {
+    const dex = historySettingsDex();
+    dex.summaryOverride = { flowStatus: 'Completed', flowStatusCode: 2, closeTime: '2026-10-24T18:00:00Z' };
+    dex.immediateStateReply = 'fail';
+    renderRun();
+    const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    expect((await within(card).findByRole('alert')).textContent).toBe('GetFlowState failed');
+
+    dex.immediateStateReply = { historyWindowEvents: 300 };
+    fireEvent.click(within(card).getByRole('button', { name: 'Retry' }));
+    expect(await within(card).findByText('Last 300 events')).toBeTruthy();
+    expect(within(card).queryByRole('alert')).toBeNull();
+  });
+
   it('keeps saved values when a state load started before the save resolves after it', async () => {
     const dex = historySettingsDex();
     renderRun();
@@ -1254,8 +1277,8 @@ describe('history settings on the run page', () => {
     dex.runAttempt = 2;
     dex.immediateStateReply = { historyWindowEvents: 1500 };
     refreshByResumingLive();
-    // The card stays in edit mode while its save is pending, so the new value shows as the placeholder.
-    await screen.findByPlaceholderText('Unchanged: Last 1,500 events');
+    // The card stays in edit mode while its save is pending, so the editor names the new current value.
+    await screen.findByText(/Current value: Last 1,500 events\./);
 
     dex.immediateStateReply = 'fail';
     dex.heldConfigUpdates[0]();

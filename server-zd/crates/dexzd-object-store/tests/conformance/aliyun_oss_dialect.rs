@@ -119,7 +119,7 @@ fn replace_condition() -> WriteCondition {
 }
 
 /// Runs every case of the shared conformance suite that needs no atomic replacement.
-async fn check_store_without_atomic_replacement(store: &dyn ObjectStore) {
+pub(super) async fn check_store_without_atomic_replacement(store: &dyn ObjectStore) {
     assert!(store.get("missing").await.expect("get succeeds").is_none());
     assert!(
         store

@@ -39,10 +39,11 @@ pub use service_config::{
 pub(crate) use source_config::SINGLE_NODE_PARTITION_COUNT;
 pub use source_config::{ConfigError, SingleNodeProfile};
 pub use standby_config::{StandbyConfig, StandbyMode};
+pub(crate) use storage_config::MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT;
 pub use storage_config::{
     ApplicationS3Config, CredentialSource, Db9ConnectionString, DevConfig, DevDurabilityMode,
     LocalStorageConfig, ObjectStoreConfig, ObjectStoreCredentials, ObjectStoreLocationConfig,
-    ObjectStoreProvider,
+    ObjectStoreProvider, ObjectStoreVersionDiscovery,
 };
 
 use serde::{Deserialize, Serialize};

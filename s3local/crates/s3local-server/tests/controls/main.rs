@@ -17,4 +17,6 @@ mod lifecycle;
 mod multipart;
 mod observations;
 mod signatures;
+mod stale_listing;
 mod support;
+mod tencent_cos_dialect;

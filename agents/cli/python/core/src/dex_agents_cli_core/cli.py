@@ -1125,7 +1125,7 @@ class _SessionWorker:
     A new session has the harness's Flow type and its own task queue. The
     session Worker pulls that queue only once ``SessionOpener.attempt`` finds
     the session free. The other Worker always pulls the default task queue for
-    this execution environment's environment-hashed sessions from before 0.6.7.
+    this execution environment's environment-hashed sessions from before 0.6.8.
     """
 
     def __init__(

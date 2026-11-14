@@ -36,7 +36,7 @@ use dexzd_object_store::ObjectStoreResult;
 pub(crate) use expired_object_deletion::delete_expired_history_objects;
 pub(crate) use local_cleanup::clean_up_local_history;
 pub(crate) use orphan_sweep::run_history_orphan_sweep;
-pub(crate) use run_history_objects::delete_run_history_objects;
+pub(crate) use run_history_objects::{delete_run_history_objects, sleep_until_stopped};
 #[cfg(test)]
 pub(crate) use segment_upload::MAX_CONDITIONAL_WRITES;
 pub(crate) use segment_upload::upload_sealed_history_segments;

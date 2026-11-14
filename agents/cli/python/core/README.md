@@ -48,7 +48,7 @@ Ctrl-D there exits with 1; neither writes a file.
 
 ### Sessions and execution environments
 
-Since 0.6.7, every new session has the harness's `flow_type` itself and its
+Since 0.6.8, every new session has the harness's `flow_type` itself and its
 own task queue: `s-` and the first 20 lowercase hexadecimal characters of the
 SHA-256 of the session ID in UTF-8, from `session_task_queue`. Only the
 command that has the session open pulls that queue, so the session's Steps and
@@ -100,7 +100,7 @@ this also applies while a takeover cancels a turn, and the chat then never
 starts. The line is the lease lost line when the stored lease already names
 another holder, such as after the process was paused. In the terminal UI the
 Worker host tells the launcher, which stops the terminal UI the same way. A
-session from before 0.6.7 gets the same permit, armed at its first acquire;
+session from before 0.6.8 gets the same permit, armed at its first acquire;
 its expiry ends the chat, and the shared Worker keeps pulling.
 
 The acquire request carries this command's environment: the
@@ -127,7 +127,7 @@ another client started on the default task queue; it fails before any lease
 call. A server whose protocol has no named task queues, older than server-zd
 0.1.30, stops the command with one line.
 
-Sessions that releases before 0.6.7 started keep the environment-hashed Flow
+Sessions that releases before 0.6.8 started keep the environment-hashed Flow
 type `<flow_type>-<suffix>` on the default task queue. The suffix is 6
 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of the UTF-8 text
 `"<hostname>\n<user>\n<config identity>\n<workspace>"`: the user is the
@@ -237,7 +237,7 @@ The steps of a run:
 1. The launcher stops what a killed Worker host left behind (below), finds
    `dexcli` as `dexcli dev` does, and runs `dexcli agents-tui --describe`
    (5 s). An older `dexcli`, no common contract, or no chat mode prints
-   `Plain chat: <why>.` and continues in the plain chat. Since 0.6.7 so does
+   `Plain chat: <why>.` and continues in the plain chat. Since 0.6.8 so does
    a contract without the `launcher_session_switch` capability (before dexcli
    1.47.2): an in-place switch would show a session whose task queue no Worker
    pulls.

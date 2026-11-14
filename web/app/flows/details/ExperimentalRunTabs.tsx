@@ -45,7 +45,6 @@ export function AgentSessionTab({
       <header className="xp-head">
         <h3>Agent session</h3>
         <div className="xp-head-tools">
-          <WorkingAsBar entry={entry} workingAs={workingAs} />
           <button className="xp-new-session" onClick={() => setNewSessionOpen(true)} type="button">
             <Plus aria-hidden="true" size={14} strokeWidth={2.2} />
             {SESSION_COPY.newSession}
@@ -70,6 +69,8 @@ export function AgentSessionTab({
         schema={schema}
         workQueuePermissions={workingAs.workQueuePermissions}
         onChooseWorkingAs={workingAs.setPermission}
+        workingAsOptions={workingAs.permissionOptions}
+        workingAsPermission={workingAs.permission}
       />
     </section>
   );

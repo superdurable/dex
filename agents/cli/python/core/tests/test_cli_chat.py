@@ -270,7 +270,7 @@ async def test_resume_with_another_workspace_takes_the_session_over_there(
     assert await wait_for_exit(first) == 0
     other = tmp_path / "other"
     cli_home.write_config(config_yaml({**NO_CONNECTORS, "workspace": str(other)}))
-    # Since 0.6.7 the other environment takes the session over, and its tool Steps then run there.
+    # Since 0.6.8 the other environment takes the session over, and its tool Steps then run there.
     second = cli_home.spawn("--resume", session_id)
     other_identity = _environment_identity(cli_home, other)
     await expect(second, build_takeover_line(session_id, first_identity, other_identity))

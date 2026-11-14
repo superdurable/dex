@@ -18,6 +18,9 @@ use crate::{
 
 use super::S3ObjectStore;
 
+/// Ranged reads retried after a 416 while HEAD shows bytes in range, as placeholders can recur.
+const MAX_RANGE_REREADS_AFTER_PLACEHOLDER: u32 = 3;
+
 pub(super) enum OptionalReadError {
     Absent,
     Retry,
@@ -128,6 +131,7 @@ impl S3ObjectStore {
             ));
         }
         let mut has_retried_after_listing = false;
+        let mut rereads_after_placeholder = 0;
         let response = loop {
             let mut request = self
                 .read_client
@@ -143,8 +147,33 @@ impl S3ObjectStore {
                     let status = error
                         .raw_response()
                         .map(|response| response.status().as_u16());
-                    if status == Some(416) && range.is_some() {
-                        return Ok(self.head(key).await?.map(|metadata| ObjectContent {
+                    if status == Some(416)
+                        && let Some(range) = range
+                    {
+                        let metadata = self.head(key).await?;
+                        // The 416 may have come from an empty placeholder whose append committed since.
+                        if self.api_dialect.reads_empty_objects_as_absent()
+                            && let Some(metadata) = &metadata
+                            && metadata.size > range.start
+                        {
+                            if rereads_after_placeholder < MAX_RANGE_REREADS_AFTER_PLACEHOLDER {
+                                rereads_after_placeholder += 1;
+                                continue;
+                            }
+                            return Err(ObjectStoreError::new(
+                                ObjectStoreOperation::Get,
+                                key,
+                                ObjectStoreErrorKind::Transient,
+                                format!(
+                                    "ranged GET from byte {} answered 416 {} times, but HEAD \
+                                     shows {} bytes",
+                                    range.start,
+                                    rereads_after_placeholder + 1,
+                                    metadata.size
+                                ),
+                            ));
+                        }
+                        return Ok(metadata.map(|metadata| ObjectContent {
                             bytes: Bytes::new(),
                             etag: metadata.etag,
                             object_size: metadata.size,
@@ -187,6 +216,10 @@ impl S3ObjectStore {
                 )
             })?
         };
+        // A ranged read of an empty object answers 416, which the HEAD above hides.
+        if object_size == 0 && self.api_dialect.reads_empty_objects_as_absent() {
+            return Ok(None);
+        }
         let mut body = response.body;
         let mut buffer = Vec::new();
         while let Some(chunk) = self.read_body_chunk(&mut body, key).await? {

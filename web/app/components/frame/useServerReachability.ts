@@ -11,17 +11,48 @@ import { webURL } from '@/lib/basePath';
 
 export type ServerReachability = 'checking' | 'reachable' | 'unreachable';
 
+/** The latest readiness answer, with the detail a tooltip names. */
+export interface ServerReachabilityStatus {
+  state: ServerReachability;
+  /** The last failure's message, while the Dex Server is unreachable. */
+  lastError?: string;
+  /** When the readiness probe last succeeded, in milliseconds since the epoch. */
+  lastReachableAt?: number;
+}
+
 const RECHECK_MILLISECONDS = 30_000;
 
+/** Reads the error message of a failed probe response, or its HTTP status. */
+async function probeErrorOf(response: Response): Promise<string> {
+  try {
+    const body = await response.json() as { error?: unknown };
+    if (typeof body.error === 'string' && body.error) return body.error;
+  } catch {
+    // A body that is not JSON falls back to the HTTP status.
+  }
+  return `HTTP ${response.status}`;
+}
+
 /** Asks the readiness probe whether Dex Web reaches the Dex Server, now and every 30 s. */
-export function useServerReachability(pathname: string): ServerReachability {
-  const [reachability, setReachability] = useState<ServerReachability>('checking');
+export function useServerReachability(pathname: string): ServerReachabilityStatus {
+  const [status, setStatus] = useState<ServerReachabilityStatus>({ state: 'checking' });
   useEffect(() => {
     let isActive = true;
+    const markUnreachable = (lastError: string) => {
+      if (isActive) setStatus((current) => ({ state: 'unreachable', lastError, lastReachableAt: current.lastReachableAt }));
+    };
     const check = () => {
       fetch(webURL('/readyz'), { cache: 'no-store' })
-        .then((response) => { if (isActive) setReachability(response.ok ? 'reachable' : 'unreachable'); })
-        .catch(() => { if (isActive) setReachability('unreachable'); });
+        .then(async (response) => {
+          if (response.ok) {
+            if (isActive) setStatus({ state: 'reachable', lastReachableAt: Date.now() });
+            return;
+          }
+          markUnreachable(await probeErrorOf(response));
+        })
+        .catch((probeError: unknown) => {
+          markUnreachable(probeError instanceof Error ? probeError.message : 'The readiness probe failed');
+        });
     };
     check();
     const timer = window.setInterval(check, RECHECK_MILLISECONDS);
@@ -30,5 +61,5 @@ export function useServerReachability(pathname: string): ServerReachability {
       window.clearInterval(timer);
     };
   }, [pathname]);
-  return reachability;
+  return status;
 }

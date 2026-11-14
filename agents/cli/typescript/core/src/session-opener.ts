@@ -91,7 +91,7 @@ export interface OpenableSession {
   readonly flowType: string;
   /**
    * Whether the session runs on its own task queue. `false` for an environment-hashed session from a release before
-   * 0.6.7, which runs on the default task queue of this execution environment's Workers.
+   * 0.6.8, which runs on the default task queue of this execution environment's Workers.
    */
   readonly hasSessionTaskQueue: boolean;
   /** The session Flow of {@link flowType}. */
@@ -398,7 +398,7 @@ export interface SessionOpenerOptions {
   readonly harnessFlowType: string;
   /** The session Flow of {@link harnessFlowType}. */
   readonly sessionFlow: SessionFlow;
-  /** The session Flow of this execution environment's environment-hashed Flow type, from before 0.6.7. */
+  /** The session Flow of this execution environment's environment-hashed Flow type, from before 0.6.8. */
   readonly legacySessionFlow: SessionFlow;
   /** `dex-agents-<harness>`, for errors. */
   readonly commandName: string;
@@ -424,7 +424,7 @@ interface PendingTakeover {
  *
  * A session of the harness's Flow type runs on its own task queue. Its lease is read first, without a Worker; only
  * when no other terminal holds it does the session Worker pull the session's task queue and acquire the lease
- * through the RPC that Worker serves. A session from before 0.6.7 keeps its environment-hashed Flow type and the
+ * through the RPC that Worker serves. A session from before 0.6.8 keeps its environment-hashed Flow type and the
  * default task queue, which the command's other Worker always pulls.
  */
 export class SessionOpener {

@@ -8,6 +8,8 @@
 
 //! Write conditions and integrity rules that differ between the emulated S3 dialects.
 
+use std::collections::BTreeMap;
+
 use http::{HeaderMap, StatusCode};
 use s3local::WriteCondition;
 
@@ -16,6 +18,7 @@ use crate::request_headers::{header_text, write_condition};
 use crate::s3_error::S3Error;
 
 const FORBID_OVERWRITE_HEADER: &str = "x-oss-forbid-overwrite";
+const TENCENT_COS_USER_METADATA_PREFIX: &str = "x-cos-meta-";
 
 /// The write condition of a PutObject or CompleteMultipartUpload, and how its rejection is reported.
 pub(super) struct DialectWriteCondition {
@@ -30,11 +33,21 @@ impl DialectWriteCondition {
         operation: &str,
         dialect: S3ApiDialect,
     ) -> Result<Self, S3Error> {
-        if dialect == S3ApiDialect::AmazonS3 {
-            return Ok(Self {
-                condition: write_condition(headers, operation)?,
-                is_forbid_overwrite: false,
-            });
+        match dialect {
+            S3ApiDialect::AmazonS3 => {
+                return Ok(Self {
+                    condition: write_condition(headers, operation)?,
+                    is_forbid_overwrite: false,
+                });
+            }
+            // Tencent COS silently overwrites despite If-None-Match, If-Match, or forbid-overwrite.
+            S3ApiDialect::TencentCos => {
+                return Ok(Self {
+                    condition: WriteCondition::Unconditional,
+                    is_forbid_overwrite: false,
+                });
+            }
+            S3ApiDialect::AliyunOss => {}
         }
         if headers.contains_key("if-none-match") || headers.contains_key("if-match") {
             // Aliyun OSS answers 400, not S3's 501, for conditional writes.
@@ -69,22 +82,44 @@ impl DialectWriteCondition {
     }
 }
 
-/// Aliyun OSS requires `Content-MD5` on DeleteObjects; its value is verified with the body.
+/// Aliyun OSS and Tencent COS require `Content-MD5` on DeleteObjects; its value is verified with
+/// the body.
 pub(super) fn require_delete_objects_content_md5(
     headers: &HeaderMap,
     dialect: S3ApiDialect,
 ) -> Result<(), S3Error> {
-    if dialect == S3ApiDialect::AliyunOss && header_text(headers, "content-md5").is_none() {
-        return Err(S3Error::new(
+    if header_text(headers, "content-md5").is_some() {
+        return Ok(());
+    }
+    match dialect {
+        S3ApiDialect::AmazonS3 => Ok(()),
+        S3ApiDialect::AliyunOss => Err(S3Error::new(
             StatusCode::BAD_REQUEST,
             "MissingArgument",
             "Missing Some Required Arguments: Content-MD5",
-        ));
+        )),
+        S3ApiDialect::TencentCos => Err(S3Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidRequest",
+            "Content-MD5 is required for a multi-object delete",
+        )),
     }
-    Ok(())
 }
 
-/// Aliyun OSS UploadPart responses carry only the ETag.
+/// Returns the `x-cos-meta-*` user metadata of a Tencent COS request, by lowercase name.
+pub(super) fn tencent_cos_user_metadata(headers: &HeaderMap) -> BTreeMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let name = name
+                .as_str()
+                .strip_prefix(TENCENT_COS_USER_METADATA_PREFIX)?;
+            Some((name.to_owned(), value.to_str().ok()?.to_owned()))
+        })
+        .collect()
+}
+
+/// Aliyun OSS and Tencent COS UploadPart responses carry only the ETag.
 pub(super) fn echoes_part_checksum(dialect: S3ApiDialect) -> bool {
     dialect == S3ApiDialect::AmazonS3
 }

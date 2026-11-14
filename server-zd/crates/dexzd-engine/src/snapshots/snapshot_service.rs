@@ -15,7 +15,8 @@ use dexzd_cluster_metadata::ManifestChange;
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::{LogPosition, Manifest, SnapshotManifest, SnapshotReference};
 use dexzd_storage::{
-    LocalReadView, LocalStore, RestoredLocalStore, SnapshotIdentity, StorageError, create_snapshot,
+    LocalReadView, LocalStore, RestoredLocalStore, SnapshotIdentity, SnapshotUploadOptions,
+    StorageError, create_snapshot,
 };
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio::time::{Instant, MissedTickBehavior};
@@ -187,10 +188,14 @@ impl SnapshotService {
         }
         let started = Instant::now();
         let (manifest_key, manifest) = self.upload_snapshot().await?;
-        self.catalog
-            .lock()
-            .await
-            .insert(manifest_key.clone(), manifest.clone());
+        {
+            let mut catalog = self.catalog.lock().await;
+            if self.retention.listing_consistency.is_strong() {
+                catalog.insert(manifest_key.clone(), manifest.clone());
+            } else {
+                catalog.insert_own(manifest_key.clone(), manifest.clone());
+            }
+        }
         let reference = SnapshotReference {
             node_id: stream.node_id.clone(),
             lineage_id: manifest.lineage_id.clone(),
@@ -262,8 +267,10 @@ impl SnapshotService {
         let should_prepare_snapshot_lineage =
             !self.catalog.lock().await.has_prepared_snapshot_lineage;
         let store = self.store.clone();
-        let upload_store =
-            SnapshotUploadStore::new(self.object_store.clone(), self.fence.state.clone());
+        let upload_store = Arc::new(SnapshotUploadStore::new(
+            self.object_store.clone(),
+            self.fence.state.clone(),
+        ));
         let identity = SnapshotIdentity {
             cluster_id: self.cluster_id,
             node_id: self.log_cleanup.stream.node_id.clone(),
@@ -271,9 +278,15 @@ impl SnapshotService {
         };
         let node_meta_lock = self.node_meta_lock.clone();
         let id_source = self.id_source.clone();
+        let upload_options = SnapshotUploadOptions {
+            should_skip_empty_write_ahead_log_files: self
+                .config
+                .should_skip_empty_write_ahead_log_files,
+        };
         let created = match self.blocking_work {
             BlockingWorkPlacement::BlockingThreadPool => {
                 let runtime = tokio::runtime::Handle::current();
+                let upload_store = upload_store.clone();
                 // Checkpoints and file hashing block, so the whole upload runs on the blocking pool.
                 tokio::task::spawn_blocking(move || {
                     // create_snapshot reads NodeMeta first and writes it back before it publishes the manifest.
@@ -298,6 +311,7 @@ impl SnapshotService {
                         &identity,
                         snapshot_number,
                         &node_meta_lock,
+                        upload_options,
                     ))
                 })
                 .await
@@ -324,6 +338,7 @@ impl SnapshotService {
                             &identity,
                             snapshot_number,
                             &node_meta_lock,
+                            upload_options,
                         )
                         .await
                     }
@@ -331,32 +346,53 @@ impl SnapshotService {
                 }
             }
         };
+        let attempt_ended_at = Instant::now();
         let result = created.map_err(|error| match self.fence.state.stop_reason() {
             Some(_) => SnapshotError::NodeStopped,
             None => SnapshotError::from(error),
         });
+        let mut catalog = self.catalog.lock().await;
         if result.is_ok() {
-            self.catalog.lock().await.has_prepared_snapshot_lineage = true;
+            catalog.has_prepared_snapshot_lineage = true;
+        } else if !self.retention.listing_consistency.is_strong()
+            && let Some((manifest_key, manifest)) = upload_store.take_attempted_manifest()
+        {
+            catalog.record_failed_manifest_upload(manifest_key, &manifest, attempt_ended_at);
         }
         result
     }
 
+    /// Points every partition at `reference` and records replaced pointers for eventual retention.
+    ///
+    /// Returns the written cluster manifest.
     async fn record_snapshot(
         &self,
         reference: &SnapshotReference,
     ) -> Result<Manifest, SnapshotError> {
-        self.fence
+        let mut replaced_manifest_keys = BTreeSet::new();
+        let result = self
+            .fence
             .update_manifest(|manifest| {
                 let mut change = ManifestChange::Unchanged;
                 for partition in &mut manifest.partitions {
                     if partition.snapshot.as_ref() != Some(reference) {
-                        partition.snapshot = Some(reference.clone());
+                        if let Some(replaced) = partition.snapshot.replace(reference.clone()) {
+                            replaced_manifest_keys.insert(replaced.manifest_key);
+                        }
                         change = ManifestChange::Changed;
                     }
                 }
                 change
             })
-            .await
+            .await;
+        if !self.retention.listing_consistency.is_strong() {
+            // A hot standby may still restore a replaced pointer, so retention protects it.
+            self.catalog
+                .lock()
+                .await
+                .record_pointed_manifests(replaced_manifest_keys);
+        }
+        result
     }
 
     /// Returns whether a batch was routed after the last successful snapshot.
@@ -430,6 +466,7 @@ async fn create_store_snapshot(
     identity: &SnapshotIdentity,
     snapshot_number: u64,
     node_meta_lock: &std::sync::Mutex<()>,
+    upload_options: SnapshotUploadOptions,
 ) -> Result<(String, SnapshotManifest), StorageError> {
     match store {
         RestoredLocalStore::RocksDb(rocks) => {
@@ -439,6 +476,7 @@ async fn create_store_snapshot(
                 identity,
                 snapshot_number,
                 node_meta_lock,
+                upload_options,
             )
             .await
         }
@@ -449,6 +487,7 @@ async fn create_store_snapshot(
                 identity,
                 snapshot_number,
                 node_meta_lock,
+                upload_options,
             )
             .await
         }

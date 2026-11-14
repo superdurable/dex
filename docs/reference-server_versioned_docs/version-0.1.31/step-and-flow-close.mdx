@@ -1,0 +1,60 @@
+---
+title: Step and Flow close semantics
+sidebar_label: Step and Flow close
+description: "Detailed rules for completion requests, Flow outputs, and Step cancellation: what stays in force, what survives a failure, and what a canceled handler still does. The Step and Flow pages explain the concepts."
+---
+
+# Step and Flow close semantics
+
+Detailed rules for completion requests, Flow outputs, and Step cancellation. The
+concept pages explain the model: [Flow](/concepts/flow) and
+[Step](/concepts/step). For the messages a canceled Step consumed, see
+[Canceled Steps return consumed messages](/reference/server/0.1.31/runtime-data#canceled-step-messages).
+
+## Completion requests {#completion-requests}
+
+**GracefulComplete** ends its own branch and asks Dex to complete the Flow. As
+soon as no Step is active, Dex begins to complete the Flow. The request stays in
+force: a later branch that ends with **DeadEnd** does not withdraw it.
+
+Until no Step is active, other Steps and RPCs can still start new Steps, and
+those Steps delay completion too. Once Dex begins to complete the Flow, it
+starts no new Step. A naturally closing Flow stays **RUNNING** until its pending Attribute Store
+writes finish or are discarded, until transactional or locking RPCs admitted
+earlier finish, and until Dex records the close. **WaitForFlow** keeps waiting
+meanwhile. See
+[Requests during Flow close](/reference/server/0.1.31/runtime-client#requests-during-flow-close).
+
+Without a pending **GracefulComplete**, a Flow with no active Step keeps
+running. An RPC can still start new Steps in it. Dex never closes a Flow because
+no Step is active. Something else closes it: its Flow timeout, a stop, or a
+completing decision.
+
+## Flow outputs {#flow-outputs}
+
+**GracefulComplete** and **ForceComplete** can carry an output. The Flow result
+lists each output with its Step type and Step execution ID.
+
+Only a **COMPLETED** Flow keeps these outputs. A Flow that fails, is canceled, is
+terminated, or times out has no outputs, even after an earlier
+**GracefulComplete** carried one. Keep data that must survive a failure in an
+Attribute.
+
+## Step cancellation {#step-cancellation}
+
+A **StepDecision** or an RPC can cancel active Steps. Dex selects the Steps to
+cancel after the decision commits. A decision or an RPC never cancels the Steps
+that it starts itself.
+
+Canceling a Step discards everything its current method has not committed: its
+Attribute writes, its Channel publications, and its decision. What its earlier
+methods committed, such as its **WaitFor** writes, stays.
+
+Cancellation is cooperative. The SDK signals it to the handler. Dex discards the
+canceled Step's later result, writes, retries, and recovery routes. A handler
+that ignores the signal keeps running, and its calls to external systems still
+take effect, even after the Flow has closed.
+
+A Step that a decision or an RPC cancels never takes the Channel messages
+published in that same commit. See
+[Pending messages](/reference/server/0.1.31/runtime-data#manage-pending-messages).

@@ -1286,8 +1286,8 @@ type AcquireSessionTerminalLeaseRequest struct {
 	// the lease to a holder that did not hold it, the session stores it in
 	// SessionLastTerminalEnvironmentAttribute. A renewal and a refused call
 	// leave that Attribute unchanged. The session never reads the keys.
-	// Workers before 0.6.7 ignore it. It is left out of the wire object when
-	// nil. Since 0.6.7.
+	// Workers before 0.6.8 ignore it. It is left out of the wire object when
+	// nil. Since 0.6.8.
 	Environment map[string]string `json:"environment,omitempty"`
 }
 

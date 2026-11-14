@@ -5,7 +5,7 @@ cluster:
   # Fixed at the first start. dev and local default to 32 when this key is absent.
   partitionCount: 1024
 objectStore:
-  # s3, db9, or aliyunOSS; data cannot move between providers.
+  # s3, db9, aliyunOSS, tencentCOS, azureBlob, or googleCloudStorage; data cannot move between providers.
   provider: s3
   db9PoolSize: 8
   db9RequestTimeout: 10s
@@ -18,6 +18,8 @@ objectStore:
   forcePathStyle: false
   credentialsSource: defaultChain
   hardDeleteStore: null
+  # null uses list for aliyunOSS and head for tencentCOS; other providers reject a value.
+  versionDiscovery: null
 localStorage:
   directory: ""
   blockCacheBytes: 268435456

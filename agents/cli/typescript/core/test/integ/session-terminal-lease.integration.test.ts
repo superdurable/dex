@@ -304,7 +304,7 @@ function resumedTranscript(): Transcript {
   const transcript = readTranscript("chat_ready_then_exit");
   const [launch, ...rest] = transcript.steps;
   const message = launch?.message as { session: Record<string, unknown> };
-  // A relaunch after a switch named the left session before 0.6.7, which these tests do not fix.
+  // A relaunch after a switch named the left session before 0.6.8, which these tests do not fix.
   const ignore = [...((launch as { ignore?: string[] }).ignore ?? []), "session.previous_session_id"];
   const resumed = { ...launch, ignore, message: { ...message, session: { ...message.session, is_resumed: true } } };
   return { ...transcript, steps: [resumed, ...rest] };

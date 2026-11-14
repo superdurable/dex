@@ -111,7 +111,7 @@ class OpenableSession:
         flow_type: The session's Flow type.
         has_session_task_queue: Whether the session runs on its own task queue.
             ``False`` for an environment-hashed session from a release before
-            0.6.7, which runs on the default task queue of this execution
+            0.6.8, which runs on the default task queue of this execution
             environment's Workers.
         sessions: The session client of ``flow_type``'s Flow.
     """
@@ -505,7 +505,7 @@ class SessionOpener:
     A session of the harness's Flow type runs on its own task queue. Its lease
     is read first, without a Worker; only when no other terminal holds it does
     the session Worker pull the session's task queue and acquire the lease
-    through the RPC that Worker serves. A session from before 0.6.7 keeps its
+    through the RPC that Worker serves. A session from before 0.6.8 keeps its
     environment-hashed Flow type and the default task queue, which the
     command's other Worker always pulls. Each session gets one pull permit;
     see ``SessionPullPermit``.

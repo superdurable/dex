@@ -324,7 +324,7 @@ export interface OpenedSessionWorker {
   readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
   /**
    * The opened session's Flow type: the harness's Flow type, or this execution environment's environment-hashed one
-   * for a session from a release before 0.6.7.
+   * for a session from a release before 0.6.8.
    */
   readonly flowType: string;
   /** The session Flow of the harness's Flow type, which every new session uses. */
@@ -850,7 +850,7 @@ export class AgentCliCommand {
    *
    * A new session uses the harness's Flow type and its own task queue. The session Worker pulls that queue only
    * once {@link SessionOpener.attempt} finds the session free. The other Worker always pulls the default task queue
-   * for this execution environment's environment-hashed sessions from before 0.6.7.
+   * for this execution environment's environment-hashed sessions from before 0.6.8.
    *
    * @param effective - The effective configuration.
    * @param loaded - The loaded configuration file.
@@ -1527,7 +1527,7 @@ async function createMediaStore(media: MediaConfig, agentsDirectory: string): Pr
  * The execution environment a session's Steps must run in, as {@link namespaceSessionFlowType} hashes it. The CLI core
  * also records it in each new session's start input.
  *
- * Changed in 0.6.7: the CLI core also stores it, when it opens a session, as the session's
+ * Changed in 0.6.8: the CLI core also stores it, when it opens a session, as the session's
  * `SessionLastTerminalEnvironment`. The `sessions` subcommand shows its host name and workspace.
  *
  * @since 0.5.0
@@ -1569,7 +1569,7 @@ const flowTypeSuffixCount = 36n ** BigInt(flowTypeSuffixLength);
  * big-endian integer, reduce it modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters. Tool
  * settings, such as the shell allow list, are not part of it, so they can change without breaking `--resume`.
  *
- * Changed in 0.6.7: only sessions started before 0.6.7 have this Flow type. The CLI core still serves them on the
+ * Changed in 0.6.8: only sessions started before 0.6.8 have this Flow type. The CLI core still serves them on the
  * default task queue, and they still resume only in this execution environment. New sessions use
  * {@link AgentHarness.flowType} and their own task queue, from {@link sessionTaskQueue}.
  *

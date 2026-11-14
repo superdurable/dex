@@ -162,6 +162,7 @@ impl Store {
             }),
             data_file: None,
             parts_count: None,
+            is_appendable: false,
         }
     }
 }

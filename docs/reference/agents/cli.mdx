@@ -622,7 +622,7 @@ default with **dex.server: auto** only. See
 [List sessions](/reference/agents/approvals#list-sessions). A session without
 the summary, such as one that an earlier release started, lists without these
 parts. An earlier session gains the time and the turn count at its next turn,
-and a title only if that turn is its first. Since 0.6.7 each line also says
+and a title only if that turn is its first. Since 0.6.8 each line also says
 where the session was last open, as **HOST:WORKSPACE**. The Python commands
 leave out a missing part, and the TypeScript commands print tab-separated
 columns with a dash for it:
@@ -633,7 +633,7 @@ builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-
 
 ### Sessions in other environments {#other-environments}
 
-Since 0.6.7. A session can continue in any environment that runs the same
+Since 0.6.8. A session can continue in any environment that runs the same
 command. An environment is the host, the user, the configuration file, and the
 workspace. Each new session gets its own task queue, named after the session
 ID, and the harness's Flow type, such as **DexAgentsClaudeSdkCliSession**.
@@ -680,7 +680,7 @@ later runs. With an older server the command stops with one line that says so.
 Stop a **dexcli dev** that an earlier command started, then run the command
 again.
 
-Sessions that releases before 0.6.7 started keep their old Flow type: the
+Sessions that releases before 0.6.8 started keep their old Flow type: the
 harness's Flow type with a six-character suffix, a hash of the host name, the
 user, the configuration file's real path, and the workspace's real path. They
 run on the default task queue.
@@ -704,7 +704,7 @@ session's terminal lease first. A second command that opens the same session
 waits, and takes the session over as soon as the first one exits. There is no
 way to take a session from a command that still has it open.
 
-Since 0.6.7, a waiting command reads the lease without pulling the session's
+Since 0.6.8, a waiting command reads the lease without pulling the session's
 task queue. When the lease is free or expired, it starts to pull the queue and
 takes the lease. When another command took the lease first, it stops pulling
 and waits again. When the chat ends, or the terminal UI switches sessions, the
@@ -738,7 +738,7 @@ took its session, its chat stops with one line and exit code 1:
 Session builtin-20261113-203123-3efeb4 is now open in another terminal (host-b, pid 77, since 21:02); this chat stopped.
 ```
 
-Since 0.6.7, a command pulls a session's task queue only while Dex has
+Since 0.6.8, a command pulls a session's task queue only while Dex has
 recently confirmed its lease. Each confirmed acquire or renewal allows it to
 pull until 12 seconds, the lease minus a fifth, after that request was sent;
 the time also starts when it begins to pull. When the time runs out, such as
@@ -760,14 +760,14 @@ Attribute. Sessions that an earlier release started take it the first time a
 - In the terminal UI, **/sessions** and **/new** wait for the lease with
   **dexcli** 1.47.2 or later. The terminal UI hands the switch to the command,
   which waits with the same status line and opens the terminal UI again on the
-  new session. Since 0.6.7 the reopened terminal UI starts with the new
+  new session. Since 0.6.8 the reopened terminal UI starts with the new
   session's history only, and the command uses the plain chat with an earlier
   **dexcli**, which would switch in place onto a task queue that no Worker
   pulls.
 - Two commands that open a free session at almost the same moment may both
   pull its task queue for a moment, until one of them gets the lease. A Step
   of the session in that moment runs in either command.
-- For sessions from before 0.6.7, the lease marks which terminal shows a
+- For sessions from before 0.6.8, the lease marks which terminal shows a
   session. It does not keep a Worker from running the session's Steps: two
   commands in the same environment still share them.
 
@@ -1097,7 +1097,7 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
   Choose it in **Working as** to send the session messages and to answer its
   approvals and questions in Dex Web. Anyone who opens the session in Dex Web
   can do the same, so on a shared Dex server colleagues can take part in the
-  chat. Since 0.6.7 the Actions work only while a command has the session
+  chat. Since 0.6.8 the Actions work only while a command has the session
   open; Dex Web still shows a session that no command has open. See
   [Sessions in other environments](#other-environments).
 - The [terminal UI](#terminal-ui) shows each message from Dex Web, or from any
@@ -1137,7 +1137,7 @@ graph and its Actions.
   that left the shell command's process group is never stopped.
 
 - **Earlier sessions stay in their environment.** A session that a release
-  before 0.6.7 started resumes only with the host, user, configuration file,
+  before 0.6.8 started resumes only with the host, user, configuration file,
   and workspace that started it. Without a **workspace** in the file,
   **dex-agents-pi** resumes such a session only from the directory it started
   in. See [Sessions in other environments](#other-environments).

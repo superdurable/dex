@@ -22,7 +22,7 @@ import {
   PRUNED_RELATED_EVENT_EXPLANATION,
   prunedRelatedEventTooltip,
   rowsShowingAbsoluteTime,
-  timelineRelatedEventLabel,
+  timelineRelatedEventStubLabel,
   type TimelineRelatedEvent,
   type TimelineSelectedRelations,
 } from '@/lib/timeline';
@@ -513,7 +513,7 @@ function TimelineEdgeStubs({
       <div className="timeline-edge-stub-list">
         {stubs.map((stub) => {
           // Newest-first order puts older stubs at the bottom edge and newer ones at the top.
-          const label = `${edge === 'older' ? '↓' : '↑'} ${timelineRelatedEventLabel(stub)}`;
+          const label = `${edge === 'older' ? '↓' : '↑'} ${timelineRelatedEventStubLabel(stub)}`;
           const jumpEventId = stub.location === 'other-page' ? stub.eventId : undefined;
           if (jumpEventId !== undefined && onJumpToEvent) {
             return (

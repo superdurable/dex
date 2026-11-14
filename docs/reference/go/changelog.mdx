@@ -10,11 +10,13 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0).
+Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0); 1.45.2 released 2026-11-14 as [sdk-go/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.2).
 
 ### Added
 
 - **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload the Flow Definition Graph 2.0 documents of the Worker's registered Flow types when the Worker starts. A failed upload only logs a warning. **ReadFlowDefinitionFiles** reads documents with the same rules, and **Client.UploadFlowDefinitions** uploads them from a deployment script and reports each **FlowDefinitionUploadOutcome**. [Reference](/reference/go/workers#flow-definitions).
+- **ClientOnlyFlow** marks a Flow that only a Client uses: it types the RPCs and Streams of a Flow type that Workers of another application or language serve, so **Client.InvokeRPC** and **Client.ReadStream** can call them. **NewRegistry** rejects a client-only Flow that declares Steps, **NewWorker** returns **ClientOnlyFlowError** for a Registry that holds one, and **IsClientOnlyFlow** reports the marker. [API reference](pathname:///api/go/latest/dex/#type-clientonlyflow). Since 1.45.2.
+- Named task queues give one Flow type separate Worker pools. **PullWorkerOptions.TaskQueue** names the one task queue a Worker serves, **StartFlowOptions.TaskQueue** places a Flow on a task queue for its whole run, and **SubFlowOptions.TaskQueue** moves a SubFlow off its parent's task queue; **DefaultTaskQueue** selects the default task queue explicitly. Named task queues require Server protocol 5: against an older Server, **Worker.Start**, **Client.StartFlow**, and a WaitFor that starts such a SubFlow return **TaskQueueUnsupportedError** instead of using the default task queue. A Worker stream that the Server registers on another task queue is closed and reported as a permanent rejection, and **PullRegistrationState** entries and **PullRegistrationError** carry the task queue. [Go Workers](/reference/go/workers#task-queue) and [API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions). Since 1.45.2.
 
 ### Breaking
 

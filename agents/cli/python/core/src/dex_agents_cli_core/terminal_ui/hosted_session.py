@@ -132,7 +132,7 @@ class HostedChatSession:
         request holds. The long candidate is checked first, so a resend never
         starts the short one while the long one already holds this key.
 
-        .. versionchanged:: 0.6.7
+        .. versionchanged:: 0.6.8
            Each candidate session starts on its own task queue, which no
            Worker pulls until a ``switch_session`` opens it, so the answer
            comes once the session started, without waiting for its first state.

@@ -511,7 +511,7 @@ type HealthInfo struct {
 // When options set a non-empty TaskQueue and the Server negotiated a protocol older than
 // version 5, StartFlow returns *TaskQueueUnsupportedError before it sends the request.
 //
-// Changed in 1.46.0: StartFlow sends StartFlowOptions.TaskQueue and returns
+// Changed in 1.45.2: StartFlow sends StartFlowOptions.TaskQueue and returns
 // *TaskQueueUnsupportedError when the Server cannot route a named task queue.
 func (client *Client) StartFlow(
 	ctx context.Context,

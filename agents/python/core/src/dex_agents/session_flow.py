@@ -601,7 +601,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         session_last_terminal_environment: The
             ``SessionLastTerminalEnvironment`` Attribute: the execution
             environment of the terminal that last opened the session. Since
-            0.6.7.
+            0.6.8.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -1062,7 +1062,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         .. versionadded:: 0.6.3
 
-        .. versionchanged:: 0.6.7
+        .. versionchanged:: 0.6.8
            Stores the request's ``environment``.
 
         Example:

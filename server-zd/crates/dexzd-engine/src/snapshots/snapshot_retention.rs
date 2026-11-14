@@ -10,18 +10,29 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dexzd_object_store::{ObjectMetadata, ObjectStore};
+use dexzd_object_store::{ListingConsistency, ObjectMetadata, ObjectStore};
 use dexzd_protocol::dexzd::v1::SnapshotManifest;
 use prost::Message;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::snapshots::SnapshotError;
 use crate::snapshots::ownership_fence::OwnershipFence;
 
+use eventual_protection::EventualProtection;
+
+mod eventual_protection;
+
 const LISTING_PAGE_SIZE: u32 = 1000;
 const LISTING_PAGES_PER_RUN: usize = 10;
 const CANDIDATES_PER_RUN: usize = 64;
+
+/// After this, an eventually consistent refresh starts no new page and resumes in the next run.
+const EVENTUAL_LISTING_DURATION_PER_RUN: Duration = Duration::from_secs(10);
+
+/// Queued manifest GETs and HEADs of one eventually consistent run; later runs read the rest first.
+const EVENTUAL_MANIFEST_READS_PER_RUN: usize = 256;
 
 /// Keeps the newest snapshots of this node across every lineage and deletes the rest.
 pub(crate) struct SnapshotRetention {
@@ -29,6 +40,8 @@ pub(crate) struct SnapshotRetention {
     pub(crate) node_id: String,
     pub(crate) retained_count: usize,
     pub(crate) deletion_delay: Duration,
+    /// When eventual, a manifest leaves the catalog only once a HEAD misses it.
+    pub(crate) listing_consistency: ListingConsistency,
 }
 
 /// Decoded snapshot manifests of this node by object key.
@@ -46,6 +59,26 @@ pub(crate) struct SnapshotCatalog {
     orphan_first_seen: BTreeMap<String, OrphanMark>,
     completed_scan_number: u64,
     candidate_cursor: Option<String>,
+    /// What retention keeps when listings are eventually consistent; strong listings leave it empty.
+    protection: EventualProtection,
+    /// Listed manifests an eventual run has not read yet; no deletion happens until it is empty.
+    unread_listed_manifest_keys: BTreeSet<String>,
+    /// Known manifests a completed eventual listing lacked and no HEAD checked yet.
+    unchecked_unlisted_manifest_keys: BTreeSet<String>,
+}
+
+/// How many more queued manifest GETs and HEADs one eventual retention run may send.
+struct ManifestReadBudget {
+    remaining_reads: usize,
+}
+
+impl ManifestReadBudget {
+    /// Returns whether one more read fits, and counts it when it does.
+    fn try_spend_read(&mut self) -> bool {
+        let has_remaining_read = self.remaining_reads > 0;
+        self.remaining_reads = self.remaining_reads.saturating_sub(1);
+        has_remaining_read
+    }
 }
 
 struct OrphanMark {
@@ -60,6 +93,28 @@ impl SnapshotCatalog {
         self.inserted_manifest_keys.insert(key.clone());
         self.manifests.insert(key, manifest);
     }
+
+    /// Adds a manifest that this process just wrote and counts it among its own snapshots.
+    pub(crate) fn insert_own(&mut self, key: String, manifest: SnapshotManifest) {
+        self.protection.record_own_manifest(key.clone());
+        self.insert(key, manifest);
+    }
+
+    /// Records a manifest write whose upload failed; the files it lists stay until it is resolved.
+    pub(crate) fn record_failed_manifest_upload(
+        &mut self,
+        key: String,
+        manifest: &SnapshotManifest,
+        attempt_ended_at: Instant,
+    ) {
+        self.protection
+            .record_unresolved_upload(key, manifest, attempt_ended_at);
+    }
+
+    /// Records manifests that a strong read showed pointed, such as pointers a snapshot replaced.
+    pub(crate) fn record_pointed_manifests(&mut self, keys: impl IntoIterator<Item = String>) {
+        self.protection.record_pointed_manifests(keys);
+    }
 }
 
 impl SnapshotRetention {
@@ -68,7 +123,8 @@ impl SnapshotRetention {
     ///
     /// Snapshots in `referenced_keys` are always kept, and so is every file a kept snapshot
     /// references. A deleted snapshot's files go in the same pass, independent of process
-    /// lifetime. Returns the kept snapshots, oldest first.
+    /// lifetime. Over an eventually consistent listing, [`Self::run_eventual_once`] decides
+    /// instead. Returns the kept snapshots, oldest first.
     pub(crate) async fn run_once<'catalog>(
         &self,
         catalog: &'catalog mut SnapshotCatalog,
@@ -76,9 +132,15 @@ impl SnapshotRetention {
         fence: &OwnershipFence,
         now_unix_micros: i64,
     ) -> Result<Vec<&'catalog SnapshotManifest>, SnapshotError> {
-        if !self.refresh(catalog).await? {
+        if !self.listing_consistency.is_strong() {
+            return self
+                .run_eventual_once(catalog, referenced_keys, fence)
+                .await;
+        }
+        if !self.list_snapshot_objects(catalog).await? {
             return Ok(Self::kept(catalog));
         }
+        self.reconcile_strong_listing(catalog).await?;
         let mut unreferenced_files: BTreeSet<String> = self
             .find_orphan_files(catalog, now_unix_micros)
             .await?
@@ -121,6 +183,85 @@ impl SnapshotRetention {
                 "deleted unreferenced snapshot files"
             );
         }
+        Ok(Self::kept(catalog))
+    }
+
+    /// Deletes listed objects that stayed unprotected for the deletion delay on the monotonic clock.
+    ///
+    /// Queued manifest reads are bounded per run; deletion waits until every queue drains.
+    ///
+    /// Returns the kept snapshots, oldest first.
+    async fn run_eventual_once<'catalog>(
+        &self,
+        catalog: &'catalog mut SnapshotCatalog,
+        referenced_keys: &BTreeSet<String>,
+        fence: &OwnershipFence,
+    ) -> Result<Vec<&'catalog SnapshotManifest>, SnapshotError> {
+        let node_prefix = format!("snapshot/{}/", self.node_id);
+        let pointed_keys: BTreeSet<&str> = referenced_keys
+            .iter()
+            .filter(|key| key.starts_with(&node_prefix))
+            .map(String::as_str)
+            .collect();
+        catalog.protection.observe_pointed_manifests(
+            &pointed_keys,
+            Instant::now(),
+            self.deletion_delay,
+        );
+        let has_queued_reads = !catalog.unread_listed_manifest_keys.is_empty()
+            || !catalog.unchecked_unlisted_manifest_keys.is_empty();
+        if !has_queued_reads {
+            if !self.list_snapshot_objects(catalog).await? {
+                return Ok(Self::kept(catalog));
+            }
+            Self::queue_eventual_manifest_reads(catalog);
+        }
+        let mut budget = ManifestReadBudget {
+            remaining_reads: EVENTUAL_MANIFEST_READS_PER_RUN,
+        };
+        self.read_protected_manifests(catalog).await?;
+        if !self.read_queued_manifests(catalog, &mut budget).await? {
+            tracing::debug!(
+                unread_manifests = catalog.unread_listed_manifest_keys.len(),
+                unchecked_manifests = catalog.unchecked_unlisted_manifest_keys.len(),
+                "snapshot retention continues manifest reads in the next run"
+            );
+            return Ok(Self::kept(catalog));
+        }
+        let now = Instant::now();
+        let (protected_manifests, protected_files) = catalog
+            .protection
+            .protected_objects(&catalog.manifests, self.retained_count);
+        let obsolete_manifests: Vec<String> = catalog
+            .protection
+            .matured_manifests(
+                catalog.manifests.keys(),
+                &protected_manifests,
+                now,
+                self.deletion_delay,
+            )
+            .into_iter()
+            .take(CANDIDATES_PER_RUN)
+            .collect();
+        for chunk in obsolete_manifests.chunks(LISTING_PAGE_SIZE as usize) {
+            fence.ensure_current_lease().await?;
+            self.object_store.delete_many(chunk).await?;
+        }
+        for key in &obsolete_manifests {
+            catalog.manifests.remove(key);
+            catalog.protection.forget_deleted_manifest(key);
+        }
+        if !obsolete_manifests.is_empty() {
+            tracing::info!(
+                manifests = obsolete_manifests.len(),
+                "deleted unprotected snapshots"
+            );
+        }
+        catalog
+            .protection
+            .nominate_files(&catalog.listed_files, &protected_files, now);
+        catalog.listed_files.clear();
+        self.delete_matured_files(catalog, fence, now).await?;
         Ok(Self::kept(catalog))
     }
 
@@ -298,10 +439,23 @@ impl SnapshotRetention {
         removed.iter().map(|(key, _)| (*key).clone()).collect()
     }
 
-    /// Reconciles the catalog with a listing and reads only manifests it has not seen.
-    async fn refresh(&self, catalog: &mut SnapshotCatalog) -> Result<bool, SnapshotError> {
+    /// Lists this node's snapshot objects, resuming the previous run's listing.
+    ///
+    /// Returns whether the listing reached its end; its keys then wait in the catalog.
+    async fn list_snapshot_objects(
+        &self,
+        catalog: &mut SnapshotCatalog,
+    ) -> Result<bool, SnapshotError> {
         let prefix = format!("snapshot/{}/", self.node_id);
-        for _ in 0..LISTING_PAGES_PER_RUN {
+        let listing_deadline = tokio::time::Instant::now() + EVENTUAL_LISTING_DURATION_PER_RUN;
+        for page_index in 0..LISTING_PAGES_PER_RUN {
+            // An eventually consistent page can wait out replays, so a run bounds its pages by time.
+            if page_index > 0
+                && !self.listing_consistency.is_strong()
+                && tokio::time::Instant::now() >= listing_deadline
+            {
+                break;
+            }
             let page = self
                 .object_store
                 .list(
@@ -333,10 +487,19 @@ impl SnapshotRetention {
             return Ok(false);
         }
         catalog.completed_scan_number = catalog.completed_scan_number.saturating_add(1);
-        catalog.manifests.retain(|key, _| {
-            catalog.listed_manifest_keys.contains(key)
-                || catalog.inserted_manifest_keys.contains(key)
-        });
+        Ok(true)
+    }
+
+    /// Drops manifests a completed strong listing lacks and reads the ones the catalog has not seen.
+    async fn reconcile_strong_listing(
+        &self,
+        catalog: &mut SnapshotCatalog,
+    ) -> Result<(), SnapshotError> {
+        let unlisted_manifest_keys: Vec<String> =
+            Self::unlisted_manifest_keys(catalog).cloned().collect();
+        for key in unlisted_manifest_keys {
+            catalog.manifests.remove(&key);
+        }
         let listed_keys = std::mem::take(&mut catalog.listed_manifest_keys);
         for key in listed_keys {
             if catalog.manifests.contains_key(&key) {
@@ -351,7 +514,157 @@ impl SnapshotRetention {
             catalog.manifests.insert(key, manifest);
         }
         catalog.inserted_manifest_keys.clear();
+        Ok(())
+    }
+
+    /// Queues the manifest reads a completed eventual listing needs, so later runs can finish them.
+    fn queue_eventual_manifest_reads(catalog: &mut SnapshotCatalog) {
+        // A stale listing can lack a manifest that still exists; files it uses must stay.
+        catalog.unchecked_unlisted_manifest_keys =
+            Self::unlisted_manifest_keys(catalog).cloned().collect();
+        let listed_keys = std::mem::take(&mut catalog.listed_manifest_keys);
+        catalog.unread_listed_manifest_keys = listed_keys
+            .into_iter()
+            .filter(|key| !catalog.manifests.contains_key(key))
+            .collect();
+        catalog.inserted_manifest_keys.clear();
+    }
+
+    /// Returns known manifests the completed listing lacks that this process did not just write.
+    fn unlisted_manifest_keys(catalog: &SnapshotCatalog) -> impl Iterator<Item = &String> {
+        catalog.manifests.keys().filter(|key| {
+            !catalog.listed_manifest_keys.contains(*key)
+                && !catalog.inserted_manifest_keys.contains(*key)
+        })
+    }
+
+    /// HEADs queued unlisted manifests, then reads queued listed ones, within `budget`.
+    ///
+    /// Returns whether no queued read remains.
+    async fn read_queued_manifests(
+        &self,
+        catalog: &mut SnapshotCatalog,
+        budget: &mut ManifestReadBudget,
+    ) -> Result<bool, SnapshotError> {
+        // A key leaves its queue only after its read succeeds, so a failed read is retried.
+        while let Some(key) = catalog.unchecked_unlisted_manifest_keys.first().cloned() {
+            if catalog.manifests.contains_key(&key) {
+                if !budget.try_spend_read() {
+                    return Ok(false);
+                }
+                if self.object_store.head(&key).await?.is_none() {
+                    catalog.manifests.remove(&key);
+                }
+            }
+            catalog.unchecked_unlisted_manifest_keys.remove(&key);
+        }
+        while let Some(key) = catalog.unread_listed_manifest_keys.first().cloned() {
+            if !catalog.manifests.contains_key(&key) {
+                if !budget.try_spend_read() {
+                    return Ok(false);
+                }
+                // A concurrent cleanup may have deleted it after the listing.
+                if let Some(manifest) = self.read_manifest(&key).await? {
+                    catalog.manifests.insert(key.clone(), manifest);
+                }
+            }
+            catalog.unread_listed_manifest_keys.remove(&key);
+        }
         Ok(true)
+    }
+
+    /// Reads pointed manifests and unresolved manifest writes that the catalog lacks, as listings can hide them.
+    ///
+    /// These reads bypass the read budget: they are few, and counting them could starve queued reads.
+    async fn read_protected_manifests(
+        &self,
+        catalog: &mut SnapshotCatalog,
+    ) -> Result<(), SnapshotError> {
+        let node_prefix = format!("snapshot/{}/", self.node_id);
+        let pointed_keys: Vec<String> = catalog
+            .protection
+            .pointed_manifest_keys()
+            .filter(|key| key.starts_with(&node_prefix) && !catalog.manifests.contains_key(*key))
+            .cloned()
+            .collect();
+        for key in pointed_keys {
+            if let Some(manifest) = self.read_manifest(&key).await? {
+                catalog.manifests.insert(key, manifest);
+            }
+        }
+        for key in catalog.protection.unresolved_manifest_keys() {
+            // A write with a failed upload can land after the failure was reported.
+            match self.read_manifest(&key).await? {
+                Some(manifest) => {
+                    catalog.protection.resolve_found_manifest(&key);
+                    catalog.manifests.insert(key, manifest);
+                }
+                None => catalog.protection.expire_missing_manifest(
+                    &key,
+                    Instant::now(),
+                    self.deletion_delay,
+                ),
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the validated manifest at `key`, or `None` when it does not exist.
+    async fn read_manifest(&self, key: &str) -> Result<Option<SnapshotManifest>, SnapshotError> {
+        let Some(content) = self.object_store.get(key).await? else {
+            return Ok(None);
+        };
+        let manifest = SnapshotManifest::decode(content.bytes)?;
+        self.validate(key, &manifest)?;
+        Ok(Some(manifest))
+    }
+
+    /// Deletes up to [`CANDIDATES_PER_RUN`] matured file candidates whose ETag a HEAD confirms.
+    async fn delete_matured_files(
+        &self,
+        catalog: &mut SnapshotCatalog,
+        fence: &OwnershipFence,
+        now: Instant,
+    ) -> Result<(), SnapshotError> {
+        let manifest_files: BTreeSet<&str> = catalog
+            .manifests
+            .values()
+            .flat_map(|manifest| &manifest.files)
+            .map(|file| file.object_key.as_str())
+            .collect();
+        let matured = catalog.protection.matured_files(
+            &manifest_files,
+            now,
+            self.deletion_delay,
+            CANDIDATES_PER_RUN,
+        );
+        let mut orphan_files = Vec::new();
+        for file in matured {
+            match self.object_store.head(&file.key).await? {
+                None => catalog.protection.forget_file(&file.key),
+                Some(current) if current.etag != file.etag => {
+                    catalog
+                        .protection
+                        .renominate_file(&file.key, current.etag, now);
+                }
+                Some(_) => orphan_files.push(file.key),
+            }
+        }
+        for chunk in orphan_files.chunks(LISTING_PAGE_SIZE as usize) {
+            fence.ensure_current_lease().await?;
+            // An issued delete can finish after lease loss; successors upload into fresh lineages.
+            self.object_store.delete_many(chunk).await?;
+        }
+        for key in &orphan_files {
+            catalog.protection.forget_file(key);
+        }
+        if !orphan_files.is_empty() {
+            tracing::info!(
+                files = orphan_files.len(),
+                "deleted unprotected snapshot files"
+            );
+        }
+        Ok(())
     }
 
     /// Rejects a manifest whose deletion could remove objects outside this node's snapshots.
@@ -384,507 +697,4 @@ fn creation_order(manifest: &SnapshotManifest) -> (i64, &[u8], u64) {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-    use std::path::Path;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-
-    use async_trait::async_trait;
-    use bytes::Bytes;
-    use dexzd_clock::SystemWallClock;
-    use dexzd_object_store::{
-        ByteRange, InMemoryObjectStore, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore,
-        ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
-    };
-    use dexzd_protocol::dexzd::v1::{NodeLease, SnapshotFile, SnapshotManifest};
-    use prost::Message;
-    use uuid::Uuid;
-
-    use crate::commit::{CommitState, NodeStopReason};
-    use crate::snapshots::SnapshotError;
-    use crate::snapshots::ownership_fence::OwnershipFence;
-
-    use super::{CANDIDATES_PER_RUN, SnapshotCatalog, SnapshotRetention};
-
-    struct MetadataWithoutTimestamp {
-        inner: Arc<InMemoryObjectStore>,
-    }
-
-    struct ManifestPublishingStore {
-        inner: Arc<InMemoryObjectStore>,
-        pending_manifest: Mutex<Option<(String, Bytes)>>,
-    }
-
-    #[async_trait]
-    impl ObjectStore for ManifestPublishingStore {
-        async fn put(
-            &self,
-            key: &str,
-            body: Bytes,
-            condition: WriteCondition,
-        ) -> ObjectStoreResult<WriteOutcome> {
-            self.inner.put(key, body, condition).await
-        }
-
-        async fn put_file(
-            &self,
-            key: &str,
-            path: &Path,
-            condition: WriteCondition,
-        ) -> ObjectStoreResult<WriteOutcome> {
-            self.inner.put_file(key, path, condition).await
-        }
-
-        async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
-            self.inner.get(key).await
-        }
-
-        async fn get_range(
-            &self,
-            key: &str,
-            range: ByteRange,
-        ) -> ObjectStoreResult<Option<ObjectContent>> {
-            self.inner.get_range(key, range).await
-        }
-
-        async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
-            self.inner.get_to_file(key, path).await
-        }
-
-        async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
-            self.inner.head(key).await
-        }
-
-        async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
-            self.inner.delete(key).await
-        }
-
-        async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
-            self.inner.delete_many(keys).await
-        }
-
-        async fn list(
-            &self,
-            prefix: &str,
-            start_after: Option<&str>,
-            max_keys: u32,
-        ) -> ObjectStoreResult<ObjectListing> {
-            let listing = self.inner.list(prefix, start_after, max_keys).await?;
-            if prefix == "snapshot/node-a/" {
-                let pending_manifest = self
-                    .pending_manifest
-                    .lock()
-                    .expect("manifest publication lock")
-                    .take();
-                if let Some((key, body)) = pending_manifest {
-                    let outcome = self
-                        .inner
-                        .put(&key, body, WriteCondition::CreateOnly)
-                        .await?;
-                    assert!(matches!(outcome, WriteOutcome::Written { .. }));
-                }
-            }
-            Ok(listing)
-        }
-
-        fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
-            self.inner.supports_replace_if_etag_matches_on_every_key()
-        }
-    }
-
-    #[async_trait]
-    impl ObjectStore for MetadataWithoutTimestamp {
-        async fn put(
-            &self,
-            key: &str,
-            body: Bytes,
-            condition: WriteCondition,
-        ) -> ObjectStoreResult<WriteOutcome> {
-            self.inner.put(key, body, condition).await
-        }
-
-        async fn put_file(
-            &self,
-            key: &str,
-            path: &Path,
-            condition: WriteCondition,
-        ) -> ObjectStoreResult<WriteOutcome> {
-            self.inner.put_file(key, path, condition).await
-        }
-
-        async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
-            self.inner.get(key).await
-        }
-
-        async fn get_range(
-            &self,
-            key: &str,
-            range: ByteRange,
-        ) -> ObjectStoreResult<Option<ObjectContent>> {
-            self.inner.get_range(key, range).await
-        }
-
-        async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
-            self.inner.get_to_file(key, path).await
-        }
-
-        async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
-            Ok(self.inner.head(key).await?.map(|mut metadata| {
-                metadata.etag = "stable".to_owned();
-                metadata.last_modified_unix_micros = None;
-                metadata
-            }))
-        }
-
-        async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
-            self.inner.delete(key).await
-        }
-
-        async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
-            self.inner.delete_many(keys).await
-        }
-
-        async fn list(
-            &self,
-            prefix: &str,
-            start_after: Option<&str>,
-            max_keys: u32,
-        ) -> ObjectStoreResult<ObjectListing> {
-            let mut listing = self.inner.list(prefix, start_after, max_keys).await?;
-            for metadata in &mut listing.objects {
-                metadata.etag = "stable".to_owned();
-                metadata.last_modified_unix_micros = None;
-            }
-            Ok(listing)
-        }
-
-        fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
-            self.inner.supports_replace_if_etag_matches_on_every_key()
-        }
-    }
-
-    async fn test_fence(object_store: Arc<dyn ObjectStore>) -> OwnershipFence {
-        let lease = NodeLease {
-            node_id: "node-a".to_owned(),
-            epoch: 1,
-            expires_at_unix_micros: i64::MAX,
-            ..Default::default()
-        };
-        object_store
-            .put(
-                "lease/node-a",
-                Bytes::from(lease.encode_to_vec()),
-                WriteCondition::CreateOnly,
-            )
-            .await
-            .expect("store test lease");
-        let state = Arc::new(CommitState::new(
-            1,
-            dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
-        ));
-        assert!(state.start_serving());
-        OwnershipFence {
-            object_store,
-            clock: Arc::new(SystemWallClock),
-            state,
-            node_id: "node-a".to_owned(),
-            epoch: 1,
-        }
-    }
-
-    #[tokio::test]
-    async fn missing_head_timestamp_resets_rewritten_key_eligibility() {
-        let inner = Arc::new(InMemoryObjectStore::new());
-        let object_store = Arc::new(MetadataWithoutTimestamp {
-            inner: inner.clone(),
-        });
-        let orphan_key = "snapshot/node-a/lineage/files/orphan";
-        inner
-            .put(
-                orphan_key,
-                Bytes::from_static(b"first"),
-                WriteCondition::CreateOnly,
-            )
-            .await
-            .expect("upload first version");
-        let fence = test_fence(object_store.clone()).await;
-        let retention = SnapshotRetention {
-            object_store,
-            node_id: "node-a".to_owned(),
-            retained_count: 3,
-            deletion_delay: Duration::from_micros(1),
-        };
-        let mut catalog = SnapshotCatalog::default();
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX / 2)
-            .await
-            .expect("mark first version");
-        let current_etag = inner
-            .head(orphan_key)
-            .await
-            .expect("head first version")
-            .expect("first version exists")
-            .etag;
-        inner
-            .put(
-                orphan_key,
-                Bytes::from_static(b"second"),
-                WriteCondition::ReplaceIfEtagMatches { etag: current_etag },
-            )
-            .await
-            .expect("rewrite key");
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("inspect rewritten version");
-        assert!(
-            inner
-                .get(orphan_key)
-                .await
-                .expect("read rewritten key")
-                .is_some()
-        );
-        assert_eq!(
-            catalog.orphan_first_seen[orphan_key].first_seen_unix_micros,
-            i64::MAX
-        );
-    }
-
-    #[tokio::test]
-    async fn orphan_sweep_limits_head_and_delete_work_per_pass() {
-        let object_store = Arc::new(InMemoryObjectStore::new());
-        for index in 0..(CANDIDATES_PER_RUN + 1) {
-            let key = format!("snapshot/node-a/lineage/files/orphan-{index:03}");
-            object_store
-                .put(&key, Bytes::new(), WriteCondition::CreateOnly)
-                .await
-                .expect("upload orphan");
-        }
-        let fence = test_fence(object_store.clone()).await;
-        let retention = SnapshotRetention {
-            object_store: object_store.clone(),
-            node_id: "node-a".to_owned(),
-            retained_count: 3,
-            deletion_delay: Duration::ZERO,
-        };
-        let mut catalog = SnapshotCatalog::default();
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("mark orphans");
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("first bounded sweep");
-        assert_eq!(
-            object_store.call_count(ObjectStoreOperation::Head, "snapshot/node-a/"),
-            CANDIDATES_PER_RUN as u64
-        );
-        assert_eq!(object_store.call_count(ObjectStoreOperation::Delete, ""), 1);
-        assert!(
-            object_store
-                .get("snapshot/node-a/lineage/files/orphan-064")
-                .await
-                .expect("read remaining orphan")
-                .is_some()
-        );
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("resume sweep");
-        assert_eq!(
-            object_store.call_count(ObjectStoreOperation::Head, "snapshot/node-a/"),
-            (CANDIDATES_PER_RUN + 1) as u64
-        );
-        assert!(
-            object_store
-                .get("snapshot/node-a/lineage/files/orphan-064")
-                .await
-                .expect("read final orphan")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn orphan_requires_a_later_manifest_scan_before_deletion() {
-        let object_store = Arc::new(InMemoryObjectStore::new());
-        let orphan_key = "snapshot/node-a/lineage/files/orphan";
-        object_store
-            .put(orphan_key, Bytes::new(), WriteCondition::CreateOnly)
-            .await
-            .expect("upload orphan");
-        let fence = test_fence(object_store.clone()).await;
-        let retention = SnapshotRetention {
-            object_store: object_store.clone(),
-            node_id: "node-a".to_owned(),
-            retained_count: 3,
-            deletion_delay: Duration::ZERO,
-        };
-        let mut catalog = SnapshotCatalog::default();
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("mark orphan");
-        assert_eq!(object_store.call_count(ObjectStoreOperation::Delete, ""), 0);
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("sweep orphan");
-        assert!(
-            object_store
-                .get(orphan_key)
-                .await
-                .expect("read orphan")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn manifest_published_after_mark_protects_its_file_on_sweep() {
-        let object_store = Arc::new(InMemoryObjectStore::new());
-        let lineage = Uuid::now_v7();
-        let file_key = format!("snapshot/node-a/{lineage}/files/file");
-        object_store
-            .put(&file_key, Bytes::new(), WriteCondition::CreateOnly)
-            .await
-            .expect("upload file");
-        let fence = test_fence(object_store.clone()).await;
-        let retention = SnapshotRetention {
-            object_store: object_store.clone(),
-            node_id: "node-a".to_owned(),
-            retained_count: 3,
-            deletion_delay: Duration::ZERO,
-        };
-        let mut catalog = SnapshotCatalog::default();
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("mark file while manifest is unpublished");
-        let manifest = SnapshotManifest {
-            node_id: "node-a".to_owned(),
-            lineage_id: lineage.as_bytes().to_vec(),
-            snapshot_number: 1,
-            files: vec![SnapshotFile {
-                object_key: file_key.clone(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let manifest_key = format!("snapshot/node-a/{lineage}/manifest/{:020}", 1);
-        object_store
-            .put(
-                &manifest_key,
-                Bytes::from(manifest.encode_to_vec()),
-                WriteCondition::CreateOnly,
-            )
-            .await
-            .expect("publish delayed manifest");
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("sweep after a fresh manifest scan");
-        assert!(
-            object_store
-                .get(&file_key)
-                .await
-                .expect("read file")
-                .is_some()
-        );
-        assert_eq!(
-            object_store.call_count(ObjectStoreOperation::Delete, &file_key),
-            0
-        );
-    }
-
-    #[tokio::test]
-    async fn manifest_published_after_deleting_pass_list_protects_its_file() {
-        let inner = Arc::new(InMemoryObjectStore::new());
-        let object_store = Arc::new(ManifestPublishingStore {
-            inner: inner.clone(),
-            pending_manifest: Mutex::new(None),
-        });
-        let lineage = Uuid::now_v7();
-        let file_key = format!("snapshot/node-a/{lineage}/files/file");
-        inner
-            .put(&file_key, Bytes::new(), WriteCondition::CreateOnly)
-            .await
-            .expect("upload file");
-        let fence = test_fence(object_store.clone()).await;
-        let retention = SnapshotRetention {
-            object_store: object_store.clone(),
-            node_id: "node-a".to_owned(),
-            retained_count: 3,
-            deletion_delay: Duration::ZERO,
-        };
-        let mut catalog = SnapshotCatalog::default();
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("mark file");
-        let manifest = SnapshotManifest {
-            node_id: "node-a".to_owned(),
-            lineage_id: lineage.as_bytes().to_vec(),
-            snapshot_number: 1,
-            files: vec![SnapshotFile {
-                object_key: file_key.clone(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let manifest_key = format!("snapshot/node-a/{lineage}/manifest/{:020}", 1);
-        *object_store
-            .pending_manifest
-            .lock()
-            .expect("manifest publication lock") =
-            Some((manifest_key.clone(), Bytes::from(manifest.encode_to_vec())));
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("sweep after manifest publication during listing");
-        assert!(
-            inner
-                .get(&file_key)
-                .await
-                .expect("read referenced file")
-                .is_some()
-        );
-        assert!(catalog.manifests.contains_key(&manifest_key));
-        assert_eq!(inner.call_count(ObjectStoreOperation::Delete, ""), 0);
-    }
-
-    #[tokio::test]
-    async fn fenced_retention_does_not_delete_an_orphan_file() {
-        let object_store = Arc::new(InMemoryObjectStore::new());
-        let orphan_key = "snapshot/node-a/lineage/files/orphan";
-        object_store
-            .put(orphan_key, Bytes::new(), WriteCondition::CreateOnly)
-            .await
-            .expect("upload orphan");
-        let fence = test_fence(object_store.clone()).await;
-        let retention = SnapshotRetention {
-            object_store: object_store.clone(),
-            node_id: "node-a".to_owned(),
-            retained_count: 3,
-            deletion_delay: Duration::ZERO,
-        };
-        let mut catalog = SnapshotCatalog::default();
-        retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await
-            .expect("mark orphan");
-        fence.state.stop(NodeStopReason::Fenced);
-        let result = retention
-            .run_once(&mut catalog, &BTreeSet::new(), &fence, i64::MAX)
-            .await;
-        assert!(matches!(result, Err(SnapshotError::NodeStopped)));
-        assert!(
-            object_store
-                .get(orphan_key)
-                .await
-                .expect("read orphan")
-                .is_some()
-        );
-        assert_eq!(object_store.call_count(ObjectStoreOperation::Delete, ""), 0);
-    }
-}
+mod tests;

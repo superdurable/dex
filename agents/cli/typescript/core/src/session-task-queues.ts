@@ -31,7 +31,7 @@ const legacySessionFlowTypeSuffix = /^-[0-9a-z]{6}$/;
  * ```
  * @param sessionId - The session's Flow ID.
  * @returns The session's task queue.
- * @since 0.6.7
+ * @since 0.6.8
  */
 export function sessionTaskQueue(sessionId: string): string {
   const digest = createHash("sha256").update(sessionId, "utf8").digest("hex");
@@ -39,7 +39,7 @@ export function sessionTaskQueue(sessionId: string): string {
 }
 
 /**
- * Returns whether a Flow type is a harness's environment-hashed session Flow type, from a release before 0.6.7:
+ * Returns whether a Flow type is a harness's environment-hashed session Flow type, from a release before 0.6.8:
  * the harness Flow type, `-`, and 6 lowercase base36 characters.
  * @param harnessFlowType - The harness's Flow type.
  * @param flowType - A session's Flow type.

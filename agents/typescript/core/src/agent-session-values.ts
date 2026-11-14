@@ -978,9 +978,9 @@ export interface AcquireSessionTerminalLeaseRequest {
    * When the call gives the lease to a holder that did not hold it, the session stores this map in the
    * `SessionLastTerminalEnvironment` Attribute. A renewal and a refused call leave that Attribute unchanged. A
    * session list can then show where each session was last open. The session never reads the keys. Workers before
-   * 0.6.7 ignore the field. Wire field: `environment`, left out when `null`.
+   * 0.6.8 ignore the field. Wire field: `environment`, left out when `null`.
    *
-   * Since 0.6.7.
+   * Since 0.6.8.
    */
   readonly environment?: Readonly<Record<string, string>> | null;
 }

@@ -28,9 +28,11 @@ mod startup_self_check;
 use std::path::Path;
 
 pub use aliyun_oss::{
-    AliyunOssBucketCheckError, AliyunOssObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
-    STALE_STARTUP_PROBE_AGE, VERSION_OBJECT_KEY_SUFFIX_BYTES, check_aliyun_oss_create_only_writes,
-    check_no_data_of_another_provider,
+    AliyunOssBucketCheckError, AliyunOssObjectStore, HEAD_PROBING_MARKER_OBJECT_KEY,
+    MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, STALE_STARTUP_PROBE_AGE,
+    VERSION_OBJECT_KEY_SUFFIX_BYTES, VersionDiscovery, VersionDiscoveryCheckError,
+    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
+    check_version_discovery_marker,
 };
 pub use azure_gcs::{
     AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig, AzureGcsProvider,
@@ -40,7 +42,12 @@ pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
 pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions};
 pub use instrumented::InstrumentedObjectStore;
 pub use object_store_error::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation};
-pub use s3::{S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
+pub use s3::{
+    MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES, S3ApiDialect, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, TENCENT_COS_STALE_LISTING_BOUND, TencentCosBucketCheckError,
+    check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
+    check_tencent_cos_holds_no_data_of_another_provider,
+};
 pub use startup_self_check::{
     STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckError,
     StartupSelfCheckFailure, startup_self_check,
@@ -118,6 +125,28 @@ pub struct ObjectListing {
     pub objects: Vec<ObjectMetadata>,
     /// Pass as `start_after` to read the next page; `None` when the listing is complete.
     pub next_start_after: Option<String>,
+}
+
+/// Whether a listing shows every object written before it started.
+///
+/// The server configuration passes it to callers that must find recent writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum ListingConsistency {
+    /// A listing shows exactly the objects present when it started, as on Amazon S3.
+    #[default]
+    Strong,
+    /// A listing may repeat an earlier listing of its prefix for seconds, as on Tencent COS.
+    ///
+    /// Reads of single objects stay strongly consistent.
+    Eventual,
+}
+
+impl ListingConsistency {
+    /// Returns whether a listing shows every object written before it started.
+    pub fn is_strong(self) -> bool {
+        self == Self::Strong
+    }
 }
 
 /// Object storage operations used by server-zd.

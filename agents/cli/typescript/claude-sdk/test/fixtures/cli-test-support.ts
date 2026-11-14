@@ -238,7 +238,7 @@ export class TestHome {
   }
 
   /**
-   * Returns the environment-hashed Flow type that releases before 0.6.7 gave this home's sessions.
+   * Returns the environment-hashed Flow type that releases before 0.6.8 gave this home's sessions.
    * @returns The Flow type.
    */
   public legacySessionFlowType(): string {

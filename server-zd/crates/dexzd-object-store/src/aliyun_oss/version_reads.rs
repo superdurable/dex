@@ -14,6 +14,7 @@ use dexzd_metrics::{VersionedListingStaleCounters, VersionedListingStaleSite};
 use crate::aliyun_oss::version_body::{
     VERSION_HEADER_LENGTH, VERSION_HEADER_RANGE, VersionEtag, VersionHeader,
 };
+use crate::aliyun_oss::version_discovery::NewestVersionLocator;
 use crate::aliyun_oss::version_keys::{
     malformed_version_key, version_generation, version_object_key, version_prefix,
 };
@@ -23,7 +24,7 @@ use crate::{
 };
 
 /// Bounds the listings of one read; each retry means a newer version appeared meanwhile.
-const MAX_NEWEST_VERSION_LOOKUPS: usize = 16;
+pub(super) const MAX_NEWEST_VERSION_LOOKUPS: usize = 16;
 
 /// How much of the newest version a read needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +61,7 @@ impl NewestVersion {
 }
 
 /// Reads the newest version, or `None`; a read that finds another object lists again.
-pub(super) async fn read_newest_version(
+pub(super) async fn read_newest_listed_version(
     inner: &dyn ObjectStore,
     operation: ObjectStoreOperation,
     logical_key: &str,
@@ -162,16 +163,16 @@ async fn read_header_at(
 
 /// Reads the current content of `logical_key`, or `None` when it is absent or deleted.
 pub(super) async fn get_versioned(
-    inner: &dyn ObjectStore,
+    locator: &NewestVersionLocator,
     logical_key: &str,
 ) -> ObjectStoreResult<Option<ObjectContent>> {
-    let Some(newest) = read_newest_version(
-        inner,
-        ObjectStoreOperation::Get,
-        logical_key,
-        VersionReadExtent::WholeBody,
-    )
-    .await?
+    let Some(newest) = locator
+        .read_newest_version(
+            ObjectStoreOperation::Get,
+            logical_key,
+            VersionReadExtent::WholeBody,
+        )
+        .await?
     else {
         return Ok(None);
     };
@@ -191,7 +192,7 @@ pub(super) async fn get_versioned(
 
 /// Reads `range` of the current content of `logical_key`, slicing the whole payload.
 pub(super) async fn get_versioned_range(
-    inner: &dyn ObjectStore,
+    locator: &NewestVersionLocator,
     logical_key: &str,
     range: ByteRange,
 ) -> ObjectStoreResult<Option<ObjectContent>> {
@@ -203,7 +204,7 @@ pub(super) async fn get_versioned_range(
             "range start exceeds end",
         ));
     }
-    let Some(mut content) = get_versioned(inner, logical_key).await? else {
+    let Some(mut content) = get_versioned(locator, logical_key).await? else {
         return Ok(None);
     };
     let length = content.bytes.len();
@@ -221,12 +222,13 @@ pub(super) async fn get_versioned_range(
 /// Returns the metadata of the current content of `logical_key`, or `None` when it is absent
 /// or deleted.
 pub(super) async fn head_versioned(
-    inner: &dyn ObjectStore,
+    locator: &NewestVersionLocator,
     operation: ObjectStoreOperation,
     logical_key: &str,
 ) -> ObjectStoreResult<Option<ObjectMetadata>> {
-    let Some(newest) =
-        read_newest_version(inner, operation, logical_key, VersionReadExtent::HeaderOnly).await?
+    let Some(newest) = locator
+        .read_newest_version(operation, logical_key, VersionReadExtent::HeaderOnly)
+        .await?
     else {
         return Ok(None);
     };
@@ -274,13 +276,13 @@ pub(super) fn record_stale_version_listing(
 }
 
 /// Returns whether `content` came from `listed`; unique version bodies make physical ETags unique.
-fn is_listed_object(listed: &ObjectMetadata, content: &ObjectContent) -> bool {
+pub(super) fn is_listed_object(listed: &ObjectMetadata, content: &ObjectContent) -> bool {
     // ETags are opaque and compare byte for byte; only surrounding quotes may differ.
     listed.size == content.object_size
         && listed.etag.trim_matches('"') == content.etag.trim_matches('"')
 }
 
-fn decode_header(
+pub(super) fn decode_header(
     operation: ObjectStoreOperation,
     logical_key: &str,
     physical_key: &str,

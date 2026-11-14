@@ -12,6 +12,7 @@
 mod attribute_sync_tests;
 mod deadline_tests;
 mod dispatch_tests;
+mod eventual_listing_purge_tests;
 mod handout_tests;
 mod hard_delete_tests;
 mod history_expiry_tests;
@@ -76,9 +77,9 @@ use crate::effects::flow_effect_operations::{
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
     AttemptDrainProgress, EffectDependencies, EffectError, EffectRunner, EffectTasksHandle,
-    EffectsConfig, HardDeleteObjects, HardDeleteUploadLedger, MethodClaim, MethodDispatchSession,
-    MethodDispatcher, MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask,
-    NodeMetaUploadLedger, ReservedMethodStream,
+    EffectsConfig, HardDeleteObjects, HardDeletePrefixListing, HardDeleteUploadLedger, MethodClaim,
+    MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
+    MethodStreamReservation, MethodTask, NodeMetaUploadLedger, ReservedMethodStream,
 };
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 
@@ -1426,6 +1427,8 @@ pub(super) struct DurableState {
     pub(super) history_objects: Option<Arc<dyn ObjectStore>>,
     pub(super) local_store: Arc<InMemoryLocalStore>,
     pub(super) clock: Arc<TokioWallClock>,
+    /// How purges confirm that `objects` holds no hard-delete object of a run.
+    pub(super) hard_delete_prefix_listing: HardDeletePrefixListing,
 }
 
 impl DurableState {
@@ -1436,6 +1439,7 @@ impl DurableState {
             history_objects: None,
             local_store: Arc::new(InMemoryLocalStore::new()),
             clock: Arc::new(TokioWallClock::new()),
+            hard_delete_prefix_listing: HardDeletePrefixListing::default(),
         }
     }
 }
@@ -1505,6 +1509,7 @@ impl EffectHarness {
             Arc::clone(&clock) as _,
             hasher.clone(),
             Arc::new(SystemEngineIdSource),
+            durable.hard_delete_prefix_listing,
         );
         let dispatcher = Arc::new(FakeDispatcher::new());
         let metrics = Arc::new(dexzd_metrics::NodeMetrics::unregistered_with_partitions(

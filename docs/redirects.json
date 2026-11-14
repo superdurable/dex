@@ -3690,5 +3690,229 @@
   {
     "from": "/zh-Hans/get-started",
     "to": "/zh-Hans/quick-start"
+  },
+  {
+    "from": "/reference/server/0.1.25/attribute-store-sync/",
+    "to": "/reference/server/attribute-store-sync/"
+  },
+  {
+    "from": "/reference/server/0.1.25/authentication/",
+    "to": "/reference/server/authentication/"
+  },
+  {
+    "from": "/reference/server/0.1.25/changelog/",
+    "to": "/reference/server/changelog/"
+  },
+  {
+    "from": "/reference/server/0.1.25/configuration/",
+    "to": "/reference/server/configuration/"
+  },
+  {
+    "from": "/reference/server/0.1.25/high-availability/",
+    "to": "/reference/server/high-availability/"
+  },
+  {
+    "from": "/reference/server/0.1.25/",
+    "to": "/reference/server/"
+  },
+  {
+    "from": "/reference/server/0.1.25/kubernetes/",
+    "to": "/reference/server/kubernetes/"
+  },
+  {
+    "from": "/reference/server/0.1.25/metrics/",
+    "to": "/reference/server/metrics/"
+  },
+  {
+    "from": "/reference/server/0.1.25/object-storage/",
+    "to": "/reference/server/object-storage/"
+  },
+  {
+    "from": "/reference/server/0.1.25/runtime-client/",
+    "to": "/reference/server/runtime-client/"
+  },
+  {
+    "from": "/reference/server/0.1.25/runtime-data/",
+    "to": "/reference/server/runtime-data/"
+  },
+  {
+    "from": "/reference/server/0.1.25/search/",
+    "to": "/reference/server/search/"
+  },
+  {
+    "from": "/reference/server/0.1.25/upgrades/",
+    "to": "/reference/server/upgrades/"
+  },
+  {
+    "from": "/reference/server/0.1.25/workers/",
+    "to": "/reference/server/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/attribute-store-sync/",
+    "to": "/zh-Hans/reference/server/attribute-store-sync/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/authentication/",
+    "to": "/zh-Hans/reference/server/authentication/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/changelog/",
+    "to": "/zh-Hans/reference/server/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/configuration/",
+    "to": "/zh-Hans/reference/server/configuration/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/high-availability/",
+    "to": "/zh-Hans/reference/server/high-availability/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/",
+    "to": "/zh-Hans/reference/server/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/kubernetes/",
+    "to": "/zh-Hans/reference/server/kubernetes/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/metrics/",
+    "to": "/zh-Hans/reference/server/metrics/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/object-storage/",
+    "to": "/zh-Hans/reference/server/object-storage/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/runtime-client/",
+    "to": "/zh-Hans/reference/server/runtime-client/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/runtime-data/",
+    "to": "/zh-Hans/reference/server/runtime-data/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/search/",
+    "to": "/zh-Hans/reference/server/search/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/upgrades/",
+    "to": "/zh-Hans/reference/server/upgrades/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.25/workers/",
+    "to": "/zh-Hans/reference/server/workers/"
+  },
+  {
+    "from": "/reference/server/0.1.26/attribute-store-sync/",
+    "to": "/reference/server/attribute-store-sync/"
+  },
+  {
+    "from": "/reference/server/0.1.26/authentication/",
+    "to": "/reference/server/authentication/"
+  },
+  {
+    "from": "/reference/server/0.1.26/changelog/",
+    "to": "/reference/server/changelog/"
+  },
+  {
+    "from": "/reference/server/0.1.26/configuration/",
+    "to": "/reference/server/configuration/"
+  },
+  {
+    "from": "/reference/server/0.1.26/high-availability/",
+    "to": "/reference/server/high-availability/"
+  },
+  {
+    "from": "/reference/server/0.1.26/",
+    "to": "/reference/server/"
+  },
+  {
+    "from": "/reference/server/0.1.26/kubernetes/",
+    "to": "/reference/server/kubernetes/"
+  },
+  {
+    "from": "/reference/server/0.1.26/metrics/",
+    "to": "/reference/server/metrics/"
+  },
+  {
+    "from": "/reference/server/0.1.26/object-storage/",
+    "to": "/reference/server/object-storage/"
+  },
+  {
+    "from": "/reference/server/0.1.26/runtime-client/",
+    "to": "/reference/server/runtime-client/"
+  },
+  {
+    "from": "/reference/server/0.1.26/runtime-data/",
+    "to": "/reference/server/runtime-data/"
+  },
+  {
+    "from": "/reference/server/0.1.26/search/",
+    "to": "/reference/server/search/"
+  },
+  {
+    "from": "/reference/server/0.1.26/upgrades/",
+    "to": "/reference/server/upgrades/"
+  },
+  {
+    "from": "/reference/server/0.1.26/workers/",
+    "to": "/reference/server/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/attribute-store-sync/",
+    "to": "/zh-Hans/reference/server/attribute-store-sync/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/authentication/",
+    "to": "/zh-Hans/reference/server/authentication/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/changelog/",
+    "to": "/zh-Hans/reference/server/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/configuration/",
+    "to": "/zh-Hans/reference/server/configuration/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/high-availability/",
+    "to": "/zh-Hans/reference/server/high-availability/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/",
+    "to": "/zh-Hans/reference/server/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/kubernetes/",
+    "to": "/zh-Hans/reference/server/kubernetes/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/metrics/",
+    "to": "/zh-Hans/reference/server/metrics/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/object-storage/",
+    "to": "/zh-Hans/reference/server/object-storage/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/runtime-client/",
+    "to": "/zh-Hans/reference/server/runtime-client/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/runtime-data/",
+    "to": "/zh-Hans/reference/server/runtime-data/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/search/",
+    "to": "/zh-Hans/reference/server/search/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/upgrades/",
+    "to": "/zh-Hans/reference/server/upgrades/"
+  },
+  {
+    "from": "/zh-Hans/reference/server/0.1.26/workers/",
+    "to": "/zh-Hans/reference/server/workers/"
   }
 ]

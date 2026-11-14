@@ -19,6 +19,7 @@ import {
   Client,
   Registry,
   StepList,
+  StopType,
   SubFlow,
   Wait,
   Worker,
@@ -137,6 +138,35 @@ test("named task queues route Flows, RPCs, and SubFlows only to their Workers", 
     await workerA.close();
     await workerB.close();
     await workerDefault.close();
+    cache.close();
+    rmSync(cacheDirectory, { recursive: true, force: true });
+  }
+});
+
+test("getFlowState reports the task queue of a Flow without a Worker", async () => {
+  const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
+  const cacheDirectory = mkdtempSync(join(tmpdir(), "dex-typescript-task-queue-state-"));
+  const cache = openBlobCache({ directory: cacheDirectory, maxBytes: 64 * 1_024 * 1_024 });
+  const clientProbe = new TaskQueueProbeFlow("client");
+  const client = new Client(new Registry([clientProbe]), cache, { serverAddress });
+  const queue = `q-state-${randomUUID()}`;
+  const startedIds: string[] = [];
+  try {
+    for (const [taskQueue, expectedTaskQueue] of [
+      [queue, queue],
+      [undefined, ""],
+      ["dex.default", ""],
+    ] as const) {
+      const id = flowId("task-queue-state");
+      await client.startFlow(clientProbe, id, "probe", taskQueue === undefined ? {} : { taskQueue });
+      startedIds.push(id);
+      assert.equal((await client.getFlowState(id)).taskQueue, expectedTaskQueue);
+    }
+  } finally {
+    for (const id of startedIds) {
+      await client.stopFlow(id, { type: StopType.TERMINATE, reason: "test cleanup" });
+    }
+    await client.close();
     cache.close();
     rmSync(cacheDirectory, { recursive: true, force: true });
   }

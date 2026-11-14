@@ -267,7 +267,7 @@ The Temporal version reads top to bottom. The opt-out is a Signal handler that s
 | Update | [RPC](/concepts/primitives/rpc) that writes Attributes or publishes to a Channel | Both need a Worker. |
 | Workflow variables | [Attributes](/concepts/primitives/attribute) | Dex saves them. Temporal rebuilds them by replay. |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
-| Task Queue | The Flow type's queue | To use a separate Worker pool, give the work its own Flow type. |
+| Task Queue | Task queue | A Flow names its task queue at start and keeps it. Inside a task queue, Dex routes by Flow type. |
 | Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. A Worker keeps no history cache. |
 | Search Attributes | Indexed Attributes | |
 | Workflow ID Reuse and Conflict Policy | ID reuse policy and start request ID | See [Flow identity](/concepts/flow). |
@@ -312,7 +312,7 @@ DBOS is an example. Workflows and steps are annotated functions in your applicat
 | Step | Step `Execute` |
 | Send and receive | Channel |
 | Events | Attributes, read by RPC |
-| Queue | The Flow type's queue. Each Worker's task slots bound its work. |
+| Queue | Task queue. Each Worker's task slots bound its work. |
 
 Dex runs its own server on object storage and can copy Attribute values to your database with [Attribute Store sync](/components/your-database#attribute-store-sync).
 

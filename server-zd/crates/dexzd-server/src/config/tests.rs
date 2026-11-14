@@ -16,12 +16,14 @@ use std::time::Duration;
 
 use dexzd_engine::{EffectsConfig, HistoryUploadLimits, LocalStoreConfig};
 use dexzd_metrics::MetricsLevel;
+use dexzd_object_store::{ListingConsistency, VersionDiscovery};
 
 use super::engine_config::SERVE_HISTORY_WINDOW_EVENTS;
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
     DevDurabilityMode, HistoryConfig, LifecycleConfig, ObjectStoreLocationConfig,
-    ObjectStoreProvider, SearchBackend, StandbyMode, StreamStoreBackend, dsn_environment_variable,
+    ObjectStoreProvider, ObjectStoreVersionDiscovery, SearchBackend, StandbyMode,
+    StreamStoreBackend, dsn_environment_variable,
 };
 use crate::DevCommandOptions;
 use crate::component_configs::ComponentConfigs;
@@ -2491,6 +2493,121 @@ fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
     }
 }
 
+fn aliyun_oss_config() -> Config {
+    let mut configuration = valid_config();
+    configuration.object_store.provider = ObjectStoreProvider::AliyunOss;
+    configuration.object_store.endpoint = "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned();
+    configuration.object_store.region = "cn-hangzhou".to_owned();
+    configuration
+}
+
+#[test]
+fn version_discovery_defaults_to_list_for_aliyun_oss_and_head_for_tencent_cos() {
+    let parsed = Config::parse_yaml("objectStore:\n  versionDiscovery: head\n")
+        .expect("versionDiscovery parses");
+    assert_eq!(
+        parsed.object_store.version_discovery,
+        Some(ObjectStoreVersionDiscovery::Head)
+    );
+    assert!(Config::parse_yaml("objectStore:\n  versionDiscovery: headProbing\n").is_err());
+    let with_discovery = |mut configuration: Config, version_discovery| {
+        configuration.object_store.version_discovery = version_discovery;
+        configuration
+    };
+    for (configuration, provider, expected) in [
+        (
+            aliyun_oss_config(),
+            ObjectStoreProvider::AliyunOss,
+            VersionDiscovery::Listing,
+        ),
+        (
+            with_discovery(aliyun_oss_config(), Some(ObjectStoreVersionDiscovery::List)),
+            ObjectStoreProvider::AliyunOss,
+            VersionDiscovery::Listing,
+        ),
+        (
+            with_discovery(aliyun_oss_config(), Some(ObjectStoreVersionDiscovery::Head)),
+            ObjectStoreProvider::AliyunOss,
+            VersionDiscovery::HeadProbing,
+        ),
+        (
+            tencent_cos_config(),
+            ObjectStoreProvider::TencentCos,
+            VersionDiscovery::HeadProbing,
+        ),
+        (
+            with_discovery(
+                tencent_cos_config(),
+                Some(ObjectStoreVersionDiscovery::Head),
+            ),
+            ObjectStoreProvider::TencentCos,
+            VersionDiscovery::HeadProbing,
+        ),
+    ] {
+        configuration
+            .validate()
+            .expect("the version discovery is valid");
+        assert_eq!(
+            configuration.object_store.version_discovery_for(provider),
+            expected,
+            "{:?}",
+            configuration.object_store.version_discovery
+        );
+    }
+}
+
+#[test]
+fn version_discovery_is_rejected_where_no_store_keeps_versions_and_list_with_tencent_cos() {
+    let message_of = |configuration: Config| match configuration.validate() {
+        Err(ConfigError::Invalid {
+            field: "objectStore.versionDiscovery",
+            message,
+        }) => message,
+        other => panic!("expected an invalid objectStore.versionDiscovery: {other:?}"),
+    };
+    let mut tencent_cos = tencent_cos_config();
+    tencent_cos.object_store.version_discovery = Some(ObjectStoreVersionDiscovery::List);
+    assert!(message_of(tencent_cos).contains("must be head with tencentCOS"));
+    for version_discovery in [
+        ObjectStoreVersionDiscovery::List,
+        ObjectStoreVersionDiscovery::Head,
+    ] {
+        let mut s3 = valid_config();
+        s3.object_store.version_discovery = Some(version_discovery);
+        assert!(message_of(s3).contains("must be unset"));
+    }
+    let mut aliyun_oss_with_tencent_cos_hard_delete = aliyun_oss_config();
+    aliyun_oss_with_tencent_cos_hard_delete
+        .object_store
+        .hard_delete_store = Some(ObjectStoreLocationConfig {
+        provider: Some(ObjectStoreProvider::TencentCos),
+        endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_owned(),
+        region: "ap-guangzhou".to_owned(),
+        bucket: "hard-delete".to_owned(),
+        ..ObjectStoreLocationConfig::default()
+    });
+    aliyun_oss_with_tencent_cos_hard_delete
+        .object_store
+        .version_discovery = Some(ObjectStoreVersionDiscovery::List);
+    assert!(message_of(aliyun_oss_with_tencent_cos_hard_delete).contains("must be head"));
+    let mut s3_with_aliyun_oss_hard_delete = valid_config();
+    s3_with_aliyun_oss_hard_delete
+        .object_store
+        .hard_delete_store = Some(ObjectStoreLocationConfig {
+        provider: Some(ObjectStoreProvider::AliyunOss),
+        endpoint: "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned(),
+        region: "cn-hangzhou".to_owned(),
+        bucket: "hard-delete".to_owned(),
+        ..ObjectStoreLocationConfig::default()
+    });
+    s3_with_aliyun_oss_hard_delete
+        .object_store
+        .version_discovery = Some(ObjectStoreVersionDiscovery::Head);
+    s3_with_aliyun_oss_hard_delete
+        .validate()
+        .expect("an aliyunOSS hardDeleteStore keeps versions");
+}
+
 #[test]
 fn aliyun_oss_provider_parses_and_requires_a_virtual_hosted_endpoint() {
     let parsed = Config::parse_yaml(
@@ -2623,5 +2740,264 @@ fn flow_definition_key_budget_counts_the_aliyun_oss_version_suffix() {
     assert_eq!(
         key_overhead(ObjectStoreProvider::AliyunOss, "cluster-a"),
         10 + version_suffix + 1
+    );
+}
+
+/// A valid tencentCOS configuration with a virtual-hosted endpoint.
+fn tencent_cos_config() -> Config {
+    let mut configuration = valid_config();
+    configuration.object_store.provider = ObjectStoreProvider::TencentCos;
+    configuration.object_store.endpoint = "https://cos.ap-guangzhou.myqcloud.com".to_owned();
+    configuration.object_store.region = "ap-guangzhou".to_owned();
+    configuration
+}
+
+#[test]
+fn tencent_cos_provider_parses_and_requires_a_virtual_hosted_endpoint() {
+    let parsed = Config::parse_yaml(
+        "objectStore:\n  provider: tencentCOS\n  endpoint: https://cos.ap-guangzhou.myqcloud.com\n  region: ap-guangzhou\n",
+    )
+    .expect("tencentCOS parses");
+    assert_eq!(
+        parsed.object_store.provider,
+        ObjectStoreProvider::TencentCos
+    );
+    assert_eq!(ObjectStoreProvider::TencentCos.yaml_name(), "tencentCOS");
+    assert!(Config::parse_yaml("objectStore:\n  provider: tencentCos\n").is_err());
+    tencent_cos_config()
+        .validate()
+        .expect("a virtual-hosted endpoint is valid");
+    let cases: [InvalidConfigCase; 4] = [
+        ("objectStore.endpoint", |config| {
+            config.object_store.endpoint.clear()
+        }),
+        ("objectStore.forcePathStyle", |config| {
+            config.object_store.force_path_style = true
+        }),
+        ("objectStore.hardDeleteStore.endpoint", |config| {
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                bucket: "hard-delete".to_owned(),
+                ..ObjectStoreLocationConfig::default()
+            })
+        }),
+        ("objectStore.hardDeleteStore.forcePathStyle", |config| {
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                bucket: "hard-delete".to_owned(),
+                endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_owned(),
+                force_path_style: true,
+                ..ObjectStoreLocationConfig::default()
+            })
+        }),
+    ];
+    for (expected_field, mutate) in cases {
+        let mut configuration = tencent_cos_config();
+        mutate(&mut configuration);
+        let error = configuration
+            .validate()
+            .expect_err("the tencentCOS configuration is invalid");
+        assert!(
+            matches!(&error, ConfigError::Invalid { field, message }
+                if *field == expected_field && message.contains("tencentCOS")),
+            "{expected_field}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn hard_delete_store_defaults_to_the_primary_create_only_provider() {
+    let location = ObjectStoreLocationConfig::default();
+    for (primary, expected) in [
+        (
+            ObjectStoreProvider::TencentCos,
+            ObjectStoreProvider::TencentCos,
+        ),
+        (
+            ObjectStoreProvider::AliyunOss,
+            ObjectStoreProvider::AliyunOss,
+        ),
+        (ObjectStoreProvider::S3, ObjectStoreProvider::S3),
+        (ObjectStoreProvider::AzureBlob, ObjectStoreProvider::S3),
+    ] {
+        assert_eq!(
+            location.effective_provider(primary),
+            expected,
+            "{primary:?}"
+        );
+    }
+    let parsed = Config::parse_yaml(
+        "objectStore:\n  hardDeleteStore:\n    provider: tencentCOS\n    endpoint: https://cos.ap-guangzhou.myqcloud.com\n    bucket: hard-delete\n",
+    )
+    .expect("a tencentCOS hard-delete store parses");
+    assert_eq!(
+        parsed
+            .object_store
+            .hard_delete_store
+            .expect("the hard-delete store is set")
+            .effective_provider(ObjectStoreProvider::S3),
+        ObjectStoreProvider::TencentCos
+    );
+}
+
+#[test]
+fn tencent_cos_limits_the_write_buffer_to_one_gibibyte() {
+    const GIBIBYTE: u64 = 1024 * 1024 * 1024;
+    let with_write_buffer = |provider, write_buffer_bytes| {
+        let mut configuration = match provider {
+            ObjectStoreProvider::TencentCos => tencent_cos_config(),
+            _ => valid_config(),
+        };
+        configuration.local_storage.max_wal_bytes = 4 * GIBIBYTE;
+        configuration.local_storage.write_buffer_bytes = write_buffer_bytes;
+        configuration.validate()
+    };
+    with_write_buffer(ObjectStoreProvider::TencentCos, GIBIBYTE)
+        .expect("1 GiB is the largest tencentCOS write buffer");
+    let error = with_write_buffer(ObjectStoreProvider::TencentCos, GIBIBYTE + 1)
+        .expect_err("a larger tencentCOS write buffer is rejected");
+    assert!(
+        matches!(&error, ConfigError::Invalid { field: "localStorage.writeBufferBytes", message }
+            if message.contains("5 GiB")),
+        "{error:?}"
+    );
+    with_write_buffer(ObjectStoreProvider::S3, GIBIBYTE + 1)
+        .expect("s3 keeps the write buffer limit of maxWalBytes");
+}
+
+#[test]
+fn only_tencent_cos_snapshots_skip_empty_write_ahead_logs() {
+    for (configuration, should_skip) in [(tencent_cos_config(), true), (valid_config(), false)] {
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        assert_eq!(
+            components
+                .engine_node
+                .snapshots
+                .should_skip_empty_write_ahead_log_files,
+            should_skip
+        );
+    }
+}
+
+#[test]
+fn only_tencent_cos_reads_past_an_eventually_consistent_listing() {
+    let mut aliyun_oss = valid_config();
+    aliyun_oss.object_store.provider = ObjectStoreProvider::AliyunOss;
+    let mut tencent_cos = tencent_cos_config();
+    tencent_cos.commit.max_in_flight = 4;
+    for (configuration, expected, expected_tail_probe_misses) in [
+        (tencent_cos, ListingConsistency::Eventual, 32),
+        (valid_config(), ListingConsistency::Strong, 4),
+        (aliyun_oss, ListingConsistency::Strong, 4),
+    ] {
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        let engine_node = &components.engine_node;
+        assert_eq!(engine_node.snapshots.listing_consistency, expected);
+        let read_ahead = engine_node.recovery.log_read_ahead;
+        assert_eq!(read_ahead.listing_consistency, expected);
+        // A writer before a restart or retuning may have used up to the tencentCOS limit.
+        assert_eq!(read_ahead.tail_probe_misses, expected_tail_probe_misses);
+    }
+}
+
+#[test]
+fn hard_delete_purges_follow_the_listing_consistency_of_the_hard_delete_store() {
+    let with_hard_delete_store = |configuration: Config, provider| {
+        let mut configuration = configuration;
+        configuration.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+            provider,
+            bucket: "hard-delete".to_owned(),
+            endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_owned(),
+            region: "ap-guangzhou".to_owned(),
+            ..ObjectStoreLocationConfig::default()
+        });
+        configuration
+    };
+    for (configuration, expected) in [
+        (tencent_cos_config(), ListingConsistency::Eventual),
+        (valid_config(), ListingConsistency::Strong),
+        (
+            with_hard_delete_store(valid_config(), Some(ObjectStoreProvider::TencentCos)),
+            ListingConsistency::Eventual,
+        ),
+        (
+            with_hard_delete_store(tencent_cos_config(), Some(ObjectStoreProvider::S3)),
+            ListingConsistency::Strong,
+        ),
+        (
+            with_hard_delete_store(tencent_cos_config(), None),
+            ListingConsistency::Eventual,
+        ),
+    ] {
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        assert_eq!(
+            components.hard_delete_prefix_listing.listing_consistency,
+            expected
+        );
+    }
+}
+
+#[test]
+fn tencent_cos_limits_commit_max_in_flight_to_thirty_two() {
+    let with_max_in_flight = |configuration: Config, max_in_flight| {
+        let mut configuration = configuration;
+        configuration.commit.max_in_flight = max_in_flight;
+        configuration.validate()
+    };
+    with_max_in_flight(tencent_cos_config(), 32)
+        .expect("32 is the largest tencentCOS commit.maxInFlight");
+    let error = with_max_in_flight(tencent_cos_config(), 33)
+        .expect_err("a larger tencentCOS commit.maxInFlight is rejected");
+    assert!(
+        matches!(&error, ConfigError::Invalid { field: "commit.maxInFlight", message }
+            if message.contains("listing")),
+        "{error:?}"
+    );
+    with_max_in_flight(valid_config(), 33).expect("s3 keeps its commit.maxInFlight range");
+    let mut aliyun_oss = valid_config();
+    aliyun_oss.object_store.provider = ObjectStoreProvider::AliyunOss;
+    aliyun_oss.object_store.endpoint = "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned();
+    aliyun_oss.object_store.region = "cn-hangzhou".to_owned();
+    with_max_in_flight(aliyun_oss, 33).expect("aliyunOSS keeps its commit.maxInFlight range");
+}
+
+#[test]
+fn dev_rejects_the_tencent_cos_provider_by_its_name() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let yaml_path = temporary.path().join("config.yaml");
+    fs::write(&yaml_path, "objectStore:\n  provider: tencentCOS\n").expect("write test config");
+    let error = Config::load_dev(&DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
+        log_dir: None,
+        config: Some(yaml_path),
+        attribute_store_config: None,
+        durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
+    })
+    .expect_err("dev must reject tencentCOS");
+    assert!(
+        matches!(
+            &error,
+            ConfigError::Invalid { field: "objectStore.provider", message }
+                if message.starts_with("tencentCOS requires serve mode")
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn flow_definition_key_budget_counts_the_tencent_cos_version_suffix_and_key_limit() {
+    let mut configuration = tencent_cos_config();
+    configuration.object_store.prefix = "cluster-a".to_owned();
+    let overhead = ComponentConfigs::from_config(&configuration, false)
+        .expect("component config")
+        .flow_definitions
+        .object_key_prefix_bytes;
+    assert_eq!(
+        overhead,
+        10 + dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES + (1024 - 850)
     );
 }

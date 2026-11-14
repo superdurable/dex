@@ -100,6 +100,13 @@ taken before the upgrade into a new prefix. The upgrade also changes how the
 server applies commands. Stop the standby and the active process, and upgrade
 both binaries. Then start the active process first and the standby after it.
 
+server-zd 0.1.30 and later provide protocol version 5, which adds named task
+queues. Workers and Clients that use no named task queue keep working on
+older servers. Before you roll back from 0.1.30 or later, stop every Flow that
+uses a named task queue, as
+[Roll back the server](/reference/server/workers#named-task-queue-rollback)
+describes.
+
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,
 use isolated blue and green environments, so deployments with ranges that do not

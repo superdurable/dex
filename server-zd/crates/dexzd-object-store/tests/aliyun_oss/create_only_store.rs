@@ -8,17 +8,22 @@
 
 //! An in-memory inner store with only create-only conditions, a paused-time clock, and faults.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_object_store::{
-    FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions, ObjectStore,
-    ObjectStoreOperation,
+    ByteRange, FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions,
+    ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreOperation,
+    ObjectStoreResult, WriteCondition, WriteOutcome,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use tokio::sync::Semaphore;
 use tokio::time::Instant;
 
 /// The reclamation age of most adapters under test; tests of the production age name it.
@@ -48,6 +53,63 @@ impl WallClock for TokioWallClock {
     fn now_unix_micros(&self) -> i64 {
         self.origin_unix_micros
             + i64::try_from(self.origin.elapsed().as_micros()).expect("test time fits in i64")
+    }
+}
+
+/// A store clock that moves only when a test advances it, independent of Tokio's clock.
+///
+/// Holding Tokio's clock still while this one advances models every process whose local clock
+/// stands still, as in a frozen VM, while the store and other processes move on.
+#[derive(Clone)]
+pub(crate) struct ManualStoreClock {
+    now_unix_micros: Arc<AtomicI64>,
+}
+
+impl ManualStoreClock {
+    pub(crate) fn new() -> Self {
+        Self {
+            now_unix_micros: Arc::new(AtomicI64::new(1_800_000_000_000_000)),
+        }
+    }
+
+    /// Moves the store clock forward by `duration`; Tokio's clock does not move.
+    pub(crate) fn advance(&self, duration: Duration) {
+        self.now_unix_micros.fetch_add(
+            i64::try_from(duration.as_micros()).expect("the advance fits in i64"),
+            Ordering::SeqCst,
+        );
+    }
+}
+
+impl WallClock for ManualStoreClock {
+    fn now_unix_micros(&self) -> i64 {
+        self.now_unix_micros.load(Ordering::SeqCst)
+    }
+}
+
+/// A store clock that runs `rate` times faster than Tokio's clock, as if every process's local
+/// clock ran that much slower than the store's.
+pub(crate) struct FastStoreClock {
+    origin: Instant,
+    origin_unix_micros: i64,
+    rate: i64,
+}
+
+impl FastStoreClock {
+    pub(crate) fn new(rate: i64) -> Self {
+        Self {
+            origin: Instant::now(),
+            origin_unix_micros: 1_800_000_000_000_000,
+            rate,
+        }
+    }
+}
+
+impl WallClock for FastStoreClock {
+    fn now_unix_micros(&self) -> i64 {
+        let elapsed =
+            i64::try_from(self.origin.elapsed().as_micros()).expect("test time fits in i64");
+        self.origin_unix_micros + elapsed * self.rate
     }
 }
 
@@ -220,7 +282,7 @@ impl CreateOnlyStore {
     }
 
     /// Creates an empty store like [`Self::new`] whose write timestamps come from `clock`.
-    pub(crate) fn with_store_clock(clock: TokioWallClock) -> Self {
+    pub(crate) fn with_store_clock(clock: impl WallClock) -> Self {
         let faults = Arc::new(TestFaults::new());
         let store = Arc::new(InMemoryObjectStore::with_options(
             InMemoryObjectStoreOptions {
@@ -228,6 +290,30 @@ impl CreateOnlyStore {
                 clock: Some(Arc::new(clock)),
                 rejects_replace_if_etag_matches: true,
             },
+        ));
+        Self { store, faults }
+    }
+
+    /// Creates an empty store like [`Self::new`] whose listings repeat the first listing of each
+    /// prefix for `lifetime`, as Tencent COS does; helpers that list then see stale listings too.
+    pub(crate) fn with_stale_listings(lifetime: Duration) -> Self {
+        Self::with_store_clock_and_stale_listings(TokioWallClock::new(), lifetime)
+    }
+
+    /// Creates an empty store like [`Self::with_stale_listings`] whose write timestamps come from
+    /// `clock`.
+    pub(crate) fn with_store_clock_and_stale_listings(
+        clock: impl WallClock,
+        lifetime: Duration,
+    ) -> Self {
+        let faults = Arc::new(TestFaults::new());
+        let store = Arc::new(InMemoryObjectStore::with_options_and_stale_listings(
+            InMemoryObjectStoreOptions {
+                injector: Some(Arc::clone(&faults) as Arc<dyn FaultInjector>),
+                clock: Some(Arc::new(clock)),
+                rejects_replace_if_etag_matches: true,
+            },
+            lifetime,
         ));
         Self { store, faults }
     }
@@ -255,12 +341,13 @@ impl CreateOnlyStore {
         }
     }
 
-    /// Returns the generations stored for `logical_key`, newest first.
+    /// Returns the generations stored for `logical_key`, newest first, without its anchor.
     pub(crate) async fn generations(&self, logical_key: &str) -> Vec<u64> {
         let prefix = format!("{logical_key}.v/");
         self.physical_keys(&prefix)
             .await
             .iter()
+            .filter(|key| **key != anchor_key(logical_key))
             .map(|key| {
                 u64::MAX
                     - key
@@ -284,9 +371,184 @@ impl CreateOnlyStore {
     }
 }
 
+/// Asserts that the versions stored for `logical_key` are consecutive generations, as HEAD
+/// probing keeps them once no stale writer is left; reads current objects, not a stale listing.
+pub(crate) async fn assert_consecutive_generations(physical: &CreateOnlyStore, logical_key: &str) {
+    physical.store.expire_stale_listings();
+    let generations = physical.generations(logical_key).await;
+    for pair in generations.windows(2) {
+        assert_eq!(
+            pair[0],
+            pair[1] + 1,
+            "the versions of {logical_key} have a gap: {generations:?}"
+        );
+    }
+}
+
 /// Returns the physical key of `generation` of `logical_key`.
 pub(crate) fn version_key(logical_key: &str, generation: u64) -> String {
     format!("{logical_key}.v/{:020}", u64::MAX - generation)
+}
+
+/// Returns the physical key of the anchor of `logical_key`, which HEAD probing writes before it
+/// first reclaims generation 1.
+pub(crate) fn anchor_key(logical_key: &str) -> String {
+    format!("{logical_key}.v/anchor")
+}
+
+/// A call on one physical key that waits until the test releases it, as a frozen process does.
+pub(crate) struct FrozenCall {
+    operation: ObjectStoreOperation,
+    physical_key: String,
+    reached: Semaphore,
+    released: Semaphore,
+}
+
+impl FrozenCall {
+    /// Waits until the frozen call has started.
+    pub(crate) async fn wait_until_reached(&self) {
+        self.reached
+            .acquire()
+            .await
+            .expect("the semaphore stays open")
+            .forget();
+    }
+
+    /// Lets the frozen call continue.
+    pub(crate) fn release(&self) {
+        self.released.add_permits(1);
+    }
+}
+
+/// One process's view of the inner store, whose chosen call freezes without Tokio time passing.
+pub(crate) struct FreezableStore {
+    inner: Arc<dyn ObjectStore>,
+    frozen_call: Mutex<Option<Arc<FrozenCall>>>,
+}
+
+impl FreezableStore {
+    pub(crate) fn new(inner: Arc<dyn ObjectStore>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            frozen_call: Mutex::new(None),
+        })
+    }
+
+    /// Freezes the next `operation` on `physical_key` until the returned handle releases it.
+    pub(crate) fn freeze_next(
+        &self,
+        operation: ObjectStoreOperation,
+        physical_key: &str,
+    ) -> Arc<FrozenCall> {
+        let frozen = Arc::new(FrozenCall {
+            operation,
+            physical_key: physical_key.to_owned(),
+            reached: Semaphore::new(0),
+            released: Semaphore::new(0),
+        });
+        *self
+            .frozen_call
+            .lock()
+            .expect("freeze lock is not poisoned") = Some(Arc::clone(&frozen));
+        frozen
+    }
+
+    async fn wait_while_frozen(&self, operation: ObjectStoreOperation, key: &str) {
+        let frozen = {
+            let mut frozen_call = self
+                .frozen_call
+                .lock()
+                .expect("freeze lock is not poisoned");
+            if frozen_call
+                .as_ref()
+                .is_some_and(|frozen| frozen.operation == operation && frozen.physical_key == key)
+            {
+                frozen_call.take()
+            } else {
+                None
+            }
+        };
+        if let Some(frozen) = frozen {
+            frozen.reached.add_permits(1);
+            frozen
+                .released
+                .acquire()
+                .await
+                .expect("the semaphore stays open")
+                .forget();
+        }
+    }
+}
+
+#[async_trait]
+impl ObjectStore for FreezableStore {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.wait_while_frozen(ObjectStoreOperation::Put, key).await;
+        self.inner.put(key, body, condition).await
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.inner.put_file(key, path, condition).await
+    }
+
+    async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.wait_while_frozen(ObjectStoreOperation::Get, key).await;
+        self.inner.get(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.wait_while_frozen(ObjectStoreOperation::Get, key).await;
+        self.inner.get_range(key, range).await
+    }
+
+    async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
+        self.wait_while_frozen(ObjectStoreOperation::Head, key)
+            .await;
+        self.inner.head(key).await
+    }
+
+    async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
+        self.wait_while_frozen(ObjectStoreOperation::Delete, key)
+            .await;
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> ObjectStoreResult<ObjectListing> {
+        self.wait_while_frozen(ObjectStoreOperation::List, prefix)
+            .await;
+        self.inner.list(prefix, start_after, max_keys).await
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
 }
 
 /// Returns the ETag of the object stored at `generation` of `logical_key`, read physically.

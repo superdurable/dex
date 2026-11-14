@@ -16,6 +16,10 @@ mod azure_gcs_fake_server;
 mod fake_cloud_server;
 #[path = "conformance/recording_s3_proxy.rs"]
 mod recording_s3_proxy;
+#[path = "conformance/tencent_cos_dialect.rs"]
+mod tencent_cos_dialect;
+#[path = "conformance/tencent_cos_empty_objects.rs"]
+mod tencent_cos_empty_objects;
 
 use std::sync::Arc;
 
@@ -1460,6 +1464,31 @@ async fn set_s3local_fault(address: std::net::SocketAddr, rule: &str) {
         .read_to_end(&mut response)
         .await
         .expect("the conformance operation succeeds");
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+}
+
+/// Deletes every s3local fault, which also releases appends waiting as placeholders.
+async fn clear_s3local_faults(address: std::net::SocketAddr) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(address)
+        .await
+        .expect("the admin endpoint is reachable");
+    let request = format!(
+        "DELETE /_s3local/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("the fault deletion is sent");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .expect("the fault deletion is answered");
     assert!(
         response.starts_with(b"HTTP/1.1 200"),
         "{}",

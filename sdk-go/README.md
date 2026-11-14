@@ -642,7 +642,7 @@ deadline fails startup. Indexed AttributeMaps must declare a fixed index key.
 
 ### Client-only Flows
 
-Since 1.46.0, a Flow that embeds `dex.ClientOnlyFlow` types the RPCs and
+Since 1.45.2, a Flow that embeds `dex.ClientOnlyFlow` types the RPCs and
 Streams of a Flow type that another application serves, such as a Worker in
 another language. It declares the served Flow type, the RPC methods with the
 served names, types, and `RPCOptions`, and the Attributes, Channels, and Streams

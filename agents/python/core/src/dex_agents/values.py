@@ -1081,7 +1081,7 @@ class AcquireSessionTerminalLeaseRequest:
 
     .. versionadded:: 0.6.3
 
-    .. versionchanged:: 0.6.7
+    .. versionchanged:: 0.6.8
        Added ``environment``.
 
     Attributes:
@@ -1095,7 +1095,7 @@ class AcquireSessionTerminalLeaseRequest:
             stores this map in the ``SessionLastTerminalEnvironment``
             Attribute. A renewal and a refused call leave that Attribute
             unchanged. A session list can then show where each session was
-            last open. The session never reads the keys. Workers before 0.6.7
+            last open. The session never reads the keys. Workers before 0.6.8
             ignore the field. The wire field is left out when ``None``.
     """
 

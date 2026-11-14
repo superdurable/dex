@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::aliyun_oss::version_discovery::NewestVersionLocator;
 use crate::aliyun_oss::version_keys::{
     is_reserved_physical_key, may_list_versioned_keys, versioned_logical_key,
 };
@@ -32,7 +33,7 @@ enum ListedKey {
 
 /// Lists logical keys; a prefix that may hold versioned keys reads all its later objects per page.
 pub(super) async fn list_logical_keys(
-    inner: &dyn ObjectStore,
+    locator: &NewestVersionLocator,
     prefix: &str,
     start_after: Option<&str>,
     max_keys: u32,
@@ -45,6 +46,7 @@ pub(super) async fn list_logical_keys(
             "max_keys must be 1..=1000",
         ));
     }
+    let inner = locator.inner();
     if !may_list_versioned_keys(prefix) {
         return inner.list(prefix, start_after, max_keys).await;
     }
@@ -55,7 +57,7 @@ pub(super) async fn list_logical_keys(
         let metadata = match listed_key {
             ListedKey::Plain(metadata) => Some(metadata),
             ListedKey::Versioned => {
-                head_versioned(inner, ObjectStoreOperation::List, &logical_key).await?
+                head_versioned(locator, ObjectStoreOperation::List, &logical_key).await?
             }
         };
         let Some(metadata) = metadata else {

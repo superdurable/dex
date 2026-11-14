@@ -114,6 +114,7 @@ async fn read_failure_then_full_budget_batch(
     let config = LogReadAheadConfig {
         max_read_ahead_batches: 64,
         max_buffered_bytes: budget,
+        ..LogReadAheadConfig::default()
     };
     let mut reader = OrderedBatchReader::new(store, &stream, 1, Some(2), config);
     let (first_read, ()) = tokio::join!(reader.next_batch(), during_first_read);

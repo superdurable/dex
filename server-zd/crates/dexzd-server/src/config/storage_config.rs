@@ -10,7 +10,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials};
+use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials, VersionDiscovery};
 use serde::{Deserialize, Serialize};
 
 /// Chooses how S3 credentials are supplied without putting secrets in YAML.
@@ -55,12 +55,25 @@ pub enum ObjectStoreProvider {
     /// Aliyun OSS through its S3-compatible endpoint, with versioned objects for replaced keys.
     #[serde(rename = "aliyunOSS")]
     AliyunOss,
+    /// Tencent COS through its S3-compatible endpoint, with versioned objects for replaced keys.
+    #[serde(rename = "tencentCOS")]
+    TencentCos,
     /// Azure Blob Storage through its native API; `bucket` names the container.
     #[serde(rename = "azureBlob")]
     AzureBlob,
     /// Google Cloud Storage through its native API.
     #[serde(rename = "googleCloudStorage")]
     GoogleCloudStorage,
+}
+
+/// How an aliyunOSS or tencentCOS store finds the newest version of a replaced object.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ObjectStoreVersionDiscovery {
+    /// A listing names the newest version; it needs listings that show each write at once.
+    List,
+    /// HEAD requests past a listed or recently read version find the newest one.
+    Head,
 }
 
 impl ObjectStoreProvider {
@@ -70,6 +83,7 @@ impl ObjectStoreProvider {
             Self::S3 => "s3",
             Self::Db9 => "db9",
             Self::AliyunOss => "aliyunOSS",
+            Self::TencentCos => "tencentCOS",
             Self::AzureBlob => "azureBlob",
             Self::GoogleCloudStorage => "googleCloudStorage",
         }
@@ -92,8 +106,10 @@ impl fmt::Debug for Db9ConnectionString {
 pub struct ObjectStoreConfig {
     /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage, aliyunOSS selects
     /// Aliyun OSS through its S3-compatible endpoint with virtual-hosted addressing, and azureBlob
-    /// or googleCloudStorage selects that cloud's native API. aliyunOSS requires endpoint and
-    /// rejects forcePathStyle. Existing data cannot switch providers.
+    /// or googleCloudStorage selects that cloud's native API. tencentCOS selects Tencent COS
+    /// through its S3-compatible endpoint with virtual-hosted addressing; create-only writes use
+    /// AppendObject, so each object holds at most 5 GiB. aliyunOSS and tencentCOS require
+    /// endpoint and reject forcePathStyle. Existing data cannot switch providers.
     pub provider: ObjectStoreProvider,
     /// Defaults to empty; resolved from DEX_ZD_DB9_CONNECTION_STRING, never serialized.
     #[serde(skip)]
@@ -107,7 +123,7 @@ pub struct ObjectStoreConfig {
     /// Dev and local modes set 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
     /// The server connects to this endpoint; it does not advertise it.
     pub endpoint: String,
-    /// Defaults to us-east-1; region used for bucket lookup and request signing. Only s3 and aliyunOSS use it.
+    /// Defaults to us-east-1; region used for bucket lookup and request signing. Only s3, aliyunOSS, and tencentCOS use it.
     pub region: String,
     /// Defaults to empty and must be set before serving; bucket containing cluster manifests, logs, and snapshots.
     /// For azureBlob it names the container.
@@ -127,6 +143,13 @@ pub struct ObjectStoreConfig {
     pub credentials_source: CredentialSource,
     /// Defaults to none; when present, hard-delete values use this separate destination instead of the primary bucket and prefix.
     pub hard_delete_store: Option<ObjectStoreLocationConfig>,
+    /// Defaults to none, which means list for aliyunOSS and head for tencentCOS. It selects how
+    /// every aliyunOSS or tencentCOS store of the node, primary or hardDeleteStore, finds the
+    /// newest version of a replaced object. list reads a listing. head reads single objects
+    /// only, so a listing that lags behind writes cannot make it wrong. tencentCOS rejects
+    /// list, and other providers reject any value. A head store marks its prefix at startup; a
+    /// list store refuses a marked prefix, and a head store refuses versions written by list.
+    pub version_discovery: Option<ObjectStoreVersionDiscovery>,
     /// Defaults to none; runtime credentials resolved from environment when credentialsSource is environment, never serialized.
     #[serde(skip)]
     pub credentials: Option<ObjectStoreCredentials>,
@@ -153,9 +176,25 @@ impl Default for ObjectStoreConfig {
             force_path_style: false,
             credentials_source: CredentialSource::DefaultChain,
             hard_delete_store: None,
+            version_discovery: None,
             credentials: None,
             azure_blob_credentials: None,
             google_cloud_storage_credentials: None,
+        }
+    }
+}
+
+impl ObjectStoreConfig {
+    /// Returns how a store of `provider` finds the newest version of a replaced object: head
+    /// for tencentCOS, and the configured value or list for aliyunOSS. Other providers keep no
+    /// versions and get list, which they ignore.
+    pub fn version_discovery_for(&self, provider: ObjectStoreProvider) -> VersionDiscovery {
+        match (provider, self.version_discovery) {
+            (ObjectStoreProvider::TencentCos, _)
+            | (ObjectStoreProvider::AliyunOss, Some(ObjectStoreVersionDiscovery::Head)) => {
+                VersionDiscovery::HeadProbing
+            }
+            _ => VersionDiscovery::Listing,
         }
     }
 }
@@ -164,8 +203,9 @@ impl Default for ObjectStoreConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreLocationConfig {
-    /// Defaults to none, which uses aliyunOSS when the primary store does and s3 otherwise.
-    /// s3, aliyunOSS, azureBlob, or googleCloudStorage selects that provider; db9 is rejected.
+    /// Defaults to none, which uses aliyunOSS or tencentCOS when the primary store does and s3
+    /// otherwise. s3, aliyunOSS, tencentCOS, azureBlob, or googleCloudStorage selects that
+    /// provider; db9 is rejected.
     pub provider: Option<ObjectStoreProvider>,
     /// Defaults to empty; uses AWS endpoint resolution for this destination when omitted.
     /// The server connects to this HTTP(S) endpoint; it does not bind or advertise it.
@@ -197,11 +237,12 @@ pub struct ObjectStoreLocationConfig {
 }
 
 impl ObjectStoreLocationConfig {
-    /// Returns the provider of this destination: the configured one, or else aliyunOSS when the
-    /// primary store uses aliyunOSS and s3 otherwise.
+    /// Returns the provider of this destination: the configured one, or else aliyunOSS or
+    /// tencentCOS when the primary store uses it and s3 otherwise.
     pub fn effective_provider(&self, primary: ObjectStoreProvider) -> ObjectStoreProvider {
         self.provider.unwrap_or(match primary {
             ObjectStoreProvider::AliyunOss => ObjectStoreProvider::AliyunOss,
+            ObjectStoreProvider::TencentCos => ObjectStoreProvider::TencentCos,
             _ => ObjectStoreProvider::S3,
         })
     }
@@ -246,7 +287,9 @@ pub struct LocalStorageConfig {
     /// use 12 times this value (768 MiB at the default) on top of blockCacheBytes. Larger values
     /// flush less often and absorb longer write bursts. maxWalBytes forces flushes once the
     /// write-ahead log reaches it, so raising this value usually requires raising maxWalBytes too.
-    /// Must be between 64 KiB, the RocksDB minimum, and maxWalBytes.
+    /// Must be between 64 KiB, the RocksDB minimum, and maxWalBytes. With objectStore.provider
+    /// tencentCOS it must be at most 1 GiB, because each snapshot file is one appendable object of
+    /// at most 5 GiB.
     pub write_buffer_bytes: u64,
     /// Defaults to None, which uses half the CPUs available to the process, at least 2 (the
     /// RocksDB default) and at most 1024. If the CPU count cannot be read, None uses 2. Most
@@ -305,6 +348,12 @@ pub(crate) const MAX_BACKGROUND_JOBS: u32 = 1024;
 
 /// Smallest memtable that RocksDB accepts without raising it.
 pub(crate) const MIN_WRITE_BUFFER_BYTES: u64 = 64 * 1024;
+
+/// Largest memtable with tencentCOS, a fifth of the 5 GiB appendable object limit.
+pub(crate) const MAX_TENCENT_COS_WRITE_BUFFER_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Most concurrent log batch writes with tencentCOS; recovery probes this many seqs past a listing.
+pub(crate) const MAX_TENCENT_COS_COMMIT_MAX_IN_FLIGHT: u32 = 32;
 
 impl LocalStorageConfig {
     /// Returns `maxBackgroundJobs` when set. Otherwise returns half of `available_cpus`, from 2

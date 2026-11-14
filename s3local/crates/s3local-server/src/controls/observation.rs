@@ -113,6 +113,9 @@ impl RequestObservation {
             Ok(S3Operation::PutObject { bucket, key }) => {
                 (S3OperationName::PutObject, bucket.as_str(), key.as_str())
             }
+            Ok(S3Operation::AppendObject { bucket, key, .. }) => {
+                (S3OperationName::AppendObject, bucket.as_str(), key.as_str())
+            }
             Ok(S3Operation::CopyObject { bucket, key, .. }) => {
                 (S3OperationName::CopyObject, bucket.as_str(), key.as_str())
             }

@@ -280,7 +280,7 @@ async def _run_pwd(child: pexpect.spawn, environment: _Environment) -> None:
 async def _start_legacy_session(
     cli_home: CliHome, tmp_path: Path, environment: _Environment
 ) -> str:
-    """Start a session as a release before 0.6.7 did: hashed Flow type, default task queue."""
+    """Start a session as a release before 0.6.8 did: hashed Flow type, default task queue."""
     session_id = f"scripted-legacy-{os.urandom(4).hex()}"
     async with session_client(
         cli_home.address, tmp_path / "legacy-cache", environment.legacy_flow_type

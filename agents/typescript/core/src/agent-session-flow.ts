@@ -488,7 +488,7 @@ export interface AgentSessionFlow<
    * When the call gives the lease to a holder that did not hold it and carries an `environment`, it also stores
    * that map in `SessionLastTerminalEnvironment`. A renewal and a refused call leave that Attribute unchanged.
    *
-   * Changed in 0.6.7: stores the request's `environment`.
+   * Changed in 0.6.8: stores the request's `environment`.
    *
    * The RPC locks `SessionTerminalLease` and can fail with `RpcLockConflictError`, which is safe to retry. A
    * lock conflict never means another holder took the lease.
@@ -688,7 +688,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly sessionTerminalLease = persistence.sessionTerminalLease;
     /**
      * The `SessionLastTerminalEnvironment` Attribute; see
-     * {@link AgentSessionPersistence.sessionLastTerminalEnvironment}. Since 0.6.7.
+     * {@link AgentSessionPersistence.sessionLastTerminalEnvironment}. Since 0.6.8.
      */
     public readonly sessionLastTerminalEnvironment = persistence.sessionLastTerminalEnvironment;
     /** The `TurnReplySequence` Attribute; see {@link AgentSessionPersistence.turnReplySequence}. */

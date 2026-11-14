@@ -79,7 +79,7 @@ import "fmt"
 //	var isCancelled bool
 //	err = client.InvokeRPC(ctx, "order-7", RemoteOrderFlow{}.Cancel, "customer request", &isCancelled)
 //
-// Since 1.46.0.
+// Since 1.45.2.
 type ClientOnlyFlow struct{}
 
 // isClientOnlyFlow seals the marker: only types that embed ClientOnlyFlow have it.
@@ -101,7 +101,7 @@ type clientOnlyFlowMarker interface {
 // It returns true when flow embeds ClientOnlyFlow, directly or through another
 // embedded type, and false for any other Flow, including a nil Flow.
 //
-// Since 1.46.0.
+// Since 1.45.2.
 func IsClientOnlyFlow(flow Flow) bool {
 	if nilInterface(flow) {
 		return false
@@ -126,7 +126,7 @@ func IsClientOnlyFlow(flow Flow) bool {
 // When the Registry holds several client-only Flows, the error names the
 // first Flow type in lexical order.
 //
-// Since 1.46.0.
+// Since 1.45.2.
 type ClientOnlyFlowError struct {
 	// FlowType is the Flow type of the client-only Flow that the Registry holds.
 	FlowType string

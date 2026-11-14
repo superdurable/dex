@@ -195,7 +195,7 @@ binary; `start` uses explicit defaults and ignores `S3LOCAL_*` environment varia
 | `--control-authentication` | `S3LOCAL_CONTROL_AUTHENTICATION` | `off` | `root` requires root SigV4 signatures on every test control when signature verification is strict. |
 | `--access-key-id` | `S3LOCAL_ACCESS_KEY_ID` | `s3local` | Root access key; the only identity that can manage credentials. |
 | `--secret-access-key` | `S3LOCAL_SECRET_ACCESS_KEY` | `s3local` | Root signing secret. |
-| `--api-dialect` | `S3LOCAL_API_DIALECT` | `amazon-s3` | `amazon-s3` or `aliyun-oss`. |
+| `--api-dialect` | `S3LOCAL_API_DIALECT` | `amazon-s3` | `amazon-s3`, `aliyun-oss`, or `tencent-cos`. |
 
 The `aliyun-oss` dialect emulates the S3-compatible endpoint of Aliyun OSS. PutObject and
 CompleteMultipartUpload reject `If-None-Match` and `If-Match` with `400 NotImplemented`. They honor
@@ -203,6 +203,20 @@ CompleteMultipartUpload reject `If-None-Match` and `If-Match` with `400 NotImple
 As in OSS, a bucket whose versioning was ever enabled or suspended ignores the header and overwrites.
 UploadPart responses omit checksum headers. DeleteObjects without `Content-MD5` returns
 `400 MissingArgument`. The `amazon-s3` dialect ignores `x-oss-forbid-overwrite`.
+
+The `tencent-cos` dialect emulates the S3-compatible endpoint of Tencent COS. PutObject and
+CompleteMultipartUpload ignore `If-None-Match`, `If-Match`, and `x-cos-forbid-overwrite`, and
+overwrite. `POST /<bucket>/<key>?append&position=N` serves AppendObject. It requires
+`Content-Length`, or answers `411 MissingContentLength`. The key must be absent at position 0, or
+hold an appendable object of N bytes. Otherwise it answers `409 AppendPositionErr`, or
+`409 ObjectNotAppendable` for a non-appendable object of N bytes. The check is atomic, so
+concurrent appends at one position have one winner. As in COS, an empty appendable object accepts
+position 0 again. A success returns `x-cos-next-append-position` and no ETag. `x-cos-meta-*` headers become user
+metadata, which HEAD and GET return as `x-amz-meta-*`. `Content-MD5` and
+checksum headers are verified only at position 0. A PutObject replaces an appendable object with a
+normal one. UploadPart responses omit checksum headers, and DeleteObjects without `Content-MD5`
+returns `400 InvalidRequest`. Other dialects answer AppendObject with `501 NotImplemented`.
+Requests are path-style, so the dialect does not emulate COS's rejection of path-style addressing.
 
 Opaque ETags identify a committed version rather than its MD5. Repeated HEAD/GET requests and
 server restarts return the same ETag for that version. Writing identical bytes creates a different
@@ -339,13 +353,17 @@ concurrent scheduling can change that order. An SDK retry is a separate request 
 
 | Action JSON | Behavior |
 | --- | --- |
-| `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `CopyObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
+| `{"type":"commit_then_error","status":503}` | Requires the same operations as `commit_then_drop`. A successful store commit answers with the error of `status` instead of the success, as `error` maps it. |
+| `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `AppendObject`, `CopyObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
 | `{"type":"delay","milliseconds":100}` | Waits before invoking the S3 handler. Maximum 600000 milliseconds (ten minutes); deleting faults releases sleeping requests. |
-| `{"type":"error","status":500}` | Returns `InternalError` without invoking the store. Status 403 returns `AccessDenied`; 503 returns `SlowDown`; 409 returns `ConditionalRequestConflict`. Other statuses are rejected. |
+| `{"type":"error","status":500}` | Returns `InternalError` without invoking the store. Status 403 returns `AccessDenied`; 503 returns `SlowDown`; 409 returns `ConditionalRequestConflict`; 416 returns `InvalidRange`. Other statuses are rejected. |
 | `{"type":"missing_key_access_denied"}` | Requires `GetObject` or `HeadObject`. Changes only a missing key's `NoSuchKey` response to 403 `AccessDenied`; existing keys and missing buckets retain their normal responses. |
 | `{"type":"fail_before_commit"}` | Returns `500 InternalError` without invoking the store. |
 | `{"type":"corrupt_body"}` | Requires `operation: "GetObject"`. For successful 200 or 206 responses, flips the first returned byte and preserves the original headers, including checksums and ETag. Empty bodies have no byte to flip. |
 | `{"type":"truncate_response"}` | Requires `GetObject`, `ListBuckets`, `ListObjectsV2`, `ListObjectVersions`, `ListParts`, or `ListMultipartUploads`. Sends part of a successful response body, then terminates the stream with an error. |
+| `{"type":"stale_listing","ttl_milliseconds":2000}` | Requires `ListObjectsV2` and 1 through 600000 milliseconds. Emulates the eventually consistent listing of Tencent COS. The first successful listing of each bucket and exact prefix to finish is cached, and concurrent listings that finish later return it too. Every later listing of that prefix receives the cached response until the TTL passes, whatever its `max-keys`, `start-after`, or continuation token. New keys are missing, deleted keys are still listed, and a truncated page stays truncated. Hits do not extend the TTL. Replacing or deleting the rules drops the cache. |
+| `{"type":"append_placeholder","milliseconds":500}` | Requires `AppendObject` and at most 600000 milliseconds; acts only in the Tencent COS dialect. Emulates the placeholder of Tencent COS: an append to a missing key first creates an empty appendable object without user metadata, which HEAD, GET, and listings show and a range read answers with 416 `InvalidRange`. The append then waits and runs normally, so its position check still picks one winner at commit. Deleting faults releases sleeping requests. |
+| `{"type":"interrupted_append"}` | Requires `AppendObject`; acts only in the Tencent COS dialect. Creates the same empty placeholder at a missing key, then closes the connection without reading the body or committing, as an append interrupted by a crash or timeout leaves it on Tencent COS. A later append at position 0 creates the object over the empty one. |
 
 For example, in off mode test an ambiguous conditional write with automatic SDK retries disabled:
 

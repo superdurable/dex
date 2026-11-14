@@ -72,6 +72,8 @@ pub(crate) struct ClusterEnvironment {
     /// How long closed runs stay before their purge; some seeds keep them past the end.
     pub(crate) retention_after_close: Duration,
     pub(crate) profile: EngineSimulationProfile,
+    /// Whether the shared storage lists every write at once; the engine reads accordingly.
+    pub(crate) listing_consistency: dexzd_object_store::ListingConsistency,
     pub(crate) origin: tokio::time::Instant,
     pub(crate) close_hold_dry_runs: Arc<CloseHoldDryRuns>,
 }
@@ -291,7 +293,12 @@ impl NodeProcess {
             applied_command_ids: Mutex::new(BTreeSet::new()),
             dry_runs: Arc::clone(&environment.close_hold_dry_runs),
         });
-        let config = engine_node_config(local_store_config, incarnation, environment.profile);
+        let config = engine_node_config(
+            local_store_config,
+            incarnation,
+            environment.profile,
+            environment.listing_consistency,
+        );
         let dependencies = EngineNodeDependencies {
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: object_store_port,
@@ -311,6 +318,8 @@ impl NodeProcess {
                 factory_clock.clone(),
                 partition_hasher.clone(),
                 services.id_source.clone(),
+                // Strong keeps the pinned trajectories of every listing mode.
+                dexzd_engine::HardDeletePrefixListing::default(),
             );
             let (effect_runner, effect_tasks) = EffectRunner::new(
                 &effects_config(settings),
@@ -504,14 +513,18 @@ pub(crate) fn engine_node_config(
     local_store: LocalStoreConfig,
     incarnation: u32,
     profile: EngineSimulationProfile,
+    listing_consistency: dexzd_object_store::ListingConsistency,
 ) -> EngineNodeConfig {
     let mut snapshots = SnapshotConfig {
         log_threshold_bytes: 64 * 1024,
         interval: Duration::from_secs(20),
         retry_delay: Duration::from_secs(5),
         deletion_delay: Duration::from_secs(30),
+        listing_consistency,
         ..SnapshotConfig::default()
     };
+    let mut recovery = RecoveryConfig::default();
+    recovery.log_read_ahead.listing_consistency = listing_consistency;
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {
         // Without snapshots, a start with a lost store replays every closed stream from seq 1.
         snapshots.log_threshold_bytes = u64::MAX;
@@ -542,7 +555,7 @@ pub(crate) fn engine_node_config(
             ..CommitConfig::default()
         },
         snapshots,
-        recovery: RecoveryConfig::default(),
+        recovery,
         blocking_work: BlockingWorkPlacement::CallingTaskForTest,
     }
 }

@@ -254,7 +254,7 @@ class SwitchingTerminalUi:
         )
         self.first = FakeTerminalUi(directory / "first", switching)
         resumed = chat_transcript([])
-        # Since 0.6.7 the relaunch names no previous session: no Worker serves the one it left.
+        # Since 0.6.8 the relaunch names no previous session: no Worker serves the one it left.
         resumed["steps"][0]["message"]["session"]["is_resumed"] = True
         resumed["steps"][0]["ignore"].append("session.previous_session_id")
         self.second = FakeTerminalUi(directory / "second", resumed)

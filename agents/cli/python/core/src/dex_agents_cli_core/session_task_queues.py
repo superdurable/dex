@@ -48,7 +48,7 @@ def session_task_queue(session_id: str) -> str:
     the session ID in UTF-8. It always meets the task queue rules: 22
     characters of ``[a-z0-9-]``.
 
-    .. versionadded:: 0.6.7
+    .. versionadded:: 0.6.8
 
     Example:
         >>> session_task_queue("claude-sdk-20261113-203123-3efeb4")  # doctest: +SKIP
@@ -65,7 +65,7 @@ def session_task_queue(session_id: str) -> str:
 
 
 def is_legacy_session_flow_type(harness_flow_type: str, flow_type: str) -> bool:
-    """Return whether a Flow type is a harness's environment-hashed one from before 0.6.7.
+    """Return whether a Flow type is a harness's environment-hashed one from before 0.6.8.
 
     Args:
         harness_flow_type: The harness's Flow type.

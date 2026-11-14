@@ -333,7 +333,7 @@ export class TestHome {
   }
 
   /**
-   * Returns the environment-hashed Flow type that releases before 0.6.7 gave this home's sessions.
+   * Returns the environment-hashed Flow type that releases before 0.6.8 gave this home's sessions.
    * @returns The Flow type.
    */
   public legacySessionFlowType(workspace = this.workspace): string {
@@ -445,7 +445,7 @@ export class SessionClients {
   }
 
   /**
-   * Returns the client for the environment-hashed sessions that releases before 0.6.7 started for a test home.
+   * Returns the client for the environment-hashed sessions that releases before 0.6.8 started for a test home.
    * @param home - The test home; its configuration file must exist, or the command ran without one.
    * @returns The client, whose Flow has the hashed Flow type.
    */

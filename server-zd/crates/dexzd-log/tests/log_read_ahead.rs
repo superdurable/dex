@@ -499,6 +499,7 @@ async fn read_ahead_stays_within_its_window_and_byte_budget_on_a_large_log() {
             LogReadAheadConfig {
                 max_read_ahead_batches: depth,
                 max_buffered_bytes,
+                ..LogReadAheadConfig::default()
             },
         );
         let mut returned = 0_usize;
@@ -660,6 +661,7 @@ async fn uneven_batches_behind_a_slow_first_get_stay_within_the_byte_budget() {
     let config = LogReadAheadConfig {
         max_read_ahead_batches: 64,
         max_buffered_bytes: UNEVEN_BUDGET,
+        ..LogReadAheadConfig::default()
     };
     let objects = uneven_log();
     let stream = stream();
@@ -780,6 +782,7 @@ fn large_then_small_config() -> LogReadAheadConfig {
     LogReadAheadConfig {
         max_read_ahead_batches: 64,
         max_buffered_bytes: LARGE_THEN_SMALL_BUDGET,
+        ..LogReadAheadConfig::default()
     }
 }
 

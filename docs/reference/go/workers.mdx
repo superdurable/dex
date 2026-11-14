@@ -105,7 +105,7 @@ A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
 **POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind. Its **TaskQueue** field and
 the **TaskQueue** field of each **PullQueueRegistrationState** entry name the
 Worker's [task queue](#task-queue). An empty name means the default task queue.
-Since 1.46.0.
+Since 1.45.2.
 
 Register the Go HTTP handler at your readiness probe endpoint.
 
@@ -130,7 +130,7 @@ an empty name serves the default task queue. The Worker receives the Steps and
 RPCs only of Flows on the same task queue, even when it registers their Flow
 type. To serve several task queues, run one Worker per task queue, each with
 its own **AppWorkerID**. Workers can share one process and one Registry.
-Since 1.46.0.
+Since 1.45.2.
 
 | Setting | Go name |
 | --- | --- |

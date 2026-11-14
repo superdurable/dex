@@ -88,6 +88,24 @@ pub enum ServerError {
         #[source]
         source: dexzd_object_store::AliyunOssBucketCheckError,
     },
+    /// The bucket of `objectStore.provider: tencentCOS` cannot hold server-zd data.
+    #[error("object storage bucket {bucket} failed the tencentCOS startup check: {source}")]
+    TencentCosBucketCheck {
+        /// Bucket name.
+        bucket: String,
+        /// Failed check.
+        #[source]
+        source: dexzd_object_store::TencentCosBucketCheckError,
+    },
+    /// The prefix of an aliyunOSS or tencentCOS store does not suit objectStore.versionDiscovery.
+    #[error("object storage bucket {bucket} failed the version discovery check: {source}")]
+    VersionDiscoveryCheck {
+        /// Bucket name.
+        bucket: String,
+        /// Failed check.
+        #[source]
+        source: dexzd_object_store::VersionDiscoveryCheckError,
+    },
     /// The embedded S3 emulator of dev or local mode could not start.
     #[error("starting the embedded S3 emulator in {}: {detail}", directory.display())]
     EmbeddedS3 {

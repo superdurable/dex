@@ -85,7 +85,7 @@ store.
 
 ### Sessions and execution environments
 
-Since 0.6.7, every new session has the harness's `flowType` itself and its own
+Since 0.6.8, every new session has the harness's `flowType` itself and its own
 task queue: `s-` and the first 20 lowercase hexadecimal characters of the
 SHA-256 of the session ID in UTF-8, from `sessionTaskQueue`. Only the command
 that has the session open pulls that queue, so the session's Steps and RPCs
@@ -132,7 +132,7 @@ exit code 1, so the lease expires before another terminal can take the
 session; this also applies while a takeover cancels a turn. The line is the
 lease lost line when the stored lease already names another holder. In the
 terminal UI the Worker host tells the launcher, which stops the terminal UI
-the same way. A session from before 0.6.7 gets the same permit, armed at its
+the same way. A session from before 0.6.8 gets the same permit, armed at its
 first acquire; its expiry ends the chat, and the shared Worker keeps pulling.
 
 The acquire request carries this command's environment: the `startEnvironment`
@@ -154,7 +154,7 @@ Worker, is not its own, such as one another client started on the default task
 queue; it fails before any lease call. A server whose protocol has no named
 task queues, older than server-zd 0.1.30, stops the command with one line.
 
-Sessions that releases before 0.6.7 started keep the environment-hashed Flow
+Sessions that releases before 0.6.8 started keep the environment-hashed Flow
 type `<flowType>-<suffix>` on the default task queue. The suffix
 is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
 `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:

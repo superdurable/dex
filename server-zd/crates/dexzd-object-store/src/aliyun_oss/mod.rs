@@ -11,6 +11,7 @@
 mod bucket_checks;
 mod startup_probes;
 mod version_body;
+mod version_discovery;
 mod version_keys;
 mod version_listing;
 mod version_reads;
@@ -23,7 +24,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use dexzd_metrics::{NodeMetrics, VersionedListingStaleCounters};
+use dexzd_metrics::NodeMetrics;
 
 use crate::file_download::TemporaryDownloadFile;
 use crate::{
@@ -32,11 +33,14 @@ use crate::{
     WriteCondition, WriteOutcome,
 };
 pub use bucket_checks::{
-    AliyunOssBucketCheckError, check_aliyun_oss_create_only_writes,
-    check_no_data_of_another_provider,
+    AliyunOssBucketCheckError, HEAD_PROBING_MARKER_OBJECT_KEY, VersionDiscoveryCheckError,
+    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
+    check_version_discovery_marker,
 };
 pub use startup_probes::STALE_STARTUP_PROBE_AGE;
 use startup_probes::{purge_startup_probe, read_store_time, remove_startup_probes_written_before};
+use version_discovery::NewestVersionLocator;
+pub use version_discovery::VersionDiscovery;
 pub use version_keys::VERSION_OBJECT_KEY_SUFFIX_BYTES;
 use version_keys::{LogicalKeyLayout, logical_key_layout};
 use version_listing::list_logical_keys;
@@ -135,12 +139,16 @@ pub struct AliyunOssObjectStore {
     inner: Arc<dyn ObjectStore>,
     version_ids: Box<dyn VersionIdSource>,
     reclaimer: VersionReclaimer,
-    listing_stale: VersionedListingStaleCounters,
+    locator: NewestVersionLocator,
 }
 
 impl AliyunOssObjectStore {
     /// Wraps `inner`, which must honor [`WriteCondition::CreateOnly`] atomically and list
     /// keys consistently right after each write.
+    ///
+    /// It finds the newest version with [`VersionDiscovery::Listing`]. For a store whose
+    /// listings lag behind writes, use [`Self::with_version_discovery`] with
+    /// [`VersionDiscovery::HeadProbing`].
     ///
     /// The store never sends [`WriteCondition::ReplaceIfEtagMatches`] to `inner`. It starts its
     /// version reclamation task, which stops when the store is dropped.
@@ -159,11 +167,42 @@ impl AliyunOssObjectStore {
         minimum_superseded_age_before_reclamation: Duration,
         metrics: NodeMetrics,
     ) -> Self {
+        Self::with_version_discovery(
+            inner,
+            minimum_superseded_age_before_reclamation,
+            metrics,
+            VersionDiscovery::Listing,
+        )
+    }
+
+    /// Wraps `inner` like [`Self::new`], finding the newest version of each mutable key with
+    /// `version_discovery` instead of [`VersionDiscovery::Listing`].
+    ///
+    /// [`VersionDiscovery::HeadProbing`] needs only strongly consistent HEAD, GET, create-only,
+    /// and DELETE requests on `inner`. No listing and no clock affects which version a read or
+    /// write sees; a listing that lags behind writes adds requests and can make a read fail
+    /// transiently. Every store that shares `inner` must use the same discovery, and HEAD
+    /// probing must start on a prefix without versions; run
+    /// [`crate::check_version_discovery_marker`] first. See the example of [`VersionDiscovery`].
+    ///
+    /// Since 0.1.31.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second or
+    /// does not fit in i64 microseconds.
+    pub fn with_version_discovery(
+        inner: Arc<dyn ObjectStore>,
+        minimum_superseded_age_before_reclamation: Duration,
+        metrics: NodeMetrics,
+        version_discovery: VersionDiscovery,
+    ) -> Self {
         Self::with_version_id_source(
             inner,
             Box::new(RandomVersionIdSource),
             minimum_superseded_age_before_reclamation,
             metrics,
+            version_discovery,
         )
     }
 
@@ -184,6 +223,30 @@ impl AliyunOssObjectStore {
         minimum_superseded_age_before_reclamation: Duration,
         metrics: NodeMetrics,
     ) -> Self {
+        Self::with_seeded_version_ids_and_discovery_for_test(
+            inner,
+            seed,
+            minimum_superseded_age_before_reclamation,
+            metrics,
+            VersionDiscovery::Listing,
+        )
+    }
+
+    /// Wraps `inner` like [`Self::with_seeded_version_ids_for_test`], finding the newest version
+    /// with `version_discovery`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called outside a Tokio runtime, or when the minimum age is below one second or
+    /// does not fit in i64 microseconds.
+    #[cfg(feature = "test-util")]
+    pub fn with_seeded_version_ids_and_discovery_for_test(
+        inner: Arc<dyn ObjectStore>,
+        seed: u64,
+        minimum_superseded_age_before_reclamation: Duration,
+        metrics: NodeMetrics,
+        version_discovery: VersionDiscovery,
+    ) -> Self {
         Self::with_version_id_source(
             inner,
             Box::new(SeededVersionIdSourceForTest {
@@ -192,6 +255,7 @@ impl AliyunOssObjectStore {
             }),
             minimum_superseded_age_before_reclamation,
             metrics,
+            version_discovery,
         )
     }
 
@@ -200,6 +264,7 @@ impl AliyunOssObjectStore {
         version_ids: Box<dyn VersionIdSource>,
         minimum_superseded_age_before_reclamation: Duration,
         metrics: NodeMetrics,
+        version_discovery: VersionDiscovery,
     ) -> Self {
         assert!(
             minimum_superseded_age_before_reclamation >= Duration::from_secs(1),
@@ -214,12 +279,17 @@ impl AliyunOssObjectStore {
         Self {
             reclaimer: VersionReclaimer::start(
                 Arc::clone(&inner),
+                version_discovery,
                 minimum_superseded_age_before_reclamation,
                 listing_stale.clone(),
             ),
+            locator: NewestVersionLocator::new(
+                Arc::clone(&inner),
+                version_discovery,
+                listing_stale,
+            ),
             inner,
             version_ids,
-            listing_stale,
         }
     }
 
@@ -271,7 +341,7 @@ impl AliyunOssObjectStore {
             inner: self.inner.as_ref(),
             version_ids: self.version_ids.as_ref(),
             reclaimer: &self.reclaimer,
-            listing_stale: &self.listing_stale,
+            locator: &self.locator,
         }
     }
 }
@@ -320,7 +390,7 @@ impl ObjectStore for AliyunOssObjectStore {
 
     async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
         match logical_key_layout(ObjectStoreOperation::Get, key)? {
-            LogicalKeyLayout::Versioned => get_versioned(self.inner.as_ref(), key).await,
+            LogicalKeyLayout::Versioned => get_versioned(&self.locator, key).await,
             LogicalKeyLayout::Plain => self.inner.get(key).await,
         }
     }
@@ -331,9 +401,7 @@ impl ObjectStore for AliyunOssObjectStore {
         range: ByteRange,
     ) -> ObjectStoreResult<Option<ObjectContent>> {
         match logical_key_layout(ObjectStoreOperation::Get, key)? {
-            LogicalKeyLayout::Versioned => {
-                get_versioned_range(self.inner.as_ref(), key, range).await
-            }
+            LogicalKeyLayout::Versioned => get_versioned_range(&self.locator, key, range).await,
             LogicalKeyLayout::Plain => self.inner.get_range(key, range).await,
         }
     }
@@ -341,7 +409,7 @@ impl ObjectStore for AliyunOssObjectStore {
     async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
         match logical_key_layout(ObjectStoreOperation::Get, key)? {
             LogicalKeyLayout::Versioned => {
-                let Some(content) = get_versioned(self.inner.as_ref(), key).await? else {
+                let Some(content) = get_versioned(&self.locator, key).await? else {
                     return Ok(None);
                 };
                 let mut download = TemporaryDownloadFile::create(key, path).await?;
@@ -356,7 +424,7 @@ impl ObjectStore for AliyunOssObjectStore {
     async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
         match logical_key_layout(ObjectStoreOperation::Head, key)? {
             LogicalKeyLayout::Versioned => {
-                head_versioned(self.inner.as_ref(), ObjectStoreOperation::Head, key).await
+                head_versioned(&self.locator, ObjectStoreOperation::Head, key).await
             }
             LogicalKeyLayout::Plain => self.inner.head(key).await,
         }
@@ -365,7 +433,7 @@ impl ObjectStore for AliyunOssObjectStore {
     async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
         match logical_key_layout(ObjectStoreOperation::Delete, key)? {
             LogicalKeyLayout::Versioned if key.starts_with(STARTUP_PROBE_OBJECT_KEY_PREFIX) => {
-                purge_startup_probe(self.inner.as_ref(), key).await
+                purge_startup_probe(&self.locator, key).await
             }
             LogicalKeyLayout::Versioned => self.writer().delete(key).await,
             LogicalKeyLayout::Plain => self.inner.delete(key).await,
@@ -404,7 +472,7 @@ impl ObjectStore for AliyunOssObjectStore {
         start_after: Option<&str>,
         max_keys: u32,
     ) -> ObjectStoreResult<ObjectListing> {
-        list_logical_keys(self.inner.as_ref(), prefix, start_after, max_keys).await
+        list_logical_keys(&self.locator, prefix, start_after, max_keys).await
     }
 
     fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {

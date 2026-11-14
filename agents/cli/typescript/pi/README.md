@@ -210,7 +210,7 @@ image first. Any other Pi tool that returns images is handled the same way.
 ## Sessions and other machines
 
 `dex.server` may point at a Dex server instead of `dexcli dev`; the CLI core
-handles the connection. Since 0.6.7, a session continues on any machine that
+handles the connection. Since 0.6.8, a session continues on any machine that
 runs `dex-agents-pi`: each new session has the `DexAgentsPiCliSession` Flow
 type and its own task queue, which only the command that has the session open
 pulls. `--resume <session>` on another machine, or with another workspace,

@@ -155,6 +155,12 @@ pub(crate) enum S3Operation {
         bucket: String,
         key: String,
     },
+    /// Tencent COS AppendObject, served only by that dialect.
+    AppendObject {
+        bucket: String,
+        key: String,
+        query: QueryParameters,
+    },
     CopyObject {
         bucket: String,
         key: String,
@@ -413,6 +419,10 @@ fn route_object(
         Method::POST if query.contains("uploads") => {
             query.require_only(&["uploads"], "CreateMultipartUpload")?;
             Ok(S3Operation::CreateMultipartUpload { bucket, key })
+        }
+        Method::POST if query.contains("append") => {
+            query.require_only(&["append", "position"], "AppendObject")?;
+            Ok(S3Operation::AppendObject { bucket, key, query })
         }
         Method::POST if query.contains("uploadId") => {
             query.require_only(&["uploadId"], "CompleteMultipartUpload")?;

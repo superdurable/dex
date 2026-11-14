@@ -1,0 +1,1851 @@
+---
+title: Data primitive semantics
+sidebar_label: Data primitives
+description: "Detailed rules for Attributes, RPCs, Channels, Streams, Timers, and SubFlows: parameters, defaults, limits, errors, and edge cases. The concept pages explain what each primitive is and when to use it: Attribute, RPC, Channel, Stream, Timer, and SubFlow."
+---
+
+# Data primitive semantics
+
+Detailed rules for Attributes, RPCs, Channels, Streams, Timers, and SubFlows:
+parameters, defaults, limits, errors, and edge cases. The concept pages explain
+what each primitive is and when to use it:
+[Attribute](/concepts/primitives/attribute), [RPC](/concepts/primitives/rpc),
+[Channel](/concepts/primitives/channel), [Stream](/concepts/primitives/stream),
+[Timer](/concepts/primitives/timer), and [SubFlow](/concepts/primitives/subflow).
+The SDK doc comments describe each API in its own language.
+
+## Flow runs {#flow-runs}
+
+### Flow close by a new start {#flow-close-by-new-start}
+
+A new start with the same Flow ID terminates the running Flow only when the new
+start uses an ID reuse policy that terminates the running Flow
+(**IDReuseTerminateIfRunning**). A SubFlow restart can terminate an earlier
+child too; see [SubFlowReusePolicy](#subflow-reuse-policy).
+[StartFlowOptions](/reference/python/start-flow-options#flow-id-request-id-and-already-started)
+lists every ID reuse policy.
+
+## Attributes {#attributes}
+
+### Initial values and later writes {#initial-attribute-values}
+
+**StartFlowOptions** can set initial Attributes when the Flow is created.
+Initial values and Flow creation are one operation, so the first Step sees them
+immediately. See [Attributes](/reference/python/start-flow-options#attributes) in
+StartFlowOptions.
+
+After a Flow starts, applications write Attributes through Flow RPCs. A Client
+can also use **WaitForAttributeMatch** to wait until a singleton Attribute or
+one AttributeMap instance satisfies a scalar comparison. The call returns the
+matched current value. See
+[Wait for an Attribute match](/reference/server/0.1.30/runtime-client#wait-for-an-attribute-match).
+
+### Read Attributes from outside a Flow {#read-attributes-from-outside-a-flow}
+
+Application code outside the Flow reads Attribute values with the Client's
+**GetAttributes** call. One call reads any mix of singleton Attributes and
+AttributeMap instances.
+
+The read has these semantics:
+
+- **One commit.** The Client sends every read in one server request. All values
+  come from the same committed state.
+- **Current or latest Flow run.** The call reads the current Flow run, or the
+  latest one when no Flow run is open. A closed Flow run stays readable until
+  Dex purges it.
+- **No Worker.** The server answers the read itself. It dispatches nothing to a
+  Worker, uses no Worker capacity, and works while no Worker is running.
+- **Committed state only.** The call does not see writes that a running Step or
+  RPC has made but not yet committed. An RPC handler, by contrast, also sees
+  the writes it made earlier in the same invocation.
+- **No locks.** **GetAttributes** takes no Attribute locks. Use an RPC for a
+  read-modify-write.
+- **Large and hard-delete values.** The server resolves
+  [hard-delete](#hard-delete-attributes) values before it
+  responds, and a deleted value reads as unset. The Client loads other large
+  values from blob storage, then decodes every value with its definition. The
+  call returns values only after all of them decode.
+
+An RPC remains the right choice when the read needs Flow-side validation,
+authorization, a derived view, or Attribute locks. See
+[Client requests: Read Attributes](/reference/server/0.1.30/runtime-client#read-attributes)
+for the example, the unset value in each SDK, and the errors.
+
+### Indexes {#attribute-indexes}
+
+An indexed Attribute can be used in **SearchFlows** queries to find the Flow
+runs that match the query.
+
+| Index type | Value |
+| --- | --- |
+| **KEYWORD** | One exact string. |
+| **FULL_TEXT** | Text for tokenized search. |
+| **KEYWORD_ARRAY** | A list of exact strings. |
+| **INT**, **DOUBLE**, **BOOL** | The corresponding scalar value. |
+| **DATETIME** | A date and time value. |
+
+An **index key** is the key in the search schema, and the key you use in a
+query. Index keys come from a limited pool for each namespace, shared by all
+Flow types.
+
+The SDK defaults a regular Attribute's index key to its Attribute name. For
+application indexes, always override that default with an explicit, generic,
+numbered key. Keep business names on Attributes, and share one pool of typed
+slots across every Flow type in the namespace. Two indexed fields in the same
+Flow need different slots. Reuse a slot across Flow types only with the same
+index type; its business meaning can differ. Dex system indexes keep their
+reserved names. Slots are limited and cannot be freed, so keep a list of
+which slot each Flow type uses; see
+[PostgreSQL search](/reference/server/0.1.30/search#postgresql-search) for the limits.
+
+| Index type | Application index keys |
+| --- | --- |
+| **KEYWORD** | **keyword1**, **keyword2**, … |
+| **KEYWORD_ARRAY** | **keywordList1**, **keywordList2**, … |
+| **FULL_TEXT** | **text1**, **text2**, … |
+| **INT** | **int1**, **int2**, … |
+| **BOOL** | **bool1**, **bool2**, … |
+| **DOUBLE** | **double1**, **double2**, … |
+| **DATETIME** | **datetime1**, **datetime2**, … |
+
+Renaming an index does not backfill existing Flow runs. Test changed schemas in
+a fresh local **dexcli dev** instance, and plan the migration of an existing
+deployment separately.
+
+A generic key can have a different business meaning in each Flow type, so
+application queries must filter on **FlowType**. Dex Web already limits
+searches to the selected Flow type. Put a caller's filter in parentheses before
+you combine it with the **FlowType** filter, so an OR cannot bypass it. Keep the
+query unchanged across pages. Do not index sensitive data or PII. The customer-email
+value in the Customer Refund example is synthetic data only.
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+status = Attribute(
+    "primitive-attribute-status",
+    str,
+    index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Status = dex.DefineAttribute[string](
+	"primitive-attribute-status",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final Attribute<String> status = Attribute.define(
+        "primitive-attribute-status",
+        String.class,
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "keyword1",
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let status = Attribute::new("primitive-attribute-status")
+    .indexed(AttributeIndex::keyword().with_key("keyword1"));
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+For example, the status Attribute above uses **keyword1** as its index key. To
+find completed **AttributeFlow** runs, use this query:
+
+```text
+FlowType = 'AttributeFlow' AND keyword1 = 'completed'
+```
+
+Pass the query to **SearchFlows**:
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+page = await app_state.client.search_flows(
+    "FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
+    20,
+    "",
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+page, err := controller.client.SearchFlows(
+	request.Request.Context(),
+	"FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
+	20,
+	"",
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+#### Indexed AttributeMap {#indexed-attributemap}
+
+An indexed **AttributeMap** must use an explicit index key. The index does not
+cover all Map instances: each instance write updates the same search field, so
+one instance can replace the value that another instance wrote. The Map
+instance key is not searchable.
+
+The index does not turn the Map into a **KEYWORD_ARRAY** either.
+**KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine
+the values from all Map instances. After the example below writes the payment instance with value
+authorized, you can query the current search value with:
+
+```text
+FlowType = 'AttributeFlow' AND keyword2 = 'authorized'
+```
+
+If another Map instance later writes a different value, that value replaces the
+search value for **keyword2**. Use a regular Attribute with **KEYWORD_ARRAY**
+when you need to search a collection of values. Do not use an AttributeMap index
+to find every instance with a value.
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+progress = AttributeMap(
+    "primitive-attribute-progress",
+    str,
+    index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Progress = dex.DefineAttributeMap[string](
+	"primitive-attribute-progress",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword2"}),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final AttributeMap<String> progress =
+        AttributeMap.define(
+                "primitive-attribute-progress",
+                String.class,
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword2"));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "keyword2",
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let progress = AttributeMap::new("primitive-attribute-progress")
+    .indexed(AttributeIndex::keyword().with_key("keyword2"));
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Hard-delete Attributes {#hard-delete-attributes}
+
+Dex stores every value of a hard-delete Attribute only in object storage,
+whatever the value size. Flow history keeps only a reference. Deleting the
+Attribute, or setting it to null, permanently deletes the stored value. After
+that, neither Dex APIs nor Flow history can recover it.
+
+Step and RPC handlers receive the value directly. The SDKs never write it to
+their local blob cache, and Dex Server never writes it to its blob cache.
+
+Enable it on the definition with **HardDeleteOnNull** in Go,
+**hardDeleteOnNull** in Java and TypeScript, and **hard_delete_on_null** in
+Python and Rust. The option works for both Attributes and AttributeMaps.
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+class AttributeFlow(Flow[str]):
+    model_api_key = Attribute(
+        "primitive-attribute-model-api-key",
+        str,
+        hard_delete_on_null=True,
+    )
+
+
+class AttributeStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        self.flow.status.set(context, "completed")
+        # The Flow no longer needs the short-lived key, so delete it permanently.
+        self.flow.model_api_key.delete(context)
+        return graceful_complete(input)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+ModelAPIKey = dex.DefineAttribute[string](
+	"primitive-attribute-model-api-key",
+	dex.HardDeleteOnNull(),
+)
+
+func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "completed"); err != nil {
+		return nil, err
+	}
+	// The Flow no longer needs the short-lived key, so delete it permanently.
+	if err := ModelAPIKey.Delete(ctx); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(input), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final Attribute<String> modelApiKey = Attribute.define(
+        "primitive-attribute-model-api-key",
+        String.class).hardDeleteOnNull();
+
+@Override
+public StepDecision execute(final Context context, final String input) {
+    status.set(context, "completed");
+    // The Flow no longer needs the short-lived key, so delete it permanently.
+    modelApiKey.delete(context);
+    return StepDecision.gracefulComplete(input);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const modelApiKey = new Attribute(
+  "primitive-attribute-model-api-key",
+  stringCodec,
+).hardDeleteOnNull();
+
+public execute(context: Context, input: string): StepDecision {
+  this.flow.status.set(context, "completed");
+  // The Flow no longer needs the short-lived key, so delete it permanently.
+  this.flow.modelApiKey.delete(context);
+  return gracefulComplete(input);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+static MODEL_API_KEY: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("primitive-attribute-model-api-key").hard_delete_on_null());
+
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    STATUS.set(context, "completed".to_owned())?;
+    // The Flow no longer needs the short-lived key, so delete it permanently.
+    MODEL_API_KEY.delete(context)?;
+    Ok(StepDecision::graceful_complete(input))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+A hard-delete Attribute has these requirements:
+
+- Only string and object values are supported, including bytes. Numeric and
+  Boolean value types are rejected.
+- It cannot be indexed or synced to an Attribute Store.
+  **WaitForAttributeMatch** and Action conditions reject it.
+- It needs a server that supports hard-delete Attributes, such as server-zd.
+  The SDKs refuse to write the Attribute to an older server.
+
+Each Flow keeps one stored value per Attribute key and overwrites it in place.
+Plan for these consequences:
+
+- A Step or RPC attempt writes or deletes the stored value before its result is
+  committed. A retried attempt, other Steps and RPCs, and Attribute reads can
+  observe a write or deletion made by an attempt that later failed. Make
+  handlers safe to repeat instead of relying on a read-modify-write of the
+  Attribute.
+- When concurrent Steps or RPCs write the same key, the final value may not be
+  the last committed write.
+- A Flow start or SubFlow start that fails because the Flow ID is already
+  running still overwrites the running Flow's value. A null initial value
+  deletes it.
+- Flows that reuse a Flow ID share the stored value.
+- A deleted value always reads as absent. Time travel does not restore it. A
+  restarted SubFlow starts from the original initial value, so the value reads
+  as absent when an earlier Flow run deleted it.
+- Removing the option from a definition leaves the stored value in place until
+  Dex removes the Flow. Delete the value with the hard-delete definition first.
+
+A value remains stored until it is deleted, or until Dex removes the Flow after
+its retention period. Object storage backups and bucket versioning outside Dex
+can keep copies. See [Object storage](/reference/server/0.1.30/object-storage).
+
+#### Erase after the Flow run closes {#hard-delete-after-close}
+
+Since server-zd 0.1.5, a direct call to the FlowService **SetAttributes** API
+can erase a hard-delete Attribute after its Flow run closes and before the Flow
+run is purged. The SDK Clients do not expose this API, so send it with
+**dexcli api call SetAttributes** or another FlowService client. Set every
+Attribute in the request to null. Each Attribute must still have a stored
+hard-delete value. The erase leaves the Flow run closed and permanently deletes
+its stored objects. Other writes to a closed Flow run return NOT_FOUND.
+
+### AttributeMap partitioning examples {#attributemap-partitioning-examples}
+
+The [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+examples fix these layout rules in every SDK. They are part of the stored
+layout, so changing them requires a migration.
+
+#### Hash partition algorithm {#hash-partition-algorithm}
+
+The [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+example selects a partition in the same way in every SDK:
+
+1. Require a non-empty ASCII email address.
+2. Remove leading and trailing ASCII whitespace.
+3. Lowercase ASCII letters from A through Z.
+4. Calculate 32-bit FNV-1a over the canonical email bytes with wrapping overflow.
+5. Select **hash modulo 1000** and format the instance from **partition-000**
+   through **partition-999**.
+
+#### Chunk page tokens {#chunk-page-tokens}
+
+In the [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+example, the **current** token is always valid after the Flow starts. An empty
+**current** returns an empty page. Archive tokens must contain exactly 20
+decimal digits and identify a chunk boundary. A malformed token or a
+valid-looking token without a stored chunk returns an explicit error.
+
+### Locks {#attribute-locks}
+
+Dex Server lets only one Step execution or RPC invocation hold an Attribute lock
+at a time. A Step declares locks separately for **WaitFor** and **Execute** in
+its Step options. An RPC declares its locks when it is registered. The
+[Attribute](/concepts/primitives/attribute#locking) page shows an **Execute** lock.
+
+A Step attempt takes its locks when Dex hands it to a Worker. A first attempt
+that no Worker has taken yet holds no locks, but later Steps that need the same
+lock wait behind it. A returned attempt, for example after a Worker declined its
+Step type, and a retry attempt keep their locks while they wait in the queue.
+When no Worker can run them, they hold the locks until the Flow times out or
+stops. Until the attempt runs and finishes, transactional RPCs on those keys get
+the lock conflict error.
+
+Lock **WaitFor**:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_lock_attributes=(
+            self.flow.status.lock(),
+            self.flow.progress.lock("payment"),
+        ),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (attributeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+return StepOptions.newBuilder()
+        .addWaitForLock(AttributeLock.of(status))
+        .addWaitForLock(AttributeLock.of(progress, "payment"))
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+return {
+  waitForLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+};
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+StepOptions::new()
+    .wait_for_lock(self.status.lock())
+    .wait_for_lock(self.progress.lock("payment"))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Lock an RPC:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(lock_attributes=(status.lock(), progress.lock("payment")))
+def update_status(self, context: Context, input: str) -> RPCResult[str]:
+    self.status.set(context, input)
+    self.progress.set(context, "payment", input)
+    return RPCResult(input)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *AttributeFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateStatus, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(Status),
+				dex.LockAttributeMap(Progress, "payment"),
+			},
+		}),
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(
+        lockAttributes = {"primitive-attribute-status"},
+        lockAttributeMaps = {
+            @RPCAttributeMapLock(
+                    attribute = "primitive-attribute-progress",
+                    instance = "payment")
+        })
+public RPCResult<String> updateStatus(final Context context, final String input) {
+    status.set(context, input);
+    progress.set(context, "payment", input);
+    return RPCResult.of(input);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({
+  inputCodec: stringCodec,
+  outputCodec: stringCodec,
+  lockAttributes: [status.lock(), progress.lock("payment")],
+})
+public updateStatus(context: Context, input: string): RPCResult<string> {
+  this.status.set(context, input);
+  this.progress.set(context, "payment", input);
+  return { output: input };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new().function(
+        UPDATE_STATUS
+            .lock(self.status.lock())
+            .lock(self.progress.lock("payment")),
+        Self::update_status,
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+#### Coordinate writes across the whole AttributeMap {#whole-map-coordination}
+
+An AttributeMap lock protects one exact instance. When an invariant spans
+several instances or the whole collection, register a separate singleton bool
+Attribute as its coordination key. For example, register **currentMessages** as
+an AttributeMap and **currentMessagesLock** as a non-map, non-indexed bool
+Attribute in the same **PersistenceSchema**.
+
+Every Step, timeout handler, and RPC that writes, deletes, archives, or
+otherwise changes the protected map must request the same singleton Attribute
+lock in its lock options for that method. RPCs declare this fixed lock when
+they are registered. A writer that requests only a map-instance lock does not
+conflict with the singleton lock. Dex then runs all these writers one at a time
+within that Flow run; other Flow runs have their own locks.
+
+The bool value is not the lock state. Do not take or release the lock by
+reading or toggling the value. Dex takes the lock before the method runs and
+releases it after; the coordination Attribute does not need a stored value.
+Locking also does not load map entries. Declare exact instance loads, or a
+whole-map load when the operation must list the instances. An RPC that cannot
+get the lock fails with a lock conflict error instead of waiting.
+
+Keep per-instance locks for updates that touch only one instance. Use the
+shared singleton lock when all affected writers must preserve an invariant over
+the whole collection.
+
+#### Lock holding {#lock-holding}
+
+A method that declares several locks takes them all at once. It starts only
+when every lock is free and it is first in line for each one. It never holds
+one lock while it waits for another, so two locked methods cannot block each
+other in a cycle.
+
+A Step holds its lock for the whole method, including the external calls it
+makes. A retry keeps the lock while it waits in the queue, and an attempt that
+no Worker can run holds it until the Flow times out or stops. To release such a
+lock, start a Worker that has that Step type, or stop the Flow. Dex has no
+command that releases a single lock. The method timeout and the retry policy
+bound how long a running Step holds a lock.
+
+This adds up when a locked Step keeps failing. Its retries keep the lock, and
+the default retry policy keeps retrying for up to 4 hours. For that whole time,
+every other Step and RPC that declares the same lock waits or fails. Set a
+short total duration, such as a few minutes, in the locked method's
+**StepOptions** retry policy, or keep external calls out of it. The
+[StepOptions defaults](/reference/python/step-options#defaults) list the retry
+window.
+
+#### RPC lock conflicts {#rpc-lock-conflicts}
+
+An RPC does not wait for a lock. When another Step execution or RPC holds a
+requested lock, the call fails with the error "RPC lock conflict:
+attribute key &lt;key&gt; is locked by a Step". The SDK exposes it as
+**RPCLockConflictError** in Go, **RpcLockConflictError** in Python and
+TypeScript, **RpcLockConflictException** in Java, and
+**SdkError::RpcLockConflict** in Rust.
+
+Retry after that error, with a backoff that suits the application. Make the RPC
+idempotent so that a retry is safe. Successful calls run one at a time under the
+same locks, so concurrent requests do not lose or duplicate updates.
+
+#### Lock order {#lock-order}
+
+Steps that wait for an Attribute lock get it in the order they started waiting.
+An RPC does not join that queue. When the lock is free, the RPC takes it ahead of
+the queued Steps. A steady stream of locked RPCs can therefore delay queued
+Steps for as long as the stream lasts. Keep locked RPCs short.
+
+## RPCs {#rpcs}
+
+Language-specific RPC rules are in the SDK references: Java Flow classes and
+[Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin), and
+[TypeScript codecs](/reference/typescript/rpc#rpc-codecs).
+
+### Cancel running Steps {#cancel-running-steps}
+
+An RPC result can cancel active Steps of its Flow. Select the Steps by Step
+type: **with_canceling_steps** in Python, **CancelSteps** in Go,
+**withCancelingSteps** in Java, **cancelingSteps** in TypeScript, and
+**cancel_step** in Rust. The selection covers the whole Flow. An RPC has no
+parent Step execution, so it cannot cancel sibling Steps. A Step can cancel
+other Steps the same way from its
+[StepDecision](/reference/python/step-decisions#cancellation-on-stepdecision).
+
+In the example, **GenerateReport** writes a report section by section. The
+**stop_report** RPC cancels it and starts **FinishReportStop**.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(timeout=timedelta(seconds=30))
+def stop_report(self, context: Context, input: None) -> RPCResult[bool]:
+    if REPORT_STATUS.get(context) in (REPORT_READY, REPORT_STOPPED):
+        return RPCResult(False)
+    return RPCResult(
+        True,
+        next_steps=(StepMovement.of(FinishReportStop, None),),
+    ).with_canceling_steps(GenerateReport)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (*ReportGenerationFlow) StopReport(ctx dex.Context, _ dex.None) (*dex.RPCResult[bool], error) {
+	status, err := getReportStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status == ReportReady || status == ReportStopped {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	result := &dex.RPCResult[bool]{
+		Output:    true,
+		NextSteps: []dex.StepMovement{dex.MovementOf(FinishReportStop{}, nil)},
+	}
+	return result.CancelSteps(GenerateReport{}), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@RPC(timeoutSeconds = 30)
+public RPCResult<Boolean> stopReport(final Context context) {
+    final String status = reportStatus.get(context);
+    if (REPORT_READY.equals(status) || REPORT_STOPPED.equals(status)) {
+        return RPCResult.of(false);
+    }
+    return RPCResult.of(true, StepMovement.of(FinishReportStop.class, null))
+            .withCancelingSteps(GenerateReport.class);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: voidCodec, outputCodec: booleanCodec, timeoutMs: 30_000 })
+public stopReport(context: Context, _input: void): RPCResult<boolean> {
+  const status = reportStatus.get(context);
+  if (status === REPORT_READY || status === REPORT_STOPPED) {
+    return { output: false };
+  }
+  return {
+    output: true,
+    nextSteps: [StepMovement.of(FinishReportStop, undefined)],
+    cancelingSteps: [GenerateReport],
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn stop_report(&self, context: &mut Context, _input: ()) -> HandlerResult<RpcResult<bool>> {
+    let status = REPORT_STATUS.get(context)?;
+    if matches!(status.as_deref(), Some(REPORT_READY | REPORT_STOPPED)) {
+        return Ok(RpcResult::new(false));
+    }
+    Ok(RpcResult::new(true)
+        .then(StepMovement::to(&self.finish_report_stop, ()))
+        .cancel_step(&self.generate_report))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Dex applies the cancellation when it commits the RPC. It commits the RPC's
+Attribute writes and Channel publications first, then cancels, then starts the
+RPC's next Steps. All of it commits together, or none of it does. The RPC's own
+next Steps are not canceled, even when they have a selected Step type. A
+selected Step that has already finished is skipped, and so is a type with no
+active Step. Waiting Steps take the RPC's publications only after the
+cancellation, so a canceled Step never takes them. Changed in 0.1.26: a waiting
+Step could consume a publication of the same RPC and then be canceled, which
+lost the message.
+
+Cancellation ends every active Step of a selected type: one that waits, one that
+waits for a retry, and one whose attempt runs on a Worker. For a running
+attempt, Dex sends a cancellation to that Worker. A canceled Step is not
+retried, and its failure route does not run. Dex discards anything the canceled
+attempt returns later, including its StepDecision and Attribute writes. Channel
+messages that the Step's wait consumed return to their Channels. See
+[Canceled Steps return consumed messages](#canceled-step-messages).
+
+#### Resolve the race from committed state {#cancel-race}
+
+The RPC handler reads a snapshot of the Flow when it starts. Dex commits its
+result later. The Steps to cancel are chosen at commit time, not from the
+snapshot. Between the two, a selected Step can finish and commit its own result.
+Then the cancellation finds nothing to cancel. A new Step of a selected type can
+also start, and the cancellation ends it too. Dex does not reject the RPC in
+either case. So the handler cannot assume that the Step it saw is still running,
+or that its work did not commit.
+
+Do not decide the outcome in the RPC handler. Start a follow-up Step from the
+RPC, and let it read the committed state. In the example,
+**FinishReportStop** checks whether the report committed before the
+cancellation. If it did, the Stop came too late, and the Flow delivers the
+report. Otherwise, it records that the report stopped.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    # The report can commit after stop_report read its snapshot.
+    if REPORT_STATUS.get(context) == REPORT_READY:
+        return dead_end()
+    REPORT_STATUS.set(context, REPORT_STOPPED)
+    return graceful_complete(REPORT_STOPPED)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (FinishReportStop) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	status, err := getReportStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The report can commit after StopReport read its snapshot.
+	if status == ReportReady {
+		return dex.DeadEnd(), nil
+	}
+	if err := ReportStatus.Set(ctx, ReportStopped); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(ReportStopped), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Void input) {
+    // The report can commit after stopReport read its snapshot.
+    if (REPORT_READY.equals(reportStatus.get(context))) {
+        return StepDecision.deadEnd();
+    }
+    reportStatus.set(context, REPORT_STOPPED);
+    return StepDecision.gracefulComplete(REPORT_STOPPED);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: void): StepDecision {
+  // The report can commit after stopReport read its snapshot.
+  if (reportStatus.get(context) === REPORT_READY) {
+    return deadEnd();
+  }
+  reportStatus.set(context, REPORT_STOPPED);
+  return gracefulComplete(REPORT_STOPPED);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    // The report can commit after stop_report read its snapshot.
+    if REPORT_STATUS.get(context)?.as_deref() == Some(REPORT_READY) {
+        return Ok(StepDecision::dead_end());
+    }
+    REPORT_STATUS.set(context, REPORT_STOPPED.to_string())?;
+    Ok(StepDecision::graceful_complete(REPORT_STOPPED.to_string()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+[Attribute locks](#attribute-locks) do not close this gap on their own. They
+keep the RPC from running at the same time only as Step methods that declare
+the same locks.
+
+#### Make the Step stop {#cancel-honour}
+
+Dex cannot stop code that ignores cancellation. The Step code must check for it
+and return:
+
+- Python: with **AsyncWorker**, Dex cancels the handler's task, so the next
+  await raises **CancelledError**. With **Worker**, the handler runs on a thread
+  and must check **is_cancellation_requested**.
+- Go: Dex cancels the handler's **Context**. Pass it to calls that accept a
+  context, or select on **Done**.
+- Java: Dex interrupts the handler thread. Blocking calls throw
+  **InterruptedException**, and **isCancellationRequested** returns true.
+- TypeScript: Dex aborts **context.cancellationSignal**. Pass it to calls that
+  accept an **AbortSignal**.
+- Rust: check **is_cancelled**, or block in **wait_for_cancellation**.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
+    go: 'examples/go/primitives/rpc-canceling-steps',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
+    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
+    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+for section in range(1, SECTION_COUNT + 1):
+    # A Stop cancels this task, so the await raises CancelledError.
+    await asyncio.sleep(SECTION_WORK.total_seconds())
+    REPORT_PROGRESS.write(context, section)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+for section := 1; section <= sectionCount; section++ {
+	select {
+	case <-ctx.Done():
+		// A Stop cancels ctx; the result of this attempt is discarded.
+		return nil, ctx.Err()
+	case <-time.After(sectionWork):
+	}
+	if err := ReportProgress.Write(ctx, section); err != nil {
+		return nil, err
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+for (int section = 1; section <= SECTION_COUNT; section++) {
+    try {
+        Thread.sleep(SECTION_WORK.toMillis());
+    } catch (final InterruptedException interrupted) {
+        // A Stop interrupts this thread; the result of this attempt is discarded.
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("report generation canceled", interrupted);
+    }
+    reportProgress.write(context, section);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+for (let section = 1; section <= SECTION_COUNT; section++) {
+  // A Stop aborts the signal, so this await rejects with an AbortError.
+  await setTimeout(SECTION_WORK_MS, undefined, { signal: context.cancellationSignal });
+  reportProgress.write(context, section);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+for section in 1..=SECTION_COUNT {
+    // A Stop cancels this attempt, and Dex discards its result.
+    if context.is_cancelled() {
+        return Ok(StepDecision::dead_end());
+    }
+    thread::sleep(SECTION_WORK);
+    REPORT_PROGRESS.write(context, section)?;
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Dex waits about one second for the canceled attempt to end. If the handler is
+still running, Dex closes the Worker stream that carried it. The handler keeps
+running inside the Worker process until it returns, and its external calls
+still take effect. A canceled attempt may also have done part of its work before
+it stopped. Keep its external effects idempotent. See
+[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
+
+### Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
+
+To read stored Attribute values from outside the Flow, an application does not
+need a read-only RPC. The Client's **GetAttributes** reads committed values
+directly, without a Worker. See
+[Read Attributes from outside a Flow](#read-attributes-from-outside-a-flow). Use
+a read-only RPC when the read needs Flow-side logic, such as validation,
+authorization, Channel messages, or a derived view.
+
+An RPC without Attribute locks and without transactional execution starts by
+reading the Flow. If its handler returns only an output and no durable effects,
+Dex returns that output without changing the Flow. That read also works on a
+closed Flow run that the server still retains. So a successful read-only RPC
+does not prove that the Flow is active.
+
+Attribute locks and explicit transactional execution need an active Flow run. A
+non-transactional handler that returns Attribute writes, Channel operations,
+events, or Step movements also needs an active Flow run, because Dex commits
+those effects to the Flow after the handler returns. A closed Flow rejects that
+commit, even though the Worker handler may already have run. A server can also
+be configured to run every RPC transactionally, which requires an active Flow
+run.
+
+When the response needs the current status of the Flow run, use a Flow
+lifecycle API, such as **DescribeFlow**. Do not infer that a Flow is closed or open
+from whether an RPC succeeded.
+
+**FlowNotActiveOrNotFoundError** means that the target was not found, or that
+the operation cannot use its closed Flow run. Java uses
+**FlowNotActiveOrNotFoundException**; Rust uses
+**SdkError::FlowNotActiveOrNotFound**. The error alone does not tell a missing
+Flow from a closed one.
+
+A read-only RPC with no locks, no transactional execution, and no durable
+effects can still read a retained closed Flow run, unless the server forces
+transactional execution. For such an RPC, treat this error as "no readable
+target found", and keep your application's outcome for a missing or expired
+Flow. Do not add a lifecycle lookup, a **WaitForFlow** with a short timeout, a
+retry, or decoding of old Step outputs only to tell missing from closed. Handle
+other service and Worker failures separately.
+
+For writes and RPCs that need an active Flow run, the same error may mean that
+the Flow is closed or missing. Apply the operation's business policy; the error
+does not prove that the requested action succeeded.
+
+You do not need to look up a Run ID before a normal read-only RPC. When the SDK
+offers an optional Run ID, omit it: the server then picks the current Flow run
+and uses it for the whole invocation. Pass a Run ID only when the application
+must address an exact Flow run across Flow ID reuse.
+
+### Selective state loading {#load-collection-state}
+
+Every RPC receives regular Attribute values and Channel sizes. To read
+AttributeMap entries or pending Channel messages, the RPC must declare a load.
+This keeps large collections out of RPC requests that do not use them.
+
+Load a whole AttributeMap or ChannelMap when the handler needs all current
+instances. Load exact map instances when it needs only known keys. Load a
+Channel when the handler needs its pending message IDs or Values. Channel size
+and ChannelMap keys and sizes remain available without loading pending messages.
+
+Every SDK declares loads with the RPC. Go puts them in the **RPCOptions** passed
+to **DefineRPC** from **GetRPCs**. Dex Server checks each requested definition
+against the Flow persistence schema, and returns the loaded scope with the RPC
+snapshot. When the handler reads a selectively loaded collection, the SDK checks
+that scope.
+
+For an **AttributeMap** entry or instance enumeration outside that scope, the SDK
+raises **AttributeMapNotLoadedError**. For pending messages outside that scope,
+it raises **ChannelMessagesNotLoadedError**. Java uses
+**AttributeMapNotLoadedException** and **ChannelMessagesNotLoadedException**.
+For Go, **dexcli visualize** reports an RPC that reads unselected state. See
+[State loads](/reference/web/flow-visualization#state-loads).
+
+An explicitly loaded collection can be empty; that is not an error. An empty
+Channel returns an empty list of pending messages. An absent **AttributeMap**
+entry behaves like any absent value in the SDK. Loading takes one snapshot of
+the input. It does not consume messages, make the RPC transactional, or protect
+the handler from concurrent changes.
+
+#### Runtime-selected map instances {#runtime-selected-map-instances}
+
+Use the RPC definition options for fixed behavior shared by every invocation:
+timeout, ordinary Attribute locks, transactionality, whole-map loads, singleton
+Channel loads, and fixed exact-instance loads. Go names this type
+**RPCOptions**.
+
+Use **RPCInvokeOptions** when the calling code chooses an AttributeMap or
+ChannelMap instance from request data. Rust uses **RpcInvokeOptions**.
+Invocation options can add exact AttributeMap loads, exact ChannelMap loads, and
+AttributeMap instance locks. Dex merges them with the registered definition,
+sorted and without duplicates. They cannot replace or clear registered
+settings.
+
+Loading and locking are independent. A read-only lookup needs only the exact
+load. A read-modify-write RPC must add both the load and the lock for the same
+AttributeMap instance. Before the network call, the SDK checks that the
+definition belongs to the Flow, that its kind fits, and that the instance key is
+not empty and contains no **/**.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
+    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+options=RPCInvokeOptions(
+    lock_attribute_map_instances=(
+        flow.customer_profiles_by_email_partition.lock(partition_name),
+    ),
+    load_attribute_map_instances=(
+        flow.customer_profiles_by_email_partition.load(partition_name),
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+dex.RPCInvokeOptions{
+	LockAttributeMapInstances: []dex.AttributeLock{
+		dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
+	},
+	LoadAttributeMapInstances: []dex.AttributeMapLoad{
+		CustomerProfilesByEmailPartition.Load(partitionName),
+	},
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLockAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .addLoadAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+{
+  lockAttributeMapInstances: [profiles.lock(partitionName)],
+  loadAttributeMapInstances: [profiles.load(partitionName)],
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcInvokeOptions::new()
+    .lock_attribute_map_instance(
+        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
+    )
+    .load_attribute_map_instance(
+        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+See [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+for the complete lookup and upsert example, and
+[Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+for dynamic pagination loads.
+
+### Transactional RPCs {#transactional-reads-and-writes}
+
+A transactional RPC performs its reads and writes as one atomic operation. An
+RPC that holds an Attribute lock is always transactional. You can also make an
+RPC transactional explicitly by setting **is_transactional=true**.
+
+Transactional execution matters most for Channel message deletion. Before it
+commits any write, Dex checks that every deleted message is still pending. If a
+message is gone, the RPC fails with the Channel-message-not-found error
+(**NOT_FOUND**) and commits nothing. A non-transactional RPC treats a missing
+deletion as a no-op and still commits its other successful effects.
+
+In the example, the caller passes only a pending message ID. The RPC loads the
+source Channel, reads the original Value from its snapshot, and then stages the
+deletion and the publication to the destination. If a concurrent consumer took
+the message first, the deletion check fails, and Dex commits neither effect:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(is_transactional=True, load_channels=(queued_messages,))
+def move_queued_message_to_prioritized_messages(
+    self, context: Context, queued_message: QueuedMessageReference
+) -> None:
+    message_to_prioritize = self.queued_messages.find_pending_message(
+        context, queued_message.message_id
+    )
+    self.queued_messages.delete(context, queued_message.message_id)
+    if message_to_prioritize is not None:
+        self.prioritized_messages.publish(context, message_to_prioritize.value)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.PublishApprovalMessage, nil),
+		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
+		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
+		}),
+		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
+public void moveQueuedMessageToPrioritizedMessages(
+        final Context context,
+        final QueuedMessageReference queuedMessageReference) {
+    final ChannelMessage<String> messageToPrioritize =
+            queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
+    queuedMessages.delete(context, queuedMessageReference.messageId);
+    if (messageToPrioritize != null) {
+        prioritizedMessages.publish(context, messageToPrioritize.getValue());
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({
+  isTransactional: true,
+  loadChannels: [queuedMessages],
+  inputCodec: queuedMessageReferenceCodec,
+})
+public moveQueuedMessageToPrioritizedMessages(
+  context: Context,
+  queuedMessage: QueuedMessageReference,
+): void {
+  const messageToPrioritize = queuedMessages.findPendingMessage(
+    context,
+    queuedMessage.messageId,
+  );
+  queuedMessages.delete(context, queuedMessage.messageId);
+  if (messageToPrioritize !== undefined) {
+    prioritizedMessages.publish(context, messageToPrioritize.value);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new()
+        .procedure_without_input(PUBLISH_APPROVAL_MESSAGE, Self::publish_approval_message)
+        .procedure(
+            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES
+                .is_transactional()
+                .load_channel(&QUEUED_MESSAGES),
+            Self::move_queued_message_to_prioritized_messages,
+        )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+A transactional commit does not stop other Steps and RPCs from changing the
+Flow while the handler runs. If a decision depends on the whole loaded Channel,
+ChannelMap, or AttributeMap staying unchanged, every Step and RPC that writes it
+must use the same Attribute lock. The lock prevents those changes and makes the
+RPC transactional; it does not load collection contents.
+
+### RPC timeout {#rpc-timeout}
+
+An RPC timeout limits one Worker handler invocation.
+
+Every SDK declares the timeout with the RPC. Go puts it in the static
+**RPCOptions** passed to **DefineRPC**. A Client invocation cannot override it,
+but the caller's context can stop waiting sooner. When the application
+does not set a timeout, Dex Server uses its default of 60 seconds, set by
+**api.defaultRpcTimeout**. An explicit timeout has no maximum.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(timeout=timedelta(seconds=30))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(timeoutSeconds = 30)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec, timeoutMs: 30_000 })
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trigger)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Channels {#channels}
+
+### Wait conditions {#channel-conditions}
+
+**AtMost** does not wait for messages to arrive. When the surrounding Wait
+completes, it consumes up to the limit from the messages pending at that time. To wait for at least one message and consume up to a limit, use
+**AtLeastAtMost** with a lower bound of 1.
+
+### Canceled Steps return consumed messages {#canceled-step-messages}
+
+A wait consumes its messages when it is satisfied, before **Execute** runs. A
+**StepDecision** or an RPC can cancel the Step before its **Execute** commits.
+In that case, Dex returns those messages to the front of their Channels or
+ChannelMap instances, in their original order, and they are pending again. A
+waiting Step can consume them in the same commit.
+
+A canceled **Execute** attempt may already have received a message that Dex
+returned. Another Step can then receive the same message. Make message
+processing idempotent, for example with a business ID in the message.
+
+Dex drops the consumed messages instead when the Flow close itself cancels the
+Step: a **StopFlow** request, a Flow timeout, a failure that closes the Flow, or
+a **StepDecision** that cancels the Step and closes the Flow with
+**ForceComplete** or **ForceFail**. Every other cancellation returns the
+messages, even when the Flow closes in the same commit. For example, a
+**StepDecision** that cancels the Step and returns **GracefulComplete** closes
+the Flow when no other Step is active, and the returned messages stay pending
+in the closed Flow run. **ForceCompleteIfChannelsEmpty** counts the returned
+messages as pending, so the Channel is not empty.
+
+Changed in 0.1.26: Dex dropped the consumed messages of every canceled Step.
+
+### Waiter order {#channel-waiter-order}
+
+When several Steps wait on one Channel, Dex offers each new message to them in
+the order they started waiting. A Step whose wait needs more messages than are
+pending is skipped, and a later Step can take them. A Step that starts waiting
+while enough messages are pending takes them at once, even ahead of earlier
+waiters that need more.
+
+A wait for several messages (**ForN**, **AtLeast**) can therefore wait forever
+while waits for one message (**ForOne**) on the same Channel keep taking the
+messages one at a time. Give each Channel one kind of consumer, or use one
+ChannelMap instance for each consumer when they need different counts.
+
+### Join {#join}
+
+A **Join** is a named ChannelMap that counts the results of the parallel
+branches one Step forks. Each fork starts one round and gives the branches and
+the join Step one round token: the round key and the branch count. See
+[Join parallel branches](/reference/go/waits#join) for the API of each language.
+
+- A fork takes its round key from the forking Step execution. A Step method can
+  fork one Join once. For a second independent join, define a second Join or use
+  an explicit round key. A fork with an explicit round key can run several times in
+  one method. Give each round a key that no other round of that Join in the Flow
+  run uses. An RPC has no Step execution, so an RPC forks with an explicit
+  round key.
+- A report commits with the method's result, so a retried branch reports once.
+  A result reported before the join Step waits still counts.
+- Results of one round never satisfy the join of another round.
+- A fork over an empty branch list is a round with no branches. A
+  **ForAllBranches** wait on it is satisfied at once. **ForFirstBranch** and
+  **ForBranches** on it fail the wait.
+- The join Step consumes results like any Channel wait. When a decision cancels
+  it after its wait matched, the results follow
+  [the canceled Step rule](#canceled-step-messages).
+- A canceled branch never reports and its failure route does not run. A branch
+  that reported before the cancel committed is complete, and its result stays
+  pending in the round. Dex picks the Steps to cancel at commit time, so no
+  canceller can report on behalf of a branch.
+- A decision that cancels sibling Steps selects the Steps that one decision
+  started together. Fork starts the branches and the join Step together, so the
+  siblings are exactly the branches of that round. They do not include the later
+  Steps of a multi-Step branch.
+- When an RPC forks a round with an explicit round key, the branches are siblings
+  of every Step that this RPC name ever started. Cancel them by Step type
+  instead.
+- **ForRemainingBranches** resets a round whose other branches keep running. Its
+  count equals the count the join consumed: n, or 1 after **ForFirstBranch**.
+  The next round's branches start only after the reset completes, so enablement
+  messages for the next round stay queued until then.
+  Without a reset, late results stay pending until the Flow closes.
+- A cancelling join's round is never reset, because its canceled branches never
+  report and the reset would wait forever. The next round forks a new round
+  directly. Its round key keeps it apart from the old one.
+
+### Pending messages {#manage-pending-messages}
+
+Dex assigns a UUIDv7 message ID when it accepts each publication. A Step or RPC
+can list every pending message in FIFO order and delete one by ID. Listing does
+not consume messages.
+
+Deleting a message that is no longer pending depends on the caller:
+
+| Caller | Missing message |
+| --- | --- |
+| Transactional RPC | The RPC fails with the Channel-message-not-found error and commits nothing. See [Transactional RPCs](#transactional-reads-and-writes). |
+| Non-transactional RPC | The deletion is a no-op. The other effects commit. |
+| Step method or Flow timeout handler | The deletion is a no-op. The other effects commit. |
+| Direct **DeleteChannelMessage** (dexcli, Dex Web) | The call fails with **NOT_FOUND** and sub-status **CHANNEL_MESSAGE_NOT_FOUND**. |
+
+Pending messages are queue state, not Flow history. After a Step consumes a
+message, the message disappears from the Channel, even though the publication
+and consumption stay visible in recent
+[Flow history](/reference/server/0.1.30/configuration#history-window). The message
+comes back only when the Step is canceled before its **Execute** commits. See
+[Canceled Steps return consumed messages](#canceled-step-messages).
+
+Every Step method, timeout handler, and RPC always receives Channel sizes. To
+read the IDs or Values of pending messages, it must load them explicitly. To
+delete a message whose ID it already knows, it does not need to load it.
+**StepOptions** selects state separately for **WaitFor** and **Execute**;
+**FlowTimeoutHandlerOptions** selects state for the timeout handler. Loading a
+Channel takes one snapshot for the invocation and does not consume messages. A
+loaded empty Channel returns an empty list. Reading pending messages without
+loading the Channel is a usage error.
+
+Treat every snapshot of pending messages inside a Step or RPC as possibly out of
+date. Other Steps and RPCs can consume, delete, or publish messages while the
+handler runs. Transactional execution checks the selected deletions and commits
+the handler's writes atomically, but it does not lock the whole Channel. Read
+and write pending messages directly only when the operation can tolerate these
+concurrent changes. If a decision requires the queue to stay unchanged, every
+Step and RPC that writes it must use the same Attribute lock.
+
+A Step or timeout handler can stage a deletion with its other side effects. Dex
+applies the effects of a successful handler in this order: Attribute writes,
+best-effort Channel deletions, Channel publications, and then the Step
+decision.
+**StepDecision** describes only control flow; it does not contain deletions.
+Waiting Steps take the publications after the decision's cancellations, so a
+Step that the decision cancels never takes them. A decision that also closes
+the Flow at once, with **ForceComplete**, **ForceFail**, or a
+**ForceCompleteIfChannelsEmpty** that closes, is the exception: a waiting Step
+can take a publication, and the close then cancels that Step and drops the
+message. Changed in 0.1.26: waiting Steps took the publications before the
+cancellations.
+
+An RPC can combine deletion with other durable writes. The move example in
+[Transactional RPCs](#transactional-reads-and-writes) loads **QueuedMessages**,
+finds the original Value by message ID, then stages its deletion and
+republishes that Value. The caller sends only the ID.
+
+### ChannelMap {#channelmap}
+
+RPCs can always read the current ChannelMap keys and sizes. Load the entire
+ChannelMap when the handler needs every instance's pending messages. Load exact
+instances when it needs only known keys. Instance keys cannot contain **/**
+because Dex uses that character between the map name and instance key.
+
+## Streams {#streams}
+
+Server settings for Streams, with their defaults, are in
+[Streams](/reference/server/0.1.30/configuration#streams).
+
+### Write semantics {#stream-write-semantics}
+
+A direct Step write has these semantics:
+
+- Dex sends it immediately during **WaitFor** or **Execute**. It is not held
+  back until the Step completes.
+- A later Step failure does not roll the message back.
+- One method invocation can write any number of messages to the same or
+  different Streams. Each write also counts as a heartbeat, and keeps the last
+  explicit heartbeat value. The [Polling](/design-patterns/polling) pattern uses
+  these writes to report progress.
+- The SDK confirms only that it encoded the message and handed it to the Worker
+  output stream. If the Stream Store is disabled, unavailable, full, or rejects
+  the message, Dex drops the message without failing the Step.
+- Every Step message has the source **#StepExecutionID**, so all attempts and
+  messages of one Step execution share it. The source is informational, not
+  unique, and does not deduplicate retries. After a Dex Server node crashes, an
+  ASYNC Step can also run the same attempt number again, and its batches can
+  repeat under the same source.
+
+A Client can write even when the Flow does not exist or is no longer active.
+Supply a non-empty source for each write. A source may repeat and may contain
+**#**; every call appends another message. RPC handlers cannot write through
+their Context, but they can send Stream messages through a Client passed to
+them as a dependency.
+
+Python coroutine Steps call **Stream.write** without **await**. Python
+synchronous Steps must yield the returned **StepOutput** from a generator. Other
+SDKs send the frame through their Step Context, and return once it is queued
+locally.
+
+### Buffer text chunks {#stream-buffered-text}
+
+Use the buffered text writer when many small chunks form one text value, such as
+LLM deltas. The default flush interval is one second and the soft threshold is
+16 KiB of UTF-8 data. The writer sends the current batch, if it is not empty,
+when the timer fires, when the size threshold is reached, or when the method
+returns. The writer keeps text exactly as written, never splits a chunk, and
+ignores empty chunks.
+
+Go, Java, Python async, TypeScript, and Rust stop the timer and flush the rest
+before sending the final result or error. Python sync generators check the
+elapsed time only when you write another chunk, and must yield from an
+explicit final flush. An empty buffer sends no Stream message and no heartbeat.
+A retry does not restore unsent text, and batches sent before a retry may appear
+again.
+
+### Resumable reads {#stream-resumable-reads}
+
+**ReadStream** returns one message with its value, resume token, creation time,
+and source.
+
+- An empty token starts at the current retained head.
+- A token older than the retained head also starts at that head.
+- Pass the returned token unchanged to read the next message.
+- When no next message exists, the call long-polls until a message arrives or
+  the wait expires.
+
+Resume is best effort. A slow reader can miss messages trimmed before its next
+read.
+
+### List messages {#stream-listing}
+
+Use **ListStreamMessages** to inspect retained messages from newest to oldest.
+The call does not block. It returns at once with up to the requested page size.
+
+An empty before-page token starts at the newest retained message. Pass the
+returned next-page token unchanged to read the next older page. The page starts
+after the token's message, and the token works only for the same Flow type,
+Flow ID, and Stream name. An empty next-page token marks the last page.
+
+<SdkTabs examples={{
+python: 'examples/python/dex_examples/primitives/stream/controller.py',
+go: 'examples/go/primitives/stream/controller.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java',
+typescript: 'examples/typescript/src/primitives/stream/controller.ts',
+rust: 'examples/rust/src/primitives/stream/controller.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+        page = await app_state.client.list_stream_messages(
+            required_query("workflowId"),
+            app_state.stream.progress,
+            required_int_query("pageSize"),
+            optional_query("beforePageToken", ""),
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	var page sdk.StreamMessagesPage[string]
+	err = controller.client.ListStreamMessages(
+		request.Request.Context(),
+		flowID,
+		Progress,
+		int32(pageSize),
+		request.Query("beforePageToken"),
+		&page,
+	)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+        final StreamMessagesPage<String> page = client.listStreamMessages(
+                workflowId,
+                flow.progress,
+                pageSize,
+                beforePageToken);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+    const page = await client.listStreamMessages(
+      String(request.query.workflowId ?? ""),
+      progress,
+      Number(request.query.pageSize),
+      String(request.query.beforePageToken ?? ""),
+    );
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+        client
+            .list_stream_messages(
+                &query.workflow_id,
+                &PROGRESS,
+                query.page_size,
+                &query.before_page_token,
+            )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Listing is best effort, not a consistent snapshot. Messages appended after the
+first page do not appear in the older pages, but trimming can remove messages
+between calls. If trimming removes every message older than the page token, Dex
+returns an empty page instead of starting again from the newest message.
+
+The page size must be between 1 and **streamStore.maxReadMessages**, which
+defaults to 1000. The server rejects a page size outside that range with
+**INVALID_ARGUMENT**; it does not reduce a larger value.
+
+Use **ReadStream** for forward, one-message-at-a-time consumption that can
+long-poll and resume. Use **ListStreamMessages** for reverse, non-blocking
+pagination over currently retained messages.
+
+### Capacity and trimming {#stream-capacity}
+
+**streamCapacityBytes** is an approximate capacity shared by all Flow runs
+with the same Flow type and Stream name. It is not a limit for each Flow ID.
+
+The server estimates each message's size from its serialized value, Flow ID,
+source, and the configured overhead for each message.
+
+When usage reaches the trim trigger threshold, background trimming removes the
+oldest messages across all Flows until usage reaches the trim target. A server
+runs several trim workers, but only one job trims a given Stream at a time. If
+trimming is too slow and usage reaches **streamCapacityBytes**, the server
+rejects the write with **RESOURCE_EXHAUSTED**. The rejection also asks trimming
+to free room for that message, so a Client can retry the write. The server
+rejects a message larger than the Stream's capacity the same way, but that
+message can never fit, so do not retry it.
+
+The server also limits the size of each Stream message, the capacity of one
+Stream, and the memory of all Streams on a server. A Client write past the
+server-wide total fails with **RESOURCE_EXHAUSTED**, and background trimming
+then removes the oldest messages of the largest Streams until the message fits.
+Retry the write after a short delay. See
+[Streams](/reference/server/0.1.30/configuration#streams) for each limit and its
+default.
+
+### Best-effort storage {#stream-storage}
+
+The Stream Store keeps messages in the memory of the active server process.
+**streamStore.backend** defaults to **memory** for both **dexcli dev** and a
+production server. The messages disappear when the server process restarts or a
+standby takes over. Trimming or a full Stream can also remove or reject
+messages. An operator can set the backend to **disabled**. Client Stream writes
+and reads then fail with **FAILED_PRECONDITION**, and Dex drops Step writes
+without failing the Step.
+
+## Timers {#timers}
+
+### Firing time {#timer-firing-time}
+
+A Timer's deadline is the server's timestamp for the **WaitFor** result that
+declared the Timer, plus the Timer's duration in whole seconds.
+
+Except for an explicit **SkipTimer**, Dex never satisfies a Timer condition
+before its deadline. After the deadline, the firing can be late, for example
+while the server is busy or failing over. Until the Timer fires, another
+condition can still satisfy the wait. So in an **AnyOf**, a Channel message
+that commits after the Timer's deadline can still win.
+
+## SubFlows {#subflows}
+
+### SubFlowOptions {#subflow-options}
+
+**SubFlowOptions** are the SubFlow version of the **StartFlowOptions** of
+**StartFlow**. Most options are the same; **SubFlowReusePolicy** is the
+difference.
+
+### Step types that start SubFlows {#subflow-step-types}
+
+Dex Server builds each SubFlow ID from the parent Flow ID, the Step execution
+ID, and the condition index, joined with a dash. A Step execution ID is the
+Step type, a dash, and a counter:
+
+```text
+SubFlow:<parent Flow ID>-<Step type>-<counter>-<condition index>
+```
+
+A dash inside a Step type makes this ID ambiguous. For example, parent **a-b**
+at Step type **C** and parent **a** at Step type **b-C** both produce
+**SubFlow:a-b-C-1-0**, so two parents would share one child.
+
+Changed in 0.1.26: a Step whose Step type contains a dash cannot start
+SubFlows. Dex Server rejects a WaitFor result that registers a SubFlow
+condition from such a Step as an invalid Worker response. The attempt fails
+without retry, with an error that names the Step type. Step types with a dash
+may still wait on Timers and Channels. To migrate, rename the Step type so it
+has no dash.
+
+### SubFlowReusePolicy {#subflow-reuse-policy}
+
+Dex Server generates a SubFlow ID from the parent Flow ID, Step execution ID,
+and condition index. When a parent reuses a Flow ID with **IDReusePolicy**, or
+time travels, it can enter the same Step execution and try to start the same
+SubFlow ID again. **SubFlowReusePolicy** controls what happens in that case.
+
+The default **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** is usually what a parent
+wants: continue waiting for a running child, use a successful child result, and
+restart a child that ended abnormally.
+
+| Existing child Flow | **ATTACH** | **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** | **ALWAYS_RESTART** |
+| --- | --- | --- | --- |
+| No existing Flow | Start | Start | Start |
+| Running | Attach | Attach | Terminate and start |
+| Completed | Return its result | Return its result | Start |
+| Failed, canceled, timed out, or terminated | Return its result | Start | Start |
+
+Dex Server first compares the Request ID that it generated for this child start
+with the existing child's. With a matching Request ID, Dex always attaches to a
+running child or returns its final result, whatever the **ReusePolicy**. This
+makes a retry safe when Dex Server accepted the original start but the parent
+did not receive the response. With a different Request ID, Dex Server applies
+the selected **ReusePolicy** from the table.
+
+### Later parent runs and parent close {#subflow-parent-lifecycle}
+
+A later run of the same parent Flow ID generates the same SubFlow ID when it
+creates the same Step execution ID, which is the same Step type and counter, and
+uses the same condition index. Step execution counters start again in each run,
+so this is common. Dex treats that start as a repeated start under the
+**SubFlowReusePolicy**. With the default policy, the later run reuses the earlier
+run's running or completed child until Dex deletes that child.
+**ALWAYS_RESTART** starts a fresh child, but it terminates an old child that is
+still running. When both children must keep running, use a different parent Flow
+ID.
+
+A child keeps running when its parent Step is canceled or its parent Flow
+closes. Dex does not stop it. Stop it explicitly, or give it a Flow timeout. A
+child without a Flow timeout can wait forever when no Worker takes its Steps.
+

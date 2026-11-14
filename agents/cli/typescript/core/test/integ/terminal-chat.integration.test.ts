@@ -688,7 +688,7 @@ describe("terminal chat with connectors and session settings", () => {
     cliB.writeLine("/exit");
     assert.equal(await cliB.waitForExit(), 0);
 
-    // Since 0.6.7 the other environment takes the session over, and its tool Steps then run there.
+    // Since 0.6.8 the other environment takes the session over, and its tool Steps then run there.
     const resumeInB = start(homeB, ["--resume", sessionA]);
     await resumeInB.stdout.waitFor(`Resumed session ${sessionA}.`);
     resumeInB.writeLine('call write_file {"path":"from-b.txt","content":"b"}');

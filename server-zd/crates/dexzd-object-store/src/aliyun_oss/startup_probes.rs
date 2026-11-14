@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use crate::aliyun_oss::version_keys::{version_prefix, versioned_logical_key};
-use crate::aliyun_oss::version_reads::inner_error;
+use crate::aliyun_oss::version_discovery::{NewestVersionLocator, VersionDiscovery};
+use crate::aliyun_oss::version_keys::{version_object_key, version_prefix, versioned_logical_key};
+use crate::aliyun_oss::version_reads::{VersionReadExtent, inner_error};
 use crate::{
     ObjectMetadata, ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation,
     ObjectStoreResult, STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_PROBE_OBJECT_KEY_PREFIX,
@@ -32,6 +33,47 @@ const PROBE_PAGE_KEYS: u32 = 1000;
 
 /// Deletes every version of the probe key `logical_key`.
 pub(super) async fn purge_startup_probe(
+    locator: &NewestVersionLocator,
+    logical_key: &str,
+) -> ObjectStoreResult<()> {
+    match locator.discovery {
+        VersionDiscovery::Listing => purge_listed_startup_probe(locator.inner(), logical_key).await,
+        VersionDiscovery::HeadProbing => {
+            purge_probed_startup_probe(locator, logical_key).await?;
+            locator.forget(logical_key);
+            Ok(())
+        }
+    }
+}
+
+/// Deletes generations 1 through the newest of a probe key, one at a time from the oldest up;
+/// probe versions are never reclaimed.
+///
+/// A failure keeps the newest version and this process's memory of it, so a retry finds it
+/// and deletes the rest.
+async fn purge_probed_startup_probe(
+    locator: &NewestVersionLocator,
+    logical_key: &str,
+) -> ObjectStoreResult<()> {
+    let operation = ObjectStoreOperation::Delete;
+    let Some(newest) = locator
+        .read_newest_version(operation, logical_key, VersionReadExtent::HeaderOnly)
+        .await?
+    else {
+        return Ok(());
+    };
+    for generation in 1..=newest.generation {
+        locator
+            .inner()
+            .delete(&version_object_key(logical_key, generation))
+            .await
+            .map_err(|error| inner_error(operation, logical_key, &error))?;
+    }
+    Ok(())
+}
+
+/// Deletes every listed version of the probe key `logical_key`.
+async fn purge_listed_startup_probe(
     inner: &dyn ObjectStore,
     logical_key: &str,
 ) -> ObjectStoreResult<()> {

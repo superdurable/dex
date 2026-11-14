@@ -11,7 +11,7 @@ use std::future::{Future, pending};
 use std::pin::pin;
 
 use bytes::Bytes;
-use dexzd_object_store::{ObjectListing, ObjectStore};
+use dexzd_object_store::{ListingConsistency, ObjectListing, ObjectStore};
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 
@@ -20,7 +20,8 @@ use crate::stream_layout::{
     LIST_PAGE_KEYS, batch_key_prefix_length, parse_listed_seq, validate_batch_identity,
 };
 
-/// How far log replay reads batches ahead of the batch it applies.
+/// How far log replay reads batches ahead of the batch it applies, and how far it trusts a
+/// listing of the stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LogReadAheadConfig {
     /// Defaults to 64; most batches read but not yet returned, counting reads in flight.
@@ -28,6 +29,17 @@ pub struct LogReadAheadConfig {
     /// Defaults to 64 MiB; most batch object bytes that read-ahead reserves. A larger batch is
     /// read alone.
     pub max_buffered_bytes: usize,
+    /// Defaults to [`ListingConsistency::Strong`], which treats a seq that a listing lacks as
+    /// missing. With [`ListingConsistency::Eventual`], a bounded read, or a gap below a listed
+    /// seq, reads the object before treating the seq as missing, and recovery reads seqs after
+    /// the last listed batch; see `tail_probe_misses`.
+    pub listing_consistency: ListingConsistency,
+    /// Defaults to 4, the default number of concurrent batch writes of the commit pipeline.
+    /// Only with an eventually consistent listing: recovery reads the seqs after the last
+    /// listed batch, in concurrent rounds of this many HEADs, until this many in a row are
+    /// missing. Set it to at least the most concurrent batch writes of any writer that wrote the
+    /// stream, not only of this one; values below 1 count as 1.
+    pub tail_probe_misses: usize,
 }
 
 impl Default for LogReadAheadConfig {
@@ -35,6 +47,8 @@ impl Default for LogReadAheadConfig {
         Self {
             max_read_ahead_batches: 64,
             max_buffered_bytes: 64 * 1024 * 1024,
+            listing_consistency: ListingConsistency::Strong,
+            tail_probe_misses: 4,
         }
     }
 }
@@ -61,11 +75,13 @@ pub struct OrderedBatchReader<'a> {
     reserved_bytes: usize,
 }
 
-/// One listed seq: the object bytes, or `None` when the seq is empty.
+/// One seq: the object bytes, or `None` when the seq is empty.
 type ObjectRead = Result<Option<Bytes>, LogError>;
 
 enum ReadEvent {
     Object(u64, ObjectRead),
+    /// A read of a seq that an eventually consistent listing lacked.
+    UnlistedObject(u64, ObjectRead),
     Listing(Result<ObjectListing, LogError>),
 }
 
@@ -77,6 +93,10 @@ struct ListedObjectSizes {
     sizes: VecDeque<(u64, usize)>,
     /// Every seq through this one that existed when listed is in `sizes` or was read.
     listed_through: u64,
+    /// Highest seq that a listing showed; with an eventually consistent listing, a gap below it
+    /// is read before it counts as missing.
+    highest_listed_seq: u64,
+    consistency: ListingConsistency,
     is_listing: bool,
     error: Option<LogError>,
 }
@@ -109,6 +129,8 @@ impl<'a> OrderedBatchReader<'a> {
                 next_start_after: first_key,
                 sizes: VecDeque::new(),
                 listed_through,
+                highest_listed_seq: listed_through,
+                consistency: config.listing_consistency,
                 is_listing: false,
                 error: None,
             },
@@ -191,6 +213,17 @@ impl<'a> OrderedBatchReader<'a> {
             ReadEvent::Object(seq, read) => {
                 self.fetched.insert(seq, read);
             }
+            ReadEvent::UnlistedObject(seq, read) => {
+                if matches!(read, Ok(Some(_)))
+                    && self.next_seq_to_read == seq.checked_add(1)
+                    && self.listing.sizes.is_empty()
+                    && !self.listing.is_listing
+                {
+                    // The listing missed this batch, so it was stale; a new listing may be fresh.
+                    self.listing.list_again_after(seq, self.stream);
+                }
+                self.fetched.insert(seq, read);
+            }
             ReadEvent::Listing(page) => self.listing.keep_page(page, self.last_seq),
         }
     }
@@ -203,6 +236,14 @@ impl<'a> OrderedBatchReader<'a> {
         {
             // A seq missing from the listing needs no GET or byte reservation.
             let reservation = listed_bytes.unwrap_or(0);
+            let should_read_unlisted =
+                listed_bytes.is_none() && self.listing.should_read_unlisted(seq, self.last_seq);
+            // An unlisted read has no known size, so it reserves the whole budget and runs alone.
+            let reservation = if should_read_unlisted {
+                self.config.max_buffered_bytes
+            } else {
+                reservation
+            };
             let fits =
                 self.reserved_bytes.saturating_add(reservation) <= self.config.max_buffered_bytes;
             if self.reserved_bytes > 0 && !fits {
@@ -218,6 +259,9 @@ impl<'a> OrderedBatchReader<'a> {
                     seq,
                     listed_bytes,
                 )));
+            } else if should_read_unlisted {
+                self.in_flight
+                    .push(Box::pin(read_unlisted_object(self.store, self.stream, seq)));
             } else {
                 self.in_flight
                     .push(Box::pin(async move { ReadEvent::Object(seq, Ok(None)) }));
@@ -267,6 +311,19 @@ impl ListedObjectSizes {
         })
     }
 
+    /// Returns whether a seq that the listing lacks is read before it counts as missing: with an
+    /// eventually consistent listing, in a bounded read or below a listed seq. Unbounded reads
+    /// past the listing return the seq as missing, and their callers read it.
+    fn should_read_unlisted(&self, seq: u64, last_seq: u64) -> bool {
+        !self.consistency.is_strong() && (last_seq != u64::MAX || seq < self.highest_listed_seq)
+    }
+
+    /// Lists again after `seq`, which an earlier listing lacked but a read found.
+    fn list_again_after(&mut self, seq: u64, stream: &StreamIdentity) {
+        self.listed_through = seq;
+        self.next_start_after = stream.batch_key(seq);
+    }
+
     fn forget_through(&mut self, seq: u64) {
         while self
             .sizes
@@ -303,6 +360,10 @@ impl ListedObjectSizes {
             (Some(_), Some(last)) => parse_listed_seq(&last.key, prefix_length)?,
             (Some(_), None) => self.listed_through,
         };
+        if !self.consistency.is_strong() {
+            self.keep_eventual_page(sizes, listed_through, page.next_start_after);
+            return Ok(());
+        }
         self.sizes.extend(sizes);
         self.listed_through = listed_through;
         if let Some(next_start_after) = page.next_start_after {
@@ -310,6 +371,41 @@ impl ListedObjectSizes {
         }
         Ok(())
     }
+
+    /// Keeps a page that may repeat an earlier one; a page without a new seq ends listing.
+    fn keep_eventual_page(
+        &mut self,
+        sizes: Vec<(u64, usize)>,
+        listed_through: u64,
+        next_start_after: Option<String>,
+    ) {
+        if let Some((seq, _)) = sizes.last() {
+            self.highest_listed_seq = self.highest_listed_seq.max(*seq);
+        }
+        self.sizes.extend(sizes);
+        if listed_through <= self.listed_through {
+            self.listed_through = u64::MAX;
+            return;
+        }
+        self.listed_through = listed_through;
+        if let Some(next_start_after) = next_start_after {
+            self.next_start_after = next_start_after;
+        }
+    }
+}
+
+/// Reads one object that an eventually consistent listing lacked.
+async fn read_unlisted_object(
+    store: &dyn ObjectStore,
+    stream: &StreamIdentity,
+    seq: u64,
+) -> ReadEvent {
+    let read = store
+        .get(&stream.batch_key(seq))
+        .await
+        .map(|object| object.map(|object| object.bytes))
+        .map_err(LogError::from);
+    ReadEvent::UnlistedObject(seq, read)
 }
 
 /// Reads one object, failing when a listed size differs from the bytes read.

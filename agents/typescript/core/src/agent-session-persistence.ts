@@ -195,7 +195,7 @@ export interface AgentSessionPersistence {
    * `acquire_session_terminal_lease` call that gave the lease to a new holder. It stays after the lease is released,
    * so it says where the session was last open. It is unset until such a call carries an `environment`.
    *
-   * @since 0.6.7
+   * @since 0.6.8
    */
   readonly sessionLastTerminalEnvironment: Attribute<Readonly<Record<string, string>>>;
   /**

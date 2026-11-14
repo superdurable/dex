@@ -61,6 +61,8 @@ struct AliyunOssServer<'a> {
     hard_delete_endpoint: Option<&'a str>,
     /// YAML sections appended to the configuration.
     extra_config: &'a str,
+    /// The `objectStore.versionDiscovery` value, or `None` for the default.
+    version_discovery: Option<&'a str>,
 }
 
 impl AliyunOssServer<'_> {
@@ -89,6 +91,16 @@ impl AliyunOssServer<'_> {
         ));
         std::fs::write(&path, contents).expect("the configuration is written");
         TestObjectStoreProvider::AliyunOss.select_in_config(&path);
+        if let Some(version_discovery) = self.version_discovery {
+            let contents = std::fs::read_to_string(&path).expect("the configuration is readable");
+            let selected = contents.replacen(
+                "  provider: aliyunOSS\n",
+                &format!("  provider: aliyunOSS\n  versionDiscovery: {version_discovery}\n"),
+                1,
+            );
+            assert_ne!(selected, contents, "the configuration selects aliyunOSS");
+            std::fs::write(&path, selected).expect("the configuration is written");
+        }
         path
     }
 }
@@ -111,6 +123,7 @@ async fn aliyun_oss_serve_cleans_up_objects_and_recovers_after_warm_and_cold_res
         local_directory: directory.path().join("store"),
         hard_delete_endpoint: None,
         extra_config: "",
+        version_discovery: None,
     };
 
     let mut first = server.spawn("first");
@@ -173,6 +186,94 @@ async fn aliyun_oss_serve_cleans_up_objects_and_recovers_after_warm_and_cold_res
     primary.shutdown().await;
 }
 
+/// A prefix that HEAD-probing nodes serve stays theirs: a listing node refuses it, and a later
+/// HEAD-probing node recovers every Flow from it. A HEAD-probing node refuses a listing prefix.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn aliyun_oss_head_and_list_version_discovery_refuse_each_others_prefix() {
+    let primary = S3Emulator::start_with_dialect(
+        PRIMARY_BUCKET,
+        SignatureVerification::Strict,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+    let endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let server_with = |version_discovery, store: &str| AliyunOssServer {
+        directory: directory.path(),
+        endpoint: &endpoint,
+        local_directory: directory.path().join(store),
+        hard_delete_endpoint: None,
+        extra_config: "",
+        version_discovery: Some(version_discovery),
+    };
+    let head = server_with("head", "head-store");
+    let mut first = head.spawn("head-first");
+    let channel = first.wait_until_serving().await;
+    let worker = start_greeting_worker(channel.clone()).await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    let mut acknowledged = Vec::new();
+    for index in 0..5 {
+        let flow_id = format!("aliyun-head-flow-{index}");
+        let run_id = run_greeting_flow(&mut flow_client, &flow_id).await;
+        acknowledged.push((flow_id, run_id));
+    }
+    assert_versioned_layout(&primary);
+    worker.stop().await;
+    let status = first.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", first.log());
+
+    let mut listing = server_with("list", "list-store").spawn("list-refused");
+    let status = listing.wait_for_exit(FAILED_STARTUP_BUDGET).await;
+    let log = listing.log();
+    assert_ne!(status.code(), Some(0), "{log}");
+    assert!(
+        log.contains("version-discovery/head") && log.contains("versionDiscovery: head"),
+        "{log}"
+    );
+
+    let cold_head = server_with("head", "cold-head-store");
+    let mut process = cold_head.spawn("head-cold");
+    let channel = process.wait_until_serving().await;
+    assert_completed(
+        &mut FlowServiceClient::new(channel),
+        &acknowledged,
+        &process,
+    )
+    .await;
+    let status = process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", process.log());
+    primary.shutdown().await;
+
+    let listing_primary = S3Emulator::start_with_dialect(
+        PRIMARY_BUCKET,
+        SignatureVerification::Strict,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+    let listing_endpoint = listing_primary.endpoint();
+    let listing_server = |version_discovery, store: &str| AliyunOssServer {
+        directory: directory.path(),
+        endpoint: &listing_endpoint,
+        local_directory: directory.path().join(store),
+        hard_delete_endpoint: None,
+        extra_config: "",
+        version_discovery: Some(version_discovery),
+    };
+    let mut listing = listing_server("list", "listing-store").spawn("list-first");
+    listing.wait_until_serving().await;
+    let status = listing.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", listing.log());
+    let mut head = listing_server("head", "late-head-store").spawn("head-refused");
+    let status = head.wait_for_exit(FAILED_STARTUP_BUDGET).await;
+    let log = head.log();
+    assert_ne!(status.code(), Some(0), "{log}");
+    assert!(
+        log.contains("version-discovery/head") && log.contains("empty prefix"),
+        "{log}"
+    );
+    listing_primary.shutdown().await;
+}
+
 /// A bucket that ever had versioning ignores `x-oss-forbid-overwrite`, so startup fails.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn aliyun_oss_startup_rejects_a_bucket_that_ever_had_versioning() {
@@ -192,6 +293,7 @@ async fn aliyun_oss_startup_rejects_a_bucket_that_ever_had_versioning() {
             local_directory: directory.path().join("store"),
             hard_delete_endpoint: None,
             extra_config: "",
+            version_discovery: None,
         };
         let mut process = server.spawn("versioned");
         let status = process.wait_for_exit(FAILED_STARTUP_BUDGET).await;
@@ -239,6 +341,7 @@ async fn aliyun_oss_startup_rejects_data_written_by_the_s3_provider() {
         local_directory: directory.path().join("aliyun-oss-store"),
         hard_delete_endpoint: None,
         extra_config: "",
+        version_discovery: None,
     };
     let mut process = server.spawn("aliyun-oss");
     let status = process.wait_for_exit(FAILED_STARTUP_BUDGET).await;
@@ -273,6 +376,7 @@ async fn aliyun_oss_replaces_flow_definitions() {
         local_directory: directory.path().join("store"),
         hard_delete_endpoint: None,
         extra_config: "",
+        version_discovery: None,
     };
     let mut process = server.spawn("definitions");
     let mut flow_client = FlowServiceClient::new(process.wait_until_serving().await);
@@ -344,6 +448,7 @@ async fn aliyun_oss_offloaded_history_is_uploaded_and_read_back() {
         local_directory: directory.path().join("store"),
         hard_delete_endpoint: None,
         extra_config: &extra_config,
+        version_discovery: None,
     };
     let mut process = server.spawn("offload");
     let mut flow_client = FlowServiceClient::new(process.wait_until_serving().await);
@@ -430,6 +535,7 @@ async fn aliyun_oss_hard_delete_store_keeps_and_erases_a_value() {
         local_directory: directory.path().join("store"),
         hard_delete_endpoint: Some(&hard_delete_endpoint),
         extra_config: "",
+        version_discovery: None,
     };
     let mut process = server.spawn("hard-delete");
     let mut flow_client = FlowServiceClient::new(process.wait_until_serving().await);
@@ -578,7 +684,7 @@ async fn wait_until(budget: Duration, what: &str, condition: impl Fn() -> bool) 
 }
 
 /// Checks that only versions hold the mutable object keys, which the adapter manages.
-fn assert_versioned_layout(primary: &S3Emulator) {
+pub(super) fn assert_versioned_layout(primary: &S3Emulator) {
     let manifest_keys = primary.keys_under(PRIMARY_BUCKET, &format!("{PRIMARY_PREFIX}/manifest"));
     assert!(
         !manifest_keys.is_empty()
@@ -598,7 +704,7 @@ fn assert_versioned_layout(primary: &S3Emulator) {
     );
 }
 
-async fn assert_completed(
+pub(super) async fn assert_completed(
     flow_client: &mut FlowServiceClient<Channel>,
     acknowledged: &[(String, String)],
     process: &ServeProcess,
@@ -687,7 +793,7 @@ fn pseudo_random_text(length: usize) -> String {
         .collect()
 }
 
-fn snapshot_manifest_keys(primary: &S3Emulator) -> Vec<String> {
+pub(super) fn snapshot_manifest_keys(primary: &S3Emulator) -> Vec<String> {
     primary
         .keys_under(
             PRIMARY_BUCKET,
@@ -699,7 +805,7 @@ fn snapshot_manifest_keys(primary: &S3Emulator) -> Vec<String> {
 }
 
 /// Returns the seq of the oldest retained incarnation-1 log batch, or 0 without one.
-fn first_log_seq(primary: &S3Emulator) -> u64 {
+pub(super) fn first_log_seq(primary: &S3Emulator) -> u64 {
     primary
         .keys_under(
             PRIMARY_BUCKET,
