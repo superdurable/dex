@@ -62,6 +62,13 @@ export interface DexServerConnection {
    * `null` when the Dex Web URL is unknown.
    */
   readonly autoConnectorsMcpUrl: string | null;
+  /**
+   * The line that says why `connectors.mcp: auto` has no URL, such as no authorized connection on this machine;
+   * absent when it has one or no command looked.
+   *
+   * @since 0.6.9
+   */
+  readonly connectorsOffReason?: string;
   /** What happened: an explicit server, a reused `dexcli dev`, or one this command started. */
   readonly origin: "configured" | "reused" | "started";
 }

@@ -90,6 +90,14 @@ from dex_agents_cli_core.connectors import (
     connectors_unavailable_line,
     read_connector_catalog,
 )
+from dex_agents_cli_core.connectors_mcp_command import (
+    CONNECTORS_MCP_COMMAND_MINIMUM_DEXCLI_VERSION,
+    LocalConnections,
+    StartedConnectorsMcpCommand,
+    connectors_mcp_command_log_path,
+    read_local_connections,
+    start_connectors_mcp_command,
+)
 from dex_agents_cli_core.dex_connection import (
     DexConnection,
     DexConnectionSettings,
@@ -333,7 +341,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         print(f"{command_name(harness)}: {refused}", file=sys.stderr)
         return 1
     finally:
-        server.stop_started_dexcli_dev()
+        server.stop_started_processes()
 
 
 class _CommandDexServer:
@@ -342,6 +350,7 @@ class _CommandDexServer:
     def __init__(self, environment: CommandEnvironment) -> None:
         self._environment = environment
         self._started_process = StartedDexcliDevProcess(environment)
+        self._started_connectors_mcp: StartedConnectorsMcpCommand | None = None
         self._reused_web_url: str | None = None
         self.started_dexcli_dev_lines: list[str] = []
         self._command_task: asyncio.Task[Any] | None = None
@@ -412,8 +421,69 @@ class _CommandDexServer:
             self.started_dexcli_dev_lines = lines
         return endpoint
 
-    def stop_started_dexcli_dev(self) -> None:
-        """Stop the ``dexcli dev`` this command started, if any."""
+    async def resolve_with_connectors(self, config: EffectiveConfig) -> DexServerEndpoint:
+        """Resolve the Dex server, then the URL ``connectors.mcp: auto`` uses.
+
+        That URL is the one ``dexcli connectors mcp`` serves for this
+        machine's ``connections.json``. It starts after ``dexcli dev`` is
+        ready, so it reuses that ``dexcli dev``'s Connectors MCP server. With
+        ``dex.server: auto``, a failed start keeps the ``dexcli dev`` URL. With
+        a server URL, Connector tools are off without a local connection or
+        when the start fails, and ``connectors_off_reason`` says why.
+        """
+        endpoint = await self.resolve(config)
+        if config.connectors.mcp != AUTO or config.connectors.enabled == ():
+            return endpoint
+        is_remote = config.dex.server != AUTO
+        if is_remote and read_local_connections(self._environment) is not LocalConnections.PRESENT:
+            return replace(
+                endpoint,
+                connectors_mcp_url=None,
+                connectors_off_reason=(
+                    "Connectors are off: this machine has no authorized Connector connection. "
+                    "Authorize one on the Connectors page of Dex Web in a local dexcli dev, then "
+                    "run this command again."
+                ),
+            )
+        try:
+            dexcli = locate_dexcli(self._environment)
+            if dexcli is None:
+                dexcli = await asyncio.to_thread(download_dexcli, self._environment)
+        except DexcliVariableError as error:
+            raise CommandFailure(str(error)) from error
+        except DexcliInstallError as error:
+            off_reason = (
+                f"Connectors are off: no dexcli can serve this machine's Connectors: {error}."
+            )
+        else:
+            start = await start_connectors_mcp_command(dexcli, self._environment)
+            if start.url is not None:
+                self._started_connectors_mcp = start.process
+                _LOGGER.info("dexcli connectors mcp serves the Connectors MCP at %s", start.url)
+                return replace(endpoint, connectors_mcp_url=start.url)
+            off_reason = (
+                "Connectors are off: connectors.mcp is auto, which needs dexcli "
+                f"{CONNECTORS_MCP_COMMAND_MINIMUM_DEXCLI_VERSION} or later to serve this machine's "
+                f"Connectors, and {dexcli} is older. Update it, or set connectors.mcp to a URL."
+                if start.is_unsupported
+                else f"Connectors are off: dexcli connectors mcp failed: {start.failure}."
+            )
+        if not is_remote:
+            _LOGGER.warning(
+                "%s Using %s of dexcli dev instead.", off_reason, endpoint.connectors_mcp_url
+            )
+            return endpoint
+        _LOGGER.warning(
+            "%s See %s.", off_reason, connectors_mcp_command_log_path(self._environment)
+        )
+        return replace(endpoint, connectors_mcp_url=None, connectors_off_reason=off_reason)
+
+    def stop_started_processes(self) -> None:
+        """Stop the ``dexcli connectors mcp`` and ``dexcli dev`` this command started, if any."""
+        # Before dexcli dev, whose Connectors MCP server it may reuse.
+        if self._started_connectors_mcp is not None:
+            self._started_connectors_mcp.stop()
+            self._started_connectors_mcp = None
         self._started_process.stop(report=print)
 
     async def _fail_short_on_a_lost_server(self, command: Coroutine[Any, Any, int]) -> int:
@@ -486,6 +556,7 @@ async def _open_hosted_run(
             is_tls=start.is_tls,
             web_url=start.web_url,
             connectors_mcp_url=start.connectors_mcp_url,
+            connectors_off_reason=start.connectors_off_reason,
         )
         session_worker = await _SessionWorker.start(
             environment,
@@ -523,6 +594,7 @@ async def _open_hosted_run(
         connectors=inputs.config.connectors,
         connectors_mcp_url=_connectors_mcp_url(inputs.config, endpoint),
         web_url=endpoint.web_url,
+        connectors_off_reason=endpoint.connectors_off_reason,
     )
     lease = HeldSessionLease(session_worker.opener)
     return _HostedCliRun(
@@ -793,7 +865,7 @@ async def _run(
     inputs = _prepare_run(
         arguments.model, loaded, environment, harness, _report_ignored_settings, connection
     )
-    endpoint = await server.resolve(inputs.config)
+    endpoint = await server.resolve_with_connectors(inputs.config)
     if _is_terminal_ui_wanted(arguments, environment, harness):
         outcome = await _run_terminal_ui(
             arguments, environment, harness, loaded, inputs, endpoint, server
@@ -863,6 +935,7 @@ async def _run_terminal_ui(
             is_tls=endpoint.is_tls,
             web_url=endpoint.web_url,
             connectors_mcp_url=endpoint.connectors_mcp_url,
+            connectors_off_reason=endpoint.connectors_off_reason,
             dex_connection=inputs.connection.to_json(),
         ),
         terminal_variables={
@@ -1463,7 +1536,8 @@ async def _connect_connectors(
     url = _connectors_mcp_url(config, endpoint)
     if url is None:
         reports.report(
-            "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto. "
+            endpoint.connectors_off_reason
+            or "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto. "
             "Set connectors.mcp to the MCP server's URL."
         )
         return None
@@ -1815,9 +1889,12 @@ async def _list_connectors(
     config = loaded.config
     # Validated as for the other subcommands, though listing connectors makes no Dex call.
     _resolve_connection(loaded, environment)
-    endpoint = await server.resolve(config)
+    endpoint = await server.resolve_with_connectors(config)
     url = _connectors_mcp_url(config, endpoint)
     if url is None:
+        if endpoint.connectors_off_reason is not None:
+            print(endpoint.connectors_off_reason)
+            return 1
         raise CommandError("connectors.mcp is auto, which needs dex.server: auto")
     try:
         catalog = await read_connector_catalog(url)
