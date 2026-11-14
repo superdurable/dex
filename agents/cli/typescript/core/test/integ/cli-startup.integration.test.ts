@@ -7,9 +7,19 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 import { createServer as createHttp2Server } from "node:http2";
 import type { AddressInfo } from "node:net";
@@ -101,6 +111,8 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     stdin.write("\n");
     await output.waitFor("Local tools");
     stdin.write("files, shell\n");
+    await output.waitFor("Commands that run without approval, comma-separated [none]: ");
+    stdin.write("\n");
     await output.waitFor(/Session \S+\. Type a message/);
     assert.match(errors.all, /Put provider API keys in environment variables/);
     assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
@@ -165,6 +177,8 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       cli.type("\r");
     }
     await cli.terminal.waitFor("Local tools");
+    cli.type("\r");
+    await cli.terminal.waitFor("Commands that run without approval");
     cli.type("\rhello\r");
     await cli.terminal.waitFor(/Session \S+\. Type a message/);
     assert.equal(home.hasConfig(), true);
@@ -329,7 +343,180 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     home.writeConfig("model: scripted/old\n");
     const init = start(home, ["init", "--yes"]);
     assert.equal(await init.waitForExit(), 0);
-    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), written);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), { ...written, model: "scripted/old" });
+  });
+
+  const remoteServerConfig = {
+    model: "scripted/old",
+    system_prompt: "Old instructions.",
+    dex: { server: "https://dex.example.com", auth: { mode: "bearer", source: "env" } },
+    connectors: { enabled: ["slack/team"] },
+    mcp_servers: { docs: { url: "https://mcp.example.com/mcp" } },
+    workspace: "~/agent workspace ",
+    local_tools: { shell: { allow: ["git status"] } },
+    sessions: { summary: "off" },
+    builtin: { temperature: 0.2 },
+  };
+
+  test("init at a terminal offers the file's values and keeps every field it does not ask about", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`${JSON.stringify(remoteServerConfig, null, 2)}\n`);
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const output = new TextCollector(stdout);
+    const run = runAgentCli(scriptedHarness, {
+      argv: ["init"],
+      stdin,
+      stdout,
+      stderr: new PassThrough(),
+      isInteractive: true,
+      environment: home.environment(),
+    });
+    await output.waitFor("Model [scripted/old]: ");
+    stdin.write("scripted/new\n");
+    await output.waitFor("System prompt [the current prompt]: ");
+    stdin.write("\n");
+    await output.waitFor("[slack/team]: ");
+    stdin.write("hackernews\n");
+    await output.waitFor("Workspace");
+    stdin.write("\n");
+    await output.waitFor("Local tools, comma-separated [files, shell, web_fetch, browser]");
+    stdin.write("files, shell, browser\n");
+    await output.waitFor("Commands that run without approval, comma-separated [git status]: ");
+    stdin.write("ls, pwd\n");
+    assert.equal(await run, 0);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
+      model: "scripted/new",
+      system_prompt: "Old instructions.",
+      dex: remoteServerConfig.dex,
+      connectors: { enabled: ["hackernews"] },
+      mcp_servers: remoteServerConfig.mcp_servers,
+      workspace: "~/agent workspace ",
+      local_tools: { files: true, shell: { enabled: true, allow: ["ls", "pwd"] }, web_fetch: false, browser: true },
+      media: { store: "auto" },
+      sessions: { summary: "off" },
+      builtin: { temperature: 0.2 },
+    });
+  });
+
+  test("init --yes takes the file's values for the asked fields and keeps every other field", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`${JSON.stringify(remoteServerConfig, null, 2)}\n`);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
+      model: "scripted/old",
+      system_prompt: "Old instructions.",
+      dex: remoteServerConfig.dex,
+      connectors: { enabled: ["slack/team"] },
+      mcp_servers: remoteServerConfig.mcp_servers,
+      workspace: "~/agent workspace ",
+      local_tools: { files: true, shell: { enabled: true, allow: ["git status"] }, web_fetch: true, browser: true },
+      media: { store: "auto" },
+      sessions: { summary: "off" },
+      builtin: { temperature: 0.2 },
+    });
+  });
+
+  test("init writes through a symbolic link to the configuration and keeps the link", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const targetPath = join(dirname(home.configPath), "shared", "scripted.yaml");
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, `${JSON.stringify(remoteServerConfig, null, 2)}\n`);
+    symlinkSync(targetPath, home.configPath);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.equal(lstatSync(home.configPath).isSymbolicLink(), true);
+    const written = parseConfigYaml(readFileSync(targetPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(written.dex, remoteServerConfig.dex);
+    assert.deepEqual(written.media, { store: "auto" });
+  });
+
+  test("init follows a chain of symbolic links to a missing file, creates it, and keeps every link", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const directory = dirname(home.configPath);
+    mkdirSync(directory, { recursive: true });
+    symlinkSync("missing.yaml", join(directory, "alias.yaml"));
+    symlinkSync("alias.yaml", home.configPath);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.equal(lstatSync(home.configPath).isSymbolicLink(), true);
+    assert.equal(lstatSync(join(directory, "alias.yaml")).isSymbolicLink(), true);
+    const written = parseConfigYaml(readFileSync(join(directory, "missing.yaml"), "utf8")) as Record<string, unknown>;
+    assert.equal(written.model, "scripted/default");
+  });
+
+  test("init stops at a loop of symbolic links and leaves the links unchanged", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const directory = dirname(home.configPath);
+    mkdirSync(directory, { recursive: true });
+    symlinkSync("loop.yaml", home.configPath);
+    symlinkSync(home.configPath, join(directory, "loop.yaml"));
+    const init = start(home, ["init", "--yes"]);
+    assert.notEqual(await init.waitForExit(), 0);
+    assert.match(init.stderr.all, /cannot write/);
+    assert.equal(lstatSync(home.configPath).isSymbolicLink(), true);
+    assert.equal(lstatSync(join(directory, "loop.yaml")).isSymbolicLink(), true);
+  });
+
+  test("a failed write leaves the existing configuration file unchanged", { skip: process.platform === "win32" }, async () => {
+    const home = new TestHome(enginePorts(engine));
+    const originalText = `${JSON.stringify(remoteServerConfig, null, 2)}\n`;
+    home.writeConfig(originalText);
+    const directory = dirname(home.configPath);
+    // A read-only directory refuses the temporary file, so only an in-place write could change the file.
+    chmodSync(directory, 0o555);
+    try {
+      const init = start(home, ["init", "--yes"]);
+      assert.notEqual(await init.waitForExit(), 0);
+      assert.match(init.stderr.all, /cannot write/);
+    } finally {
+      chmodSync(directory, 0o755);
+    }
+    assert.equal(readFileSync(home.configPath, "utf8"), originalText);
+    assert.deepEqual(
+      readdirSync(directory).filter((name) => name.endsWith(".tmp")),
+      [],
+    );
+  });
+
+  test("init replaces a symbolic link at the backup path and leaves the file it pointed at unchanged", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const invalidText = "local_tools:\n  files: yes\n";
+    home.writeConfig(invalidText);
+    const unrelatedPath = join(dirname(home.configPath), "unrelated.txt");
+    writeFileSync(unrelatedPath, "keep me\n");
+    symlinkSync(unrelatedPath, `${home.configPath}.bak`);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.equal(readFileSync(unrelatedPath, "utf8"), "keep me\n");
+    assert.equal(lstatSync(`${home.configPath}.bak`).isSymbolicLink(), false);
+    assert.equal(readFileSync(`${home.configPath}.bak`, "utf8"), invalidText);
+  });
+
+  test("init replaces an invalid configuration file with the defaults, keeps a backup, and says so", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const invalidText = "dex:\n  server: https://dex.example.com\nlocal_tools:\n  files: yes\n";
+    home.writeConfig(invalidText);
+    const init = start(home, ["init", "--yes"]);
+    assert.equal(await init.waitForExit(), 0);
+    assert.ok(
+      init.stderr.all.includes(
+        `${home.configPath} was invalid, so init replaced it; the old file is at ${home.configPath}.bak.`,
+      ),
+      init.stderr.all,
+    );
+    assert.equal(readFileSync(`${home.configPath}.bak`, "utf8"), invalidText);
+    assert.deepEqual(parseConfigYaml(readFileSync(home.configPath, "utf8")), {
+      model: "scripted/default",
+      dex: { server: "auto" },
+      connectors: { mcp: "auto" },
+      workspace: "~/dex-agent-workspace",
+      local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: true, browser: true },
+      media: { store: "auto" },
+      sessions: { summary: "auto" },
+      builtin: {},
+    });
   });
 
   test("an invalid configuration file stops the command with its error code and JSON Pointer", async () => {

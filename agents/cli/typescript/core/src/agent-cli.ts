@@ -67,13 +67,16 @@ import {
 } from "./dex-connection.js";
 import {
   askInitQuestions,
+  backUpInvalidConfigFile,
   defaultConfigPath,
   defaultInitAnswers,
   describeConfigError,
+  describeReplacedInvalidConfigFile,
   expandConfigPath,
   inMemoryConfig,
   isConfigPresent,
   readConfigFile,
+  readExistingConfigFile,
   readFileInstructions,
   writeConfigFile,
   type InitAnswers,
@@ -658,16 +661,22 @@ export class AgentCliCommand {
   }
 
   private async initConfig(configPath: string): Promise<LoadedConfig> {
+    const existing = readExistingConfigFile(configPath, this.harness);
+    const existingDocument = existing.kind === "valid" ? existing.document : undefined;
     const answers = this.parsed.isYes || !this.io.isInteractive
-      ? defaultInitAnswers(this.harness)
-      : await this.askInitQuestionsAtTerminal();
+      ? defaultInitAnswers(this.harness, existingDocument)
+      : await this.askInitQuestionsAtTerminal(existingDocument);
     if (answers === null) {
       this.io.stdout.write("\n");
       this.log("Cancelled; no configuration written.");
       throw new InitCancelledError(this.isInitInterrupted ? interruptedExitCode : 1);
     }
-    const loaded = writeConfigFile(configPath, answers, this.harness);
+    const backupPath = existing.kind === "invalid" ? backUpInvalidConfigFile(configPath) : undefined;
+    const loaded = writeConfigFile(configPath, answers, this.harness, existingDocument);
     this.log(`Wrote ${configPath}`);
+    if (backupPath !== undefined) {
+      this.log(describeReplacedInvalidConfigFile(configPath, backupPath));
+    }
     return loaded;
   }
 
@@ -1490,9 +1499,11 @@ export class AgentCliCommand {
     return this.input;
   }
 
-  private async askInitQuestionsAtTerminal(): Promise<InitAnswers | null> {
+  private async askInitQuestionsAtTerminal(
+    existingDocument: Readonly<Record<string, unknown>> | undefined,
+  ): Promise<InitAnswers | null> {
     try {
-      return await askInitQuestions(this.harness, (question) => this.ask(question), this.log);
+      return await askInitQuestions(this.harness, (question) => this.ask(question), this.log, existingDocument);
     } finally {
       // Closing leaves raw mode, so Ctrl-C during startup ends the process until the chat reads again.
       this.linesTypedAhead = this.input?.close() ?? [];

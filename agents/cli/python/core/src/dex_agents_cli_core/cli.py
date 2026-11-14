@@ -74,10 +74,14 @@ from dex_agents_cli_core.config_file import (
     ConfigFileError,
     LoadedConfig,
     ask_config_values,
+    back_up_invalid_config_file,
     default_config_path,
     default_config_values,
     defaults_without_file,
+    describe_replaced_invalid_config_file,
     load_config_file,
+    merge_init_values,
+    read_existing_config_file,
     write_config_file,
 )
 from dex_agents_cli_core.connectors import (
@@ -818,12 +822,18 @@ def _is_interactive() -> bool:
 
 def _init(arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness) -> int:
     path = arguments.config_path or default_config_path(environment, harness)
+    existing = read_existing_config_file(path, harness)
     if arguments.is_yes or not _is_interactive():
-        values = default_config_values(harness)
+        values = default_config_values(harness, existing.values)
     else:
-        values = ask_config_values(harness, _ask)
+        values = ask_config_values(harness, _ask, existing.values)
+    if existing.values is not None:
+        values = merge_init_values(existing.values, values)
+    backup_path = back_up_invalid_config_file(path) if existing.is_invalid else None
     write_config_file(path, values, harness)
     print(f"Wrote {path}.")
+    if backup_path is not None:
+        print(describe_replaced_invalid_config_file(path, backup_path))
     return 0
 
 

@@ -145,6 +145,186 @@ async def test_ctrl_d_at_an_init_question_exits_with_1_and_writes_no_file(
     assert not cli_home.config_path.exists()
 
 
+_REMOTE_SERVER_CONFIG = {
+    "model": "scripted-old",
+    "system_prompt": "Old instructions.",
+    "dex": {"server": "https://dex.example.com", "auth": {"mode": "bearer", "source": "env"}},
+    "connectors": {"enabled": ["slack/team"]},
+    "mcp_servers": {"docs": {"url": "https://mcp.example.com/mcp"}},
+    "workspace": "~/agent workspace ",
+    "local_tools": {"shell": {"allow": ["git status"]}},
+    "sessions": {"summary": "off"},
+    "builtin": {"temperature": 0.2},
+}
+
+
+async def test_init_at_a_terminal_offers_the_file_values_and_keeps_unasked_fields(
+    cli_home: CliHome,
+) -> None:
+    cli_home.write_config(config_yaml(_REMOTE_SERVER_CONFIG))
+    child = cli_home.spawn("init")
+    answers = {
+        "Model [scripted-old]": "scripted-new",
+        "System prompt (empty keeps the current prompt)": "",
+        "Connectors to enable, comma-separated (empty for all authorized) [slack/team]": (
+            "hackernews"
+        ),
+        "Workspace": "",
+        "Allow file tools in the workspace? (y/n) [y]": "",
+        "Allow shell commands? (y/n) [y]": "",
+        "Commands that run without approval, comma-separated [git status]": "ls, pwd",
+        "Allow web fetching": "n",
+        "Allow a local browser": "",
+    }
+    for question, answer in answers.items():
+        await expect(child, question)
+        child.sendline(answer)
+    await expect(child, f"Wrote {cli_home.config_path}.")
+    assert await wait_for_exit(child) == 0
+    assert parse_config_yaml(cli_home.config_path.read_text()) == {
+        "model": "scripted-new",
+        "system_prompt": "Old instructions.",
+        "dex": _REMOTE_SERVER_CONFIG["dex"],
+        "connectors": {"enabled": ["hackernews"]},
+        "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
+        "workspace": "~/agent workspace ",
+        "local_tools": {
+            "files": True,
+            "shell": {"enabled": True, "allow": ["ls", "pwd"]},
+            "web_fetch": False,
+            "browser": True,
+        },
+        "media": {"store": "auto"},
+        "sessions": {"summary": "off"},
+        "builtin": {"temperature": 0.2},
+    }
+
+
+def test_init_yes_takes_the_file_values_and_keeps_every_other_field(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml(_REMOTE_SERVER_CONFIG))
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert parse_config_yaml(cli_home.config_path.read_text()) == {
+        "model": "scripted-old",
+        "system_prompt": "Old instructions.",
+        "dex": _REMOTE_SERVER_CONFIG["dex"],
+        "connectors": {"enabled": ["slack/team"]},
+        "mcp_servers": _REMOTE_SERVER_CONFIG["mcp_servers"],
+        "workspace": "~/agent workspace ",
+        "local_tools": {
+            "files": True,
+            "shell": {"enabled": True, "allow": ["git status"]},
+            "web_fetch": True,
+            "browser": True,
+        },
+        "media": {"store": "auto"},
+        "sessions": {"summary": "off"},
+        "builtin": {"temperature": 0.2},
+    }
+
+
+def test_init_writes_through_a_symbolic_link_and_keeps_the_link(cli_home: CliHome) -> None:
+    target = cli_home.config_path.parent / "shared" / "scripted.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(config_yaml(_REMOTE_SERVER_CONFIG), encoding="utf-8")
+    cli_home.config_path.symlink_to(target)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert cli_home.config_path.is_symlink()
+    written = parse_config_yaml(target.read_text())
+    assert isinstance(written, dict)
+    assert written["dex"] == _REMOTE_SERVER_CONFIG["dex"]
+    assert written["media"] == {"store": "auto"}
+
+
+def test_init_follows_a_link_chain_to_a_missing_file_and_keeps_every_link(
+    cli_home: CliHome,
+) -> None:
+    directory = cli_home.config_path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    alias = directory / "alias.yaml"
+    alias.symlink_to("missing.yaml")
+    cli_home.config_path.symlink_to("alias.yaml")
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert cli_home.config_path.is_symlink()
+    assert alias.is_symlink()
+    written = parse_config_yaml((directory / "missing.yaml").read_text())
+    assert isinstance(written, dict)
+    assert written["model"] == "scripted-model"
+
+
+def test_init_stops_at_a_loop_of_symbolic_links(cli_home: CliHome) -> None:
+    directory = cli_home.config_path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    loop = directory / "loop.yaml"
+    cli_home.config_path.symlink_to("loop.yaml")
+    loop.symlink_to(cli_home.config_path)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode != 0
+    assert "cannot write" in completed.stdout + completed.stderr
+    assert cli_home.config_path.is_symlink()
+    assert loop.is_symlink()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory permissions")
+def test_a_failed_write_leaves_the_existing_config_unchanged(cli_home: CliHome) -> None:
+    original_text = config_yaml(_REMOTE_SERVER_CONFIG)
+    cli_home.write_config(original_text)
+    directory = cli_home.config_path.parent
+    # A read-only directory refuses the temporary file; only an in-place write could succeed.
+    directory.chmod(0o555)
+    try:
+        completed = cli_home.run("init", "--yes")
+    finally:
+        directory.chmod(0o755)
+    assert completed.returncode != 0
+    assert "cannot write" in completed.stdout + completed.stderr
+    assert cli_home.config_path.read_text() == original_text
+    assert [path.name for path in directory.iterdir() if path.name.endswith(".tmp")] == []
+
+
+def test_init_replaces_a_symbolic_link_at_the_backup_path(cli_home: CliHome) -> None:
+    invalid_text = "local_tools:\n  files: yes\n"
+    cli_home.write_config(invalid_text)
+    unrelated = cli_home.config_path.parent / "unrelated.txt"
+    unrelated.write_text("keep me\n", encoding="utf-8")
+    backup_path = cli_home.config_path.with_name(cli_home.config_path.name + ".bak")
+    backup_path.symlink_to(unrelated)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    assert unrelated.read_text() == "keep me\n"
+    assert not backup_path.is_symlink()
+    assert backup_path.read_text() == invalid_text
+
+
+def test_init_replaces_an_invalid_file_keeps_a_backup_and_says_so(cli_home: CliHome) -> None:
+    invalid_text = "dex:\n  server: https://dex.example.com\nlocal_tools:\n  files: yes\n"
+    cli_home.write_config(invalid_text)
+    completed = cli_home.run("init", "--yes")
+    assert completed.returncode == 0, completed.stderr
+    backup_path = cli_home.config_path.with_name(cli_home.config_path.name + ".bak")
+    assert (
+        f"{cli_home.config_path} was invalid, so init replaced it; the old file is at "
+        f"{backup_path}." in completed.stdout
+    )
+    assert backup_path.read_text() == invalid_text
+    assert parse_config_yaml(cli_home.config_path.read_text()) == {
+        "model": "scripted-model",
+        "dex": {"server": "auto"},
+        "connectors": {"mcp": "auto"},
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+            "files": True,
+            "shell": {"enabled": True, "allow": []},
+            "web_fetch": True,
+            "browser": True,
+        },
+        "media": {"store": "auto"},
+        "sessions": {"summary": "auto"},
+    }
+
+
 async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_home: CliHome) -> None:
     completed = cli_home.run(stdin="hello there\n")
     assert completed.returncode == 0, completed.stderr
