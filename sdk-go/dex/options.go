@@ -602,8 +602,9 @@ type RPCInvokeOptions struct {
 	// every call, so every call runs as a new request.
 	//
 	// Set a stable request ID when one logical call may be sent more than once. Examples are a
-	// retry after a deadline or an UNAVAILABLE error whose outcome is unknown, and a Trigger that
-	// delivers each event at least once and retries a failed delivery. Derive the ID from the
+	// retry after a call whose outcome is unknown, such as one that ended with the caller's
+	// context deadline or with UNAVAILABLE, and a Trigger that delivers each event at least once
+	// and retries a failed delivery. Derive the ID from the
 	// business event. When one event invokes several RPCs on the same Flow run, give each RPC its
 	// own ID, such as the event ID followed by the RPC name. A non-nil RequestID must not be empty;
 	// the Client returns an error before it sends the request. Dex Server sets no other length or
@@ -611,8 +612,17 @@ type RPCInvokeOptions struct {
 	//
 	// Dex Server records the request ID and the reply when the RPC's result commits. A later call
 	// with the same request ID on the same Flow run returns the recorded reply and applies no
-	// changes. A call that fails, for example with a Worker error, a lock conflict, or a deadline
-	// before the commit, records nothing. A retry with the same request ID then runs the RPC again.
+	// changes. A call that the Server fails before any commit records nothing, and a retry with
+	// the same request ID runs the RPC again. Such failures include a Worker error, a lock
+	// conflict, and the RPC's handler timeout, RPCOptions.Timeout, expiring while the handler runs.
+	//
+	// A call that ends on the caller's side has an unknown outcome. This happens when ctx is
+	// canceled or its deadline expires before the reply arrives. The RPC may still commit after
+	// the call returns. Retry it with the same request ID: the retry returns the recorded reply
+	// when the first call committed, and otherwise runs the RPC. For a transactional or locking
+	// RPC, the Server keeps running the first call after the caller leaves. A retry with the same
+	// request ID joins that call while it is in flight, or returns its recorded reply after it
+	// commits.
 	//
 	// Use a transactional or locking RPC, registered with RPCOptions.IsTransactional or
 	// RPCOptions.LockAttributes, for idempotent writes. For such an RPC, Dex answers a recorded
