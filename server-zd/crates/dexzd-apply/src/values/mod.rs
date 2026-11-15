@@ -393,6 +393,21 @@ pub(crate) fn complete_worker_value(
     Ok(Ok(complete))
 }
 
+/// Returns the recorded size of the run value that `value` references, without loading it.
+///
+/// Returns `None` for an inline value, and for a reference [`complete_worker_value`] rejects.
+pub(crate) fn referenced_value_size(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+    value: &Value,
+) -> Result<Option<u64>, ApplyError> {
+    let Some(reference) = reference_text(value).and_then(|text| parse_own_reference(text, rows))
+    else {
+        return Ok(None);
+    };
+    Ok(value_birth(transaction, rows, reference.value_id)?.map(|birth| birth.size_bytes))
+}
+
 /// Size accounted for a stored value.
 pub(crate) fn stored_value_size(stored: &StoredValue) -> u64 {
     match &stored.kind {

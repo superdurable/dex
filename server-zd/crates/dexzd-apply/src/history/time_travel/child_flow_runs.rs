@@ -8,17 +8,18 @@
 
 //! Child runs that a time travel's owner reads for SubFlow reset policies; apply never reads them.
 
-use dexzd_keyspace::{PartitionHasher, RunId, TenantId};
+use dexzd_keyspace::row_keys::{history_record_key, history_row_metadata_key};
+use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId};
 use dexzd_protocol::dex::{FlowResult, FlowStatus, Value};
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowStartMessage, ParentFlowReference, RunRecord, flow_command::Command,
-    inbox_message_command,
+    ChildFlowStartMessage, HistoryRecord, HistoryRowMetadata, ParentFlowReference, RunRecord,
+    flow_command::Command, inbox_message_command,
 };
 use prost::Message;
 
-use crate::history::{HistorySource, LocalHistorySource, genesis_seq};
+use crate::history::genesis_seq;
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory};
-use crate::values::{ValueLimits, complete_worker_value, stored_value_size};
+use crate::values::{ValueLimits, complete_worker_value, referenced_value_size, stored_value_size};
 use crate::{ApplyContext, ApplyError, FlowStateReader};
 
 /// Names the child run of one restored SubFlow condition.
@@ -220,16 +221,39 @@ fn read_genesis_start(
     reserve_bytes: &dyn Fn(u64) -> bool,
 ) -> Result<Option<ChildFlowStartRead>, ApplyError> {
     let genesis = genesis_seq(transaction, rows)?;
-    let history = LocalHistorySource::new(transaction, rows);
-    let Some(genesis_record) = history.history_records(genesis..=genesis, 1).next() else {
+    let metadata: Option<HistoryRowMetadata> = transaction.get_message(
+        ColumnFamily::Flow,
+        &history_row_metadata_key(
+            rows.flow_hash,
+            rows.run_id,
+            genesis,
+            RunTable::HistoryRecord,
+            0,
+        ),
+        "history metadata",
+    )?;
+    // The recorded row size is reserved before the read; rows without it, after the raw read.
+    let recorded_size = metadata
+        .map(|metadata| metadata.row_size_bytes)
+        .filter(|size| *size > 0);
+    if recorded_size.is_some_and(|size| !reserve_bytes(size)) {
+        return Ok(None);
+    }
+    let record_key = history_record_key(rows.flow_hash, rows.run_id, genesis);
+    let Some(encoded) = transaction.get(ColumnFamily::History, &record_key)? else {
         return Ok(Some(ChildFlowStartRead::Unavailable(
             "the child run no longer holds its genesis history record".to_owned(),
         )));
     };
-    let genesis_record = genesis_record?;
-    if !reserve_bytes(u64::try_from(genesis_record.encoded_len()).unwrap_or(u64::MAX)) {
+    if recorded_size.is_none() && !reserve_bytes(u64::try_from(encoded.len()).unwrap_or(u64::MAX)) {
         return Ok(None);
     }
+    let genesis_record =
+        HistoryRecord::decode(encoded.as_slice()).map_err(|error| ApplyError::CorruptState {
+            table: "history record",
+            key: format!("{record_key:02x?}"),
+            detail: error.to_string(),
+        })?;
     let body = genesis_record.command.and_then(|command| command.command);
     let Some(Command::InboxMessage(inbox)) = body else {
         return Ok(Some(ChildFlowStartRead::Unavailable(
@@ -280,7 +304,8 @@ enum StartValueCompletion {
 }
 
 /// Replaces a value reference of the child run, which history records may hold, with its value.
-/// The genesis record's reservation already covers inline values.
+/// It reserves the value's recorded size before loading it; the genesis record's reservation
+/// already covers inline values.
 fn complete_start_value(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
@@ -288,19 +313,19 @@ fn complete_start_value(
     value: &mut Value,
     reserve_bytes: &dyn Fn(u64) -> bool,
 ) -> Result<StartValueCompletion, ApplyError> {
-    let complete = match complete_worker_value(transaction, rows, limits, value)? {
-        Ok(complete) => complete,
-        Err(rejection) => {
-            return Ok(StartValueCompletion::Unavailable(format!(
-                "its start holds a value it no longer stores: {}",
-                rejection.message()
-            )));
-        }
-    };
-    let added_bytes = complete.encoded_len().saturating_sub(value.encoded_len());
-    if !reserve_bytes(u64::try_from(added_bytes).unwrap_or(u64::MAX)) {
+    if let Some(size_bytes) = referenced_value_size(transaction, rows, value)?
+        && !reserve_bytes(size_bytes)
+    {
         return Ok(StartValueCompletion::MemoryExceeded);
     }
-    *value = complete;
-    Ok(StartValueCompletion::Completed)
+    match complete_worker_value(transaction, rows, limits, value)? {
+        Ok(complete) => {
+            *value = complete;
+            Ok(StartValueCompletion::Completed)
+        }
+        Err(rejection) => Ok(StartValueCompletion::Unavailable(format!(
+            "its start holds a value it no longer stores: {}",
+            rejection.message()
+        ))),
+    }
 }

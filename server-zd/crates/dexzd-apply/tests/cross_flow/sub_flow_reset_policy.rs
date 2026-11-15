@@ -8,6 +8,8 @@
 
 //! SubFlow reset policies of a time travel, for each state of a restored wait's child.
 
+use std::cell::RefCell;
+
 use super::*;
 use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
@@ -1143,6 +1145,9 @@ fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
     harness.ack_parent_outbox(&start.message_id);
 
     let context = harness.parent_context();
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let child_history_prefix = run_prefix(child_hash, RunId(FIRST_CHILD_RUN));
+    // Returns the computation and whether it read any child history record.
     let compute = |policy: SubFlowResetPolicy, budget_bytes: u64| {
         let travel = travel_body(target, 1, policy);
         let Command::TimeTravel(time_travel) = &travel else {
@@ -1153,8 +1158,12 @@ fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
             .clone()
             .expect("the travel has a request");
         let history = StateHistorySource::new(&harness.state, context, RunId(PARENT_RUN));
-        let child_flow_runs = StateChildFlowRuns::new(&harness.state, &harness.hasher);
-        compute_time_travel(
+        let child_state = HistoryReadRecordingState {
+            state: &harness.state,
+            history_reads: RefCell::new(Vec::new()),
+        };
+        let child_flow_runs = StateChildFlowRuns::new(&child_state, &harness.hasher);
+        let computation = compute_time_travel(
             &context,
             &TimeTravelComputationSources {
                 state: &harness.state,
@@ -1169,30 +1178,75 @@ fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
                 replay_memory_budget_bytes: budget_bytes,
             },
         )
-        .expect("the computation runs")
+        .expect("the computation runs");
+        let has_read_child_history = child_state
+            .history_reads
+            .borrow()
+            .iter()
+            .any(|key| key.starts_with(&child_history_prefix));
+        (computation, has_read_child_history)
     };
     let budget_bytes = 300_000;
     assert!(
         matches!(
-            compute(SubFlowResetPolicy::AlwaysFail, budget_bytes),
+            compute(SubFlowResetPolicy::AlwaysFail, budget_bytes).0,
             TimeTravelComputation::Computed(_)
         ),
         "the target state fits the budget without child reads"
     );
-    let TimeTravelComputation::Rejected(reply) =
+    let (TimeTravelComputation::Rejected(reply), has_read_child_history) =
         compute(SubFlowResetPolicy::AlwaysRestart, budget_bytes)
     else {
         panic!("reading the child's large start exceeds the budget");
     };
+    assert!(
+        !has_read_child_history,
+        "the budget refuses the child's genesis record before it is read"
+    );
     let Some(command_reply::Reply::Error(error)) = reply.reply else {
         panic!("expected a rejection");
     };
     assert_eq!(error.grpc_code, 8, "RESOURCE_EXHAUSTED: {}", error.message);
     assert!(error.message.contains("child Flow"), "{}", error.message);
-    assert!(matches!(
-        compute(SubFlowResetPolicy::AlwaysRestart, 64 << 20),
-        TimeTravelComputation::Computed(_)
-    ));
+    let (computation, has_read_child_history) =
+        compute(SubFlowResetPolicy::AlwaysRestart, 64 << 20);
+    assert!(matches!(computation, TimeTravelComputation::Computed(_)));
+    assert!(
+        has_read_child_history,
+        "a large budget reads the child's start"
+    );
+}
+
+/// Records the keys of history rows that a reader of `state` reads.
+struct HistoryReadRecordingState<'state> {
+    state: &'state MemoryState,
+    history_reads: RefCell<Vec<Vec<u8>>>,
+}
+
+impl FlowStateReader for HistoryReadRecordingState<'_> {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        if column_family == ColumnFamily::History {
+            self.history_reads.borrow_mut().push(key.to_vec());
+        }
+        self.state.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        if column_family == ColumnFamily::History {
+            self.history_reads.borrow_mut().push(start.to_vec());
+        }
+        self.state.scan(column_family, start, end, limit)
+    }
 }
 
 #[test]
