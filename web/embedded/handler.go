@@ -60,9 +60,9 @@ import (
 	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/web"
-	"github.com/superdurable/dex/web/api"
-	"github.com/superdurable/dex/web/assets"
+	"github.com/superdurable/dex/web/embedded/internal/web"
+	"github.com/superdurable/dex/web/embedded/internal/web/api"
+	"github.com/superdurable/dex/web/embedded/internal/web/assets"
 )
 
 // ErrTargetNotFound tells the handler that the request names no Dex Server. The handler answers HTTP 404.
