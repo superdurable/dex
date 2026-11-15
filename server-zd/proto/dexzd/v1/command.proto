@@ -28,7 +28,8 @@ message LogRecord {
 message FlowCommand {
   string flow_id = 1;
   // 16-byte run ID the command targets. Empty only for commands that may create a run
-  // (FlowStart, and InboxMessage carrying a child start).
+  // (FlowStart, FlowCloneFork, and InboxMessage carrying a child start), and for commands that
+  // belong to no run, such as partition commands and CloneForkFlow stagings.
   bytes run_id = 2;
   // When non-zero, apply rejects the command unless the run's current attempt equals it.
   uint32 expected_run_attempt = 3;

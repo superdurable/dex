@@ -459,20 +459,9 @@ pub(super) fn selected_lineage(
     record: &RunRecord,
     request: &ResetFlowRequest,
 ) -> Result<Result<(u32, Lineage), CommandReply>, ApplyError> {
-    let current_attempt = record.current_attempt;
-    let selected_attempt = match u32::try_from(request.run_attempt) {
-        Ok(0) => current_attempt,
-        Ok(attempt) if attempt <= current_attempt => attempt,
-        _ => {
-            return Ok(Err(error_reply(
-                grpc_code::INVALID_ARGUMENT,
-                ErrorSubStatus::Uncategorized,
-                format!(
-                    "run attempt {} does not exist; the run has attempts 1 to {current_attempt}",
-                    request.run_attempt
-                ),
-            )));
-        }
+    let selected_attempt = match selected_attempt(record, request) {
+        Ok(attempt) => attempt,
+        Err(reply) => return Ok(Err(reply)),
     };
     let directory = read_flow_directory(transaction, TenantId(record.tenant_id), &record.flow_id)?;
     let is_latest_run = directory
@@ -492,6 +481,79 @@ pub(super) fn selected_lineage(
     }
     let lineage = Lineage::of_attempt(transaction, rows, selected_attempt)?;
     Ok(Ok((selected_attempt, lineage)))
+}
+
+/// Returns the attempt whose lineage the request selects: its run_attempt, or the current
+/// attempt for zero.
+///
+/// Returns the INVALID_ARGUMENT reply for an attempt the run does not have.
+fn selected_attempt(record: &RunRecord, request: &ResetFlowRequest) -> Result<u32, CommandReply> {
+    let current_attempt = record.current_attempt;
+    match u32::try_from(request.run_attempt) {
+        Ok(0) => Ok(current_attempt),
+        Ok(attempt) if attempt <= current_attempt => Ok(attempt),
+        _ => Err(error_reply(
+            grpc_code::INVALID_ARGUMENT,
+            ErrorSubStatus::Uncategorized,
+            format!(
+                "run attempt {} does not exist; the run has attempts 1 to {current_attempt}",
+                request.run_attempt
+            ),
+        )),
+    }
+}
+
+/// Computes the attempt state at the point that `request` selects in any run, which may be an
+/// older run of its Flow, without collecting input after the point. `request` must skip
+/// reapplying writes.
+///
+/// The result holds the values that the store lacks in `unstored_values`.
+///
+/// Returns the reply that rejects the request, or an error when stored state is corrupt.
+pub(in crate::history) fn compute_point_state(
+    transaction: &FlowTransaction<'_>,
+    history: &dyn HistorySource,
+    rows: RunRows,
+    record: &RunRecord,
+    request: &ResetFlowRequest,
+    now_micros: i64,
+    resources: ReplayResources<'_>,
+) -> Result<Result<TimeTravelResult, CommandReply>, ApplyError> {
+    debug_assert!(
+        request.skip_writes_reapply,
+        "a point state reapplies no input"
+    );
+    let selected_attempt = match selected_attempt(record, request) {
+        Ok(attempt) => attempt,
+        Err(reply) => return Ok(Err(reply)),
+    };
+    let lineage = Lineage::of_attempt(transaction, rows, selected_attempt)?;
+    let target = match resolve_target(
+        transaction,
+        history,
+        rows,
+        record,
+        now_micros,
+        request,
+        &lineage,
+    )? {
+        Ok(target) => target,
+        Err(reply) => return Ok(Err(reply)),
+    };
+    let rebuilt =
+        match rebuild_attempt_state(transaction, history, rows, record, target.point, resources)? {
+            Ok(rebuilt) => rebuilt,
+            Err(reply) => return Ok(Err(reply)),
+        };
+    Ok(Ok(TimeTravelResult {
+        selected_attempt,
+        target,
+        run_status: rebuilt.run_status,
+        rows: rebuilt.rows,
+        unstored_values: rebuilt.unstored_values,
+        reapplied_inputs: Vec::new(),
+        child_flows: None,
+    }))
 }
 
 /// Returns the rejection when reapplied input after `target_seq` left the window.

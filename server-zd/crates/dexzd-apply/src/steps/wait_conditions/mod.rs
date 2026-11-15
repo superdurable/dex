@@ -717,7 +717,11 @@ fn wait_timer_id(run_attempt: u32, step_execution_id: &str, timer_index: usize) 
 }
 
 /// Child Flow ID of a SubFlow condition; visible to applications, so it matches the Go Server.
-fn sub_flow_child_flow_id(parent_flow_id: &str, step_execution_id: &str, index: usize) -> String {
+pub(crate) fn sub_flow_child_flow_id(
+    parent_flow_id: &str,
+    step_execution_id: &str,
+    index: usize,
+) -> String {
     format!("SubFlow:{parent_flow_id}-{step_execution_id}-{index}")
 }
 

@@ -45,7 +45,10 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         return TransactionalRpcHold::MayClose;
     };
     match body {
-        Command::FlowStop(_) | Command::FlowStart(_) => TransactionalRpcHold::ClosesAtOnce,
+        // CloneForkFlow only closes a run through ID reuse termination.
+        Command::FlowStop(_) | Command::FlowStart(_) | Command::FlowCloneFork(_) => {
+            TransactionalRpcHold::ClosesAtOnce
+        }
         Command::InboxMessage(inbox) => match inbox.payload {
             // A child start only closes a run through ID reuse termination.
             Some(inbox_message_command::Payload::ChildStart(_)) => {
@@ -71,6 +74,8 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::StepAttemptReturned(_)
         | Command::StepAttemptQueued(_)
         | Command::TimeTravelStage(_)
+        | Command::FlowCloneForkStage(_)
+        | Command::FlowCloneForkStagingExpire(_)
         | Command::RpcCommitted(_)
         | Command::TimersFired(_)
         | Command::TimerSkip(_)

@@ -534,6 +534,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
                 ),
             });
         }
+        // Clone fork stagings belong to no run, so they never record history.
+        Command::FlowCloneForkStage(_) | Command::FlowCloneForkStagingExpire(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a clone fork staging command",
+                    history_record.seq
+                ),
+            });
+        }
         // A partition command belongs to no run, so it never records history.
         Command::SetHistoryOffloadMode(_) => {
             return Err(ApplyError::InvariantViolation {
@@ -544,7 +553,7 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
             });
         }
         // Attempts start at a checkpoint after these, and only the latest run travels.
-        Command::FlowStart(_) | Command::TimeTravel(_) => {
+        Command::FlowStart(_) | Command::FlowCloneFork(_) | Command::TimeTravel(_) => {
             return Err(ApplyError::InvariantViolation {
                 detail: format!(
                     "history record {} starts a run or attempt inside the replayed range",

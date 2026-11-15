@@ -11,6 +11,7 @@
 
 mod attempt_scope;
 mod checkpoints;
+mod clone_fork;
 pub mod diagnostics;
 mod lineage;
 mod local_cleanup;
@@ -21,6 +22,14 @@ mod time_travel;
 mod window;
 
 pub(crate) use checkpoints::{after_command, pending_step_methods};
+pub use clone_fork::{
+    CloneForkComputation, CloneForkComputationRequest, CloneForkHardDeleteAttribute,
+    CloneForkStagedEntryTooLarge, ComputedCloneFork, SegmentedCloneForkComputation,
+    compute_clone_fork, compute_clone_fork_from_segments,
+};
+pub(crate) use clone_fork::{
+    apply_flow_clone_fork, apply_flow_clone_fork_stage, apply_flow_clone_fork_staging_expire,
+};
 pub use lineage::{HistoryRecords, HistorySource, StateHistorySource};
 pub(crate) use lineage::{LocalHistorySource, genesis_seq};
 pub(crate) use local_cleanup::{

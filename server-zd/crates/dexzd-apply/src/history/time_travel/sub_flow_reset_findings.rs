@@ -11,10 +11,12 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
-use dexzd_keyspace::TenantId;
-use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, SubFlowResetPolicy};
+use dexzd_keyspace::{ColumnFamily, TenantId};
+use dexzd_protocol::dex::{
+    ErrorSubStatus, FlowResult, ResetFlowRequest, StepCompletionOutput, SubFlowResetPolicy,
+};
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowCompletedMessage, CommandReply, ParentFlowReference, RunRecord,
+    ChildFlowCompletedMessage, CommandReply, ParentFlowReference, RunRecord, SubFlowResultRecord,
     TimeTravelStagedChildFlow, time_travel_staged_child_flow::Finding,
 };
 
@@ -24,25 +26,41 @@ use super::child_flow_runs::{
     ChildFlowStartRead,
 };
 use super::sub_flow_reset::{
-    RestoredSubFlowCondition, is_result_received, reset_policy, restored_sub_flow_conditions,
+    RestoredSubFlowCondition, SubFlowResetOperation, is_result_received, reset_policy,
+    restored_sub_flow_conditions,
 };
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::cross_flow::{
     child_start_request_id, pending_child_start_parents, restarted_child_condition,
-    validate_child_start_parameters,
+    sub_flow_result_key, validate_child_start_parameters,
 };
-use crate::history::state_rebuild::{ReplayMemoryBudget, replay_memory_exceeded_reply};
+use crate::history::attempt_scope::AttemptRow;
+use crate::history::state_rebuild::{
+    HistoryPoint, ReplayMemoryBudget, replay_memory_exceeded_reply,
+};
 use crate::state_access::{FlowTransaction, RunRows};
-
-/// A running child keeps its condition attached under ResetFlow; another operation may not.
-const DOES_RUNNING_CHILD_ATTACH: bool = true;
+use crate::values::{load_stored_value, stored_value_size};
 
 const GONE_CHILD_REASON: &str = "its child run no longer exists, for example because it was purged";
 
 /// A child whose start is still on its way could start after the time travel abandons it.
 const PENDING_START_REASON: &str = "the child start has not reached the child yet, so it can be neither restarted nor failed; \
      retry the time travel later";
+
+/// The parent run whose restored SubFlow conditions the owner reads, and the policy it applies.
+pub(in crate::history) struct SubFlowFindingRequest<'request> {
+    pub(in crate::history) transaction: &'request FlowTransaction<'request>,
+    pub(in crate::history) rows: RunRows,
+    pub(in crate::history) record: &'request RunRecord,
+    pub(in crate::history) policy: SubFlowResetPolicy,
+    pub(in crate::history) operation: SubFlowResetOperation,
+    /// Attempt-scoped rows of the restored or copied state.
+    pub(in crate::history) restored_rows: &'request [AttemptRow],
+    /// The point the rows hold, which a memory rejection names.
+    pub(in crate::history) point: HistoryPoint,
+    pub(in crate::history) sources: ChildFlowSources<'request>,
+}
 
 /// How a restored condition relates to its child, as the owner reads it.
 enum ChildAttachment {
@@ -100,12 +118,12 @@ impl GoneChildFlowCondition {
 }
 
 /// What the owner found for the restored SubFlow conditions of one computation.
-pub(super) struct ChildFlowFindings {
+pub(in crate::history) struct ChildFlowFindings {
     /// The findings to stage, or the reply that rejects the request.
-    pub(super) outcome: Result<Vec<TimeTravelStagedChildFlow>, CommandReply>,
+    pub(in crate::history) outcome: Result<Vec<TimeTravelStagedChildFlow>, CommandReply>,
     /// The conditions whose child run was missing while the parent had neither its result nor
     /// its pending start.
-    pub(super) gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    pub(in crate::history) gone_child_flows: BTreeSet<GoneChildFlowCondition>,
 }
 
 /// Reads what the restored SubFlow conditions of `result` need from their child Flows. Each read
@@ -122,23 +140,43 @@ pub(super) fn child_flow_findings(
     result: &TimeTravelResult,
     sources: ChildFlowSources<'_>,
 ) -> Result<ChildFlowFindings, ApplyError> {
-    let policy = match reset_policy(request) {
+    let policy = match reset_policy(request.sub_flow_reset_policy) {
         Ok(policy) => policy,
         Err(reply) => return Ok(ChildFlowFindings::settled(Err(reply))),
     };
-    let conditions = restored_sub_flow_conditions(&result.rows)?;
+    sub_flow_findings(&SubFlowFindingRequest {
+        transaction,
+        rows,
+        record,
+        policy,
+        operation: SubFlowResetOperation::TimeTravel,
+        restored_rows: &result.rows,
+        point: result.target.point,
+        sources,
+    })
+}
+
+/// Reads what the restored SubFlow conditions of `request.restored_rows` need from their child
+/// Flows under `request.policy` and `request.operation`, as [`child_flow_findings`] does.
+///
+/// Returns what [`child_flow_findings`] returns, except for the unknown policy reply.
+pub(in crate::history) fn sub_flow_findings(
+    request: &SubFlowFindingRequest<'_>,
+) -> Result<ChildFlowFindings, ApplyError> {
+    let conditions = restored_sub_flow_conditions(request.restored_rows)?;
     if conditions.is_empty() {
         return Ok(ChildFlowFindings::settled(Ok(Vec::new())));
     }
     let reads = ChildFlowReads {
-        transaction,
-        rows,
-        record,
-        sources,
-        pending_parents: pending_child_start_parents(transaction, rows)?,
+        transaction: request.transaction,
+        rows: request.rows,
+        record: request.record,
+        sources: request.sources,
+        operation: request.operation,
+        pending_parents: pending_child_start_parents(request.transaction, request.rows)?,
         gone_child_flows: RefCell::new(BTreeSet::new()),
     };
-    let outcome = reads.findings(policy, conditions, result)?;
+    let outcome = reads.findings(request.policy, conditions, request.point)?;
     Ok(ChildFlowFindings {
         outcome,
         gone_child_flows: reads.gone_child_flows.into_inner(),
@@ -160,7 +198,7 @@ impl ChildFlowReads<'_> {
         &self,
         policy: SubFlowResetPolicy,
         conditions: Vec<RestoredSubFlowCondition>,
-        result: &TimeTravelResult,
+        point: HistoryPoint,
     ) -> Result<Result<Vec<TimeTravelStagedChildFlow>, CommandReply>, ApplyError> {
         let reads = self;
         let record = self.record;
@@ -182,7 +220,7 @@ impl ChildFlowReads<'_> {
                 )),
                 OwnerDecision::MemoryExceeded => {
                     return Ok(Err(replay_memory_exceeded_reply(
-                        result.target.point,
+                        point,
                         sources.memory_budget.limit_bytes(),
                         "the child Flow results and starts its SubFlow reset policy reads",
                     )));
@@ -194,7 +232,8 @@ impl ChildFlowReads<'_> {
                 grpc_code::FAILED_PRECONDITION,
                 ErrorSubStatus::Uncategorized,
                 format!(
-                    "time travel of Flow {} with SubFlow reset policy {} is rejected; {}",
+                    "{} of Flow {} with SubFlow reset policy {} is rejected; {}",
+                    self.operation.describe(),
                     record.flow_id,
                     policy.as_str_name(),
                     rejections.join("; ")
@@ -207,9 +246,9 @@ impl ChildFlowReads<'_> {
 
 /// Where the owner reads child Flows, and the memory budget the reads reserve in.
 #[derive(Clone, Copy)]
-pub(super) struct ChildFlowSources<'sources> {
-    pub(super) child_flow_runs: &'sources dyn ChildFlowRuns,
-    pub(super) memory_budget: &'sources ReplayMemoryBudget,
+pub(in crate::history) struct ChildFlowSources<'sources> {
+    pub(in crate::history) child_flow_runs: &'sources dyn ChildFlowRuns,
+    pub(in crate::history) memory_budget: &'sources ReplayMemoryBudget,
 }
 
 /// What the owner reads for one computation: the parent's state and the child Flows.
@@ -218,6 +257,7 @@ struct ChildFlowReads<'reads> {
     rows: RunRows,
     record: &'reads RunRecord,
     sources: ChildFlowSources<'reads>,
+    operation: SubFlowResetOperation,
     /// Parent references of the parent's unacknowledged child starts.
     pending_parents: Vec<ParentFlowReference>,
     /// The conditions whose child a decision found gone.
@@ -231,21 +271,31 @@ impl ChildFlowReads<'_> {
         policy: SubFlowResetPolicy,
         condition: &RestoredSubFlowCondition,
     ) -> Result<OwnerDecision, ApplyError> {
+        let does_pending_start_block = self.operation.does_pending_start_block_abandoning();
         match policy {
             SubFlowResetPolicy::AlwaysReject => Ok(OwnerDecision::Reject(
                 "the policy rejects every restored SubFlow wait".to_owned(),
             )),
-            SubFlowResetPolicy::AlwaysFail => Ok(if self.is_child_start_pending(condition) {
-                OwnerDecision::Reject(PENDING_START_REASON.to_owned())
-            } else {
-                OwnerDecision::Nothing
-            }),
+            SubFlowResetPolicy::AlwaysFail => Ok(
+                if does_pending_start_block && self.is_child_start_pending(condition) {
+                    OwnerDecision::Reject(PENDING_START_REASON.to_owned())
+                } else {
+                    OwnerDecision::Nothing
+                },
+            ),
             SubFlowResetPolicy::AlwaysRestart => {
-                if self.is_child_start_pending(condition) {
+                let is_start_pending = self.is_child_start_pending(condition);
+                if does_pending_start_block && is_start_pending {
                     return Ok(OwnerDecision::Reject(PENDING_START_REASON.to_owned()));
                 }
                 Ok(match self.child_run(condition, true)? {
                     ChildFlowRead::Found(run) => restart_decision(condition, Some(*run)),
+                    // A restart repeats the child's start, which no child holds yet.
+                    ChildFlowRead::Missing if is_start_pending => OwnerDecision::Reject(format!(
+                        "its child start has not reached the child yet, so it cannot be \
+                         restarted; retry the {}",
+                        self.operation.describe()
+                    )),
                     ChildFlowRead::Missing => {
                         self.note_gone_child_flow(condition);
                         restart_decision(condition, None)
@@ -257,14 +307,93 @@ impl ChildFlowReads<'_> {
             | SubFlowResetPolicy::AttachElseRestart
             | SubFlowResetPolicy::AttachElseFail
             | SubFlowResetPolicy::AttachElseReject => {
+                let does_running_child_attach = self.operation.does_running_child_attach();
                 let should_read_start =
-                    policy == SubFlowResetPolicy::AttachElseRestart && !DOES_RUNNING_CHILD_ATTACH;
-                Ok(match self.attachment(condition, should_read_start)? {
-                    Some(attachment) => attach_decision(policy, condition, attachment),
-                    None => OwnerDecision::MemoryExceeded,
-                })
+                    policy == SubFlowResetPolicy::AttachElseRestart && !does_running_child_attach;
+                match self.attachment(condition, should_read_start)? {
+                    Some(ChildAttachment::Received)
+                        if self.operation == SubFlowResetOperation::CloneFork =>
+                    {
+                        self.received_result_decision(condition)
+                    }
+                    Some(attachment) => Ok(attach_decision(
+                        policy,
+                        condition,
+                        attachment,
+                        self.operation,
+                    )),
+                    None => Ok(OwnerDecision::MemoryExceeded),
+                }
             }
         }
+    }
+
+    /// Stages the result the parent received for `condition`, with complete values.
+    fn received_result_decision(
+        &self,
+        condition: &RestoredSubFlowCondition,
+    ) -> Result<OwnerDecision, ApplyError> {
+        let key = sub_flow_result_key(
+            self.rows,
+            &condition.child_flow_id,
+            condition.registration_attempt,
+        );
+        let Some(received): Option<SubFlowResultRecord> =
+            self.transaction
+                .get_message(ColumnFamily::Flow, &key, "SubFlow result")?
+        else {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "the received result of child Flow {} disappeared",
+                    condition.child_flow_id
+                ),
+            });
+        };
+        let stored = received.result.unwrap_or_default();
+        // Output sizes are known before their values load.
+        let output_bytes = stored
+            .results
+            .iter()
+            .filter_map(|output| output.completed_step_output.as_ref())
+            .map(stored_value_size)
+            .fold(0, u64::saturating_add);
+        if !self.sources.memory_budget.reserve(output_bytes) {
+            return Ok(OwnerDecision::MemoryExceeded);
+        }
+        let mut results = Vec::with_capacity(stored.results.len());
+        for output in stored.results {
+            let completed_step_output = match &output.completed_step_output {
+                Some(value) => match load_stored_value(self.transaction, self.rows, value)? {
+                    Some(complete) => Some(complete),
+                    None => {
+                        return Ok(OwnerDecision::Reject(
+                            "the parent no longer stores the result it received from its child"
+                                .to_owned(),
+                        ));
+                    }
+                },
+                None => None,
+            };
+            results.push(StepCompletionOutput {
+                completed_step_type: output.completed_step_type,
+                completed_step_execution_id: output.completed_step_execution_id,
+                completed_step_output,
+            });
+        }
+        Ok(OwnerDecision::stage(Finding::EndedResult(
+            ChildFlowCompletedMessage {
+                child_flow_id: condition.child_flow_id.clone(),
+                child_run_id: received.child_run_id,
+                child_run_attempt: received.child_run_attempt,
+                result: Some(FlowResult {
+                    flow_status: stored.flow_status,
+                    results,
+                    error_type: stored.error_type,
+                    error_message: stored.error_message,
+                }),
+                parent: None,
+            },
+        )))
     }
 
     /// Returns how `condition` relates to its child, or `None` when the read exceeded the
@@ -354,14 +483,34 @@ fn attach_decision(
     policy: SubFlowResetPolicy,
     condition: &RestoredSubFlowCondition,
     attachment: ChildAttachment,
+    operation: SubFlowResetOperation,
 ) -> OwnerDecision {
+    let does_running_child_attach = operation.does_running_child_attach();
     let unattached_run = match attachment {
         ChildAttachment::Received => return OwnerDecision::Nothing,
         ChildAttachment::Ended(run) => {
             return OwnerDecision::stage(Finding::EndedResult(ended_result(condition, run)));
         }
-        ChildAttachment::StartPending => return OwnerDecision::stage(Finding::IsRunning(true)),
-        ChildAttachment::Running(_) if DOES_RUNNING_CHILD_ATTACH => {
+        ChildAttachment::StartPending if does_running_child_attach => {
+            return OwnerDecision::stage(Finding::IsRunning(true));
+        }
+        ChildAttachment::StartPending => {
+            return match policy {
+                SubFlowResetPolicy::AttachElseFail => {
+                    OwnerDecision::stage(Finding::IsUnattachable(true))
+                }
+                SubFlowResetPolicy::AttachElseReject => OwnerDecision::Reject(
+                    "its child start has not reached the child yet, so it cannot be attached"
+                        .to_owned(),
+                ),
+                _ => OwnerDecision::Reject(format!(
+                    "its child start has not reached the child yet, so it can be neither \
+                     attached nor restarted; retry the {}",
+                    operation.describe()
+                )),
+            };
+        }
+        ChildAttachment::Running(_) if does_running_child_attach => {
             return OwnerDecision::stage(Finding::IsRunning(true));
         }
         ChildAttachment::Running(run) => Some(run),

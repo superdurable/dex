@@ -88,55 +88,30 @@ pub(crate) fn start_run(
             detail: "FlowStart has no 16-byte run ID".to_owned(),
         });
     };
-    let directory = read_flow_directory(transaction, scope.tenant_id, scope.flow_id())?;
     let options = request.flow_start_options.clone().unwrap_or_default();
-    let policy =
-        IdReusePolicy::try_from(options.id_reuse_policy).unwrap_or(IdReusePolicy::Unspecified);
-    let latest = directory.runs.last();
-    let should_ignore_already_started_error = options
-        .flow_already_started_options
-        .as_ref()
-        .is_some_and(|already| already.ignore_already_started_error);
-    // A retry of the request that started the latest run never goes through ID reuse.
-    if let Some(latest) = latest
-        && !request.request_id.is_empty()
-        && latest.start_request_id == request.request_id
-    {
-        return Ok(HandlerResult::Rejected(already_started_reply(
-            scope,
-            latest,
-            should_ignore_already_started_error,
-        )));
-    }
-    let latest_status =
-        latest.map(|run| FlowStatus::try_from(run.status).unwrap_or(FlowStatus::Unspecified));
-    let is_latest_running = latest_status == Some(FlowStatus::Running);
-    let is_conflict = match policy {
-        IdReusePolicy::Unspecified | IdReusePolicy::DisallowReuse => latest.is_some(),
-        IdReusePolicy::AllowIfNoRunning => is_latest_running,
-        IdReusePolicy::AllowIfPreviousExistsAbnormally => {
-            matches!(
-                latest_status,
-                Some(FlowStatus::Running | FlowStatus::Completed)
-            )
-        }
-        IdReusePolicy::AllowTerminateIfRunning => false,
+    let id_reuse = IdReuseRequest {
+        request_id: &request.request_id,
+        policy: IdReusePolicy::try_from(options.id_reuse_policy)
+            .unwrap_or(IdReusePolicy::Unspecified),
+        should_ignore_already_started_error: options
+            .flow_already_started_options
+            .as_ref()
+            .is_some_and(|already| already.ignore_already_started_error),
     };
-    if let (true, Some(latest)) = (is_conflict, latest) {
-        let is_same_request = latest.start_request_id == request.request_id;
-        return Ok(HandlerResult::Rejected(already_started_reply(
+    let mut terminated_run_effects = match decide_id_reuse(transaction, scope, &id_reuse)? {
+        IdReuseDecision::Reply(reply) => return Ok(HandlerResult::Rejected(reply)),
+        IdReuseDecision::Start {
+            running_run_to_terminate: Some(previous_run_id),
+        } => terminate_previous_run(
+            transaction,
             scope,
-            latest,
-            should_ignore_already_started_error && is_same_request,
-        )));
-    }
-    let mut terminated_run_effects = Vec::new();
-    if policy == IdReusePolicy::AllowTerminateIfRunning
-        && is_latest_running
-        && let Some(latest) = latest
-    {
-        terminated_run_effects = terminate_previous_run(transaction, scope, &latest.run_id)?;
-    }
+            &previous_run_id,
+            ID_REUSE_TERMINATION_REASON,
+        )?,
+        IdReuseDecision::Start {
+            running_run_to_terminate: None,
+        } => Vec::new(),
+    };
     let flow_hash = transaction.context().flow_hash;
     let rows = RunRows::new(flow_hash, run_id);
     let timeout_seconds = request.flow_timeout_seconds;
@@ -309,6 +284,78 @@ pub(crate) fn start_run(
     Ok(HandlerResult::Applied(output))
 }
 
+/// The inputs of an ID reuse decision for a new run of the command's Flow.
+pub(crate) struct IdReuseRequest<'request> {
+    /// Start request ID of the new run.
+    pub(crate) request_id: &'request str,
+    pub(crate) policy: IdReusePolicy,
+    /// `FlowAlreadyStartedOptions.ignore_already_started_error`.
+    pub(crate) should_ignore_already_started_error: bool,
+}
+
+/// What ID reuse decides for a new run of the command's Flow.
+pub(crate) enum IdReuseDecision {
+    /// No new run starts; the command answers with this reply. A retry of the latest run's
+    /// start request answers with that run when the request ignores the already-started error.
+    Reply(CommandReply),
+    /// The new run starts after terminating the running latest run, when one is named.
+    Start {
+        running_run_to_terminate: Option<Vec<u8>>,
+    },
+}
+
+/// Decides ID reuse against the Flow directory for StartFlow, child starts, and CloneForkFlow.
+///
+/// It writes nothing; the caller terminates `running_run_to_terminate` with
+/// [`terminate_previous_run`] in the command that starts the new run.
+pub(crate) fn decide_id_reuse(
+    transaction: &FlowTransaction<'_>,
+    scope: &CommandScope<'_>,
+    request: &IdReuseRequest<'_>,
+) -> Result<IdReuseDecision, ApplyError> {
+    let directory = read_flow_directory(transaction, scope.tenant_id, scope.flow_id())?;
+    let latest = directory.runs.last();
+    // A retry of the request that started the latest run never goes through ID reuse.
+    if let Some(latest) = latest
+        && !request.request_id.is_empty()
+        && latest.start_request_id == request.request_id
+    {
+        return Ok(IdReuseDecision::Reply(already_started_reply(
+            scope,
+            latest,
+            request.should_ignore_already_started_error,
+        )));
+    }
+    let latest_status =
+        latest.map(|run| FlowStatus::try_from(run.status).unwrap_or(FlowStatus::Unspecified));
+    let is_latest_running = latest_status == Some(FlowStatus::Running);
+    let is_conflict = match request.policy {
+        IdReusePolicy::Unspecified | IdReusePolicy::DisallowReuse => latest.is_some(),
+        IdReusePolicy::AllowIfNoRunning => is_latest_running,
+        IdReusePolicy::AllowIfPreviousExistsAbnormally => {
+            matches!(
+                latest_status,
+                Some(FlowStatus::Running | FlowStatus::Completed)
+            )
+        }
+        IdReusePolicy::AllowTerminateIfRunning => false,
+    };
+    if let (true, Some(latest)) = (is_conflict, latest) {
+        let is_same_request = latest.start_request_id == request.request_id;
+        return Ok(IdReuseDecision::Reply(already_started_reply(
+            scope,
+            latest,
+            request.should_ignore_already_started_error && is_same_request,
+        )));
+    }
+    let running_run_to_terminate = latest
+        .filter(|_| request.policy == IdReusePolicy::AllowTerminateIfRunning && is_latest_running)
+        .map(|latest| latest.run_id.clone());
+    Ok(IdReuseDecision::Start {
+        running_run_to_terminate,
+    })
+}
+
 /// Returns `latest` as the existing run when `should_return_existing_run`, else
 /// ALREADY_EXISTS / FLOW_ALREADY_STARTED.
 fn already_started_reply(
@@ -366,11 +413,13 @@ fn pin_genesis_attributes(
 /// Close reason of a run that StartFlow terminated for ID reuse.
 const ID_REUSE_TERMINATION_REASON: &str = "terminated by StartFlow with ALLOW_TERMINATE_IF_RUNNING";
 
-/// ID reuse with ALLOW_TERMINATE_IF_RUNNING: terminates the running run in the same command.
-fn terminate_previous_run(
+/// ID reuse with ALLOW_TERMINATE_IF_RUNNING: terminates the running run in the same command,
+/// closing it with `reason`.
+pub(crate) fn terminate_previous_run(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,
     run_id_bytes: &[u8],
+    reason: &str,
 ) -> Result<Vec<crate::ApplyEffect>, ApplyError> {
     let Ok(run_id) = RunId::from_slice(run_id_bytes) else {
         return Err(ApplyError::InvariantViolation {
@@ -382,7 +431,7 @@ fn terminate_previous_run(
         return Ok(Vec::new());
     };
     // The old run's history must replay as its own termination, not as the successor's start.
-    let termination = id_reuse_termination_command(scope, run_id_bytes);
+    let termination = id_reuse_termination_command(scope, run_id_bytes, reason);
     let previous_run_scope = CommandScope {
         command: &termination,
         ..*scope
@@ -392,7 +441,7 @@ fn terminate_previous_run(
         transaction,
         &mut cursor,
         &previous_run_scope,
-        FlowClosing::terminated(ID_REUSE_TERMINATION_REASON),
+        FlowClosing::terminated(reason),
     )?;
     let reply = crate::command_handlers::command_replies::ok_reply();
     // The run's own history records the termination; its effects join this command's outcome.
@@ -407,7 +456,11 @@ fn terminate_previous_run(
 
 /// A TERMINATE stop of the previous run with the start's stamp; applying it alone produces
 /// the same old-run state as the ID-reuse termination.
-fn id_reuse_termination_command(scope: &CommandScope<'_>, run_id_bytes: &[u8]) -> FlowCommand {
+fn id_reuse_termination_command(
+    scope: &CommandScope<'_>,
+    run_id_bytes: &[u8],
+    reason: &str,
+) -> FlowCommand {
     FlowCommand {
         run_id: run_id_bytes.to_vec(),
         expected_run_attempt: 0,
@@ -415,7 +468,7 @@ fn id_reuse_termination_command(scope: &CommandScope<'_>, run_id_bytes: &[u8]) -
             request: Some(StopFlowRequest {
                 flow_id: scope.flow_id().to_owned(),
                 stop_type: StopType::Terminate as i32,
-                reason: ID_REUSE_TERMINATION_REASON.to_owned(),
+                reason: reason.to_owned(),
                 ..StopFlowRequest::default()
             }),
         })),

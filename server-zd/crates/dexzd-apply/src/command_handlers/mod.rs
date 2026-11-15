@@ -153,6 +153,15 @@ fn apply_in_scope(
         Command::TimeTravelStage(stage) => {
             crate::history::apply_time_travel_stage(&mut transaction, scope, stage)?
         }
+        Command::FlowCloneForkStage(stage) => {
+            crate::history::apply_flow_clone_fork_stage(&mut transaction, scope, stage)?
+        }
+        Command::FlowCloneFork(clone_fork) => {
+            crate::history::apply_flow_clone_fork(&mut transaction, scope, clone_fork)?
+        }
+        Command::FlowCloneForkStagingExpire(expire) => {
+            crate::history::apply_flow_clone_fork_staging_expire(&mut transaction, scope, expire)?
+        }
         Command::ValueRevive(revive) => crate::history_offload::value_revive::apply_value_revive(
             &mut transaction,
             scope,
@@ -310,6 +319,7 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
             .as_ref()
             .is_some_and(rpc_committed::is_mutating_rpc_response),
         Command::FlowStart(_)
+        | Command::FlowCloneFork(_)
         | Command::ChannelPublish(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepMethodCompleted(_) => true,
@@ -326,8 +336,10 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::HistorySegmentUploaded(_) => false,
         // Recording deleted objects only deletes history segment rows.
         Command::HistorySegmentObjectsDeleted(_) => false,
-        // Staged time travel results live outside run storage.
-        Command::TimeTravelStage(_) => false,
+        // Staged time travel results and clone fork stagings live outside run storage.
+        Command::TimeTravelStage(_)
+        | Command::FlowCloneForkStage(_)
+        | Command::FlowCloneForkStagingExpire(_) => false,
         // A revived value is superseded, so active state never grows.
         Command::ValueRevive(_) => false,
         // Local cleanup only deletes history and superseded values.
@@ -468,6 +480,8 @@ pub(crate) fn apply_run_command(
         | Command::HistorySegmentUploaded(_)
         | Command::HistorySegmentObjectsDeleted(_)
         | Command::TimeTravelStage(_)
+        | Command::FlowCloneForkStage(_)
+        | Command::FlowCloneForkStagingExpire(_)
         | Command::ValueRevive(_)
         | Command::HistoryLocalCleanup(_)
         | Command::InboxMessage(_)
@@ -475,6 +489,7 @@ pub(crate) fn apply_run_command(
             detail: "cross-Flow or partition command routed to the wrong handler".to_owned(),
         }),
         Command::FlowStart(_)
+        | Command::FlowCloneFork(_)
         | Command::StepAttemptStarted(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepAttemptFailed(_)

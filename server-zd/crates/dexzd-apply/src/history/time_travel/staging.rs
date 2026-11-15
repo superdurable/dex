@@ -35,14 +35,14 @@ use crate::values::{held_table_values, reconcile_run_storage};
 
 /// Chunks stop growing past this size, far below the 32 MiB log record limit, unless one entry
 /// is larger.
-const STAGE_CHUNK_TARGET_BYTES: usize = 8 * 1024 * 1024;
+pub(in crate::history) const STAGE_CHUNK_TARGET_BYTES: usize = 8 * 1024 * 1024;
 
 /// Largest chunk one Stage command carries: the 32 MiB log record limit minus room for the
 /// command around it.
-const MAX_STAGE_CHUNK_BYTES: usize = 32 * 1024 * 1024 - 64 * 1024;
+pub(in crate::history) const MAX_STAGE_CHUNK_BYTES: usize = 32 * 1024 * 1024 - 64 * 1024;
 
 /// A staging no chunk extended for this long is abandoned; a later run command deletes it.
-const IDLE_STAGING_MICROS: i64 = 10 * 60 * 1_000_000;
+pub(in crate::history) const IDLE_STAGING_MICROS: i64 = 10 * 60 * 1_000_000;
 
 /// Applies one TimeTravelStage chunk. It records no history and takes no run seq.
 ///
@@ -245,7 +245,9 @@ fn validate_staged_entries(chunk: &TimeTravelStagedChunk) -> Result<(), String> 
 }
 
 /// Checks that a child Flow finding names its condition and holds one complete finding.
-fn validate_staged_child_flow(child_flow: &TimeTravelStagedChildFlow) -> Result<(), String> {
+pub(in crate::history) fn validate_staged_child_flow(
+    child_flow: &TimeTravelStagedChildFlow,
+) -> Result<(), String> {
     if child_flow.step_execution_id.is_empty()
         || child_flow.child_flow_id.is_empty()
         || child_flow.sub_flow_index < 0
@@ -268,7 +270,7 @@ fn validate_staged_child_flow(child_flow: &TimeTravelStagedChildFlow) -> Result<
 }
 
 /// Checks that `row` belongs to an attempt-scoped table, has a key, and decodes as its record.
-fn validate_staged_row(row: &CheckpointRow) -> Result<(), String> {
+pub(in crate::history) fn validate_staged_row(row: &CheckpointRow) -> Result<(), String> {
     let table = u8::try_from(row.table)
         .ok()
         .and_then(|byte| RunTable::from_byte(byte).ok())
@@ -599,6 +601,6 @@ impl ChunkBuilder {
 }
 
 /// Encoded size of a length-delimited entry of a chunk: its field key, length, and message.
-fn entry_bytes(message_bytes: usize) -> usize {
+pub(in crate::history) fn entry_bytes(message_bytes: usize) -> usize {
     1 + prost::length_delimiter_len(message_bytes) + message_bytes
 }
