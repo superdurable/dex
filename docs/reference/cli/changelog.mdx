@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.47 {#v1-47}
 
-Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7).
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7); 1.47.8 released 2026-11-15 as [cli-v1.47.8](https://github.com/superdurable/dex/releases/tag/cli-v1.47.8).
 
 ### Added
 
@@ -55,6 +55,10 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
   **typescript_wait_for_unsupported**.
   [Reference](/reference/web/flow-visualization#supported-source-profile). Since 1.47.3.
 - **dexcli connectors mcp** serves only the Connectors MCP server, without Dex Server or Dex Web, on its own loopback **/mcp** proxy. It prints the URL as one JSON line on stdout, reuses the server of a running **dexcli dev** for the same **connections.json**, and stops only a server it started. An agent that works against a remote Dex server uses it to reach the Connector tools authorized on this machine. [Reference](/reference/cli/#connectors-mcp-command). Since 1.47.7.
+- **dexcli flow clone-fork SOURCE_FLOW_ID --flow-id NEW_FLOW_ID** creates a new Flow from a point of another Flow run through **CloneForkFlow**. **--type** selects the point: **current** (the default), **beginning**, **history-event-time**, **step-type**, **step-execution-id**, or **event-id**. Other flags set the source run, run attempt, task queue, Flow configuration override, initial Attributes, Flow timeout, ID reuse policy, SubFlow reset policy, request ID, and reason. Since 1.47.8.
+- **dexcli flow time-travel** accepts **--type event-id** with the history event ID as **--target**, **--run-attempt** to search an earlier run attempt, and **--sub-flow-reset-policy** to decide what happens to restored SubFlow waits. Its output adds **runAttempt**. Since 1.47.8.
+- **dexcli api** lists the **CloneForkFlow** call of the FlowService and, as for other writes, calls it only with **--yes**. Since 1.47.8.
+- Flow analysis accepts the **agent.repeatOnUnknown** and **agent.maxSends** fields of a Connector package's **dex-connector.json**, and the published manifest schema declares them. Since 1.47.8.
 
 ### Changed
 
@@ -67,6 +71,14 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
 - The Dex Web of **dexcli dev** and **dexcli web** is Dex Web 1.45.4. A left rail holds its sections, every page has one bar, and the run tabs are Events, State and Streams. [Change log](/reference/web/changelog#v1-45). Since 1.47.4.
 - The release archives bundle **dex-server-zd** 0.1.30 instead of 0.1.26, so **dexcli dev** serves named task queues (Server protocol version 5). A Flow can name a task queue when it starts, and only Workers of that task queue run it. [Reference](/reference/server/workers). Since 1.47.5.
 - The Dex Web of **dexcli dev** and **dexcli web** is Dex Web 1.45.5. Events switches between Timeline, Graph and Design, the run tabs always show, the State tab edits the run's configuration, and Work Queue and Connectors are redesigned. [Change log](/reference/web/changelog#v1-45). Since 1.47.6.
+- **dexcli agents-tui**: pasting image paths, or dropping image files on the terminal, attaches them at once, without the **Attach NAME?** question, also when the input holds text. One paste may name several files, quoted or with backslash-escaped spaces. A pasted path that does not attach stays as text. When the paste also names an image, or the path ends in an image extension, a notice says why: not a PNG, JPEG, GIF, or WebP image, missing, or unreadable. A paste while a panel or list has focus closes it and goes to the input instead of being lost. [Reference](/reference/agents/cli#images). Since 1.47.8.
+- **dexcli agents-tui**: the notice for an image over the size limit gives both sizes in exact bytes, such as "an image may have at most 3,750,000", instead of a rounded "3.6 MB". Since 1.47.8.
+- The release archives bundle **dex-server-zd** 0.1.33 instead of 0.1.30, so **dexcli dev** serves **CloneForkFlow**, Time Travel to an event ID, and the SubFlow reset policy (Server protocol version 6). [Reference](/reference/server/runtime-client#clone-fork). Since 1.47.8.
+
+### Fixed
+
+- **dexcli agents-tui**: Enter right after pasting an image no longer sends the message without it and attaches the image to the next message. Enter waits until the draft's pasted images are stored, shows "attaching image… sends when ready", and then sends one message with them. If an image does not attach, the message stays unsent with a notice, and the next Enter sends it without the image. Since 1.47.8.
+- **dexcli agents-tui**: live output turns off only when the Dex server's Stream Store is disabled. Before, any failed precondition on reading the session's events turned it off for the rest of the chat; now such a failure is retried. Since 1.47.8.
 
 ## 1.46 {#v1-46}
 
