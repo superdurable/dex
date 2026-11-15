@@ -102,6 +102,35 @@ component before it creates any tag. The server binary and image releases
 run it on the tagged commit and fail before they build, upload, or push
 anything.
 
+### Release notes
+
+Each GitHub Release lists only its own component's changes. Its notes come
+from that component's change log, never from GitHub-generated notes, which
+list every pull request in the repository between two tags.
+`script/release/component_release_notes.py` builds them:
+
+- The SDKs, web, cli, and server read
+  `docs/reference/<component>/changelog.mdx`. The notes hold exactly the items
+  of that version: a patch's items are the ones marked "Since 1.NN.P", and the
+  first release of an entry takes the unmarked items. They start with
+  **Breaking Changes**, which lists the version's Breaking items, or "None."
+  only when it has none. They end with a link to the change log entry.
+- agents reads the `## X.Y.Z` section of `agents/CHANGELOG.md` and links the
+  previous `agents/v` tag.
+
+**Release changed components** writes every release this way. Write a manual
+release the same way, after its release-prep pull request is merged:
+
+```bash
+python3 script/release/component_release_notes.py server 0.1.33 --output notes.md
+gh release create server-zd/v0.1.33 --verify-tag --title server-zd/v0.1.33 --notes-file notes.md
+```
+
+The component is `go`, `java`, `python`, `rust`, `typescript`, `web`, `cli`,
+`server`, or `agents`. Never pass `--generate-notes`. **Release Dex CLI**
+replaces the notes of a `cli-v` Release that has no Breaking Changes section
+with the script's output.
+
 ### The compatibility file
 
 `docs/static/compatibility/server-zd.json` lists, for each supported
@@ -181,3 +210,27 @@ from it.
   entries, and only while that target has no fragments.
 - Reference snapshot pull requests carry the line
   `changelog: correction: reference snapshot`.
+- A fragment lists only its own component's changes. A pull request that adds
+  a fragment under `changelog.d/<target>/` must also change a file under that
+  target's paths, other than change logs:
+
+  | Target | Paths |
+  | --- | --- |
+  | `go` | `sdk-go/` |
+  | `java` | `sdk-java/`, `sdk-rust/crates/dex-blob-cache-jni/` |
+  | `python` | `sdk-python/`, `sdk-rust/crates/dex-blob-cache-python/` |
+  | `rust` | `sdk-rust/` |
+  | `typescript` | `sdk-typescript/`, `sdk-rust/crates/dex-blob-cache-node/` |
+  | `web` | `web/`, `packages/flow-definition-renderer/` |
+  | `cli` | `cli/` |
+  | `server` | `server-zd/` |
+  | `agents` | `agents/`, `docs/reference/agents/` |
+  | `agents-packages` | `agents/` |
+  | `skills` | `skills/` |
+
+  A component that embeds another, such as dexcli with Dex Web and server-zd,
+  names the new embedded version and links its change log; the embedded
+  component's fragment lists the changes. Otherwise the description needs a
+  line `changelog: cross-component: <reason>`, or
+  `changelog: correction: <reason>` for an entry an earlier pull request
+  missed.

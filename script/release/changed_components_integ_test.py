@@ -335,17 +335,17 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('image_tag="${RELEASE_TAG#web/}"', workflow)
         self.assertNotIn("server/v", workflow)
 
-    def test_release_workflows_maintain_breaking_changes_section(self) -> None:
+    def test_release_workflows_build_notes_from_component_changelogs(self) -> None:
         coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("releases/generate-notes", coordinated_workflow)
-        self.assertIn("previous_tag_name=${baseline}", coordinated_workflow)
-        self.assertIn("## Breaking Changes\\n\\nNone.", coordinated_workflow)
+        self.assertNotIn("generate-notes", coordinated_workflow)
+        self.assertNotIn("None.", coordinated_workflow)
+        self.assertIn('script/release/component_release_notes.py "${component}" "${version}"', coordinated_workflow)
         self.assertIn("--notes-file", coordinated_workflow)
 
         cli_workflow = CLI_RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("Maintain Breaking Changes section", cli_workflow)
         self.assertIn("grep -qx '## Breaking Changes'", cli_workflow)
-        self.assertIn("## Breaking Changes\\n\\nNone.", cli_workflow)
+        self.assertIn("script/release/component_release_notes.py cli", cli_workflow)
+        self.assertNotIn("None.", cli_workflow)
 
 
 # The release tooling uses only the standard library, which has no YAML parser.

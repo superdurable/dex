@@ -329,6 +329,47 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         self.set_body("changelog: correction: the change was reverted\n")
         self.assertEqual(self.check_pr().returncode, 0)
 
+    def test_a_fragment_needs_a_change_of_its_own_component(self) -> None:
+        self.git("switch", "-c", "cli-notes-web")
+        self.write("web/src/page.ts", "export const page = 1;\n")
+        self.write("changelog.d/cli/web-page-abc123.md", "---\nsection: Changed\n---\n- Dex Web shows a new page.\n")
+        self.commit("describe a web change in the cli change log")
+
+        result = self.check_pr()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "changelog.d/cli/web-page-abc123.md: a cli fragment lists only cli changes, but the pull request changes "
+            "nothing under cli/",
+            result.stderr,
+        )
+        self.assertIn("'changelog: cross-component: <reason>'", result.stderr)
+        self.set_body("## Summary\n\nchangelog: cross-component: dexcli ships this page with no Web release\n")
+        self.assertEqual(self.check_pr().returncode, 0)
+        self.set_body("## Summary\n\nchangelog: correction: add the entry an earlier pull request missed\n")
+        self.assertEqual(self.check_pr().returncode, 0)
+
+        self.set_body("## Summary\n")
+        self.write("cli/go.mod", "module example\n")
+        self.commit("bump the embedded Web module")
+        self.assertEqual(self.check_pr().returncode, 0)
+
+    def test_fragment_source_paths_cover_bindings_and_agents_docs(self) -> None:
+        self.git("switch", "-c", "sources")
+        self.write("sdk-rust/crates/dex-blob-cache-jni/src/lib.rs", "// changed\n")
+        self.write("changelog.d/java/jni-abc123.md", "---\nsection: Fixed\n---\n- The JNI binding loads.\n")
+        self.write("docs/reference/agents/cli.mdx", "changed\n")
+        self.write("changelog.d/agents/docs-abc123.md", "---\nsection: Changed\n---\n- The CLI reference changed.\n")
+        self.write("docs/reference/go/changelog.mdx", "changed\n")
+        self.write("changelog.d/go/only-docs-abc123.md", "---\nsection: Fixed\n---\n- A fix.\n")
+        self.commit("fragments")
+
+        result = self.check_pr()
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("changelog.d/java/jni-abc123.md", result.stderr)
+        self.assertNotIn("changelog.d/agents/docs-abc123.md", result.stderr)
+        # A change-log file is release output, not a source change of its component.
+        self.assertIn("changelog.d/go/only-docs-abc123.md: a go fragment", result.stderr)
+
     def test_check_pr_diffs_a_merge_commit_in_a_depth_two_clone(self) -> None:
         self.git("switch", "-c", "feature")
         self.write(SKILL_FILE, self.read(SKILL_FILE) + "\nA new rule.\n")

@@ -177,46 +177,37 @@ jobs:
           AGENTS_TAG: ${{ needs.plan.outputs.agents_tag }}
           AGENTS_BASELINE: ${{ needs.plan.outputs.agents_baseline }}
         run: |
+          # Each release's notes list only its own change-log items; never GitHub-generated notes.
           selected=(
-            "${GO_SELECTED}:${GO_TAG}:${GO_BASELINE}"
-            "${RUST_SELECTED}:${RUST_TAG}:${RUST_BASELINE}"
-            "${JAVA_SELECTED}:${JAVA_TAG}:${JAVA_BASELINE}"
-            "${PYTHON_SELECTED}:${PYTHON_TAG}:${PYTHON_BASELINE}"
-            "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}:${TYPESCRIPT_BASELINE}"
-            "${WEB_SELECTED}:${WEB_TAG}:${WEB_BASELINE}"
-            "${CLI_SELECTED}:${CLI_TAG}:${CLI_BASELINE}"
-            "${AGENTS_SELECTED}:${AGENTS_TAG}:${AGENTS_BASELINE}"
+            "go:sdk-go/v:${GO_SELECTED}:${GO_TAG}:${GO_BASELINE}"
+            "rust:sdk-rust/v:${RUST_SELECTED}:${RUST_TAG}:${RUST_BASELINE}"
+            "java:sdk-java/v:${JAVA_SELECTED}:${JAVA_TAG}:${JAVA_BASELINE}"
+            "python:sdk-python/v:${PYTHON_SELECTED}:${PYTHON_TAG}:${PYTHON_BASELINE}"
+            "typescript:sdk-typescript/v:${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}:${TYPESCRIPT_BASELINE}"
+            "web:web/v:${WEB_SELECTED}:${WEB_TAG}:${WEB_BASELINE}"
+            "cli:cli-v:${CLI_SELECTED}:${CLI_TAG}:${CLI_BASELINE}"
+            "agents:agents/v:${AGENTS_SELECTED}:${AGENTS_TAG}:${AGENTS_BASELINE}"
           )
           for release in "${selected[@]}"; do
-            if [[ "${release%%:*}" == "true" ]]; then
-              release="${release#*:}"
-              tag="${release%%:*}"
-              baseline="${release#*:}"
-              release_notes="$(mktemp)"
-              # Agents notes come from agents/CHANGELOG.md; the baseline is the previous agents/v* tag.
-              if [[ "${tag}" == agents/v* ]]; then
-                agents_version="${tag#agents/v}"
-                python3 script/release/agents_release_notes.py "${agents_version}" \
-                  --changelog agents/CHANGELOG.md \
-                  --previous-tag "${baseline}" \
-                  --repository "${GITHUB_REPOSITORY}" \
-                  --output "${release_notes}"
-                gh release create "${tag}" --target "${GITHUB_SHA}" --title "Dex agents ${agents_version}" \
-                  --notes-file "${release_notes}" --latest=false
-                continue
-              fi
-              generated_notes="$(mktemp)"
-              arguments=(--method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f "tag_name=${tag}" -f "target_commitish=${GITHUB_SHA}")
-              if [[ -n "${baseline}" ]]; then
-                arguments+=(-f "previous_tag_name=${baseline}")
-              fi
-              gh api "${arguments[@]}" --jq .body > "${generated_notes}"
-              {
-                printf '## Breaking Changes\n\nNone.\n\n'
-                cat "${generated_notes}"
-              } > "${release_notes}"
-              gh release create "${tag}" --target "${GITHUB_SHA}" --title "${tag}" --notes-file "${release_notes}"
+            IFS=: read -r component tag_prefix is_selected tag baseline <<< "${release}"
+            if [[ "${is_selected}" != "true" ]]; then
+              continue
             fi
+            version="${tag#"${tag_prefix}"}"
+            release_notes="$(mktemp)"
+            # Agents notes come from agents/CHANGELOG.md; the baseline is the previous agents/v* tag.
+            if [[ "${component}" == "agents" ]]; then
+              python3 script/release/component_release_notes.py agents "${version}" \
+                --previous-tag "${baseline}" \
+                --repository "${GITHUB_REPOSITORY}" \
+                --output "${release_notes}"
+              gh release create "${tag}" --target "${GITHUB_SHA}" --title "Dex agents ${version}" \
+                --notes-file "${release_notes}" --latest=false
+              continue
+            fi
+            python3 script/release/component_release_notes.py "${component}" "${version}" \
+              --output "${release_notes}"
+            gh release create "${tag}" --target "${GITHUB_SHA}" --title "${tag}" --notes-file "${release_notes}"
           done
 
   snapshot-references:

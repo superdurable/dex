@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from agents_release_notes import CHANGELOG_PATH, ReleaseNotesError, extract_version_section
+from component_release_notes import ReleaseNotesError, build_component_release_notes, component_changelog_path
 from changelog_fragments import TreeReader, release_readiness_errors
 
 VERSION_PATTERN = re.compile(
@@ -160,12 +160,13 @@ def tag_exists(tag: str) -> bool:
     return result.returncode == 0
 
 
-def agents_changelog_errors(agents_version: str) -> list[str]:
-    """Returns why the agents release notes cannot be built from the changelog, or no errors."""
+def release_notes_errors(component: Component, version: str) -> list[str]:
+    """Returns why the component's release notes cannot be built from its own change log, or no errors."""
+    path = component_changelog_path(component.key)
     try:
-        extract_version_section(Path(CHANGELOG_PATH).read_text(encoding="utf-8"), agents_version)
+        build_component_release_notes(component.key, Path(path).read_text(encoding="utf-8"), version, None, "superdurable/dex")
     except (OSError, ReleaseNotesError) as error:
-        return [f"Agents release notes: {error}"]
+        return [f"{component.name} release notes from {path}: {error}"]
     return []
 
 
@@ -194,11 +195,10 @@ def write_outputs(output_path: Path, version: str, agents_version: str | None) -
         selections.append((component, baseline, selected, target, skip_reason))
         if selected and tag_exists(target):
             collisions.append(target)
-        if selected and component.key == "agents":
-            preflight_errors.extend(agents_changelog_errors(component_version))
         if selected:
             # The release snapshots the reference from main, so its change-log entry must already be there.
             preflight_errors.extend(release_readiness_errors(TreeReader(Path.cwd(), None), component.key, component_version))
+            preflight_errors.extend(release_notes_errors(component, component_version))
 
     summary = ["### Changed-component release plan", "", "| Component | Baseline | Result |", "|---|---|---|"]
     output_lines = [f"version={version}", f"agents_version={agents_version or ''}"]

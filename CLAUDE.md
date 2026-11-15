@@ -142,6 +142,17 @@ on main when the release snapshots the reference. **Release changed
 components** fails its plan when a selected component's change log does not
 record the release yet. See `changelog.d/README.md`.
 
+Each component's change log and release notes list only that component's own
+changes. A component that embeds another, such as dexcli with Dex Web and
+server-zd, names the new embedded version and links its change log; it does
+not repeat the embedded component's changes. A pull request that adds a
+fragment under `changelog.d/<target>/` must change that target's own paths.
+Check Gate CI rejects it otherwise, unless the description contains a line
+`changelog: cross-component: <reason>`. Never use GitHub-generated release
+notes, such as `gh release create --generate-notes`.
+`script/release/component_release_notes.py` builds every release's notes from
+its change log; see `changelog.d/README.md`.
+
 A release-prep pull request of server-zd, an SDK, dexcli, or the agents
 packages also carries `docs/static/compatibility/server-zd.json`, the
 compatibility answers per server-zd release; `prepare` rewrites it. When
