@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import server_zd_compatibility as compatibility  # noqa: E402
 
 SCRIPT = Path(__file__).with_name("server_zd_compatibility.py")
+REPOSITORY = Path(__file__).resolve().parents[2]
+PUBLISHED_SCHEMA = REPOSITORY / "docs/static/compatibility/server-zd.schema.json"
+# The shape of a schemaVersion 1 file written before agentsCliCommands existed.
+OLDER_DOCUMENT = Path(__file__).parent / "testdata/server_zd_compatibility/schema-version-1-without-commands.json"
 FRAGMENTS_SCRIPT = Path(__file__).with_name("changelog_fragments.py")
 COMPATIBILITY_FILE = compatibility.COMPATIBILITY_FILE
 RULES_FILE = compatibility.RULES_FILE
@@ -52,7 +57,9 @@ RULES = {
 ALPHA_NPM = "@superdurable/dex-agents-alpha-cli"
 BETA_NPM = "@superdurable/dex-agents-beta-cli"
 GAMMA_NPM = "@superdurable/dex-agents-gamma-cli"
+DELTA_NPM = "@superdurable/dex-agents-delta-cli"
 ALPHA_PYPI = "dex-agents-alpha-cli"
+EPSILON_PYPI = "dex-agents-epsilon-cli"
 
 
 def released_entry(heading: str, tag_prefix: str, versions: list[str]) -> str:
@@ -62,6 +69,41 @@ def released_entry(heading: str, tag_prefix: str, versions: list[str]) -> str:
     for version in later:
         line += f"; {version} released 2026-11-02 as [{tag_prefix}{version}]({URL}{tag_prefix}{version})"
     return f"## {heading} {{#v{heading.replace('.', '-')}}}\n\n{line}.\n\n### Added\n\n- A change.\n\n"
+
+
+def schema_errors(value: object, schema: dict, root: dict, path: str = "$") -> list[str]:
+    """Returns where value breaks schema, for the JSON Schema keywords the published schema uses.
+
+    Release tooling CI has no JSON Schema library, so this covers $ref, oneOf, type, const, pattern,
+    required, properties, additionalProperties, and items.
+    """
+    if "$ref" in schema:
+        schema = root["$defs"][schema["$ref"].removeprefix("#/$defs/")]
+    if "oneOf" in schema:
+        matches = [option for option in schema["oneOf"] if not schema_errors(value, option, root, path)]
+        return [] if len(matches) == 1 else [f"{path} matches {len(matches)} oneOf options"]
+    types = {"object": dict, "array": list, "string": str, "integer": int, "null": type(None)}
+    if "type" in schema and not isinstance(value, types[schema["type"]]):
+        return [f"{path} is not {schema['type']}"]
+    if "const" in schema and value != schema["const"]:
+        return [f"{path} is not {schema['const']!r}"]
+    if "pattern" in schema and not re.search(schema["pattern"], value):
+        return [f"{path} does not match {schema['pattern']}"]
+    errors = []
+    if isinstance(value, dict):
+        errors.extend(f"{path} misses {key}" for key in schema.get("required", []) if key not in value)
+        properties = schema.get("properties", {})
+        for key, item in value.items():
+            if key in properties:
+                errors.extend(schema_errors(item, properties[key], root, f"{path}.{key}"))
+            elif isinstance(schema.get("additionalProperties"), dict):
+                errors.extend(schema_errors(item, schema["additionalProperties"], root, f"{path}.{key}"))
+            elif schema.get("additionalProperties") is False:
+                errors.append(f"{path} has unknown field {key}")
+    if isinstance(value, list) and "items" in schema:
+        for index, item in enumerate(value):
+            errors.extend(schema_errors(item, schema["items"], root, f"{path}[{index}]"))
+    return errors
 
 
 def client_source(minimum: int, maximum: int) -> str:
@@ -90,6 +132,9 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
         self.write_npm_command("alpha", ALPHA_NPM)
         self.write_npm_command("beta", BETA_NPM)
         self.write_pypi_command("alpha", ALPHA_PYPI)
+        # delta and epsilon pin a newer SDK than the CLI core; the base rules give it the 1.0.0 line.
+        self.write_npm_command("delta", DELTA_NPM, sdk_version="1.1.0")
+        self.write_pypi_command("epsilon", EPSILON_PYPI, sdk_version="1.2.0")
         # A test package next to the commands, which the file never lists.
         self.write_pypi_command("testing", "dex-agents-cli-testing")
         self.write("changelog.d/go/.gitkeep", "")
@@ -145,8 +190,15 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
         # beta reached npm with 0.3.0, gamma ships only in 0.3.0, and 0.3.0 needs server-zd 0.1.3.
         self.assertEqual(
             older["agentsCliCommands"],
-            {"npm": {ALPHA_NPM: {"oldest": "0.2.0", "newest": "0.2.0"}, BETA_NPM: None, GAMMA_NPM: None},
-             "pypi": {ALPHA_PYPI: None}},
+            {
+                "npm": {
+                    ALPHA_NPM: {"oldest": "0.2.0", "newest": "0.2.0"},
+                    BETA_NPM: None,
+                    DELTA_NPM: {"oldest": "0.2.0", "newest": "0.2.0"},
+                    GAMMA_NPM: None,
+                },
+                "pypi": {ALPHA_PYPI: None, EPSILON_PYPI: None},
+            },
         )
         self.assertEqual(
             newest["agentsCliCommands"],
@@ -154,13 +206,56 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
                 "npm": {
                     ALPHA_NPM: {"oldest": "0.2.0", "newest": "0.3.0"},
                     BETA_NPM: {"oldest": "0.3.0", "newest": "0.3.0"},
+                    DELTA_NPM: {"oldest": "0.2.0", "newest": "0.3.0"},
                     GAMMA_NPM: {"oldest": "0.3.0", "newest": "0.3.0"},
                 },
-                "pypi": {ALPHA_PYPI: {"oldest": "0.3.0", "newest": "0.3.0"}},
+                "pypi": {
+                    ALPHA_PYPI: {"oldest": "0.3.0", "newest": "0.3.0"},
+                    EPSILON_PYPI: {"oldest": "0.3.0", "newest": "0.3.0"},
+                },
             },
         )
         # The core range stays as it was.
         self.assertEqual(older["agentsCli"], {"npm": {"oldest": "0.2.0", "newest": "0.2.0"}, "pypi": None})
+
+    def test_a_command_follows_its_own_pinned_sdk_and_the_agents_cli_line(self) -> None:
+        rules = json.loads(json.dumps(RULES))
+        # delta pins TypeScript SDK 1.1.0, whose line needs server-zd 0.1.3.
+        rules["clients"]["typescript"].append({"since": "1.1.0", "protocol": {"min": 4, "max": 5}, "minimumServerZd": "0.1.3"})
+        # epsilon pins Python SDK 1.2.0, whose protocol no listed server accepts.
+        rules["clients"]["python"].append({"since": "1.2.0", "protocol": {"min": 6, "max": 6}})
+        self.write_rules(rules)
+        self.run_script("update", "--date", "2026-11-14")
+        newest, older = json.loads(self.read(COMPATIBILITY_FILE))["servers"]
+
+        self.assertIsNone(older["agentsCliCommands"]["npm"][DELTA_NPM])
+        self.assertEqual(newest["agentsCliCommands"]["npm"][DELTA_NPM], {"oldest": "0.2.0", "newest": "0.3.0"})
+        self.assertIsNone(older["agentsCliCommands"]["pypi"][EPSILON_PYPI])
+        self.assertIsNone(newest["agentsCliCommands"]["pypi"][EPSILON_PYPI])
+        # The CLI core and the other commands pin SDK 1.0.0, so their ranges do not change.
+        self.assertEqual(older["agentsCli"], {"npm": {"oldest": "0.2.0", "newest": "0.2.0"}, "pypi": None})
+        self.assertEqual(newest["agentsCli"]["pypi"], {"oldest": "0.3.0", "newest": "0.3.0"})
+        self.assertEqual(newest["agentsCliCommands"]["pypi"][ALPHA_PYPI], {"oldest": "0.3.0", "newest": "0.3.0"})
+        # alpha 0.3.0 pins a compatible SDK, but the agentsCli 0.3.0 line needs server-zd 0.1.3.
+        self.assertEqual(older["agentsCliCommands"]["npm"][ALPHA_NPM], {"oldest": "0.2.0", "newest": "0.2.0"})
+
+    def test_published_schema_accepts_schema_version_1_files_without_newer_fields(self) -> None:
+        schema = json.loads(PUBLISHED_SCHEMA.read_text(encoding="utf-8"))
+        older = json.loads(OLDER_DOCUMENT.read_text(encoding="utf-8"))
+        current = json.loads((REPOSITORY / COMPATIBILITY_FILE).read_text(encoding="utf-8"))
+
+        self.assertEqual(schema_errors(older, schema, schema), [])
+        self.assertEqual(schema_errors(current, schema, schema), [])
+        # A reader's schema check must not fail on a field added later.
+        extended = json.loads(json.dumps(current))
+        extended["laterField"] = 1
+        extended["servers"][0]["laterField"] = {"value": 1}
+        extended["servers"][0]["agentsCliCommands"]["npm"]["@superdurable/dex-agents-later-cli"] = None
+        self.assertEqual(schema_errors(extended, schema, schema), [])
+        # The checker itself still rejects a file that misses a required field.
+        broken = json.loads(json.dumps(older))
+        del broken["servers"][0]["agentsCli"]
+        self.assertEqual(schema_errors(broken, schema, schema), ["$.servers[0] misses agentsCli"])
 
     def test_an_unpublished_command_release_is_left_out(self) -> None:
         rules = json.loads(json.dumps(RULES))
@@ -176,8 +271,8 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
         cases = [
             ({"package": "dex-agents-cli-testing", "registry": "pypi", "version": "0.3.0"},
              "names no Agents CLI command package"),
-            ({"package": "@superdurable/dex-agents-delta-cli", "registry": "npm", "version": "0.3.0"},
-             "which is no agents release that ships @superdurable/dex-agents-delta-cli"),
+            ({"package": "@superdurable/dex-agents-zeta-cli", "registry": "npm", "version": "0.3.0"},
+             "which is no agents release that ships @superdurable/dex-agents-zeta-cli"),
             ({"package": ALPHA_NPM, "registry": "npm", "version": "0.2.0"}, "names the first release that ships it"),
         ]
         for entry, message in cases:
@@ -404,12 +499,12 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
             self.write(sources["npm"], manifest)
             self.write(sources["pypi"], project)
 
-    def write_npm_command(self, directory: str, package: str) -> None:
-        manifest = {"name": package, "peerDependencies": {"@superdurable/dex": "1.0.0"}}
+    def write_npm_command(self, directory: str, package: str, sdk_version: str = "1.0.0") -> None:
+        manifest = {"name": package, "peerDependencies": {"@superdurable/dex": sdk_version}}
         self.write(f"agents/cli/typescript/{directory}/package.json", json.dumps(manifest))
 
-    def write_pypi_command(self, directory: str, package: str) -> None:
-        project = f'[project]\nname = "{package}"\ndependencies = [\n    "dex-python-sdk==1.0.0",\n]\n'
+    def write_pypi_command(self, directory: str, package: str, sdk_version: str = "1.0.0") -> None:
+        project = f'[project]\nname = "{package}"\ndependencies = [\n    "dex-python-sdk=={sdk_version}",\n]\n'
         self.write(f"agents/cli/python/{directory}/pyproject.toml", project)
 
     def write_rules(self, rules: dict) -> None:

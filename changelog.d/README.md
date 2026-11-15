@@ -120,9 +120,11 @@ from it.
 - `agentsCliCommands` keys each command package by its full published name,
   such as `@superdurable/dex-agents-claude-sdk-cli` or
   `dex-agents-claude-sdk-cli`. The generator finds the command packages in
-  each agents release tag. A program that pins a command package reads its
-  range there, not from `agentsCli`, because a command package can start at a
-  later release than the core.
+  each agents release tag. Each listed version exists on its registry, and
+  the SDK that the package itself pins works with the server. A program that
+  pins a command package reads its range there, not from `agentsCli`, because
+  a command package can start at a later release than the core. The schema
+  does not require the field, so files written before it still validate.
 
 - `prepare` of server, go, python, typescript, java, rust, cli, or agents
   rewrites the file from the prepared change logs, the release tags, and

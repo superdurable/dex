@@ -83,8 +83,9 @@ Programs read the same data from
 Its [JSON Schema](https://docs.superdurable.io/compatibility/server-zd.schema.json)
 describes every field and the compatibility rule. New fields can appear
 without a new `schemaVersion`, so a program ignores the fields it does not
-know. To pin an Agents CLI command package, read its range from
-`agentsCliCommands`.
+know. For each Agents CLI command package, `agentsCliCommands` lists
+releases that exist on the registry and whose pinned SDK works with the
+server.
 
 Dex Web 1.45, 1.43, 1.41, 1.40, 1.37 needs server-zd 0.1.17 or newer (protocol
 version 4).

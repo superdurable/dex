@@ -55,12 +55,12 @@
     },
     "commandRanges": {
       "type": "object",
-      "description": "Each key is the full published name of one Agents CLI command package on this registry. Its value is the range of that package's own releases that works with the server, or null when none does. A new command package adds a key without a schemaVersion change. A missing key means the package is not listed.",
+      "description": "Each key is the full published name of one Agents CLI command package on this registry. Its value is the oldest and the newest release of that package that exists on this registry and whose own pinned SDK works with the server, or null when none does. A new command package adds a key without a schemaVersion change. A missing key means the package is not listed.",
       "additionalProperties": {"$ref": "#/$defs/range"}
     },
     "server": {
       "type": "object",
-      "required": ["serverZd", "protocolVersion", "sdks", "dexcli", "agents", "agentsCli", "agentsCliCommands"],
+      "required": ["serverZd", "protocolVersion", "sdks", "dexcli", "agents", "agentsCli"],
       "properties": {
         "serverZd": {"$ref": "#/$defs/version", "description": "The server-zd release, tagged server-zd/v<version>."},
         "protocolVersion": {
@@ -99,7 +99,7 @@
         },
         "agentsCliCommands": {
           "type": "object",
-          "description": "The Agents CLI command packages per registry, such as @superdurable/dex-agents-claude-sdk-cli on npm and dex-agents-claude-sdk-cli on PyPI. Each range's oldest and newest are releases of that package published on that registry, so a command pinned to either one installs.",
+          "description": "The Agents CLI command packages per registry, such as @superdurable/dex-agents-claude-sdk-cli on npm and dex-agents-claude-sdk-cli on PyPI. Each range's oldest and newest exist on that registry, and the SDK that each one pins works with the server. Added after the first schemaVersion 1 files, so a reader treats a missing agentsCliCommands as no command package listed.",
           "required": ["npm", "pypi"],
           "properties": {"npm": {"$ref": "#/$defs/commandRanges"}, "pypi": {"$ref": "#/$defs/commandRanges"}}
         }
