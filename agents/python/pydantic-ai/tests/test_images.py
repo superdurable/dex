@@ -186,7 +186,8 @@ async def test_a_worker_killed_in_the_resumed_model_call_rebuilds_the_same_model
     run_state = (await image_harness.stack.client.get_attributes(session_id, FRAMEWORK_RUN_STATE))[
         FRAMEWORK_RUN_STATE
     ]
-    assert png.uri in run_state
+    # The session stores the turn's messages, so the run state holds no image at all.
+    assert png.uri not in run_state
     assert base64.b64encode(PNG).decode() not in run_state
 
     worker.kill()

@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
+from typing import Any
 
 from google.adk.agents import BaseAgent, LlmAgent, ParallelAgent, SequentialAgent
 from google.adk.agents.readonly_context import ReadonlyContext
@@ -21,12 +22,14 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
 from dex_agents_google_adk import adk_agent_session_flow
 from tests.scripted_adk_agent import (
     MODEL_CALL_LOG_NAME,
+    TOOL_POLICIES,
     ScriptedModel,
     ScriptedReviewerModel,
     _describe_tool_response,
@@ -35,6 +38,7 @@ from tests.scripted_adk_agent import (
     _invocations,
     _text_response,
     _user_texts,
+    slow_write,
 )
 
 PARALLEL_RESEARCH_FLOW_TYPE = "ScriptedAdkParallelResearch"
@@ -45,6 +49,9 @@ NESTED_PARALLEL_FLOW_TYPE = "ScriptedAdkNestedParallel"
 TWO_SINGLE_TURN_DELEGATIONS_FLOW_TYPE = "ScriptedAdkTwoSingleTurnDelegations"
 TOOLSET_NAME_CLASH_FLOW_TYPE = "ScriptedAdkToolsetNameClash"
 PARALLEL_OF_SEQUENTIAL_FLOW_TYPE = "ScriptedAdkParallelOfSequential"
+PARALLEL_APPROVAL_FLOW_TYPE = "ScriptedAdkParallelApproval"
+REDACTING_FLOW_TYPE = "ScriptedAdkRedacting"
+REDACTED_RESULT = {"result": "redacted"}
 TASK_QUESTION = "Shall I finish? (yes/no)"
 BRANCH_TOOL_POLICIES = {
     "record_a": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
@@ -177,7 +184,10 @@ def save_draft(message: str) -> str:
     return f"saved {message}"
 
 
-def build_parallel_research_flow() -> AgentSessionFlow:
+def build_parallel_research_flow(
+    flow_type: str = PARALLEL_RESEARCH_FLOW_TYPE,
+    tool_policies: Mapping[str, ToolPolicy] = BRANCH_TOOL_POLICIES,
+) -> AgentSessionFlow:
     branches: list[BaseAgent] = [
         LlmAgent(
             name=f"researcher_{letter}",
@@ -188,8 +198,19 @@ def build_parallel_research_flow() -> AgentSessionFlow:
     ]
     return adk_agent_session_flow(
         ParallelAgent(name="research", sub_agents=branches),
-        flow_type=PARALLEL_RESEARCH_FLOW_TYPE,
-        tool_policies=BRANCH_TOOL_POLICIES,
+        flow_type=flow_type,
+        tool_policies=tool_policies,
+    )
+
+
+def build_parallel_approval_flow() -> AgentSessionFlow:
+    """The parallel research tree, with every branch call waiting for approval."""
+    return build_parallel_research_flow(
+        PARALLEL_APPROVAL_FLOW_TYPE,
+        {
+            name: ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=True)
+            for name in BRANCH_TOOL_POLICIES
+        },
     )
 
 
@@ -332,6 +353,27 @@ def build_two_single_turn_delegations_flow() -> AgentSessionFlow:
     )
 
 
+def redact_tool_result(
+    tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, tool_response: Any
+) -> dict[str, Any]:
+    """An after_tool_callback that hides every tool result from the model."""
+    return dict(REDACTED_RESULT)
+
+
+def build_redacting_flow() -> AgentSessionFlow:
+    """The scripted agent with an after_tool_callback that replaces each tool result."""
+    return adk_agent_session_flow(
+        LlmAgent(
+            name="redactor",
+            model=ScriptedModel(),
+            after_tool_callback=redact_tool_result,
+            tools=[slow_write],
+        ),
+        flow_type=REDACTING_FLOW_TYPE,
+        tool_policies=TOOL_POLICIES,
+    )
+
+
 def build_toolset_name_clash_flow() -> AgentSessionFlow:
     """A root agent and its sub-agent's toolset give different tools the name record_a."""
     return adk_agent_session_flow(
@@ -374,6 +416,8 @@ _record_a_from_toolset.__name__ = "record_a"
 def build_topology_flows() -> list[AgentSessionFlow]:
     return [
         build_parallel_research_flow(),
+        build_parallel_approval_flow(),
+        build_redacting_flow(),
         build_single_turn_delegation_flow(),
         build_task_delegation_flow(),
         build_read_agent_tool_flow(),
