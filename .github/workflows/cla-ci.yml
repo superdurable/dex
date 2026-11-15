@@ -35,5 +35,5 @@ jobs:
           fi
 
           echo "No CLA record for $GITHUB_HANDLE."
-          echo "See CLA.md and email the signed agreement to licensing@superdurable.io."
+          echo "See .github/CLA.md and email the signed agreement to licensing@superdurable.io."
           exit 1

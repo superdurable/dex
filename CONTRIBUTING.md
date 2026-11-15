@@ -152,7 +152,7 @@ Managed source files use the classifications recorded in
 - `new` uses `LicenseRef-Sustainable-Use-1.0`.
 
 `docs/` is not relicensed. Go examples retain MIT; Java and Python examples
-retain Apache-2.0. See [LICENSING.md](LICENSING.md) for the repository policy.
+retain Apache-2.0. See [LICENSING.md](docs/legal/LICENSING.md) for the repository policy.
 
 From the repo root:
 
@@ -176,7 +176,7 @@ use the mixed header. Preserve applicable notices when copying smaller excerpts.
 
 ## Contributor License Agreement
 
-All contributors must sign an [individual or corporate CLA](CLA.md). Email the
+All contributors must sign an [individual or corporate CLA](.github/CLA.md). Email the
 signed agreement and GitHub handle to licensing@superdurable.io. Pull
 requests from handles absent from `.github/cla-signatures.json` fail the CLA
 check until the record is updated.

@@ -5,14 +5,14 @@ Copyright (c) 2026 Super Durable, Inc.
 Portions of this software are licensed as follows:
 
 - Legacy Materials remain under their original licenses as described in
-  `LEGACY_NOTICES.md`.
+  `docs/legal/LEGACY_NOTICES.md`.
 - Third-Party Materials remain under the licenses provided by their owners.
 - The `docs/` and `examples/` directories are not licensed under the
   Sustainable Use License and retain their existing licensing status.
 - All other material owned or licensable by Super Durable, Inc. is available
   under the Sustainable Use License below.
 
-See `LEGACY_NOTICES.md` for the applicable legacy and third-party notices.
+See `docs/legal/LEGACY_NOTICES.md` for the applicable legacy and third-party notices.
 
 ## Sustainable Use License
 
