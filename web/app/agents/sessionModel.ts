@@ -232,7 +232,7 @@ export function readSession(input: SessionReadInput): SessionView {
         hasCallsFromMessagesOnly = true;
       }
       items.push({ kind: 'tool', key: `tool:${toolCallId}`, call });
-    } else if (message.text !== null && message.text !== '') {
+    } else if (message.text !== null && message.text !== '' && message.isFrameworkSynthetic !== true) {
       items.push({
         kind: 'message',
         key: `message:${message.sequence}`,

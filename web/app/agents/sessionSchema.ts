@@ -104,6 +104,10 @@ export interface AgentMessageRecord {
   createdAt: string | null;
   /** The name the sender declared, not verified; null when none. */
   senderName?: string | null;
+  /** Why the session wrote this message itself, such as `turn_steered_note`; null for typed text. */
+  origin?: string | null;
+  /** The framework made this assistant message up, not a model; the view hides it. */
+  isFrameworkSynthetic?: boolean;
 }
 
 export interface AgentToolCallRecord {
@@ -197,7 +201,28 @@ export function decodeAgentMessage(value: unknown): AgentMessageRecord | null {
     toolOutput: text(value.tool_output),
     createdAt: text(value.created_at),
     senderName: text(value.sender_name),
+    origin: text(value.origin),
+    isFrameworkSynthetic: value.role === 'assistant' && isSyntheticClaudeTranscriptItem(value.framework_item),
   };
+}
+
+/** Claude Code marks an entry it wrote itself, such as "No response requested.", with this model. */
+const CLAUDE_SYNTHETIC_MODEL = '<synthetic>';
+
+/** True when a Claude transcript item holds assistant entries and Claude Code wrote every one itself. */
+function isSyntheticClaudeTranscriptItem(frameworkItem: unknown): boolean {
+  // The cheap check skips parsing the many items without the marker.
+  if (typeof frameworkItem !== 'string' || !frameworkItem.includes(CLAUDE_SYNTHETIC_MODEL)) return false;
+  let item: unknown;
+  try {
+    item = JSON.parse(frameworkItem);
+  } catch {
+    return false;
+  }
+  if (!isData(item) || item.kind !== 'claude_transcript' || !Array.isArray(item.entries)) return false;
+  const assistantEntries = item.entries.filter((entry) => isData(entry) && entry.type === 'assistant') as Data[];
+  return assistantEntries.length > 0
+    && assistantEntries.every((entry) => isData(entry.message) && entry.message.model === CLAUDE_SYNTHETIC_MODEL);
 }
 
 export function decodeAgentMessageChunk(value: unknown): AgentMessageRecord[] | null {

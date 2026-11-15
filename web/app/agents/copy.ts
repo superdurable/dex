@@ -63,6 +63,21 @@ export const SESSION_COPY = {
   senderNameTitle: 'Shown with your messages to the agent and to everyone in the session. It is not verified.',
   senderNameUnverified: 'Name the sender entered; not verified',
   senderNameUnverifiedShort: 'unverified',
+  dexNote: 'Dex note',
+  dexNoteTitle: 'The session wrote this message for the model. No user typed it.',
+  dexNoteSummary(origin: string): string {
+    switch (origin) {
+      case 'turn_steered_note': return 'The turn was steered after these tool calls ran';
+      case 'turn_cancelled_note': return 'The turn was stopped after these tool calls ran';
+      case 'turn_failure_note': return 'The turn failed after these tool calls ran';
+      case 'plan_execution': return 'Running the approved plan';
+      default: return `The session wrote this message (${origin})`;
+    }
+  },
+  showMore: 'Show more',
+  showLess: 'Show less',
+  jumpToLatest: 'Jump to latest',
+  showWaitingCall: 'Show the waiting call',
   steerPlaceholder: 'Tell the agent what to do instead',
   composerIdlePlaceholder: 'Message the agent',
   composerRunningPlaceholder: 'Queue a message for the next turn, or steer this one',
@@ -73,6 +88,14 @@ export const SESSION_COPY = {
   send: 'Send',
   queue: 'Queue',
   steerIdleNote: 'No turn is running, so this message starts the next turn.',
+  composerKeysHint(action: 'send' | 'queue' | 'steer'): string {
+    const verb = action === 'send' ? 'sends' : action === 'queue' ? 'queues' : 'steers';
+    return `Enter ${verb}; Shift+Enter adds a line.`;
+  },
+  composerTouchKeysHint(action: 'send' | 'queue' | 'steer'): string {
+    const button = action === 'send' ? 'Send' : action === 'queue' ? 'Queue' : 'Steer';
+    return `Enter adds a line; tap ${button} to send.`;
+  },
   runningNote: 'Queue keeps the message for the next turn. Steer ends this turn at its next safe point and starts a new one with it.',
   queued: 'Message queued. It starts the next turn after this one ends.',
   sendRefused: 'The session did not take the message (send_user_message returned false). Reload to see why.',

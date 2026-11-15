@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import type { V2Catalog, V2CatalogEntry } from '@/lib/types';
 import {
   agentSessionSchema,
+  decodeAgentMessage,
   decodeAgentToolCall,
   decodePendingInterrupts,
   REQUIRED_SESSION_ATTRIBUTES,
@@ -84,6 +85,34 @@ describe('decoders', () => {
       arguments: '{}', requires_approval: false, a_field_from_later: 1,
     });
     expect(record?.status).toBe('paused_by_future_release');
+  });
+
+  it('reads why the session wrote a message, keeping origins from later releases', () => {
+    const message = (origin: unknown) => decodeAgentMessage({ sequence: 3, role: 'user', text: 'note', origin });
+    expect(message('turn_steered_note')?.origin).toBe('turn_steered_note');
+    expect(message('origin_from_a_later_release')?.origin).toBe('origin_from_a_later_release');
+    expect(message(null)?.origin).toBeNull();
+    expect(message(7)?.origin).toBeNull();
+    expect(decodeAgentMessage({ sequence: 4, role: 'user', text: 'typed' })?.origin).toBeNull();
+  });
+
+  it('marks an assistant message that Claude Code made up by its synthetic model, not by its text', () => {
+    const item = (...models: string[]) => JSON.stringify({
+      kind: 'claude_transcript', session_id: 's1',
+      entries: models.map((model) => ({
+        type: 'assistant', message: { model, role: 'assistant', content: [{ type: 'text', text: 'No response requested.' }] },
+      })),
+    });
+    const message = (role: string, frameworkItem: unknown) => decodeAgentMessage({
+      sequence: 5, role, text: 'No response requested.', framework_item: frameworkItem,
+    });
+    expect(message('assistant', item('<synthetic>'))?.isFrameworkSynthetic).toBe(true);
+    expect(message('assistant', item('claude-sonnet-4-5'))?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', item('<synthetic>', 'claude-sonnet-4-5'))?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', null)?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', '{"kind":"other","entries":[],"note":"<synthetic>"}')?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', 'not json <synthetic>')?.isFrameworkSynthetic).toBe(false);
+    expect(message('user', item('<synthetic>'))?.isFrameworkSynthetic).toBe(false);
   });
 
   it('refuses a record without its identity', () => {

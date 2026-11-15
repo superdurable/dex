@@ -90,6 +90,7 @@ export function ToolCallCard({
       className="atc"
       data-source={call.source}
       data-state={call.state}
+      data-tool-call-id={call.toolCallId}
       data-testid={`tool-call-${call.toolCallId}`}
       data-tone={look.tone}
     >

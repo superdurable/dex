@@ -8,7 +8,9 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import {
+  ArrowDown,
   Bot,
+  ChevronRight,
   CircleAlert,
   CircleDashed,
   Gauge,
@@ -16,6 +18,7 @@ import {
   Info,
   Layers,
   MessageSquare,
+  NotebookText,
   RotateCw,
   ShieldAlert,
   Sparkles,
@@ -36,6 +39,7 @@ import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
 import { SessionSettingsPanel } from './SessionSettingsPanel';
 import { ToolCallCard } from './ToolCallCard';
 import { useAgentSession, type LoadedAgentSession } from './useAgentSession';
+import { useSessionStreamScroll } from './useSessionStreamScroll';
 import { WorkingAsChoiceProvider, type WorkingAsChoice } from './WorkingAsChoice';
 import './session.css';
 
@@ -69,8 +73,19 @@ export function SessionView({
   /** Kept outside the card: the reload that follows removes the card's own controls. */
   const [handledElsewhere, setHandledElsewhere] = useState<ReadonlySet<string>>(new Set());
   const steerRef = useRef<HTMLTextAreaElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
+  const latestRef = useRef<HTMLDivElement>(null);
 
   const session = held.value;
+  const { isAtLatest, jumpToLatest, showWaitingCall } = useSessionStreamScroll({
+    sectionRef,
+    streamRef,
+    latestRef,
+    isLoaded: session !== null,
+    followSignature: session ? streamFollowSignature(session) : '',
+    waitingCallIds: session ? session.view.waitingCalls.map((call) => call.toolCallId) : [],
+  });
   if (!session) {
     return (
       <section className="ses" aria-label={SESSION_COPY.tabSession}>
@@ -130,8 +145,8 @@ export function SessionView({
     : null;
   return (
     <WorkingAsChoiceProvider value={workingAsChoice}>
-    <section className="ses" aria-label={SESSION_COPY.tabSession}>
-      <SessionHeader session={session} onReload={reload} />
+    <section className="ses" aria-label={SESSION_COPY.tabSession} ref={sectionRef}>
+      <SessionHeader session={session} onReload={reload} onShowWaitingCall={showWaitingCall} />
       {held.liveness === 'stale' && (
         <p className="ses-note" data-kind="stale" role="status">
           <Info aria-hidden="true" size={13} />
@@ -151,7 +166,7 @@ export function SessionView({
         settings={view.sessionSettings}
         onSaved={reload}
       />
-      <div className="ses-stream">
+      <div className="ses-stream" ref={streamRef}>
         {view.messageIndex && view.messageIndex.firstSequence > 1 && (
           <SessionNote icon={History}>{SESSION_COPY.deletedBefore(view.messageIndex.firstSequence)}</SessionNote>
         )}
@@ -182,6 +197,15 @@ export function SessionView({
             <span><b>{SESSION_COPY.lastTurnError}</b> {view.state.lastTurnError}</span>
           </p>
         )}
+        {!isAtLatest && view.items.length > 0 && (
+          <div className="ses-jump">
+            <button className="ses-jump-button" onClick={jumpToLatest} type="button">
+              <ArrowDown aria-hidden="true" size={14} strokeWidth={2.2} />
+              {SESSION_COPY.jumpToLatest}
+            </button>
+          </div>
+        )}
+        <div aria-hidden="true" className="ses-latest" ref={latestRef} />
       </div>
       <SessionComposer
         context={controlContext}
@@ -211,6 +235,17 @@ function workingAsChoiceOptions(schema: AgentSessionSchema, declared: readonly s
     .filter((permission): permission is string => typeof permission === 'string' && permission !== '');
 }
 
+/** Changes when the newest item or the turn error changes; earlier messages loading above it keep it. */
+function streamFollowSignature(session: LoadedAgentSession): string {
+  const { items, state } = session.view;
+  const last = items[items.length - 1];
+  const lastPart = !last ? ''
+    : last.kind === 'message' ? `${last.key}:${last.message.text?.length ?? 0}`
+    : last.kind === 'tool' ? `${last.key}:${last.call.state}`
+    : last.key;
+  return `${lastPart}|${state?.lastTurnError ?? ''}`;
+}
+
 function turnOf(item: ConversationItem | undefined): string | undefined {
   if (!item || item.kind === 'missing') return undefined;
   return item.kind === 'message' ? item.message.turnId : item.call.turnId;
@@ -225,7 +260,15 @@ const SESSION_STATUS_LOOK: Record<string, { icon: LucideIcon; tone: 'idle' | 'ac
   failed: { icon: CircleAlert, tone: 'danger' },
 };
 
-function SessionHeader({ session, onReload }: { session: LoadedAgentSession; onReload: () => void }) {
+function SessionHeader({
+  session,
+  onReload,
+  onShowWaitingCall,
+}: {
+  session: LoadedAgentSession;
+  onReload: () => void;
+  onShowWaitingCall: (toolCallId: string) => void;
+}) {
   const { state, usage, waitingCalls } = session.view;
   const look = state ? SESSION_STATUS_LOOK[state.status] ?? { icon: CircleDashed, tone: 'idle' as const } : null;
   const isEveryWaitAQuestion = waitingCalls.length > 0 && waitingCalls.every((call) => call.state === 'awaiting_answer');
@@ -240,12 +283,18 @@ function SessionHeader({ session, onReload }: { session: LoadedAgentSession; onR
           </span>
         )}
         {waitingCalls.length > 0 && (
-          <span className="ses-status" data-tone="attention">
+          <button
+            className="ses-status"
+            data-tone="attention"
+            onClick={() => onShowWaitingCall(waitingCalls[0].toolCallId)}
+            title={SESSION_COPY.showWaitingCall}
+            type="button"
+          >
             <WaitIcon aria-hidden="true" size={15} strokeWidth={2.2} />
             {isEveryWaitAQuestion
               ? SESSION_COPY.waitingForAnswer(waitingCalls.length)
               : SESSION_COPY.waitingForApproval(waitingCalls.length)}
-          </span>
+          </button>
         )}
         {state?.activeTurnId && <span className="ses-turn">{SESSION_COPY.turn(state.activeTurnId)}</span>}
         <ReloadButton onReload={onReload} />
@@ -317,6 +366,14 @@ function StreamItem({
     );
   }
   const { message } = item;
+  if (message.origin) {
+    return (
+      <>
+        {divider}
+        <DexNote origin={message.origin} text={message.text ?? ''} />
+      </>
+    );
+  }
   const isUser = message.role === 'user';
   return (
     <>
@@ -335,9 +392,43 @@ function StreamItem({
             {isUser ? message.senderName ?? SESSION_COPY.user : SESSION_COPY.assistant}
             {isUser && message.senderName && <span className="ses-who-note"> · {SESSION_COPY.senderNameUnverifiedShort}</span>}
           </span>
-          <p className="ses-text">{message.text === null ? null : messageTextParts(message.text)}</p>
+          {message.text === null ? <p className="ses-text" /> : <MessageText text={message.text} />}
         </div>
       </div>
+    </>
+  );
+}
+
+/** A message the session wrote for the model, such as the note after a steered turn: one closed row. */
+function DexNote({ origin, text }: { origin: string; text: string }) {
+  return (
+    <details className="ses-dexnote" data-origin={origin} title={SESSION_COPY.dexNoteTitle}>
+      <summary>
+        <NotebookText aria-hidden="true" size={14} strokeWidth={2} />
+        <span className="ses-dexnote-label">{SESSION_COPY.dexNote}</span>
+        <span className="ses-dexnote-summary">{SESSION_COPY.dexNoteSummary(origin)}</span>
+        <ChevronRight aria-hidden="true" className="ses-dexnote-chevron" size={14} strokeWidth={2} />
+      </summary>
+      <div className="ses-dexnote-text">{text}</div>
+    </details>
+  );
+}
+
+const LONG_MESSAGE_LINES = 30;
+const LONG_MESSAGE_CHARACTERS = 2500;
+
+/** Message text; a long one shows its first lines until the reader asks for more. */
+function MessageText({ text }: { text: string }) {
+  const [isExpanded, setExpanded] = useState(false);
+  const isLong = text.length > LONG_MESSAGE_CHARACTERS || text.split('\n').length > LONG_MESSAGE_LINES;
+  return (
+    <>
+      <p className="ses-text" data-collapsed={isLong && !isExpanded ? 'true' : undefined}>{messageTextParts(text)}</p>
+      {isLong && (
+        <button aria-expanded={isExpanded} className="ses-more" onClick={() => setExpanded(!isExpanded)} type="button">
+          {isExpanded ? SESSION_COPY.showLess : SESSION_COPY.showMore}
+        </button>
+      )}
     </>
   );
 }
