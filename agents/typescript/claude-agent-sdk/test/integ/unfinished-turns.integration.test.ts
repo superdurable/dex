@@ -183,6 +183,47 @@ describe("Claude agent turns store their transcript while they run and when they
     );
   });
 
+  test("the next turn answers a call that a Worker without buildUnfinishedTurnMessages left open", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("older-worker-end");
+    await agent.sessions.startSession(sessionId, 'call publish {"message":"draft"}');
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    const ended = await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 1);
+    // The core's note is all such a Worker stores; the stored tool use keeps no result.
+    assert.deepEqual(rolesOf(ended.messages), [
+      ["user", "turn-1", null],
+      ["assistant", "turn-1", "publish"],
+      ["user", "turn-1", null],
+    ]);
+    assert.equal(ended.messages[2]?.origin, "turn_cancelled_note");
+
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, "say next"), true);
+    const snapshot = await agent.waitForTurns(sessionId, 2);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.deepEqual(rolesOf(snapshot.messages), [
+      ...rolesOf(ended.messages),
+      ["user", "turn-2", null],
+      ["tool", "turn-2", "publish"],
+      ["assistant", "turn-2", null],
+    ]);
+    assert.equal(snapshot.messages[4]?.toolCallId, interrupt.toolCallId);
+    assert.equal(snapshot.messages[4]?.toolOutput, outcomeUnknownToolResult);
+    assert.equal(snapshot.messages.at(-1)?.text, "said: next");
+    assertUniqueTranscriptEntries(snapshot.messages);
+    // The CLI found no pending deferral, so it ran only the new prompt.
+    assert.deepEqual(agent.invocations.names(), ["cli:new", "model_call", "cli:resume", "model_call"]);
+
+    // Later turns find every tool use answered and add nothing.
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, "say again"), true);
+    const later = await agent.waitForTurns(sessionId, 3);
+    assert.deepEqual(rolesOf(later.messages.slice(snapshot.messages.length)), [
+      ["user", "turn-3", null],
+      ["assistant", "turn-3", null],
+    ]);
+    assertUniqueTranscriptEntries(later.messages);
+  });
+
   test("an approved CLI tool whose resumed turn was cancelled is recorded with an unknown outcome", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("cancelled-bash");

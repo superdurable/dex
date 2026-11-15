@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { toolCallCancelledBySteeringResult } from "@superdurable/dex-agents";
+import { outcomeUnknownToolResult, toolCallCancelledBySteeringResult } from "@superdurable/dex-agents";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
@@ -26,7 +26,11 @@ import {
   type ClaudeTestAgentCli,
 } from "../fixtures/claude-test-agent.js";
 import { FakeLedgerProvider } from "../fixtures/fake-ledger.js";
-import { assertNoTurnNote, assertUniqueTranscriptEntries } from "../fixtures/transcript-assertions.js";
+import {
+  assertNoTurnNote,
+  assertUniqueTranscriptEntries,
+  storedTranscriptEntries,
+} from "../fixtures/transcript-assertions.js";
 import {
   mockScriptMarker,
   MockAnthropicApi,
@@ -289,6 +293,56 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(scriptedRequestsOf(command), 1);
     // The CLI's placeholder reply is no model call.
     assert.equal(snapshot.usage.modelCalls, 2);
+  });
+
+  test("the next turn answers a call that a Worker without buildUnfinishedTurnMessages left open", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-older-worker-end");
+    const command = 'call publish {"message":"draft"}';
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    const ended = await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 1);
+    assert.equal(ended.messages.at(-1)?.origin, "turn_cancelled_note");
+
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+    const snapshot = await agent.waitForTurns(sessionId, 2);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.equal(snapshot.messages.at(-1)?.text, `history: ${command}`);
+    const healedResult = snapshot.messages[ended.messages.length + 1];
+    assert.deepEqual(
+      [healedResult?.role, healedResult?.turnId, healedResult?.toolCallId, healedResult?.toolOutput],
+      ["tool", "turn-2", interrupt.toolCallId, outcomeUnknownToolResult],
+    );
+    assertUniqueTranscriptEntries(snapshot.messages);
+    // The CLI did not resume the call again: one deferral, and one stored result.
+    const entries = storedTranscriptEntries(snapshot.messages);
+    const deferrals = entries.filter(
+      (entry) => (entry["attachment"] as JsonBlock | undefined)?.["toolUseID"] === interrupt.toolCallId,
+    );
+    assert.equal(deferrals.length, 1);
+    const storedResults = entries
+      .map((entry) => entry["message"]).flatMap(contentOf)
+      .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId);
+    assert.equal(storedResults.length, 1);
+    assert.equal(agent.invocations.count("publish"), 0);
+    // The model sees the unknown outcome right after the call, never the CLI's internal-error filler.
+    const recallRequests = api
+      .scriptedRequests()
+      .filter((request) => request.command === "recall" && JSON.stringify(request.messages).includes(interrupt.toolCallId));
+    assert.equal(recallRequests.length, 1);
+    const recallMessages = recallRequests[0]?.messages ?? [];
+    assert.equal(JSON.stringify(recallMessages).includes("Tool result missing"), false);
+    const toolUseIndex = recallMessages.findIndex((message) =>
+      contentOf(message).some((block) => block["type"] === "tool_use" && block["id"] === interrupt.toolCallId),
+    );
+    const resultBlocks = contentOf(recallMessages[toolUseIndex + 1]).filter(
+      (block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId,
+    );
+    assert.deepEqual(
+      resultBlocks.map((block) => [block["content"], block["is_error"]]),
+      [[outcomeUnknownToolResult, true]],
+    );
   });
 
   test("two connector writes of one reply run one at a time in the model's order", async () => {

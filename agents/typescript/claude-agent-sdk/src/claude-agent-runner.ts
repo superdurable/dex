@@ -67,6 +67,7 @@ import {
   decodeRunState,
   encodeRunState,
   encodeUserPromptItem,
+  loadLastEndedTurnEntries,
   loadSessionTranscript,
   projectTurnEntries,
   buildTurnPromptContent,
@@ -469,6 +470,12 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * call's final record. The CLI then adds a hidden "Continue from where you left off." message. The
    * runner keeps the CLI's input open until the segment's result message, then closes it.
    *
+   * A first segment also answers every tool use that the latest earlier turn with a stored transcript left without a
+   * result, with {@link outcomeUnknownToolResult}. Only a Worker without {@link buildUnfinishedTurnMessages}, such as
+   * adapter 0.6.11 or the Python adapter, ends a turn that way after a deferral this adapter stored. Without the
+   * answer, the CLI would resume that call as a pending deferral. The segment stores these results before its own
+   * messages. Since 0.6.12.
+   *
    * @param turn - Committed session state for this segment.
    * @returns `ToolCallsRequested` with the one call the CLI deferred, the Claude session ID as run state, and the
    * segment's transcript entries grouped into `newMessages`; otherwise `TurnCompleted` with the segment's
@@ -487,7 +494,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     let promptContent: string | PromptContentBlock[] | undefined;
     if (turn.frameworkRunState === null) {
       sessionId = committedTranscript.sessionId;
-      earlierTurnEntries = [];
+      earlierTurnEntries = buildEndedTurnToolResultEntries(sessionId, turn);
       promptContent = buildTurnPromptContent(turn.messages, turn.turnId);
     } else {
       const suspendedTurn = decodeRunState(turn.frameworkRunState);
@@ -541,13 +548,13 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     }
     const result = observer.successfulResult();
     const segmentTranscript = sessionStore.takeSegmentTranscript();
-    // A run state from adapter 0.6.11 or earlier holds the turn's unstored entries so far.
+    // Earlier entries: an ended turn's healed results, or a 0.6.11 run state's unstored entries so far.
     const unstoredTurnEntries = [...earlierTurnEntries, ...segmentTranscript.entries];
     const newMessages = projectTurnEntries(
       segmentTranscript.sessionId,
       unstoredTurnEntries,
       (cliToolName) => toolCatalog.policyToolName(cliToolName),
-      loadSessionTranscript(turn.messages.filter((message) => message.turnId === turn.turnId)).entries,
+      committedTranscript.entries,
     );
     const usage = observer.usage(result);
     const modelCallMetadata = observer.modelCallMetadata(result, applicationOptions.model);
@@ -1165,6 +1172,18 @@ function loadOpenTelemetryApi(): typeof OpenTelemetryApi | null {
     }
   }
   return loadedOpenTelemetryApi;
+}
+
+// A Worker without buildUnfinishedTurnMessages can end a turn at a stored deferral, which the CLI would resume.
+function buildEndedTurnToolResultEntries(sessionId: string | null, turn: AgentTurnContext): ClaudeTranscriptEntry[] {
+  if (sessionId === null) {
+    return [];
+  }
+  return buildUnfinishedToolResultEntries(sessionId, loadLastEndedTurnEntries(turn.messages, turn.turnId), () => ({
+    text: outcomeUnknownToolResult,
+    isError: true,
+    images: [],
+  }));
 }
 
 function parseCustomToolArguments(

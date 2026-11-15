@@ -493,6 +493,18 @@ gets the core's turn-failure note; the next turn sends the note and its own prom
 blocks. A turn that ends before its first deferral stored nothing, so a failed one sends the failed
 prompt, the note, and its own prompt as three text blocks.
 
+A Worker of the same Flow type without `buildUnfinishedTurnMessages`, such as adapter 0.6.11 during a
+rolling upgrade or the Python adapter, can end a turn after this adapter stored its deferral. It
+stores only the core's note, so the stored tool use keeps no result, and the CLI would resume that
+call as a pending deferral. The next turn's first segment therefore answers every tool use that the
+latest earlier turn with a stored transcript left without a result. The answer is the unknown-outcome
+text, as an error tool result, because that turn's records are gone; the note still tells the model
+what ran. The answer's entry has the same uuid on every attempt, and the segment stores it, in the
+current turn, before its own messages, so later turns find the call answered. The CLI then neither
+resumes the call nor fills in its own missing-result text. The answer covers only that latest
+earlier turn. A tool use followed by a later turn's transcript, which only a turn run by such a Worker
+can store, stays as it is.
+
 Changed in 0.6.12: each deferral stores the turn so far, and a steered, cancelled, or failed turn
 stores the tool result of its abandoned call instead of relying on the core's note alone. A run state
 of an earlier adapter still holds the turn's unstored entries, which the runner stores when the turn
@@ -606,13 +618,15 @@ answered through `canUseTool` when the hooks are skipped, custom tool names that
 Code tools, SIGKILL during
 a resumed segment, a CLI error result, and a resumed turn that fails after a write and leaves the
 write's result and a note for the next prompt. `test/integ/unfinished-turns.integration.test.ts`
-covers the transcript a deferral stores, a turn steered at an approval, and turns cancelled while the
-resumed CLI runs a custom tool or `Bash`. `test/integ/tracing.integration.test.ts` runs an in-process Worker with an
+covers the transcript a deferral stores, a turn steered at an approval, turns cancelled while the
+resumed CLI runs a custom tool or `Bash`, and the next turn after a Worker without
+`buildUnfinishedTurnMessages` cancelled a turn at a stored deferral. `test/integ/tracing.integration.test.ts` runs an in-process Worker with an
 in-memory span exporter and checks the `chat` span metadata of a one-call answer, a two-call `read`
 tool turn, a deferred write and its resumed answer, and a segment with a subagent call, plus the
 provider name mapping. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
 write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, a
-turn steered at an approval whose next turn resumes a complete session, two writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
+turn steered at an approval whose next turn resumes a complete session, the next turn after a Worker
+without `buildUnfinishedTurnMessages` cancelled a turn at a stored deferral, two writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
 approved `Bash`, also with a command that an application hook rewrote. The fake-CLI suites also cover an application hook that denies a resumed call, and a
 `Bash` command that an application hook rewrote and that resumes with the approved input.
 

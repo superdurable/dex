@@ -120,6 +120,24 @@ export class ClaudeAgentTestHarness {
     );
   }
 
+  /**
+   * Cancels the session's turn while the runner lacks `buildUnfinishedTurnMessages`, as adapter 0.6.11 and the
+   * Python adapter do, and returns the snapshot after `turnCount` turns. It needs the in-process Worker.
+   */
+  public async cancelTurnWithoutUnfinishedTurnMessages(sessionId: string, turnCount: number): Promise<AgentSnapshot> {
+    const runner = this.flow.runner as { buildUnfinishedTurnMessages?: unknown };
+    const buildUnfinishedTurnMessages = runner.buildUnfinishedTurnMessages;
+    runner.buildUnfinishedTurnMessages = undefined;
+    try {
+      if (!(await this.sessions.cancelTurn(sessionId))) {
+        throw new Error(`cancel_turn of session ${sessionId} was not recorded`);
+      }
+      return await this.waitForTurns(sessionId, turnCount);
+    } finally {
+      runner.buildUnfinishedTurnMessages = buildUnfinishedTurnMessages;
+    }
+  }
+
   public listEvents(sessionId: string): Promise<AgentEvent[]> {
     return this.sessions.listAgentEvents(sessionId);
   }

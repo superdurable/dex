@@ -134,6 +134,26 @@ export function loadSessionTranscript(messages: readonly AgentMessage[]): Claude
   return { sessionId, entries: withoutLeafPointers(entries) };
 }
 
+/** Returns the transcript entries of the latest turn before `currentTurnId` that stored any. */
+export function loadLastEndedTurnEntries(
+  messages: readonly AgentMessage[],
+  currentTurnId: string,
+): ClaudeTranscriptEntry[] {
+  const endedTurnMessages = messages.filter(
+    (message) => message.turnId !== currentTurnId && message.role !== "user",
+  );
+  const lastTurnId = [...endedTurnMessages]
+    .reverse()
+    .find(
+      (message) =>
+        parseJsonObject(message.frameworkItem, `message ${message.sequence}`)["kind"] === claudeTranscriptItemKind,
+    )?.turnId;
+  if (lastTurnId === undefined) {
+    return [];
+  }
+  return [...loadSessionTranscript(endedTurnMessages.filter((message) => message.turnId === lastTurnId)).entries];
+}
+
 export function encodeRunState(
   sessionId: string,
   turnEntries: readonly ClaudeTranscriptEntry[],
