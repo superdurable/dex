@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - "web/**"
-      - "packages/flow-definition-renderer/**"
       - "docs/src/data/flow-definitions/**"
       - "agents/conformance/session_graph.json"
       - "protos/**"

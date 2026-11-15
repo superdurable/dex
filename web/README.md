@@ -787,7 +787,7 @@ reader pans or zooms, the view stays theirs.
 Reduced-motion settings turn the motion off.
 
 The graph contract, compound layout, React components, and styles live in the
-shared [`flow-definition-renderer`](../packages/flow-definition-renderer)
+shared [`flow-definition-renderer`](flow-definition-renderer)
 package. Product docs import the same renderer for checked-in Python example
 graphs.
 

@@ -48,7 +48,7 @@ INITIAL_FILES = (
     "protos/api.proto",
     "cli/main.go",
     "web/package.json",
-    "packages/flow-definition-renderer/src/index.ts",
+    "web/flow-definition-renderer/src/index.ts",
     "go.work",
     "agents/python/core/pyproject.toml",
 )
@@ -162,7 +162,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assert_selected(values, "web", "cli")
 
     def test_flow_definition_renderer_change_triggers_web_and_cli(self) -> None:
-        self.change("packages/flow-definition-renderer/src/index.ts")
+        self.change("web/flow-definition-renderer/src/index.ts")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "web", "cli")

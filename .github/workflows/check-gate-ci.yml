@@ -207,7 +207,6 @@ jobs:
               - '.github/workflows/rust-rules-ci.yml'
             web:
               - 'web/**'
-              - 'packages/flow-definition-renderer/**'
               - 'docs/src/data/flow-definitions/**'
               - 'agents/conformance/session_graph.json'
               - 'protos/**'
@@ -336,9 +335,9 @@ jobs:
               - 'LICENSE'
               - 'LEGACY_NOTICES.md'
               - 'LICENSING.md'
-              - 'CLA.md'
-              - 'CLA-INDIVIDUAL.md'
-              - 'CLA-CORPORATE.md'
+              - '.github/CLA.md'
+              - '.github/CLA-INDIVIDUAL.md'
+              - '.github/CLA-CORPORATE.md'
               - 'Makefile'
               - '.github/workflows/copyright-ci.yml'
       # Releases assemble changelog.d fragments; this rejects hand edits to release files.

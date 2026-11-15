@@ -79,7 +79,7 @@ Java: `io.superdurable:dex-sdk` on [Maven Central](https://central.sonatype.com/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the [CLA](CLA.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the [CLA](.github/CLA.md).
 
 <details>
 <summary>Repository layout</summary>
@@ -88,13 +88,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the 
 | --- | --- |
 | [server-zd/](server-zd/) | Rust Dex Server |
 | [server-zd/integ/](server-zd/integ/) | Go integration suite for the server-zd binary |
-| [web/](web/) | Standalone Dex Web console and `dex-web` binary |
+| [web/](web/) | Dex Web console, shared Flow renderer, and `dex-web` binary |
 | [cli/](cli/) | `dexcli` local development environment |
 | [protos/](protos/) | Protobuf IDL and codec server |
 | [s3local/](s3local/) | Local S3-compatible object store for testing |
 | [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
 | [benchmark/](benchmark/) | Performance benchmarks |
-| [packages/](packages/) | Shared Web packages |
 | [agents/](agents/) | Adapters for agent frameworks |
 | [sdk-go/](sdk-go/), [sdk-java/](sdk-java/), [sdk-python/](sdk-python/), [sdk-typescript/](sdk-typescript/), [sdk-rust/](sdk-rust/) | Application SDKs |
 | [examples/](examples/), [docs/](docs/), [skills/](skills/) | Runnable examples, product docs, and AI skills |

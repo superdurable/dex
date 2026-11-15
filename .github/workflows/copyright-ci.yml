@@ -22,9 +22,9 @@ on:
       - "LICENSE"
       - "LEGACY_NOTICES.md"
       - "LICENSING.md"
-      - "CLA.md"
-      - "CLA-INDIVIDUAL.md"
-      - "CLA-CORPORATE.md"
+      - ".github/CLA.md"
+      - ".github/CLA-INDIVIDUAL.md"
+      - ".github/CLA-CORPORATE.md"
       - "Makefile"
       - ".github/workflows/copyright-ci.yml"
   workflow_dispatch:
