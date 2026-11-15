@@ -485,6 +485,19 @@ turn-failure note built with this runner's `build_user_message`: a
 the model like any other user message, so the model does not repeat a write
 that already ran.
 
+The turn's messages stay in the checkpoint until the graph finishes. When a
+failure, `steer_user_message`, or `cancel_turn` ends the turn first,
+`build_unfinished_turn_messages` stores the messages the turn added to the
+root graph's message state, as a completed turn stores them. It adds a
+`ToolMessage` for every tool call of the last `AIMessage` that has none: the
+message the resumed graph would make from the call's final record, such as
+the core's steering result, or `OUTCOME_UNKNOWN_TOOL_RESULT` for a call
+without one. A failed turn stores them before its note; a steered or
+cancelled turn stores no note. Other state keys, such as Deep Agents'
+`files`, are not kept. When the checkpoint cannot be read, or a call ran
+inside a subgraph whose messages the root state does not hold yet, the
+session logs a warning and stores its note instead.
+
 ## Middleware order
 
 Inside a session the runner rewrites every root graph tool node that has an

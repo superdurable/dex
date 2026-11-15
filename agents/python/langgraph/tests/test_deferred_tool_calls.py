@@ -230,11 +230,22 @@ async def test_a_turn_that_fails_after_a_write_leaves_a_note_for_the_next_turn(
     )
     assert failed.state is not None
     assert "scripted model failure" in (failed.state.last_turn_error or "")
-    assert [(message.role, message.text, message.turn_id) for message in failed.messages] == [
-        (MessageRole.USER, command, "turn-1"),
-        (MessageRole.USER, expected_note, "turn-1"),
+    # The turn's messages come first, so the next model sees the call and its result, then the note.
+    assert [
+        (message.role, message.tool_name, message.tool_output, message.turn_id)
+        for message in failed.messages[1:3]
+    ] == [
+        (MessageRole.ASSISTANT, "charge", None, "turn-1"),
+        (MessageRole.TOOL, "charge", f"charged 5 with key {idempotency_key}", "turn-1"),
     ]
-    replayed_note = framework_message_to_langchain_message(failed.messages[1])
+    assert [
+        (message.role, message.text) for message in (failed.messages[0], failed.messages[3])
+    ] == [
+        (MessageRole.USER, command),
+        (MessageRole.USER, expected_note),
+    ]
+    assert len(failed.messages) == 4
+    replayed_note = framework_message_to_langchain_message(failed.messages[3])
     assert isinstance(replayed_note, HumanMessage)
     assert replayed_note.text == expected_note
     assert harness.invocations.count("charge") == 1
