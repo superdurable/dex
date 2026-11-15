@@ -278,6 +278,7 @@ final class CloneForkFlowTest {
                 Client client = service.newClient(new CloneForkFlowTestFlow())) {
             final TimeTravelOptions.Builder[] invalid = {
                 TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING).eventId(3),
+                TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING).eventId(0),
                 TimeTravelOptions.newBuilder(TimeTravelType.HISTORY_EVENT_TIME)
                         .historyEventTime(Instant.parse("2026-01-01T00:00:00Z")).eventId(3),
                 TimeTravelOptions.newBuilder(TimeTravelType.STEP_TYPE).stepType("A").eventId(3),
@@ -295,6 +296,19 @@ final class CloneForkFlowTest {
                         () -> client.timeTravel("flow-1", options.build()));
             }
             assertEquals(0, service.resetRequests.size());
+        }
+    }
+
+    @Test
+    void timeTravelPreservesEarlierRequestsWithUnusedSelectors() throws Exception {
+        try (CloneForkService service = new CloneForkService(6);
+                Client client = service.newClient(new CloneForkFlowTestFlow())) {
+            client.timeTravel("flow-1", TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING)
+                    .stepType("unused").build());
+            final ResetFlowRequest request = service.resetRequests.get(0);
+            assertEquals(FlowResetType.FLOW_RESET_TYPE_BEGINNING, request.getResetType());
+            assertEquals("unused", request.getStepType());
+            assertEquals(0L, request.getEventId());
         }
     }
 

@@ -346,6 +346,7 @@ test("timeTravel rejects mixed point selectors before sending", async () => {
   const timestamp = new Date("2026-01-01T00:00:00Z");
   const invalid: readonly TimeTravelOptions[] = [
     { type: TimeTravelType.BEGINNING, eventId: 3 },
+    { type: TimeTravelType.BEGINNING, eventId: 0 },
     { type: TimeTravelType.HISTORY_EVENT_TIME, historyEventTime: timestamp, eventId: 3 },
     { type: TimeTravelType.STEP_TYPE, stepType: "A", eventId: 3 },
     { type: TimeTravelType.STEP_EXECUTION_ID, stepExecutionId: "A-1", stepMethod: TimeTravelStepMethod.EXECUTE, eventId: 3 },
@@ -359,6 +360,15 @@ test("timeTravel rejects mixed point selectors before sending", async () => {
       await assert.rejects(client.timeTravel("flow-1", options), TypeError);
     }
     assert.equal(resetRequests.length, 0);
+  });
+});
+
+test("timeTravel preserves earlier requests with unused selectors", async () => {
+  await withFakeService(6, async ({ client, resetRequests }) => {
+    await client.timeTravel("flow-1", { type: TimeTravelType.BEGINNING, stepType: "unused" });
+    assert.equal(resetRequests[0]!.resetType, FlowResetType.FLOW_RESET_TYPE_BEGINNING);
+    assert.equal(resetRequests[0]!.stepType, "unused");
+    assert.equal(resetRequests[0]!.eventId, 0n);
   });
 });
 

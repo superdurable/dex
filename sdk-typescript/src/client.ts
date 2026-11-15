@@ -1225,12 +1225,16 @@ export class Client {
    * @param flowId - Non-empty Flow ID whose history supplies the time travel point.
    * @param options - Time travel selector, reason, replay controls, and SubFlow reset policy.
    * @returns The Flow's server-assigned run ID, which time travel leaves unchanged.
-   * @throws {@link TypeError} when `options.type` is `CURRENT` or unknown, its selector is missing
-   * or mixed with another selector, or `options.subFlowResetPolicy` is unknown.
+   * @throws {@link TypeError} when `options.type` is `CURRENT` or unknown, `eventId` is used with
+   * another type, `EVENT_ID` has an invalid selector, or `options.subFlowResetPolicy` is unknown.
    */
   public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
     const resetType = mapTimeTravelType(options.type);
-    validateHistoryPointSelection("time travel", options);
+    if (options.type === TimeTravelType.EVENT_ID) {
+      validateHistoryPointSelection("time travel", options);
+    } else if (options.eventId !== undefined) {
+      throw new TypeError("time travel eventId requires EVENT_ID");
+    }
     const eventId = timeTravelEventId(options);
     const subFlowResetPolicy = mapSubFlowResetPolicy(options.subFlowResetPolicy);
     const response = await this.unary<ResetFlowResponse>(

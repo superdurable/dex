@@ -1189,18 +1189,10 @@ func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
 }
 
 func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, error) {
-	point := historyPointSelection{
-		pointType:        options.Type,
-		historyEventTime: options.HistoryEventTime,
-		stepType:         options.StepType,
-		stepExecutionID:  options.StepExecutionID,
-		stepMethod:       options.StepMethod,
-		eventID:          options.EventID,
-	}
 	if options.Type == TimeTravelToCurrent {
 		return nil, fmt.Errorf("dex: time travel type TimeTravelToCurrent is valid only for CloneForkFlow")
 	}
-	if err := validateHistoryPointSelection("time travel", point); err != nil {
+	if err := validateTimeTravelOptions(options); err != nil {
 		return nil, err
 	}
 	resetType, err := mapTimeTravelType(options.Type)
@@ -1215,6 +1207,10 @@ func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, e
 	if err != nil {
 		return nil, err
 	}
+	eventID := int64(0)
+	if options.Type == TimeTravelByEventID {
+		eventID = options.EventID
+	}
 	return &dexpb.ResetFlowRequest{
 		ResetType:          resetType,
 		Reason:             options.Reason,
@@ -1223,9 +1219,32 @@ func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, e
 		StepExecutionId:    options.StepExecutionID,
 		SkipWritesReapply:  options.SkipWritesReapply,
 		StepMethod:         stepMethod,
-		EventId:            options.EventID,
+		EventId:            eventID,
 		SubFlowResetPolicy: subFlowResetPolicy,
 	}, nil
+}
+
+func validateTimeTravelOptions(options TimeTravelOptions) error {
+	if options.Type != TimeTravelByEventID && options.EventID != 0 {
+		return fmt.Errorf("dex: time travel event ID requires TimeTravelByEventID")
+	}
+	if options.Type == TimeTravelByEventID {
+		if options.EventID <= 0 {
+			return fmt.Errorf("dex: time travel event ID must be positive")
+		}
+		if !options.HistoryEventTime.IsZero() || options.StepType != "" || options.StepExecutionID != "" || options.StepMethod != 0 {
+			return fmt.Errorf("dex: time travel event ID cannot be combined with another selector")
+		}
+		return nil
+	}
+	point := historyPointSelection{
+		pointType:        options.Type,
+		historyEventTime: options.HistoryEventTime,
+		stepType:         options.StepType,
+		stepExecutionID:  options.StepExecutionID,
+		stepMethod:       options.StepMethod,
+	}
+	return validateHistoryPointSelection("time travel", point)
 }
 
 // historyPointSelection holds the point fields that TimeTravelOptions and CloneForkFlowOptions share.

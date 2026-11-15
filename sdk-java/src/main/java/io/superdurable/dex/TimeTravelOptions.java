@@ -36,6 +36,7 @@ public final class TimeTravelOptions {
     private final String reason;
     private final boolean skipWritesReapply;
     private final long eventId;
+    private final boolean eventIdSet;
     private final SubFlowResetPolicy subFlowResetPolicy;
 
     private TimeTravelOptions(final Builder builder) {
@@ -47,6 +48,7 @@ public final class TimeTravelOptions {
         this.reason = builder.reason;
         this.skipWritesReapply = builder.skipWritesReapply;
         this.eventId = builder.eventId;
+        this.eventIdSet = builder.eventIdSet;
         this.subFlowResetPolicy = builder.subFlowResetPolicy;
     }
 
@@ -92,6 +94,10 @@ public final class TimeTravelOptions {
         return eventId;
     }
 
+    boolean isEventIdSet() {
+        return eventIdSet;
+    }
+
     SubFlowResetPolicy getSubFlowResetPolicy() {
         return subFlowResetPolicy;
     }
@@ -106,6 +112,7 @@ public final class TimeTravelOptions {
         private String reason;
         private boolean skipWritesReapply;
         private long eventId;
+        private boolean eventIdSet;
         private SubFlowResetPolicy subFlowResetPolicy = SubFlowResetPolicy.DEFAULT;
 
         private Builder(final TimeTravelType type) {
@@ -197,6 +204,7 @@ public final class TimeTravelOptions {
          */
         public Builder eventId(final long value) {
             eventId = value;
+            eventIdSet = true;
             return this;
         }
 

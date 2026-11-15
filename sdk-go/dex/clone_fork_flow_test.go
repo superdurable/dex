@@ -236,7 +236,12 @@ func TestTimeTravelOptionsRejectInvalidEventIDAndCurrent(t *testing.T) {
 	}{
 		{name: "current point", options: TimeTravelOptions{Type: TimeTravelToCurrent}, wantError: "valid only for CloneForkFlow"},
 		{name: "event ID zero", options: TimeTravelOptions{Type: TimeTravelByEventID}, wantError: "event ID must be positive"},
-		{name: "event ID with another type", options: TimeTravelOptions{Type: TimeTravelToBeginning, EventID: 5}, wantError: "cannot include another selector"},
+		{name: "event ID with another type", options: TimeTravelOptions{Type: TimeTravelToBeginning, EventID: 5}, wantError: "requires TimeTravelByEventID"},
+		{name: "event ID with history event time", options: TimeTravelOptions{Type: TimeTravelByEventID, EventID: 5, HistoryEventTime: time.Now()}, wantError: "cannot be combined"},
+		{name: "event ID with Step type", options: TimeTravelOptions{Type: TimeTravelByEventID, EventID: 5, StepType: "A"}, wantError: "cannot be combined"},
+		{name: "event ID with Step execution ID", options: TimeTravelOptions{Type: TimeTravelByEventID, EventID: 5, StepExecutionID: "A-1"}, wantError: "cannot be combined"},
+		{name: "event ID with Step method", options: TimeTravelOptions{Type: TimeTravelByEventID, EventID: 5, StepMethod: TimeTravelStepExecute}, wantError: "cannot be combined"},
+		{name: "earlier beginning with Step type", options: TimeTravelOptions{Type: TimeTravelToBeginning, StepType: "A"}, wantError: "cannot include another selector"},
 		{name: "unknown SubFlow reset policy", options: TimeTravelOptions{Type: TimeTravelToBeginning, SubFlowResetPolicy: SubFlowResetPolicy(42)}, wantError: "unsupported SubFlow reset policy"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

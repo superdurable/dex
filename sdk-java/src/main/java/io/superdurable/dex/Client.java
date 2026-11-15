@@ -1307,25 +1307,31 @@ public final class Client implements AutoCloseable {
      * replayed after the selected point repeat, so effect keys built only from the Flow, run, and
      * Step execution IDs treat the re-run as a duplicate.
      *
+     * <p>Changed in 1.45.2: accepts {@link TimeTravelType#EVENT_ID} and sends
+     * {@link TimeTravelOptions.Builder#subFlowResetPolicy(SubFlowResetPolicy)}.
+     *
      * @param flowId the target Flow ID
      * @param options the time travel point and replay behavior
      * @return the run ID of the time-traveled Flow, which is unchanged by time travel
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
      * @throws IllegalStateException if the Dex Server does not support protocol version 4
-     * @throws IllegalArgumentException if the type is {@link TimeTravelType#CURRENT}, or the point
-     *     has a missing or mixed selector. Changed in 1.45.2: accepts
-     *     {@link TimeTravelType#EVENT_ID} and sends
-     *     {@link TimeTravelOptions.Builder#subFlowResetPolicy(SubFlowResetPolicy)}.
+     * @throws IllegalArgumentException if the type is {@link TimeTravelType#CURRENT}, an event ID
+     *     is set for another type, or {@link TimeTravelType#EVENT_ID} has an invalid selector.
      */
     public String timeTravel(final String flowId, final TimeTravelOptions options) {
         if (options.getType() == TimeTravelType.CURRENT) {
             throw new IllegalArgumentException(
                     "timeTravel point CURRENT is valid only for cloneForkFlow");
         }
-        validateHistoryPoint("timeTravel", options.getType(), options.getHistoryEventTime(),
-                options.getStepType(), options.getStepExecutionId(), options.getStepMethod(),
-                options.getEventId());
+        if (options.getType() != TimeTravelType.EVENT_ID && options.isEventIdSet()) {
+            throw new IllegalArgumentException("timeTravel eventId requires EVENT_ID");
+        }
+        if (options.getType() == TimeTravelType.EVENT_ID) {
+            validateHistoryPoint("timeTravel", options.getType(), options.getHistoryEventTime(),
+                    options.getStepType(), options.getStepExecutionId(), options.getStepMethod(),
+                    options.getEventId());
+        }
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
                 .setFlowId(flowId)
                 .setResetType(mapTimeTravelType(options.getType()))
