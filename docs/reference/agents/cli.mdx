@@ -652,6 +652,7 @@ and each tool call prints a line when it starts and when it ends.
 - A question from the agent asks for an answer. Answer with text or a choice
   number. In the Python commands, an empty line declines.
 - **/image PATH** attaches an image to the next message. See [Images](#images).
+- **/fork** and **/fork N** fork the session. See [Fork a session](#fork).
 - The first Ctrl-C during a turn cancels the turn, and a second Ctrl-C exits.
 - **/exit** and Ctrl-D exit.
 
@@ -837,6 +838,54 @@ Attribute. Sessions that an earlier release started take it the first time a
 - For sessions from before 0.6.8, the lease marks which terminal shows a
   session. It does not keep a Worker from running the session's Steps: two
   commands in the same environment still share them.
+
+### Fork a session {#fork}
+
+Since 0.6.13. A fork is a new session that starts from another session's
+conversation between two turns. It copies the messages, the session settings,
+the usage, and the plan at that point. The new session then runs on its own,
+and the source session keeps running unchanged.
+
+```bash
+dex-agents-claude-sdk fork SESSION_ID
+dex-agents-claude-sdk fork SESSION_ID --at 6
+```
+
+- **fork SESSION_ID** copies the session as it waits for its next message.
+  **--at N** copies it right after message **N**, which must be the last
+  message of a turn. Message numbers count every stored message from 1: user
+  messages, model replies, and tool calls and results.
+- In the plain chat, **/fork** forks the open session, and **/fork N** forks
+  it after message **N**.
+- The command prints the new session's ID and asks whether to open it now.
+  Enter opens it, as **--resume** would, and in the plain chat it leaves the
+  source session. Without a terminal, or after **n**, the command prints the
+  **--resume** line of the new session.
+- The new session gets an ID in the command's format and its own task queue,
+  so it runs only in the command that opens it. It holds no terminal lease,
+  and it has no last environment, so the first command that opens it takes
+  no session over. A session from before 0.6.8 keeps its task queue in the
+  fork.
+- A fork needs server-zd 0.1.33 or later, which **dexcli** 1.47.8 or later
+  runs. With an older server the command stops with one line that says so.
+
+The command refuses a point that is not between turns, with one line that
+says why:
+
+- the source is running a turn, and the fork asks for its current state or its
+  last message;
+- message **N** is inside a turn, or steering ended its turn;
+- the session's events no longer reach back to message **N**, or the point is
+  outside the session's history window;
+- the source failed.
+
+The fork keeps only the state at its point. It has no Flow history and no live
+events of the source, so Dex Web shows its earlier tool calls with their
+message text only, and the terminal UI shows a cancelled earlier turn as an
+ended one. Changes that reached the source after the point are left out, such
+as a settings change or a message queued while it waited. A message queued
+before the point that no turn took yet is copied, and runs when the fork
+opens.
 
 ## Workspace and local tools {#local-tools}
 

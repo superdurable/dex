@@ -1390,6 +1390,37 @@ for session in sort_agent_sessions_by_last_activity(page.sessions):
   the type are taken by other names. Search queries of other Flow types must
   filter on `FlowType`.
 
+## Forking sessions
+
+Since 0.6.13, `fork_agent_session` (and `AgentSessionClient.fork_session`)
+creates a new session from another session's conversation between two turns,
+with Dex clone fork. It needs server-zd 0.1.33 or later. The source session
+keeps running unchanged.
+
+```python
+fork = await sessions.fork_session("session-42", "session-42-b", after_message=6)
+await sessions.send_user_message(fork.session_id, "Try the other plan")
+```
+
+- Every fork copies the state at the start of one `AwaitUserMessage` WaitFor:
+  the one waiting now, or, with `after_message`, the one that started the turn
+  after that message, read from its `turn_started` event. A turn that starts
+  during the call never reaches the copy.
+- The fork deletes `SessionTerminalLease` and `SessionLastTerminalEnvironment`
+  in the change that creates it, and never reuses a Flow ID. Pass
+  `task_queue` when Workers pick sessions by task queue.
+- A point inside a turn, during a running turn, before a turn that steering
+  started, or beyond the retained `AgentEvents` raises
+  `AgentSessionForkError`, whose `code` names the rule. After the copy the
+  fork must show no running turn and exactly the kept messages; otherwise it
+  is stopped and the call raises `session_changed`.
+- The fork has no Flow history and no `AgentEvents` of the source.
+- Register `AgentSessionForkingFlow(flow_type)` to fork from a Client that has
+  no `AgentSessionFlow` of that type.
+
+The rules are shared with the TypeScript core in
+[`session_fork.json`](../../conformance/session_fork.json).
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
