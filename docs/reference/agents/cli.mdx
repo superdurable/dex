@@ -501,7 +501,7 @@ workspace, belongs to another user, is skipped with a warning.
 
 Each session has a settings JSON object of at most 16 KiB. It is set when the
 session starts and changed with **update_session_settings**, such as from the
-**Agent session** tab in Dex Web. The command reads the settings at the start
+**Conversation** tab in Dex Web. The command reads the settings at the start
 of every turn. They can change the model and the instructions. They can only
 narrow the rest of the file, because anyone who can edit the session in Dex
 Web can edit its settings.
@@ -1175,12 +1175,12 @@ that **read** returns reaches the model too, after the result's text.
 
 When it starts, the command uploads the session graph of its session Flow
 type to the Dex Server. Dex Web then shows each session's Steps and its
-**Agent session** tab, with no **--flow-rendering-dir**. Open Dex Web at
+**Conversation** tab, with no **--flow-rendering-dir**. Open Dex Web at
 **http://127.0.0.1:8802** for the local **dexcli dev**. Dex Web stops with a
 **dexcli dev** that the command started; see
 [The local Dex server](#dex-server).
 
-- The **Agent session** tab shows the conversation and its tool calls, an
+- The **Conversation** tab shows the conversation and its tool calls, an
   approval card for each pending call, and a message box with **Steer** and
   **Stop turn**. It can also edit the session's settings. See
   [Agent session view](/reference/web/dex-web#agent-session-view).
