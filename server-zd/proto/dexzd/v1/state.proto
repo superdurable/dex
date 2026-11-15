@@ -316,7 +316,7 @@ message HistoryRowMetadata {
 // Row of RunTable::AttemptRecord, keyed by attempt (4 bytes big-endian).
 message AttemptRecord {
   uint32 attempt = 1;
-  // Point this attempt was forked from; zero for attempt 1.
+  // Point this attempt started from; zero for attempt 1.
   uint32 parent_attempt = 2;
   uint64 parent_seq = 3;
   // Seq of the command that created the attempt (FlowStart or TimeTravel).
@@ -764,7 +764,7 @@ message TimeTravelStagedTarget {
   // Attempt and run seq of the target point.
   uint32 run_attempt = 2;
   uint64 run_seq = 3;
-  // Largest history event ID at the target point, for the fork event.
+  // Largest history event ID at the target point, for the TimeTravelFork event.
   int64 last_event_id = 4;
   // FlowClosed message of the target point's history, for closes recorded without one.
   optional string close_history_message = 5;

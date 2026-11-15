@@ -156,19 +156,19 @@ func testWebTimeTravelSnapshotOrigin(t *testing.T) {
 		flowID,
 		secondTimeTravel.GetRunId(),
 	)
-	var forkEventIDs []int64
+	var timeTravelEventIDs []int64
 	for _, event := range events {
 		if event.GetTimeTravelFork() != nil {
-			forkEventIDs = append(forkEventIDs, event.GetEventId())
+			timeTravelEventIDs = append(timeTravelEventIDs, event.GetEventId())
 		}
 	}
-	require.Len(t, forkEventIDs, 2)
+	require.Len(t, timeTravelEventIDs, 2)
 	var inheritedWaitFor *dexpb.StepWaitForCompletedEvent
 	for _, event := range events {
 		waitFor := event.GetStepWaitForCompleted()
 		if waitFor == nil ||
-			event.GetEventId() <= forkEventIDs[0] ||
-			event.GetEventId() >= forkEventIDs[1] {
+			event.GetEventId() <= timeTravelEventIDs[0] ||
+			event.GetEventId() >= timeTravelEventIDs[1] {
 			continue
 		}
 		inheritedWaitFor = waitFor

@@ -122,9 +122,15 @@ async fn time_travel_to_the_beginning_reopens_a_completed_flow() {
         vec![Some(string_value("approved"))],
         "the publication after the start is reapplied and pending again"
     );
-    let fork = time_travel_fork(&mut flow_client, flow_id, &run_id).await;
-    assert_eq!(fork.previous_run_id, run_id);
-    assert_eq!((fork.previous_run_attempt, fork.target_run_attempt), (1, 1));
+    let time_travel_event = find_time_travel_event(&mut flow_client, flow_id, &run_id).await;
+    assert_eq!(time_travel_event.previous_run_id, run_id);
+    assert_eq!(
+        (
+            time_travel_event.previous_run_attempt,
+            time_travel_event.target_run_attempt
+        ),
+        (1, 1)
+    );
 
     finish_after_rerun(
         &mut flow_client,
@@ -292,7 +298,7 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
         .expect("GetHistoryEvents succeeds after reset")
         .into_inner()
         .events;
-    let fork_index = events
+    let time_travel_event_index = events
         .iter()
         .position(|event| {
             event.run_attempt == 3
@@ -301,8 +307,9 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
                     Some(flow_history_event::Payload::TimeTravelFork(_))
                 )
         })
-        .expect("fork event in attempt 3");
-    let Some(flow_history_event::Payload::FlowClosed(closed)) = &events[fork_index + 1].payload
+        .expect("TimeTravelFork event in attempt 3");
+    let Some(flow_history_event::Payload::FlowClosed(closed)) =
+        &events[time_travel_event_index + 1].payload
     else {
         panic!("FlowClosed follows TimeTravelFork");
     };
@@ -348,7 +355,7 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
         .expect("GetHistoryEvents succeeds after the event ID reset")
         .into_inner()
         .events;
-    let fork_index = events
+    let time_travel_event_index = events
         .iter()
         .position(|event| {
             event.run_attempt == 4
@@ -357,9 +364,9 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
                     Some(flow_history_event::Payload::TimeTravelFork(_))
                 )
         })
-        .expect("fork event in attempt 4");
+        .expect("TimeTravelFork event in attempt 4");
     let Some(flow_history_event::Payload::FlowClosed(closed_again)) =
-        &events[fork_index + 1].payload
+        &events[time_travel_event_index + 1].payload
     else {
         panic!("FlowClosed follows TimeTravelFork");
     };
@@ -582,7 +589,7 @@ async fn attribute_keys(
     keys
 }
 
-async fn time_travel_fork(
+async fn find_time_travel_event(
     flow_client: &mut FlowServiceClient<Channel>,
     flow_id: &str,
     run_id: &str,
@@ -601,10 +608,12 @@ async fn time_travel_fork(
     events
         .iter()
         .find_map(|event| match &event.payload {
-            Some(flow_history_event::Payload::TimeTravelFork(fork)) => Some(fork.clone()),
+            Some(flow_history_event::Payload::TimeTravelFork(time_travel_event)) => {
+                Some(time_travel_event.clone())
+            }
             _ => None,
         })
-        .unwrap_or_else(|| panic!("no time travel fork in {events:?}"))
+        .unwrap_or_else(|| panic!("no TimeTravelFork event in {events:?}"))
 }
 
 fn attribute_write(key: &str, text: &str) -> AttributeWrite {

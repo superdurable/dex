@@ -674,8 +674,8 @@ fn all_pages(
     }
 }
 
-/// A run with three Time Travel forks over many uploaded segments and a local tail.
-fn forked_harness() -> Harness {
+/// A run with three Time Travels over many uploaded segments and a local tail.
+fn time_traveled_harness() -> Harness {
     let mut harness = Harness::offloading(settings(1));
     harness.write_rounds("a", 12);
     harness.travel_to_seq(6);
@@ -689,7 +689,7 @@ fn forked_harness() -> Harness {
 
 #[test]
 fn pages_across_the_uploaded_seq_match_local_pages_for_every_lineage() {
-    let mut harness = forked_harness();
+    let mut harness = time_traveled_harness();
     let segment_count = harness.segments().len();
     harness.ack_oldest(segment_count * 2 / 3);
     let record = harness.run_record();
@@ -775,7 +775,7 @@ fn a_read_needs_the_uploaded_segments_and_loads_few_for_a_page() {
 
 #[test]
 fn paging_while_acknowledgments_advance_the_uploaded_seq_has_no_gaps_or_duplicates() {
-    let mut harness = forked_harness();
+    let mut harness = time_traveled_harness();
     harness.ack_oldest(2);
     let expected = all_pages(|token| harness.local_page(0, 4, token, 0));
     let expected_ids: Vec<i64> = expected
@@ -920,7 +920,7 @@ fn a_page_returns_at_most_a_thousand_events() {
 
 #[test]
 fn a_run_without_uploads_reads_its_local_rows() {
-    let harness = forked_harness();
+    let harness = time_traveled_harness();
     assert_eq!(harness.run_record().history_uploaded_through_seq, 0);
     let expected = all_pages(|token| harness.local_page(0, 3, token, 0));
     let pages = all_pages(|token| {
@@ -1142,8 +1142,8 @@ fn page_with_partial_loads(
 }
 
 #[test]
-fn partial_loads_page_every_lineage_with_empty_pages_across_abandoned_forks() {
-    let mut harness = forked_harness();
+fn partial_loads_page_every_lineage_with_empty_pages_across_abandoned_attempts() {
+    let mut harness = time_traveled_harness();
     harness.ack_all();
     let objects = harness.uploaded_objects();
     let next_event_id = harness.run_record().next_event_id;

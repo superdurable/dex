@@ -439,8 +439,8 @@ fn assert_travel_outcome(
         travel.reply
     );
     assert_eq!(harness.record("parent", PARENT_RUN).current_attempt, 2);
-    let fork_seq = harness.last_parent_seq();
-    let written = harness.parent_outbox_written_at(fork_seq);
+    let start_point_seq = harness.last_parent_seq();
+    let written = harness.parent_outbox_written_at(start_point_seq);
     let wait = harness
         .step("parent", PARENT_RUN, "StartStep-1")
         .wait

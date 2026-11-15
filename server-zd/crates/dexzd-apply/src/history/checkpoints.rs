@@ -18,14 +18,14 @@ use crate::history::window::advance_window_if_full;
 use crate::state_access::FlowTransaction;
 use crate::{ApplyEffect, ApplyError};
 
-/// Method calls whose first attempt became pending. A fork's re-dispatched calls are not new;
+/// Method calls whose first attempt became pending. A Time Travel attempt start's re-dispatched calls are not new;
 /// calls its reapplied input made pending are.
 pub(crate) fn pending_step_methods(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
 ) -> Result<Vec<HistoryStepMethodPending>, ApplyError> {
     let first_pending: Vec<&StepInvocationKey> = if cursor.is_starting_attempt {
-        cursor.fork_pending_invocations.iter().collect()
+        cursor.time_travel_pending_invocations.iter().collect()
     } else {
         cursor
             .effects

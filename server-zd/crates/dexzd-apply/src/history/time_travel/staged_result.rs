@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! What apply checks before it forks from a staged result (plan section 6.3 step 4).
+//! What apply checks before it starts the new attempt from a staged result (plan section 6.3 step 4).
 //!
 //! Out-of-date results are rejected with ABORTED, and the owner computes again; mismatched ones
 //! with INVALID_ARGUMENT.

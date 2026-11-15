@@ -946,7 +946,7 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             kind: Some(value::Kind::StringValue("x".repeat(300))),
         };
         harness.set_parent_attribute("source", &"x".repeat(300), "source");
-        let fork = harness.apply(
+        let time_travel = harness.apply(
             "parent",
             &PARENT_RUN,
             Command::TimeTravel(TimeTravelCommand {
@@ -962,7 +962,7 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             }),
         );
         assert!(matches!(
-            fork.reply.reply,
+            time_travel.reply.reply,
             Some(command_reply::Reply::TimeTravel(_))
         ));
         let parent_hash = harness.parent_context().flow_hash;
@@ -2245,7 +2245,7 @@ fn always_restart_old_child_result_does_not_complete_new_attempt_wait() {
     let parent_hash = harness.hasher.flow_hash(TenantId::DEFAULT, "parent");
     let record_key = run_singleton_key(parent_hash, RunId(PARENT_RUN), RunTable::RunRecord);
     let mut parent_record = harness.record("parent", PARENT_RUN);
-    let fork_seq = parent_record.next_run_seq - 1;
+    let start_point_seq = parent_record.next_run_seq - 1;
     // A checkpoint of the forged attempt 2 needs its attempt record.
     harness.state.rows.insert(
         (
@@ -2255,8 +2255,8 @@ fn always_restart_old_child_result_does_not_complete_new_attempt_wait() {
         AttemptRecord {
             attempt: 2,
             parent_attempt: 1,
-            parent_seq: fork_seq,
-            start_seq: fork_seq,
+            parent_seq: start_point_seq,
+            start_seq: start_point_seq,
             created_at_micros: harness.now_micros,
             reason: "forged second attempt".to_owned(),
             checkpoint_seqs: Vec::new(),
@@ -3247,14 +3247,14 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         pending,
         vec![("StartStep-1".to_owned(), StepMethod::Execute as i32, 2)]
     );
-    // The fork point's checkpoint holds the consumed result.
-    let fork_seq = harness.record("parent", PARENT_RUN).next_run_seq - 1;
+    // The start point's checkpoint holds the consumed result.
+    let start_point_seq = harness.record("parent", PARENT_RUN).next_run_seq - 1;
     let parent_hash = harness.hasher.flow_hash(TenantId::DEFAULT, "parent");
     let checkpoint_bytes = harness
         .state
         .get(
             ColumnFamily::History,
-            &checkpoint_key(parent_hash, RunId(PARENT_RUN), 2, fork_seq),
+            &checkpoint_key(parent_hash, RunId(PARENT_RUN), 2, start_point_seq),
         )
         .expect("memory reads")
         .expect("the travel writes its start checkpoint");
@@ -3271,8 +3271,8 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         .expect("the checkpoint holds the Step");
     assert_eq!(checkpointed_step.phase, completed.phase);
     assert_eq!(checkpointed_step.condition_results, Some(consumed));
-    let fork_time = harness.parent_history_time(fork_seq);
-    let to_fork = harness.apply(
+    let start_point_time = harness.parent_history_time(start_point_seq);
+    let time_travel_to_start_point = harness.apply(
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
@@ -3284,7 +3284,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
-                history_event_time: (i128::from(fork_time) * 1000).to_string(),
+                history_event_time: (i128::from(start_point_time) * 1000).to_string(),
                 run_attempt: 2,
                 skip_writes_reapply,
                 ..ResetFlowRequest::default()
@@ -3293,11 +3293,11 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
     );
     assert!(
         matches!(
-            to_fork.reply.reply,
+            time_travel_to_start_point.reply.reply,
             Some(command_reply::Reply::TimeTravel(_))
         ),
         "{:?}",
-        to_fork.reply
+        time_travel_to_start_point.reply
     );
     assert_eq!(harness.record("parent", PARENT_RUN).current_attempt, 3);
     let attempt_bytes = harness
@@ -3309,7 +3309,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         .expect("memory reads")
         .expect("the attempt exists");
     let attempt = AttemptRecord::decode(attempt_bytes.as_slice()).expect("attempt decodes");
-    assert_eq!(attempt.parent_seq, fork_seq);
+    assert_eq!(attempt.parent_seq, start_point_seq);
     assert_eq!(harness.attempt_rows("parent", PARENT_RUN), after_travel);
 }
 

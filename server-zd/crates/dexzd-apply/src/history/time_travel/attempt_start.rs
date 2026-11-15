@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The fork of a TimeTravel: replaces the attempt state with the result's and reapplies its input.
+//! The attempt start of a TimeTravel: replaces the attempt state with the result's and reapplies its input.
 
 use std::collections::BTreeSet;
 
@@ -51,8 +51,8 @@ use crate::steps::{
 use crate::values::ValueIdAllocator;
 use crate::{ApplyEffect, ApplyError, BehaviorVersion, WaitableChange};
 
-/// Forks attempt n+1 from the result's target point and reapplies the result's input.
-pub(super) fn fork_attempt(
+/// Starts attempt n+1 from the result's target point and reapplies the result's input.
+pub(super) fn start_time_travel_attempt(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,
     scope: &CommandScope<'_>,
@@ -500,19 +500,19 @@ fn apply_received_child_results(
     let effects_before = cursor.effects.len();
     crate::cross_flow::complete_restored_sub_flow_waits(transaction, cursor, &child_result_scope)?;
     let effects = cursor.effects.split_off(effects_before);
-    keep_fork_effects(cursor, effects);
+    keep_time_travel_attempt_effects(cursor, effects);
     Ok(())
 }
 
-/// Keeps effects of work folded into the fork; dispatch follows the final restored state instead.
-fn keep_fork_effects(cursor: &mut RunCursor, effects: Vec<ApplyEffect>) {
+/// Keeps effects of work folded into the attempt start; dispatch follows the final restored state instead.
+fn keep_time_travel_attempt_effects(cursor: &mut RunCursor, effects: Vec<ApplyEffect>) {
     for effect in effects {
         match effect {
             ApplyEffect::InvocationPending {
                 invocation,
                 attempt: 1,
                 ..
-            } => cursor.fork_pending_invocations.push(invocation),
+            } => cursor.time_travel_pending_invocations.push(invocation),
             ApplyEffect::InvocationPending { .. } | ApplyEffect::InvocationStarted { .. } => {}
             other => cursor.effects.push(other),
         }
@@ -639,7 +639,7 @@ fn reapply_external_inputs(
         };
         counters = replayed.counters;
         events.append(replayed.events);
-        keep_fork_effects(cursor, output.effects);
+        keep_time_travel_attempt_effects(cursor, output.effects);
     }
     cursor.record = required_run_record(transaction, cursor)?;
     cursor.values = counters.values;

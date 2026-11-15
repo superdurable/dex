@@ -571,7 +571,7 @@ fn set_attribute(text: &str) -> Command {
 }
 
 /// Runs a chain of Steps that skip WaitFor, then moves to one Step with WaitFor and one without.
-fn run_chain_then_fork(harness: &mut Harness, chain_length: u32) {
+fn run_chain_then_time_travel(harness: &mut Harness, chain_length: u32) {
     let mut current = "ChargeStep-1".to_owned();
     for number in 1..=chain_length {
         harness.complete_execute(
@@ -640,7 +640,7 @@ fn enabling_search_mid_run_counts_step_executions_once() {
         skipping_wait_for(),
         FlowTimeoutPolicy::Fail,
     );
-    run_chain_then_fork(&mut harness, 5);
+    run_chain_then_time_travel(&mut harness, 5);
     assert_eq!(harness.run_record().search_active_step_type_counts, None);
     let step_execution_count = harness.step_execution_count();
 
@@ -687,7 +687,7 @@ fn enabling_search_mid_run_counts_step_executions_once() {
 fn a_run_recorded_without_counts_counts_once_on_its_next_command() {
     let mut harness = Harness::new();
     harness.start(None, skipping_wait_for(), FlowTimeoutPolicy::Fail);
-    run_chain_then_fork(&mut harness, 3);
+    run_chain_then_time_travel(&mut harness, 3);
     harness.clear_stored_counts();
     let step_execution_count = harness.step_execution_count();
 

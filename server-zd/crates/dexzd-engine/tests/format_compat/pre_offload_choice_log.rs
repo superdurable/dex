@@ -71,7 +71,7 @@ async fn an_older_staged_time_travel_passes_the_debug_replay_checks() {
         assert_eq!(
             (travel_run.current_attempt, travel_run.status),
             (2, FlowStatus::Completed as i32),
-            "{snapshot_use:?}: the time travel forked attempt 2, which completed"
+            "{snapshot_use:?}: the time travel started attempt 2, which completed"
         );
     }
 }

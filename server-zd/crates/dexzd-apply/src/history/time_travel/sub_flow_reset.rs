@@ -197,7 +197,7 @@ pub(super) fn is_result_received(
     Ok(transaction.get(ColumnFamily::Flow, &key)?.is_some())
 }
 
-/// Decides what the fork does with each restored SubFlow condition; results of older owners keep
+/// Decides what the new attempt does with each restored SubFlow condition; results of older owners keep
 /// every wait.
 ///
 /// Returns ABORTED when the owner's findings no longer fit apply's reads, so the owner computes

@@ -842,7 +842,7 @@ fn paging_each_time_travel_attempt_matches_its_lineage() {
     }
     assert_eq!(harness.attempt_record(3).parent_attempt, 1);
     assert_eq!(harness.attempt_record(4).parent_attempt, 2);
-    harness.assert_history_event_waits_match_oracle("forks of older attempts");
+    harness.assert_history_event_waits_match_oracle("attempts started from older attempts");
 
     let records = harness.history_records();
     let attempts: Vec<u32> = records.iter().map(|record| record.attempt).collect();
@@ -869,15 +869,15 @@ fn paging_each_time_travel_attempt_matches_its_lineage() {
                 stats.events.iter().map(|event| event.run_attempt).collect();
             assert!(lineage_attempts.windows(2).all(|pair| pair[0] <= pair[1]));
         }
-        let fork_start = harness.attempt_record(run_attempt.max(2)).start_seq;
-        let fork_event_id = records
+        let attempt_start_seq = harness.attempt_record(run_attempt.max(2)).start_seq;
+        let attempt_start_event_id = records
             .iter()
-            .filter(|record| record.seq >= fork_start)
+            .filter(|record| record.seq >= attempt_start_seq)
             .flat_map(|record| &record.events)
             .map(|event| event.event_id)
             .next()
             .unwrap_or(1);
-        harness.assert_pages_match_reference(fork_event_id - 2, 4, run_attempt);
+        harness.assert_pages_match_reference(attempt_start_event_id - 2, 4, run_attempt);
     }
 }
 
@@ -1236,9 +1236,9 @@ fn history_event_waits_without_event_id_metadata_report_a_lower_bound() {
     for round in 0..30 {
         harness.append_round(round % 3);
     }
-    let fork_time = harness.now_micros;
+    let start_point_time = harness.now_micros;
     harness.append_round(1);
-    harness.travel_to(1, fork_time);
+    harness.travel_to(1, start_point_time);
     for _ in 0..5 {
         harness.append_round(1);
     }
