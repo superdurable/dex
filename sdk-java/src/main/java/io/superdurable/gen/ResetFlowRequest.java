@@ -36,6 +36,7 @@ private static final long serialVersionUID = 0L;
     stepType_ = "";
     stepExecutionId_ = "";
     stepMethod_ = 0;
+    subFlowResetPolicy_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -357,6 +358,34 @@ private static final long serialVersionUID = 0L;
     return runAttempt_;
   }
 
+  public static final int SUB_FLOW_RESET_POLICY_FIELD_NUMBER = 11;
+  private int subFlowResetPolicy_ = 0;
+  /**
+   * <pre>
+   * Decides what happens to the SubFlow conditions that restored Steps wait on.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * </pre>
+   *
+   * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+   * @return The enum numeric value on the wire for subFlowResetPolicy.
+   */
+  @java.lang.Override public int getSubFlowResetPolicyValue() {
+    return subFlowResetPolicy_;
+  }
+  /**
+   * <pre>
+   * Decides what happens to the SubFlow conditions that restored Steps wait on.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * </pre>
+   *
+   * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+   * @return The subFlowResetPolicy.
+   */
+  @java.lang.Override public io.superdurable.gen.SubFlowResetPolicy getSubFlowResetPolicy() {
+    io.superdurable.gen.SubFlowResetPolicy result = io.superdurable.gen.SubFlowResetPolicy.forNumber(subFlowResetPolicy_);
+    return result == null ? io.superdurable.gen.SubFlowResetPolicy.UNRECOGNIZED : result;
+  }
+
   public static final int EVENT_ID_FIELD_NUMBER = 12;
   private long eventId_ = 0L;
   /**
@@ -421,6 +450,9 @@ private static final long serialVersionUID = 0L;
     if (runAttempt_ != 0) {
       output.writeInt32(10, runAttempt_);
     }
+    if (subFlowResetPolicy_ != io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_UNSPECIFIED.getNumber()) {
+      output.writeEnum(11, subFlowResetPolicy_);
+    }
     if (eventId_ != 0L) {
       output.writeInt64(12, eventId_);
     }
@@ -461,6 +493,10 @@ private static final long serialVersionUID = 0L;
     if (runAttempt_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(10, runAttempt_);
+    }
+    if (subFlowResetPolicy_ != io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(11, subFlowResetPolicy_);
     }
     if (eventId_ != 0L) {
       size += com.google.protobuf.CodedOutputStream
@@ -508,6 +544,7 @@ private static final long serialVersionUID = 0L;
     if (stepMethod_ != other.stepMethod_) return false;
     if (getRunAttempt()
         != other.getRunAttempt()) return false;
+    if (subFlowResetPolicy_ != other.subFlowResetPolicy_) return false;
     if (getEventId()
         != other.getEventId()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -542,6 +579,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + stepMethod_;
     hash = (37 * hash) + RUN_ATTEMPT_FIELD_NUMBER;
     hash = (53 * hash) + getRunAttempt();
+    hash = (37 * hash) + SUB_FLOW_RESET_POLICY_FIELD_NUMBER;
+    hash = (53 * hash) + subFlowResetPolicy_;
     hash = (37 * hash) + EVENT_ID_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
         getEventId());
@@ -686,6 +725,7 @@ private static final long serialVersionUID = 0L;
       skipWritesReapply_ = false;
       stepMethod_ = 0;
       runAttempt_ = 0;
+      subFlowResetPolicy_ = 0;
       eventId_ = 0L;
       return this;
     }
@@ -751,6 +791,9 @@ private static final long serialVersionUID = 0L;
         result.runAttempt_ = runAttempt_;
       }
       if (((from_bitField0_ & 0x00000400) != 0)) {
+        result.subFlowResetPolicy_ = subFlowResetPolicy_;
+      }
+      if (((from_bitField0_ & 0x00000800) != 0)) {
         result.eventId_ = eventId_;
       }
     }
@@ -808,6 +851,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getRunAttempt() != 0) {
         setRunAttempt(other.getRunAttempt());
+      }
+      if (other.subFlowResetPolicy_ != 0) {
+        setSubFlowResetPolicyValue(other.getSubFlowResetPolicyValue());
       }
       if (other.getEventId() != 0L) {
         setEventId(other.getEventId());
@@ -888,9 +934,14 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000200;
               break;
             } // case 80
+            case 88: {
+              subFlowResetPolicy_ = input.readEnum();
+              bitField0_ |= 0x00000400;
+              break;
+            } // case 88
             case 96: {
               eventId_ = input.readInt64();
-              bitField0_ |= 0x00000400;
+              bitField0_ |= 0x00000800;
               break;
             } // case 96
             default: {
@@ -1537,6 +1588,83 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private int subFlowResetPolicy_ = 0;
+    /**
+     * <pre>
+     * Decides what happens to the SubFlow conditions that restored Steps wait on.
+     * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+     * </pre>
+     *
+     * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+     * @return The enum numeric value on the wire for subFlowResetPolicy.
+     */
+    @java.lang.Override public int getSubFlowResetPolicyValue() {
+      return subFlowResetPolicy_;
+    }
+    /**
+     * <pre>
+     * Decides what happens to the SubFlow conditions that restored Steps wait on.
+     * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+     * </pre>
+     *
+     * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+     * @param value The enum numeric value on the wire for subFlowResetPolicy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSubFlowResetPolicyValue(int value) {
+      subFlowResetPolicy_ = value;
+      bitField0_ |= 0x00000400;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Decides what happens to the SubFlow conditions that restored Steps wait on.
+     * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+     * </pre>
+     *
+     * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+     * @return The subFlowResetPolicy.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.SubFlowResetPolicy getSubFlowResetPolicy() {
+      io.superdurable.gen.SubFlowResetPolicy result = io.superdurable.gen.SubFlowResetPolicy.forNumber(subFlowResetPolicy_);
+      return result == null ? io.superdurable.gen.SubFlowResetPolicy.UNRECOGNIZED : result;
+    }
+    /**
+     * <pre>
+     * Decides what happens to the SubFlow conditions that restored Steps wait on.
+     * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+     * </pre>
+     *
+     * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+     * @param value The subFlowResetPolicy to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setSubFlowResetPolicy(io.superdurable.gen.SubFlowResetPolicy value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000400;
+      subFlowResetPolicy_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Decides what happens to the SubFlow conditions that restored Steps wait on.
+     * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+     * </pre>
+     *
+     * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSubFlowResetPolicy() {
+      bitField0_ = (bitField0_ & ~0x00000400);
+      subFlowResetPolicy_ = 0;
+      onChanged();
+      return this;
+    }
+
     private long eventId_ ;
     /**
      * <pre>
@@ -1572,7 +1700,7 @@ private static final long serialVersionUID = 0L;
     public Builder setEventId(long value) {
 
       eventId_ = value;
-      bitField0_ |= 0x00000400;
+      bitField0_ |= 0x00000800;
       onChanged();
       return this;
     }
@@ -1590,7 +1718,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearEventId() {
-      bitField0_ = (bitField0_ & ~0x00000400);
+      bitField0_ = (bitField0_ & ~0x00000800);
       eventId_ = 0L;
       onChanged();
       return this;

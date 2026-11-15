@@ -162,7 +162,7 @@ public enum FlowDefinitionUploadOutcome
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(29);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(30);
   }
 
   private static final FlowDefinitionUploadOutcome[] VALUES = values();
