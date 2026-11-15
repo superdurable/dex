@@ -373,6 +373,8 @@ fn a_current_state_over_the_memory_budget_is_rejected_before_it_is_read_whole() 
         panic!("the rejection is an error: {reply:?}");
     };
     assert_eq!(error.grpc_code, 8, "RESOURCE_EXHAUSTED");
+    assert!(error.message.contains("clone fork"), "{}", error.message);
+    assert!(!error.message.contains("skip_writes_reapply"));
     assert!(
         counting.scanned_bytes.get() < attribute_bytes / 4,
         "the computation read {} of {attribute_bytes} Attribute bytes",
@@ -384,6 +386,16 @@ fn a_current_state_over_the_memory_budget_is_rejected_before_it_is_read_whole() 
 fn a_chunk_larger_than_one_command_carries_is_rejected() {
     let mut harness = Harness::new();
     let rows_before = harness.state.rows.clone();
+    let oversized_chunk = FlowCloneForkStagedChunk {
+        values: vec![TimeTravelStagedValue {
+            value: Some(string_value(&"x".repeat(32 << 20))),
+            ..TimeTravelStagedValue::default()
+        }],
+        ..FlowCloneForkStagedChunk::default()
+    }
+    .encode_to_vec();
+    assert!(oversized_chunk.len() > (32 << 20) - (64 << 10));
+    assert!(FlowCloneForkStagedChunk::decode(oversized_chunk.as_slice()).is_ok());
     let rejected = harness.apply(
         CLONE_FLOW,
         &[],
@@ -391,10 +403,18 @@ fn a_chunk_larger_than_one_command_carries_is_rejected() {
             staging_id: vec![1; 16],
             chunk_index: 0,
             is_last_chunk: true,
-            chunk: vec![0; 32 << 20],
+            chunk: oversized_chunk,
         }),
     );
     assert_eq!(error_code(&rejected), Some(3), "INVALID_ARGUMENT");
+    let Some(command_reply::Reply::Error(error)) = &rejected.reply.reply else {
+        panic!("the rejection is an error: {rejected:?}");
+    };
+    assert!(
+        error.message.contains("one command carries"),
+        "{}",
+        error.message
+    );
     assert_eq!(harness.state.rows, rows_before);
 }
 

@@ -103,6 +103,7 @@ pub(crate) fn apply_time_travel(
             ReplayResources {
                 offloaded_values: &NoOffloadedValues,
                 memory_budget: &memory_budget,
+                operation: SubFlowResetOperation::TimeTravel,
             },
         )?
     } else {

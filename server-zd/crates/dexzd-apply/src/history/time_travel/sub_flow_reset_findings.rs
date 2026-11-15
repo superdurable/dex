@@ -223,6 +223,7 @@ impl ChildFlowReads<'_> {
                         point,
                         sources.memory_budget.limit_bytes(),
                         "the child Flow results and starts its SubFlow reset policy reads",
+                        self.operation,
                     )));
                 }
             }

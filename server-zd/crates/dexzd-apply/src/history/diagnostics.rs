@@ -197,6 +197,7 @@ fn rebuild_time_travel_target(
         ReplayResources {
             offloaded_values: &NoOffloadedValues,
             memory_budget: &ReplayMemoryBudget::unlimited(),
+            operation: super::time_travel::SubFlowResetOperation::TimeTravel,
         },
     )?
     else {

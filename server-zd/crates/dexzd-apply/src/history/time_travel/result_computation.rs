@@ -231,6 +231,7 @@ fn compute_noting_gone_child_flows(
     let resources = ReplayResources {
         offloaded_values: sources.offloaded_values,
         memory_budget: &memory_budget,
+        operation: super::SubFlowResetOperation::TimeTravel,
     };
     let mut result = match compute_result(
         &transaction,
@@ -270,6 +271,7 @@ fn compute_noting_gone_child_flows(
                 result.target.point,
                 memory_budget.limit_bytes(),
                 "the staged result",
+                super::SubFlowResetOperation::TimeTravel,
             )),
             gone_child_flows,
         ));
@@ -406,6 +408,7 @@ pub(super) fn compute_result(
                     target.point,
                     resources.memory_budget.limit_bytes(),
                     "the external input reapplied after the target",
+                    super::SubFlowResetOperation::TimeTravel,
                 )));
             }
             Err(InputCollectionFailure::MissingRecord(missing_seq)) => {

@@ -219,6 +219,7 @@ fn compute_noting_gone_child_flows(
     let resources = ReplayResources {
         offloaded_values: sources.offloaded_values,
         memory_budget: &memory_budget,
+        operation: SubFlowResetOperation::CloneFork,
     };
     let mut point = match point_state(
         &transaction,
@@ -242,6 +243,7 @@ fn compute_noting_gone_child_flows(
                     point.target.point,
                     memory_budget.limit_bytes(),
                     "the current hard-delete Attribute values",
+                    SubFlowResetOperation::CloneFork,
                 ));
             }
         };
@@ -307,6 +309,7 @@ fn compute_noting_gone_child_flows(
                 point.target.point,
                 memory_budget.limit_bytes(),
                 "the staged clone fork",
+                SubFlowResetOperation::CloneFork,
             )),
             gone_child_flows,
         ));
@@ -482,6 +485,7 @@ fn current_point_state(
             point,
             resources.memory_budget.limit_bytes(),
             "the current state",
+            SubFlowResetOperation::CloneFork,
         )));
     }
     Ok(Ok(TimeTravelResult {
@@ -658,6 +662,7 @@ fn copied_values(
                 point.target.point,
                 resources.memory_budget.limit_bytes(),
                 "the values the copied state holds",
+                SubFlowResetOperation::CloneFork,
             )));
         }
         let key = (value_id.run_seq, value_id.index_in_command);
