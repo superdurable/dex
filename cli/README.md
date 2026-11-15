@@ -689,10 +689,23 @@ dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
 dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--request-timeout DURATION]
 dexcli flow update-config FLOW_ID --config JSON|@FILE|- --yes
 dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
-                        --type beginning|history-event-time|step-type|step-execution-id
+                        --type beginning|history-event-time|step-type|step-execution-id|event-id
                         [--target VALUE] [--step-method wait-for|execute]
-                        [--reason TEXT] --yes
+                        [--run-attempt N] [--sub-flow-reset-policy POLICY]
+                        [--skip-writes-reapply] [--reason TEXT] --yes
+dexcli flow clone-fork SOURCE_FLOW_ID --flow-id NEW_FLOW_ID [--source-run-id RUN_ID]
+                       [--type current|beginning|history-event-time|step-type|step-execution-id|event-id]
+                       [--target VALUE] [--step-method wait-for|execute] [--run-attempt N]
+                       [--attributes JSON|@FILE|-] [--config JSON|@FILE|-] [--task-queue NAME]
+                       [--flow-timeout DURATION]
+                       [--id-reuse-policy previous-failed|not-running|disallow|terminate-running]
+                       [--ignore-already-started] [--sub-flow-reset-policy POLICY]
+                       [--request-id ID] [--reason TEXT] --yes
 ```
+
+`POLICY` is `attach-else-restart` (the default), `attach-else-fail`,
+`attach-else-reject`, `always-restart`, `always-fail`, or `always-reject`.
+See the [dexcli reference](https://docs.superdurable.io/reference/cli#time-travel-and-clone-fork).
 
 With the default JSON output, `watch` writes one object per line and exits when
 the run becomes terminal. Stop and time travel operate on the current run by

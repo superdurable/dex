@@ -69,6 +69,8 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 		return executeUpdateConfig(c, ctx, args[1:], options)
 	case "time-travel":
 		return executeTimeTravel(c, ctx, args[1:], options)
+	case "clone-fork":
+		return executeCloneFork(c, ctx, args[1:], options)
 	case "help", "--help", "-h":
 		c.printUsage()
 		return nil
@@ -380,7 +382,7 @@ func protoTimestamp(timestamp *timestamppb.Timestamp) any {
 func (c *flowCommand) printUsage() {
 	fmt.Fprintln(c.stdout, "Usage: dexcli flow <command>")
 	fmt.Fprintln(c.stdout)
-	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, channel-messages, delete-channel-message, inspect, watch, stop, skip-timer, wait-step, update-config, time-travel")
+	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, channel-messages, delete-channel-message, inspect, watch, stop, skip-timer, wait-step, update-config, time-travel, clone-fork")
 }
 
 func parseInt32(value string, name string) (int32, error) {

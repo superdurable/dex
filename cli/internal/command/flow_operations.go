@@ -12,9 +12,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -353,6 +357,8 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	timeTravelTypeName := flags.String("type", "", "time travel point type")
 	target := flags.String("target", "", "time travel point value")
 	stepMethodName := flags.String("step-method", "", "WaitFor or Execute boundary")
+	runAttempt := flags.Int("run-attempt", 0, "run attempt whose history holds the point; 0 selects the current attempt")
+	subFlowResetPolicyName := flags.String("sub-flow-reset-policy", "", subFlowResetPolicyUsage)
 	reason := flags.String("reason", "", "time travel reason")
 	shouldSkipWritesReapply := flags.Bool(
 		"skip-writes-reapply",
@@ -361,7 +367,7 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	)
 	yes := flags.Bool("yes", false, "confirm the operation")
 	addCommonFlags(flags, &options)
-	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow time-travel FLOW_ID [--run-id ID] --type TYPE [--reason TEXT] --yes"); done || err != nil {
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow time-travel FLOW_ID [--run-id ID] --type TYPE [--target VALUE] [--run-attempt N] [--sub-flow-reset-policy POLICY] [--reason TEXT] --yes"); done || err != nil {
 		return err
 	}
 	flowID, err := oneFlowID(flags, "flow time-travel")
@@ -379,6 +385,14 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	if err != nil {
 		return newUsageError("flow time-travel", err)
 	}
+	request.RunAttempt, err = parseRunAttempt(*runAttempt)
+	if err != nil {
+		return newUsageError("flow time-travel", err)
+	}
+	request.SubFlowResetPolicy, err = parseSubFlowResetPolicy(*subFlowResetPolicyName)
+	if err != nil {
+		return newUsageError("flow time-travel", err)
+	}
 	request.SkipWritesReapply = *shouldSkipWritesReapply
 	if !*yes {
 		return newConfirmationError("flow time-travel")
@@ -390,6 +404,7 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 		}
 		return writeOutput(c.stdout, options.output, map[string]any{
 			"flowId": flowID, "previousRunId": *runID, "runId": response.GetRunId(),
+			"runAttempt": response.GetRunAttempt(),
 		})
 	})
 }
@@ -402,38 +417,273 @@ func timeTravelRequest(
 	stepMethodName string,
 	reason string,
 ) (*dexpb.ResetFlowRequest, error) {
-	request := &dexpb.ResetFlowRequest{FlowId: flowID, RunId: runID, Reason: reason}
+	point, err := parseHistoryPoint(typeName, target, stepMethodName, false)
+	if err != nil {
+		return nil, err
+	}
+	request := &dexpb.ResetFlowRequest{
+		FlowId: flowID, RunId: runID, Reason: reason,
+		HistoryEventTime: point.historyEventTime, StepType: point.stepType,
+		StepExecutionId: point.stepExecutionID, StepMethod: point.stepMethod, EventId: point.eventID,
+	}
 	switch typeName {
 	case "beginning":
 		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING
 	case "history-event-time":
-		if _, err := time.Parse(time.RFC3339, target); err != nil {
-			return nil, fmt.Errorf("target must be an RFC3339 timestamp: %w", err)
-		}
 		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME
-		request.HistoryEventTime = target
 	case "step-type":
 		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE
-		request.StepType = target
 	case "step-execution-id":
 		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID
-		request.StepExecutionId = target
+	case "event-id":
+		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_EVENT_ID
+	}
+	return request, nil
+}
+
+// historyPoint holds the request fields that select a point of a Flow run's history.
+type historyPoint struct {
+	historyEventTime string
+	stepType         string
+	stepExecutionID  string
+	stepMethod       dexpb.FlowResetStepMethod
+	eventID          int64
+}
+
+// parseHistoryPoint validates a --type, --target, and --step-method combination. It returns the
+// point fields to copy into the request, or an error naming the invalid flag.
+func parseHistoryPoint(
+	typeName string,
+	target string,
+	stepMethodName string,
+	isCurrentAllowed bool,
+) (historyPoint, error) {
+	var point historyPoint
+	switch typeName {
+	case "beginning":
+	case "current":
+		if !isCurrentAllowed {
+			return historyPoint{}, fmt.Errorf("type must be beginning, history-event-time, step-type, step-execution-id, or event-id")
+		}
+		if target != "" {
+			return historyPoint{}, fmt.Errorf("target is not valid for type current")
+		}
+	case "history-event-time":
+		if _, err := time.Parse(time.RFC3339, target); err != nil {
+			return historyPoint{}, fmt.Errorf("target must be an RFC3339 timestamp: %w", err)
+		}
+		point.historyEventTime = target
+	case "step-type":
+		point.stepType = target
+	case "step-execution-id":
+		point.stepExecutionID = target
 		switch stepMethodName {
 		case "wait-for":
-			request.StepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR
+			point.stepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR
 		case "execute":
-			request.StepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE
+			point.stepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE
 		default:
-			return nil, fmt.Errorf("step-method must be wait-for or execute for step-execution-id")
+			return historyPoint{}, fmt.Errorf("step-method must be wait-for or execute for step-execution-id")
 		}
+	case "event-id":
+		eventID, err := strconv.ParseInt(target, 10, 64)
+		if err != nil || eventID <= 0 {
+			return historyPoint{}, fmt.Errorf("target must be a positive history event ID for event-id")
+		}
+		point.eventID = eventID
 	default:
-		return nil, fmt.Errorf("type must be beginning, history-event-time, step-type, or step-execution-id")
+		if isCurrentAllowed {
+			return historyPoint{}, fmt.Errorf("type must be current, beginning, history-event-time, step-type, step-execution-id, or event-id")
+		}
+		return historyPoint{}, fmt.Errorf("type must be beginning, history-event-time, step-type, step-execution-id, or event-id")
 	}
 	if typeName != "step-execution-id" && stepMethodName != "" {
-		return nil, fmt.Errorf("step-method is only valid for step-execution-id")
+		return historyPoint{}, fmt.Errorf("step-method is only valid for step-execution-id")
 	}
-	if typeName != "beginning" && strings.TrimSpace(target) == "" {
-		return nil, fmt.Errorf("target is required for time travel type %s", typeName)
+	if typeName != "beginning" && typeName != "current" && strings.TrimSpace(target) == "" {
+		return historyPoint{}, fmt.Errorf("target is required for type %s", typeName)
+	}
+	return point, nil
+}
+
+func parseRunAttempt(runAttempt int) (int32, error) {
+	if runAttempt < 0 || runAttempt > math.MaxInt32 {
+		return 0, fmt.Errorf("run-attempt must be between 0 and %d", math.MaxInt32)
+	}
+	return int32(runAttempt), nil
+}
+
+const subFlowResetPolicyUsage = "attach-else-restart (default), attach-else-fail, attach-else-reject, always-restart, always-fail, or always-reject"
+
+func parseSubFlowResetPolicy(value string) (dexpb.SubFlowResetPolicy, error) {
+	switch value {
+	case "":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_UNSPECIFIED, nil
+	case "attach-else-restart":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART, nil
+	case "attach-else-fail":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL, nil
+	case "attach-else-reject":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT, nil
+	case "always-restart":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_RESTART, nil
+	case "always-fail":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_FAIL, nil
+	case "always-reject":
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_REJECT, nil
+	default:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_UNSPECIFIED, fmt.Errorf("sub-flow-reset-policy must be %s", subFlowResetPolicyUsage)
+	}
+}
+
+func executeCloneFork(c *flowCommand, ctx context.Context, args []string, options options) error {
+	flags := newFlagSet("dexcli flow clone-fork", c.stderr)
+	newFlowID := flags.String("flow-id", "", "Flow ID of the new Flow")
+	sourceRunID := flags.String("source-run-id", "", "source Flow run ID; empty selects the latest run")
+	pointTypeName := flags.String("type", "current", "copied point type")
+	target := flags.String("target", "", "copied point value")
+	stepMethodName := flags.String("step-method", "", "WaitFor or Execute boundary")
+	runAttempt := flags.Int("run-attempt", 0, "source run attempt whose history holds the point; 0 selects the current attempt")
+	attributesSource := flags.String("attributes", "", "Attribute JSON written after the copy, @file, or - for stdin")
+	configSource := flags.String("config", "", "Flow configuration override JSON, @file, or - for stdin")
+	taskQueue := flags.String("task-queue", "", "task queue of the new Flow; empty keeps the source run's task queue")
+	flowTimeout := flags.String("flow-timeout", "", "Flow timeout duration; empty keeps the source run's duration")
+	idReusePolicy := flags.String("id-reuse-policy", "", "previous-failed, not-running, disallow, or terminate-running")
+	ignoreAlreadyStarted := flags.Bool("ignore-already-started", false, "return the existing run when the request ID matches")
+	subFlowResetPolicyName := flags.String("sub-flow-reset-policy", "", subFlowResetPolicyUsage)
+	reason := flags.String("reason", "", "clone fork reason")
+	requestID := flags.String("request-id", "", "idempotency request ID")
+	yes := flags.Bool("yes", false, "confirm the operation")
+	addCommonFlags(flags, &options)
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow clone-fork SOURCE_FLOW_ID --flow-id NEW_FLOW_ID [--source-run-id ID] [--type TYPE] [--target VALUE] [flags] --yes"); done || err != nil {
+		return err
+	}
+	sourceFlowID, err := oneFlowID(flags, "flow clone-fork")
+	if err != nil {
+		return err
+	}
+	if err := atMostOneStdinSource(*attributesSource, *configSource); err != nil {
+		return newUsageError("flow clone-fork", err)
+	}
+	request, err := cloneForkFlowRequest(c.stdin, cloneForkFlowFlags{
+		sourceFlowID: sourceFlowID, sourceRunID: *sourceRunID, flowID: *newFlowID,
+		pointTypeName: *pointTypeName, target: *target, stepMethodName: *stepMethodName,
+		runAttempt: *runAttempt, attributesSource: *attributesSource, configSource: *configSource,
+		taskQueue: *taskQueue, flowTimeout: *flowTimeout, idReusePolicy: *idReusePolicy,
+		shouldIgnoreAlreadyStarted: *ignoreAlreadyStarted, subFlowResetPolicy: *subFlowResetPolicyName,
+		reason: *reason, requestID: *requestID,
+	})
+	if err != nil {
+		return newUsageError("flow clone-fork", err)
+	}
+	if !*yes {
+		return newConfirmationError("flow clone-fork")
+	}
+	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		response, callErr := client.service.CloneForkFlow(callCtx, request)
+		if callErr != nil {
+			return newOperationError("flow clone-fork", callErr)
+		}
+		return writeOutput(c.stdout, options.output, map[string]any{
+			"flowId": request.GetFlowId(), "runId": response.GetRunId(),
+			"sourceFlowId": sourceFlowID, "sourceRunId": response.GetSourceRunId(),
+			"sourceRunAttempt": response.GetSourceRunAttempt(), "sourceEventId": response.GetSourceEventId(),
+		})
+	})
+}
+
+// cloneForkFlowFlags holds the parsed flag values of dexcli flow clone-fork.
+type cloneForkFlowFlags struct {
+	sourceFlowID               string
+	sourceRunID                string
+	flowID                     string
+	pointTypeName              string
+	target                     string
+	stepMethodName             string
+	runAttempt                 int
+	attributesSource           string
+	configSource               string
+	taskQueue                  string
+	flowTimeout                string
+	idReusePolicy              string
+	shouldIgnoreAlreadyStarted bool
+	subFlowResetPolicy         string
+	reason                     string
+	requestID                  string
+}
+
+func cloneForkFlowRequest(reader io.Reader, values cloneForkFlowFlags) (*dexpb.CloneForkFlowRequest, error) {
+	if strings.TrimSpace(values.flowID) == "" {
+		return nil, fmt.Errorf("flow-id is required")
+	}
+	if values.flowID == values.sourceFlowID {
+		return nil, fmt.Errorf("flow-id must differ from the source Flow ID; use flow time-travel to return a Flow to an earlier point")
+	}
+	point, err := parseHistoryPoint(values.pointTypeName, values.target, values.stepMethodName, true)
+	if err != nil {
+		return nil, err
+	}
+	runAttempt, err := parseRunAttempt(values.runAttempt)
+	if err != nil {
+		return nil, err
+	}
+	if values.pointTypeName == "current" && runAttempt != 0 {
+		return nil, fmt.Errorf("run-attempt is not valid for type current")
+	}
+	attributes, err := parseInitialAttributes(reader, values.attributesSource)
+	if err != nil {
+		return nil, fmt.Errorf("attributes: %w", err)
+	}
+	config, err := parseOptionalFlowConfig(reader, values.configSource)
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if values.taskQueue != "" {
+		if config == nil {
+			config = &dexpb.FlowConfig{}
+		}
+		config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: values.taskQueue}
+	}
+	timeoutSeconds, err := parseOptionalDurationSeconds(values.flowTimeout, "flow-timeout")
+	if err != nil {
+		return nil, err
+	}
+	reusePolicy, err := parseIDReusePolicy(values.idReusePolicy)
+	if err != nil {
+		return nil, err
+	}
+	subFlowResetPolicy, err := parseSubFlowResetPolicy(values.subFlowResetPolicy)
+	if err != nil {
+		return nil, err
+	}
+	requestID := values.requestID
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	request := &dexpb.CloneForkFlowRequest{
+		SourceFlowId: values.sourceFlowID, SourceRunId: values.sourceRunID, FlowId: values.flowID,
+		RequestId: requestID, IdReusePolicy: reusePolicy, FlowConfigOverride: config,
+		Attributes: attributes, FlowTimeoutSeconds: timeoutSeconds, Reason: values.reason,
+		HistoryEventTime: point.historyEventTime, StepType: point.stepType,
+		StepExecutionId: point.stepExecutionID, StepMethod: point.stepMethod, EventId: point.eventID,
+		RunAttempt: runAttempt, SubFlowResetPolicy: subFlowResetPolicy,
+	}
+	if values.shouldIgnoreAlreadyStarted {
+		request.FlowAlreadyStartedOptions = &dexpb.FlowAlreadyStartedOptions{IgnoreAlreadyStartedError: true}
+	}
+	switch values.pointTypeName {
+	case "current":
+		request.PointType = dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT
+	case "beginning":
+		request.PointType = dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_BEGINNING
+	case "history-event-time":
+		request.PointType = dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME
+	case "step-type":
+		request.PointType = dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE
+	case "step-execution-id":
+		request.PointType = dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID
+	case "event-id":
+		request.PointType = dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID
 	}
 	return request, nil
 }

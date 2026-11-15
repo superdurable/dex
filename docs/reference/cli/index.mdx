@@ -312,8 +312,73 @@ stored payload.
 long-polls for new ones. Each line is one JSON object. It stops when the run
 reaches a terminal status.
 
-Stop and time travel always require an exact **--run-id** and **--yes**. This
-keeps an agent that looked up an older run from changing a newer one.
+Every command that changes a Flow requires **--yes**. Stop and time travel act
+on the current run by default. Pass **--run-id** to act on an exact run, so an
+agent that looked up an older run cannot change a newer one.
+
+### Time travel and clone fork {#time-travel-and-clone-fork}
+
+**flow time-travel** returns a Flow run to a point in its history. It calls
+[**ResetFlow**](/reference/server/runtime-client#time-travel) and prints the
+**runId** and the new **runAttempt**.
+
+**flow clone-fork** creates a new Flow from a point of another Flow run. It
+calls [**CloneForkFlow**](/reference/server/runtime-client#clone-fork). The
+source run never changes. Since 1.47.8.
+
+**flow clone-fork**, **--type event-id**, and **--sub-flow-reset-policy** need
+server-zd 0.1.33 or later.
+
+```bash
+dexcli flow time-travel order-123 --type event-id --target 42 --yes
+dexcli flow clone-fork session-1 --flow-id session-1-branch \
+  --task-queue session-1-branch --yes
+```
+
+Both commands select the point with **--type** and **--target**:
+
+| **--type** | **--target** |
+| --- | --- |
+| **current** | Leave it empty. The latest committed state of the source run. Only **clone-fork** accepts this type, and it is its default. |
+| **beginning** | Leave it empty. The state right after the run started. |
+| **history-event-time** | An RFC 3339 time. |
+| **step-type** | A Step type. |
+| **step-execution-id** | A Step execution ID, such as **ChargeOrder-2**. Also requires **--step-method wait-for** or **execute**. |
+| **event-id** | The **eventId** of a history event, as **flow history** prints it. Since 1.47.8. |
+
+Flags of both commands:
+
+| Flag | Meaning |
+| --- | --- |
+| **--run-attempt** | **0**, the current attempt; the run attempt whose history holds the point. **clone-fork** accepts it only for a type other than **current**. Since 1.47.8. |
+| **--sub-flow-reset-policy** | Empty, which means **attach-else-restart**. Decides what happens to a SubFlow wait that a restored or copied Step holds: **attach-else-restart**, **attach-else-fail**, **attach-else-reject**, **always-restart**, **always-fail**, or **always-reject**. See [SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel). Since 1.47.8. |
+| **--reason** | Empty; free text recorded with the operation. |
+| **--yes** | Required; confirms the operation. |
+
+Flags of **flow time-travel** only:
+
+| Flag | Meaning |
+| --- | --- |
+| **--run-id** | Empty, the current run; the run to time travel. |
+| **--skip-writes-reapply** | **false**; skips applying again the RPCs, Channel publications, and Attribute writes that reached the run after the point. |
+
+Flags of **flow clone-fork** only:
+
+| Flag | Meaning |
+| --- | --- |
+| **--flow-id** | Required; the new Flow ID. It must differ from the source Flow ID. |
+| **--source-run-id** | Empty, the latest run; the source run. |
+| **--task-queue** | Empty, the source run's task queue; the task queue of the new Flow. Set one when Workers pick their Flows by task queue, so that the source run's Workers do not run the new Flow. |
+| **--config** | Empty; a Flow configuration override in the format of **flow start --config**. Set the task queue with **--task-queue**; **workerTarget** is rejected. |
+| **--attributes** | Empty; Attributes written after the copy, in the format of **flow start --attributes**. |
+| **--flow-timeout** | Empty, the source run's Flow timeout duration; a Go duration counted from the clone fork. |
+| **--id-reuse-policy** | Empty, the server default; **previous-failed**, **not-running**, **disallow**, or **terminate-running**, as for **flow start**. |
+| **--ignore-already-started** | **false**; returns the existing run when a run of the new Flow ID has the same request ID. |
+| **--request-id** | A new UUID for each invocation; the request ID of the new run. A command with the request ID of the new Flow's latest run is a retry and copies nothing. It returns that run with **--ignore-already-started** and fails with **ALREADY_EXISTS** without it. To retry a clone fork, pass the request ID again. |
+
+**flow clone-fork** prints the new **flowId** and **runId**, and the
+**sourceFlowId**, **sourceRunId**, **sourceRunAttempt**, and **sourceEventId**
+of the copied point.
 
 ## Complete public API access
 
