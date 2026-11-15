@@ -4,7 +4,8 @@
   "serverZd": [
     {"since": "0.1.0", "protocol": {"min": 1, "max": 3}},
     {"since": "0.1.17", "protocol": {"min": 1, "max": 4}},
-    {"since": "0.1.30", "protocol": {"min": 1, "max": 5}}
+    {"since": "0.1.30", "protocol": {"min": 1, "max": 5}},
+    {"since": "0.1.33", "protocol": {"min": 1, "max": 6}}
   ],
   "clients": {
     "go": [

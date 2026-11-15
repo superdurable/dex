@@ -662,7 +662,7 @@ fn staged_target(
     source_run_id: RunId,
 ) -> FlowCloneForkStagedTarget {
     FlowCloneForkStagedTarget {
-        request: Some(clone_fork.clone()),
+        request: Some(bound_request(clone_fork)),
         source: Some(FlowCloneForkSource {
             flow_id: record.flow_id.clone(),
             run_id: source_run_id.to_string(),
@@ -673,5 +673,14 @@ fn staged_target(
         first_run_seq: record.next_run_seq.max(point.target.point.seq + 1),
         flow_type: record.flow_type.clone(),
         run_status: Some(point.run_status.clone()),
+    }
+}
+
+/// Returns the part of `request` that binds a staging to its FlowCloneFork command: everything
+/// but the Attribute writes, whose hard-delete values the owner uploads after staging.
+pub(super) fn bound_request(request: &CloneForkFlowRequest) -> CloneForkFlowRequest {
+    CloneForkFlowRequest {
+        attributes: Vec::new(),
+        ..request.clone()
     }
 }

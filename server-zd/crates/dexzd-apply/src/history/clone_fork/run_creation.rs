@@ -24,6 +24,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+use super::computation::bound_request;
 use super::copied_values::referenced_table_values;
 use super::staging::{STAGING_ID_BYTES, delete_staging, no_run_output, read_complete_staging};
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
@@ -251,7 +252,7 @@ fn staged_copy(
     let target = target.ok_or_else(|| ApplyError::InvariantViolation {
         detail: "a complete clone fork staging has no target".to_owned(),
     })?;
-    if target.request.as_ref() != Some(request) {
+    if target.request.as_ref() != Some(&bound_request(request)) {
         return Ok(Err(invalid_staging_reply(
             "it was computed for a different request",
         )));

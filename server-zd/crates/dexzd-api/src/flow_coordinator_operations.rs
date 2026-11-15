@@ -10,15 +10,15 @@ use async_trait::async_trait;
 use dexzd_engine::{FlowCoordinationError, FlowCoordinatorRegistry, grpc_code};
 use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{
-    DeleteChannelMessageRequest, ErrorSubStatus, FlowResult, GetAttributesRequest,
-    GetAttributesResponse, GetChannelMessagesRequest, GetChannelMessagesResponse,
-    GetFlowStateRequest, GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse,
-    GetHistoryEventsRequest, GetHistoryEventsResponse, InvokeRpcRequest, InvokeRpcResponse,
-    LoadBlobsRequest, LoadBlobsResponse, PublishToChannelRequest, ResetFlowRequest,
-    ResetFlowResponse, SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse,
-    StopFlowRequest, UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForAttributeResponse,
-    WaitForFlowRequest, WaitForHistoryEventRequest, WaitForHistoryEventResponse,
-    WaitForStepCompletionRequest, WaitForStepCompletionResponse,
+    CloneForkFlowRequest, CloneForkFlowResponse, DeleteChannelMessageRequest, ErrorSubStatus,
+    FlowResult, GetAttributesRequest, GetAttributesResponse, GetChannelMessagesRequest,
+    GetChannelMessagesResponse, GetFlowStateRequest, GetFlowStateResponse, GetFlowSummaryRequest,
+    GetFlowSummaryResponse, GetHistoryEventsRequest, GetHistoryEventsResponse, InvokeRpcRequest,
+    InvokeRpcResponse, LoadBlobsRequest, LoadBlobsResponse, PublishToChannelRequest,
+    ResetFlowRequest, ResetFlowResponse, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    StartFlowResponse, StopFlowRequest, UpdateFlowConfigRequest, WaitForAttributeRequest,
+    WaitForAttributeResponse, WaitForFlowRequest, WaitForHistoryEventRequest,
+    WaitForHistoryEventResponse, WaitForStepCompletionRequest, WaitForStepCompletionResponse,
 };
 use tonic::Code;
 
@@ -189,6 +189,18 @@ impl FlowOperations for FlowCoordinatorRegistry {
         FlowCoordinatorRegistry::reset_flow(self, tenant_id, request)
             .await
             .map_err(|error| flow_operation_error(&flow_id, error))
+    }
+
+    async fn clone_fork_flow(
+        &self,
+        tenant_id: TenantId,
+        request: CloneForkFlowRequest,
+    ) -> Result<CloneForkFlowResponse, FlowOperationError> {
+        // Only the source Flow can be missing; the new Flow is created.
+        let source_flow_id = request.source_flow_id.clone();
+        FlowCoordinatorRegistry::clone_fork_flow(self, tenant_id, request)
+            .await
+            .map_err(|error| flow_operation_error(&source_flow_id, error))
     }
 
     async fn invoke_rpc(

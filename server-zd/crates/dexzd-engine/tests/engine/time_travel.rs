@@ -705,6 +705,22 @@ impl TimeTravelRunHistory for ScriptedRunHistory {
             request,
         )
     }
+
+    fn compute_clone_fork(
+        &self,
+        context: &ApplyContext,
+        request: &dexzd_apply::CloneForkComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
+    ) -> Result<dexzd_apply::SegmentedCloneForkComputation, ApplyError> {
+        dexzd_apply::compute_clone_fork_from_segments(
+            context,
+            self.view.as_ref(),
+            &self.segments,
+            &self.removed_values,
+            child_flow_runs,
+            request,
+        )
+    }
 }
 
 struct RemovedValues(BTreeMap<ValueId, Value>);

@@ -23,6 +23,8 @@ pub mod grpc_code {
     pub const DEADLINE_EXCEEDED: i32 = 4;
     /// `NOT_FOUND`.
     pub const NOT_FOUND: i32 = 5;
+    /// `ALREADY_EXISTS`.
+    pub const ALREADY_EXISTS: i32 = 6;
     /// `RESOURCE_EXHAUSTED`.
     pub const RESOURCE_EXHAUSTED: i32 = 8;
     /// `FAILED_PRECONDITION`.

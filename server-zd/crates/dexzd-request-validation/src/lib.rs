@@ -14,7 +14,10 @@ mod shared;
 mod waiting;
 mod worker;
 
-pub use client::{ClientRequest, validate_client_request, validate_start_flow_request};
+pub use client::{
+    ClientRequest, validate_client_request, validate_clone_fork_flow_config,
+    validate_start_flow_request,
+};
 pub use keyword_index::KeywordValueLimit;
 pub use shared::{ValidationCategory, ValidationConfig, ValidationError, quote_go_string};
 pub use waiting::validate_waiting_condition;

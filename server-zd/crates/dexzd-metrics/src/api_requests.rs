@@ -248,6 +248,7 @@ pub fn classify_rpc(path: &str) -> Option<RpcClass> {
         "/dex.FlowService/WaitForHistoryEvent" => Some(RpcClass::FlowRead),
         "/dex.FlowService/GetFlowState" => Some(RpcClass::FlowRead),
         "/dex.FlowService/ResetFlow" => Some(RpcClass::FlowWrite),
+        "/dex.FlowService/CloneForkFlow" => Some(RpcClass::FlowWrite),
         "/dex.FlowService/InvokeRPC" => Some(RpcClass::FlowWrite),
         "/dex.FlowService/SkipTimer" => Some(RpcClass::FlowWrite),
         "/dex.FlowService/UpdateFlowConfig" => Some(RpcClass::FlowWrite),

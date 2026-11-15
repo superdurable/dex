@@ -218,6 +218,9 @@ fn validate_effect_hard_delete_command(
             Some(flow_command::Command::AttributesSet(set)) => {
                 ("AttributesSet", &set.hard_delete_objects)
             }
+            Some(flow_command::Command::FlowCloneFork(clone_fork)) => {
+                ("FlowCloneFork", &clone_fork.hard_delete_objects)
+            }
             Some(flow_command::Command::RpcCommitted(rpc)) => {
                 ("RpcCommitted", &rpc.hard_delete_objects)
             }

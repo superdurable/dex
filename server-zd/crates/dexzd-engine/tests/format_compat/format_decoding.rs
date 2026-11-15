@@ -10,18 +10,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_engine::{HardDeleteObjectOwner, decode_hard_delete_value};
 use dexzd_keyspace::{
-    ColumnFamily, FLOW_DIRECTORY_KEY_TAG, RunTable, decode_partition_meta_key, parse_run_key,
+    ColumnFamily, FLOW_CLONE_FORK_STAGING_KEY_TAG, FLOW_DIRECTORY_KEY_TAG, RunTable,
+    decode_partition_meta_key, parse_run_key,
 };
 use dexzd_log::decode_batch;
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeIndexRegistry, AttributeRecord, AttributeSyncOutboxRecord,
     ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, ClusterObject,
-    FlowCommand, FlowDefinitionRecord, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord,
-    HistoryRowMetadata, HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord,
-    LocalStoreKind, LockRecord, LogRecord, Manifest, NodeMeta, OutboxRecord, PartitionMeta,
-    PermissionSetRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord, SnapshotManifest,
-    StepCounterRecord, StepExecutionRecord, SubFlowResultRecord, TimeTravelStagedChunk,
-    TimerRecord, ValueBirthRecord, ValueGarbageRecord, ValueRecord, flow_command, log_record,
+    FlowCloneForkStagedChunk, FlowCloneForkStagingRecord, FlowCommand, FlowDefinitionRecord,
+    FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata,
+    HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord, LocalStoreKind, LockRecord,
+    LogRecord, Manifest, NodeMeta, OutboxRecord, PartitionMeta, PermissionSetRecord,
+    RequestDedupRecord, RunRecord, SearchDocumentRecord, SnapshotManifest, StepCounterRecord,
+    StepExecutionRecord, SubFlowResultRecord, TimeTravelStagedChunk, TimerRecord, ValueBirthRecord,
+    ValueGarbageRecord, ValueRecord, flow_command, log_record,
 };
 use prost::Message;
 use xxhash_rust::xxh3::xxh3_64;
@@ -230,6 +232,15 @@ pub(crate) fn decode_state_row(column_family: ColumnFamily, key: &[u8], value: &
         ColumnFamily::Flow | ColumnFamily::History | ColumnFamily::Value => {
             if key.get(8) == Some(&FLOW_DIRECTORY_KEY_TAG) {
                 decode_as::<FlowDirectoryRecord>(value, &describe);
+                return;
+            }
+            if key.get(8) == Some(&FLOW_CLONE_FORK_STAGING_KEY_TAG) {
+                match column_family {
+                    ColumnFamily::Value => {
+                        decode_as::<FlowCloneForkStagedChunk>(value, &describe);
+                    }
+                    _ => decode_as::<FlowCloneForkStagingRecord>(value, &describe),
+                }
                 return;
             }
             let parsed =
