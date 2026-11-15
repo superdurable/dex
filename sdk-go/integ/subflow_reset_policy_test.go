@@ -44,19 +44,21 @@ func (subFlowAbandonedParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDeci
 }
 
 func TestSubFlowAlwaysFailResetDeliversAbandonedChildResult(t *testing.T) {
+	flowService := newFlowServiceClient(t)
 	flowID := newFlowID(t, "sub-flow-abandoned")
 	childID := subFlowID(flowID, subFlowAbandonedParentStep{}, 0)
-	_, err := integClient.StartFlow(
+	runID, err := integClient.StartFlow(
 		integrationContext(t), subFlowAbandonedParentFlow{}, flowID, 3600, dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
 	awaitSubFlowRunID(t, childID, "")
+	waitTime := awaitWaitForCompletedTime(t, flowService, flowID, runID)
 
 	// The SDK has no Time Travel option for the policy yet, so send the raw request.
-	_, err = newFlowServiceClient(t).ResetFlow(integrationContext(t), &dexpb.ResetFlowRequest{
+	_, err = flowService.ResetFlow(integrationContext(t), &dexpb.ResetFlowRequest{
 		FlowId:             flowID,
 		ResetType:          dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
-		HistoryEventTime:   time.Now().UTC().Format(time.RFC3339Nano),
+		HistoryEventTime:   waitTime.UTC().Format(time.RFC3339Nano),
 		Reason:             "verify SubFlow ALWAYS_FAIL reset",
 		SubFlowResetPolicy: dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_FAIL,
 	})
@@ -66,4 +68,28 @@ func TestSubFlowAlwaysFailResetDeliversAbandonedChildResult(t *testing.T) {
 	require.NoError(t, waitForFlow(t, flowID, true).DecodeSingleOutput(&output))
 	require.Equal(t, []string{"abandoned", dex.FlowFailed.String()}, strings.Split(output, "|"))
 	require.Equal(t, dex.FlowTerminated, waitForUncompletedFlow(t, childID, false).Status)
+}
+
+func awaitWaitForCompletedTime(
+	t *testing.T,
+	flowService dexpb.FlowServiceClient,
+	flowID string,
+	runID string,
+) time.Time {
+	t.Helper()
+	var waitTime time.Time
+	require.Eventually(t, func() bool {
+		response, err := flowService.GetHistoryEvents(integrationContext(t), &dexpb.GetHistoryEventsRequest{
+			FlowId: flowID, RunId: runID, EstimatePageSize: 100,
+		})
+		require.NoError(t, err)
+		for _, event := range response.Events {
+			if event.GetStepWaitForCompleted() != nil {
+				waitTime = event.EventTime.AsTime()
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 20*time.Millisecond)
+	return waitTime
 }
