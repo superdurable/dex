@@ -511,3 +511,59 @@ even when the target state is small. The request then fails with
 **true** (`dexcli flow time-travel -skip-writes-reapply`) if those writes should not be applied again. Or raise
 [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
 and restart the node before you retry.
+
+### SubFlows across a time travel {#sub-flows-across-a-time-travel}
+
+Since 0.1.33. A time travel can restore a Step whose WaitFor waits on SubFlow
+conditions. The **sub_flow_reset_policy** field of **ResetFlowRequest** decides
+what happens to each such condition. Each condition names the child Flow that
+its Step started.
+
+The policy can attach the condition to its child. When the child run has ended,
+its result completes the condition. This holds even when the parent has not
+received that result yet: the time travel reads the result from the child run.
+When the child run still runs, the condition keeps waiting for it. A child
+cannot be attached when the parent has no result and the child run no longer
+exists, for example because it was purged after its retention.
+
+The values are:
+
+- **SUB_FLOW_RESET_POLICY_UNSPECIFIED**: the default. For ResetFlow it means
+  **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART**.
+- **SUB_FLOW_RESET_POLICY_ALWAYS_RESTART**: restarts every child, whether it
+  ended or still runs.
+- **SUB_FLOW_RESET_POLICY_ALWAYS_FAIL**: fails every condition, whether its
+  child ended or still runs.
+- **SUB_FLOW_RESET_POLICY_ALWAYS_REJECT**: rejects the time travel when any
+  restored Step waits on a SubFlow condition.
+- **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART**: attaches each condition, and
+  restarts a child that cannot be attached.
+- **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL**: attaches each condition, and fails
+  a condition whose child cannot be attached.
+- **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT**: attaches each condition, and
+  rejects the time travel when a child cannot be attached.
+
+A restart starts the child again with the start it received: its Flow type,
+starting Step, input, and options. The child keeps its Flow ID. A child run
+that still runs is terminated first. The restored condition then accepts only
+the restarted run's result, so a late result of the earlier run is ignored. The
+time travel reads the original start from the child run. When that run no
+longer exists, or its start wrote hard-delete Attributes, the child cannot be
+restarted and the time travel is rejected. Under ResetFlow, a child that cannot
+be attached is always gone, so **ATTACH_ELSE_RESTART** rejects it.
+
+A failure terminates the child run when it may still run. The condition then
+completes with a **FAILED** child result whose error type is
+**FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED**. The Step's Execute receives it like any
+failed child.
+
+A rejection returns **FAILED_PRECONDITION** and changes nothing. Its message
+names each Step execution and child Flow ID that caused it. An unknown policy
+value fails with **INVALID_ARGUMENT**.
+
+Changed in 0.1.33: a restored condition whose child run no longer exists used to
+wait forever. The default policy now rejects the time travel with
+**FAILED_PRECONDITION** instead. A condition whose child still runs keeps
+waiting for it, as before. A condition whose child ended still completes with
+that child's result. When the parent had not received the result yet, the
+condition now completes at the time travel instead of when the result arrives.
