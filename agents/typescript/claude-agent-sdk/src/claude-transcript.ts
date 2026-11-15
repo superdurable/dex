@@ -134,26 +134,6 @@ export function loadSessionTranscript(messages: readonly AgentMessage[]): Claude
   return { sessionId, entries: withoutLeafPointers(entries) };
 }
 
-/** Returns the transcript entries of the latest turn before `currentTurnId` that stored any. */
-export function loadLastEndedTurnEntries(
-  messages: readonly AgentMessage[],
-  currentTurnId: string,
-): ClaudeTranscriptEntry[] {
-  const endedTurnMessages = messages.filter(
-    (message) => message.turnId !== currentTurnId && message.role !== "user",
-  );
-  const lastTurnId = [...endedTurnMessages]
-    .reverse()
-    .find(
-      (message) =>
-        parseJsonObject(message.frameworkItem, `message ${message.sequence}`)["kind"] === claudeTranscriptItemKind,
-    )?.turnId;
-  if (lastTurnId === undefined) {
-    return [];
-  }
-  return [...loadSessionTranscript(endedTurnMessages.filter((message) => message.turnId === lastTurnId)).entries];
-}
-
 export function encodeRunState(
   sessionId: string,
   turnEntries: readonly ClaudeTranscriptEntry[],
@@ -263,39 +243,164 @@ export function buildUnfinishedToolResultEntries(
   let parentUuid = conversationEntries.at(-1)?.["uuid"] ?? null;
   const resultEntries: ClaudeTranscriptEntry[] = [];
   for (const toolUse of unansweredToolUses) {
-    const result = describeResult(toolUse);
     const uuid = nameBasedUuid(`${sessionId}/${toolUse.toolUseId}`);
-    resultEntries.push({
-      parentUuid,
-      isSidechain: false,
-      type: "user",
-      message: {
-        role: "user",
-        content: [
-          {
-            tool_use_id: toolUse.toolUseId,
-            type: "tool_result",
-            content:
-              result.images.length === 0
-                ? result.text
-                : [{ type: "text", text: result.text }, ...result.images.map(imageBlock)],
-            ...(result.isError ? { is_error: true } : {}),
-          },
-        ],
-      },
-      uuid,
-      ...(timestamp === undefined ? {} : { timestamp }),
-      toolUseResult: result.isError ? `Error: ${result.text}` : result.text,
-      sourceToolAssistantUUID: toolUse.assistantUuid,
-      ...toolUse.envelope,
-    });
+    resultEntries.push(buildToolResultEntry(toolUse, describeResult(toolUse), uuid, parentUuid, timestamp));
     parentUuid = uuid;
   }
   return resultEntries;
 }
 
+/** The transcript a segment's CLI resumes from, and the answers it adds that the session has not stored yet. */
+export interface ResumeTranscript {
+  readonly entries: ClaudeTranscriptEntry[];
+  readonly newAnswerEntries: ClaudeTranscriptEntry[];
+}
+
+// Answers every ended turn's unanswered tool use in place; see "Ended turns" in the README.
+export function buildResumeTranscript(
+  sessionId: string | null,
+  entries: readonly ClaudeTranscriptEntry[],
+  endedTurnEntries: readonly ClaudeTranscriptEntry[],
+  answerText: string,
+): ResumeTranscript {
+  if (sessionId === null) {
+    return { entries: [...entries], newAnswerEntries: [] };
+  }
+  const answeredIds = answeredToolUseIds(entries);
+  const newAnswerEntries = mainToolUsesOf(endedTurnEntries)
+    .filter((toolUse) => !answeredIds.has(toolUse.toolUseId))
+    .map((toolUse) =>
+      buildToolResultEntry(
+        toolUse,
+        { text: answerText, isError: true, images: [] },
+        endedTurnAnswerUuid(sessionId, toolUse.toolUseId),
+        toolUse.assistantUuid,
+        toolUse.timestamp,
+      ),
+    );
+  const storedAnswerEntries = entries.filter((entry) => isEndedTurnAnswer(sessionId, entry));
+  if (newAnswerEntries.length === 0 && storedAnswerEntries.length === 0) {
+    return { entries: [...entries], newAnswerEntries: [] };
+  }
+  return {
+    entries: placeEndedTurnAnswers(entries, [...storedAnswerEntries, ...newAnswerEntries]),
+    newAnswerEntries,
+  };
+}
+
+// Moves each answer after its tool use's entry and drops the answered calls' deferral attachments.
+function placeEndedTurnAnswers(
+  entries: readonly ClaudeTranscriptEntry[],
+  answerEntries: readonly ClaudeTranscriptEntry[],
+): ClaudeTranscriptEntry[] {
+  const answerUuids = new Set(answerEntries.map((entry) => entry["uuid"]));
+  const answeredIds = answeredToolUseIds(answerEntries);
+  const answersByAssistantUuid = new Map<unknown, ClaudeTranscriptEntry[]>();
+  for (const answer of answerEntries) {
+    const answers = answersByAssistantUuid.get(answer["sourceToolAssistantUUID"]) ?? [];
+    answers.push(answer);
+    answersByAssistantUuid.set(answer["sourceToolAssistantUUID"], answers);
+  }
+  const parentOfDroppedUuid = new Map<unknown, unknown>();
+  for (const entry of entries) {
+    if (isDeferralAttachmentOf(entry, answeredIds)) {
+      parentOfDroppedUuid.set(entry["uuid"], entry["parentUuid"]);
+    }
+  }
+  const lastAnswerUuidByAssistantUuid = new Map<unknown, unknown>();
+  const placedEntries: ClaudeTranscriptEntry[] = [];
+  for (const entry of entries) {
+    if (answerUuids.has(entry["uuid"]) || parentOfDroppedUuid.has(entry["uuid"])) {
+      continue;
+    }
+    let parentUuid = entry["parentUuid"];
+    while (parentOfDroppedUuid.has(parentUuid)) {
+      parentUuid = parentOfDroppedUuid.get(parentUuid);
+    }
+    // Later blocks and results of the same reply stay; what continued the conversation follows the answer.
+    const isContinuation =
+      entry["type"] !== "assistant" && contentBlocksOf(entry).every((block) => block["type"] !== "tool_result");
+    if (isContinuation && lastAnswerUuidByAssistantUuid.has(parentUuid)) {
+      parentUuid = lastAnswerUuidByAssistantUuid.get(parentUuid);
+    }
+    placedEntries.push(parentUuid === entry["parentUuid"] ? entry : { ...entry, parentUuid });
+    const answers = typeof entry["uuid"] === "string" ? answersByAssistantUuid.get(entry["uuid"]) : undefined;
+    if (answers !== undefined) {
+      let answerParentUuid: unknown = entry["uuid"];
+      for (const answer of answers) {
+        placedEntries.push({ ...answer, parentUuid: answerParentUuid });
+        answerParentUuid = answer["uuid"];
+      }
+      lastAnswerUuidByAssistantUuid.set(entry["uuid"], answerParentUuid);
+    }
+  }
+  return placedEntries;
+}
+
+function isDeferralAttachmentOf(entry: ClaudeTranscriptEntry, toolUseIds: ReadonlySet<string>): boolean {
+  const attachment = entry["attachment"];
+  return (
+    entry["type"] === "attachment" &&
+    isRecord(attachment) &&
+    attachment["type"] === "hook_deferred_tool" &&
+    toolUseIds.has(String(attachment["toolUseID"]))
+  );
+}
+
+// An answer's uuid names its tool use, so the answer is recognized among the stored entries.
+function isEndedTurnAnswer(sessionId: string, entry: ClaudeTranscriptEntry): boolean {
+  if (entry["type"] !== "user" || typeof entry["uuid"] !== "string") {
+    return false;
+  }
+  const [result, ...otherBlocks] = contentBlocksOf(entry);
+  return (
+    result !== undefined &&
+    otherBlocks.length === 0 &&
+    result["type"] === "tool_result" &&
+    entry["uuid"] === endedTurnAnswerUuid(sessionId, String(result["tool_use_id"]))
+  );
+}
+
+function endedTurnAnswerUuid(sessionId: string, toolUseId: string): string {
+  return nameBasedUuid(`${sessionId}/ended-turn/${toolUseId}`);
+}
+
+function buildToolResultEntry(
+  toolUse: MainToolUse,
+  result: UnfinishedToolResult,
+  uuid: string,
+  parentUuid: unknown,
+  timestamp: unknown,
+): ClaudeTranscriptEntry {
+  return {
+    parentUuid,
+    isSidechain: false,
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          tool_use_id: toolUse.toolUseId,
+          type: "tool_result",
+          content:
+            result.images.length === 0
+              ? result.text
+              : [{ type: "text", text: result.text }, ...result.images.map(imageBlock)],
+          ...(result.isError ? { is_error: true } : {}),
+        },
+      ],
+    },
+    uuid,
+    ...(typeof timestamp === "string" ? { timestamp } : {}),
+    toolUseResult: result.isError ? `Error: ${result.text}` : result.text,
+    sourceToolAssistantUUID: toolUse.assistantUuid,
+    ...toolUse.envelope,
+  };
+}
+
 interface MainToolUse extends TranscriptToolUse {
   readonly assistantUuid: string | null;
+  readonly timestamp: unknown;
   // The session fields of the tool use's assistant entry, which the CLI writes on every entry.
   readonly envelope: Readonly<Record<string, unknown>>;
 }
@@ -312,7 +417,13 @@ function mainToolUsesOf(entries: readonly ClaudeTranscriptEntry[]): MainToolUse[
       const assistantUuid = typeof entry["uuid"] === "string" ? entry["uuid"] : null;
       return contentBlocksOf(entry)
         .filter((block) => block["type"] === "tool_use" && typeof block["id"] === "string")
-        .map((block) => ({ toolUseId: String(block["id"]), cliToolName: String(block["name"]), assistantUuid, envelope }));
+        .map((block) => ({
+          toolUseId: String(block["id"]),
+          cliToolName: String(block["name"]),
+          assistantUuid,
+          timestamp: entry["timestamp"],
+          envelope,
+        }));
     });
 }
 

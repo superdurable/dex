@@ -29,6 +29,9 @@ import { FakeLedgerProvider } from "../fixtures/fake-ledger.js";
 import {
   assertNoTurnNote,
   assertUniqueTranscriptEntries,
+  deferralsOf,
+  firstNewMessageOf,
+  resultsOf,
   storedTranscriptEntries,
 } from "../fixtures/transcript-assertions.js";
 import {
@@ -340,9 +343,61 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
       (block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId,
     );
     assert.deepEqual(
-      resultBlocks.map((block) => [block["content"], block["is_error"]]),
+      resultBlocks.map((block) => [withoutSystemReminders(block["content"]), block["is_error"]]),
       [[outcomeUnknownToolResult, true]],
     );
+  });
+
+  test("a call left open behind a turn that an older Worker completed is answered right after its tool use", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-older-worker-turns");
+    const command = 'call publish {"message":"draft"}';
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 1);
+    const afterOlderTurn = await agent.withoutEndedTurnAnswers(async () => {
+      assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}say second`), true);
+      return agent.waitForTurns(sessionId, 2);
+    });
+    // The older Worker's CLI deferred the open call again and stored no result for it.
+    assert.equal(deferralsOf(afterOlderTurn.messages, interrupt.toolCallId), 2);
+    assert.equal(resultsOf(afterOlderTurn.messages, interrupt.toolCallId), 0);
+    const firstNewRequest = api.requests.length;
+
+    const { result: snapshot, outcomes } = await agent.withFailedFirstAttempt("turn-3", async () => {
+      assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+      return agent.waitForTurns(sessionId, 3);
+    });
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.equal(snapshot.messages.at(-1)?.text, `history: ${command} | say second`);
+    const answer = snapshot.messages[afterOlderTurn.messages.length + 1];
+    assert.deepEqual(
+      [answer?.role, answer?.turnId, answer?.toolCallId, answer?.toolOutput],
+      ["tool", "turn-3", interrupt.toolCallId, outcomeUnknownToolResult],
+    );
+    assert.equal(outcomes.length, 2);
+    assert.deepEqual(firstNewMessageOf(outcomes[1]), firstNewMessageOf(outcomes[0]));
+    assert.equal(resultsOf(snapshot.messages, interrupt.toolCallId), 1);
+    assert.equal(deferralsOf(snapshot.messages, interrupt.toolCallId), 2);
+    assertUniqueTranscriptEntries(snapshot.messages);
+    assert.equal(agent.invocations.count("publish"), 0);
+    // Both attempts sent the model the answer right after the call, and never the CLI's filler.
+    const turnThreeRequests = api.requests.slice(firstNewRequest).filter((request) => request.command === "recall");
+    assert.equal(turnThreeRequests.length, 2);
+    for (const request of turnThreeRequests) {
+      assert.equal(JSON.stringify(request.messages).includes("Tool result missing"), false);
+      const toolUseIndex = request.messages.findIndex((message) =>
+        contentOf(message).some((block) => block["type"] === "tool_use" && block["id"] === interrupt.toolCallId),
+      );
+      assert.ok(toolUseIndex >= 0);
+      assert.deepEqual(
+        contentOf(request.messages[toolUseIndex + 1])
+          .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId)
+          .map((block) => [withoutSystemReminders(block["content"]), block["is_error"]]),
+        [[outcomeUnknownToolResult, true]],
+      );
+    }
   });
 
   test("two connector writes of one reply run one at a time in the model's order", async () => {
@@ -556,6 +611,13 @@ type JsonBlock = Readonly<Record<string, unknown>>;
 function contentOf(message: unknown): JsonBlock[] {
   const content = (message as JsonBlock | undefined)?.["content"];
   return Array.isArray(content) ? (content as JsonBlock[]) : [];
+}
+
+// The real CLI may append reminders to the last tool result it sends.
+function withoutSystemReminders(content: unknown): unknown {
+  return typeof content === "string"
+    ? content.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim()
+    : content;
 }
 
 function userTextsIn(message: unknown): string[] {

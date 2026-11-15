@@ -22,6 +22,9 @@ import { ClaudeAgentTestHarness } from "../fixtures/claude-agent-test-harness.js
 import {
   assertNoTurnNote,
   assertUniqueTranscriptEntries,
+  deferralsOf,
+  firstNewMessageOf,
+  resultsOf,
   storedTranscriptEntries,
 } from "../fixtures/transcript-assertions.js";
 
@@ -221,6 +224,56 @@ describe("Claude agent turns store their transcript while they run and when they
       ["user", "turn-3", null],
       ["assistant", "turn-3", null],
     ]);
+    assertUniqueTranscriptEntries(later.messages);
+  });
+
+  test("a call left open behind a turn that an older Worker completed is answered right after its tool use", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("older-worker-turns");
+    await agent.sessions.startSession(sessionId, 'call publish {"message":"draft"}');
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 1);
+    const afterOlderTurn = await agent.withoutEndedTurnAnswers(async () => {
+      assert.equal(await agent.sessions.sendUserMessage(sessionId, "say second"), true);
+      return agent.waitForTurns(sessionId, 2);
+    });
+    assert.equal(afterOlderTurn.messages.at(-1)?.text, "said: second");
+    // The older Worker's CLI deferred the open call again and stored no result for it.
+    assert.equal(deferralsOf(afterOlderTurn.messages, interrupt.toolCallId), 2);
+    assert.equal(resultsOf(afterOlderTurn.messages, interrupt.toolCallId), 0);
+
+    const { result: snapshot, outcomes } = await agent.withFailedFirstAttempt("turn-3", async () => {
+      assert.equal(await agent.sessions.sendUserMessage(sessionId, "say third"), true);
+      return agent.waitForTurns(sessionId, 3);
+    });
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.deepEqual(rolesOf(snapshot.messages.slice(afterOlderTurn.messages.length)), [
+      ["user", "turn-3", null],
+      ["tool", "turn-3", "publish"],
+      ["assistant", "turn-3", null],
+    ]);
+    const answer = snapshot.messages[afterOlderTurn.messages.length + 1];
+    assert.equal(answer?.toolCallId, interrupt.toolCallId);
+    assert.equal(answer?.toolOutput, outcomeUnknownToolResult);
+    assert.equal(snapshot.messages.at(-1)?.text, "said: third");
+    // The retried attempt built the same answer, and the session stored it once.
+    assert.equal(outcomes.length, 2);
+    assert.deepEqual(firstNewMessageOf(outcomes[1]), firstNewMessageOf(outcomes[0]));
+    assert.equal(firstNewMessageOf(outcomes[0])?.frameworkItem, answer?.frameworkItem);
+    assert.equal(resultsOf(snapshot.messages, interrupt.toolCallId), 1);
+    assert.equal(deferralsOf(snapshot.messages, interrupt.toolCallId), 2);
+    assertUniqueTranscriptEntries(snapshot.messages);
+    assert.deepEqual(agent.invocations.names().slice(-4), ["cli:resume", "model_call", "cli:resume", "model_call"]);
+    assert.equal(agent.invocations.count("publish"), 0);
+
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, "say fourth"), true);
+    const later = await agent.waitForTurns(sessionId, 4);
+    assert.deepEqual(rolesOf(later.messages.slice(snapshot.messages.length)), [
+      ["user", "turn-4", null],
+      ["assistant", "turn-4", null],
+    ]);
+    assert.equal(deferralsOf(later.messages, interrupt.toolCallId), 2);
     assertUniqueTranscriptEntries(later.messages);
   });
 

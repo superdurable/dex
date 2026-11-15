@@ -11,7 +11,14 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AgentEvent, AgentInterrupt, AgentSessionFlow, AgentSnapshot } from "@superdurable/dex-agents";
+import type {
+  AgentEvent,
+  AgentInterrupt,
+  AgentSessionFlow,
+  AgentSnapshot,
+  AgentTurnContext,
+  AgentTurnOutcome,
+} from "@superdurable/dex-agents";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -24,7 +31,7 @@ import {
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
 
-import type { ClaudeAgentRunner, ClaudeAgentSessionOptions } from "../../src/index.js";
+import { ClaudeAgentRunner, type ClaudeAgentSessionOptions } from "../../src/index.js";
 
 import { createClaudeTestAgentFlow, type ClaudeTestAgentCli } from "./claude-test-agent.js";
 import {
@@ -135,6 +142,52 @@ export class ClaudeAgentTestHarness {
       return await this.waitForTurns(sessionId, turnCount);
     } finally {
       runner.buildUnfinishedTurnMessages = buildUnfinishedTurnMessages;
+    }
+  }
+
+  /**
+   * Runs `body` while `RunModel` answers no ended turn's tool use, as adapter 0.6.11 and the Python adapter do. It
+   * shows the runner every stored message as one of the running turn's. It needs the in-process Worker.
+   */
+  public async withoutEndedTurnAnswers<T>(body: () => Promise<T>): Promise<T> {
+    const runner = this.flow.runner;
+    runner.runModelStep = (turn: AgentTurnContext) =>
+      ClaudeAgentRunner.prototype.runModelStep.call(runner, {
+        ...turn,
+        messages: turn.messages.map((message) => ({ ...message, turnId: turn.turnId })),
+      });
+    try {
+      return await body();
+    } finally {
+      delete (runner as { runModelStep?: unknown }).runModelStep;
+    }
+  }
+
+  /**
+   * Runs `body` while the first `RunModel` attempt of `turnId` fails after its CLI returned, before the session
+   * commits it, and returns `body`'s result with the outcome of each attempt of that turn.
+   */
+  public async withFailedFirstAttempt<T>(
+    turnId: string,
+    body: () => Promise<T>,
+  ): Promise<{ readonly result: T; readonly outcomes: AgentTurnOutcome[] }> {
+    const runner = this.flow.runner;
+    const outcomes: AgentTurnOutcome[] = [];
+    runner.runModelStep = async (turn: AgentTurnContext) => {
+      const outcome = await ClaudeAgentRunner.prototype.runModelStep.call(runner, turn);
+      if (turn.turnId !== turnId) {
+        return outcome;
+      }
+      outcomes.push(outcome);
+      if (outcomes.length === 1) {
+        throw new Error("injected failure after the CLI returned");
+      }
+      return outcome;
+    };
+    try {
+      return { result: await body(), outcomes };
+    } finally {
+      delete (runner as { runModelStep?: unknown }).runModelStep;
     }
   }
 

@@ -63,11 +63,11 @@ import {
 } from "./claude-tool-sources.js";
 import {
   answeredToolUseIds,
+  buildResumeTranscript,
   buildUnfinishedToolResultEntries,
   decodeRunState,
   encodeRunState,
   encodeUserPromptItem,
-  loadLastEndedTurnEntries,
   loadSessionTranscript,
   projectTurnEntries,
   buildTurnPromptContent,
@@ -470,11 +470,12 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * call's final record. The CLI then adds a hidden "Continue from where you left off." message. The
    * runner keeps the CLI's input open until the segment's result message, then closes it.
    *
-   * A first segment also answers every tool use that the latest earlier turn with a stored transcript left without a
-   * result, with {@link outcomeUnknownToolResult}. Only a Worker without {@link buildUnfinishedTurnMessages}, such as
-   * adapter 0.6.11 or the Python adapter, ends a turn that way after a deferral this adapter stored. Without the
-   * answer, the CLI would resume that call as a pending deferral. The segment stores these results before its own
-   * messages. Since 0.6.12.
+   * Every segment also answers each tool use of an ended turn that has no result, with
+   * {@link outcomeUnknownToolResult}. Only a Worker without {@link buildUnfinishedTurnMessages}, such as adapter
+   * 0.6.11 or the Python adapter, ends a turn that way after a deferral this adapter stored. Without the answer, the
+   * CLI would resume that call as a pending deferral and fill in its own missing-result text. The segment stores a new
+   * answer before its own messages. The CLI always gets each answer right after its tool use, and no deferral
+   * attachment of an answered call. Since 0.6.12.
    *
    * @param turn - Committed session state for this segment.
    * @returns `ToolCallsRequested` with the one call the CLI deferred, the Claude session ID as run state, and the
@@ -494,7 +495,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     let promptContent: string | PromptContentBlock[] | undefined;
     if (turn.frameworkRunState === null) {
       sessionId = committedTranscript.sessionId;
-      earlierTurnEntries = buildEndedTurnToolResultEntries(sessionId, turn);
+      earlierTurnEntries = [];
       promptContent = buildTurnPromptContent(turn.messages, turn.turnId);
     } else {
       const suspendedTurn = decodeRunState(turn.frameworkRunState);
@@ -502,7 +503,13 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
       earlierTurnEntries = suspendedTurn.turnEntries;
       promptContent = undefined;
     }
-    const resumedEntries = [...committedTranscript.entries, ...earlierTurnEntries];
+    const resumeTranscript = buildResumeTranscript(
+      committedTranscript.sessionId,
+      [...committedTranscript.entries, ...earlierTurnEntries],
+      loadSessionTranscript(turn.messages.filter((message) => message.turnId !== turn.turnId)).entries,
+      outcomeUnknownToolResult,
+    );
+    const resumedEntries = resumeTranscript.entries;
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const imageCodec = this.transcriptImageCodec(turn, [resumedEntries, promptContent]);
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries, imageCodec);
@@ -548,8 +555,8 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     }
     const result = observer.successfulResult();
     const segmentTranscript = sessionStore.takeSegmentTranscript();
-    // Earlier entries: an ended turn's healed results, or a 0.6.11 run state's unstored entries so far.
-    const unstoredTurnEntries = [...earlierTurnEntries, ...segmentTranscript.entries];
+    // A run state from adapter 0.6.11 or earlier holds the turn's unstored entries so far.
+    const unstoredTurnEntries = [...resumeTranscript.newAnswerEntries, ...earlierTurnEntries, ...segmentTranscript.entries];
     const newMessages = projectTurnEntries(
       segmentTranscript.sessionId,
       unstoredTurnEntries,
@@ -1172,18 +1179,6 @@ function loadOpenTelemetryApi(): typeof OpenTelemetryApi | null {
     }
   }
   return loadedOpenTelemetryApi;
-}
-
-// A Worker without buildUnfinishedTurnMessages can end a turn at a stored deferral, which the CLI would resume.
-function buildEndedTurnToolResultEntries(sessionId: string | null, turn: AgentTurnContext): ClaudeTranscriptEntry[] {
-  if (sessionId === null) {
-    return [];
-  }
-  return buildUnfinishedToolResultEntries(sessionId, loadLastEndedTurnEntries(turn.messages, turn.turnId), () => ({
-    text: outcomeUnknownToolResult,
-    isError: true,
-    images: [],
-  }));
 }
 
 function parseCustomToolArguments(

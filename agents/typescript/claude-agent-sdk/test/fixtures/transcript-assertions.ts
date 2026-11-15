@@ -13,6 +13,8 @@ import {
   turnFailureNoteHeader,
   turnSteeredNoteHeader,
   type AgentMessage,
+  type AgentTurnOutcome,
+  type FrameworkMessage,
 } from "@superdurable/dex-agents";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
@@ -36,6 +38,29 @@ export function storedTranscriptEntries(
     const item = JSON.parse(message.frameworkItem) as { readonly kind: string; readonly entries?: unknown[] };
     return item.kind === claudeTranscriptItemKind ? ((item.entries ?? []) as Record<string, unknown>[]) : [];
   });
+}
+
+/** Returns how many stored deferral attachments name the tool use. */
+export function deferralsOf(messages: readonly AgentMessage[], toolUseId: string): number {
+  return storedTranscriptEntries(messages).filter((entry) => {
+    const attachment = entry["attachment"] as Record<string, unknown> | undefined;
+    return attachment?.["type"] === "hook_deferred_tool" && attachment["toolUseID"] === toolUseId;
+  }).length;
+}
+
+/** Returns how many stored tool results answer the tool use. */
+export function resultsOf(messages: readonly AgentMessage[], toolUseId: string): number {
+  return storedTranscriptEntries(messages)
+    .flatMap((entry) => {
+      const content = (entry["message"] as { readonly content?: unknown } | undefined)?.content;
+      return Array.isArray(content) ? (content as Record<string, unknown>[]) : [];
+    })
+    .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === toolUseId).length;
+}
+
+/** Returns the first message a `RunModel` outcome stores. */
+export function firstNewMessageOf(outcome: AgentTurnOutcome | undefined): FrameworkMessage | undefined {
+  return outcome?.newMessages?.[0];
 }
 
 /** Asserts that every stored transcript entry with a `uuid` is stored once. */
