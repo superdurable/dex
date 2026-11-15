@@ -788,12 +788,8 @@ mod tests {
         assert!(chunk_key.starts_with(&record_key));
         assert_eq!(chunk_key[record_key.len()..], 3_u32.to_be_bytes());
         assert!(parse_run_key(&record_key).is_err());
-        let earlier = super::flow_clone_fork_staging_index_key(
-            PartitionId(4),
-            -5,
-            flow_hash,
-            &staging_id,
-        );
+        let earlier =
+            super::flow_clone_fork_staging_index_key(PartitionId(4), -5, flow_hash, &staging_id);
         let later =
             super::flow_clone_fork_staging_index_key(PartitionId(4), 7, flow_hash, &staging_id);
         assert!(earlier < later);
