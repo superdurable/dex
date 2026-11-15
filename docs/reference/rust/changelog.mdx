@@ -10,17 +10,22 @@ This page lists user-visible changes to the Rust SDK, newest first; each section
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-rust/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.0); 1.45.1 released 2026-11-14 as [sdk-rust/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.1).
+Released 2026-11-11 as [sdk-rust/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.0); 1.45.1 released 2026-11-14 as [sdk-rust/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.1); 1.45.2 released 2026-11-15 as [sdk-rust/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.2).
 
 ### Added
 
 - **WorkerOptions::flow_definition_paths** and **WorkerOptions::flow_definitions** make a **Worker** upload Flow Definition Graph documents when it starts, so Dex Web can draw the Flow types it registers. **FlowDefinitionDocument** holds an in-memory document. Upload failures, including a Server without Flow definition storage, are logged as warnings and never stop the Worker. [Reference](/reference/rust/workers#upload-flow-definitions).
 - **Client::upload_flow_definitions** uploads documents from a deploy or CI script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/rust/client#api-names).
 - **PullWorkerOptions::task_queue** makes a **Worker** pull one named task queue, and **StartFlowOptions::task_queue** and **SubFlowOptions::task_queue** run a Flow or SubFlow on one. Workers on different task queues never take each other's work, even for the same Flow type. A SubFlow inherits its parent's task queue unless it names another one, and **dex.default** selects the default task queue. A named task queue requires Server protocol version 5; with an older Server, the Worker refuses to open task streams and the Client refuses to send the start, and a stream that Dex confirms for another task queue is a permanent rejection with an SDK-synthesized **FAILED_PRECONDITION** status. **Worker::task_queue** returns the Worker's task queue. For a Worker on a named task queue, the message of the **SdkError** that reports a registration rejection names the task queue; the typed **PullRegistrationError** keeps its existing fields. The default task queue still works with protocol version 4. [Reference](/reference/rust/workers#task-queue). Since 1.45.1.
+- **Client::clone_fork_flow** creates a new Flow from a copy of another Flow run's state at one point, while the source run keeps running. **CloneForkFlowOptions** selects the current state, the beginning, a history event time, a Step type, a Step execution, or a history event ID, and sets the source run, request ID, ID reuse policy, Flow configuration, task queue, initial Attributes, Flow timeout, reason, and SubFlow reset policy. **CloneForkFlowResult** returns the new run ID and the copied source run, run attempt, and event ID. The call requires server-zd 0.1.33 or later; with an older Server it fails before sending the request. Since 1.45.2.
+- **TimeTravelOptions::from_event_id** time-travels to the point right after one history event, and **TimeTravelOptions::sub_flow_reset_policy** chooses a **SubFlowResetPolicy** for the SubFlow conditions that restored Steps wait on. Since 1.45.2.
+- The Client negotiates Server protocol 6. Since 1.45.2.
+- **FlowErrorType::SubFlowAbandoned** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. Earlier versions report such a result with a **None** error type. Since 1.45.2.
 
 ### Breaking
 
 - A Step whose Step type contains a dash (-) can no longer start SubFlows. When its **wait_for** returns a **SubFlow** Condition, the server rejects the result as an invalid Worker response and fails the attempt without retry, so under the default policy the Flow fails. The Worker logs a warning but still sends the result. A dash made child Flow IDs ambiguous, so two parents could share one child. To migrate, rename the Step type, for example by overriding **Step::step_type** with a name without a dash. [Reference](/reference/rust/subflow#step-type-rule).
+- **FlowErrorType** is **#[non_exhaustive]**. A **match** on it outside the SDK needs a wildcard arm. This change lets later releases add error types without another breaking change. Since 1.45.2.
 
 ### Fixed
 

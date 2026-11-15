@@ -10,7 +10,7 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0); 1.45.1 released 2026-11-13 as [sdk-typescript/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.1); 1.45.2 released 2026-11-14 as [sdk-typescript/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-typescript/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.3); 1.45.4 released 2026-11-14 as [sdk-typescript/v1.45.4](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.4).
+Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0); 1.45.1 released 2026-11-13 as [sdk-typescript/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.1); 1.45.2 released 2026-11-14 as [sdk-typescript/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-typescript/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.3); 1.45.4 released 2026-11-14 as [sdk-typescript/v1.45.4](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.4); 1.45.5 released 2026-11-15 as [sdk-typescript/v1.45.5](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.5).
 
 ### Added
 
@@ -20,6 +20,10 @@ Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/
 - **PullWorkerOptions.taskQueue** makes a Worker pull one named task queue, and **StartFlowOptions.taskQueue** starts a Flow on one. Only Workers of that task queue run the Flow's Steps and RPCs, even when Workers of other task queues register the same Flow type. **SubFlowOptions.taskQueue** sends a SubFlow to another task queue; a SubFlow without it inherits its parent's task queue, and **dex.default** selects the default task queue. To serve several task queues, run one Worker per task queue. **PullQueueRegistrationState.taskQueue** and **PullRegistrationError.taskQueue** report the Worker's task queue. A named task queue requires Server protocol 5: the Worker and Client refuse it on an older Server, and a stream that the Server registers on a different task queue becomes a permanent rejection. [Reference](/reference/typescript/workers). Since 1.45.2.
 - **FlowState.taskQueue** names the task queue of the Flow that **Client.getFlowState** reads. An empty string means the default task queue. A Client without a Worker can read it to see which Workers must serve the Flow. Since 1.45.3.
 - **RPCInvokeOptions.requestId** sets the request ID of one **Client.invokeRPCWithOptions** call. Pass the same ID on every attempt, such as the ID of an event that is delivered at least once, and Dex Server applies the RPC's Flow changes at most once. A transactional or locking RPC answers a repeat from the recorded reply without running its handler again, and rejects a different request under the same ID with **DexServiceError** INVALID_ARGUMENT. Any other RPC runs its handler again; when that attempt changes Flow state or records an event, Dex Server discards those changes and returns the recorded reply, and when it changes no Flow state and records no event, the caller gets the attempt's new output. Use a transactional RPC when callers need the exact recorded reply. Without the option, each call still sends a new random request ID. [Reference](/reference/server/runtime-data#rpc-request-ids). Since 1.45.4.
+- **Client.cloneForkFlow** creates a new Flow from a copy of another Flow run's state at one point, while the source run keeps running. **CloneForkFlowOptions** selects the point with **TimeTravelType**, including the new **CURRENT** default, and sets the request ID, ID reuse policy, already-started handling, configuration override, task queue, initial Attributes, Flow timeout, reason, and SubFlow reset policy. **CloneForkFlowResult** returns the new run ID and the source run ID, run attempt, and event ID of the copied point. It requires Server protocol version 6, which server-zd 0.1.33 provides. Since 1.45.5.
+- **Client.timeTravel** accepts **TimeTravelType.EVENT_ID** with **TimeTravelOptions.eventId**, and **TimeTravelOptions.subFlowResetPolicy** with the new **SubFlowResetPolicy** values decides what happens to SubFlow conditions that restored Steps wait on. Since 1.45.5.
+- The SDK now negotiates Server protocol version 6. Since 1.45.5.
+- **FlowErrorType.SUB_FLOW_ABANDONED** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. **execute** reads it from **SubFlow.getConditionResults** like any other failed child. Code that matches every **FlowErrorType** value exhaustively, such as a **switch** with a **never** check, must handle the new value. Since 1.45.5.
 
 ### Breaking
 
@@ -28,6 +32,8 @@ Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/typescript/waits).
+- The TypeScript SDK package includes legacy notices and third-party license texts. Since 1.45.5.
+- Reading a SubFlow result with an error type this SDK version does not recognize no longer throws **TypeError**. **FlowResult.errorType** is then **undefined**. Since 1.45.5.
 
 ## 1.44 {#v1-44}
 
