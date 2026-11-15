@@ -588,7 +588,7 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" is not a regular file.")
 		return
 	case info.Size() > limits.MaxBytes:
-		feed.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %s is %s; the limit is %s.", name, formatSize(info.Size()), formatSize(limits.MaxBytes)))
+		feed.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %s has %s bytes; an image may have at most %s.", name, formatThousands(info.Size()), formatThousands(limits.MaxBytes)))
 		return
 	}
 	key, err := launchcontract.NewIdempotencyKey()

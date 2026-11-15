@@ -13,7 +13,6 @@ package typedpaths
 import (
 	"errors"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,9 +35,6 @@ const (
 	// directoryReadBatch is how many entries one directory read returns.
 	directoryReadBatch = 256
 )
-
-// imageExtensions are the file types a pasted path offers to attach.
-var imageExtensions = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
 
 // PathResolver turns typed text into absolute paths. Its zero value has no
 // home directory.
@@ -85,34 +81,6 @@ func (resolver PathResolver) ShortenHomePaths(text string) string {
 		return "~"
 	}
 	return strings.ReplaceAll(text, home+string(filepath.Separator), "~"+string(filepath.Separator))
-}
-
-// PastedImagePath returns the absolute path when text, as a terminal pastes
-// a dropped file, names one existing image file.
-func (resolver PathResolver) PastedImagePath(text string) (string, bool) {
-	if strings.ContainsAny(strings.TrimSpace(text), "\n\r") {
-		return "", false
-	}
-	path := lexTypedPath(text).value
-	if strings.HasPrefix(path, "file://") {
-		parsed, err := url.Parse(path)
-		if err != nil || (parsed.Host != "" && parsed.Host != "localhost") {
-			return "", false
-		}
-		path = parsed.Path
-	}
-	if path == "" || !imageExtensions[strings.ToLower(filepath.Ext(path))] {
-		return "", false
-	}
-	absolute, err := resolver.absolutePath(path)
-	if err != nil {
-		return "", false
-	}
-	info, err := os.Stat(absolute)
-	if err != nil || !info.Mode().IsRegular() {
-		return "", false
-	}
-	return absolute, true
 }
 
 // PathCompletions are the candidates of one completion.

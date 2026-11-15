@@ -43,7 +43,7 @@ export async function executeWorkerHostMethod(
 ): Promise<LocalRequestOutcome> {
   switch (method) {
     case "put_image":
-      return putImage(params, context.opened);
+      return putImage(params, context);
     case "start_session":
       return startSession(idempotencyKey, context);
     case "list_connectors":
@@ -54,7 +54,10 @@ export async function executeWorkerHostMethod(
 }
 
 /** Stores one image file in the media store, addressed by its SHA-256. */
-async function putImage(params: Readonly<Record<string, unknown>>, opened: OpenedSessionWorker): Promise<LocalRequestOutcome> {
+async function putImage(
+  params: Readonly<Record<string, unknown>>,
+  context: Pick<WorkerHostMethodContext, "opened" | "log">,
+): Promise<LocalRequestOutcome> {
   const path = params.path;
   if (typeof path !== "string" || !isAbsolute(path)) {
     return refusal("invalid_params", "put_image needs an absolute path.");
@@ -67,20 +70,23 @@ async function putImage(params: Readonly<Record<string, unknown>>, opened: Opene
       return refusal("not_found", `${name} is not a regular file.`);
     }
     size = status.size;
-  } catch {
-    return refusal("not_found", `${name} does not exist.`);
+  } catch (error: unknown) {
+    if (errorCode(error) === "ENOENT") {
+      return refusal("not_found", `${name} does not exist.`);
+    }
+    return refusal("not_found", `${name} cannot be read: ${describeFileError(error)}.`);
   }
   if (size > maxImageBytes) {
-    return refusal("too_large", `${name} has ${size} bytes; an image may have at most ${maxImageBytes}.`);
+    return refusal("too_large", `${name} has ${formatByteCount(size)} bytes; an image may have at most ${formatByteCount(maxImageBytes)}.`);
   }
   let data: Uint8Array;
   try {
     data = await readAtMost(path, maxImageBytes + 1);
-  } catch {
-    return refusal("not_found", `${name} cannot be read.`);
+  } catch (error: unknown) {
+    return refusal("not_found", `${name} cannot be read: ${describeFileError(error)}.`);
   }
   if (data.length > maxImageBytes) {
-    return refusal("too_large", `${name} has more than ${maxImageBytes} bytes; that is the most an image may have.`);
+    return refusal("too_large", `${name} has more than ${formatByteCount(maxImageBytes)} bytes; that is the most an image may have.`);
   }
   try {
     detectImageMimeType(data);
@@ -89,9 +95,11 @@ async function putImage(params: Readonly<Record<string, unknown>>, opened: Opene
   }
   let reference: AgentImageReference;
   try {
-    reference = await opened.mediaStore.putImage(data);
-  } catch {
-    return refusal("store_failed", `${name} could not be stored in the media store.`);
+    reference = await context.opened.mediaStore.putImage(data);
+  } catch (error: unknown) {
+    const reason = describeFailureWithoutDexDetails(error);
+    context.log(`put_image could not store ${name}: ${reason}`);
+    return refusal("store_failed", `${name} could not be stored in the media store: ${reason}`);
   }
   return {
     result: {
@@ -227,4 +235,32 @@ async function readAtMost(path: string, byteCount: number): Promise<Uint8Array> 
   } finally {
     await handle.close();
   }
+}
+
+/** Returns a Node.js file error's code, such as `ENOENT`, or undefined. */
+function errorCode(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
+    return error.code;
+  }
+  return undefined;
+}
+
+/** Describes a file error by its code, such as "permission denied (EACCES)", without the path. */
+function describeFileError(error: unknown): string {
+  switch (errorCode(error)) {
+    case "EACCES":
+    case "EPERM":
+      return `permission denied (${errorCode(error)})`;
+    case "EISDIR":
+      return "it is a directory (EISDIR)";
+    case undefined:
+      return error instanceof Error ? error.message : String(error);
+    default:
+      return errorCode(error) ?? String(error);
+  }
+}
+
+/** Writes a byte count with comma separators, such as "3,750,000". */
+function formatByteCount(byteCount: number): string {
+  return byteCount.toLocaleString("en-US");
 }

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
@@ -449,11 +450,20 @@ func isUnavailable(err error) bool {
 	return isService && code == codes.Unavailable
 }
 
+// streamStoreDisabledDetail is the detail the server sends with a Stream
+// call while its Stream store is disabled.
+const streamStoreDisabledDetail = "Stream Store is disabled"
+
 // isStreamStoreOff reports the FAILED_PRECONDITION a server without a
 // Stream store returns.
+// The server has no sub-status for it, so the detail tells it apart; any
+// other precondition failure is retried.
 func isStreamStoreOff(err error) bool {
-	code, isService := serviceErrorCode(err)
-	return isService && code == codes.FailedPrecondition
+	var serviceError *dex.ServiceError
+	return errors.As(err, &serviceError) &&
+		serviceError.Code == codes.FailedPrecondition &&
+		serviceError.SubStatus == dex.ErrorSubStatusUncategorized &&
+		strings.Contains(serviceError.Detail, streamStoreDisabledDetail)
 }
 
 // knownEventTypes are the AgentEvents types the debug log names; others,

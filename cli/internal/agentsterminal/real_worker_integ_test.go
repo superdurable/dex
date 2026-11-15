@@ -207,8 +207,8 @@ func (stack *realWorkerStack) putImageLaunch(t *testing.T) chatLaunch {
 	}
 }
 
-// A terminal pastes a dropped file as its path; the chat offers to attach
-// it, and Enter stores it through put_image.
+// A terminal pastes a dropped file as its path; the chat stores it through
+// put_image at once.
 func (stack *realWorkerStack) testPastedImagePathAttaches(t *testing.T) {
 	sessionID := "terminal-ui-paste"
 	stack.startSession(t, sessionID)
@@ -217,8 +217,6 @@ func (stack *realWorkerStack) testPastedImagePathAttaches(t *testing.T) {
 	chat := stack.openChatWithLaunch(t, sessionID, false, stack.putImageLaunch(t))
 	chat.waitForScreen("Type a message.")
 	chat.typeText("\x1b[200~'" + imagePath + "'\x1b[201~")
-	chat.waitForScreen("Attach dot.png?")
-	chat.typeText("\r")
 	chat.waitForScreen("image/png")
 	time.Sleep(300 * time.Millisecond)
 	chat.typeText("describe\r")
