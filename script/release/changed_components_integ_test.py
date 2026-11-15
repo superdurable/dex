@@ -16,6 +16,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from changed_components import COMPONENTS  # noqa: E402
+from changelog_fragments import FRAGMENT_SOURCE_PATHS  # noqa: E402
 from component_changelogs import PACKAGES_STYLE, TARGETS, release_key, released_line  # noqa: E402
 
 
@@ -356,6 +358,27 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('script/release/update_release_notes.py "${RELEASE_TAG}"', workflow)
         self.assertIn("contents: write", workflow)
         self.assertIn("fetch-depth: 0", workflow)
+
+
+class FragmentSourcePathsTest(unittest.TestCase):
+    # Paths of another component that a release embeds or builds against; its own fragment lists those changes.
+    EMBEDDED_PATHS = {
+        "web": {"sdk-go", "protos", ".dockerignore"},
+        "cli": {"web", "packages/flow-definition-renderer", "sdk-go", "protos", "go.work"},
+    }
+
+    def test_fragment_sources_cover_each_component_release_path(self) -> None:
+        for component in COMPONENTS:
+            prefixes = FRAGMENT_SOURCE_PATHS[component.key]
+            for path in component.paths:
+                if path in self.EMBEDDED_PATHS.get(component.key, set()):
+                    continue
+                with self.subTest(component=component.key, path=path):
+                    self.assertTrue(any(f"{path}/".startswith(prefix) or path == prefix for prefix in prefixes))
+
+    def test_embedded_component_paths_are_not_fragment_sources(self) -> None:
+        for prefix in FRAGMENT_SOURCE_PATHS["cli"]:
+            self.assertFalse(prefix.startswith(("web/", "server-zd/", "sdk-go/")), prefix)
 
 
 # The release tooling uses only the standard library, which has no YAML parser.

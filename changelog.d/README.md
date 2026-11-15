@@ -219,16 +219,19 @@ from it.
   | Target | Paths |
   | --- | --- |
   | `go` | `sdk-go/` |
-  | `java` | `sdk-java/`, `sdk-rust/crates/dex-blob-cache-jni/` |
-  | `python` | `sdk-python/`, `sdk-rust/crates/dex-blob-cache-python/` |
-  | `rust` | `sdk-rust/` |
-  | `typescript` | `sdk-typescript/`, `sdk-rust/crates/dex-blob-cache-node/` |
-  | `web` | `web/`, `packages/flow-definition-renderer/` |
-  | `cli` | `cli/` |
-  | `server` | `server-zd/` |
-  | `agents` | `agents/`, `docs/reference/agents/` |
-  | `agents-packages` | `agents/` |
+  | `java` | `sdk-java/`, the shared Blob Cache crate and `sdk-rust` manifests, `sdk-rust/crates/dex-blob-cache-jni/`, its publish workflow |
+  | `python` | `sdk-python/`, the shared Blob Cache crate and `sdk-rust` manifests, `sdk-rust/crates/dex-blob-cache-python/`, its publish workflow |
+  | `rust` | `sdk-rust/`, its publish workflow |
+  | `typescript` | `sdk-typescript/`, the shared Blob Cache crate and `sdk-rust` manifests, `sdk-rust/crates/dex-blob-cache-node/`, its publish workflow |
+  | `web` | `web/`, `packages/flow-definition-renderer/`, its two release workflows |
+  | `cli` | `cli/`, its release workflow |
+  | `server` | `server-zd/`, its binary and image release workflows |
+  | `agents` | `agents/`, `docs/reference/agents/`, the two agents publish workflows |
+  | `agents-packages` | `agents/`, the two agents publish workflows |
   | `skills` | `skills/` |
+
+  `FRAGMENT_SOURCE_PATHS` in `script/release/changelog_fragments.py` lists
+  them exactly.
 
   A component that embeds another, such as dexcli with Dex Web and server-zd,
   names the new embedded version and links its change log; the embedded

@@ -67,17 +67,52 @@ TARGET_OUTPUTS: dict[str, tuple[str, ...]] = {
     **{name: (target.output,) for name, target in COMPONENT_CHANGELOGS.items()},
 }
 # A fragment describes a change of its own target, so the pull request must change one of these paths.
+# They follow changed_components.py without the components a target embeds, such as Dex Web in dexcli.
+SHARED_BLOB_CACHE_PATHS = ("sdk-rust/Cargo.toml", "sdk-rust/Cargo.lock", "sdk-rust/crates/dex-blob-cache/")
 FRAGMENT_SOURCE_PATHS: dict[str, tuple[str, ...]] = {
     "go": ("sdk-go/",),
-    "java": ("sdk-java/", "sdk-rust/crates/dex-blob-cache-jni/"),
-    "python": ("sdk-python/", "sdk-rust/crates/dex-blob-cache-python/"),
-    "rust": ("sdk-rust/",),
-    "typescript": ("sdk-typescript/", "sdk-rust/crates/dex-blob-cache-node/"),
-    "web": ("web/", "packages/flow-definition-renderer/"),
-    "cli": ("cli/",),
-    "server": ("server-zd/",),
-    "agents": ("agents/", "docs/reference/agents/"),
-    "agents-packages": ("agents/",),
+    "java": (
+        "sdk-java/",
+        *SHARED_BLOB_CACHE_PATHS,
+        "sdk-rust/crates/dex-blob-cache-jni/",
+        ".github/workflows/sdk-java-publish.yml",
+    ),
+    "python": (
+        "sdk-python/",
+        *SHARED_BLOB_CACHE_PATHS,
+        "sdk-rust/crates/dex-blob-cache-python/",
+        ".github/workflows/sdk-python-publish.yml",
+    ),
+    "rust": ("sdk-rust/", ".github/workflows/sdk-rust-publish.yml"),
+    "typescript": (
+        "sdk-typescript/",
+        *SHARED_BLOB_CACHE_PATHS,
+        "sdk-rust/crates/dex-blob-cache-node/",
+        ".github/workflows/sdk-typescript-publish.yml",
+    ),
+    "web": (
+        "web/",
+        "packages/flow-definition-renderer/",
+        ".github/workflows/docker-image-web-release.yml",
+        ".github/workflows/web-embedded-module-release.yml",
+    ),
+    "cli": ("cli/", ".github/workflows/cli-release.yml"),
+    "server": (
+        "server-zd/",
+        ".github/workflows/server-zd-binary-release.yml",
+        ".github/workflows/server-zd-image-release.yml",
+    ),
+    "agents": (
+        "agents/",
+        "docs/reference/agents/",
+        ".github/workflows/agents-python-publish.yml",
+        ".github/workflows/agents-typescript-publish.yml",
+    ),
+    "agents-packages": (
+        "agents/",
+        ".github/workflows/agents-python-publish.yml",
+        ".github/workflows/agents-typescript-publish.yml",
+    ),
     SKILLS_TARGET: ("skills/",),
 }
 RELEASE_OUTPUT_PATHS = frozenset(path for outputs in TARGET_OUTPUTS.values() for path in outputs)

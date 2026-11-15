@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from component_changelogs import TARGETS, RELEASED_MENTION, parse_entry, split_entries  # noqa: E402
+from component_changelogs import (  # noqa: E402
+    RELEASED_MENTION,
+    TARGETS,
+    PendingItem,
+    assemble_release,
+    parse_entry,
+    split_entries,
+)
 from component_release_notes import (  # noqa: E402
     COMPONENT_CHANGELOG_TARGETS,
     ReleaseNotesError,
@@ -25,6 +33,7 @@ from component_release_notes import (  # noqa: E402
     build_release_notes,
     join_wrapped_lines,
     rewrite_relative_links,
+    own_paragraphs,
     split_items,
 )
 
@@ -32,6 +41,7 @@ SCRIPT = Path(__file__).with_name("component_release_notes.py")
 REPOSITORY_ROOT = SCRIPT.parents[2]
 PUBLISHED_NOTES_DIRECTORY = Path(__file__).with_name("testdata") / "agents_release_notes"
 CHANGED_COMPONENTS_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/release-changed-components.yml"
+LOOSE_SINCE = re.compile(r"\bSince\s+(\d+\.\d+\.\d+)")
 BLOB_BASE = "https://github.com/superdurable/dex/blob/agents/v1.0.0/"
 
 
@@ -461,17 +471,68 @@ class CurrentChangelogPartitionTest(unittest.TestCase):
                 released_lines = [line for line in entry.preamble if line.startswith("Released ")]
                 if not released_lines:
                     continue
-                versions = {
+                versions = [
                     mention.group("tag").removeprefix(target.tag_prefix)
                     for mention in RELEASED_MENTION.finditer(released_lines[0])
-                }
+                ]
                 for name, lines in entry.sections:
                     for item in split_items(target, name, lines):
+                        own_text = " ".join(own_paragraphs(list(item.lines)))
+                        mentioned = {version for version in LOOSE_SINCE.findall(own_text) if version in versions}
                         with self.subTest(component=component, entry=entry.heading, item=item.lines[0][:60]):
-                            self.assertIn(item.since_version or next(iter(sorted(versions))), versions)
-                for version in sorted(versions):
+                            self.assertIn(item.since_version or versions[0], versions)
+                            # A marker the parser missed, such as one split by a wrap, would credit the first release.
+                            self.assertLessEqual(mentioned, {item.since_version})
+                for version in versions:
                     with self.subTest(component=component, version=version):
                         build_component_release_notes(component, changelog, version, None, "superdurable/dex")
+
+
+class WrappedChangelogTextTest(unittest.TestCase):
+    """Soft wraps that prepare or an author leaves must not change which release an item belongs to."""
+
+    RELEASED_LINE = (
+        "Released 2026-12-01 as [sdk-go/v1.2.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.2.0)."
+    )
+
+    def prepared_changelog(self) -> str:
+        changelog = f"# Change log\n\n## 1.2 {{#v1-2}}\n\n{self.RELEASED_LINE}\n\n### Added\n\n- First.\n"
+        fragment = PendingItem(
+            "Added",
+            (
+                "- Patch item whose [reference](",
+                "  /reference/go/workers) and [API reference](",
+                "  pathname:///api/go/latest/dex/#type-worker) wrap.",
+            ),
+        )
+        return assemble_release(TARGETS["go"], changelog, [fragment], "1.2.1", "2026-12-02", False)
+
+    def test_prepared_patch_with_split_links(self) -> None:
+        changelog = self.prepared_changelog()
+        self.assertIn("pathname:///api/go/latest/dex/#type-worker) wrap. Since 1.2.1.", changelog)
+        notes = build_component_release_notes("go", changelog, "1.2.1", None, "superdurable/dex")
+        self.assertEqual(
+            notes,
+            "## Breaking Changes\n\nNone.\n\n## Added\n\n"
+            "- Patch item whose [reference](https://docs.superdurable.io/reference/go/workers) and "
+            "[API reference](https://docs.superdurable.io/api/go/latest/dex/#type-worker) wrap. Since 1.2.1.\n\n"
+            "Full change log: https://docs.superdurable.io/reference/go/changelog#v1-2\n",
+        )
+        notes = build_component_release_notes("go", changelog, "1.2.0", None, "superdurable/dex")
+        self.assertIn("## Added\n\n- First.\n\nFull change log:", notes)
+
+    def test_since_marker_split_by_a_soft_wrap(self) -> None:
+        changelog = self.prepared_changelog().replace(
+            "- First.\n",
+            "- Wrapped item whose marker wraps. Since\n  1.2.1.\n  - A sub-bullet.\n- First.\n",
+        )
+        _, blocks = split_entries(changelog)
+        entry = parse_entry(blocks[0])
+        items = split_items(TARGETS["go"], "Added", entry.sections[0][1])
+        self.assertEqual([item.since_version for item in items], ["1.2.1", None, "1.2.1"])
+        added = section_of(build_component_release_notes("go", changelog, "1.2.1", None, "superdurable/dex"), "Added")
+        self.assertTrue(added.startswith("- Wrapped item whose marker wraps. Since 1.2.1.\n  - A sub-bullet.\n- Patch item"))
+        self.assertNotIn("Wrapped item", build_component_release_notes("go", changelog, "1.2.0", None, "superdurable/dex"))
 
 
 if __name__ == "__main__":

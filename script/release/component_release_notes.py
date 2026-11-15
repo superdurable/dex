@@ -47,7 +47,7 @@ OLDER_RELEASES_PREFIX = "Older releases:"
 FENCE_PATTERN = re.compile(r"^\s*(```|~~~)")
 BLOCK_START_PATTERN = re.compile(r"^\s*([-*+]\s|\d+[.)]\s|#|>|\||<|(-\s*){3,}$|(\*\s*){3,}$|(_\s*){3,}$)")
 QUOTE_PATTERN = re.compile(r"^\s*>\s?(.*)$")
-INLINE_LINK_PATTERN = re.compile(r"\]\(([^()\s]+)((?:\s+\"[^\"]*\")?)\)")
+INLINE_LINK_PATTERN = re.compile(r"\]\(\s*([^()\s]+)((?:\s+\"[^\"]*\")?)\s*\)")
 REFERENCE_DEFINITION_PATTERN = re.compile(r"^(\s*\[[^\]]+\]:\s*)(\S+)")
 ABSOLUTE_TARGET_PATTERN = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*:|#)")
 DOCS_PATHNAME_PREFIX = "pathname://"
@@ -138,7 +138,8 @@ def build_docs_release_notes(target: ChangelogTarget, changelog_text: str, versi
     if anchor is None:
         raise ReleaseNotesError(f"{target.output}: the {key} heading has no {{#anchor}}")
     changelog_url = f"{DOCS_SITE_URL}/{posixpath.dirname(target.output).removeprefix('docs/')}/changelog"
-    body = join_wrapped_lines(rewrite_docs_links("\n\n".join(parts), changelog_url))
+    # Joining first keeps a link destination that a soft wrap split in one line.
+    body = rewrite_docs_links(join_wrapped_lines("\n\n".join(parts)), changelog_url)
     return f"{body}\n\nFull change log: {changelog_url}#{anchor.group('anchor')}\n"
 
 
@@ -180,21 +181,32 @@ def split_items(target: ChangelogTarget, section: str, lines: list[str]) -> list
 
 def since_marker(lines: list[str]) -> str | None:
     """Returns the version of the bullet's "Since X.Y.Z." marker, ignoring sub-bullets and code fences."""
-    marker = None
+    markers = [
+        match.group("version")
+        for paragraph in own_paragraphs(lines)
+        if (match := SINCE_MARKER.search(paragraph)) is not None
+    ]
+    return markers[-1] if markers else None
+
+
+def own_paragraphs(lines: list[str]) -> list[str]:
+    """Returns the bullet's own prose, with soft-wrapped lines joined, before any sub-bullet and outside fences."""
+    paragraphs: list[list[str]] = [[]]
     is_in_fence = False
     for index, line in enumerate(lines):
-        stripped = line.strip()
-        if index > 0 and stripped.startswith("- "):
+        stripped = line.strip().removeprefix("- ") if index == 0 else line.strip()
+        if index > 0 and line.strip().startswith("- ") and not is_in_fence:
             break
         if FENCE_PATTERN.match(line):
             is_in_fence = not is_in_fence
+            paragraphs.append([])
             continue
-        if is_in_fence:
+        if is_in_fence or not stripped:
+            if paragraphs[-1]:
+                paragraphs.append([])
             continue
-        match = SINCE_MARKER.search(stripped)
-        if match is not None:
-            marker = match.group("version")
-    return marker
+        paragraphs[-1].append(stripped)
+    return [" ".join(paragraph) for paragraph in paragraphs if paragraph]
 
 
 def trim_trailing_blank_lines(lines: list[str]) -> list[str]:

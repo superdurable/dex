@@ -370,6 +370,21 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         # A change-log file is release output, not a source change of its component.
         self.assertIn("changelog.d/go/only-docs-abc123.md: a go fragment", result.stderr)
 
+    def test_shared_blob_cache_and_agents_publish_workflows_are_component_sources(self) -> None:
+        self.git("switch", "-c", "shared-sources")
+        self.write("sdk-rust/crates/dex-blob-cache/src/lib.rs", "// changed\n")
+        for target in ("java", "python", "typescript"):
+            self.write(f"changelog.d/{target}/cache-abc123.md", "---\nsection: Fixed\n---\n- The blob cache evicts.\n")
+        self.write(".github/workflows/agents-python-publish.yml", "name: publish\n")
+        self.write("changelog.d/agents-packages/publish-abc123.md", "---\nsection: Fixed\n---\n- Wheels publish.\n")
+        self.commit("shared sources")
+        result = self.check_pr()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        self.write("changelog.d/go/cache-abc123.md", "---\nsection: Fixed\n---\n- The blob cache evicts.\n")
+        self.commit("a go fragment for a Rust crate")
+        self.assertIn("changelog.d/go/cache-abc123.md: a go fragment", self.check_pr().stderr)
+
     def test_check_pr_diffs_a_merge_commit_in_a_depth_two_clone(self) -> None:
         self.git("switch", "-c", "feature")
         self.write(SKILL_FILE, self.read(SKILL_FILE) + "\nA new rule.\n")
