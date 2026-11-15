@@ -1502,29 +1502,30 @@ export function buildToolCallNote(
 
 /** The well-formed outcome, cut to the note budget with the marker when longer. */
 function truncateNoteOutcome(outcome: string): string {
-  // Every core cuts the same text: lone surrogates become U+FFFD.
-  let text = "";
+  // Every core cuts the same text: lone surrogates become U+FFFD, 3 bytes each.
+  // Only the kept prefix is copied; the rest is only counted.
+  let keptText = "";
   let totalBytes = 0;
   let keptBytes = 0;
-  let keptUnits = 0;
-  for (const character of outcome) {
-    const codePoint = character.codePointAt(0) ?? 0;
+  let index = 0;
+  while (index < outcome.length) {
+    const codePoint = outcome.codePointAt(index) ?? 0;
+    const unitCount = codePoint > 0xffff ? 2 : 1;
     const isLoneSurrogate = codePoint >= 0xd800 && codePoint <= 0xdfff;
-    const wellFormed = isLoneSurrogate ? "\ufffd" : character;
-    text += wellFormed;
     totalBytes += isLoneSurrogate ? 3 : utf8CodePointSize(codePoint);
     if (totalBytes <= toolCallNoteMaxOutputBytes) {
+      keptText += isLoneSurrogate ? "\ufffd" : outcome.slice(index, index + unitCount);
       keptBytes = totalBytes;
-      keptUnits = text.length;
     }
+    index += unitCount;
   }
   if (totalBytes <= toolCallNoteMaxOutputBytes) {
-    return text;
+    return keptText;
   }
   const marker = toolCallNoteTruncationMarker
     .replace("{omitted_bytes}", String(totalBytes - keptBytes))
     .replace("{total_bytes}", String(totalBytes));
-  return text.slice(0, keptUnits) + marker;
+  return keptText + marker;
 }
 
 function utf8CodePointSize(codePoint: number): number {

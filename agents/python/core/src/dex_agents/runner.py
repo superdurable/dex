@@ -287,8 +287,12 @@ def build_tool_call_note(header: str, tool_calls: Sequence[AgentToolCall]) -> st
 def _truncate_note_outcome(outcome: str) -> str:
     """Return the well-formed ``outcome``, cut to the note budget with the marker when longer."""
     # Every core cuts the same text: surrogate pairs combined, lone surrogates as U+FFFD.
-    text = outcome.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
-    encoded = text.encode("utf-8")
+    text = outcome
+    try:
+        encoded = text.encode("utf-8")
+    except UnicodeEncodeError:
+        text = outcome.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+        encoded = text.encode("utf-8")
     total_bytes = len(encoded)
     if total_bytes <= TOOL_CALL_NOTE_MAX_OUTPUT_BYTES:
         return text
