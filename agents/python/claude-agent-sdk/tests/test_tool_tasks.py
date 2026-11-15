@@ -22,6 +22,7 @@ from dex_agents import (
     AgentEventType,
     AgentSnapshot,
     AgentToolCall,
+    MessageRole,
     ToolCallStatus,
     ToolTaskCanceller,
     ToolTaskPoller,
@@ -94,9 +95,7 @@ async def test_cancel_turn_cancels_the_source_task_and_the_next_turn_answers(
 
     assert await harness.sessions.cancel_turn(session_id)
     snapshot = await harness.wait_for_turns(session_id, 1)
-    note = snapshot.messages[-1].text or ""
-    assert note.startswith(TURN_CANCELLED_NOTE_HEADER)
-    assert f"-> outcome_unknown: {OUTCOME_UNKNOWN_TOOL_RESULT}" in note
+    _assert_abandoned_call_stored_without_note(snapshot, waiting.tool_call_id)
     # The source sees the abandoned record with its task ID and cancellation reason.
     assert harness.invocations.count(f"cancel-task {task_id} waiting_for_task turn_cancelled") == 1
     finished = [
@@ -127,9 +126,7 @@ async def test_cancel_turn_abandons_the_task_of_a_source_that_cannot_cancel(
 
     assert await harness.sessions.cancel_turn(session_id)
     snapshot = await harness.wait_for_turns(session_id, 1)
-    note = snapshot.messages[-1].text or ""
-    assert note.startswith(TURN_CANCELLED_NOTE_HEADER)
-    assert f"-> outcome_unknown: {OUTCOME_UNKNOWN_TOOL_RESULT}" in note
+    _assert_abandoned_call_stored_without_note(snapshot, waiting.tool_call_id)
     assert _task_invocations(harness)[0] == f"start task-{waiting.tool_call_id}"
     assert not [name for name in _task_invocations(harness) if name.startswith("cancel-task ")]
     finished = [
@@ -164,6 +161,21 @@ def _every_tool_use_answered_once(snapshot: AgentSnapshot) -> set[str]:
     assert dict(tool_use_counts) == expected, "each tool_use is stored once"
     assert dict(tool_result_counts) == expected, "each tool_use has exactly one tool_result"
     return set(tool_use_counts)
+
+
+def _assert_abandoned_call_stored_without_note(snapshot: AgentSnapshot, tool_call_id: str) -> None:
+    # The abandoned call's stored result is its unknown outcome, so the turn needs no note.
+    abandoned_result = snapshot.messages[-1]
+    assert (
+        abandoned_result.role,
+        abandoned_result.tool_call_id,
+        abandoned_result.tool_output,
+    ) == (MessageRole.TOOL, tool_call_id, OUTCOME_UNKNOWN_TOOL_RESULT)
+    assert not [
+        message
+        for message in snapshot.messages
+        if (message.text or "").startswith(TURN_CANCELLED_NOTE_HEADER)
+    ]
 
 
 def _task_invocations(harness: ClaudeAgentHarness) -> list[str]:

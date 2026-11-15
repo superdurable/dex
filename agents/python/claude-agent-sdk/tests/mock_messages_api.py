@@ -51,6 +51,8 @@ class MockMessagesApi:
     """Serve the scripted model until ``stop``; ``requests`` lists every request seen."""
 
     requests: list[MessagesApiRequest] = field(default_factory=list)
+    #: Replaces the random part of every new tool use ID, so later turns reuse IDs.
+    fixed_tool_use_id_suffix: str | None = None
     _server: ThreadingHTTPServer | None = None
     _thread: threading.Thread | None = None
 
@@ -74,7 +76,7 @@ class MockMessagesApi:
                 if not self.path.split("?", 1)[0].endswith("/v1/messages"):
                     self._send_json(404, {"type": "error", "error": {"type": "not_found_error"}})
                     return
-                message = scripted_reply(body)
+                message = scripted_reply(body, api.fixed_tool_use_id_suffix)
                 if body.get("stream"):
                     self._send_sse(message)
                 else:
@@ -119,7 +121,9 @@ class MockMessagesApi:
             self._thread.join(timeout=5)
 
 
-def scripted_reply(body: dict[str, Any]) -> dict[str, Any]:
+def scripted_reply(
+    body: dict[str, Any], fixed_tool_use_id_suffix: str | None = None
+) -> dict[str, Any]:
     tool_names = [str(tool.get("name")) for tool in body.get("tools") or []]
     messages = body.get("messages") or []
     prompts = [text for message in messages if (text := _prompt_text(message)) is not None]
@@ -130,7 +134,7 @@ def scripted_reply(body: dict[str, Any]) -> dict[str, Any]:
     elif command == "recall":
         content = [_text_block("history: " + " | ".join(prompts[:-1]))]
     elif command.startswith("call "):
-        content = _next_tool_content(command, messages, tool_names)
+        content = _next_tool_content(command, messages, tool_names, fixed_tool_use_id_suffix)
     else:
         content = [_text_block(f"unknown command: {command[:80]}")]
     has_tool_use = any(block["type"] == "tool_use" for block in content)
@@ -181,18 +185,22 @@ def stream_events(message: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
 
 def _next_tool_content(
-    command: str, messages: list[dict[str, Any]], tool_names: list[str]
+    command: str,
+    messages: list[dict[str, Any]],
+    tool_names: list[str],
+    fixed_tool_use_id_suffix: str | None,
 ) -> list[dict[str, Any]]:
     requests = []
     for request_index, call in enumerate(command.split(" && ")):
         _, tool_name, tool_input = call.split(" ", 2)
         requests.append((request_index, _resolve_tool_name(tool_name, tool_names), tool_input))
+    suffix = fixed_tool_use_id_suffix or uuid.uuid4().hex[:12]
     results = _latest_results_by_request(messages)
     if not results:
         return [
             {
                 "type": "tool_use",
-                "id": f"toolu_{request_index}_{uuid.uuid4().hex[:12]}",
+                "id": f"toolu_{request_index}_{suffix}",
                 "name": tool_name,
                 "input": json.loads(tool_input),
             }
@@ -203,7 +211,7 @@ def _next_tool_content(
             return [
                 {
                     "type": "tool_use",
-                    "id": f"toolu_{request_index}_{uuid.uuid4().hex[:12]}",
+                    "id": f"toolu_{request_index}_{suffix}",
                     "name": tool_name,
                     "input": json.loads(tool_input),
                 }

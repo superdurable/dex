@@ -37,6 +37,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import HookEvent
 
 from dex_agents import (
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentFrameworkRunner,
     AgentImageReference,
     AgentToolCall,
@@ -50,6 +51,7 @@ from dex_agents import (
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
+    ToolCallStatus,
     ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
@@ -58,6 +60,7 @@ from dex_agents import (
     ToolTaskPollOutcome,
     TurnCompleted,
     collect_turn_images,
+    describe_tool_call_outcome,
     load_images,
 )
 from dex_agents.builtin_loop import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
@@ -72,8 +75,11 @@ from dex_agents_claude_agent_sdk.tool_gate import (
 from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from dex_agents_claude_agent_sdk.transcript import (
     TranscriptEntry,
-    answered_tool_use_ids,
+    UnfinishedToolResult,
+    answered_running_turn_tool_use_ids,
+    build_resume_transcript,
     build_turn_prompt_content,
+    build_unfinished_tool_result_entries,
     decode_run_state,
     encode_run_state,
     encode_user_prompt_item,
@@ -437,14 +443,31 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         answers from the final record, and continues with a hidden "Continue
         from where you left off." message.
 
+        Every segment also answers each tool use of an ended turn that has no
+        result, with ``OUTCOME_UNKNOWN_TOOL_RESULT``. Only a Worker without
+        ``build_unfinished_turn_messages``, such as adapter 0.6.11, ends a turn
+        that way after another Worker stored its deferral. Without the answer,
+        the CLI would resume that call as a pending deferral and fill in its
+        own missing-result text. The segment stores a new answer before its own
+        messages. The CLI always gets each answer right after its tool use, and
+        no deferral attachment of an answered call.
+
+        .. versionchanged:: 0.6.12
+            ``ToolCallsRequested`` stores the turn so far in ``new_messages``
+            instead of keeping it in the run state, ``TurnCompleted`` holds
+            only what the turn has not stored yet, and every segment answers
+            the open tool uses of ended turns.
+
         Args:
             turn: Committed session state for this segment.
 
         Returns:
-            ``ToolCallsRequested`` with the one call the CLI deferred, and the
-            session ID and the turn's transcript entries so far as run state;
-            otherwise ``TurnCompleted`` with the turn's transcript entries
-            grouped into messages.
+            ``ToolCallsRequested`` with the one call the CLI deferred, the
+            Claude session ID as run state, and the segment's transcript
+            entries grouped into ``new_messages``; otherwise ``TurnCompleted``
+            with the segment's transcript entries grouped into messages. New
+            answers of ended turns' tool uses come first in either, then
+            entries that an earlier adapter's run state still holds.
 
         Raises:
             ValueError: If the options factory returned unsupported options,
@@ -465,7 +488,15 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             session_id = suspended_turn.session_id
             earlier_turn_entries = suspended_turn.turn_entries
             prompt_content = None
-        stored_entries = [*committed_transcript.entries, *earlier_turn_entries]
+        resume_transcript = build_resume_transcript(
+            committed_transcript.session_id,
+            [*committed_transcript.entries, *earlier_turn_entries],
+            load_session_transcript(
+                message for message in turn.messages if message.turn_id != turn.turn_id
+            ).entries,
+            OUTCOME_UNKNOWN_TOOL_RESULT,
+        )
+        stored_entries = resume_transcript.entries
         image_codec = self._transcript_image_codec(turn, [stored_entries, prompt_content])
         session_store = TurnSegmentSessionStore(session_id, stored_entries, image_codec)
         # A source's listing may lack a tool the turn already called; its record must still replay.
@@ -480,7 +511,16 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         tool_call_gate = ToolCallGate(
             turn,
             tool_catalog,
-            answered_tool_use_ids(stored_entries),
+            # Records belong to the running turn; an earlier turn's result answers none of them.
+            answered_running_turn_tool_use_ids(
+                committed_transcript.session_id,
+                [
+                    *load_session_transcript(
+                        message for message in turn.messages if message.turn_id == turn.turn_id
+                    ).entries,
+                    *earlier_turn_entries,
+                ],
+            ),
             self._claude_code_tool_permission,
             await self._load_recorded_tool_images(turn),
         )
@@ -510,22 +550,136 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 + ", ".join(sorted(tool_call_gate.built_in_tool_name_collisions))
             )
         segment_session_id, segment_entries = session_store.take_segment_transcript()
-        turn_entries = [*earlier_turn_entries, *segment_entries]
+        # A run state from adapter 0.6.11 or earlier holds the turn's unstored entries so far.
+        unstored_turn_entries = [
+            *resume_transcript.new_answer_entries,
+            *earlier_turn_entries,
+            *segment_entries,
+        ]
+        new_messages = project_turn_entries(
+            segment_session_id,
+            unstored_turn_entries,
+            tool_catalog.policy_tool_name,
+            committed_transcript.entries,
+        )
         usage = observer.usage(result)
         model_call_metadata = observer.model_call_metadata(result, options.model)
         if result.deferred_tool_use is not None:
             return ToolCallsRequested(
-                framework_run_state=encode_run_state(segment_session_id, turn_entries),
+                framework_run_state=encode_run_state(segment_session_id, []),
                 tool_calls=[tool_call_gate.deferred_tool_call(result.deferred_tool_use)],
                 usage=usage,
                 model_call_metadata=model_call_metadata,
+                new_messages=new_messages,
             )
         return TurnCompleted(
-            new_messages=project_turn_entries(
-                segment_session_id, turn_entries, tool_catalog.policy_tool_name
+            new_messages=new_messages, usage=usage, model_call_metadata=model_call_metadata
+        )
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> list[FrameworkMessage]:
+        """Return the transcript messages that a turn ending without a final answer still needs.
+
+        The session calls it when the user steers or cancels a turn, and when a
+        turn fails. Each ``RunModel`` that defers a call stores the turn's
+        transcript so far, so most of the turn is already stored. This method
+        adds a tool result for every tool use of the turn that has none, which
+        is usually the last deferred call. The result is the call's final
+        record, as the resumed CLI would have received it: the output of a
+        custom or source tool, its failure, or its rejection, such as the
+        steering or cancellation result. A tool that runs inside the CLI, such
+        as ``Bash``, gets ``OUTCOME_UNKNOWN_TOOL_RESULT``, because a failed
+        ``RunModel`` attempt may have run it. A tool use without a final record
+        gets the same text. Each result is a Claude Code tool result entry, so
+        the next turn resumes a complete Claude session: the model sees what
+        ran and its result, and nothing resumes the abandoned call.
+
+        The method reads only the turn's stored messages, its run state, and its
+        records, so it returns the same messages for the same committed state.
+        Each entry's ``uuid`` derives from the Claude session ID, the uuid of
+        the tool use's assistant entry, and the tool use ID, so the TypeScript
+        adapter builds the same entries, and a tool use ID that a later turn
+        reuses gets a different entry. Applications call it only in tests.
+
+        .. versionadded:: 0.6.12
+
+        Example:
+            >>> runner = ClaudeAgentRunner(build_options, [publish])
+            >>> messages = runner.build_unfinished_turn_messages(ended_turn)
+            >>> messages[-1].tool_output == ended_turn.tool_calls[call_id].output
+            True
+
+        Args:
+            turn: The ended turn, with its stored messages, its run state, and
+                its final records.
+
+        Returns:
+            The turn's entries that are not stored yet, from an earlier
+            adapter's run state, followed by one ``MessageRole.TOOL`` message
+            per tool use without a result; an empty list when every tool use
+            has a result or the turn stored no transcript. Each
+            ``framework_item`` is a ``claude_transcript`` item.
+
+        Raises:
+            ValueError: If the run state has an unsupported version.
+            KeyError: If a stored transcript item or the run state lacks a
+                field. The session then stores its note instead.
+            LookupError: If a tool source built one of the turn's calls, but no
+                source of that name is configured on this Worker. The session
+                then stores its note instead.
+        """
+        stored_turn_transcript = load_session_transcript(
+            message for message in turn.messages if message.turn_id == turn.turn_id
+        )
+        suspended_turn = (
+            None if turn.framework_run_state is None else decode_run_state(turn.framework_run_state)
+        )
+        session_id = (
+            stored_turn_transcript.session_id
+            if suspended_turn is None
+            else suspended_turn.session_id
+        )
+        unstored_turn_entries = [] if suspended_turn is None else suspended_turn.turn_entries
+        turn_entries = [*stored_turn_transcript.entries, *unstored_turn_entries]
+        if session_id is None or not turn_entries:
+            return []
+        tool_catalog = self._tool_catalog.with_source_tools(
+            {},
+            replay_only_tool_names={
+                record.tool_name
+                for record in turn.tool_calls.values()
+                if self._tool_sources.is_source_call(record)
+            },
+        )
+        result_entries = build_unfinished_tool_result_entries(
+            session_id,
+            turn_entries,
+            lambda tool_use: self._describe_unfinished_tool_result(
+                turn.recorded_tool_call(tool_use.tool_use_id)
             ),
-            usage=usage,
-            model_call_metadata=model_call_metadata,
+        )
+        return project_turn_entries(
+            session_id,
+            [*unstored_turn_entries, *result_entries],
+            tool_catalog.policy_tool_name,
+            stored_turn_transcript.entries,
+        )
+
+    def _describe_unfinished_tool_result(
+        self, record: AgentToolCall | None
+    ) -> UnfinishedToolResult:
+        if record is None or not record.status.is_final:
+            return UnfinishedToolResult(OUTCOME_UNKNOWN_TOOL_RESULT, is_error=True)
+        if record.status is not ToolCallStatus.SUCCEEDED:
+            return UnfinishedToolResult(describe_tool_call_outcome(record), is_error=True)
+        is_cli_tool_call = (
+            self._tool_sources.route(record) is None
+            and self._tool_catalog.custom_tool(record.tool_name) is None
+        )
+        # An approved CLI tool runs only in the resumed CLI, which may have run it before failing.
+        if is_cli_tool_call:
+            return UnfinishedToolResult(OUTCOME_UNKNOWN_TOOL_RESULT, is_error=True)
+        return UnfinishedToolResult(
+            describe_tool_call_outcome(record), is_error=False, images=record.images
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:

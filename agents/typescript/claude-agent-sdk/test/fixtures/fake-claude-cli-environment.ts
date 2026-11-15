@@ -23,6 +23,8 @@ export const fakeClaudeRecordedVariables = [
 ] as const;
 /** Set to `1` to make the fake CLI resume a deferred call without running the PreToolUse hooks. */
 export const fakeClaudeResumeWithoutHooksVariable = "FAKE_CLAUDE_RESUME_WITHOUT_HOOKS";
+/** File in the state directory whose text replaces the random part of every new tool use ID. */
+export const fakeClaudeFixedToolUseIdSuffixFileName = "fixed-tool-use-id-suffix";
 /** Model the fake CLI reports in its `init` message and keys `modelUsage` by. */
 export const fakeClaudeRequestModel = "claude-scripted";
 /** Dated model the fake CLI's replies name, as Messages API responses do. */

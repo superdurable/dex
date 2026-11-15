@@ -17,7 +17,9 @@ TypeScript core, except `connector_tools.json`, `mcp_dex_conventions.json`,
 both cores' connector tool, MCP tool, image, and approval display tests, and `cli_config.json`,
 `cli_init.json`, `cli_session_flow_types.json`, `cli_session_list.json`, and `cli_session_lease.json`, which are hand-written for the CLI cores in
 [`../cli`](../cli), and `terminal_ui/`, which is hand-written for the CLI
-cores and `dexcli agents-tui`. A core passes when it passes all four parts below.
+cores and `dexcli agents-tui`, and `claude_transcript_parity.json`, whose
+inputs are hand-written for the Claude Agent SDK adapters and whose expected
+entries the TypeScript adapter's test writes. A core passes when it passes all four parts below.
 
 | Path | What it fixes |
 | --- | --- |
@@ -34,6 +36,7 @@ cores and `dexcli agents-tui`. A core passes when it passes all four parts below
 | [`cli_session_flow_types.json`](cli_session_flow_types.json) | CLI session Flow types: the 6-character base36 suffix each CLI core derives from the host name, user, configuration identity, and workspace, with ASCII, Windows, Unicode, and left-padded cases. Hand-written for the CLI cores |
 | [`cli_session_list.json`](cli_session_list.json) | How the CLI `sessions` subcommand loads SearchFlows pages: the row and request limits, short and empty pages that still have a next page token, and when the list says more sessions exist. Hand-written for the CLI cores |
 | [`cli_session_lease.json`](cli_session_lease.json) | One terminal per session: the waiting line, its spinner frames and timing, the plain line without a terminal, the line after taking a session over, the line when another terminal took it, and how the holder's time shows. Hand-written for the CLI cores |
+| [`claude_transcript_parity.json`](claude_transcript_parity.json) | Claude Agent SDK adapters: the Claude Code tool result entries each adapter builds for an unfinished turn and for ended turns' open calls, and the transcript it gives the CLI, compared as exact `JSON.stringify` text, key order included. Inputs are hand-written; `UPDATE_CLAUDE_TRANSCRIPT_PARITY=1` on the TypeScript adapter's `transcript-parity` test rewrites the expected values. Not a core contract |
 | [`approval_display.json`](approval_display.json) | Approval displays: which names hold credentials, how the best-effort redaction of common credential shapes works (hygiene for displayed text only, not a security boundary: the session still stores the call's full arguments), connector summaries, and, for the CLI cores, credential files, file write previews, shell summaries, and escaped paths. Hand-written, not generated |
 | [`images.json`](images.json) | Image references: structural byte checks and the size limit, type checks on read, reference validation and its error texts (URI length in UTF-8 bytes), list limits, how S3, local directory, and in-memory stores name objects, and the local directory store's root rules and error texts. Hand-written, not generated |
 | [`terminal_ui/`](terminal_ui) | The terminal UI contract between a CLI command and `dexcli agents-tui`: launch documents and their checks, `--describe` and contract choice, channel messages, session IDs derived from idempotency keys, the key table, `open_url` rules, notice display, the environment allow-list, and channel transcripts. Hand-written; see [`../cli/TERMINAL_UI_CONTRACT.md`](../cli/TERMINAL_UI_CONTRACT.md) |

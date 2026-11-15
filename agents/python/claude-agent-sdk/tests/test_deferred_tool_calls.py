@@ -58,7 +58,11 @@ async def test_approved_custom_write_survives_a_worker_restart_and_runs_once(
     assert interrupt.tool_name == "publish"
     assert interrupt.tool_call_id.startswith("toolu_")
     assert interrupt.arguments == '{"message": "launch"}'
-    assert [message.text for message in waiting.messages] == ['call publish {"message": "launch"}']
+    # The deferral stored the turn so far: the prompt and the assistant's tool call.
+    assert [(message.role, message.text, message.tool_name) for message in waiting.messages] == [
+        (MessageRole.USER, 'call publish {"message": "launch"}', None),
+        (MessageRole.ASSISTANT, None, "publish"),
+    ]
 
     worker.kill()
     await harness.stack.start_worker()
@@ -561,7 +565,7 @@ async def test_deferred_call_with_invalid_input_fails_without_running(
     assert harness.invocations.count("publish") == 0
 
 
-async def test_failed_resumed_turn_after_a_write_leaves_a_note_for_the_next_prompt(
+async def test_failed_resumed_turn_after_a_write_stores_its_result_and_a_note_for_the_next_prompt(
     harness: ClaudeAgentHarness,
 ) -> None:
     await harness.stack.start_worker()
@@ -583,10 +587,17 @@ async def test_failed_resumed_turn_after_a_write_leaves_a_note_for_the_next_prom
     )
     assert failed.state is not None
     assert "scripted failure after tool calls" in (failed.state.last_turn_error or "")
-    assert [(message.role, message.turn_id, message.text) for message in failed.messages] == [
-        (MessageRole.USER, "turn-1", first_prompt),
-        (MessageRole.USER, "turn-1", note),
+    # The deferral stored the turn so far; the write's result comes from its record.
+    assert [
+        (message.role, message.turn_id, message.tool_name, message.text or message.tool_output)
+        for message in failed.messages
+    ] == [
+        (MessageRole.USER, "turn-1", None, first_prompt),
+        (MessageRole.ASSISTANT, "turn-1", "publish", None),
+        (MessageRole.TOOL, "turn-1", "publish", "published draft"),
+        (MessageRole.USER, "turn-1", None, note),
     ]
+    assert failed.messages[2].tool_call_id == interrupt.tool_call_id
     assert harness.invocations.count("cli:resume") == 3
     assert harness.invocations.count("publish") == 1
 
@@ -601,7 +612,8 @@ async def test_failed_resumed_turn_after_a_write_leaves_a_note_for_the_next_prom
         for entry in json.loads(message.framework_item)["entries"]
         if entry["type"] == "user" and isinstance(entry["message"]["content"], list)
     ]
-    assert cli_prompts == [[first_prompt, note, "say next"]]
+    # The stored transcript already has the failed prompt; only the note never reached the CLI.
+    assert cli_prompts == [[note, "say next"]]
     assert harness.invocations.count("publish") == 1
 
 

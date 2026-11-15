@@ -15,6 +15,7 @@ import json
 from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, MessageRole
 from tests.claude_test_agent import SLOW_WRITE_GATE
 from tests.conftest import ClaudeAgentHarness
+from tests.transcript_assertions import assert_unique_transcript_entries
 
 
 async def test_worker_killed_during_a_single_attempt_write_records_outcome_unknown(
@@ -90,6 +91,13 @@ async def test_worker_killed_while_resuming_reuses_the_recorded_result(
     snapshot = await harness.wait_for_turns(session_id, 1)
 
     assert snapshot.messages[-1].text == "publish: published once"
+    assert [(message.role, message.tool_name) for message in snapshot.messages] == [
+        (MessageRole.USER, None),
+        (MessageRole.ASSISTANT, "publish"),
+        (MessageRole.TOOL, "publish"),
+        (MessageRole.ASSISTANT, None),
+    ]
+    assert_unique_transcript_entries(snapshot.messages)
     assert harness.invocations.count("publish") == 1
     assert harness.invocations.count("cli:resume") == 2
     assert gate.reached_count() == 2
