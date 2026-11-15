@@ -48,6 +48,7 @@ const (
 	FlowService_WaitForHistoryEvent_FullMethodName   = "/dex.FlowService/WaitForHistoryEvent"
 	FlowService_GetFlowState_FullMethodName          = "/dex.FlowService/GetFlowState"
 	FlowService_ResetFlow_FullMethodName             = "/dex.FlowService/ResetFlow"
+	FlowService_CloneForkFlow_FullMethodName         = "/dex.FlowService/CloneForkFlow"
 	FlowService_InvokeRPC_FullMethodName             = "/dex.FlowService/InvokeRPC"
 	FlowService_SkipTimer_FullMethodName             = "/dex.FlowService/SkipTimer"
 	FlowService_UpdateFlowConfig_FullMethodName      = "/dex.FlowService/UpdateFlowConfig"
@@ -86,6 +87,7 @@ type FlowServiceClient interface {
 	WaitForHistoryEvent(ctx context.Context, in *WaitForHistoryEventRequest, opts ...grpc.CallOption) (*WaitForHistoryEventResponse, error)
 	GetFlowState(ctx context.Context, in *GetFlowStateRequest, opts ...grpc.CallOption) (*GetFlowStateResponse, error)
 	ResetFlow(ctx context.Context, in *ResetFlowRequest, opts ...grpc.CallOption) (*ResetFlowResponse, error)
+	CloneForkFlow(ctx context.Context, in *CloneForkFlowRequest, opts ...grpc.CallOption) (*CloneForkFlowResponse, error)
 	InvokeRPC(ctx context.Context, in *InvokeRPCRequest, opts ...grpc.CallOption) (*InvokeRPCResponse, error)
 	SkipTimer(ctx context.Context, in *SkipTimerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateFlowConfig(ctx context.Context, in *UpdateFlowConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -347,6 +349,16 @@ func (c *flowServiceClient) ResetFlow(ctx context.Context, in *ResetFlowRequest,
 	return out, nil
 }
 
+func (c *flowServiceClient) CloneForkFlow(ctx context.Context, in *CloneForkFlowRequest, opts ...grpc.CallOption) (*CloneForkFlowResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CloneForkFlowResponse)
+	err := c.cc.Invoke(ctx, FlowService_CloneForkFlow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) InvokeRPC(ctx context.Context, in *InvokeRPCRequest, opts ...grpc.CallOption) (*InvokeRPCResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InvokeRPCResponse)
@@ -464,6 +476,7 @@ type FlowServiceServer interface {
 	WaitForHistoryEvent(context.Context, *WaitForHistoryEventRequest) (*WaitForHistoryEventResponse, error)
 	GetFlowState(context.Context, *GetFlowStateRequest) (*GetFlowStateResponse, error)
 	ResetFlow(context.Context, *ResetFlowRequest) (*ResetFlowResponse, error)
+	CloneForkFlow(context.Context, *CloneForkFlowRequest) (*CloneForkFlowResponse, error)
 	InvokeRPC(context.Context, *InvokeRPCRequest) (*InvokeRPCResponse, error)
 	SkipTimer(context.Context, *SkipTimerRequest) (*emptypb.Empty, error)
 	UpdateFlowConfig(context.Context, *UpdateFlowConfigRequest) (*emptypb.Empty, error)
@@ -584,6 +597,9 @@ func (UnimplementedFlowServiceServer) GetFlowState(context.Context, *GetFlowStat
 }
 func (UnimplementedFlowServiceServer) ResetFlow(context.Context, *ResetFlowRequest) (*ResetFlowResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResetFlow not implemented")
+}
+func (UnimplementedFlowServiceServer) CloneForkFlow(context.Context, *CloneForkFlowRequest) (*CloneForkFlowResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CloneForkFlow not implemented")
 }
 func (UnimplementedFlowServiceServer) InvokeRPC(context.Context, *InvokeRPCRequest) (*InvokeRPCResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InvokeRPC not implemented")
@@ -993,6 +1009,24 @@ func _FlowService_ResetFlow_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_CloneForkFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CloneForkFlowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CloneForkFlow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CloneForkFlow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CloneForkFlow(ctx, req.(*CloneForkFlowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_InvokeRPC_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InvokeRPCRequest)
 	if err := dec(in); err != nil {
@@ -1241,6 +1275,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResetFlow",
 			Handler:    _FlowService_ResetFlow_Handler,
+		},
+		{
+			MethodName: "CloneForkFlow",
+			Handler:    _FlowService_CloneForkFlow_Handler,
 		},
 		{
 			MethodName: "InvokeRPC",

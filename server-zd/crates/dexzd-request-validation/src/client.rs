@@ -7,10 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_protocol::dex::{
-    AttributeMatch, AttributeMatchOperator, DeleteChannelMessageRequest, FlowConfig,
-    FlowResetStepMethod, FlowResetType, IdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
-    ResetFlowRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest, SubFlowResetPolicy,
-    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForStepCompletionRequest, value,
+    AttributeMatch, AttributeMatchOperator, CloneForkFlowRequest, DeleteChannelMessageRequest,
+    FlowCloneForkPointType, FlowConfig, FlowResetStepMethod, FlowResetType, IdReusePolicy,
+    InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
+    SkipTimerRequest, StartFlowRequest, SubFlowResetPolicy, UpdateFlowConfigRequest,
+    WaitForAttributeRequest, WaitForStepCompletionRequest, value,
 };
 
 use crate::shared::{
@@ -39,6 +40,8 @@ pub enum ClientRequest<'a> {
     SkipTimer(&'a SkipTimerRequest),
     /// Reset a Flow.
     ResetFlow(&'a ResetFlowRequest),
+    /// Create a Flow from a copy of another Flow run's state.
+    CloneForkFlow(&'a CloneForkFlowRequest),
     /// Wait for an Attribute match.
     WaitForAttribute(&'a WaitForAttributeRequest),
     /// Wait for a Step execution to finish.
@@ -59,6 +62,7 @@ pub fn validate_client_request(
         ClientRequest::UpdateFlowConfig(request) => validate_update_flow_config(request, config),
         ClientRequest::SkipTimer(request) => validate_skip_timer(request),
         ClientRequest::ResetFlow(request) => validate_reset_flow(request),
+        ClientRequest::CloneForkFlow(request) => validate_clone_fork_flow(request, config),
         ClientRequest::WaitForAttribute(request) => validate_wait_for_attribute(request),
         ClientRequest::WaitForStepCompletion(request) => validate_wait_for_step_completion(request),
     };
@@ -340,6 +344,117 @@ fn validate_reset_flow(request: &ResetFlowRequest) -> Result<(), ValidationError
         _ => return Err(invalid("reset_type", "time travel type is required")),
     }
     Ok(())
+}
+
+fn validate_clone_fork_flow(
+    request: &CloneForkFlowRequest,
+    config: &ValidationConfig,
+) -> Result<(), ValidationError> {
+    if request.source_flow_id.is_empty() {
+        return Err(invalid("source_flow_id", "source flow ID is required"));
+    }
+    if request.flow_id.is_empty() {
+        return Err(invalid("flow_id", "flow ID is required"));
+    }
+    if request.flow_id == request.source_flow_id {
+        return Err(invalid(
+            "flow_id",
+            "flow ID must differ from the source flow ID; use ResetFlow to return a Flow to an \
+             earlier point",
+        ));
+    }
+    if request.request_id.is_empty() {
+        return Err(invalid("request_id", "request ID is required"));
+    }
+    if request.flow_id.len() > config.maximum_flow_id_bytes {
+        return Err(invalid(
+            "flow_id",
+            format!(
+                "flow ID exceeds maximum length of {} bytes",
+                config.maximum_flow_id_bytes
+            ),
+        ));
+    }
+    validate_identifier("flow_id", "flow ID", &request.flow_id)?;
+    if IdReusePolicy::try_from(request.id_reuse_policy).is_err() {
+        return Err(invalid("id_reuse_policy", "unknown ID reuse policy"));
+    }
+    if SubFlowResetPolicy::try_from(request.sub_flow_reset_policy).is_err() {
+        return Err(invalid(
+            "sub_flow_reset_policy",
+            "SubFlow reset policy is unknown",
+        ));
+    }
+    if request.flow_timeout_seconds < 0 {
+        return Err(invalid(
+            "flow_timeout_seconds",
+            "flow timeout must not be negative",
+        ));
+    }
+    if request.run_attempt < 0 {
+        return Err(invalid("run_attempt", "run attempt must not be negative"));
+    }
+    validate_attribute_writes("attributes", &request.attributes, config, false)?;
+    if let Some(override_config) = &request.flow_config_override {
+        validate_flow_config("flow_config_override", override_config, config, false)?;
+    }
+    validate_clone_fork_point(request)
+}
+
+/// Checks that the point fields fit the point type, as ResetFlow checks its reset type.
+fn validate_clone_fork_point(request: &CloneForkFlowRequest) -> Result<(), ValidationError> {
+    let reset_type = match FlowCloneForkPointType::try_from(request.point_type) {
+        Ok(FlowCloneForkPointType::Unspecified | FlowCloneForkPointType::Current) => {
+            if request.run_attempt != 0 {
+                return Err(invalid(
+                    "run_attempt",
+                    "the CURRENT point selects the current run attempt, so run attempt must be \
+                     zero",
+                ));
+            }
+            if request.step_method != FlowResetStepMethod::Unspecified as i32 {
+                return Err(invalid(
+                    "step_method",
+                    "step method is only valid for a Step execution ID",
+                ));
+            }
+            return Ok(());
+        }
+        Ok(FlowCloneForkPointType::Beginning) => FlowResetType::Beginning,
+        Ok(FlowCloneForkPointType::HistoryEventTime) => FlowResetType::HistoryEventTime,
+        Ok(FlowCloneForkPointType::StepType) => FlowResetType::StepType,
+        Ok(FlowCloneForkPointType::StepExecutionId) => FlowResetType::StepExecutionId,
+        Ok(FlowCloneForkPointType::EventId) => FlowResetType::EventId,
+        Err(_) => return Err(invalid("point_type", "unknown point type")),
+    };
+    validate_reset_flow(&ResetFlowRequest {
+        flow_id: request.source_flow_id.clone(),
+        reset_type: reset_type as i32,
+        history_event_time: request.history_event_time.clone(),
+        step_type: request.step_type.clone(),
+        step_execution_id: request.step_execution_id.clone(),
+        step_method: request.step_method,
+        event_id: request.event_id,
+        ..ResetFlowRequest::default()
+    })
+}
+
+/// Returns the Flow configuration of a CloneForkFlow's new run: the source run's
+/// configuration with `override_config` applied, validated as a StartFlow configuration.
+///
+/// Returns INVALID_ARGUMENT for an invalid result.
+pub fn validate_clone_fork_flow_config(
+    source_config: &FlowConfig,
+    override_config: Option<&FlowConfig>,
+    config: &ValidationConfig,
+) -> Result<FlowConfig, ValidationError> {
+    let mut effective = source_config.clone();
+    if let Some(override_config) = override_config {
+        apply_flow_config_override(&mut effective, override_config);
+    }
+    validate_flow_config("flow_config_override", &effective, config, true)
+        .map_err(as_invalid_argument)?;
+    Ok(effective)
 }
 
 fn validate_wait_request(flow_id: &str, request_timeout: i32) -> Result<(), ValidationError> {

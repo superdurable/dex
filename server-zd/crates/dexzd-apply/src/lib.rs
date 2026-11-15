@@ -34,11 +34,15 @@ pub use command_handlers::flow_close::{TransactionalRpcHold, transactional_rpc_h
 pub use hard_delete_admission::{HardDeleteAdmissionError, validate_hard_delete_command};
 pub use history::{
     ChildFlowRead, ChildFlowReadMemory, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns,
-    ChildFlowStartRead, ComputedTimeTravel, GoneChildFlowCondition, HistoryRecords, HistorySource,
-    NoChildFlowRuns, SegmentedTimeTravelComputation, StagedEntryTooLarge, StateChildFlowRuns,
-    StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
-    TimeTravelComputationSources, compute_time_travel, compute_time_travel_from_segments,
-    diagnostics,
+    ChildFlowStartRead, CloneForkComputation, CloneForkComputationRequest,
+    CloneForkHardDeleteAttribute, CloneForkStagedEntryTooLarge, ComputedCloneFork,
+    SegmentedCloneForkComputation, compute_clone_fork, compute_clone_fork_from_segments,
+};
+pub use history::{
+    ComputedTimeTravel, GoneChildFlowCondition, HistoryRecords, HistorySource, NoChildFlowRuns,
+    SegmentedTimeTravelComputation, StagedEntryTooLarge, StateChildFlowRuns, StateHistorySource,
+    TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
+    compute_time_travel, compute_time_travel_from_segments, diagnostics,
 };
 #[cfg(feature = "test-util")]
 pub use history::{

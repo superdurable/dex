@@ -26,6 +26,7 @@ use crate::history::attempt_scope::{
 };
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, required_attempt_record};
 use crate::history::replay_state::{ReplayState, TransactionReader};
+use crate::history::time_travel::SubFlowResetOperation;
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::{OffloadedValues, held_table_values, is_stored_value};
 use crate::{ApplyContext, ApplyError, BehaviorVersion};
@@ -52,6 +53,7 @@ pub(crate) struct ReplayResources<'resources> {
     pub(crate) offloaded_values: &'resources dyn OffloadedValues,
     /// Memory the whole time travel computation may hold.
     pub(crate) memory_budget: &'resources ReplayMemoryBudget,
+    pub(crate) operation: SubFlowResetOperation,
 }
 
 /// Memory one time travel computation may hold.
@@ -150,6 +152,7 @@ pub(crate) fn rebuild_attempt_state(
             point,
             memory_budget.limit_bytes(),
             held,
+            resources.operation,
         )))
     };
     let checkpoint_held = format!("the checkpoint at run seq {checkpoint_seq}");
@@ -356,6 +359,7 @@ fn unstored_values(
                 point,
                 resources.memory_budget.limit_bytes(),
                 "the values the restored state holds",
+                resources.operation,
             )));
         }
         let value = match replay_state.replayed_value(value_id)? {
@@ -404,16 +408,25 @@ pub(crate) fn replay_memory_exceeded_reply(
     point: HistoryPoint,
     memory_budget_bytes: u64,
     held: &str,
+    operation: SubFlowResetOperation,
 ) -> CommandReply {
-    error_reply(
-        grpc_code::RESOURCE_EXHAUSTED,
-        ErrorSubStatus::Uncategorized,
-        format!(
+    let message = match operation {
+        SubFlowResetOperation::TimeTravel => format!(
             "time travel to run attempt {} at run seq {} needs more than {memory_budget_bytes} \
              bytes of memory to hold {held}; choose a later target point, set \
              skip_writes_reapply to true, or raise history.timeTravelReplayMemoryBytes",
             point.attempt, point.seq
         ),
+        SubFlowResetOperation::CloneFork => format!(
+            "clone fork of run attempt {} at run seq {} needs more than {memory_budget_bytes} \
+             bytes of memory to hold {held}; raise history.timeTravelReplayMemoryBytes",
+            point.attempt, point.seq
+        ),
+    };
+    error_reply(
+        grpc_code::RESOURCE_EXHAUSTED,
+        ErrorSubStatus::Uncategorized,
+        message,
     )
 }
 
@@ -534,6 +547,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
                 ),
             });
         }
+        // Clone fork stagings belong to no run, so they never record history.
+        Command::FlowCloneForkStage(_) | Command::FlowCloneForkStagingExpire(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a clone fork staging command",
+                    history_record.seq
+                ),
+            });
+        }
         // A partition command belongs to no run, so it never records history.
         Command::SetHistoryOffloadMode(_) => {
             return Err(ApplyError::InvariantViolation {
@@ -544,7 +566,7 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
             });
         }
         // Attempts start at a checkpoint after these, and only the latest run travels.
-        Command::FlowStart(_) | Command::TimeTravel(_) => {
+        Command::FlowStart(_) | Command::FlowCloneFork(_) | Command::TimeTravel(_) => {
             return Err(ApplyError::InvariantViolation {
                 detail: format!(
                     "history record {} starts a run or attempt inside the replayed range",

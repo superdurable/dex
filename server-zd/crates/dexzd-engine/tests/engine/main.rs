@@ -8,6 +8,7 @@
 
 //! Engine tests with paused time, in-memory object storage, and a counting applier.
 
+mod clone_fork;
 mod commit_path;
 mod eventual_snapshot_retention;
 mod harness;

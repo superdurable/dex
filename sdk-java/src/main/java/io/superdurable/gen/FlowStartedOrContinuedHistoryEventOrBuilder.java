@@ -108,5 +108,38 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
    */
   io.superdurable.gen.FlowInitialStartOrBuilder getInitialStartOrBuilder();
 
+  /**
+   * <pre>
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   * </pre>
+   *
+   * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+   * @return Whether the cloneForkSource field is set.
+   */
+  boolean hasCloneForkSource();
+  /**
+   * <pre>
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   * </pre>
+   *
+   * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+   * @return The cloneForkSource.
+   */
+  io.superdurable.gen.FlowCloneForkSource getCloneForkSource();
+  /**
+   * <pre>
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   * </pre>
+   *
+   * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+   */
+  io.superdurable.gen.FlowCloneForkSourceOrBuilder getCloneForkSourceOrBuilder();
+
   io.superdurable.gen.FlowStartedOrContinuedHistoryEvent.StartOrContinueCase getStartOrContinueCase();
 }

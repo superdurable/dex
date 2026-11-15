@@ -14,6 +14,7 @@
 //! spawns tracked tasks for the work. Everything here can be rebuilt from committed state with
 //! [`EffectRunner::rebuild_partition`], so a lost effect delays work but never loses it.
 
+mod clone_fork_staging_expiry;
 mod dispatch;
 mod flow_effect_operations;
 mod hard_delete_objects;
@@ -690,6 +691,9 @@ impl EffectTasks {
         tracker.spawn(history_uploads::run_history_orphan_sweep(Arc::clone(
             &context,
         )));
+        tracker.spawn(clone_fork_staging_expiry::run_clone_fork_staging_expiry(
+            Arc::clone(&context),
+        ));
         #[cfg(test)]
         let test_context = Arc::clone(&context);
         let router = EffectRouter {

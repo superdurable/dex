@@ -8,6 +8,7 @@
 
 //! Client write operations: validate, build the command, propose it, and wait for its commit.
 
+mod clone_fork;
 mod hard_delete_uploads;
 pub(super) mod request_fingerprint;
 mod rpc_invocation;

@@ -16,11 +16,12 @@ use dexzd_engine::{
 use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::flow_service_server::{self, FlowServiceServer};
 use dexzd_protocol::dex::{
-    DeleteChannelMessageRequest, FlowResult, GetAttributesRequest, GetAttributesResponse,
-    GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowDefinitionsRequest,
-    GetFlowDefinitionsResponse, GetFlowStateRequest, GetFlowStateResponse, GetFlowSummaryRequest,
-    GetFlowSummaryResponse, GetHistoryEventsRequest, GetHistoryEventsResponse, HealthInfo,
-    InvokeRpcRequest, InvokeRpcResponse, ListFlowDefinitionsRequest, ListFlowDefinitionsResponse,
+    CloneForkFlowRequest, CloneForkFlowResponse, DeleteChannelMessageRequest, FlowResult,
+    GetAttributesRequest, GetAttributesResponse, GetChannelMessagesRequest,
+    GetChannelMessagesResponse, GetFlowDefinitionsRequest, GetFlowDefinitionsResponse,
+    GetFlowStateRequest, GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse,
+    GetHistoryEventsRequest, GetHistoryEventsResponse, HealthInfo, InvokeRpcRequest,
+    InvokeRpcResponse, ListFlowDefinitionsRequest, ListFlowDefinitionsResponse,
     ListStreamMessagesRequest, ListStreamMessagesResponse, LoadBlobsRequest, LoadBlobsResponse,
     PublishToChannelRequest, ReadStreamRequest, ReadStreamResponse, ResetFlowRequest,
     ResetFlowResponse, SearchFlowsRequest, SearchFlowsResponse, ServerEngine, ServerInfo,
@@ -45,7 +46,8 @@ use crate::{
 pub const MINIMUM_SUPPORTED_PROTOCOL_VERSION: u32 = 1;
 /// Newest client protocol version this server implements; version 4 adds reserved-slot Worker dispatch.
 /// Version 5 adds named task queues.
-pub const CURRENT_PROTOCOL_VERSION: u32 = 5;
+/// Version 6 adds CloneForkFlow.
+pub const CURRENT_PROTOCOL_VERSION: u32 = 6;
 
 /// Components the FlowService endpoint routes requests to.
 pub struct FlowServiceDependencies {
@@ -371,6 +373,17 @@ impl flow_service_server::FlowService for DexFlowService {
         respond(
             self.operations()
                 .reset_flow(TenantId::DEFAULT, request.into_inner())
+                .await,
+        )
+    }
+
+    async fn clone_fork_flow(
+        &self,
+        request: Request<CloneForkFlowRequest>,
+    ) -> Result<Response<CloneForkFlowResponse>, Status> {
+        respond(
+            self.operations()
+                .clone_fork_flow(TenantId::DEFAULT, request.into_inner())
                 .await,
         )
     }

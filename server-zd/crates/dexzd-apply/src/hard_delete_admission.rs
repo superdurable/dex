@@ -38,6 +38,15 @@ fn validate_command(command: &FlowCommand) -> Result<(), String> {
                 .flat_map(|options| &options.attributes),
             &start.hard_delete_objects,
         ),
+        Some(Command::FlowCloneFork(clone_fork)) => validate_writes(
+            clone_fork.copied_hard_delete_attributes.iter().chain(
+                clone_fork
+                    .request
+                    .iter()
+                    .flat_map(|request| &request.attributes),
+            ),
+            &clone_fork.hard_delete_objects,
+        ),
         Some(Command::AttributesSet(set)) => validate_writes(
             set.request.iter().flat_map(|request| &request.attributes),
             &set.hard_delete_objects,

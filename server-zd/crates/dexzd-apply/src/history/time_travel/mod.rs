@@ -37,6 +37,24 @@ pub use result_computation::{
 pub(crate) use staging::{apply_time_travel_stage, delete_idle_staging, staged_attempt_state};
 pub use sub_flow_reset_findings::GoneChildFlowCondition;
 
+// Shared with CloneForkFlow, which copies a point's state into a new run.
+pub(super) use attempt_start::{
+    dispatch_restored_invocations, keep_time_travel_attempt_effects, synced_row_keys,
+    write_restored_rows,
+};
+pub(super) use result_computation::compute_point_state;
+pub(super) use staging::{
+    IDLE_STAGING_MICROS, MAX_STAGE_CHUNK_BYTES, STAGE_CHUNK_TARGET_BYTES, entry_bytes,
+    validate_staged_child_flow, validate_staged_row,
+};
+pub(super) use sub_flow_reset::{
+    SubFlowResetOperation, apply_clone_fork_sub_flow_actions, plan_clone_fork_sub_flow_actions,
+    reset_policy,
+};
+pub(super) use sub_flow_reset_findings::{
+    ChildFlowSources, SubFlowFindingRequest, sub_flow_findings,
+};
+
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::{CommandScope, HandlerResult};
@@ -85,6 +103,7 @@ pub(crate) fn apply_time_travel(
             ReplayResources {
                 offloaded_values: &NoOffloadedValues,
                 memory_budget: &memory_budget,
+                operation: SubFlowResetOperation::TimeTravel,
             },
         )?
     } else {

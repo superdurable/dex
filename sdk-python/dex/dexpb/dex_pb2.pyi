@@ -176,6 +176,16 @@ class SubFlowResetPolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL: _ClassVar[SubFlowResetPolicy]
     SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT: _ClassVar[SubFlowResetPolicy]
 
+class FlowCloneForkPointType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED: _ClassVar[FlowCloneForkPointType]
+    FLOW_CLONE_FORK_POINT_TYPE_CURRENT: _ClassVar[FlowCloneForkPointType]
+    FLOW_CLONE_FORK_POINT_TYPE_BEGINNING: _ClassVar[FlowCloneForkPointType]
+    FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME: _ClassVar[FlowCloneForkPointType]
+    FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE: _ClassVar[FlowCloneForkPointType]
+    FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID: _ClassVar[FlowCloneForkPointType]
+    FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID: _ClassVar[FlowCloneForkPointType]
+
 class AttributeMatchOperator(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED: _ClassVar[AttributeMatchOperator]
@@ -348,6 +358,13 @@ SUB_FLOW_RESET_POLICY_ALWAYS_REJECT: SubFlowResetPolicy
 SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART: SubFlowResetPolicy
 SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL: SubFlowResetPolicy
 SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT: SubFlowResetPolicy
+FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED: FlowCloneForkPointType
+FLOW_CLONE_FORK_POINT_TYPE_CURRENT: FlowCloneForkPointType
+FLOW_CLONE_FORK_POINT_TYPE_BEGINNING: FlowCloneForkPointType
+FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME: FlowCloneForkPointType
+FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE: FlowCloneForkPointType
+FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID: FlowCloneForkPointType
+FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID: FlowCloneForkPointType
 ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED: AttributeMatchOperator
 ATTRIBUTE_MATCH_OPERATOR_EQUAL: AttributeMatchOperator
 ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL: AttributeMatchOperator
@@ -1213,7 +1230,7 @@ class TimeTravelForkHistoryEvent(_message.Message):
     def __init__(self, previous_run_id: _Optional[str] = ..., previous_run_attempt: _Optional[int] = ..., target_run_attempt: _Optional[int] = ..., target_event_id: _Optional[int] = ...) -> None: ...
 
 class FlowStartedOrContinuedHistoryEvent(_message.Message):
-    __slots__ = ("flow_run_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "timeout_handler_options", "initial_start")
+    __slots__ = ("flow_run_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "timeout_handler_options", "initial_start", "clone_fork_source")
     FLOW_RUN_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
@@ -1221,6 +1238,7 @@ class FlowStartedOrContinuedHistoryEvent(_message.Message):
     FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     INITIAL_START_FIELD_NUMBER: _ClassVar[int]
+    CLONE_FORK_SOURCE_FIELD_NUMBER: _ClassVar[int]
     flow_run_id: FlowRunID
     flow_type: str
     flow_config: FlowConfig
@@ -1228,7 +1246,8 @@ class FlowStartedOrContinuedHistoryEvent(_message.Message):
     flow_timeout_policy: FlowTimeoutPolicy
     timeout_handler_options: FlowTimeoutHandlerOptions
     initial_start: FlowInitialStart
-    def __init__(self, flow_run_id: _Optional[_Union[FlowRunID, _Mapping]] = ..., flow_type: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ..., initial_start: _Optional[_Union[FlowInitialStart, _Mapping]] = ...) -> None: ...
+    clone_fork_source: FlowCloneForkSource
+    def __init__(self, flow_run_id: _Optional[_Union[FlowRunID, _Mapping]] = ..., flow_type: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ..., initial_start: _Optional[_Union[FlowInitialStart, _Mapping]] = ..., clone_fork_source: _Optional[_Union[FlowCloneForkSource, _Mapping]] = ...) -> None: ...
 
 class FlowInitialStart(_message.Message):
     __slots__ = ("start_step_type", "step_input", "step_options", "initial_attributes")
@@ -1596,6 +1615,70 @@ class ResetFlowResponse(_message.Message):
     run_id: str
     run_attempt: int
     def __init__(self, run_id: _Optional[str] = ..., run_attempt: _Optional[int] = ...) -> None: ...
+
+class CloneForkFlowRequest(_message.Message):
+    __slots__ = ("source_flow_id", "source_run_id", "flow_id", "request_id", "id_reuse_policy", "flow_already_started_options", "flow_config_override", "attributes", "flow_timeout_seconds", "reason", "point_type", "history_event_time", "step_type", "step_execution_id", "step_method", "event_id", "run_attempt", "sub_flow_reset_policy")
+    SOURCE_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    ID_REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
+    FLOW_ALREADY_STARTED_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    POINT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    HISTORY_EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
+    STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
+    STEP_METHOD_FIELD_NUMBER: _ClassVar[int]
+    EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_RESET_POLICY_FIELD_NUMBER: _ClassVar[int]
+    source_flow_id: str
+    source_run_id: str
+    flow_id: str
+    request_id: str
+    id_reuse_policy: IdReusePolicy
+    flow_already_started_options: FlowAlreadyStartedOptions
+    flow_config_override: FlowConfig
+    attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
+    flow_timeout_seconds: int
+    reason: str
+    point_type: FlowCloneForkPointType
+    history_event_time: str
+    step_type: str
+    step_execution_id: str
+    step_method: FlowResetStepMethod
+    event_id: int
+    run_attempt: int
+    sub_flow_reset_policy: SubFlowResetPolicy
+    def __init__(self, source_flow_id: _Optional[str] = ..., source_run_id: _Optional[str] = ..., flow_id: _Optional[str] = ..., request_id: _Optional[str] = ..., id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_timeout_seconds: _Optional[int] = ..., reason: _Optional[str] = ..., point_type: _Optional[_Union[FlowCloneForkPointType, str]] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., step_method: _Optional[_Union[FlowResetStepMethod, str]] = ..., event_id: _Optional[int] = ..., run_attempt: _Optional[int] = ..., sub_flow_reset_policy: _Optional[_Union[SubFlowResetPolicy, str]] = ...) -> None: ...
+
+class CloneForkFlowResponse(_message.Message):
+    __slots__ = ("run_id", "source_run_id", "source_run_attempt", "source_event_id")
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_RUN_ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    run_id: str
+    source_run_id: str
+    source_run_attempt: int
+    source_event_id: int
+    def __init__(self, run_id: _Optional[str] = ..., source_run_id: _Optional[str] = ..., source_run_attempt: _Optional[int] = ..., source_event_id: _Optional[int] = ...) -> None: ...
+
+class FlowCloneForkSource(_message.Message):
+    __slots__ = ("flow_id", "run_id", "run_attempt", "event_id")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    run_id: str
+    run_attempt: int
+    event_id: int
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., run_attempt: _Optional[int] = ..., event_id: _Optional[int] = ...) -> None: ...
 
 class InvokeRPCRequest(_message.Message):
     __slots__ = ("flow_id", "run_id", "rpc_name", "input", "timeout_seconds", "lock_attribute_keys", "request_id", "is_transactional", "load_attribute_map_instances", "load_channel_names", "load_channel_map_instances")

@@ -283,6 +283,50 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.FlowInitialStart.getDefaultInstance();
   }
 
+  public static final int CLONE_FORK_SOURCE_FIELD_NUMBER = 12;
+  private io.superdurable.gen.FlowCloneForkSource cloneForkSource_;
+  /**
+   * <pre>
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   * </pre>
+   *
+   * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+   * @return Whether the cloneForkSource field is set.
+   */
+  @java.lang.Override
+  public boolean hasCloneForkSource() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <pre>
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   * </pre>
+   *
+   * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+   * @return The cloneForkSource.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowCloneForkSource getCloneForkSource() {
+    return cloneForkSource_ == null ? io.superdurable.gen.FlowCloneForkSource.getDefaultInstance() : cloneForkSource_;
+  }
+  /**
+   * <pre>
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   * </pre>
+   *
+   * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowCloneForkSourceOrBuilder getCloneForkSourceOrBuilder() {
+    return cloneForkSource_ == null ? io.superdurable.gen.FlowCloneForkSource.getDefaultInstance() : cloneForkSource_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -318,6 +362,9 @@ private static final long serialVersionUID = 0L;
     if (startOrContinueCase_ == 10) {
       output.writeMessage(10, (io.superdurable.gen.FlowInitialStart) startOrContinue_);
     }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      output.writeMessage(12, getCloneForkSource());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -348,6 +395,10 @@ private static final long serialVersionUID = 0L;
     if (startOrContinueCase_ == 10) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(10, (io.superdurable.gen.FlowInitialStart) startOrContinue_);
+    }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(12, getCloneForkSource());
     }
     return size;
   }
@@ -396,6 +447,11 @@ private static final long serialVersionUID = 0L;
       if (!getTimeoutHandlerOptions()
           .equals(other.getTimeoutHandlerOptions())) return false;
     }
+    if (hasCloneForkSource() != other.hasCloneForkSource()) return false;
+    if (hasCloneForkSource()) {
+      if (!getCloneForkSource()
+          .equals(other.getCloneForkSource())) return false;
+    }
     if (!getStartOrContinueCase().equals(other.getStartOrContinueCase())) return false;
     switch (startOrContinueCase_) {
       case 10:
@@ -435,6 +491,10 @@ private static final long serialVersionUID = 0L;
     if (hasTimeoutHandlerOptions()) {
       hash = (37 * hash) + TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER;
       hash = (53 * hash) + getTimeoutHandlerOptions().hashCode();
+    }
+    if (hasCloneForkSource()) {
+      hash = (37 * hash) + CLONE_FORK_SOURCE_FIELD_NUMBER;
+      hash = (53 * hash) + getCloneForkSource().hashCode();
     }
     switch (startOrContinueCase_) {
       case 10:
@@ -578,6 +638,7 @@ private static final long serialVersionUID = 0L;
         internalGetFlowConfigFieldBuilder();
         internalGetFlowTimeoutFieldBuilder();
         internalGetTimeoutHandlerOptionsFieldBuilder();
+        internalGetCloneForkSourceFieldBuilder();
       }
     }
     @java.lang.Override
@@ -608,6 +669,11 @@ private static final long serialVersionUID = 0L;
       }
       if (initialStartBuilder_ != null) {
         initialStartBuilder_.clear();
+      }
+      cloneForkSource_ = null;
+      if (cloneForkSourceBuilder_ != null) {
+        cloneForkSourceBuilder_.dispose();
+        cloneForkSourceBuilder_ = null;
       }
       startOrContinueCase_ = 0;
       startOrContinue_ = null;
@@ -676,6 +742,12 @@ private static final long serialVersionUID = 0L;
             : timeoutHandlerOptionsBuilder_.build();
         to_bitField0_ |= 0x00000008;
       }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.cloneForkSource_ = cloneForkSourceBuilder_ == null
+            ? cloneForkSource_
+            : cloneForkSourceBuilder_.build();
+        to_bitField0_ |= 0x00000010;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -719,6 +791,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasTimeoutHandlerOptions()) {
         mergeTimeoutHandlerOptions(other.getTimeoutHandlerOptions());
+      }
+      if (other.hasCloneForkSource()) {
+        mergeCloneForkSource(other.getCloneForkSource());
       }
       switch (other.getStartOrContinueCase()) {
         case INITIAL_START: {
@@ -800,6 +875,13 @@ private static final long serialVersionUID = 0L;
               startOrContinueCase_ = 10;
               break;
             } // case 82
+            case 98: {
+              input.readMessage(
+                  internalGetCloneForkSourceFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 98
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1580,6 +1662,181 @@ private static final long serialVersionUID = 0L;
       startOrContinueCase_ = 10;
       onChanged();
       return initialStartBuilder_;
+    }
+
+    private io.superdurable.gen.FlowCloneForkSource cloneForkSource_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.FlowCloneForkSource, io.superdurable.gen.FlowCloneForkSource.Builder, io.superdurable.gen.FlowCloneForkSourceOrBuilder> cloneForkSourceBuilder_;
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     * @return Whether the cloneForkSource field is set.
+     */
+    public boolean hasCloneForkSource() {
+      return ((bitField0_ & 0x00000080) != 0);
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     * @return The cloneForkSource.
+     */
+    public io.superdurable.gen.FlowCloneForkSource getCloneForkSource() {
+      if (cloneForkSourceBuilder_ == null) {
+        return cloneForkSource_ == null ? io.superdurable.gen.FlowCloneForkSource.getDefaultInstance() : cloneForkSource_;
+      } else {
+        return cloneForkSourceBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    public Builder setCloneForkSource(io.superdurable.gen.FlowCloneForkSource value) {
+      if (cloneForkSourceBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        cloneForkSource_ = value;
+      } else {
+        cloneForkSourceBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    public Builder setCloneForkSource(
+        io.superdurable.gen.FlowCloneForkSource.Builder builderForValue) {
+      if (cloneForkSourceBuilder_ == null) {
+        cloneForkSource_ = builderForValue.build();
+      } else {
+        cloneForkSourceBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    public Builder mergeCloneForkSource(io.superdurable.gen.FlowCloneForkSource value) {
+      if (cloneForkSourceBuilder_ == null) {
+        if (((bitField0_ & 0x00000080) != 0) &&
+          cloneForkSource_ != null &&
+          cloneForkSource_ != io.superdurable.gen.FlowCloneForkSource.getDefaultInstance()) {
+          getCloneForkSourceBuilder().mergeFrom(value);
+        } else {
+          cloneForkSource_ = value;
+        }
+      } else {
+        cloneForkSourceBuilder_.mergeFrom(value);
+      }
+      if (cloneForkSource_ != null) {
+        bitField0_ |= 0x00000080;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    public Builder clearCloneForkSource() {
+      bitField0_ = (bitField0_ & ~0x00000080);
+      cloneForkSource_ = null;
+      if (cloneForkSourceBuilder_ != null) {
+        cloneForkSourceBuilder_.dispose();
+        cloneForkSourceBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    public io.superdurable.gen.FlowCloneForkSource.Builder getCloneForkSourceBuilder() {
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return internalGetCloneForkSourceFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    public io.superdurable.gen.FlowCloneForkSourceOrBuilder getCloneForkSourceOrBuilder() {
+      if (cloneForkSourceBuilder_ != null) {
+        return cloneForkSourceBuilder_.getMessageOrBuilder();
+      } else {
+        return cloneForkSource_ == null ?
+            io.superdurable.gen.FlowCloneForkSource.getDefaultInstance() : cloneForkSource_;
+      }
+    }
+    /**
+     * <pre>
+     * Set when CloneForkFlow created the run: the source point whose state the run started from.
+     * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+     * no starting Step.
+     * </pre>
+     *
+     * <code>.dex.FlowCloneForkSource clone_fork_source = 12;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.FlowCloneForkSource, io.superdurable.gen.FlowCloneForkSource.Builder, io.superdurable.gen.FlowCloneForkSourceOrBuilder> 
+        internalGetCloneForkSourceFieldBuilder() {
+      if (cloneForkSourceBuilder_ == null) {
+        cloneForkSourceBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.FlowCloneForkSource, io.superdurable.gen.FlowCloneForkSource.Builder, io.superdurable.gen.FlowCloneForkSourceOrBuilder>(
+                getCloneForkSource(),
+                getParentForChildren(),
+                isClean());
+        cloneForkSource_ = null;
+      }
+      return cloneForkSourceBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowStartedOrContinuedHistoryEvent)

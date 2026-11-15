@@ -257,8 +257,33 @@ fn replace_attempt_rows(
         }
         transaction.delete(ColumnFamily::Flow, row.key(rows));
     }
+    write_restored_rows(
+        transaction,
+        cursor,
+        scope,
+        should_restore_running_as_pending,
+        rebuilt_rows,
+        &hard_delete_keys,
+    )
+}
+
+/// Writes restored attempt rows into the run under its current attempt.
+///
+/// It skips hard-delete Attribute rows and the keys in `hard_delete_keys`.
+///
+/// Timers are armed again, a Flow timeout restarting now; invocations follow
+/// [`replace_attempt_rows`].
+pub(in crate::history) fn write_restored_rows(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    should_restore_running_as_pending: bool,
+    restored_rows: Vec<AttemptRow>,
+    hard_delete_keys: &BTreeSet<Vec<u8>>,
+) -> Result<(), ApplyError> {
+    let rows = cursor.rows;
     let mut restored_running_count = 0_u32;
-    for row in rebuilt_rows {
+    for row in restored_rows {
         match row.table {
             RunTable::Attribute => {
                 if row.is_hard_delete_attribute()? || hard_delete_keys.contains(&row.key_suffix) {
@@ -505,7 +530,10 @@ fn apply_received_child_results(
 }
 
 /// Keeps effects of work folded into the attempt start; dispatch follows the final restored state instead.
-fn keep_time_travel_attempt_effects(cursor: &mut RunCursor, effects: Vec<ApplyEffect>) {
+pub(in crate::history) fn keep_time_travel_attempt_effects(
+    cursor: &mut RunCursor,
+    effects: Vec<ApplyEffect>,
+) {
     for effect in effects {
         match effect {
             ApplyEffect::InvocationPending {
@@ -521,7 +549,7 @@ fn keep_time_travel_attempt_effects(cursor: &mut RunCursor, effects: Vec<ApplyEf
 
 /// Re-dispatches the restored calls: running attempts with their stored snapshots and attempt
 /// numbers, and pending calls.
-fn dispatch_restored_invocations(
+pub(in crate::history) fn dispatch_restored_invocations(
     cursor: &mut RunCursor,
     restored_rows: &[AttemptRow],
 ) -> Result<(), ApplyError> {

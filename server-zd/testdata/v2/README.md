@@ -109,6 +109,12 @@ Then the node took a snapshot. After the snapshot:
   choice at start: true and false. Both record the same thirty commands. `chosen-offload` seals
   and acknowledges segments although its partition never offloads; `chosen-local` never seals
   although its partition does.
+- `clone-source-flow`: a run whose start Step is pending holds a long `transcript` Attribute
+  and a Flow timeout. A CloneForkFlow copies its current state into `clone-target-flow`: the
+  owner commits FlowCloneForkStage chunks under the new Flow, then a FlowCloneFork command
+  creates the new run after the source's last seq, writes a `lease` Attribute, restarts the
+  Flow timeout, and deletes the staging. A second staging that announces more chunks is
+  abandoned; 10 minutes later in command time, a FlowCloneForkStagingExpire command deletes it.
 
 Every `FlowCommand` kind of behavior version 1 appears in the log. Hand-out commands outside
 `handout-sync` and `handout-travel` carry no task ID, as an older log does. Log cleanup did not run,

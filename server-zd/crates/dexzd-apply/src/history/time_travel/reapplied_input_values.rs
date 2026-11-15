@@ -78,6 +78,7 @@ pub(super) fn unstored_input_values(
                 point,
                 resources.memory_budget.limit_bytes(),
                 "the values the reapplied external input references",
+                resources.operation,
             )));
         }
         // Every value is asked for, so an owner learns all it must fetch at once.

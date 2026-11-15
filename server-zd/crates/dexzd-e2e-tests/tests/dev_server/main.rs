@@ -11,6 +11,7 @@
 mod active_state_limit;
 mod attribute_sync;
 mod channel_message_delete;
+mod clone_fork;
 mod close_barrier;
 mod failure_policies;
 mod flow_controls;
@@ -67,7 +68,7 @@ async fn pull_worker_completes_a_single_step_flow() {
         .into_inner();
     assert_eq!(server_info.server_engine, ServerEngine::Zd as i32);
     assert_eq!(server_info.minimum_supported_protocol_version, 1);
-    assert_eq!(server_info.current_protocol_version, 5);
+    assert_eq!(server_info.current_protocol_version, 6);
     flow_client
         .sync_attribute_indexes(SyncAttributeIndexRequest {
             attribute_indexes: BTreeMap::from([(

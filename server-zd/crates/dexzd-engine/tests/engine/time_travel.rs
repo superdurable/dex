@@ -72,21 +72,21 @@ const START_STEP: &str = "ChargeStep";
 const START_STEP_EXECUTION: &str = "ChargeStep-1";
 
 /// A node with real apply and debug replay checks, and the registry that serves it.
-struct TravelNode {
+pub(crate) struct TravelNode {
     node: EngineNode,
-    registry: FlowCoordinatorRegistry,
+    pub(crate) registry: FlowCoordinatorRegistry,
     /// Registries beside `registry` over the same committer; each serializes only its own
     /// ResetFlows.
     other_registries: Vec<FlowCoordinatorRegistry>,
-    store: Arc<RestoredLocalStore>,
-    hasher: PartitionHasher,
-    recording: Arc<RecordingCommandAndEffectHooks>,
+    pub(crate) store: Arc<RestoredLocalStore>,
+    pub(crate) hasher: PartitionHasher,
+    pub(crate) recording: Arc<RecordingCommandAndEffectHooks>,
     next_request: AtomicUsize,
     objects: Arc<InMemoryObjectStore>,
 }
 
 impl TravelNode {
-    async fn start(
+    pub(crate) async fn start(
         cluster: &TestCluster,
         local_store: LocalStoreConfig,
         opener: Arc<dyn TimeTravelHistoryOpener>,
@@ -128,6 +128,30 @@ impl TravelNode {
         flow_coordination: FlowCoordinationConfig,
         history_reads: dexzd_engine::HistoryReadsConfig,
     ) -> Self {
+        Self::start_with_hard_delete_ports(
+            cluster,
+            local_store,
+            openers,
+            flow_coordination,
+            history_reads,
+            HardDeletePorts {
+                reader: Arc::new(UnusedPorts),
+                uploader: Arc::new(UnusedPorts),
+            },
+        )
+        .await
+    }
+
+    /// Starts a node as [`Self::start_with_registries`] does, whose registries read and upload
+    /// hard-delete values through `hard_delete`.
+    pub(crate) async fn start_with_hard_delete_ports(
+        cluster: &TestCluster,
+        local_store: LocalStoreConfig,
+        openers: Vec<Arc<dyn TimeTravelHistoryOpener>>,
+        flow_coordination: FlowCoordinationConfig,
+        history_reads: dexzd_engine::HistoryReadsConfig,
+        hard_delete: HardDeletePorts,
+    ) -> Self {
         let mut config = cluster.config(local_store);
         config.commit.debug_replay_checks = true;
         let captured = Arc::new(Mutex::new(None));
@@ -160,8 +184,8 @@ impl TravelNode {
                                 effects: ports.clone(),
                                 rpc_invoker: ports.clone(),
                                 step_queue_status: ports.clone(),
-                                hard_delete_reader: ports.clone(),
-                                hard_delete_uploader: ports.clone(),
+                                hard_delete_reader: Arc::clone(&hard_delete.reader),
+                                hard_delete_uploader: Arc::clone(&hard_delete.uploader),
                                 time_travel_history: opener,
                                 clock: clock.clone(),
                                 history_segment_reader: Arc::new(
@@ -220,11 +244,11 @@ impl TravelNode {
         }
     }
 
-    fn committer(&self) -> &CommandCommitter {
+    pub(crate) fn committer(&self) -> &CommandCommitter {
         self.node.committer()
     }
 
-    async fn start_flow(&self, step_options: Option<StepOptions>) -> RunId {
+    pub(crate) async fn start_flow(&self, step_options: Option<StepOptions>) -> RunId {
         self.start_flow_with(StartFlowRequest {
             step_options,
             ..start_flow_request()
@@ -232,7 +256,7 @@ impl TravelNode {
         .await
     }
 
-    async fn start_flow_with(&self, request: StartFlowRequest) -> RunId {
+    pub(crate) async fn start_flow_with(&self, request: StartFlowRequest) -> RunId {
         let response = self
             .registry
             .start_flow(TenantId::DEFAULT, request)
@@ -241,7 +265,7 @@ impl TravelNode {
         response.run_id.parse().expect("the run ID parses")
     }
 
-    async fn set_attribute(&self, key: &str, value: Value) {
+    pub(crate) async fn set_attribute(&self, key: &str, value: Value) {
         self.registry
             .set_attributes(
                 TenantId::DEFAULT,
@@ -260,7 +284,10 @@ impl TravelNode {
             .expect("the Attributes are set");
     }
 
-    async fn reset(&self, request: ResetFlowRequest) -> Result<u32, FlowCoordinationError> {
+    pub(crate) async fn reset(
+        &self,
+        request: ResetFlowRequest,
+    ) -> Result<u32, FlowCoordinationError> {
         self.registry
             .reset_flow(TenantId::DEFAULT, request)
             .await
@@ -285,13 +312,13 @@ impl TravelNode {
         ticket.wait().await.expect("the command commits");
     }
 
-    fn view(&self) -> impl FlowStateReader {
+    pub(crate) fn view(&self) -> impl FlowStateReader {
         self.committer()
             .committed_view()
             .expect("the committed view opens")
     }
 
-    fn run_record(&self, run_id: RunId) -> RunRecord {
+    pub(crate) fn run_record(&self, run_id: RunId) -> RunRecord {
         let key = run_singleton_key(self.context().flow_hash, run_id, RunTable::RunRecord);
         RunRecord::decode(
             self.view()
@@ -340,7 +367,7 @@ impl TravelNode {
         .expect("the history record decodes")
     }
 
-    fn attribute(&self, run_id: RunId, key: &str) -> Option<AttributeRecord> {
+    pub(crate) fn attribute(&self, run_id: RunId, key: &str) -> Option<AttributeRecord> {
         let row_key = dexzd_keyspace::row_keys::run_named_key(
             self.context().flow_hash,
             run_id,
@@ -370,7 +397,7 @@ impl TravelNode {
     }
 
     /// Turns offload mode on for the Flow's partition.
-    async fn enable_history_offload(&self) {
+    pub(crate) async fn enable_history_offload(&self) {
         let partition = self.context().partition;
         let (_, ticket) = self
             .committer()
@@ -395,7 +422,7 @@ impl TravelNode {
     /// Uploads and acknowledges every SEALED segment of the run as the uploader does, then
     /// deletes the local History records and checkpoints they cover, except genesis, as local
     /// deletion after upload does. Returns the run's uploaded-through seq.
-    async fn offload_sealed_history(&self, run_id: RunId) -> u64 {
+    pub(crate) async fn offload_sealed_history(&self, run_id: RunId) -> u64 {
         let flow_hash = self.context().flow_hash;
         // FlowStart is the run's first seq.
         let genesis_seq = 1;
@@ -475,14 +502,14 @@ impl TravelNode {
     }
 
     /// Returns how many ranged reads of history segment objects object storage served.
-    fn history_object_reads(&self) -> u64 {
+    pub(crate) fn history_object_reads(&self) -> u64 {
         self.objects
             .call_count(ObjectStoreOperation::Get, "history/")
     }
 
     /// Removes a superseded value's value row, as offloading does, keeping its birth and
     /// garbage rows; returns the value.
-    fn offload_superseded_value(&self, run_id: RunId, value_id: ValueId) -> Value {
+    pub(crate) fn offload_superseded_value(&self, run_id: RunId, value_id: ValueId) -> Value {
         let flow_hash = self.context().flow_hash;
         let view = self.view();
         let birth_key = value_row_key(flow_hash, run_id, RunTable::ValueBirth, value_id);
@@ -514,7 +541,7 @@ impl TravelNode {
     }
 
     /// Shuts the node down and releases the store, the registry, and the recorded commands.
-    async fn shutdown(self) {
+    pub(crate) async fn shutdown(self) {
         let Self {
             node,
             registry,
@@ -562,6 +589,12 @@ impl CommittedCommandSink for ForwardingSink {
     fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {
         self.recording.finish_frame(partition, position);
     }
+}
+
+/// The hard-delete value ports of a node's registries.
+pub(crate) struct HardDeletePorts {
+    pub(crate) reader: Arc<dyn HardDeleteValueReader>,
+    pub(crate) uploader: Arc<dyn HardDeleteValueUploader>,
 }
 
 /// Ports the registry needs for client writes and resets without Workers.
@@ -626,12 +659,12 @@ impl HardDeleteValueUploader for UnusedPorts {
 /// committed state, and every open serves the values the test removed from the local store
 /// besides local rows and fetched segments, as an object storage source does.
 #[derive(Default)]
-struct ScriptedHistory {
+pub(crate) struct ScriptedHistory {
     gate: Mutex<Option<(Arc<Notify>, Arc<Notify>)>>,
     opens: AtomicUsize,
     /// Current run attempt each open saw.
     seen_attempts: Mutex<Vec<u32>>,
-    removed_values: Arc<Mutex<BTreeMap<ValueId, Value>>>,
+    pub(crate) removed_values: Arc<Mutex<BTreeMap<ValueId, Value>>>,
 }
 
 impl ScriptedHistory {
@@ -705,6 +738,22 @@ impl TimeTravelRunHistory for ScriptedRunHistory {
             request,
         )
     }
+
+    fn compute_clone_fork(
+        &self,
+        context: &ApplyContext,
+        request: &dexzd_apply::CloneForkComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
+    ) -> Result<dexzd_apply::SegmentedCloneForkComputation, ApplyError> {
+        dexzd_apply::compute_clone_fork_from_segments(
+            context,
+            self.view.as_ref(),
+            &self.segments,
+            &self.removed_values,
+            child_flow_runs,
+            request,
+        )
+    }
 }
 
 struct RemovedValues(BTreeMap<ValueId, Value>);
@@ -739,7 +788,7 @@ fn start_flow_request() -> StartFlowRequest {
     }
 }
 
-fn string_value(text: &str) -> Value {
+pub(crate) fn string_value(text: &str) -> Value {
     Value {
         kind: Some(value::Kind::StringValue(text.to_owned())),
     }
@@ -770,7 +819,7 @@ fn is_stage(command: &Command) -> bool {
     matches!(command, Command::TimeTravelStage(_))
 }
 
-fn table_value_id(record: &AttributeRecord) -> ValueId {
+pub(crate) fn table_value_id(record: &AttributeRecord) -> ValueId {
     let Some(stored_value::Kind::TableValue(reference)) = record
         .value
         .as_ref()
@@ -787,7 +836,7 @@ fn table_value_id(record: &AttributeRecord) -> ValueId {
 
 /// Coordination whose runs seal a history segment with every command and write a checkpoint
 /// every two commands, so offloading leaves little history local.
-fn offloading_config() -> FlowCoordinationConfig {
+pub(crate) fn offloading_config() -> FlowCoordinationConfig {
     let config = FlowCoordinationConfig::default();
     FlowCoordinationConfig {
         run_settings: RunSettings {
@@ -799,7 +848,7 @@ fn offloading_config() -> FlowCoordinationConfig {
     }
 }
 
-fn segmented_opener() -> Arc<dyn TimeTravelHistoryOpener> {
+pub(crate) fn segmented_opener() -> Arc<dyn TimeTravelHistoryOpener> {
     Arc::new(SegmentedTimeTravelHistory)
 }
 

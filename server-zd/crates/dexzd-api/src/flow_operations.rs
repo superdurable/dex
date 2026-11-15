@@ -9,15 +9,15 @@
 use async_trait::async_trait;
 use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{
-    DeleteChannelMessageRequest, FlowResult, GetAttributesRequest, GetAttributesResponse,
-    GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowStateRequest,
-    GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, GetHistoryEventsRequest,
-    GetHistoryEventsResponse, InvokeRpcRequest, InvokeRpcResponse, LoadBlobsRequest,
-    LoadBlobsResponse, PublishToChannelRequest, ResetFlowRequest, ResetFlowResponse,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse, StopFlowRequest,
-    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForAttributeResponse, WaitForFlowRequest,
-    WaitForHistoryEventRequest, WaitForHistoryEventResponse, WaitForStepCompletionRequest,
-    WaitForStepCompletionResponse,
+    CloneForkFlowRequest, CloneForkFlowResponse, DeleteChannelMessageRequest, FlowResult,
+    GetAttributesRequest, GetAttributesResponse, GetChannelMessagesRequest,
+    GetChannelMessagesResponse, GetFlowStateRequest, GetFlowStateResponse, GetFlowSummaryRequest,
+    GetFlowSummaryResponse, GetHistoryEventsRequest, GetHistoryEventsResponse, InvokeRpcRequest,
+    InvokeRpcResponse, LoadBlobsRequest, LoadBlobsResponse, PublishToChannelRequest,
+    ResetFlowRequest, ResetFlowResponse, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    StartFlowResponse, StopFlowRequest, UpdateFlowConfigRequest, WaitForAttributeRequest,
+    WaitForAttributeResponse, WaitForFlowRequest, WaitForHistoryEventRequest,
+    WaitForHistoryEventResponse, WaitForStepCompletionRequest, WaitForStepCompletionResponse,
 };
 
 use crate::FlowOperationError;
@@ -124,6 +124,13 @@ pub trait FlowOperations: Send + Sync + 'static {
         tenant_id: TenantId,
         request: ResetFlowRequest,
     ) -> Result<ResetFlowResponse, FlowOperationError>;
+
+    /// Creates a Flow whose first run starts from a copy of another run's state at a point.
+    async fn clone_fork_flow(
+        &self,
+        tenant_id: TenantId,
+        request: CloneForkFlowRequest,
+    ) -> Result<CloneForkFlowResponse, FlowOperationError>;
 
     /// Invokes a Flow RPC on a Worker.
     async fn invoke_rpc(

@@ -28,7 +28,8 @@ message LogRecord {
 message FlowCommand {
   string flow_id = 1;
   // 16-byte run ID the command targets. Empty only for commands that may create a run
-  // (FlowStart, and InboxMessage carrying a child start).
+  // (FlowStart, FlowCloneFork, and InboxMessage carrying a child start), and for commands that
+  // belong to no run, such as partition commands and CloneForkFlow stagings.
   bytes run_id = 2;
   // When non-zero, apply rejects the command unless the run's current attempt equals it.
   uint32 expected_run_attempt = 3;
@@ -63,6 +64,9 @@ message FlowCommand {
     TimerSkipCommand timer_skip = 51;
     TimeTravelCommand time_travel = 60;
     TimeTravelStageCommand time_travel_stage = 61;
+    FlowCloneForkStageCommand flow_clone_fork_stage = 62;
+    FlowCloneForkCommand flow_clone_fork = 63;
+    FlowCloneForkStagingExpireCommand flow_clone_fork_staging_expire = 64;
     InboxMessageCommand inbox_message = 70;
     OutboxAckCommand outbox_ack = 71;
     AttributeSyncAckCommand attribute_sync_ack = 72;
@@ -405,6 +409,54 @@ message TimeTravelStageCommand {
   bool is_last_chunk = 3;
   // Encoded TimeTravelStagedChunk (state.proto), which also becomes the staging row's value.
   bytes chunk = 4;
+}
+
+// One chunk of the state a CloneForkFlow copies into the Flow the command names. It belongs to
+// no run, records no history, and takes no run seq.
+//
+// Chunk 0 starts the staging and drops a staging with the same ID; later chunks follow in order.
+message FlowCloneForkStageCommand {
+  // ID of the staging; the owner derives it from the Flow ID and the request ID.
+  bytes staging_id = 1;
+  uint32 chunk_index = 2;
+  // True for the last chunk; the staging is then complete.
+  bool is_last_chunk = 3;
+  // Encoded FlowCloneForkStagedChunk (state.proto), which also becomes the chunk row's value.
+  bytes chunk = 4;
+}
+
+// CloneForkFlow, after the owner staged the copied state: applies ID reuse to the Flow the
+// command names and, when allowed, creates its new run from the staging, which it deletes.
+// Values in the request are complete except uploaded hard-delete Attributes.
+message FlowCloneForkCommand {
+  // ID of the complete staging the new run starts from.
+  bytes staging_id = 1;
+  // Run ID the owner generated for the new run.
+  bytes new_run_id = 2;
+  // The client's request; the staging names the same request.
+  dex.CloneForkFlowRequest request = 3;
+  RunSettings settings = 4;
+  // The source run's Flow configuration with the request's override applied, validated, and
+  // normalized to pull mode.
+  dex.FlowConfig effective_flow_config = 5;
+  // Flow timeout of the new run, counted from this command; zero means none.
+  int64 flow_timeout_duration_micros = 6;
+  // Timeout policy after applying the protocol default (UNSPECIFIED with a timeout is FAIL).
+  dex.FlowTimeoutPolicy resolved_timeout_policy = 7;
+  dex.FlowTimeoutHandlerOptions timeout_handler_options = 8;
+  // Write indexes span copied_hard_delete_attributes, then request.attributes: the order apply
+  // writes them in.
+  repeated HardDeleteObjectReference hard_delete_objects = 9;
+  // The source run's current hard-delete Attributes, uploaded again for the new run. Apply
+  // writes them after the copy and before request.attributes.
+  repeated dex.AttributeWrite copied_hard_delete_attributes = 10;
+}
+
+// The owner found a CloneForkFlow staging of the Flow the command names that no chunk extended
+// for 10 minutes. Apply deletes it when it is still that idle at the command's time; otherwise
+// nothing changes. It belongs to no run, records no history, and takes no run seq.
+message FlowCloneForkStagingExpireCommand {
+  bytes staging_id = 1;
 }
 
 // Identifies the Flow run that sent or receives a cross-Flow message.

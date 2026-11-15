@@ -185,6 +185,11 @@ class FlowServiceStub:
                 request_serializer=dex__pb2.ResetFlowRequest.SerializeToString,
                 response_deserializer=dex__pb2.ResetFlowResponse.FromString,
                 _registered_method=True)
+        self.CloneForkFlow = channel.unary_unary(
+                '/dex.FlowService/CloneForkFlow',
+                request_serializer=dex__pb2.CloneForkFlowRequest.SerializeToString,
+                response_deserializer=dex__pb2.CloneForkFlowResponse.FromString,
+                _registered_method=True)
         self.InvokeRPC = channel.unary_unary(
                 '/dex.FlowService/InvokeRPC',
                 request_serializer=dex__pb2.InvokeRPCRequest.SerializeToString,
@@ -406,6 +411,12 @@ class FlowServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CloneForkFlow(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def InvokeRPC(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -604,6 +615,11 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     servicer.ResetFlow,
                     request_deserializer=dex__pb2.ResetFlowRequest.FromString,
                     response_serializer=dex__pb2.ResetFlowResponse.SerializeToString,
+            ),
+            'CloneForkFlow': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloneForkFlow,
+                    request_deserializer=dex__pb2.CloneForkFlowRequest.FromString,
+                    response_serializer=dex__pb2.CloneForkFlowResponse.SerializeToString,
             ),
             'InvokeRPC': grpc.unary_unary_rpc_method_handler(
                     servicer.InvokeRPC,
@@ -1241,6 +1257,33 @@ class FlowService:
             '/dex.FlowService/ResetFlow',
             dex__pb2.ResetFlowRequest.SerializeToString,
             dex__pb2.ResetFlowResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloneForkFlow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/CloneForkFlow',
+            dex__pb2.CloneForkFlowRequest.SerializeToString,
+            dex__pb2.CloneForkFlowResponse.FromString,
             options,
             channel_credentials,
             insecure,

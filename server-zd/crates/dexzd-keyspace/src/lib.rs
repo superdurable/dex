@@ -11,6 +11,7 @@
 //! Everything in this crate is a permanent format. Byte values of enums and the layout of keys
 //! never change; new variants and key kinds are only appended.
 
+mod clone_fork_staging_keys;
 pub mod dispatch_queue_keys;
 mod identifiers;
 mod key_layout;
@@ -21,10 +22,11 @@ mod value_reference;
 
 pub use identifiers::{FlowHash, IdentifierError, PartitionId, RunId, TenantId, ValueId};
 pub use key_layout::{
-    ColumnFamily, FLOW_DIRECTORY_KEY_TAG, FlowKeyRange, IndexKind, KeyLayoutError, ParsedRunKey,
-    RUN_KEY_TAG, RunTable, decode_partition_meta_key, flow_directory_key, flow_directory_prefix,
-    parse_run_key, partition_index_key, partition_index_prefix, partition_key_range,
-    partition_meta_key, run_key, run_prefix, run_table_prefix,
+    ColumnFamily, FLOW_CLONE_FORK_STAGING_KEY_TAG, FLOW_DIRECTORY_KEY_TAG, FlowKeyRange, IndexKind,
+    KeyLayoutError, ParsedRunKey, RUN_KEY_TAG, RunTable, decode_partition_meta_key,
+    flow_directory_key, flow_directory_prefix, parse_run_key, partition_index_key,
+    partition_index_prefix, partition_key_range, partition_meta_key, run_key, run_prefix,
+    run_table_prefix,
 };
 pub use node_identifier::{NodeIdentifierError, validate_node_identifier};
 pub use partition_hash::{PartitionHashError, PartitionHasher};

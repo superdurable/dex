@@ -15,8 +15,9 @@ use std::sync::{Arc, Mutex};
 use dexzd_apply::read_model::{OffloadedValueLocation, ReadModelError, locate_offloaded_value};
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyError, ChildFlowRuns, FlowStateReader, LoadedHistorySegments,
-    SegmentedTimeTravelComputation, TimeTravelComputationRequest,
+    ApplyContext, ApplyEffect, ApplyError, ChildFlowRuns, CloneForkComputationRequest,
+    FlowStateReader, LoadedHistorySegments, SegmentedCloneForkComputation,
+    SegmentedTimeTravelComputation, TimeTravelComputationRequest, compute_clone_fork_from_segments,
     compute_time_travel_from_segments,
 };
 use dexzd_keyspace::{RunId, ValueId};
@@ -246,6 +247,19 @@ pub trait TimeTravelRunHistory: Send {
         child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError>;
 
+    /// Computes the CloneForkFlow copy of `request` over this history, possibly blocking.
+    ///
+    /// It reads child runs from `child_flow_runs`.
+    ///
+    /// Returns [`SegmentedCloneForkComputation::NeedsSegments`] when the computation reached
+    /// uploaded segments this history lacks. Returns an error when stored state is corrupt.
+    fn compute_clone_fork(
+        &self,
+        context: &ApplyContext,
+        request: &CloneForkComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
+    ) -> Result<SegmentedCloneForkComputation, ApplyError>;
+
     /// Returns the values that offload deleted locally which the last computation read and
     /// this history lacks, each with the UPLOADED segment that holds it, and forgets them.
     ///
@@ -335,6 +349,22 @@ impl TimeTravelRunHistory for SegmentedRunHistory {
         child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
         compute_time_travel_from_segments(
+            context,
+            self.view.as_ref(),
+            &self.segments,
+            self,
+            child_flow_runs,
+            request,
+        )
+    }
+
+    fn compute_clone_fork(
+        &self,
+        context: &ApplyContext,
+        request: &CloneForkComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
+    ) -> Result<SegmentedCloneForkComputation, ApplyError> {
+        compute_clone_fork_from_segments(
             context,
             self.view.as_ref(),
             &self.segments,

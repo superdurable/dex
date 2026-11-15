@@ -83,6 +83,68 @@ pub(crate) fn record_flow_started(
                 },
             ),
         ),
+        clone_fork_source: None,
+    };
+    cursor.add_event(flow_history_event::Payload::FlowStartedOrContinued(event))
+}
+
+/// What the start event of a run that CloneForkFlow created records.
+pub(crate) struct FlowCloneForkStart<'start> {
+    pub(crate) flow_id: &'start str,
+    pub(crate) flow_type: &'start str,
+    pub(crate) flow_config: &'start dexzd_protocol::dex::FlowConfig,
+    pub(crate) flow_timeout_duration_micros: i64,
+    pub(crate) timeout_handler_options: Option<dexzd_protocol::dex::FlowTimeoutHandlerOptions>,
+    /// The request's Attribute writes, in write order.
+    pub(crate) attributes: &'start [AttributeWrite],
+    pub(crate) source: dexzd_protocol::dex::FlowCloneForkSource,
+}
+
+/// Records the start of a run that CloneForkFlow created.
+///
+/// `attribute_references` holds each request Attribute's wire reference, in write order.
+pub(crate) fn record_flow_clone_forked(
+    cursor: &mut RunCursor,
+    start: FlowCloneForkStart<'_>,
+    attribute_references: Vec<Option<Value>>,
+) -> HistoryEventIndex {
+    let mut initial_attributes: Vec<Kv> = start
+        .attributes
+        .iter()
+        .map(|write| Kv {
+            key: write.key.clone(),
+            value: write.value.clone(),
+        })
+        .collect();
+    reference_values(
+        initial_attributes
+            .iter_mut()
+            .map(|attribute| &mut attribute.value),
+        attribute_references,
+    );
+    let duration_micros = start.flow_timeout_duration_micros;
+    let event = FlowStartedOrContinuedHistoryEvent {
+        flow_run_id: Some(FlowRunId {
+            flow_id: start.flow_id.to_owned(),
+            run_id: cursor.run_id().to_string(),
+        }),
+        flow_type: start.flow_type.to_owned(),
+        flow_config: Some(start.flow_config.clone()),
+        flow_timeout: (duration_micros > 0).then(|| prost_types::Duration {
+            seconds: duration_micros.div_euclid(1_000_000),
+            nanos: i32::try_from(duration_micros.rem_euclid(1_000_000) * 1000).unwrap_or(0),
+        }),
+        flow_timeout_policy: cursor.record.timeout_policy,
+        timeout_handler_options: start.timeout_handler_options,
+        start_or_continue: Some(
+            flow_started_or_continued_history_event::StartOrContinue::InitialStart(
+                FlowInitialStart {
+                    initial_attributes,
+                    ..FlowInitialStart::default()
+                },
+            ),
+        ),
+        clone_fork_source: Some(start.source),
     };
     cursor.add_event(flow_history_event::Payload::FlowStartedOrContinued(event))
 }

@@ -9,6 +9,10 @@
 //! Key suffixes of run tables and keys of partition indexes. Apply writes these keys and the
 //! engine and read paths scan them, so both sides must use these functions.
 
+pub use crate::clone_fork_staging_keys::{
+    decode_flow_clone_fork_staging_index_key, flow_clone_fork_staging_chunk_key,
+    flow_clone_fork_staging_index_key, flow_clone_fork_staging_key,
+};
 use crate::{
     FlowHash, IndexKind, PartitionId, RunId, RunTable, TenantId, ValueId, partition_index_key,
     partition_index_prefix, run_key,

@@ -79,13 +79,30 @@ impl FlowCoordinatorRegistry {
         uploads: Option<HardDeleteUploads>,
         build: impl FnMut(&mut ProposalScope<'_>) -> Result<FlowCommand, FlowCoordinationError>,
     ) -> Result<command_reply::Reply, FlowCoordinationError> {
+        // A rejected command writes nothing, so nothing references the objects.
+        self.propose_client_command_with_referencing_uploads(flow, uploads, build, |committed| {
+            !committed.outcome.writes.is_empty()
+        })
+        .await
+    }
+
+    /// Proposes a client command as [`Self::propose_client_command_with_uploads`] does;
+    /// `is_referencing_uploads` tells whether a committed command keeps the uploaded objects.
+    ///
+    /// Returns what [`Self::propose_client_command_with_uploads`] returns.
+    pub(crate) async fn propose_client_command_with_referencing_uploads(
+        &self,
+        flow: &FlowAddress,
+        uploads: Option<HardDeleteUploads>,
+        build: impl FnMut(&mut ProposalScope<'_>) -> Result<FlowCommand, FlowCoordinationError>,
+        is_referencing_uploads: impl FnOnce(&CommittedCommand) -> bool,
+    ) -> Result<command_reply::Reply, FlowCoordinationError> {
         let Some(uploads) = uploads else {
             return self.propose_client_command(flow, build).await;
         };
         let committed = self.propose_and_wait_for_commit(flow, build).await;
         let outcome = match &committed {
-            // A rejected command writes nothing, so nothing references the objects.
-            Ok(committed) if committed.outcome.writes.is_empty() => {
+            Ok(committed) if !is_referencing_uploads(committed) => {
                 HardDeleteUploadOutcome::NotCommitted
             }
             Ok(_) => HardDeleteUploadOutcome::Committed,

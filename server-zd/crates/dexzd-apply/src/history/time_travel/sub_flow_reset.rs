@@ -32,12 +32,47 @@ use crate::cross_flow::{
 use crate::history::attempt_scope::{AttemptRow, hex};
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::steps::wait_conditions::{
-    set_sub_flow_registration_attempt, sub_flow_registration_attempt,
+    set_sub_flow_registration_attempt, sub_flow_child_flow_id, sub_flow_registration_attempt,
 };
 
 /// Error message of the FAILED result that completes an abandoned SubFlow condition.
 const ABANDONED_CONDITION_MESSAGE: &str =
     "the parent's time travel abandoned this SubFlow condition";
+
+/// Error message of the FAILED result that completes a SubFlow condition a clone fork abandoned.
+const CLONE_FORK_ABANDONED_CONDITION_MESSAGE: &str =
+    "the clone fork that created this Flow abandoned this SubFlow condition";
+
+/// The operation that restores SubFlow conditions, which decides how their children attach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::history) enum SubFlowResetOperation {
+    /// ResetFlow: the run keeps the children it started, so a running child stays attached.
+    TimeTravel,
+    /// CloneForkFlow: children report only to the source run, so a running child cannot attach.
+    CloneFork,
+}
+
+impl SubFlowResetOperation {
+    /// Whether a condition whose child still runs keeps waiting for that child.
+    pub(in crate::history) fn does_running_child_attach(self) -> bool {
+        self == Self::TimeTravel
+    }
+
+    /// Whether a pending child start blocks failing or restarting its condition.
+    ///
+    /// A clone fork's new run never receives the source's pending starts.
+    pub(in crate::history) fn does_pending_start_block_abandoning(self) -> bool {
+        self == Self::TimeTravel
+    }
+
+    /// The operation's name in rejection messages.
+    pub(in crate::history) fn describe(self) -> &'static str {
+        match self {
+            Self::TimeTravel => "time travel",
+            Self::CloneFork => "clone fork",
+        }
+    }
+}
 
 /// One SubFlow condition that a restored Step waits on.
 #[derive(Debug, Clone)]
@@ -90,7 +125,7 @@ impl RestoredSubFlowCondition {
 
 /// What apply does with one restored SubFlow condition beyond keeping its wait.
 #[derive(Debug)]
-pub(super) struct RestoredSubFlowAction {
+pub(in crate::history) struct RestoredSubFlowAction {
     condition: RestoredSubFlowCondition,
     kind: RestoredSubFlowActionKind,
 }
@@ -105,20 +140,20 @@ enum RestoredSubFlowActionKind {
     Fail { should_terminate: bool },
 }
 
-/// Returns the policy that `request` selects; UNSPECIFIED selects ATTACH_ELSE_RESTART.
+/// Returns the policy that the request field `sub_flow_reset_policy` selects; UNSPECIFIED
+/// selects ATTACH_ELSE_RESTART.
 ///
 /// Returns the INVALID_ARGUMENT reply for an unknown policy.
-pub(super) fn reset_policy(request: &ResetFlowRequest) -> Result<SubFlowResetPolicy, CommandReply> {
-    match SubFlowResetPolicy::try_from(request.sub_flow_reset_policy) {
+pub(in crate::history) fn reset_policy(
+    sub_flow_reset_policy: i32,
+) -> Result<SubFlowResetPolicy, CommandReply> {
+    match SubFlowResetPolicy::try_from(sub_flow_reset_policy) {
         Ok(SubFlowResetPolicy::Unspecified) => Ok(SubFlowResetPolicy::AttachElseRestart),
         Ok(policy) => Ok(policy),
         Err(_) => Err(error_reply(
             grpc_code::INVALID_ARGUMENT,
             ErrorSubStatus::Uncategorized,
-            format!(
-                "unknown SubFlow reset policy {}",
-                request.sub_flow_reset_policy
-            ),
+            format!("unknown SubFlow reset policy {sub_flow_reset_policy}"),
         )),
     }
 }
@@ -211,7 +246,7 @@ pub(super) fn plan_restored_sub_flow_actions(
     let Some(child_flows) = result.child_flows.as_ref() else {
         return Ok(Ok(Vec::new()));
     };
-    let policy = match reset_policy(request) {
+    let policy = match reset_policy(request.sub_flow_reset_policy) {
         Ok(policy) => policy,
         Err(reply) => return Ok(Err(reply)),
     };
@@ -262,6 +297,180 @@ pub(super) fn plan_restored_sub_flow_actions(
         actions.push(RestoredSubFlowAction { condition, kind });
     }
     Ok(Ok(actions))
+}
+
+/// Decides what a clone fork's new run does with each copied SubFlow condition.
+///
+/// Only the owner's findings decide, since the new run holds no child results of its own.
+///
+/// Returns INVALID_ARGUMENT for a finding that does not fit the policy or its condition, or for
+/// an unknown policy.
+pub(in crate::history) fn plan_clone_fork_sub_flow_actions(
+    copied_rows: &[AttemptRow],
+    sub_flow_reset_policy: i32,
+    child_flows: &[TimeTravelStagedChildFlow],
+) -> Result<Result<Vec<RestoredSubFlowAction>, CommandReply>, ApplyError> {
+    let policy = match reset_policy(sub_flow_reset_policy) {
+        Ok(policy) => policy,
+        Err(reply) => return Ok(Err(reply)),
+    };
+    let mut actions = Vec::new();
+    for condition in restored_sub_flow_conditions(copied_rows)? {
+        let finding = child_flows
+            .iter()
+            .find(|staged| condition.is_staged_for(staged))
+            .and_then(|staged| staged.finding.as_ref());
+        let checked = clone_fork_condition_action(policy, finding).and_then(|kind| {
+            validate_staged_action(&condition, &kind)
+                .map(|()| kind)
+                .map_err(|detail| detail.into())
+        });
+        match checked {
+            Ok(kind) => actions.push(RestoredSubFlowAction { condition, kind }),
+            Err(detail) => {
+                return Ok(Err(error_reply(
+                    grpc_code::INVALID_ARGUMENT,
+                    ErrorSubStatus::Uncategorized,
+                    format!(
+                        "the clone fork staging has an invalid SubFlow finding: {}: {detail}",
+                        condition.describe()
+                    ),
+                )));
+            }
+        }
+    }
+    Ok(Ok(actions))
+}
+
+/// Returns what `policy` does with a copied condition, given the owner's finding.
+///
+/// Returns why the finding does not fit.
+fn clone_fork_condition_action(
+    policy: SubFlowResetPolicy,
+    finding: Option<&Finding>,
+) -> Result<RestoredSubFlowActionKind, std::borrow::Cow<'static, str>> {
+    use SubFlowResetPolicy as Policy;
+    match (policy, finding) {
+        (Policy::AlwaysFail, _) | (Policy::AttachElseFail, Some(Finding::IsUnattachable(_))) => {
+            Ok(RestoredSubFlowActionKind::Fail {
+                should_terminate: false,
+            })
+        }
+        (Policy::AlwaysRestart | Policy::AttachElseRestart, Some(Finding::RestartStart(start))) => {
+            Ok(RestoredSubFlowActionKind::Restart(Box::new(start.clone())))
+        }
+        (
+            Policy::AttachElseRestart | Policy::AttachElseFail | Policy::AttachElseReject,
+            Some(Finding::EndedResult(completed)),
+        ) => Ok(RestoredSubFlowActionKind::DeliverEndedResult(Box::new(
+            completed.clone(),
+        ))),
+        (Policy::AlwaysReject, _) => Err("the policy rejects every copied SubFlow wait".into()),
+        _ => Err("its staged finding does not fit the policy".into()),
+    }
+}
+
+/// Acts on the planned SubFlow conditions of a clone fork's new run, after its rows are written.
+///
+/// Every condition moves to the new run's attempt.
+///
+/// A restarted child's Flow ID derives from the new Flow ID; the source's children never change.
+pub(in crate::history) fn apply_clone_fork_sub_flow_actions(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    actions: Vec<RestoredSubFlowAction>,
+) -> Result<(), ApplyError> {
+    let mut restart_index = 0_u64;
+    for RestoredSubFlowAction { condition, kind } in actions {
+        move_condition_to_current_attempt(transaction, cursor, &condition)?;
+        let attempt = cursor.attempt();
+        match kind {
+            RestoredSubFlowActionKind::DeliverEndedResult(completed) => {
+                let completed = *completed;
+                store_sub_flow_result(
+                    transaction,
+                    cursor,
+                    StoredSubFlowResult {
+                        child_flow_id: &condition.child_flow_id,
+                        registration_attempt: attempt,
+                        child_run_id: &completed.child_run_id,
+                        child_run_attempt: completed.child_run_attempt,
+                        result: completed.result.unwrap_or_default(),
+                    },
+                    None,
+                )?;
+            }
+            RestoredSubFlowActionKind::Restart(start) => {
+                let index = usize::try_from(condition.sub_flow_index)
+                    .expect("restored SubFlow indexes are non-negative");
+                let child_flow_id =
+                    sub_flow_child_flow_id(scope.flow_id(), &condition.step_execution_id, index);
+                retarget_condition_child(transaction, cursor, &condition, &child_flow_id)?;
+                let parent = condition.parent_reference(
+                    scope.tenant_id.0,
+                    scope.flow_id(),
+                    cursor.run_id(),
+                    attempt,
+                );
+                let start = ChildFlowStartMessage {
+                    child_flow_id,
+                    ..*start
+                };
+                write_restarted_child_start(
+                    transaction,
+                    cursor,
+                    scope,
+                    restart_index,
+                    parent,
+                    &start,
+                );
+                restart_index += 1;
+            }
+            RestoredSubFlowActionKind::Fail { .. } => {
+                store_abandoned_result(
+                    transaction,
+                    cursor,
+                    &condition,
+                    CLONE_FORK_ABANDONED_CONDITION_MESSAGE,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Makes the copied condition wait for `child_flow_id`, a child of the new run.
+fn retarget_condition_child(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    condition: &RestoredSubFlowCondition,
+    child_flow_id: &str,
+) -> Result<(), ApplyError> {
+    let mut step = cursor
+        .rows
+        .step_execution(transaction, &condition.step_execution_id)?
+        .ok_or_else(|| ApplyError::InvariantViolation {
+            detail: format!(
+                "copied Step execution {} disappeared before its SubFlow restart",
+                condition.step_execution_id
+            ),
+        })?;
+    let index = usize::try_from(condition.sub_flow_index)
+        .expect("restored SubFlow indexes are non-negative");
+    let child_id = step
+        .wait
+        .as_mut()
+        .and_then(|wait| wait.sub_flow_child_ids.get_mut(index))
+        .ok_or_else(|| ApplyError::InvariantViolation {
+            detail: format!(
+                "copied Step execution {} has no SubFlow condition {index}",
+                condition.step_execution_id
+            ),
+        })?;
+    child_flow_id.clone_into(child_id);
+    cursor.rows.put_step_execution(transaction, &step);
+    Ok(())
 }
 
 /// Returns what `policy` does with a condition, given whether apply finds its result received
@@ -423,7 +632,12 @@ pub(super) fn apply_restored_sub_flow_actions(
                     terminate_index += 1;
                 }
                 move_condition_to_current_attempt(transaction, cursor, &condition)?;
-                store_abandoned_result(transaction, cursor, &condition)?;
+                store_abandoned_result(
+                    transaction,
+                    cursor,
+                    &condition,
+                    ABANDONED_CONDITION_MESSAGE,
+                )?;
             }
         }
     }
@@ -461,11 +675,13 @@ fn move_condition_to_current_attempt(
     Ok(())
 }
 
-/// Stores the FAILED result of an abandoned condition under the current attempt.
+/// Stores the FAILED result of an abandoned condition, with `error_message`, under the current
+/// attempt.
 fn store_abandoned_result(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     condition: &RestoredSubFlowCondition,
+    error_message: &str,
 ) -> Result<(), ApplyError> {
     let attempt = cursor.attempt();
     let key = sub_flow_result_key(cursor.rows, &condition.child_flow_id, attempt);
@@ -483,7 +699,7 @@ fn store_abandoned_result(
                 flow_status: FlowStatus::Failed as i32,
                 results: Vec::new(),
                 error_type: FlowErrorType::SubFlowAbandoned as i32,
-                error_message: ABANDONED_CONDITION_MESSAGE.to_owned(),
+                error_message: error_message.to_owned(),
             },
         },
         previous,

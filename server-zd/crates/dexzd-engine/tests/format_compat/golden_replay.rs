@@ -33,7 +33,7 @@ use crate::testdata_tree::{
 /// Digest of every file of each version, README included. Regenerate the newest version before 1.0; afterward versions are immutable: add `v<N+1>`.
 const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[
     ("v1", "40b2004160b6f2900b954b2eff8e286b"),
-    ("v2", "35f8422c10a4d71ea73cb4f2d39485ab"),
+    ("v2", "577334597c03c8d9967c1e42e7799a7d"),
 ];
 /// The restoring node starts this long after the last recorded command.
 pub(crate) const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
@@ -324,6 +324,9 @@ const ALL_COMMAND_KINDS: &[&str] = &[
     "TimerSkip",
     "TimeTravel",
     "TimeTravelStage",
+    "FlowCloneForkStage",
+    "FlowCloneFork",
+    "FlowCloneForkStagingExpire",
     "InboxMessage",
     "OutboxAck",
     "AttributeSyncAck",
@@ -363,6 +366,9 @@ fn command_kind(command: &FlowCommand) -> &'static str {
         Command::TimerSkip(_) => "TimerSkip",
         Command::TimeTravel(_) => "TimeTravel",
         Command::TimeTravelStage(_) => "TimeTravelStage",
+        Command::FlowCloneForkStage(_) => "FlowCloneForkStage",
+        Command::FlowCloneFork(_) => "FlowCloneFork",
+        Command::FlowCloneForkStagingExpire(_) => "FlowCloneForkStagingExpire",
         Command::InboxMessage(_) => "InboxMessage",
         Command::OutboxAck(_) => "OutboxAck",
         Command::AttributeSyncAck(_) => "AttributeSyncAck",

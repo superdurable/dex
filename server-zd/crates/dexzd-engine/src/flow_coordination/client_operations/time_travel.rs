@@ -42,14 +42,14 @@ use crate::flow_coordination::{
 };
 
 /// Computations one ResetFlow runs at most: the first and three after stale-result rejections.
-const MAX_TIME_TRAVEL_COMPUTATIONS: u32 = 4;
+pub(super) const MAX_TIME_TRAVEL_COMPUTATIONS: u32 = 4;
 
 /// Wait before the first recomputation; it doubles before each later one.
-const FIRST_RECOMPUTATION_BACKOFF: Duration = Duration::from_millis(100);
+pub(super) const FIRST_RECOMPUTATION_BACKOFF: Duration = Duration::from_millis(100);
 
 /// Committed view rounds one computation runs at most. A round that reaches unloaded segments
 /// fetches every segment its reads go on to need, so a computation takes about three.
-const MAX_HISTORY_READ_ROUNDS: usize = 16;
+pub(super) const MAX_HISTORY_READ_ROUNDS: usize = 16;
 
 /// Rounds in a row that must find a condition's child gone before the computation accepts it. A
 /// child is purged only after its parent acknowledged its report, so a gone child usually means
@@ -57,7 +57,7 @@ const MAX_HISTORY_READ_ROUNDS: usize = 16;
 const STABLE_GONE_CHILD_FLOW_ROUNDS: usize = 3;
 
 /// Rounds that may find children gone before ResetFlow aborts; the caller may retry.
-const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
+pub(super) const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
 
 /// How one committed view round of a computation ended.
 enum ComputationRound {
@@ -421,7 +421,7 @@ impl FlowCoordinatorRegistry {
     /// missing twice fails the computation; once, the next view explains it. Returns
     /// `RESOURCE_EXHAUSTED` once the fetched data exceeds the replay memory budget, which drops
     /// the reads still running, and `UNAVAILABLE` when object storage fails.
-    async fn load_offloaded_values(
+    pub(super) async fn load_offloaded_values(
         &self,
         flow: &FlowAddress,
         run_id: RunId,
@@ -511,7 +511,7 @@ impl FlowCoordinatorRegistry {
     /// explains it. Returns `RESOURCE_EXHAUSTED` once the fetched history exceeds the replay
     /// memory budget, which drops the reads still running, and `UNAVAILABLE` when object
     /// storage fails.
-    async fn load_time_travel_segments(
+    pub(super) async fn load_time_travel_segments(
         &self,
         flow: &FlowAddress,
         run_id: RunId,
@@ -613,9 +613,9 @@ enum FetchedSegmentPart<'segment> {
 
 /// The uploaded segments and offloaded values one time travel fetched so far and the bytes
 /// they hold.
-struct TimeTravelSegmentReads {
-    segments: Arc<LoadedHistorySegments>,
-    values: Arc<LoadedOffloadedValues>,
+pub(super) struct TimeTravelSegmentReads {
+    pub(super) segments: Arc<LoadedHistorySegments>,
+    pub(super) values: Arc<LoadedOffloadedValues>,
     loaded_bytes: u64,
     max_loaded_bytes: u64,
     /// Segments whose object was missing in an earlier round.
@@ -625,7 +625,7 @@ struct TimeTravelSegmentReads {
 }
 
 impl TimeTravelSegmentReads {
-    fn new(max_loaded_bytes: u64) -> Self {
+    pub(super) fn new(max_loaded_bytes: u64) -> Self {
         Self {
             segments: Arc::new(LoadedHistorySegments::default()),
             values: Arc::new(LoadedOffloadedValues::new()),
@@ -697,14 +697,14 @@ impl TimeTravelSegmentReads {
 /// For each condition whose child the last round found gone, the rounds in a row that found it
 /// gone.
 #[derive(Default)]
-struct GoneChildFlowStreaks {
+pub(super) struct GoneChildFlowStreaks {
     /// Rounds so far that found a child gone.
-    rounds: usize,
+    pub(super) rounds: usize,
     streaks: BTreeMap<GoneChildFlowCondition, usize>,
 }
 
 /// What a computation does after a round that found children gone.
-enum GoneChildFlowVerdict {
+pub(super) enum GoneChildFlowVerdict {
     /// Every gone child was gone in each of the last rounds; the round's result stands.
     Accept,
     ComputeAgain,
@@ -719,7 +719,7 @@ impl GoneChildFlowStreaks {
     /// [`STABLE_GONE_CHILD_FLOW_ROUNDS`] rounds, [`GoneChildFlowVerdict::Unstable`] when
     /// [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds passed without that, and
     /// [`GoneChildFlowVerdict::ComputeAgain`] otherwise.
-    fn record_round(
+    pub(super) fn record_round(
         &mut self,
         gone_child_flows: BTreeSet<GoneChildFlowCondition>,
     ) -> GoneChildFlowVerdict {

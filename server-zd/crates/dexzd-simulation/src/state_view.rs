@@ -17,8 +17,8 @@ use dexzd_keyspace::row_keys::{
     history_offload_mode_key, partition_index_range,
 };
 use dexzd_keyspace::{
-    ColumnFamily, FLOW_DIRECTORY_KEY_TAG, FlowHash, IndexKind, PartitionId, RunId, RunTable,
-    ValueId, parse_run_key,
+    ColumnFamily, FLOW_CLONE_FORK_STAGING_KEY_TAG, FLOW_DIRECTORY_KEY_TAG, FlowHash, IndexKind,
+    PartitionId, RunId, RunTable, ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
@@ -162,6 +162,10 @@ impl FlowView {
                 view.directory = Some(decode(key, value, "Flow directory")?);
                 continue;
             }
+            // CloneForkFlow stagings belong to no run.
+            if key.get(8) == Some(&FLOW_CLONE_FORK_STAGING_KEY_TAG) {
+                continue;
+            }
             let parsed = parse_key(key)?;
             if selection.contains(&parsed.run_id) {
                 view.run_mut(parsed.run_id).is_complete = true;
@@ -171,6 +175,9 @@ impl FlowView {
             }
         }
         for (key, _) in state.rows_with_prefix(ColumnFamily::Value, &flow_prefix) {
+            if key.get(8) == Some(&FLOW_CLONE_FORK_STAGING_KEY_TAG) {
+                continue;
+            }
             let parsed = parse_key(key)?;
             if !selection.contains(&parsed.run_id) {
                 continue;
