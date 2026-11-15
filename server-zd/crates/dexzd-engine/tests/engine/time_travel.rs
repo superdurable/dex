@@ -2537,9 +2537,9 @@ mod sub_flow_reset {
         WaitingConditionType,
     };
     use dexzd_protocol::dexzd::v1::{
-        InboxMessageCommand, OutboxRecord, StepAttemptStartedCommand, StepInvocationKey,
-        StepMethod, StepMethodCompletedCommand, command_reply, inbox_message_command,
-        outbox_record, step_method_completed_command,
+        InboxMessageCommand, OutboxAckCommand, OutboxRecord, StepAttemptStartedCommand,
+        StepInvocationKey, StepMethod, StepMethodCompletedCommand, command_reply,
+        inbox_message_command, outbox_record, step_method_completed_command,
     };
 
     use super::*;
@@ -2651,11 +2651,20 @@ mod sub_flow_reset {
                 CHILD_FLOW_ID,
                 Vec::new(),
                 Command::InboxMessage(InboxMessageCommand {
-                    message_id: start.message_id,
+                    message_id: start.message_id.clone(),
                     source,
                     payload: Some(inbox_message_command::Payload::ChildStart(child_start)),
                     new_run_id: vec![9; 16],
                     settings: Some(FlowCoordinationConfig::default().run_settings),
+                }),
+            )
+            .await;
+            // The outbox effect acknowledges a delivered start, as here.
+            self.commit_to_flow(
+                FLOW_ID,
+                run_id.as_bytes().to_vec(),
+                Command::OutboxAck(OutboxAckCommand {
+                    message_ids: vec![start.message_id],
                 }),
             )
             .await;
