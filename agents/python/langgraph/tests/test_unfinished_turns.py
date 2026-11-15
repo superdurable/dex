@@ -10,20 +10,28 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Sequence
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from dex_agents import (
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TURN_STEERED_NOTE_HEADER,
     AgentEventType,
     AgentMessage,
     MessageRole,
 )
+from langchain_core.messages import AIMessage
 
-from dex_agents_langgraph import framework_message_to_langchain_message
+from dex_agents_langgraph import LangGraphAgentRunner, framework_message_to_langchain_message
+from dex_agents_langgraph._checkpoints import RUN_STATE_FORMAT, TurnCheckpointSaver
 from tests.conftest import AGENT_FLOW_TYPES, ScriptedAgentHarness
+from tests.scripted_agents import build_create_agent
 
 LOOKUP_THEN_PUBLISH = 'call lookup {"query": "x"} then call publish {"message": "note"}'
 
@@ -134,6 +142,66 @@ async def test_steering_a_deep_agent_during_a_tool_stores_its_messages(
         (message.text or "").startswith(TURN_STEERED_NOTE_HEADER) for message in snapshot.messages
     )
     _assert_every_call_answered_once(snapshot.messages)
+
+
+@pytest.mark.parametrize(
+    "framework_run_state", ["not json", '{"$schemaVersion": "1.21", "session_items": []}']
+)
+def test_a_run_state_that_is_not_a_checkpoint_raises(
+    tmp_path: Path, framework_run_state: str
+) -> None:
+    runner = LangGraphAgentRunner(build_create_agent(tmp_path))
+    with pytest.raises(ValueError):
+        runner.build_unfinished_turn_messages(_turn(framework_run_state, {}))
+
+
+def test_a_record_whose_call_is_not_in_the_checkpoint_raises(tmp_path: Path) -> None:
+    runner = LangGraphAgentRunner(build_create_agent(tmp_path))
+    turn = _turn(_checkpoint_run_state(), {"call-b": SimpleNamespace(tool_call_id="call-b")})
+    with pytest.raises(ValueError, match="call-b"):
+        runner.build_unfinished_turn_messages(turn)
+
+
+def test_a_pending_call_without_a_record_gets_the_unknown_outcome(tmp_path: Path) -> None:
+    runner = LangGraphAgentRunner(build_create_agent(tmp_path))
+    messages = runner.build_unfinished_turn_messages(_turn(_checkpoint_run_state(), {}))
+    assert [(message.role, message.tool_output) for message in messages] == [
+        (MessageRole.ASSISTANT, None),
+        (MessageRole.TOOL, OUTCOME_UNKNOWN_TOOL_RESULT),
+    ]
+
+
+def _checkpoint_run_state() -> str:
+    pending = AIMessage(
+        content="", id="ai-1", tool_calls=[{"id": "call-a", "name": "lookup", "args": {}}]
+    )
+    data_type, data = TurnCheckpointSaver().serde.dumps_typed(
+        {"channel_values": {"messages": [pending]}}
+    )
+    stored = {
+        "checkpoint_ns": "",
+        "checkpoint": {"type": data_type, "data": base64.b64encode(data).decode("ascii")},
+        "metadata": {},
+        "pending_writes": [],
+    }
+    document = {
+        "format": RUN_STATE_FORMAT,
+        "thread_id": "session",
+        "checkpoints": [stored],
+        "interrupts": [],
+    }
+    return json.dumps(document)
+
+
+def _turn(framework_run_state: str, tool_calls: dict[str, Any]) -> Any:
+    return SimpleNamespace(
+        turn_id="turn-1",
+        framework_run_state=framework_run_state,
+        tool_calls=tool_calls,
+        messages=[],
+        context_summary=None,
+        recorded_tool_call=tool_calls.get,
+    )
 
 
 def _describe(message: AgentMessage) -> str:

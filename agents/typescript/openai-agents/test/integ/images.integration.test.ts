@@ -76,6 +76,32 @@ describe("OpenAI Agents SDK sessions show images to the model and store only ref
     return worker;
   }
 
+  test("a cancelled turn stores a tool result with its images, as a completed turn does", async () => {
+    const markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
+    await startWorker(markerDirectory);
+    const sessionId = `images-cancel-${randomUUID()}`;
+    await sessions.startSession(sessionId);
+
+    assert.equal(await sessions.sendUserMessage(sessionId, "call take_screenshot then pause"), true);
+    await new FileGate(markerDirectory, "turn").waitUntilReached();
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const screenshot = await createImageMediaStore(markerDirectory).putImage(screenshotJpeg);
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.role),
+      ["user", "assistant", "tool"],
+    );
+    const toolMessage = snapshot.messages[2];
+    assert.equal(toolMessage?.toolOutput, "took a screenshot");
+    assert.deepEqual(toolMessage?.images, [screenshot]);
+    assert.deepEqual((JSON.parse(toolMessage?.frameworkItem ?? "{}") as { output?: unknown }).output, [
+      { type: "input_text", text: "took a screenshot" },
+      { type: "input_image", image: screenshot.uri, detail: "auto" },
+    ]);
+  });
+
   test("user and tool images reach the model as bytes, while items and run state keep references", async () => {
     const markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
     await startWorker(markerDirectory);
