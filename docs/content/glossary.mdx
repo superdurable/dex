@@ -49,6 +49,10 @@ A family of Channels under one name, with one FIFO queue per instance key, such 
 
 The part of your application that talks to Dex from outside a Worker. It starts Flows, calls RPCs, reads Attributes, and waits for Steps. It does not run Flow code.
 
+#### [Clone Fork](/components/operate-and-debug#clone-fork)
+
+Creating a new Flow from another Flow run's state at a point. The new Flow has its own history. The source run is only read; a running source keeps running.
+
 #### [Condition](/concepts/step#waitfor-and-execute)
 
 What a Step waits for, returned from WaitFor: a Timer, a Channel message, a SubFlow that completes, or a combination of them.

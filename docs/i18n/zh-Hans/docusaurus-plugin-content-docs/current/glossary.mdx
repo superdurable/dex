@@ -49,6 +49,10 @@ Flow 上一个持久化、有类型的变量。可以为它建索引，用于搜
 
 应用中在 Worker 之外与 Dex 通信的部分。它启动 Flow、调用 RPC、读取 Attribute、等待 Step。它不运行 Flow 代码。
 
+#### [Clone Fork](/components/operate-and-debug#clone-fork)
+
+从另一个 Flow run 在某个点的状态创建新的 Flow。新 Flow 有自己的历史。源 run 只被读取；如果仍在运行，就会继续运行。
+
 #### [Condition](/concepts/step#waitfor-and-execute)
 
 Step 要等待的东西，由 WaitFor 返回：一个 Timer、一条 Channel 消息、一个完成的 SubFlow，或它们的组合。
