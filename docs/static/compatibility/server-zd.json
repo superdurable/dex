@@ -42,8 +42,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.9",
-            "pinnedSdk": "1.45.3"
+            "version": "0.6.10",
+            "pinnedSdk": "1.45.4"
           }
         },
         "pypi": {
@@ -52,7 +52,7 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.9",
+            "version": "0.6.10",
             "pinnedSdk": "1.45.2"
           }
         }
@@ -60,11 +60,11 @@
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.9"
+          "newest": "0.6.10"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.9"
+          "newest": "0.6.10"
         }
       }
     },
@@ -107,8 +107,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.9",
-            "pinnedSdk": "1.45.3"
+            "version": "0.6.10",
+            "pinnedSdk": "1.45.4"
           }
         },
         "pypi": {
@@ -117,7 +117,7 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.9",
+            "version": "0.6.10",
             "pinnedSdk": "1.45.2"
           }
         }
@@ -125,11 +125,11 @@
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.9"
+          "newest": "0.6.10"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.9"
+          "newest": "0.6.10"
         }
       }
     },
@@ -172,8 +172,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.9",
-            "pinnedSdk": "1.45.3"
+            "version": "0.6.10",
+            "pinnedSdk": "1.45.4"
           }
         },
         "pypi": {
@@ -182,7 +182,7 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.9",
+            "version": "0.6.10",
             "pinnedSdk": "1.45.2"
           }
         }
@@ -190,11 +190,11 @@
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.9"
+          "newest": "0.6.10"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.9"
+          "newest": "0.6.10"
         }
       }
     },
