@@ -771,6 +771,13 @@ func (screen *ChatScreen) inputHints() []string {
 	if screen.input.IsEmpty() && screen.waitingInterruptCount() > 0 {
 		hints = append(hints, screen.waitingInterruptsHint())
 	}
+	if len(screen.pendingImageAttachIDs) > 0 {
+		attachingHint := "attaching image…"
+		if screen.isSendWaitingForImages {
+			attachingHint = "attaching image… sends when ready"
+		}
+		hints = append(hints, attachingHint)
+	}
 	if screen.input.IsEmpty() && len(screen.attachments) > 0 {
 		hints = append(hints, "Backspace remove image")
 	}

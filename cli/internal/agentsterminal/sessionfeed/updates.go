@@ -121,6 +121,15 @@ type EarlierMessagesRead struct {
 type ImageAttached struct {
 	// Attachment is the stored image.
 	Attachment ImageAttachment
+	// RequestID is the AttachImage request it answers, or 0 after /image.
+	RequestID int64
+}
+
+// ImageAttachFailed answers an AttachImage request that stored nothing. A
+// NoticeRaised before it says why.
+type ImageAttachFailed struct {
+	// RequestID is the AttachImage request it answers.
+	RequestID int64
 }
 
 // TurnStarted reports that a turn began.
@@ -375,6 +384,7 @@ func (UserMessageRecorded) isSessionUpdate()       {}
 func (UserMessageRejected) isSessionUpdate()       {}
 func (HistoryWindowChanged) isSessionUpdate()      {}
 func (ImageAttached) isSessionUpdate()             {}
+func (ImageAttachFailed) isSessionUpdate()         {}
 func (EarlierMessagesRead) isSessionUpdate()       {}
 func (TurnStarted) isSessionUpdate()               {}
 func (TurnActivityChanged) isSessionUpdate()       {}

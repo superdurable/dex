@@ -11,6 +11,7 @@ package chatscreen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,28 +27,52 @@ func (harness *screenHarness) paste(content string) {
 	harness.runCommand(command)
 }
 
-func imageActions(harness *screenHarness) []sessionfeed.RunSlashCommand {
-	var actions []sessionfeed.RunSlashCommand
+func attachImageActions(harness *screenHarness) []sessionfeed.AttachImage {
+	var actions []sessionfeed.AttachImage
 	for _, action := range harness.source.recordedActions() {
-		if command, isCommand := action.(sessionfeed.RunSlashCommand); isCommand && command.Name == imageCommandName {
-			actions = append(actions, command)
+		if attach, isAttach := action.(sessionfeed.AttachImage); isAttach {
+			actions = append(actions, attach)
 		}
 	}
 	return actions
 }
 
-func imageCommand(path string) sessionfeed.RunSlashCommand {
-	return sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: typedpaths.QuoteTypedPath(path)}
+// imageActions returns the paths of the AttachImage requests, in order.
+func imageActions(harness *screenHarness) []string {
+	var paths []string
+	for _, attach := range attachImageActions(harness) {
+		paths = append(paths, attach.Path)
+	}
+	return paths
+}
+
+func imageCommand(path string) string {
+	return path
+}
+
+func diagramAttached(requestID int64) sessionfeed.ImageAttached {
+	return sessionfeed.ImageAttached{Attachment: sessionfeed.ImageAttachment{Name: "diagram.png", MimeType: "image/png", SizeBytes: 2048}, RequestID: requestID}
+}
+
+func sentMessages(harness *screenHarness) []sessionfeed.SendUserMessage {
+	var messages []sessionfeed.SendUserMessage
+	for _, action := range harness.source.recordedActions() {
+		if message, isMessage := action.(sessionfeed.SendUserMessage); isMessage {
+			messages = append(messages, message)
+		}
+	}
+	return messages
 }
 
 func TestPastedImagePathAttachesAtOnce(t *testing.T) {
 	harness, imagePath := newImageHarness(t)
 	harness.paste("'" + imagePath + "'")
-	require.Equal(t, []sessionfeed.RunSlashCommand{imageCommand(imagePath)}, imageActions(harness))
+	require.Equal(t, []string{imageCommand(imagePath)}, imageActions(harness))
 	require.True(t, harness.screen.input.IsEmpty(), "the path does not stay as text")
 	require.NotContains(t, harness.plainFrame(), "Attach diagram.png?", "no confirmation is asked")
+	require.Contains(t, harness.plainFrame(), "attaching image…")
 
-	harness.feed(sessionfeed.ImageAttached{Attachment: sessionfeed.ImageAttachment{Name: "diagram.png", MimeType: "image/png", SizeBytes: 2048}})
+	harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
 	frame := harness.plainFrame()
 	require.Contains(t, frame, "diagram.png · image/png")
 	require.Contains(t, frame, "Backspace remove image")
@@ -60,7 +85,7 @@ func TestPastedImagePathAttachesBesideTypedText(t *testing.T) {
 	harness, imagePath := newImageHarness(t)
 	harness.typeText("What is in ")
 	harness.paste(imagePath)
-	require.Equal(t, []sessionfeed.RunSlashCommand{imageCommand(imagePath)}, imageActions(harness))
+	require.Equal(t, []string{imageCommand(imagePath)}, imageActions(harness))
 	require.Equal(t, "What is in ", harness.screen.input.Value(), "the typed text stays")
 }
 
@@ -72,7 +97,7 @@ func TestPastedFileDropAttachesEveryImageInOrder(t *testing.T) {
 	escapedSpaced := filepath.Join(directory, `Bob\'s\ screen\ shot.jpeg`)
 	oldPath := filepath.Join(directory, "diagram-old.png")
 	harness.paste(escapedSpaced + " " + imagePath + "\n" + oldPath)
-	require.Equal(t, []sessionfeed.RunSlashCommand{imageCommand(spacedPath), imageCommand(imagePath), imageCommand(oldPath)}, imageActions(harness))
+	require.Equal(t, []string{imageCommand(spacedPath), imageCommand(imagePath), imageCommand(oldPath)}, imageActions(harness))
 	require.True(t, harness.screen.input.IsEmpty())
 }
 
@@ -82,7 +107,7 @@ func TestPastedPathsThatDoNotAttachStayAsTextWithAReason(t *testing.T) {
 	notesPath := filepath.Join(directory, "notes.txt")
 	missingPath := filepath.Join(directory, "missing.png")
 	harness.paste(imagePath + " " + notesPath + " " + missingPath)
-	require.Equal(t, []sessionfeed.RunSlashCommand{imageCommand(imagePath)}, imageActions(harness))
+	require.Equal(t, []string{imageCommand(imagePath)}, imageActions(harness))
 	require.Equal(t, "~/notes.txt ~/missing.png", harness.screen.pathResolver.ShortenHomePaths(harness.screen.input.Value()))
 	scrollback := harness.scrollbackText()
 	require.Contains(t, scrollback, "Not attached: notes.txt is not a PNG, JPEG, GIF, or WebP image.")
@@ -93,6 +118,70 @@ func TestPastedPathsThatDoNotAttachStayAsTextWithAReason(t *testing.T) {
 	harness.paste(notesPath)
 	require.Len(t, harness.source.recordedActions(), actionCount, "nothing attaches")
 	require.Equal(t, notesPath, harness.screen.input.Value(), "the paste stays exactly as pasted")
+	require.Equal(t, 1, strings.Count(harness.scrollbackText(), "notes.txt is not a PNG"), "a pasted source path alone is text, with no notice")
+}
+
+// Enter before the pasted image is stored waits, then sends one message
+// that carries the image.
+func TestEnterRightAfterAPastedImageSendsItWithTheMessage(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	harness.typeText("What is this?")
+	harness.paste(imagePath)
+	harness.press(key(tea.KeyEnter))
+	require.Empty(t, sentMessages(harness), "the message waits for its image")
+	require.Equal(t, "What is this?", harness.screen.input.Value())
+	require.Contains(t, harness.plainFrame(), "attaching image… sends when ready")
+
+	harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
+	messages := sentMessages(harness)
+	require.Len(t, messages, 1)
+	require.Equal(t, "What is this?", messages[0].Text)
+	require.Len(t, messages[0].Images, 1)
+	require.Equal(t, "diagram.png", messages[0].Images[0].Name)
+	require.Empty(t, harness.screen.attachments, "the image never reaches a later message")
+	require.True(t, harness.screen.input.IsEmpty())
+}
+
+// A failed attach keeps the waiting message unsent and says so.
+func TestFailedPastedImageKeepsTheMessageUnsent(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	harness.typeText("What is this?")
+	harness.paste(imagePath)
+	harness.press(key(tea.KeyEnter))
+	harness.feed(
+		sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityError, Text: "Image not attached: diagram.png could not be stored in the media store: disk full"},
+		sessionfeed.ImageAttachFailed{RequestID: attachImageActions(harness)[0].RequestID},
+	)
+	require.Empty(t, sentMessages(harness), "nothing is sent silently")
+	require.Equal(t, "What is this?", harness.screen.input.Value())
+	scrollback := harness.scrollbackText()
+	require.Contains(t, scrollback, "media store")
+	require.Contains(t, scrollback, "Message not sent: an image did not attach.")
+
+	harness.press(key(tea.KeyEnter))
+	messages := sentMessages(harness)
+	require.Len(t, messages, 1, "Enter now sends without the image")
+	require.Empty(t, messages[0].Images)
+}
+
+// Typing after Enter keeps the draft for the next Enter; a session switch
+// drops a pasted image whose answer comes late.
+func TestEditedOrSwitchedDraftDoesNotSendOnItsOwn(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	harness.typeText("first")
+	harness.paste(imagePath)
+	harness.press(key(tea.KeyEnter))
+	harness.typeText(" more")
+	harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
+	require.Empty(t, sentMessages(harness), "the edited draft waits for Enter")
+	require.Len(t, harness.screen.attachments, 1)
+
+	harness.screen.input.Clear()
+	harness.paste(imagePath)
+	lateRequestID := attachImageActions(harness)[1].RequestID
+	switchSession(harness, "openai-sdk-20261111-150000-ffffff")
+	harness.feed(diagramAttached(lateRequestID))
+	require.Empty(t, harness.screen.attachments, "the old draft's image never joins the new session")
 }
 
 func TestPastedUnreadableImageSaysWhy(t *testing.T) {
@@ -193,7 +282,7 @@ func TestPasteWhileAViewHasFocusGoesToTheInput(t *testing.T) {
 
 			harness.press(key(tea.KeyF1))
 			harness.paste(imagePath)
-			require.Equal(t, []sessionfeed.RunSlashCommand{imageCommand(imagePath)}, imageActions(harness))
+			require.Equal(t, []string{imageCommand(imagePath)}, imageActions(harness))
 		})
 	}
 }

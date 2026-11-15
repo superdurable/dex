@@ -216,10 +216,9 @@ func (stack *realWorkerStack) testPastedImagePathAttaches(t *testing.T) {
 	require.NoError(t, os.WriteFile(imagePath, []byte("\x89PNG stand-in; the launcher side stores images"), 0o600))
 	chat := stack.openChatWithLaunch(t, sessionID, false, stack.putImageLaunch(t))
 	chat.waitForScreen("Type a message.")
-	chat.typeText("\x1b[200~'" + imagePath + "'\x1b[201~")
-	chat.waitForScreen("image/png")
-	time.Sleep(300 * time.Millisecond)
-	chat.typeText("describe\r")
+	// Enter right after the paste: the message waits for its image.
+	chat.typeText("describe")
+	chat.typeText("\x1b[200~'" + imagePath + "'\x1b[201~\r")
 	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	require.Equal(t, "saw 1 images", lastAssistantText(finished))
 	chat.waitForScreen("saw 1 images")

@@ -178,6 +178,12 @@ func isPathShaped(value string) bool {
 	return false
 }
 
+// HasImageExtension reports a path that ends in .png, .jpg, .jpeg, .gif, or
+// .webp, in any letter case.
+func HasImageExtension(path string) bool {
+	return hasImageExtension(path)
+}
+
 func hasImageExtension(path string) bool {
 	return imageExtensions[strings.ToLower(filepath.Ext(path))]
 }

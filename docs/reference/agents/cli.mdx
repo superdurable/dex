@@ -1155,16 +1155,22 @@ In the terminal UI, pasting image paths attaches the images at once, as does
 dropping image files on the terminal window, which most terminals paste as
 their paths. A paste may name several files, separated by spaces or line
 breaks, in quotes or with backslash-escaped spaces. Text already typed stays
-in the input. A pasted path that does not attach stays in the input as text,
-and a one-line notice says why: the file is not a PNG, JPEG, GIF, or WebP
-image, does not exist, or cannot be read. An image over the size limit, or
+in the input. Enter while a pasted image is still being stored waits, shows
+**attaching image… sends when ready**, and sends the message with the image
+once it is stored. If the image does not attach, the message stays unsent with
+a notice; press Enter again to send it without the image. A pasted path that
+does not attach stays in the input as text. When the paste also names an
+image, or the path itself ends in an image extension, a one-line notice says
+why: the file is not a PNG, JPEG, GIF, or WebP image, does not exist, or
+cannot be read. An image over the size limit, or
 one the media store cannot store, is not attached either, and its notice says
 why; its path does not return to the input. Text that is more than paths,
 such as a sentence that names a file, stays text. A paste while a panel or
 list has focus closes it and goes to the input; a waiting approval keeps
 waiting. Changed in **dexcli** 1.47.8: before, a pasted path asked
-**Attach NAME?**, attached only one image on Enter, and a paste while a panel
-had focus was lost.
+**Attach NAME?**, attached only one image on Enter, an Enter right after a
+paste could send the message without the image, and a paste while a panel had
+focus was lost.
 
 Session state keeps only a reference to each image. The bytes stay in the media
 store, one copy per distinct image, named by its SHA-256. Moving or deleting

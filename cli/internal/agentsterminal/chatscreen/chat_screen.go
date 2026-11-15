@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -130,9 +131,15 @@ type ChatScreen struct {
 	isPathCompletionPartial bool
 	pathCompletionRequestID int64
 	historyReadRequestID    int64
-	pager                   *pagerView
-	isToolPickerOpen        bool
-	toolPickerIndex         int
+	imageAttachRequestID    int64
+	// pendingImageAttachIDs are the pasted images of the draft still being
+	// stored; Enter waits for them.
+	pendingImageAttachIDs []int64
+	// isSendWaitingForImages sends the draft once its pasted images settle.
+	isSendWaitingForImages bool
+	pager                  *pagerView
+	isToolPickerOpen       bool
+	toolPickerIndex        int
 	// settingPicker is the open /model or /effort picker, or nil.
 	settingPicker *settingPicker
 	// turnTools are the calls of the newest turn that ran tools, with their
@@ -537,6 +544,8 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 			return screen.submitAction(sessionfeed.DetachImage{})
 		}
 		if screen.input.HandleEditingKey(key) {
+			// An edited draft waits for the next Enter.
+			screen.isSendWaitingForImages = false
 			screen.pathCompletions = nil
 			screen.isCompletionDismissed = false
 			screen.completionIndex = 0
@@ -560,6 +569,7 @@ func (screen *ChatScreen) handlePaste(content string) tea.Cmd {
 	}
 	screen.closeViewsForPaste()
 	screen.pathCompletions = nil
+	screen.isSendWaitingForImages = false
 	if command, isAttaching := screen.attachPastedImages(content); isAttaching {
 		return command
 	}
@@ -596,14 +606,23 @@ func (screen *ChatScreen) attachPastedImages(content string) (tea.Cmd, bool) {
 	if !isDrop {
 		return nil, false
 	}
+	isImageDrop := slices.ContainsFunc(pastedPaths, func(pasted typedpaths.PastedPath) bool {
+		return typedpaths.HasImageExtension(pasted.Path)
+	})
 	var actions []sessionfeed.UserAction
 	var keptTexts []string
 	for _, pasted := range pastedPaths {
 		if pasted.Kind == typedpaths.PastedPathImage {
-			actions = append(actions, sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: typedpaths.QuoteTypedPath(pasted.Path)})
+			screen.imageAttachRequestID++
+			screen.pendingImageAttachIDs = append(screen.pendingImageAttachIDs, screen.imageAttachRequestID)
+			actions = append(actions, sessionfeed.AttachImage{RequestID: screen.imageAttachRequestID, Path: pasted.Path})
 			continue
 		}
 		keptTexts = append(keptTexts, pasted.Text)
+		// A pasted source path is ordinary text; only a drop with images explains it.
+		if !isImageDrop {
+			continue
+		}
 		severity := sessionfeed.NoticeSeverityWarning
 		if pasted.Kind == typedpaths.PastedPathUnsupportedType {
 			severity = sessionfeed.NoticeSeverityInfo
@@ -616,6 +635,47 @@ func (screen *ChatScreen) attachPastedImages(content string) (tea.Cmd, bool) {
 	}
 	screen.input.InsertText(strings.Join(keptTexts, " "))
 	return screen.submitActionsInOrder(actions), true
+}
+
+// applyImageAttached adds a chip for the draft. A pasted image whose draft
+// is gone, after a session switch, is dropped.
+func (screen *ChatScreen) applyImageAttached(attached sessionfeed.ImageAttached) tea.Cmd {
+	if attached.RequestID != 0 && !screen.settlePendingImageAttach(attached.RequestID) {
+		return nil
+	}
+	screen.attachments = append(screen.attachments, attached.Attachment)
+	return screen.sendDraftWhenImagesSettled()
+}
+
+// applyImageAttachFailed keeps a draft waiting on the image unsent; the
+// notice before it says why.
+func (screen *ChatScreen) applyImageAttachFailed(requestID int64) {
+	if !screen.settlePendingImageAttach(requestID) || !screen.isSendWaitingForImages {
+		return
+	}
+	screen.isSendWaitingForImages = false
+	screen.printNotice(sessionfeed.NoticeSeverityWarning, "Message not sent: an image did not attach. Paste it again, or press Enter to send without it.")
+}
+
+// settlePendingImageAttach forgets a pending attach and reports whether it
+// belonged to the draft.
+func (screen *ChatScreen) settlePendingImageAttach(requestID int64) bool {
+	index := slices.Index(screen.pendingImageAttachIDs, requestID)
+	if index < 0 {
+		return false
+	}
+	screen.pendingImageAttachIDs = slices.Delete(screen.pendingImageAttachIDs, index, index+1)
+	return true
+}
+
+// sendDraftWhenImagesSettled sends a draft that Enter left waiting once its
+// last pasted image attached.
+func (screen *ChatScreen) sendDraftWhenImagesSettled() tea.Cmd {
+	if !screen.isSendWaitingForImages || len(screen.pendingImageAttachIDs) > 0 {
+		return nil
+	}
+	screen.isSendWaitingForImages = false
+	return screen.submitInput()
 }
 
 // pastedPathNotAttachedText says why a pasted path stays as text.
@@ -713,6 +773,7 @@ func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
 	screen.replies = newReplyStream()
 	// Images and queued messages of the old session never reach the new one.
 	screen.attachments, screen.pendingImageDrop = nil, nil
+	screen.pendingImageAttachIDs, screen.isSendWaitingForImages = nil, false
 	screen.dropQueuedMessagesOfOtherSessions(nextSessionID)
 	screen.closePopup()
 	screen.interrupts = nil
@@ -728,6 +789,11 @@ func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
 func (screen *ChatScreen) submitInput() tea.Cmd {
 	text := strings.TrimRight(screen.input.Value(), " \n")
 	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	if _, isCommand := parseSlashCommand(text); !isCommand && len(screen.pendingImageAttachIDs) > 0 {
+		// The draft's pasted images must reach this message, not a later one.
+		screen.isSendWaitingForImages = true
 		return nil
 	}
 	screen.input.Clear()
@@ -1399,7 +1465,9 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.pager.applyEarlierPage(typed, screen.pagerSize(), screen.theme)
 		}
 	case sessionfeed.ImageAttached:
-		screen.attachments = append(screen.attachments, typed.Attachment)
+		command = screen.applyImageAttached(typed)
+	case sessionfeed.ImageAttachFailed:
+		screen.applyImageAttachFailed(typed.RequestID)
 	case sessionfeed.SessionStartChanged:
 		screen.isSessionStartWaiting = typed.IsWaiting
 	case sessionfeed.SessionSwitchHandedOff:
@@ -1661,6 +1729,9 @@ func (screen *ChatScreen) disableInput(exitCode int) {
 
 func (screen *ChatScreen) handleActionFailure(failure userActionFailedMsg) {
 	switch action := failure.action.(type) {
+	case sessionfeed.AttachImage:
+		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %v.", failure.err))
+		screen.applyImageAttachFailed(action.RequestID)
 	case sessionfeed.ResolveApproval:
 		screen.restoreInterrupt(action.InterruptID)
 		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Approval not sent: %v. Press Tab to try again.", failure.err))

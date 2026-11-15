@@ -182,6 +182,20 @@ func TestImageStoreFailureShowsTheLauncherReason(t *testing.T) {
 	require.Equal(t, []string{"Image not attached: dot.png could not be stored in the media store: disk full"}, noticeTexts(notices))
 }
 
+// A failed pasted-image attach answers its request after the notice, so the
+// screen keeps the draft unsent.
+func TestFailedAttachImageAnswersItsRequest(t *testing.T) {
+	home := t.TempDir()
+	imagePath := filepath.Join(home, "Bob's dot.png")
+	require.NoError(t, os.WriteFile(imagePath, []byte("png"), 0o600))
+	feed := newCommandFeed(t, failingLocalRequests{code: "store_failed", message: "Bob's dot.png could not be stored in the media store: disk full"}, home)
+	require.NoError(t, feed.SubmitUserAction(context.Background(), sessionfeed.AttachImage{RequestID: 7, Path: imagePath}))
+	updates := drainFeed(feed)
+	require.Equal(t, []string{"Image not attached: Bob's dot.png could not be stored in the media store: disk full"}, noticeTexts(updatesOfType[sessionfeed.NoticeRaised](updates)))
+	require.Equal(t, []sessionfeed.ImageAttachFailed{{RequestID: 7}}, updatesOfType[sessionfeed.ImageAttachFailed](updates))
+	require.Empty(t, updatesOfType[sessionfeed.ImageAttached](updates))
+}
+
 func TestFormatThousands(t *testing.T) {
 	for count, expected := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 3_750_000: "3,750,000", 1_048_577: "1,048,577"} {
 		require.Equal(t, expected, formatThousands(count))
