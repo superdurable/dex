@@ -19,7 +19,8 @@ not raise the minimum protocol version, so Workers and Clients on SDKs before
 Step attempt for lack of capacity, the server puts the attempt back to pending
 without consuming a retry.
 **dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
-counts these returns. This compatibility lasts until server-zd 1.0.
+counts these returns at the default **advanced** metrics level and above. This
+compatibility lasts until server-zd 1.0.
 
 SDK 1.35 and later require server-zd 0.1.17 or later. On an older server, an
 SDK 1.35 Worker fails to start and an SDK 1.35 Client fails its first call. Both
@@ -54,7 +55,7 @@ been on, do not run an earlier release on that data directory, even after you
 turn offload off: the server must read the history it removed from local disk
 from object storage. To keep the previous behavior, set
 **history.offloadEnabled: false** before the first start with 0.1.22. See
-[History offload](/reference/server/0.1.28/configuration#history-offload).
+[History offload](/reference/server/0.1.33/configuration#history-offload).
 
 Changed in 0.1.23: the server deletes a Step's state row in the same command
 that ends the Step, when the Step completes or when a cancellation ends it
@@ -90,7 +91,7 @@ partition recorded at the upgrade:
   receives commands again. A closed Flow run never migrates and keeps its local
   history until its retention ends.
 
-See [History offload](/reference/server/0.1.28/configuration#history-offload).
+See [History offload](/reference/server/0.1.33/configuration#history-offload).
 
 After the first start with 0.1.23, do not run an earlier release on that storage
 prefix or data directory: the server must read the history that new Flow runs
@@ -98,6 +99,13 @@ removed from local disk from object storage. Roll forward, or restore a backup
 taken before the upgrade into a new prefix. The upgrade also changes how the
 server applies commands. Stop the standby and the active process, and upgrade
 both binaries. Then start the active process first and the standby after it.
+
+server-zd 0.1.30 and later provide protocol version 5, which adds named task
+queues. Workers and Clients that use no named task queue keep working on
+older servers. Before you roll back from 0.1.30 or later, stop every Flow that
+uses a named task queue, as
+[Roll back the server](/reference/server/0.1.33/workers#named-task-queue-rollback)
+describes.
 
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,
@@ -117,4 +125,4 @@ also lists clients released after this server. The
 [compatibility matrix](/reference#compatibility-matrix) compares every
 supported server-zd release.
 
-<ServerZdCompatibility version="0.1.28" />
+<ServerZdCompatibility version="0.1.33" />
