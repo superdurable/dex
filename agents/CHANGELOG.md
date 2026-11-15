@@ -4,6 +4,14 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.10 (2026-11-14)
+
+### Changed
+
+- The TypeScript agents packages and CLI commands depend on, and peer-depend
+  on, `@superdurable/dex` 1.45.4, so they install alongside
+  `@superdurable/connectors-sdk` 0.10.1, which requires that release.
+
 ## 0.6.9 (2026-11-14)
 
 ### Changed
