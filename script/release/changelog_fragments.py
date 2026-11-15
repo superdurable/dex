@@ -31,6 +31,12 @@ from component_changelogs import (
     newest_release,
     readiness_errors,
 )
+from server_zd_compatibility import (
+    COMPATIBILITY_FILE,
+    RULES_FILE as COMPATIBILITY_RULES_FILE,
+    CompatibilityError,
+    update_compatibility_file,
+)
 
 FRAGMENT_ROOT = "changelog.d"
 FRAGMENT_README = f"{FRAGMENT_ROOT}/README.md"
@@ -66,6 +72,8 @@ RELEASE_COMPONENTS: dict[str, tuple[str, ...]] = {
     "agents": ("agents", "agents-packages"),
     SKILLS_TARGET: (SKILLS_TARGET,),
 }
+# A release of these components can change the server-zd compatibility file, so prepare rewrites it.
+COMPATIBILITY_COMPONENTS = frozenset(("server", "go", "python", "typescript", "java", "rust", "cli", "agents"))
 
 BUMP_LEVELS = ("patch", "minor", "major")
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -164,7 +172,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     repository = repository_root()
     try:
         return options.handler(options, repository)
-    except (FragmentError, ChangelogError) as error:
+    except (FragmentError, ChangelogError, CompatibilityError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
@@ -283,6 +291,9 @@ def run_prepare(options: argparse.Namespace, repository: Path) -> int:
         (repository / path).write_text(text, encoding="utf-8")
     for path in consumed:
         (repository / path).unlink()
+    if COMPATIBILITY_COMPONENTS & set(components) and (repository / COMPATIBILITY_RULES_FILE).is_file():
+        is_changed = update_compatibility_file(repository, options.date)
+        print(f"{COMPATIBILITY_FILE} {'updated' if is_changed else 'unchanged'}")
     return 0
 
 
@@ -515,6 +526,9 @@ def verify_release_prep(base: TreeReader, head: TreeReader, changes: Sequence[Fi
         target_errors, target_paths = verify(target, base, head, deleted_paths)
         errors.extend(target_errors)
         allowed_paths |= target_paths
+    # Release Tooling CI checks the file against the generator; it needs the release tags this gate lacks.
+    if any(component_of_target(target) in COMPATIBILITY_COMPONENTS for target in targets):
+        allowed_paths.add(COMPATIBILITY_FILE)
     unexpected_paths = sorted(changed_paths - allowed_paths)
     if unexpected_paths:
         errors.append("a release-prep pull request changes only release files and fragments, not: " + ", ".join(unexpected_paths))
@@ -556,7 +570,7 @@ def verify_component_release_prep(
 ) -> tuple[list[str], set[str]]:
     """Returns why a component change log differs from `prepare` on the base, and the paths it may change."""
     target = COMPONENT_CHANGELOGS[target_name]
-    component = next(name for name, targets in RELEASE_COMPONENTS.items() if target_name in targets)
+    component = component_of_target(target_name)
     head_changelog = head.read(target.output)
     release = newest_release(target, head_changelog or "")
     if release is None:
@@ -576,6 +590,10 @@ def verify_component_release_prep(
     if errors:
         errors.append(reprepare)
     return errors, {target.output, *consumed}
+
+
+def component_of_target(target_name: str) -> str:
+    return next(name for name, targets in RELEASE_COMPONENTS.items() if target_name in targets)
 
 
 def consumption_errors(consumed: Sequence[str], deleted_paths: set[str], target: str) -> list[str]:

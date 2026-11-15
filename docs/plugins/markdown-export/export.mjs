@@ -17,6 +17,7 @@ import remarkGfm from 'remark-gfm';
 import remarkStringify from 'remark-stringify';
 import {toString as mdastToString} from 'mdast-util-to-string';
 import {markdownPath} from '../../src/markdownPath.mjs';
+import {compatibilityMatrixTable, serverCompatibilityTable} from '../../src/serverZdCompatibility.mjs';
 
 // Matches the tab order of SdkTabs.tsx.
 export const sdkOrder = ['python', 'go', 'java', 'typescript', 'rust'];
@@ -512,6 +513,8 @@ async function expandJsx(node, context) {
   if (name === 'CodingAgentBox') return expandCodingAgentBox(node, context);
   if (name === 'FrameworkTabs') return expandFrameworkTabs(node, context);
   if (name === 'CrashTimeline') return expandCrashTimeline(node, context);
+  if (name === 'ServerZdCompatibilityMatrix') return expandServerZdCompatibilityMatrix(context);
+  if (name === 'ServerZdCompatibility') return expandServerZdCompatibility(node, context);
   if (name === 'img') {
     const image = {type: 'image', ...imageProperties(node, context)};
     return node.type === 'mdxJsxTextElement' ? [image] : [{type: 'paragraph', children: [image]}];
@@ -538,6 +541,29 @@ function diagramTable(table, description, context, node) {
     ? [{type: 'blockquote', children: [{type: 'paragraph', children: [{type: 'strong', children: [text(context.copy.diagram)]},
       text(`${context.copy.separator}${description.trim()}`)]}]}] : [];
   return [...caption, {type: 'table', align: table.header.map(() => null), children: [row(table.header), ...table.rows.map(row)]}];
+}
+
+// Mirrors ServerZdCompatibility.tsx: one table row per server-zd release, each led by its anchor.
+async function expandServerZdCompatibilityMatrix(context) {
+  const table = compatibilityMatrixTable(await readServerZdCompatibility(context), context.locale);
+  const row = (cells, rowAnchor) => ({type: 'tableRow', children: cells.map((cell, index) => ({type: 'tableCell',
+    children: index === 0 && rowAnchor ? [anchor(rowAnchor), text(cell)] : [text(cell)]}))});
+  return [{type: 'table', align: table.header.map(() => null),
+    children: [row(table.header), ...table.rows.map(item => row(item.cells, item.anchor))]}];
+}
+
+// Mirrors ServerZdCompatibility.tsx: the version prop, or the latest server reference version.
+async function expandServerZdCompatibility(node, context) {
+  const version = attribute(node, 'version', context);
+  if (version !== undefined && typeof version !== 'string') fail(context, node, 'ServerZdCompatibility version must be a string');
+  const latest = JSON.parse(await readFile(join(context.siteDir, 'reference/versions.json'), 'utf8')).server;
+  const table = serverCompatibilityTable(await readServerZdCompatibility(context), version ?? latest, context.locale);
+  const summary = paragraph(table.summary);
+  return table.header ? [summary, ...diagramTable({header: table.header, rows: table.rows}, undefined, context, node)] : [summary];
+}
+
+async function readServerZdCompatibility(context) {
+  return JSON.parse(await readFile(join(context.siteDir, 'static/compatibility/server-zd.json'), 'utf8'));
 }
 
 // Mirrors CrashTimeline.tsx without the animation: the events as a numbered list, then the summary.

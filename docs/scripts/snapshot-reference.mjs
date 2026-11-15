@@ -82,6 +82,7 @@ export async function snapshotReference(component, releaseVersion, {
   }
   await createSnapshot(siteDirectory, component, version);
   await localizeSnapshotLinks(component, version, {siteDirectory});
+  await pinServerCompatibilityVersion(component, version, {siteDirectory});
   const allVersions = [...new Set([version, ...previousVersions])]
     .sort((first, second) => compareVersions(second, first));
   const retainedVersions = allVersions.slice(0, retainedVersionCount);
@@ -200,6 +201,29 @@ export async function rewriteSnapshotLinks(fromPath, toPath, {siteDirectory = do
  *
  * @returns {Promise<number>} The number of rewritten links in the snapshot's docs and sidebar.
  */
+/**
+ * Pins each ServerZdCompatibility call in a new server snapshot to that snapshot's version.
+ *
+ * @returns {Promise<string[]>} The changed snapshot files, relative to the site directory.
+ */
+export async function pinServerCompatibilityVersion(component, version, {siteDirectory = docsDirectory} = {}) {
+  if (component !== 'server') {
+    return [];
+  }
+  const versionDirectory = snapshotDirectory(siteDirectory, component, version);
+  const changedFiles = [];
+  for (const source of (await Globby(['**/*.{md,mdx}'], {cwd: versionDirectory})).sort()) {
+    const path = join(versionDirectory, source);
+    const content = await readFile(path, 'utf8');
+    const pinned = content.replace(/<ServerZdCompatibility\s*\/>/g, `<ServerZdCompatibility version="${version}" />`);
+    if (pinned !== content) {
+      await writeFile(path, pinned);
+      changedFiles.push(relative(siteDirectory, path).split('\\').join('/'));
+    }
+  }
+  return changedFiles;
+}
+
 export async function localizeSnapshotLinks(component, version, {siteDirectory = docsDirectory} = {}) {
   const componentRoute = `/reference/${component}`;
   const destinationEnd = `(?:$|/|${linkDestinationEndCharacter})`;
