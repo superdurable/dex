@@ -314,6 +314,44 @@ func TestChangedDraftAfterEnterIsNotSentWhenImagesAttach(t *testing.T) {
 	}
 }
 
+// A change cancels the automatic send for good, even when later edits bring
+// back the text Enter saw.
+func TestDraftEditedBackToItsTextIsNotSentWhenImagesAttach(t *testing.T) {
+	changes := map[string]func(harness *screenHarness){
+		"recall away and back": func(harness *screenHarness) {
+			harness.press(ctrlKey('p'))
+			require.Equal(t, "previous message", harness.screen.input.Value())
+			harness.press(ctrlKey('p'))
+		},
+		"new line then recall": func(harness *screenHarness) {
+			harness.press(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}, ctrlKey('p'), ctrlKey('p'))
+		},
+		"shift-enter then delete": func(harness *screenHarness) {
+			harness.press(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}, key(tea.KeyBackspace))
+		},
+		"alt-enter then delete": func(harness *screenHarness) {
+			harness.press(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}, key(tea.KeyBackspace))
+		},
+		"ctrl-j then delete": func(harness *screenHarness) {
+			harness.press(ctrlKey('j'), key(tea.KeyBackspace))
+		},
+	}
+	for name, change := range changes {
+		t.Run(name, func(t *testing.T) {
+			harness, imagePath := newImageHarness(t)
+			harness.screen.inputHistory, harness.screen.historyIndex = []string{"current draft", "previous message"}, 2
+			harness.typeText("current draft")
+			harness.paste(imagePath)
+			harness.press(key(tea.KeyEnter))
+			change(harness)
+			require.Equal(t, "current draft", harness.screen.input.Value())
+			require.NotContains(t, harness.plainFrame(), "sends when ready")
+			harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
+			require.Empty(t, sentMessages(harness))
+		})
+	}
+}
+
 // A recalled slash command never runs on its own when the images attach.
 func TestRecalledSlashCommandIsNotRunWhenImagesAttach(t *testing.T) {
 	harness, imagePath := newImageHarness(t)
