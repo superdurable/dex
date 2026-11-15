@@ -340,6 +340,44 @@ export enum SubFlowResetPolicy {
   UNRECOGNIZED = -1,
 }
 
+/**
+ * Selects the point of the source run whose state CloneForkFlow copies.
+ *
+ * A point is the state of the source run right after one recorded change. Every type except
+ * CURRENT selects its point exactly as the FlowResetType of the same name selects the point that
+ * ResetFlow returns to. Such a point must be inside the time travel window of the source run;
+ * BEGINNING is always available. A point outside the window fails with FAILED_PRECONDITION.
+ */
+export enum FlowCloneForkPointType {
+  /** FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED - Same as FLOW_CLONE_FORK_POINT_TYPE_CURRENT. */
+  FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED = 0,
+  /**
+   * FLOW_CLONE_FORK_POINT_TYPE_CURRENT - The latest committed state of the source run's current run attempt. It includes every
+   * change that committed before CloneForkFlow read the source, and no change in flight.
+   */
+  FLOW_CLONE_FORK_POINT_TYPE_CURRENT = 1,
+  /** FLOW_CLONE_FORK_POINT_TYPE_BEGINNING - The state right after the source run started, as FLOW_RESET_TYPE_BEGINNING selects it. */
+  FLOW_CLONE_FORK_POINT_TYPE_BEGINNING = 2,
+  /**
+   * FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME - The first point at or after CloneForkFlowRequest.history_event_time, as
+   * FLOW_RESET_TYPE_HISTORY_EVENT_TIME selects it.
+   */
+  FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME = 3,
+  /** FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE - The point that FLOW_RESET_TYPE_STEP_TYPE selects for CloneForkFlowRequest.step_type. */
+  FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE = 4,
+  /**
+   * FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID - The point that FLOW_RESET_TYPE_STEP_EXECUTION_ID selects for
+   * CloneForkFlowRequest.step_execution_id and CloneForkFlowRequest.step_method.
+   */
+  FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID = 5,
+  /**
+   * FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID - The point right after the change that recorded CloneForkFlowRequest.event_id, as
+   * FLOW_RESET_TYPE_EVENT_ID selects it.
+   */
+  FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID = 6,
+  UNRECOGNIZED = -1,
+}
+
 export enum AttributeMatchOperator {
   ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED = 0,
   ATTRIBUTE_MATCH_OPERATOR_EQUAL = 1,
@@ -1291,7 +1329,15 @@ export interface FlowStartedOrContinuedHistoryEvent {
   flowTimeout: Duration | undefined;
   flowTimeoutPolicy: FlowTimeoutPolicy;
   timeoutHandlerOptions: FlowTimeoutHandlerOptions | undefined;
-  startOrContinue: { $case: "initialStart"; value: FlowInitialStart } | undefined;
+  startOrContinue:
+    | { $case: "initialStart"; value: FlowInitialStart }
+    | undefined;
+  /**
+   * Set when CloneForkFlow created the run: the source point whose state the run started from.
+   * initial_start then lists CloneForkFlowRequest.attributes as its initial Attributes, and has
+   * no starting Step.
+   */
+  cloneForkSource: FlowCloneForkSource | undefined;
 }
 
 export interface FlowInitialStart {
@@ -1651,6 +1697,150 @@ export interface ResetFlowResponse {
   runId: string;
   /** The run attempt created by this time travel. run_id does not change. */
   runAttempt: number;
+}
+
+/**
+ * Creates a new Flow whose first run starts from a copy of another Flow run's state.
+ *
+ * The source run is the Flow run that source_flow_id and source_run_id name. CloneForkFlow
+ * copies the source run's state at one point: its Attributes, pending Channel messages, Step
+ * executions and their counters, Step waits and timers, and the values they hold. The new run
+ * gets the new Flow ID flow_id and a new run ID. It starts at run attempt 1 and continues on its
+ * own from the copied state. The source run keeps running and never changes; CloneForkFlow
+ * writes nothing to it.
+ *
+ * The new run copies no history: its history starts with one FlowStartedOrContinued event whose
+ * clone_fork_source names the copied point. A later ResetFlow of the new run to its BEGINNING
+ * returns to the copied state, so the new run keeps every copied value for its whole life.
+ * CloneForkFlow does not apply the source run's input after the point, such as RPCs, Channel
+ * publications, or Attribute writes.
+ *
+ * Steps that were running at the point start again in the new run: their method calls are
+ * dispatched again with the same attempt numbers, snapshots, and locks. Steps that waited at the
+ * point keep waiting, and their timers keep their original fire times. The new run does not copy
+ * Stream messages, RPC and Channel publication deduplication records, the parent of a child
+ * Flow, or the sticky Worker.
+ *
+ * Requires Server protocol version 6 or later.
+ */
+export interface CloneForkFlowRequest {
+  /** Required. Flow ID of the source run. */
+  sourceFlowId: string;
+  /**
+   * Run ID of the source run. Empty selects the latest run of source_flow_id. The source run may
+   * be closed, but the state at the selected point must be RUNNING.
+   */
+  sourceRunId: string;
+  /**
+   * Required. Flow ID of the new Flow. It must differ from source_flow_id; to return a Flow to
+   * an earlier point, use ResetFlow.
+   */
+  flowId: string;
+  /**
+   * Required. Identifies one logical CloneForkFlow; Dex records it as the new run's start request
+   * ID. A request with the request ID of the latest run of flow_id is a retry: Dex copies nothing
+   * and never applies id_reuse_policy, and flow_already_started_options chooses the result, as
+   * for StartFlowRequest.request_id.
+   */
+  requestId: string;
+  /**
+   * Decides whether CloneForkFlow may start a run for a flow_id that already has a run, as for
+   * StartFlow. The decision and the new run commit together. ALLOW_TERMINATE_IF_RUNNING
+   * terminates a running latest run of flow_id in the same change.
+   */
+  idReusePolicy: IdReusePolicy;
+  /** Chooses the result when Dex does not start a new run, as for StartFlow. */
+  flowAlreadyStartedOptions:
+    | FlowAlreadyStartedOptions
+    | undefined;
+  /**
+   * Changes the copied FlowConfig of the source run, as FlowStartOptions.flow_config_override
+   * changes the server default. Unset fields keep the source run's values. An empty
+   * worker_target.task_queue keeps the source run's task queue. Set a task queue when Workers
+   * pick their Flows by task queue, so that the Workers of the source run do not run the new
+   * run's Steps.
+   */
+  flowConfigOverride:
+    | FlowConfig
+    | undefined;
+  /**
+   * Attribute writes applied after the copy, in the same change that creates the new run.
+   * Validated as FlowStartOptions.attributes.
+   */
+  attributes: AttributeWrite[];
+  /**
+   * Flow timeout of the new run in seconds, counted from CloneForkFlow. Zero keeps the source
+   * run's Flow timeout duration, also counted from CloneForkFlow; a source run without a Flow
+   * timeout gives a new run without one. When the source run's Flow timeout had already fired at
+   * the point, the new run keeps that outcome, such as a running timeout handler, and gets no
+   * Flow timeout. The Flow timeout policy and handler options are the source run's; a source
+   * run without a policy uses FLOW_TIMEOUT_POLICY_FAIL. Must not be negative.
+   */
+  flowTimeoutSeconds: number;
+  /** Free text that explains the clone fork, recorded with the new run's start. */
+  reason: string;
+  /** Selects the copied point. UNSPECIFIED selects CURRENT. */
+  pointType: FlowCloneForkPointType;
+  /**
+   * RFC 3339 time for FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME, as
+   * ResetFlowRequest.history_event_time.
+   */
+  historyEventTime: string;
+  /** Step type for FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE. */
+  stepType: string;
+  /** Step execution ID for FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID. */
+  stepExecutionId: string;
+  /**
+   * Step method for FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID; must be WAIT_FOR or EXECUTE for
+   * that type and unset for the others.
+   */
+  stepMethod: FlowResetStepMethod;
+  /**
+   * FlowHistoryEvent.event_id for FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID; must be positive for that
+   * type. It follows the rules of ResetFlowRequest.event_id.
+   */
+  eventId: bigint;
+  /**
+   * Selects the run attempt of the source run whose history holds the point, as
+   * ResetFlowRequest.run_attempt. Zero selects the current run attempt. CURRENT accepts only zero.
+   */
+  runAttempt: number;
+  /**
+   * Decides what happens to the SubFlow conditions that copied Steps wait on.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
+   *
+   * The children of the source run report only to the source run. A child that ended attaches:
+   * its result completes the copied condition, read from the source run or from the child run.
+   * A child that still runs cannot be attached, so the policy's second action applies. A restart
+   * starts a new child Flow whose Flow ID derives from flow_id, with the start the source run's
+   * child received; the source run's child never changes. A failure completes the condition with
+   * a FAILED result whose error type is FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED and terminates
+   * nothing. A child whose run no longer exists can be neither attached nor restarted.
+   */
+  subFlowResetPolicy: SubFlowResetPolicy;
+}
+
+export interface CloneForkFlowResponse {
+  /** Run ID of the new run of CloneForkFlowRequest.flow_id. */
+  runId: string;
+  /** Run ID of the source run. */
+  sourceRunId: string;
+  /** Run attempt of the source run that holds the copied point. */
+  sourceRunAttempt: number;
+  /** FlowHistoryEvent.event_id of the last source event that the copied point includes. */
+  sourceEventId: bigint;
+}
+
+/** The point of another Flow run that a run started from through CloneForkFlow. */
+export interface FlowCloneForkSource {
+  /** Flow ID of the source run. */
+  flowId: string;
+  /** Run ID of the source run. */
+  runId: string;
+  /** Run attempt of the source run that holds the copied point. */
+  runAttempt: number;
+  /** FlowHistoryEvent.event_id of the last source event that the copied point includes. */
+  eventId: bigint;
 }
 
 export interface InvokeRPCRequest {
@@ -8382,6 +8572,7 @@ function createBaseFlowStartedOrContinuedHistoryEvent(): FlowStartedOrContinuedH
     flowTimeoutPolicy: 0,
     timeoutHandlerOptions: undefined,
     startOrContinue: undefined,
+    cloneForkSource: undefined,
   };
 }
 
@@ -8409,6 +8600,9 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
       case "initialStart":
         FlowInitialStart.encode(message.startOrContinue.value, writer.uint32(82).fork()).join();
         break;
+    }
+    if (message.cloneForkSource !== undefined) {
+      FlowCloneForkSource.encode(message.cloneForkSource, writer.uint32(98).fork()).join();
     }
     return writer;
   },
@@ -8476,6 +8670,14 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
           message.startOrContinue = { $case: "initialStart", value: FlowInitialStart.decode(reader, reader.uint32()) };
           continue;
         }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.cloneForkSource = FlowCloneForkSource.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8520,6 +8722,9 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
         break;
       }
     }
+    message.cloneForkSource = (object.cloneForkSource !== undefined && object.cloneForkSource !== null)
+      ? FlowCloneForkSource.fromPartial(object.cloneForkSource)
+      : undefined;
     return message;
   },
 };
@@ -11215,6 +11420,455 @@ export const ResetFlowResponse: MessageFns<ResetFlowResponse> = {
     const message = createBaseResetFlowResponse();
     message.runId = object.runId ?? "";
     message.runAttempt = object.runAttempt ?? 0;
+    return message;
+  },
+};
+
+function createBaseCloneForkFlowRequest(): CloneForkFlowRequest {
+  return {
+    sourceFlowId: "",
+    sourceRunId: "",
+    flowId: "",
+    requestId: "",
+    idReusePolicy: 0,
+    flowAlreadyStartedOptions: undefined,
+    flowConfigOverride: undefined,
+    attributes: [],
+    flowTimeoutSeconds: 0,
+    reason: "",
+    pointType: 0,
+    historyEventTime: "",
+    stepType: "",
+    stepExecutionId: "",
+    stepMethod: 0,
+    eventId: 0n,
+    runAttempt: 0,
+    subFlowResetPolicy: 0,
+  };
+}
+
+export const CloneForkFlowRequest: MessageFns<CloneForkFlowRequest> = {
+  encode(message: CloneForkFlowRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sourceFlowId !== "") {
+      writer.uint32(10).string(message.sourceFlowId);
+    }
+    if (message.sourceRunId !== "") {
+      writer.uint32(18).string(message.sourceRunId);
+    }
+    if (message.flowId !== "") {
+      writer.uint32(26).string(message.flowId);
+    }
+    if (message.requestId !== "") {
+      writer.uint32(34).string(message.requestId);
+    }
+    if (message.idReusePolicy !== 0) {
+      writer.uint32(40).int32(message.idReusePolicy);
+    }
+    if (message.flowAlreadyStartedOptions !== undefined) {
+      FlowAlreadyStartedOptions.encode(message.flowAlreadyStartedOptions, writer.uint32(50).fork()).join();
+    }
+    if (message.flowConfigOverride !== undefined) {
+      FlowConfig.encode(message.flowConfigOverride, writer.uint32(58).fork()).join();
+    }
+    for (const v of message.attributes) {
+      AttributeWrite.encode(v!, writer.uint32(66).fork()).join();
+    }
+    if (message.flowTimeoutSeconds !== 0) {
+      writer.uint32(72).int32(message.flowTimeoutSeconds);
+    }
+    if (message.reason !== "") {
+      writer.uint32(82).string(message.reason);
+    }
+    if (message.pointType !== 0) {
+      writer.uint32(88).int32(message.pointType);
+    }
+    if (message.historyEventTime !== "") {
+      writer.uint32(98).string(message.historyEventTime);
+    }
+    if (message.stepType !== "") {
+      writer.uint32(106).string(message.stepType);
+    }
+    if (message.stepExecutionId !== "") {
+      writer.uint32(114).string(message.stepExecutionId);
+    }
+    if (message.stepMethod !== 0) {
+      writer.uint32(120).int32(message.stepMethod);
+    }
+    if (message.eventId !== 0n) {
+      if (BigInt.asIntN(64, message.eventId) !== message.eventId) {
+        throw new globalThis.Error("value provided for field message.eventId of type int64 too large");
+      }
+      writer.uint32(128).int64(message.eventId);
+    }
+    if (message.runAttempt !== 0) {
+      writer.uint32(136).int32(message.runAttempt);
+    }
+    if (message.subFlowResetPolicy !== 0) {
+      writer.uint32(144).int32(message.subFlowResetPolicy);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CloneForkFlowRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCloneForkFlowRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.sourceFlowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.sourceRunId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.requestId = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.idReusePolicy = reader.int32() as any;
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.flowAlreadyStartedOptions = FlowAlreadyStartedOptions.decode(reader, reader.uint32());
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.flowConfigOverride = FlowConfig.decode(reader, reader.uint32());
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.attributes.push(AttributeWrite.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.flowTimeoutSeconds = reader.int32();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.reason = reader.string();
+          continue;
+        }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.pointType = reader.int32() as any;
+          continue;
+        }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.historyEventTime = reader.string();
+          continue;
+        }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.stepType = reader.string();
+          continue;
+        }
+        case 14: {
+          if (tag !== 114) {
+            break;
+          }
+
+          message.stepExecutionId = reader.string();
+          continue;
+        }
+        case 15: {
+          if (tag !== 120) {
+            break;
+          }
+
+          message.stepMethod = reader.int32() as any;
+          continue;
+        }
+        case 16: {
+          if (tag !== 128) {
+            break;
+          }
+
+          message.eventId = reader.int64() as bigint;
+          continue;
+        }
+        case 17: {
+          if (tag !== 136) {
+            break;
+          }
+
+          message.runAttempt = reader.int32();
+          continue;
+        }
+        case 18: {
+          if (tag !== 144) {
+            break;
+          }
+
+          message.subFlowResetPolicy = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<CloneForkFlowRequest>, I>>(base?: I): CloneForkFlowRequest {
+    return CloneForkFlowRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CloneForkFlowRequest>, I>>(object: I): CloneForkFlowRequest {
+    const message = createBaseCloneForkFlowRequest();
+    message.sourceFlowId = object.sourceFlowId ?? "";
+    message.sourceRunId = object.sourceRunId ?? "";
+    message.flowId = object.flowId ?? "";
+    message.requestId = object.requestId ?? "";
+    message.idReusePolicy = object.idReusePolicy ?? 0;
+    message.flowAlreadyStartedOptions =
+      (object.flowAlreadyStartedOptions !== undefined && object.flowAlreadyStartedOptions !== null)
+        ? FlowAlreadyStartedOptions.fromPartial(object.flowAlreadyStartedOptions)
+        : undefined;
+    message.flowConfigOverride = (object.flowConfigOverride !== undefined && object.flowConfigOverride !== null)
+      ? FlowConfig.fromPartial(object.flowConfigOverride)
+      : undefined;
+    message.attributes = object.attributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
+    message.flowTimeoutSeconds = object.flowTimeoutSeconds ?? 0;
+    message.reason = object.reason ?? "";
+    message.pointType = object.pointType ?? 0;
+    message.historyEventTime = object.historyEventTime ?? "";
+    message.stepType = object.stepType ?? "";
+    message.stepExecutionId = object.stepExecutionId ?? "";
+    message.stepMethod = object.stepMethod ?? 0;
+    message.eventId = (object.eventId !== undefined && object.eventId !== null) ? BigInt(object.eventId) : 0n;
+    message.runAttempt = object.runAttempt ?? 0;
+    message.subFlowResetPolicy = object.subFlowResetPolicy ?? 0;
+    return message;
+  },
+};
+
+function createBaseCloneForkFlowResponse(): CloneForkFlowResponse {
+  return { runId: "", sourceRunId: "", sourceRunAttempt: 0, sourceEventId: 0n };
+}
+
+export const CloneForkFlowResponse: MessageFns<CloneForkFlowResponse> = {
+  encode(message: CloneForkFlowResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.runId !== "") {
+      writer.uint32(10).string(message.runId);
+    }
+    if (message.sourceRunId !== "") {
+      writer.uint32(18).string(message.sourceRunId);
+    }
+    if (message.sourceRunAttempt !== 0) {
+      writer.uint32(24).int32(message.sourceRunAttempt);
+    }
+    if (message.sourceEventId !== 0n) {
+      if (BigInt.asIntN(64, message.sourceEventId) !== message.sourceEventId) {
+        throw new globalThis.Error("value provided for field message.sourceEventId of type int64 too large");
+      }
+      writer.uint32(32).int64(message.sourceEventId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CloneForkFlowResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCloneForkFlowResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.runId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.sourceRunId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.sourceRunAttempt = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.sourceEventId = reader.int64() as bigint;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<CloneForkFlowResponse>, I>>(base?: I): CloneForkFlowResponse {
+    return CloneForkFlowResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CloneForkFlowResponse>, I>>(object: I): CloneForkFlowResponse {
+    const message = createBaseCloneForkFlowResponse();
+    message.runId = object.runId ?? "";
+    message.sourceRunId = object.sourceRunId ?? "";
+    message.sourceRunAttempt = object.sourceRunAttempt ?? 0;
+    message.sourceEventId = (object.sourceEventId !== undefined && object.sourceEventId !== null)
+      ? BigInt(object.sourceEventId)
+      : 0n;
+    return message;
+  },
+};
+
+function createBaseFlowCloneForkSource(): FlowCloneForkSource {
+  return { flowId: "", runId: "", runAttempt: 0, eventId: 0n };
+}
+
+export const FlowCloneForkSource: MessageFns<FlowCloneForkSource> = {
+  encode(message: FlowCloneForkSource, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.runId !== "") {
+      writer.uint32(18).string(message.runId);
+    }
+    if (message.runAttempt !== 0) {
+      writer.uint32(24).int32(message.runAttempt);
+    }
+    if (message.eventId !== 0n) {
+      if (BigInt.asIntN(64, message.eventId) !== message.eventId) {
+        throw new globalThis.Error("value provided for field message.eventId of type int64 too large");
+      }
+      writer.uint32(32).int64(message.eventId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowCloneForkSource {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowCloneForkSource();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.runId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.runAttempt = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.eventId = reader.int64() as bigint;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<FlowCloneForkSource>, I>>(base?: I): FlowCloneForkSource {
+    return FlowCloneForkSource.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowCloneForkSource>, I>>(object: I): FlowCloneForkSource {
+    const message = createBaseFlowCloneForkSource();
+    message.flowId = object.flowId ?? "";
+    message.runId = object.runId ?? "";
+    message.runAttempt = object.runAttempt ?? 0;
+    message.eventId = (object.eventId !== undefined && object.eventId !== null) ? BigInt(object.eventId) : 0n;
     return message;
   },
 };
@@ -17089,6 +17743,16 @@ export const FlowServiceService = {
     responseSerialize: (value: ResetFlowResponse): Buffer => Buffer.from(ResetFlowResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ResetFlowResponse => ResetFlowResponse.decode(value),
   },
+  cloneForkFlow: {
+    path: "/dex.FlowService/CloneForkFlow" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: CloneForkFlowRequest): Buffer => Buffer.from(CloneForkFlowRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): CloneForkFlowRequest => CloneForkFlowRequest.decode(value),
+    responseSerialize: (value: CloneForkFlowResponse): Buffer =>
+      Buffer.from(CloneForkFlowResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): CloneForkFlowResponse => CloneForkFlowResponse.decode(value),
+  },
   invokeRpc: {
     path: "/dex.FlowService/InvokeRPC" as const,
     requestStream: false as const,
@@ -17253,6 +17917,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   waitForHistoryEvent: handleUnaryCall<WaitForHistoryEventRequest, WaitForHistoryEventResponse>;
   getFlowState: handleUnaryCall<GetFlowStateRequest, GetFlowStateResponse>;
   resetFlow: handleUnaryCall<ResetFlowRequest, ResetFlowResponse>;
+  cloneForkFlow: handleUnaryCall<CloneForkFlowRequest, CloneForkFlowResponse>;
   invokeRpc: handleUnaryCall<InvokeRPCRequest, InvokeRPCResponse>;
   skipTimer: handleUnaryCall<SkipTimerRequest, Empty>;
   updateFlowConfig: handleUnaryCall<UpdateFlowConfigRequest, Empty>;
@@ -17607,6 +18272,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ResetFlowResponse) => void,
+  ): ClientUnaryCall;
+  cloneForkFlow(
+    request: CloneForkFlowRequest,
+    callback: (error: ServiceError | null, response: CloneForkFlowResponse) => void,
+  ): ClientUnaryCall;
+  cloneForkFlow(
+    request: CloneForkFlowRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: CloneForkFlowResponse) => void,
+  ): ClientUnaryCall;
+  cloneForkFlow(
+    request: CloneForkFlowRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: CloneForkFlowResponse) => void,
   ): ClientUnaryCall;
   invokeRpc(
     request: InvokeRPCRequest,

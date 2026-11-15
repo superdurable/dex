@@ -95,6 +95,10 @@ impl ColumnFamily {
 pub const FLOW_DIRECTORY_KEY_TAG: u8 = 0x01;
 /// Tag byte after the Flow hash for a run key.
 pub const RUN_KEY_TAG: u8 = 0x02;
+/// Tag byte after the Flow hash for a CloneForkFlow staging key, which belongs to no run:
+/// `flow_hash(8) ‖ 0x03 ‖ staging_id(16)` in `flow` for the staging record, followed by
+/// `chunk_index(4)` in `value` for its chunks.
+pub const FLOW_CLONE_FORK_STAGING_KEY_TAG: u8 = 0x03;
 
 /// Tables inside one run. Byte values are permanent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -265,11 +269,14 @@ pub enum IndexKind {
     /// method(1) ‖ attempt(4) ‖ step_execution_id`: the DispatchQueue rows of named task queues;
     /// default task queue rows stay in [`IndexKind::DispatchQueue`].
     NamedDispatchQueue = 0x12,
+    /// `staged_at(8) ‖ flow_hash(8) ‖ staging_id(16)`: CloneForkFlow stagings by the proposal
+    /// time of their latest chunk, for expiry; times are sign-biased big-endian.
+    FlowCloneForkStaging = 0x13,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -288,6 +295,7 @@ impl IndexKind {
         Self::HistoryObjectDeletePending,
         Self::HistoryLocalCleanupPending,
         Self::NamedDispatchQueue,
+        Self::FlowCloneForkStaging,
     ];
 }
 
@@ -450,7 +458,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=29).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=18).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=19).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
         assert_eq!(RunTable::HistorySegment.column_family(), ColumnFamily::Flow);

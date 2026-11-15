@@ -115,7 +115,7 @@ public enum SubFlowReusePolicy
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(26);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(27);
   }
 
   private static final SubFlowReusePolicy[] VALUES = values();

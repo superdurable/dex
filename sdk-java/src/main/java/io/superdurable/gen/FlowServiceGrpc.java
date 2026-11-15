@@ -638,6 +638,37 @@ public final class FlowServiceGrpc {
     return getResetFlowMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.CloneForkFlowRequest,
+      io.superdurable.gen.CloneForkFlowResponse> getCloneForkFlowMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "CloneForkFlow",
+      requestType = io.superdurable.gen.CloneForkFlowRequest.class,
+      responseType = io.superdurable.gen.CloneForkFlowResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.CloneForkFlowRequest,
+      io.superdurable.gen.CloneForkFlowResponse> getCloneForkFlowMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.CloneForkFlowRequest, io.superdurable.gen.CloneForkFlowResponse> getCloneForkFlowMethod;
+    if ((getCloneForkFlowMethod = FlowServiceGrpc.getCloneForkFlowMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getCloneForkFlowMethod = FlowServiceGrpc.getCloneForkFlowMethod) == null) {
+          FlowServiceGrpc.getCloneForkFlowMethod = getCloneForkFlowMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.CloneForkFlowRequest, io.superdurable.gen.CloneForkFlowResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "CloneForkFlow"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.CloneForkFlowRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.CloneForkFlowResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("CloneForkFlow"))
+              .build();
+        }
+      }
+    }
+    return getCloneForkFlowMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.InvokeRPCRequest,
       io.superdurable.gen.InvokeRPCResponse> getInvokeRPCMethod;
 
@@ -1113,6 +1144,13 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    default void cloneForkFlow(io.superdurable.gen.CloneForkFlowRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.CloneForkFlowResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getCloneForkFlowMethod(), responseObserver);
+    }
+
+    /**
+     */
     default void invokeRPC(io.superdurable.gen.InvokeRPCRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeRPCResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getInvokeRPCMethod(), responseObserver);
@@ -1415,6 +1453,14 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public void cloneForkFlow(io.superdurable.gen.CloneForkFlowRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.CloneForkFlowResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getCloneForkFlowMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
     public void invokeRPC(io.superdurable.gen.InvokeRPCRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeRPCResponse> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
@@ -1688,6 +1734,13 @@ public final class FlowServiceGrpc {
     public io.superdurable.gen.ResetFlowResponse resetFlow(io.superdurable.gen.ResetFlowRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getResetFlowMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.superdurable.gen.CloneForkFlowResponse cloneForkFlow(io.superdurable.gen.CloneForkFlowRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getCloneForkFlowMethod(), getCallOptions(), request);
     }
 
     /**
@@ -1980,6 +2033,14 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.CloneForkFlowResponse> cloneForkFlow(
+        io.superdurable.gen.CloneForkFlowRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getCloneForkFlowMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.InvokeRPCResponse> invokeRPC(
         io.superdurable.gen.InvokeRPCRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -2113,15 +2174,16 @@ public final class FlowServiceGrpc {
   private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 17;
   private static final int METHODID_GET_FLOW_STATE = 18;
   private static final int METHODID_RESET_FLOW = 19;
-  private static final int METHODID_INVOKE_RPC = 20;
-  private static final int METHODID_SKIP_TIMER = 21;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 22;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 23;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 24;
-  private static final int METHODID_HEALTH_CHECK = 25;
-  private static final int METHODID_UPLOAD_FLOW_DEFINITIONS = 26;
-  private static final int METHODID_LIST_FLOW_DEFINITIONS = 27;
-  private static final int METHODID_GET_FLOW_DEFINITIONS = 28;
+  private static final int METHODID_CLONE_FORK_FLOW = 20;
+  private static final int METHODID_INVOKE_RPC = 21;
+  private static final int METHODID_SKIP_TIMER = 22;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 23;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 24;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 25;
+  private static final int METHODID_HEALTH_CHECK = 26;
+  private static final int METHODID_UPLOAD_FLOW_DEFINITIONS = 27;
+  private static final int METHODID_LIST_FLOW_DEFINITIONS = 28;
+  private static final int METHODID_GET_FLOW_DEFINITIONS = 29;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -2219,6 +2281,10 @@ public final class FlowServiceGrpc {
         case METHODID_RESET_FLOW:
           serviceImpl.resetFlow((io.superdurable.gen.ResetFlowRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.ResetFlowResponse>) responseObserver);
+          break;
+        case METHODID_CLONE_FORK_FLOW:
+          serviceImpl.cloneForkFlow((io.superdurable.gen.CloneForkFlowRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.CloneForkFlowResponse>) responseObserver);
           break;
         case METHODID_INVOKE_RPC:
           serviceImpl.invokeRPC((io.superdurable.gen.InvokeRPCRequest) request,
@@ -2415,6 +2481,13 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.ResetFlowResponse>(
                 service, METHODID_RESET_FLOW)))
         .addMethod(
+          getCloneForkFlowMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.CloneForkFlowRequest,
+              io.superdurable.gen.CloneForkFlowResponse>(
+                service, METHODID_CLONE_FORK_FLOW)))
+        .addMethod(
           getInvokeRPCMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
             new MethodHandlers<
@@ -2545,6 +2618,7 @@ public final class FlowServiceGrpc {
               .addMethod(getWaitForHistoryEventMethod())
               .addMethod(getGetFlowStateMethod())
               .addMethod(getResetFlowMethod())
+              .addMethod(getCloneForkFlowMethod())
               .addMethod(getInvokeRPCMethod())
               .addMethod(getSkipTimerMethod())
               .addMethod(getUpdateFlowConfigMethod())

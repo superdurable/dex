@@ -217,6 +217,8 @@ message RunRecord {
   uint64 value_garbage_pruned_before_seq = 77;
   // Flow timeout duration, set once a time travel restarts the timeout; zero means deadline minus start.
   int64 timeout_duration_micros = 78;
+  // Set when CloneForkFlow created the run: the source point it started from.
+  dex.FlowCloneForkSource clone_fork_source = 79;
 }
 
 // Active Step executions by Step type: WAIT_FOR, WAITING, or EXECUTE, never the timeout handler.
@@ -786,6 +788,52 @@ message TimeTravelStagedTarget {
 message TimeTravelStagedValue {
   StoredValueId value_id = 1;
   dex.Value value = 2;
+}
+
+// Flow row of a CloneForkFlow staging, keyed by staging ID; its chunks are rows keyed by staging
+// ID and chunk index.
+message FlowCloneForkStagingRecord {
+  // Chunks staged so far; chunk i is the row with chunk index i.
+  uint32 chunk_count = 1;
+  // True once the last chunk is staged.
+  bool is_complete = 2;
+  // Proposal time of the latest chunk's command; the FlowCloneForkStaging partition index row
+  // carries the same time.
+  int64 staged_at_micros = 3;
+}
+
+// Value of a FlowCloneForkStaging partition index row: the Flow whose staging the owner expires.
+message FlowCloneForkStagingIndexRecord {
+  uint64 tenant_id = 1;
+  string flow_id = 2;
+}
+
+// Value of a CloneForkFlow staging chunk row. The parts of all chunks, in chunk order, form the
+// staged state.
+message FlowCloneForkStagedChunk {
+  // Set only in chunk 0.
+  FlowCloneForkStagedTarget target = 1;
+  // Attempt-scoped rows of the source point, without hard-delete Attributes.
+  repeated CheckpointRow rows = 2;
+  // Every value-table value that the rows hold, complete.
+  repeated TimeTravelStagedValue values = 3;
+  // What the owner read from the child Flows of the copied SubFlow conditions.
+  repeated TimeTravelStagedChildFlow child_flows = 4;
+}
+
+// The source point of a staged CloneForkFlow and what the staging was computed for.
+message FlowCloneForkStagedTarget {
+  // The CloneForkFlow request; the FlowCloneFork command carries the same request.
+  dex.CloneForkFlowRequest request = 1;
+  dex.FlowCloneForkSource source = 2;
+  // Run seq of the source point.
+  uint64 source_run_seq = 3;
+  // First run seq of the new run: larger than every seq that the rows and values name.
+  uint64 first_run_seq = 4;
+  // Flow type of the source run.
+  string flow_type = 5;
+  // Attempt-scoped run status at the source point; always RUNNING.
+  CheckpointRunStatus run_status = 6;
 }
 
 // One external input a staged TimeTravel result reapplies.
