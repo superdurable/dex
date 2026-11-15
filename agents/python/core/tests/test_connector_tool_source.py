@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -55,12 +57,15 @@ from dex_agents.connectors._source import (
     _is_proven_not_sent,
     _lower_camel_to_snake,
     _may_have_dispatched,
+    bounded_write_attempts,
+    connector_send_cap,
 )
 from tests.connector_agent import (
     CONNECTION,
     PREVIOUS_BY_ID_TOOL_NAME,
     by_id_manifest,
     read_fake_ledger_manifest,
+    unreviewed_send_manifest,
 )
 from tests.fake_ledger import (
     Balance,
@@ -71,6 +76,7 @@ from tests.fake_ledger import (
     GetBalanceInput,
     GetBalanceOperation,
     PostNoteOperation,
+    SendMessageOperation,
 )
 
 CONFORMANCE = json.loads(
@@ -151,6 +157,26 @@ def test_fence_events_are_observed_as_the_conformance_suite_says(case: dict[str,
     assert _is_proven_not_sent(call) is case["isProvenNotSent"]
 
 
+@pytest.mark.parametrize("case", CONFORMANCE["sendCapCases"], ids=lambda case: case["name"])
+def test_send_caps_are_read_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
+    declared = case["definition"]
+    tier = declared.get("repeatOnUnknown")
+    # A limited definition without maxSends declares the SDK's default cap of 3.
+    definition = SimpleNamespace(
+        repeat_on_unknown=tier,
+        max_sends=declared.get("maxSends", 3 if tier == "limited" else 0),
+    )
+    assert connector_send_cap(case["kind"], case["agent"], definition) == case["maxSends"]
+
+
+@pytest.mark.parametrize("case", CONFORMANCE["boundedWriteAttemptCases"])
+def test_a_bounded_writes_attempts_follow_the_conformance_suite(case: dict[str, Any]) -> None:
+    attempts = bounded_write_attempts(
+        case["operationAttempts"], case["manifestMaxSends"], case["callMaxSends"]
+    )
+    assert attempts == case["attempts"]
+
+
 @pytest.mark.parametrize("case", CONFORMANCE["resultCases"])
 def test_result_text_is_the_same_in_every_core(case: dict[str, Any]) -> None:
     assert format_connector_result(case["json"]) == case["text"]
@@ -186,6 +212,89 @@ def test_each_operation_kind_maps_to_its_effect_class_and_step_options(
         # The connector policy's one-hour window, narrowed to the tool Steps' three attempts.
         assert tool.retry_policy.maximum_attempts == 3
         assert tool.retry_policy.total_duration == timedelta(hours=1)
+
+
+def test_a_limited_mutation_is_a_bounded_write_unless_its_manifest_predates_the_tiers(
+    provider: FakeLedgerProvider,
+) -> None:
+    messages = SendMessageOperation(provider)
+    bounded = connector_tool(messages, CONNECTION)
+    assert bounded.effect is ToolEffect.BOUNDED_WRITE
+    assert bounded.max_sends == 3
+    # The operation's five attempts already reach the cap of 3.
+    assert bounded.retry_policy is not None and bounded.retry_policy.maximum_attempts == 5
+    unreviewed = connector_tool(messages, CONNECTION, manifest=unreviewed_send_manifest())
+    assert unreviewed.effect is ToolEffect.NON_IDEMPOTENT_WRITE
+    assert unreviewed.max_sends is None
+    assert unreviewed.retry_policy is not None and unreviewed.retry_policy.maximum_attempts == 3
+    # A Connector package built before the tiers declares no tier in its definition.
+    older_definition = replace(messages.definition(), repeat_on_unknown=None, max_sends=0)
+    older = connector_tool(SendMessageOperation(provider, older_definition), CONNECTION)
+    assert older.effect is ToolEffect.NON_IDEMPOTENT_WRITE
+    retried = copy.deepcopy(read_fake_ledger_manifest())
+    retried["factories"][3]["agent"]["retry"] = "safe"
+    assert connector_tool(messages, CONNECTION, manifest=retried).effect is (
+        ToolEffect.IDEMPOTENT_WRITE
+    )
+
+
+def test_a_tool_policys_max_sends_is_pinned_on_the_call_and_raises_its_attempts(
+    provider: FakeLedgerProvider,
+) -> None:
+    source = ConnectorToolSource(
+        [
+            connector_tool(SendMessageOperation(provider), CONNECTION, name="send"),
+            connector_tool(PostNoteOperation(provider), CONNECTION, name="note"),
+        ]
+    )
+
+    def defer(tool_name: str, policies: dict[str, ToolPolicy] | None = None) -> Any:
+        return source.deferred_tool_call(
+            _turn(policies),
+            tool_call_id="call-1",
+            tool_name=tool_name,
+            arguments="{}",
+            listed_tool=None,
+        )
+
+    def attempts_of(tool_name: str, reference: str | None) -> int | None:
+        record = AgentToolCall(
+            tool_call_id="call-1",
+            turn_id="turn-1",
+            tool_name=tool_name,
+            arguments="{}",
+            effect=ToolEffect.BOUNDED_WRITE,
+            requires_approval=False,
+            status=ToolCallStatus.APPROVED,
+            tool_source_reference=reference,
+        )
+        options = source.tool_call_step_options(record)
+        assert options is not None and options.execute_retry is not None
+        return options.execute_retry.maximum_attempts
+
+    plain = defer("send")
+    assert plain.policy.effect is ToolEffect.BOUNDED_WRITE
+    assert plain.policy.requires_approval is False
+    assert plain.ordered
+    assert plain.tool_source_reference == '{"tool": "send"}'
+    assert attempts_of("send", plain.tool_source_reference) == 5
+    raised = defer("send", {"send": ToolPolicy(ToolEffect.READ, max_sends=6)})
+    assert raised.policy.effect is ToolEffect.BOUNDED_WRITE
+    assert raised.tool_source_reference == '{"tool": "send", "maxSends": 6}'
+    assert attempts_of("send", raised.tool_source_reference) == 8
+    lowered = defer("send", {"send": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=1)})
+    assert lowered.tool_source_reference == '{"tool": "send", "maxSends": 1}'
+    assert attempts_of("send", lowered.tool_source_reference) == 5
+    # Only a bounded write takes the cap.
+    note = defer("note", {"note": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=6)})
+    assert note.tool_source_reference == '{"tool": "note"}'
+
+
+@pytest.mark.parametrize("max_sends", [0, 11, True])
+def test_a_tool_policys_max_sends_must_be_an_integer_from_1_to_10(max_sends: Any) -> None:
+    with pytest.raises(ValueError, match="max_sends must be an integer from 1 to 10"):
+        ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=max_sends)
+    assert ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=10).max_sends == 10
 
 
 def test_an_explicit_name_keeps_a_previous_default_tool_name(
