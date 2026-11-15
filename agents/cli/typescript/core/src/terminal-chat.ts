@@ -30,11 +30,23 @@ import {
   type AgentImageReference,
   type AgentInterrupt,
   type AgentSessionFlow,
+  type AgentSessionFork,
   type AgentSnapshot,
   type DeferredToolOutcome,
   type MediaStore,
 } from "@superdurable/dex-agents";
 
+import {
+  SessionForkFailure,
+  chatForkFailureLine,
+  chatForkUsageLine,
+  forkCommand,
+  forkedLine,
+  isYesAnswer,
+  openPrompt,
+  parseForkMessageNumber,
+  resumeHint,
+} from "./session-forks.js";
 import { lineWaitAborted, type TerminalInput } from "./terminal-input.js";
 import { describeFailureWithoutDexDetails } from "./dex-connection.js";
 
@@ -78,6 +90,7 @@ export class TerminalChat {
   private readonly exitController = new AbortController();
 
   private pendingImages: AgentImageReference[] = [];
+  private switchTarget: string | undefined;
 
   /**
    * Creates the chat.
@@ -87,6 +100,8 @@ export class TerminalChat {
    * @param input - Terminal input.
    * @param output - Where the chat writes.
    * @param images - The store that `/image` uploads to, and the home directory a leading `~` means.
+   * @param forks - What `/fork` calls with the message number, or `null` for the current state, and the command
+   * name for the resume line. It throws `SessionForkFailure`. Omitted turns `/fork` off.
    */
   public constructor(
     private readonly client: Client,
@@ -95,7 +110,16 @@ export class TerminalChat {
     private readonly input: TerminalInput,
     private readonly output: Writable,
     private readonly images: { readonly mediaStore: MediaStore; readonly homeDirectory: string },
+    private readonly forks?: {
+      readonly forkSession: (afterMessage: number | null) => Promise<AgentSessionFork>;
+      readonly commandName: string;
+    },
   ) {}
+
+  /** The fork that `/fork` opened; the chat ended to open it. */
+  public get switchSessionId(): string | undefined {
+    return this.switchTarget;
+  }
 
   /**
    * Runs the chat until `/exit`, a second Ctrl-C, the end of input, or a failed session.
@@ -125,6 +149,10 @@ export class TerminalChat {
         }
         if (text === imageCommand || text.startsWith(`${imageCommand} `)) {
           await this.attachImage(text.slice(imageCommand.length));
+          continue;
+        }
+        if (this.forks !== undefined && (text === forkCommand || text.startsWith(`${forkCommand} `))) {
+          await this.fork(this.forks, text.slice(forkCommand.length));
           continue;
         }
         await this.runTurn(text);
@@ -187,6 +215,40 @@ export class TerminalChat {
       return;
     }
     await this.awaitTurnEnd(before.state?.turnCount ?? 0);
+  }
+
+  /** Forks this session, then opens the fork when the user says yes. */
+  private async fork(
+    forks: NonNullable<TerminalChat["forks"]>,
+    argument: string,
+  ): Promise<void> {
+    const afterMessage = parseForkMessageNumber(argument);
+    if (afterMessage === undefined) {
+      this.write(`${chatForkUsageLine}\n`);
+      return;
+    }
+    let fork: AgentSessionFork;
+    try {
+      fork = await forks.forkSession(afterMessage);
+    } catch (error: unknown) {
+      if (!(error instanceof SessionForkFailure)) {
+        throw error;
+      }
+      this.write(`${chatForkFailureLine(error.message)}\n`);
+      return;
+    }
+    this.write(`${forkedLine(this.sessionId, fork.afterMessage, fork.sessionId)}\n`);
+    this.write(openPrompt(fork.sessionId));
+    const answer = await this.input.nextLine(this.exitSignal());
+    if (typeof answer === "string" && isYesAnswer(answer)) {
+      this.switchTarget = fork.sessionId;
+      this.isExitRequested = true;
+      return;
+    }
+    if (typeof answer !== "string") {
+      this.write("\n");
+    }
+    this.write(`${resumeHint(forks.commandName, fork.sessionId)}\n`);
   }
 
   /** Copies one image file into the media store and keeps it for the next message. */

@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { constants, hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
@@ -28,12 +28,15 @@ import {
 } from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
+  createAgentSessionForkingFlow,
   listAgentSessions,
   sessionFlowDefinitionDocument,
   sortAgentSessionsByLastActivity,
   startAgentSession,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
+  type AgentSessionFork,
+  type AgentSessionForkSource,
   type AgentSessionSummary,
   type DeferredToolOutcome,
   type MediaStore,
@@ -116,6 +119,16 @@ import {
   resolveMcpServers,
 } from "./mcp-servers-tool-source.js";
 import { waitForQueuedOutput } from "./queued-output.js";
+import {
+  forkCliSession,
+  forkUsageError,
+  forkedLine,
+  isYesAnswer,
+  newCliSessionId,
+  openPrompt,
+  parseForkMessageNumber,
+  resumeHint,
+} from "./session-forks.js";
 import { collectSessionsForList } from "./session-list-pages.js";
 import {
   SessionOpener,
@@ -155,7 +168,7 @@ import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
 import { TurnConfigResolver } from "./turn-config-resolver.js";
 import { describeUnavailableDexServer } from "./unavailable-dex-server.js";
 
-const subcommands = ["run", "init", "connectors", "sessions"] as const;
+const subcommands = ["run", "init", "connectors", "sessions", "fork"] as const;
 type Subcommand = (typeof subcommands)[number];
 const blobCacheBytes = 256 * 1024 * 1024;
 
@@ -290,7 +303,7 @@ async function runAgentCliCommand(harness: AgentHarness, io: AgentCliIo): Promis
   };
   let parsed: ParsedArguments;
   try {
-    parsed = parseCommandArguments(io.argv);
+    parsed = parseCommandArguments(io.argv, `dex-agents-${harness.name}`);
   } catch (error: unknown) {
     log(`${describe(error)}\n${usage(harness)}`);
     return 2;
@@ -327,6 +340,10 @@ interface ParsedArguments {
   readonly model: string | undefined;
   readonly isPlainRequested: boolean;
   readonly isHelpRequested: boolean;
+  /** The session that `fork` copies. */
+  readonly forkSessionId: string | undefined;
+  /** The last message a fork keeps, or `null` for the current state. */
+  readonly forkAfterMessage: number | null;
 }
 
 /** A command-line or configuration error: the command exits with 2. */
@@ -404,6 +421,8 @@ export class AgentCliCommand {
   /** The Worker of the one session this command has open, on that session's task queue. */
   private sessionWorker: SessionQueueWorker | undefined;
   private client: Client | undefined;
+  /** The fork that `fork` made and the user chose to open now. */
+  private forkedSessionId: string | undefined;
   private blobCache: BlobCache | undefined;
   private blobCacheDirectory: string | undefined;
   private localTools: LocalToolSource | undefined;
@@ -456,6 +475,8 @@ export class AgentCliCommand {
       model: undefined,
       isPlainRequested: true,
       isHelpRequested: false,
+      forkSessionId: undefined,
+      forkAfterMessage: null,
     };
     // The Worker host serves the person at the launcher's terminal, so it may open Dex Web pages for them.
     return new AgentCliCommand(harness, { ...io, isInteractive: true }, parsed, log);
@@ -525,21 +546,103 @@ export class AgentCliCommand {
         return this.listConnectors(effective, server);
       case "sessions":
         return this.listSessions(effective, loaded, server, connection);
-      default: {
-        const outcome = await this.chatInTerminalUi(effective, loaded, server, connection);
-        if (outcome?.kind === "exited") {
-          return outcome.exitCode;
-        }
-        return this.chat(
-          effective,
-          loaded,
-          server,
-          connection,
-          outcome?.resumeSessionId ?? this.parsed.resumeSessionId,
-          outcome === undefined,
-        );
+      case "fork": {
+        this.forkedSessionId = await this.forkSession(effective, loaded, server, connection);
+        return this.forkedSessionId === undefined ? 0 : this.chatWithAgent(effective, loaded, server, connection);
+      }
+      default:
+        return this.chatWithAgent(effective, loaded, server, connection);
+    }
+  }
+
+  /** Chats in the terminal UI, or in plain text when it is not available. */
+  private async chatWithAgent(
+    effective: EffectiveConfig,
+    loaded: LoadedConfig,
+    server: DexServerConnection,
+    connection: DexConnectionSettings,
+  ): Promise<number> {
+    const outcome = await this.chatInTerminalUi(effective, loaded, server, connection);
+    if (outcome?.kind === "exited") {
+      return outcome.exitCode;
+    }
+    return this.chat(
+      effective,
+      loaded,
+      server,
+      connection,
+      outcome?.resumeSessionId ?? this.resumedSessionId(),
+      outcome === undefined,
+    );
+  }
+
+  /** Returns the session to open: the fork that `fork` made and the user opens, else `--resume`. */
+  private resumedSessionId(): string | undefined {
+    return this.forkedSessionId ?? this.parsed.resumeSessionId;
+  }
+
+  /**
+   * Forks `fork`'s session without a Worker, then asks whether to open the fork.
+   * @returns The fork to open now, or `undefined` when the user opens it later.
+   */
+  private async forkSession(
+    effective: EffectiveConfig,
+    loaded: LoadedConfig,
+    server: DexServerConnection,
+    connection: DexConnectionSettings,
+  ): Promise<string | undefined> {
+    const sourceSessionId = this.parsed.forkSessionId;
+    if (sourceSessionId === undefined) {
+      throw new UsageError(forkUsageError(`dex-agents-${this.harness.name}`));
+    }
+    const workspace = this.prepareWorkspace(effective, loaded);
+    const identity = this.sessionEnvironmentIdentity(loaded, workspace);
+    const flows = new Map(
+      [this.harness.flowType, namespaceSessionFlowType(this.harness.flowType, identity)].map((flowType) => [
+        flowType,
+        createAgentSessionForkingFlow(flowType),
+      ]),
+    );
+    this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
+    this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
+    const client = this.constructDexClient(
+      new Registry([...flows.values()]),
+      this.dexConnectionOptions(server, connection),
+      connection,
+    );
+    const commandName = `dex-agents-${this.harness.name}`;
+    let fork: AgentSessionFork;
+    try {
+      fork = await this.callDex(effective, server, connection, () =>
+        forkCliSession(
+          client,
+          flows,
+          sourceSessionId,
+          newCliSessionId(this.harness.name),
+          this.parsed.forkAfterMessage,
+          commandName,
+        ),
+      );
+    } finally {
+      // Opening the fork builds its own Client and blob cache.
+      await client.close().catch(() => undefined);
+      this.blobCache.close();
+      rmSync(this.blobCacheDirectory, { recursive: true, force: true });
+      this.blobCache = undefined;
+      this.blobCacheDirectory = undefined;
+    }
+    this.io.stdout.write(`${forkedLine(sourceSessionId, fork.afterMessage, fork.sessionId)}\n`);
+    if (this.io.isInteractive) {
+      const answer = await this.ask(openPrompt(fork.sessionId));
+      if (answer !== null && isYesAnswer(answer)) {
+        return fork.sessionId;
+      }
+      if (answer === null) {
+        this.io.stdout.write("\n");
       }
     }
+    this.io.stdout.write(`${resumeHint(commandName, fork.sessionId)}\n`);
+    return undefined;
   }
 
   /**
@@ -722,7 +825,7 @@ export class AgentCliCommand {
       toolProcessGroups: undefined,
       leaseHolderProcessId: process.pid,
     });
-    const { opener, session, sessionId, leaseTtlSeconds: ttlSeconds } = opened;
+    const { opener } = opened;
     // From here Ctrl-C ends the wait for the lease, and then the chat handles it.
     this.startedDexcliDev.releaseInterrupt();
     this.connectorsMcpSignalCleanup?.releaseInterrupt();
@@ -736,6 +839,37 @@ export class AgentCliCommand {
       return result;
     };
     this.listenForTerminationSignals();
+    let session = opened.session;
+    let isResumed = opened.isResumed;
+    for (;;) {
+      const ended = await this.chatInSession(opened, session, isResumed, tracked);
+      if (typeof ended === "number") {
+        return ended;
+      }
+      // The fork opens like --resume; the source keeps running without this terminal.
+      await this.releaseHeldSessionLease();
+      this.unansweredSessionLeases = { opener, sessionIds: unanswered };
+      try {
+        session = await opener.describeOpenableSession(ended.switchSessionId);
+      } catch (error: unknown) {
+        throw error instanceof UnopenableSessionError ? new UsageError(error.message) : error;
+      }
+      isResumed = true;
+    }
+  }
+
+  /**
+   * Takes one session's lease and chats in it.
+   * @returns The exit code, or the fork that `/fork` opened, to chat in next.
+   */
+  private async chatInSession(
+    opened: OpenedSessionWorker,
+    session: OpenableSession,
+    isResumed: boolean,
+    tracked: (id: string, call: () => Promise<SessionTerminalLeaseResult>) => Promise<SessionTerminalLeaseResult>,
+  ): Promise<number | { readonly switchSessionId: string }> {
+    const { opener, leaseTtlSeconds: ttlSeconds } = opened;
+    const sessionId = session.sessionId;
     const waited = await this.waitForPlainChatLease(sessionId, () => tracked(sessionId, () => opener.attempt(session)));
     if (waited === "interrupted") {
       return interruptedExitCode;
@@ -766,11 +900,32 @@ export class AgentCliCommand {
       this.log(await lostLeaseLine);
       return 1;
     }
-    chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
-      mediaStore: opened.mediaStore,
-      homeDirectory: this.environment.homeDirectory,
-    });
-    if (opened.isResumed) {
+    const commandName = `dex-agents-${this.harness.name}`;
+    const forkFlows = new Map<string, AgentSessionForkSource>([
+      [opened.sessionFlow.getFlowType(), opened.sessionFlow],
+      [session.flow.getFlowType(), session.flow],
+    ]);
+    chat = new TerminalChat(
+      opened.client,
+      session.flow,
+      sessionId,
+      this.terminalInput(),
+      this.io.stdout,
+      { mediaStore: opened.mediaStore, homeDirectory: this.environment.homeDirectory },
+      {
+        forkSession: (afterMessage) =>
+          forkCliSession(
+            opened.client,
+            forkFlows,
+            sessionId,
+            newCliSessionId(this.harness.name),
+            afterMessage,
+            commandName,
+          ),
+        commandName,
+      },
+    );
+    if (isResumed) {
       this.io.stdout.write(`Resumed session ${sessionId}.\n`);
     }
     this.io.stdout.write(
@@ -795,6 +950,10 @@ export class AgentCliCommand {
       return 1;
     }
     this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
+    const switchSessionId = chat.switchSessionId;
+    if (switchSessionId !== undefined) {
+      return { switchSessionId };
+    }
     return isFailed ? 1 : 0;
   }
 
@@ -939,7 +1098,7 @@ export class AgentCliCommand {
           isFromFile: loaded.isFromFile,
           server,
           connection,
-          resumeSessionId: this.parsed.resumeSessionId ?? null,
+          resumeSessionId: this.resumedSessionId() ?? null,
         },
         configPath: loaded.isFromFile ? loaded.configPath : null,
         homeDirectory: this.environment.homeDirectory,
@@ -1750,7 +1909,7 @@ function currentUserName(): string | undefined {
   }
 }
 
-function parseCommandArguments(argv: readonly string[]): ParsedArguments {
+function parseCommandArguments(argv: readonly string[], commandName: string): ParsedArguments {
   const { values, positionals } = parseArgs({
     args: [...argv],
     allowPositionals: true,
@@ -1761,15 +1920,28 @@ function parseCommandArguments(argv: readonly string[]): ParsedArguments {
       resume: { type: "string", short: "r" },
       model: { type: "string", short: "m" },
       plain: { type: "boolean" },
+      at: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
-  if (positionals.length > 1) {
-    throw new UsageError(`unexpected arguments: ${positionals.slice(1).join(" ")}`);
-  }
   const subcommand = positionals[0] ?? "run";
   if (!subcommands.includes(subcommand as Subcommand)) {
     throw new UsageError(`unknown subcommand ${subcommand}`);
+  }
+  const maximumPositionals = subcommand === "fork" ? 2 : 1;
+  if (positionals.length > maximumPositionals) {
+    throw new UsageError(`unexpected arguments: ${positionals.slice(maximumPositionals).join(" ")}`);
+  }
+  const forkSessionId = positionals[1];
+  if (subcommand === "fork" && forkSessionId === undefined) {
+    throw new UsageError(forkUsageError(commandName));
+  }
+  if (subcommand !== "fork" && values.at !== undefined) {
+    throw new UsageError("--at goes only with fork");
+  }
+  const forkAfterMessage = values.at === undefined ? null : parseForkMessageNumber(values.at);
+  if (forkAfterMessage === undefined || (values.at !== undefined && forkAfterMessage === null)) {
+    throw new UsageError("--at needs a message number");
   }
   if (values.model !== undefined && values.model.trim() === "") {
     throw new UsageError("--model must not be empty");
@@ -1782,6 +1954,8 @@ function parseCommandArguments(argv: readonly string[]): ParsedArguments {
     model: values.model,
     isPlainRequested: values.plain === true,
     isHelpRequested: values.help === true,
+    forkSessionId,
+    forkAfterMessage,
   };
 }
 
@@ -1789,16 +1963,19 @@ function usage(harness: AgentHarness): string {
   const command = `dex-agents-${harness.name}`;
   return [
     `Usage: ${command} [run|init|connectors|sessions] [options]`,
+    `       ${command} fork <session-id> [--at <message-number>] [options]`,
     "",
     "  run          Chat with the agent in this terminal (the default).",
     "  init         Create or replace the configuration file.",
     "  connectors   List the authorized connections and the configured ones.",
     "  sessions     List this command's sessions.",
+    "  fork         Copy a session between turns into a new session, then offer to open it.",
     "",
     `  -c, --config <file>   Configuration file (default ~/.dex/agents/${harness.name}.yaml).`,
     "  -y, --yes             Write and use the defaults instead of asking.",
     "  -r, --resume <id>     Continue a session.",
     "  -m, --model <id>      Override the configured model.",
+    "      --at <n>          With fork: fork after message n, the last of a turn.",
     "      --plain           Chat in plain text, without the terminal UI.",
     "  -h, --help            Show this help.",
   ].join("\n");
@@ -1816,8 +1993,7 @@ async function describeEndedLease(opener: SessionOpener, sessionId: string): Pro
 }
 
 function newSessionId(harness: AgentHarness): string {
-  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
-  return `${harness.name}-${timestamp}-${randomBytes(3).toString("hex")}`;
+  return newCliSessionId(harness.name);
 }
 
 function openInBrowser(url: string): void {
