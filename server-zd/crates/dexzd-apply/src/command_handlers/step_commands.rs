@@ -10,7 +10,7 @@
 
 use dexzd_protocol::dex::{FlowErrorType, FlowStatus, FlowTimeoutPolicy, PullRouting};
 use dexzd_protocol::dexzd::v1::{
-    StepAttemptFailedCommand, StepAttemptFailureKind, StepExecutionPhase, StepMethod,
+    RunRecord, StepAttemptFailedCommand, StepAttemptFailureKind, StepExecutionPhase, StepMethod,
     TimersFiredCommand, flow_command::Command, timer_id,
 };
 
@@ -290,12 +290,24 @@ pub(crate) fn apply_flow_timeout(
                     FlowErrorType::FlowTimeout,
                     format!(
                         "Flow timed out after {} seconds",
-                        (cursor.record.timeout_deadline_micros - cursor.record.started_at_micros)
-                            / 1_000_000
+                        flow_timeout_duration_micros(&cursor.record) / 1_000_000
                     ),
                 ),
             )?;
         }
     }
     Ok(())
+}
+
+/// Returns the run's Flow timeout duration in microseconds, or zero when the run has no Flow
+/// timeout. A time travel records the duration when it restarts the timeout. Until then, the
+/// deadline has never moved, so the duration is the deadline minus the run's start time.
+pub(crate) fn flow_timeout_duration_micros(record: &RunRecord) -> i64 {
+    if record.timeout_deadline_micros <= 0 {
+        return 0;
+    }
+    if record.timeout_duration_micros > 0 {
+        return record.timeout_duration_micros;
+    }
+    record.timeout_deadline_micros - record.started_at_micros
 }

@@ -581,6 +581,49 @@ moved. `3856990400` is a historical baseline case, so no regression loses its se
 | --- | --- | --- |
 | `3856990400` | `0x3c4188f33600e54921e9771df8cf53d3` | `0x5ad6fd0f1548fcce530b0405931f7ab6` |
 
+### Flow timeout restart digest change
+
+A time travel now restarts a restored Flow timeout at the travel time, with the run's full
+duration. Before, it kept the deadline from the run's start. The apply model gives some runs a
+Flow timeout and time travels them, so their Flow timeouts fire at other commands. Eight apply
+pins moved; `476371529` and `476371563` did not. No engine pin moved.
+
+| Apply seed | Previous digest | Flow timeout restart digest |
+| --- | --- | --- |
+| `1592590336` | `0xde71a5d00be995541e752e2277234f20` | `0xc2a4a957a32a4bec0af32b99aa2c7749` |
+| `161503589` | `0x89cfc020d33093e9f448d97a6e167d41` | `0x81fa5777b641e10c442e07863ee3a354` |
+| `879068896` | `0x2d4fc0d1b8ec0b2732b6baff2d5d1687` | `0x78b57e3c3ef05ddeac5106f7b2397f26` |
+| `4200525811` | `0xcc7816d6a6bf4e2ba15487c715b522e8` | `0x00262f855cb923b79b7e267e025b057a` |
+| `10906685018` | `0xb95beccf7bc5b70317378e10d4b8622a` | `0x66d13a86974387c363ec5a9f8bda7dbc` |
+| `2204788261` | `0x6059c273d8270309e9698970a825c1e7` | `0xc1d7e712a4452dd3e11771a2a285a442` |
+| `1592590450` | `0x7f192f3b6c035aea3631f9f6e3d6ea93` | `0xc510da434a831ba911ac92198fb390a7` |
+| `1592590341` | `0x559525ffdfb7b6ea24ef40a52d9edd20` | `0xf8d48d37927a2d832bbd7a0cb340ae55` |
+
+The mutations of the current detector table were rerun one at a time on their seeds, and each
+is still detected at the same command:
+
+| Mutation | Seed | Detector after the change |
+| --- | --- | --- |
+| `immediate-reclaim.patch` | `1592590336` | `H4-segment-values`, command 333. |
+| `retry-fresh-snapshot.patch` | `1592590336` | `S5-retained-snapshot`, command 44. |
+| `retry-fresh-snapshot.patch` | `161503589` | `S5-retained-snapshot`, command 26. |
+| Remove `\|\| scope.is_replay` from both request-deduplication guards. | `1592590341` | `apply-error`: replayed command rejected, command 500. |
+
+The Attribute Sync mutant has no detecting seed and stays as described above.
+
+The model-stamp revert was rerun in a scratch source copy with its own Cargo target. It drops
+the run attempt that `invocation_envelope` stamps on invocation commands and the one that a
+redelivered result copies. Seed `2204788261` then completes all 1,000 commands without an
+invariant failure, as it did after the event-counted window change, so it stays a historical
+case. No replacement seed was found: under the same mutation, the 500 seeds from `3000000000`
+at 1,000 commands each and every regression seed also completed without an invariant failure.
+The deterministic test `worker_commands_keep_their_dispatched_run_attempt_on_redelivery` still
+fails on the mutant, because it requires every Worker command to carry its dispatched run
+attempt.
+
+Seed `1592590450` (400 commands) was added in #1372 to cover an abandoned history migration. It started no history migration either before or
+after this change, so it is a historical case; the seed set still abandons one.
+
 ### Running
 
 ```bash

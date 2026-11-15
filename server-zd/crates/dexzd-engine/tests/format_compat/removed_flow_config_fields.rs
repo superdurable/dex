@@ -577,8 +577,8 @@ fn the_run_record_restore_rejects_an_unknown_field() {
         ..RunRecord::default()
     }
     .encode_to_vec();
-    // Field 78 as a varint: RunRecord has no such field, so decoding drops it.
-    value.extend_from_slice(&[0xf0, 0x04, 0x01]);
+    // Field 1000 as a varint: RunRecord has no such field, so decoding drops it.
+    value.extend_from_slice(&[0xc0, 0x3e, 0x01]);
     run_record_with_fields(&value, fields, &OlderRunBytes::default());
 }
 
