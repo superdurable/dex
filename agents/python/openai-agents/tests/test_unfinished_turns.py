@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import Any
@@ -218,6 +219,20 @@ def test_a_record_whose_call_is_not_in_the_run_state_or_names_another_tool_raise
     other_tool = SimpleNamespace(tool_call_id="call-a", tool_name="charge")
     with pytest.raises(ValueError, match="recorded for tool charge"):
         read_unfinished_turn_items(_turn(run_state, {"call-a": other_tool}), _AGENT, _text_output)
+
+
+def test_a_missing_private_sdk_function_raises_so_the_session_stores_its_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    turn = _turn(_run_state([_function_call("call-a")]), {})
+    monkeypatch.delattr("agents.run_state._deserialize_items")
+    with pytest.raises(ValueError, match="lacks the RunState item functions"):
+        read_unfinished_turn_items(turn, _AGENT, _text_output)
+    monkeypatch.undo()
+    # A removed module raises ImportError, which falls back the same way.
+    monkeypatch.setitem(sys.modules, "agents.run_internal.items", None)
+    with pytest.raises(ValueError, match="lacks the RunState item functions"):
+        read_unfinished_turn_items(turn, _AGENT, _text_output)
 
 
 def test_a_pending_call_without_a_record_gets_the_unknown_outcome() -> None:

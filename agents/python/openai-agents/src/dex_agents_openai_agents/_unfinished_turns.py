@@ -10,14 +10,13 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from agents import Agent, ItemHelpers
-from agents._run_state_agent_identity import _build_agent_identity_map, _build_agent_map
-from agents.run_internal.items import run_item_to_input_item
-from agents.run_state import _deserialize_items
 from openai.types.responses import ResponseFunctionToolCall
 
 from dex_agents import AgentToolCall, AgentTurnContext
@@ -83,10 +82,11 @@ def read_unfinished_turn_items(
         raise ValueError(f"RunState schema {schema_version} has no session items")
     for index, session_item in enumerate(session_items):
         _require_mirrored_run_item(index, session_item)
-    run_items = _deserialize_items(
+    sdk = _load_sdk_run_item_functions()
+    run_items = sdk.deserialize_items(
         session_items,
-        _build_agent_map(starting_agent),
-        agent_identity_map=_build_agent_identity_map(starting_agent),
+        sdk.build_agent_map(starting_agent),
+        agent_identity_map=sdk.build_agent_identity_map(starting_agent),
     )
     if len(run_items) != len(session_items):
         # The deserializer skips an item whose agent is not in the graph.
@@ -94,7 +94,7 @@ def read_unfinished_turn_items(
     reasoning_item_id_policy = document.get("reasoning_item_id_policy")
     items: list[dict[str, Any]] = []
     for run_item in run_items:
-        input_item = run_item_to_input_item(run_item, reasoning_item_id_policy)
+        input_item = sdk.run_item_to_input_item(run_item, reasoning_item_id_policy)
         if input_item is not None:
             items.append(dict(input_item))
     function_calls, pending_calls = _pair_calls_with_results(turn, items)
@@ -123,6 +123,36 @@ def read_unfinished_turn_items(
         )
         pending_outputs.append(dict(output_item))
     return [*items, *pending_outputs]
+
+
+@dataclass(frozen=True)
+class _SdkRunItemFunctions:
+    deserialize_items: Callable[..., list[Any]]
+    build_agent_map: Callable[[Agent[Any]], dict[str, Agent[Any]]]
+    build_agent_identity_map: Callable[[Agent[Any]], dict[str, Agent[Any]]]
+    run_item_to_input_item: Callable[[Any, Any], Any]
+
+
+def _load_sdk_run_item_functions() -> _SdkRunItemFunctions:
+    """Import the SDK's private RunState item functions only when a turn ends unfinished.
+
+    Raises:
+        ValueError: If this SDK release lacks them; the adapter still imports.
+    """
+    try:
+        run_state = importlib.import_module("agents.run_state")
+        agent_identity = importlib.import_module("agents._run_state_agent_identity")
+        run_items = importlib.import_module("agents.run_internal.items")
+        return _SdkRunItemFunctions(
+            deserialize_items=run_state._deserialize_items,
+            build_agent_map=agent_identity._build_agent_map,
+            build_agent_identity_map=agent_identity._build_agent_identity_map,
+            run_item_to_input_item=run_items.run_item_to_input_item,
+        )
+    except (ImportError, AttributeError) as error:
+        raise ValueError(
+            "this openai-agents release lacks the RunState item functions the runner reads"
+        ) from error
 
 
 def _require_mirrored_run_item(index: int, run_item: Any) -> None:
