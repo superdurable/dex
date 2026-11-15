@@ -153,6 +153,7 @@ class ConnectorStepContext:
         if not isinstance(value, Marker) or value.attempt != self.attempt:
             return
         evidence = self._fence_evidence.setdefault(str(value.call_id), FenceEvidence())
+        evidence.has_prior_send = evidence.has_prior_send or prior_send_count(value) > 0
         if value.state is State.CLAIMED:
             evidence.is_claimed = evidence.has_claimed = True
             evidence.has_provider_id = evidence.has_provider_id or bool(value.provider_id)
@@ -175,12 +176,26 @@ class FenceEvidence:
         has_claimed: The attempt claimed a send at some point.
         has_provider_id: A claim recorded a provider ID.
         has_not_sent_proof: A ``notSent`` before any claim, or a valid ``canResend``.
+        has_prior_send: A marker's ``sendCount`` counted a possibly
+            effective send of an earlier attempt.
     """
 
     is_claimed: bool = False
     has_claimed: bool = False
     has_provider_id: bool = False
     has_not_sent_proof: bool = False
+    has_prior_send: bool = False
+
+
+def prior_send_count(marker: Marker) -> int:
+    """Return the possibly effective sends a fence marker counts from attempts before its own.
+
+    A claim's ``sendCount`` includes its own send; ``notSent`` and
+    ``canResend`` carry the count from before their attempt. A marker without
+    ``sendCount``, or one from a Connector SDK before 0.10, counts none.
+    """
+    send_count = getattr(marker, "send_count", 0) or 0
+    return max(send_count - 1, 0) if marker.state is State.CLAIMED else send_count
 
 
 def encode_heartbeat_value(value: object) -> str:

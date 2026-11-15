@@ -38,17 +38,35 @@ import type {
  * const toolPolicies = {
  *   search_orders: { effect: "read" },
  *   refund_order: { effect: "idempotent_write", requiresApproval: true },
+ *   slack_post_message: { effect: "non_idempotent_write", maxSends: 5 },
  * } satisfies Record<string, ToolPolicy>;
  * ```
  */
 export interface ToolPolicy {
-  /** Effect of the tool. */
+  /**
+   * Effect of the tool. A connector tool's effect always comes from its manifest, so this field does not
+   * change it.
+   */
   readonly effect: ToolEffect;
   /**
    * Whether every call waits for `resolve_interrupt` before it runs. When omitted, calls with effect
    * `non_idempotent_write` or `unclassified` require approval and the others do not.
    */
   readonly requiresApproval?: boolean;
+  /**
+   * The most times one call of a connector tool may send its write when the outcome of a send is unknown, an
+   * integer from 1 to 10. It replaces the manifest's `agent.maxSends` for this tool. `1` turns resending off.
+   *
+   * It applies only to a connector tool that resends a bounded number of times: a Mutation whose manifest says
+   * `agent.repeatOnUnknown: limited` ({@link ConnectorTool.maxSends} is set). Every other tool ignores it. A call
+   * keeps the cap it was deferred with on every attempt, so a later deploy that changes it affects only new calls.
+   * A raised value also raises the call's attempt limit by the difference, so the connector can reach it.
+   *
+   * It needs `@superdurable/connectors-sdk` 0.11.0 or later. An older Connector SDK ignores it, and the
+   * connector never resends.
+   * @since 0.6.12
+   */
+  readonly maxSends?: number;
 }
 
 /** Effective policy of one tool, returned by {@link resolveToolPolicy}. */
@@ -590,7 +608,10 @@ export interface ToolExecutionResult {
  * {@link AgentFrameworkRunner.toolCallStepOptions}.
  *
  * The session applies it to the movement that starts the call's tool Step, and to no other Step. A
- * `CallSingleAttemptTool` call takes only {@link executeMethodTimeout}; it still runs one attempt.
+ * `CallSingleAttemptTool` call takes {@link executeMethodTimeout}, and it runs one attempt unless
+ * {@link boundedResendExecuteRetry} is set.
+ *
+ * Changed in 0.6.12: added {@link boundedResendExecuteRetry}.
  *
  * @example
  * ```ts
@@ -606,6 +627,17 @@ export interface ToolCallStepOptions {
   readonly executeMethodTimeout?: number;
   /** Retry policy of a `CallTool` call; omit it for the default of three attempts. */
   readonly executeRetry?: RetryPolicy;
+  /**
+   * Retry policy of a `non_idempotent_write` call whose tool itself bounds how many times a repeat can send the
+   * write, such as a connector Mutation with `agent.repeatOnUnknown: limited`. The call still runs in
+   * `CallSingleAttemptTool`, but with these attempts instead of one. When they run out, the call records
+   * `outcome_unknown`, as a single attempt does.
+   *
+   * Set it only for a tool that enforces its own send cap on every attempt. The record's effect stays
+   * `non_idempotent_write`, so Workers before 0.6.12 read the session and run a later call once.
+   * @since 0.6.12
+   */
+  readonly boundedResendExecuteRetry?: RetryPolicy;
 }
 
 /**

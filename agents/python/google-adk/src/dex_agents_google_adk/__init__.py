@@ -18,6 +18,7 @@ package README.
 
 from dex_agents_google_adk.runner import (
     DEFAULT_ADK_USER_ID,
+    UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT,
     AdkAgentRunner,
     adk_agent_session_flow,
 )
@@ -29,6 +30,7 @@ from dex_agents_google_adk.tools import (
 __all__ = [
     "DEFAULT_ADK_USER_ID",
     "IDEMPOTENCY_KEY_CUSTOM_METADATA_KEY",
+    "UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT",
     "AdkAgentRunner",
     "adk_agent_session_flow",
     "idempotency_key_for_tool_call",

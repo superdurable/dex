@@ -10,6 +10,7 @@ import { runAgentWorkerProcess } from "../../src/testing/index.js";
 import {
   connectorAgentDroppedToolsVariable,
   connectorAgentMaxResultBytesVariable,
+  connectorAgentStrictSendSchemaVariable,
   createConnectorAgentFlow,
 } from "./connector-test-agent.js";
 import { fakeLedgerStateDirectoryVariable } from "./fake-ledger.js";
@@ -21,5 +22,10 @@ if (stateDirectory === undefined || stateDirectory === "") {
 const limit = process.env[connectorAgentMaxResultBytesVariable];
 const dropped = (process.env[connectorAgentDroppedToolsVariable] ?? "").split(",").filter((name) => name !== "");
 await runAgentWorkerProcess([
-  createConnectorAgentFlow(stateDirectory, limit === undefined || limit === "" ? undefined : Number(limit), new Set(dropped)),
+  createConnectorAgentFlow(
+    stateDirectory,
+    limit === undefined || limit === "" ? undefined : Number(limit),
+    new Set(dropped),
+    (process.env[connectorAgentStrictSendSchemaVariable] ?? "") !== "",
+  ),
 ]);

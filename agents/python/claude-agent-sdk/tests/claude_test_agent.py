@@ -140,6 +140,12 @@ APPLICATION_HOOK_DENIAL = "the application hook denies this call"
 SLOW_WRITE_GATE = "slow_write"
 MEDIA_STORE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_MEDIA_STORE"
 MEDIA_DIRECTORY_NAME = "media"
+WITHOUT_UNFINISHED_TURN_MESSAGES_ENVIRONMENT_VARIABLE = (
+    "CLAUDE_TEST_AGENT_WITHOUT_UNFINISHED_TURN_MESSAGES"
+)
+WITHOUT_ENDED_TURN_ANSWERS_FILE_NAME = "without-ended-turn-answers"
+FAIL_FIRST_ATTEMPT_FILE_PREFIX = "fail-first-attempt-"
+RUN_MODEL_OUTCOMES_LOG_NAME = "run-model-outcomes.jsonl"
 TOOL_POLICIES = {
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
     "slow_write": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
@@ -209,7 +215,7 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
     if media_store is not None:
         custom_tools.append(build_draw_tool(state_dir))
         tool_sources.append(ScreenshotToolSource(state_dir, media_store))
-    return claude_agent_session_flow(
+    flow = claude_agent_session_flow(
         build_options,
         custom_tools,
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
@@ -222,6 +228,48 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         ),
         media_store=media_store,
     )
+    _simulate_other_workers(flow.runner, state_dir)
+    return flow
+
+
+def _simulate_other_workers(runner: Any, state_dir: Path) -> None:
+    """Let a test run turns the way another Worker of the Flow type would.
+
+    With ``WITHOUT_UNFINISHED_TURN_MESSAGES_ENVIRONMENT_VARIABLE`` set, the
+    runner has no ``build_unfinished_turn_messages``, as adapter 0.6.11 and
+    the TypeScript adapter before 0.6.12. While ``WITHOUT_ENDED_TURN_ANSWERS_FILE_NAME``
+    exists, ``run_model_step`` sees every stored message as the running turn's,
+    so it answers no ended turn's tool use, as those adapters do. While
+    ``FAIL_FIRST_ATTEMPT_FILE_PREFIX + <turn_id>`` exists, each ``RunModel``
+    attempt of that turn logs its first new message to
+    ``RUN_MODEL_OUTCOMES_LOG_NAME``, and the first attempt then fails.
+    """
+    if os.environ.get(WITHOUT_UNFINISHED_TURN_MESSAGES_ENVIRONMENT_VARIABLE):
+        # The core's protocol check treats a None member as missing.
+        runner.build_unfinished_turn_messages = None
+    run_model_step = runner.run_model_step
+
+    async def run_model_step_under_test(turn: AgentTurnContext) -> Any:
+        if (state_dir / WITHOUT_ENDED_TURN_ANSWERS_FILE_NAME).exists():
+            turn = dataclasses.replace(
+                turn,
+                messages=[
+                    dataclasses.replace(message, turn_id=turn.turn_id) for message in turn.messages
+                ],
+            )
+        outcome = await run_model_step(turn)
+        if not (state_dir / f"{FAIL_FIRST_ATTEMPT_FILE_PREFIX}{turn.turn_id}").exists():
+            return outcome
+        new_messages = list(getattr(outcome, "new_messages", ()))
+        first_message = dataclasses.asdict(new_messages[0]) if new_messages else None
+        with (state_dir / RUN_MODEL_OUTCOMES_LOG_NAME).open("a") as log:
+            log.write(json.dumps({"attempt": turn.attempt, "first_new_message": first_message}))
+            log.write("\n")
+        if turn.attempt == 1:
+            raise RuntimeError("injected failure after the CLI returned")
+        return outcome
+
+    runner.run_model_step = run_model_step_under_test
 
 
 def decide_claude_code_tool_permission(

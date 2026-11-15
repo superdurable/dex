@@ -18,9 +18,15 @@ turn's records before the turn ends.
 ``post_note_retried`` is ``postNote`` under a manifest that claims
 ``retry: safe``, so the fenced write runs in ``CallTool`` with retries.
 ``payout_checked`` is ``createPayout`` with an approval predicate: amounts
-above 50 wait for approval. ``CONNECTOR_AGENT_MAX_RESULT_BYTES`` bounds results,
-and ``CONNECTOR_AGENT_DROPPED_TOOLS``, a comma-separated list, leaves tools out,
-as a later deploy that removed them would.
+above 50 wait for approval. ``send_message`` is the limited ``sendMessage``
+Mutation, a bounded resend; ``send_message_capped`` is the same tool under a
+tool policy that raises its send cap to 4, and ``send_message_unreviewed`` runs
+it under a manifest from before ``repeatOnUnknown``.
+``CONNECTOR_AGENT_MAX_RESULT_BYTES`` bounds results, and
+``CONNECTOR_AGENT_DROPPED_TOOLS``, a comma-separated list, leaves tools out, as
+a later deploy that removed them would. ``CONNECTOR_AGENT_STRICT_SEND_SCHEMA``
+makes ``send_message`` require a ``channel`` argument, as a later deploy that
+tightened the schema would.
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ from typing import Any
 
 from dex_connectors.sdk import ConnectionRef
 
-from dex_agents import AgentSessionFlow
+from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
 from dex_agents.builtin_loop import (
     AgentDefinition,
     ModelRequest,
@@ -51,12 +57,18 @@ from tests.fake_ledger import (
     GetBalanceByIDOperation,
     GetBalanceOperation,
     PostNoteOperation,
+    SendMessageOperation,
 )
 
 CONNECTOR_AGENT_FLOW_TYPE = "ConnectorAgent"
 MAX_RESULT_BYTES_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_MAX_RESULT_BYTES"
 DROPPED_TOOLS_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_DROPPED_TOOLS"
+STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_STRICT_SEND_SCHEMA"
 CONNECTION = ConnectionRef("fake-ledger", "test-ledger")
+#: The tool policy that raises ``send_message_capped``'s send cap from the manifest's 3 to 4.
+CAPPED_SEND_TOOL_POLICIES = {
+    "send_message_capped": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=4),
+}
 # The name dex-agents 0.4.0 gave getBalanceByID; 0.5.0 defaults to fake-ledger_get_balance_by_id.
 PREVIOUS_BY_ID_TOOL_NAME = "fake-ledger_get_balance_by_i_d"
 _MANIFEST_PATH = Path(__file__).with_name("fake_ledger") / "dex-connector.json"
@@ -75,6 +87,26 @@ def retried_note_manifest() -> dict[str, Any]:
     return manifest
 
 
+def unreviewed_send_manifest() -> dict[str, Any]:
+    """Return the manifest as a Connector package built before ``repeatOnUnknown`` publishes it."""
+    manifest = copy.deepcopy(read_fake_ledger_manifest())
+    for factory in manifest["factories"]:
+        if factory["operationId"] == "sendMessage":
+            del factory["agent"]["repeatOnUnknown"]
+            del factory["agent"]["maxSends"]
+    return manifest
+
+
+def strict_send_manifest() -> dict[str, Any]:
+    """Return the manifest with a ``sendMessage`` schema that also requires ``channel``."""
+    manifest = copy.deepcopy(read_fake_ledger_manifest())
+    for factory in manifest["factories"]:
+        if factory["operationId"] == "sendMessage":
+            factory["inputSchema"]["properties"]["channel"] = {"type": "string"}
+            factory["inputSchema"]["required"].append("channel")
+    return manifest
+
+
 def by_id_manifest() -> dict[str, Any]:
     manifest = copy.deepcopy(read_fake_ledger_manifest())
     factory = copy.deepcopy(
@@ -89,10 +121,12 @@ def build_connector_source(
     state_dir: Path,
     max_result_bytes: int | None = None,
     dropped_tools: frozenset[str] = frozenset(),
+    is_send_schema_strict: bool = False,
 ) -> ConnectorToolSource:
     provider = FakeLedgerProvider(state_dir)
     payouts = CreatePayoutOperation(provider)
     notes = PostNoteOperation(provider)
+    messages = SendMessageOperation(provider)
     tools = [
         connector_tool(GetBalanceOperation(provider), CONNECTION, name="get_balance"),
         connector_tool(payouts, CONNECTION, name="create_payout", requires_approval=False),
@@ -106,6 +140,19 @@ def build_connector_source(
         connector_tool(notes, CONNECTION, name="post_note"),
         connector_tool(
             notes, CONNECTION, name="post_note_retried", manifest=retried_note_manifest()
+        ),
+        connector_tool(
+            messages,
+            CONNECTION,
+            name="send_message",
+            manifest=strict_send_manifest() if is_send_schema_strict else None,
+        ),
+        connector_tool(messages, CONNECTION, name="send_message_capped"),
+        connector_tool(
+            messages,
+            CONNECTION,
+            name="send_message_unreviewed",
+            manifest=unreviewed_send_manifest(),
         ),
         connector_tool(
             GetBalanceByIDOperation(provider),
@@ -125,6 +172,7 @@ def build_connector_agent_flow(
     state_dir: Path,
     max_result_bytes: int | None = None,
     dropped_tools: frozenset[str] = frozenset(),
+    is_send_schema_strict: bool = False,
 ) -> AgentSessionFlow:
     async def reply(request: ModelRequest) -> ScriptedModelReply:
         command = ScriptedModelClient.user_texts(request)[-1]
@@ -158,7 +206,12 @@ def build_connector_agent_flow(
         name="connector-agent",
         instructions="You are a scripted test agent.",
         model=ScriptedModelClient(reply),
-        tool_sources=[build_connector_source(state_dir, max_result_bytes, dropped_tools)],
+        tool_sources=[
+            build_connector_source(
+                state_dir, max_result_bytes, dropped_tools, is_send_schema_strict
+            )
+        ],
+        tool_policies=CAPPED_SEND_TOOL_POLICIES,
     )
     return builtin_agent_session_flow(definition, flow_type=CONNECTOR_AGENT_FLOW_TYPE)
 
@@ -170,4 +223,5 @@ def build_connector_agent_flow_from_environment() -> AgentSessionFlow:
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         int(limit) if limit else None,
         frozenset(name for name in dropped.split(",") if name),
+        bool(os.environ.get(STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE)),
     )

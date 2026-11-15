@@ -403,7 +403,7 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
     assert.deepEqual(toolLog("send_email", sessionId), []);
   });
 
-  test("a model call that fails after a write ran leaves a note that the next turn's model reads", async () => {
+  test("a model call that fails after a write ran stores the write's result and a note that the next turn's model reads", async () => {
     const sessions = sessionsOf("ScriptedMastraAgent");
     const sessionId = newSessionId("failed-resume");
     await sessions.startSession(sessionId, "call send_email then fail");
@@ -421,8 +421,10 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(snapshot.messages.map(describeMessage), [
       "1 turn-1 user call send_email then fail",
-      `2 turn-1 user ${note}`,
+      `2 turn-1 assistant  | tool call-1-send_email send_email email sent for ${sessionId}/turn-1/call-1-send_email`,
+      `3 turn-1 user ${note}`,
     ]);
+    assert.deepEqual(toolInvocationStates(snapshot.messages[1]), [["send_email", "result"]]);
 
     assert.equal(await sessions.sendUserMessage(sessionId, "history"), true);
     await sessions.waitForCompletedTurns(sessionId, 2);

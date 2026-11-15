@@ -48,6 +48,8 @@ export class MockAnthropicApi {
   public readonly requests: MockApiRequest[] = [];
   /** Requests for paths the mock does not serve. */
   public readonly unservedPaths: string[] = [];
+  /** A suffix that replaces the random part of every new tool use ID, so later turns reuse IDs. */
+  public fixedToolUseIdSuffix: string | undefined;
   private readonly sockets = new Set<Socket>();
 
   private constructor(private readonly server: Server) {}
@@ -100,7 +102,7 @@ export class MockAnthropicApi {
     const messages = (payload["messages"] as JsonObject[] | undefined) ?? [];
     const tools = ((payload["tools"] as JsonObject[] | undefined) ?? []).map((tool) => String(tool["name"]));
     const script = findScript(messages);
-    const blocks = script === undefined ? [{ type: "text" as const, text: "ok" }] : decideBlocks(script, tools);
+    const blocks = script === undefined ? [{ type: "text" as const, text: "ok" }] : decideBlocks(script, tools, this.fixedToolUseIdSuffix);
     this.requests.push({
       path,
       isStreaming: payload["stream"] === true,
@@ -152,7 +154,11 @@ function findScript(messages: readonly JsonObject[]): FoundScript | undefined {
   };
 }
 
-function decideBlocks(script: FoundScript, toolNames: readonly string[]): ResponseBlock[] {
+function decideBlocks(
+  script: FoundScript,
+  toolNames: readonly string[],
+  fixedToolUseIdSuffix: string | undefined,
+): ResponseBlock[] {
   const command = script.command;
   if (command.startsWith("say ")) {
     return [{ type: "text", text: `said: ${command.slice("say ".length)}` }];
@@ -175,7 +181,7 @@ function decideBlocks(script: FoundScript, toolNames: readonly string[]): Respon
   if (pending.length > 0) {
     return pending.map((request) => ({
       type: "tool_use",
-      id: `toolu_${request.requestIndex}_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+      id: `toolu_${request.requestIndex}_${fixedToolUseIdSuffix ?? randomUUID().replaceAll("-", "").slice(0, 12)}`,
       name: toolNames.find((name) => name === request.toolName || name.endsWith(`__${request.toolName}`)) ?? request.toolName,
       input: request.toolInput,
     }));

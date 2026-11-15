@@ -147,6 +147,46 @@ export function buildMastraToolResultMessage(
   };
 }
 
+/** A tool result that the runner writes into a stored Mastra message. */
+export interface MastraToolInvocationResult {
+  readonly outputText: string;
+  readonly images: readonly AgentImageReference[];
+}
+
+/**
+ * Gives every tool invocation in state `call` its result, in the form Mastra stores after it merges the runner's
+ * tool result message; it omits Mastra's merge time, so the same inputs give the same message.
+ * @returns The message unchanged when it has no such invocation.
+ */
+export function answerPendingMastraToolInvocations(
+  message: MastraDBMessage,
+  readResult: (toolCall: PendingMastraToolCall) => MastraToolInvocationResult,
+): MastraDBMessage {
+  if (listPendingMastraToolInvocations([message]).length === 0) {
+    return message;
+  }
+  const parts = message.content.parts.map((part): MastraMessagePart => {
+    if (!isToolInvocationPart(part) || part.toolInvocation.state !== "call") {
+      return part;
+    }
+    const { toolCallId, toolName, args } = part.toolInvocation;
+    const { outputText, images } = readResult({ toolCallId, toolName });
+    return {
+      ...part,
+      toolInvocation: { state: "result", toolCallId, toolName, args, result: outputText },
+      ...(images.length === 0
+        ? {}
+        : {
+            providerMetadata: {
+              ...part.providerMetadata,
+              ...buildToolResultImageProviderOptions(outputText, images),
+            } as NonNullable<MastraToolInvocationPart["providerMetadata"]>,
+          }),
+    };
+  });
+  return { ...message, content: { ...message.content, parts } };
+}
+
 export function formatMastraToolOutputText(result: unknown): string {
   if (typeof result === "string") {
     return result;

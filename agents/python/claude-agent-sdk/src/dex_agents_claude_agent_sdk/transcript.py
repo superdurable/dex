@@ -20,6 +20,7 @@ stored entries hold image references instead of image bytes; see
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -35,7 +36,12 @@ from dex_agents_claude_agent_sdk.transcript_images import (
 USER_PROMPT_ITEM_KIND = "user_prompt"
 #: ``framework_item`` ``kind`` of a message that carries Claude Code transcript entries.
 CLAUDE_TRANSCRIPT_ITEM_KIND = "claude_transcript"
+# turn_entries holds the turn's unstored entries, none once the session stores each segment.
 RUN_STATE_FORMAT_VERSION = 1
+# The TypeScript adapter's namespace, so both adapters derive the same entry uuids.
+_UNFINISHED_TOOL_RESULT_UUID_NAMESPACE = uuid.UUID("6f0d3c1e8a2b4f57a9d4c3e2b1a09876")
+# The session fields of an assistant entry, which the CLI writes on every entry.
+_ENVELOPE_FIELD_NAMES = ("userType", "entrypoint", "cwd", "sessionId", "version", "gitBranch")
 # Claude Code's entry that names the leaf a resume continues from.
 LEAF_POINTER_ENTRY_TYPE = "last-prompt"
 
@@ -130,10 +136,15 @@ def project_turn_entries(
     session_id: str,
     turn_entries: Sequence[TranscriptEntry],
     policy_tool_name: Callable[[str], str],
+    stored_turn_entries: Sequence[TranscriptEntry] = (),
 ) -> list[FrameworkMessage]:
     # Each assistant API message and each tool result becomes one message;
     # other entries ride along with the next one, or with the last one.
-    tool_names_by_id: dict[str, str] = {}
+    # stored_turn_entries name the tools of results whose tool use the session already stored.
+    tool_names_by_id: dict[str, str] = {
+        tool_use.tool_use_id: policy_tool_name(tool_use.cli_tool_name)
+        for tool_use in _main_tool_uses(stored_turn_entries)
+    }
     groups: list[_TranscriptEntryGroup] = []
     leading_entries: list[TranscriptEntry] = []
     for entry in turn_entries:
@@ -267,11 +278,385 @@ def tool_result_text(content: object) -> str:
 def answered_tool_use_ids(entries: Iterable[Mapping[str, Any]]) -> frozenset[str]:
     """Return the IDs of the tool uses that have a ``tool_result`` in ``entries``."""
     return frozenset(
-        str(block["tool_use_id"])
+        block["tool_use_id"]
         for entry in entries
         for block in _content_blocks(entry)
-        if block.get("type") == "tool_result" and "tool_use_id" in block
+        if block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str)
     )
+
+
+@dataclass(frozen=True)
+class UnfinishedToolResult:
+    """Content of a tool result that the adapter records for a tool use the CLI left without one."""
+
+    text: str
+    is_error: bool
+    images: Sequence[AgentImageReference] = ()
+
+
+@dataclass(frozen=True)
+class TranscriptToolUse:
+    """A main-conversation tool use of a turn transcript."""
+
+    tool_use_id: str
+    cli_tool_name: str
+
+
+@dataclass(frozen=True)
+class _MainToolUse(TranscriptToolUse):
+    assistant_uuid: str | None
+    timestamp: object
+    envelope: Mapping[str, Any]
+
+
+def build_unfinished_tool_result_entries(
+    session_id: str,
+    turn_entries: Sequence[TranscriptEntry],
+    describe_result: Callable[[TranscriptToolUse], UnfinishedToolResult],
+) -> list[TranscriptEntry]:
+    """Return one CLI-shaped tool result entry per unanswered tool use; rebuilding is exact."""
+    unanswered_tool_uses = [
+        tool_use for tool_use in _tool_use_instances(turn_entries) if not tool_use.is_answered
+    ]
+    if not unanswered_tool_uses:
+        return []
+    conversation_entries = [
+        entry
+        for entry in turn_entries
+        if entry.get("type") in ("user", "assistant") and isinstance(entry.get("uuid"), str)
+    ]
+    timestamps = [
+        entry["timestamp"] for entry in turn_entries if isinstance(entry.get("timestamp"), str)
+    ]
+    timestamp = max(timestamps) if timestamps else None
+    # The CLI chains a deferred call's result to the last conversation entry, skipping attachments.
+    parent_uuid: object = conversation_entries[-1]["uuid"] if conversation_entries else None
+    result_entries: list[TranscriptEntry] = []
+    for tool_use in unanswered_tool_uses:
+        # The assistant entry names the call, so a reused tool use ID gets a new uuid.
+        entry_uuid = _name_based_uuid(
+            f"{session_id}/{tool_use.assistant_uuid or ''}/{tool_use.tool_use_id}"
+        )
+        result_entries.append(
+            _build_tool_result_entry(
+                tool_use, describe_result(tool_use), entry_uuid, parent_uuid, timestamp
+            )
+        )
+        parent_uuid = entry_uuid
+    return result_entries
+
+
+@dataclass(frozen=True)
+class ResumeTranscript:
+    """The transcript a segment's CLI resumes from, and the answers the session has not stored."""
+
+    entries: list[TranscriptEntry]
+    new_answer_entries: list[TranscriptEntry]
+
+
+def build_resume_transcript(
+    session_id: str | None,
+    entries: Sequence[TranscriptEntry],
+    ended_turn_entries: Sequence[TranscriptEntry],
+    answer_text: str,
+) -> ResumeTranscript:
+    """Answer every ended turn's unanswered tool use in place; see "Ended turns" in the README."""
+    if session_id is None:
+        return ResumeTranscript(list(entries), [])
+    ended_tool_use_keys = {
+        _tool_use_instance_key(tool_use.assistant_uuid, tool_use.tool_use_id)
+        for tool_use in _main_tool_uses(ended_turn_entries)
+    }
+    new_answer_entries = [
+        _build_tool_result_entry(
+            tool_use,
+            UnfinishedToolResult(answer_text, is_error=True),
+            _ended_turn_answer_uuid(session_id, tool_use.assistant_uuid, tool_use.tool_use_id),
+            tool_use.assistant_uuid,
+            tool_use.timestamp,
+        )
+        for tool_use in _tool_use_instances(entries)
+        if not tool_use.is_answered
+        and _tool_use_instance_key(tool_use.assistant_uuid, tool_use.tool_use_id)
+        in ended_tool_use_keys
+    ]
+    stored_answer_entries = [entry for entry in entries if _is_ended_turn_answer(session_id, entry)]
+    if not new_answer_entries and not stored_answer_entries:
+        return ResumeTranscript(list(entries), [])
+    return ResumeTranscript(
+        _place_ended_turn_answers(entries, [*stored_answer_entries, *new_answer_entries]),
+        new_answer_entries,
+    )
+
+
+def _place_ended_turn_answers(
+    entries: Sequence[TranscriptEntry], answer_entries: Sequence[TranscriptEntry]
+) -> list[TranscriptEntry]:
+    # Moves each answer after its tool use and drops the answered calls' deferral attachments.
+    answer_uuids = {_value_key(_field(entry, "uuid")) for entry in answer_entries}
+    answered_keys = {key for answer in answer_entries for key in _answered_tool_use_keys(answer)}
+    answers_by_assistant_uuid: dict[tuple[Any, ...], list[TranscriptEntry]] = {}
+    for answer in answer_entries:
+        answers_by_assistant_uuid.setdefault(
+            _value_key(_field(answer, "sourceToolAssistantUUID")), []
+        ).append(answer)
+    # A deferral attachment belongs to the latest earlier tool use with its ID.
+    parent_of_dropped_uuid: dict[tuple[Any, ...], object] = {}
+    latest_assistant_uuid_by_tool_use_id: dict[str, str | None] = {}
+    for entry in entries:
+        for tool_use in _main_tool_uses([entry]):
+            latest_assistant_uuid_by_tool_use_id[tool_use.tool_use_id] = tool_use.assistant_uuid
+        deferred_tool_use_id = _deferred_tool_use_id(entry)
+        if (
+            deferred_tool_use_id is not None
+            and deferred_tool_use_id in latest_assistant_uuid_by_tool_use_id
+            and _tool_use_instance_key(
+                latest_assistant_uuid_by_tool_use_id[deferred_tool_use_id], deferred_tool_use_id
+            )
+            in answered_keys
+        ):
+            parent_of_dropped_uuid[_value_key(_field(entry, "uuid"))] = _field(entry, "parentUuid")
+    last_answer_uuid_by_assistant_uuid: dict[tuple[Any, ...], object] = {}
+    placed_entries: list[TranscriptEntry] = []
+    for entry in entries:
+        entry_uuid_key = _value_key(_field(entry, "uuid"))
+        if entry_uuid_key in answer_uuids or entry_uuid_key in parent_of_dropped_uuid:
+            continue
+        original_parent_uuid = _field(entry, "parentUuid")
+        parent_uuid = original_parent_uuid
+        visited_keys: set[tuple[Any, ...]] = set()
+        while (parent_key := _value_key(parent_uuid)) in parent_of_dropped_uuid:
+            if parent_key in visited_keys:
+                break
+            visited_keys.add(parent_key)
+            parent_uuid = parent_of_dropped_uuid[parent_key]
+        # Later blocks and results of the reply stay; what continued the conversation follows.
+        is_continuation = entry.get("type") != "assistant" and all(
+            block.get("type") != "tool_result" for block in _content_blocks(entry)
+        )
+        if is_continuation and _value_key(parent_uuid) in last_answer_uuid_by_assistant_uuid:
+            parent_uuid = last_answer_uuid_by_assistant_uuid[_value_key(parent_uuid)]
+        placed_entries.append(
+            entry
+            if _value_key(parent_uuid) == _value_key(original_parent_uuid)
+            else {**entry, "parentUuid": parent_uuid}
+        )
+        entry_uuid = entry.get("uuid")
+        answers = (
+            answers_by_assistant_uuid.get(_value_key(entry_uuid))
+            if isinstance(entry_uuid, str)
+            else None
+        )
+        if answers is not None:
+            answer_parent_uuid: object = entry_uuid
+            for answer in answers:
+                placed_entries.append({**answer, "parentUuid": answer_parent_uuid})
+                answer_parent_uuid = answer["uuid"]
+            last_answer_uuid_by_assistant_uuid[_value_key(entry_uuid)] = answer_parent_uuid
+    return placed_entries
+
+
+def _deferred_tool_use_id(entry: Mapping[str, Any]) -> str | None:
+    attachment = entry.get("attachment")
+    if (
+        entry.get("type") != "attachment"
+        or not isinstance(attachment, Mapping)
+        or attachment.get("type") != "hook_deferred_tool"
+    ):
+        return None
+    return _js_string(_field(attachment, "toolUseID"))
+
+
+def _is_ended_turn_answer(session_id: str, entry: Mapping[str, Any]) -> bool:
+    # An answer's uuid names its tool use, so the answer is recognized among the stored entries.
+    if entry.get("type") != "user" or not isinstance(entry.get("uuid"), str):
+        return False
+    blocks = _content_blocks(entry)
+    if len(blocks) != 1 or blocks[0].get("type") != "tool_result":
+        return False
+    tool_use_id = _js_string(_field(blocks[0], "tool_use_id"))
+    return tool_use_id is not None and entry["uuid"] in (
+        _legacy_ended_turn_answer_uuid(session_id, tool_use_id),
+        _ended_turn_answer_uuid(session_id, _source_tool_assistant_uuid(entry), tool_use_id),
+    )
+
+
+def _ended_turn_answer_uuid(session_id: str, assistant_uuid: str | None, tool_use_id: str) -> str:
+    # The uuid names the call by its assistant entry too, so a reused tool use ID gets a new uuid.
+    return _name_based_uuid(f"{session_id}/ended-turn/{assistant_uuid or ''}/{tool_use_id}")
+
+
+def _legacy_ended_turn_answer_uuid(session_id: str, tool_use_id: str) -> str:
+    # Answers stored before call-instance uuids still count as ended-turn answers.
+    return _name_based_uuid(f"{session_id}/ended-turn/{tool_use_id}")
+
+
+def answered_running_turn_tool_use_ids(
+    session_id: str | None, running_turn_entries: Sequence[TranscriptEntry]
+) -> frozenset[str]:
+    """Return the tool use IDs the running turn's entries answer, without ended-turn answers."""
+    return answered_tool_use_ids(
+        entry
+        for entry in running_turn_entries
+        if session_id is None or not _is_ended_turn_answer(session_id, entry)
+    )
+
+
+@dataclass(frozen=True)
+class _ToolUseInstance(_MainToolUse):
+    is_answered: bool
+
+
+def _tool_use_instances(entries: Iterable[Mapping[str, Any]]) -> list[_ToolUseInstance]:
+    # A result answers the call its sourceToolAssistantUUID names, else the latest open one.
+    tool_uses: list[_MainToolUse] = []
+    answered_indexes: set[int] = set()
+    for entry in entries:
+        tool_uses.extend(_main_tool_uses([entry]))
+        source_assistant_uuid = entry.get("sourceToolAssistantUUID")
+        for block in _content_blocks(entry):
+            tool_use_id = block.get("tool_use_id")
+            if block.get("type") != "tool_result" or not isinstance(tool_use_id, str):
+                continue
+            same_id_indexes = [
+                index
+                for index in reversed(range(len(tool_uses)))
+                if tool_uses[index].tool_use_id == tool_use_id
+            ]
+            named_indexes = (
+                [
+                    index
+                    for index in same_id_indexes
+                    if tool_uses[index].assistant_uuid == source_assistant_uuid
+                ]
+                if isinstance(source_assistant_uuid, str)
+                else []
+            )
+            open_indexes = [index for index in same_id_indexes if index not in answered_indexes]
+            answered_indexes.update((named_indexes or open_indexes)[:1])
+    return [
+        _ToolUseInstance(**vars(tool_use), is_answered=index in answered_indexes)
+        for index, tool_use in enumerate(tool_uses)
+    ]
+
+
+def _answered_tool_use_keys(answer: Mapping[str, Any]) -> list[tuple[str | None, str]]:
+    return [
+        _tool_use_instance_key(_source_tool_assistant_uuid(answer), block["tool_use_id"])
+        for block in _content_blocks(answer)
+        if block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str)
+    ]
+
+
+def _source_tool_assistant_uuid(entry: Mapping[str, Any]) -> str | None:
+    source = entry.get("sourceToolAssistantUUID")
+    return source if isinstance(source, str) else None
+
+
+def _tool_use_instance_key(assistant_uuid: str | None, tool_use_id: str) -> tuple[str | None, str]:
+    return (assistant_uuid, tool_use_id)
+
+
+def _build_tool_result_entry(
+    tool_use: _MainToolUse,
+    result: UnfinishedToolResult,
+    entry_uuid: str,
+    parent_uuid: object,
+    timestamp: object,
+) -> TranscriptEntry:
+    # The TypeScript adapter writes these keys in the same order, so both store the same JSON.
+    content: str | list[dict[str, Any]] = (
+        [{"type": "text", "text": result.text}, *(image_block(image) for image in result.images)]
+        if result.images
+        else result.text
+    )
+    tool_result: dict[str, Any] = {
+        "tool_use_id": tool_use.tool_use_id,
+        "type": "tool_result",
+        "content": content,
+    }
+    if result.is_error:
+        tool_result["is_error"] = True
+    entry: TranscriptEntry = {
+        "parentUuid": parent_uuid,
+        "isSidechain": False,
+        "type": "user",
+        "message": {"role": "user", "content": [tool_result]},
+        "uuid": entry_uuid,
+    }
+    if isinstance(timestamp, str):
+        entry["timestamp"] = timestamp
+    entry["toolUseResult"] = f"Error: {result.text}" if result.is_error else result.text
+    entry["sourceToolAssistantUUID"] = tool_use.assistant_uuid
+    entry.update(tool_use.envelope)
+    return entry
+
+
+def _main_tool_uses(entries: Iterable[Mapping[str, Any]]) -> list[_MainToolUse]:
+    tool_uses: list[_MainToolUse] = []
+    for entry in entries:
+        if _principal_kind(entry) is not MessageRole.ASSISTANT:
+            continue
+        envelope = {name: entry[name] for name in _ENVELOPE_FIELD_NAMES if name in entry}
+        assistant_uuid = entry.get("uuid") if isinstance(entry.get("uuid"), str) else None
+        tool_uses.extend(
+            _MainToolUse(
+                tool_use_id=block["id"],
+                cli_tool_name=_js_string(_field(block, "name")) or "",
+                assistant_uuid=assistant_uuid,
+                timestamp=_field(entry, "timestamp"),
+                envelope=envelope,
+            )
+            for block in _content_blocks(entry)
+            if block.get("type") == "tool_use" and isinstance(block.get("id"), str)
+        )
+    return tool_uses
+
+
+def _name_based_uuid(name: str) -> str:
+    # A name-based (version 5) UUID, so a rebuilt entry keeps its uuid.
+    return str(uuid.uuid5(_UNFINISHED_TOOL_RESULT_UUID_NAMESPACE, name))
+
+
+class _Missing:
+    """A JSON field that is absent, which the TypeScript adapter reads as ``undefined``."""
+
+
+_MISSING = _Missing()
+
+
+def _field(entry: Mapping[str, Any], name: str) -> object:
+    return entry.get(name, _MISSING)
+
+
+def _value_key(value: object) -> tuple[Any, ...]:
+    # Compares like the TypeScript adapter's Map and ===: strings by value, objects by identity.
+    if value is _MISSING:
+        return ("undefined",)
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, int | float):
+        return ("number", value)
+    if isinstance(value, str):
+        return ("string", value)
+    return ("object", id(value))
+
+
+def _js_string(value: object) -> str | None:
+    # JavaScript String() of a JSON value; None for a value whose text the adapter never compares.
+    if isinstance(value, str):
+        return value
+    if value is _MISSING:
+        return "undefined"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    return None
 
 
 def _principal_kind(entry: Mapping[str, Any]) -> MessageRole | None:

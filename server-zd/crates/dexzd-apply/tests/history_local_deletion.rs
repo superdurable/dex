@@ -1884,6 +1884,91 @@ fn while_offloading_every_visible_event_is_time_travelable_and_its_values_load()
 }
 
 #[test]
+fn while_offloading_an_event_id_in_an_uploaded_segment_is_time_travelable() {
+    let mut harness = Harness::offloading(RunSettings {
+        history_window_events: 100,
+        history_prune_chunk_events: 10,
+        checkpoint_command_threshold: 37,
+        ..settings(4096)
+    });
+    for round in 0..300 {
+        harness.set_attribute("profile", large_text(&format!("round {round}"), 300));
+        if round % 25 == 24 {
+            harness.ack_all();
+            harness.advance(GRACE + SECOND);
+        }
+    }
+    harness.ack_all();
+    harness.advance(GRACE + SECOND);
+    harness.bookkeep();
+    let record = harness.run_record();
+    let metadata = harness.metadata();
+    let stored_seqs = harness.stored_record_seqs();
+    let is_uploaded = |seq: u64| {
+        harness
+            .segments()
+            .iter()
+            .any(|segment| segment.first_seq <= seq && seq <= segment.last_seq)
+    };
+    // The first window record that offload deleted locally, and its only event.
+    let (uploaded_seq, uploaded_metadata) = (record.window_start_seq..record.next_run_seq)
+        .filter(|seq| !stored_seqs.contains(seq) && is_uploaded(*seq))
+        .find_map(|seq| {
+            metadata
+                .get(&(seq, RunTable::HistoryRecord as u8, 0))
+                .filter(|metadata| metadata.is_semantic && metadata.max_event_id > 0)
+                .map(|metadata| (seq, metadata.clone()))
+        })
+        .expect("a window record lives only in an uploaded segment");
+    let reset = |reset_type: FlowResetType| ResetFlowRequest {
+        flow_id: harness.flow_id.clone(),
+        reset_type: reset_type as i32,
+        reason: "uploaded event".to_owned(),
+        skip_writes_reapply: true,
+        ..ResetFlowRequest::default()
+    };
+    let by_event_id = |event_id: i64| ResetFlowRequest {
+        event_id,
+        ..reset(FlowResetType::EventId)
+    };
+    let by_time = ResetFlowRequest {
+        history_event_time: (i128::from(uploaded_metadata.timestamp_micros) * 1000).to_string(),
+        ..reset(FlowResetType::HistoryEventTime)
+    };
+    let target_seq = |request: &ResetFlowRequest| match harness.time_travel_computation(request) {
+        TimeTravelComputation::Computed(computed) => {
+            computed
+                .time_travel_command(b"staging", false)
+                .target_run_seq
+        }
+        TimeTravelComputation::Rejected(reply) => panic!("{request:?} is rejected: {reply:?}"),
+    };
+    let event_request = by_event_id(uploaded_metadata.max_event_id);
+    assert_eq!(target_seq(&event_request), uploaded_seq);
+    assert_eq!(target_seq(&by_time), uploaded_seq);
+    assert_eq!(
+        harness.staged_result(&harness.state.clone(), &event_request),
+        harness.staged_result(&harness.state.clone(), &by_time),
+        "the event ID restores what the equivalent time restores"
+    );
+
+    // FlowStart and the newest pruned event lie before W, so no window point holds them.
+    assert!(record.max_pruned_event_id > 1, "the window pruned events");
+    for event_id in [1, record.max_pruned_event_id, record.next_event_id] {
+        let TimeTravelComputation::Rejected(rejected) =
+            harness.time_travel_computation(&by_event_id(event_id))
+        else {
+            panic!("event {event_id} has no point in the window");
+        };
+        assert_eq!(
+            error_message(&rejected).map(|(code, _)| code),
+            Some(9),
+            "event {event_id} is rejected with FAILED_PRECONDITION"
+        );
+    }
+}
+
+#[test]
 fn while_offloading_steps_created_in_the_window_are_time_travelable() {
     // Checkpoints every 37 commands leave records between the kept checkpoint and W.
     let mut harness = Harness::new();

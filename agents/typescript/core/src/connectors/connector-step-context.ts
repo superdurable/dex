@@ -20,12 +20,15 @@ export interface FenceEvidence {
   hasProviderId: boolean;
   /** A `notSent` before any claim, or a valid `canResend`. */
   hasNotSentProof: boolean;
+  /** A marker's `sendCount` counted a possibly effective send of an earlier attempt. */
+  hasPriorSend: boolean;
 }
 
 // The source reads it on a Retry; a failed save leaves the earlier value.
 const fenceEvidence = new WeakMap<ConnectorStepContext, Map<string, FenceEvidence>>();
 
-const fenceMarkerKeys = new Set(["callId", "attempt", "state", "providerId"]);
+// A fence with a send cap of 2 or more also writes sendCount.
+const fenceMarkerKeys = new Set(["callId", "attempt", "state", "providerId", "sendCount"]);
 
 /** Returns the evidence of one call's saved fence markers in this attempt, or `undefined`. Internal to the core. */
 export function readFenceEvidence(context: ConnectorStepContext, callId: string): Readonly<FenceEvidence> | undefined {
@@ -45,8 +48,20 @@ export function isFenceMarker(value: unknown): value is Readonly<Record<string, 
     Number.isInteger(record["attempt"]) &&
     record["attempt"] >= 1 &&
     (record["state"] === "notSent" || record["state"] === "claimed" || record["state"] === "canResend") &&
-    (record["providerId"] === undefined || typeof record["providerId"] === "string")
+    (record["providerId"] === undefined || typeof record["providerId"] === "string") &&
+    (record["sendCount"] === undefined ||
+      (typeof record["sendCount"] === "number" && Number.isInteger(record["sendCount"]) && record["sendCount"] >= 0))
   );
+}
+
+/**
+ * Returns the possibly effective sends that a fence marker counts from attempts before its own. A claim's
+ * `sendCount` includes its own send; `notSent` and `canResend` carry the count from before their attempt. A marker
+ * without `sendCount` counts none. Internal to the core.
+ */
+export function priorSendCountOf(marker: Readonly<Record<string, unknown>>): number {
+  const sendCount = typeof marker["sendCount"] === "number" ? marker["sendCount"] : 0;
+  return marker["state"] === "claimed" ? Math.max(sendCount - 1, 0) : sendCount;
 }
 
 function observeSavedHeartbeatValue(context: ConnectorStepContext, value: unknown): void {
@@ -56,8 +71,15 @@ function observeSavedHeartbeatValue(context: ConnectorStepContext, value: unknow
   const callId = value["callId"] as string;
   const byCall = fenceEvidence.get(context) ?? new Map<string, FenceEvidence>();
   fenceEvidence.set(context, byCall);
-  const evidence = byCall.get(callId) ?? { isClaimed: false, hasClaimed: false, hasProviderId: false, hasNotSentProof: false };
+  const evidence = byCall.get(callId) ?? {
+    isClaimed: false,
+    hasClaimed: false,
+    hasProviderId: false,
+    hasNotSentProof: false,
+    hasPriorSend: false,
+  };
   byCall.set(callId, evidence);
+  evidence.hasPriorSend ||= priorSendCountOf(value) > 0;
   const hasMarkerProviderId = value["providerId"] !== undefined && value["providerId"] !== "";
   if (value["state"] === "claimed") {
     evidence.isClaimed = true;

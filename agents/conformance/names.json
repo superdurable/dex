@@ -1176,6 +1176,7 @@
     "message_rollover_max_chunks_per_commit": 4,
     "message_rollover_max_bytes_per_commit": 8388608,
     "default_retained_message_limit": 1000,
+    "tool_call_note_max_output_bytes": 2000,
     "session_terminal_lease_maximum_ttl_seconds": 3600,
     "session_terminal_lease_maximum_host_name_length": 255
   }

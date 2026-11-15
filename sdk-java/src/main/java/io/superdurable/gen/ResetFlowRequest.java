@@ -357,6 +357,26 @@ private static final long serialVersionUID = 0L;
     return runAttempt_;
   }
 
+  public static final int EVENT_ID_FIELD_NUMBER = 12;
+  private long eventId_ = 0L;
+  /**
+   * <pre>
+   * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+   * The event must belong to the history of the selected run_attempt, including the attempts it
+   * started from, and must still be in the time travel window. An event of another attempt's
+   * abandoned history, an event pruned from the window, the FlowStart event once the window moved
+   * past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+   * other reset types reject a point that cannot be reached.
+   * </pre>
+   *
+   * <code>int64 event_id = 12;</code>
+   * @return The eventId.
+   */
+  @java.lang.Override
+  public long getEventId() {
+    return eventId_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -401,6 +421,9 @@ private static final long serialVersionUID = 0L;
     if (runAttempt_ != 0) {
       output.writeInt32(10, runAttempt_);
     }
+    if (eventId_ != 0L) {
+      output.writeInt64(12, eventId_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -438,6 +461,10 @@ private static final long serialVersionUID = 0L;
     if (runAttempt_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(10, runAttempt_);
+    }
+    if (eventId_ != 0L) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt64Size(12, eventId_);
     }
     return size;
   }
@@ -481,6 +508,8 @@ private static final long serialVersionUID = 0L;
     if (stepMethod_ != other.stepMethod_) return false;
     if (getRunAttempt()
         != other.getRunAttempt()) return false;
+    if (getEventId()
+        != other.getEventId()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -513,6 +542,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + stepMethod_;
     hash = (37 * hash) + RUN_ATTEMPT_FIELD_NUMBER;
     hash = (53 * hash) + getRunAttempt();
+    hash = (37 * hash) + EVENT_ID_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+        getEventId());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -654,6 +686,7 @@ private static final long serialVersionUID = 0L;
       skipWritesReapply_ = false;
       stepMethod_ = 0;
       runAttempt_ = 0;
+      eventId_ = 0L;
       return this;
     }
 
@@ -717,6 +750,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000200) != 0)) {
         result.runAttempt_ = runAttempt_;
       }
+      if (((from_bitField0_ & 0x00000400) != 0)) {
+        result.eventId_ = eventId_;
+      }
     }
 
     @java.lang.Override
@@ -772,6 +808,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getRunAttempt() != 0) {
         setRunAttempt(other.getRunAttempt());
+      }
+      if (other.getEventId() != 0L) {
+        setEventId(other.getEventId());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -849,6 +888,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000200;
               break;
             } // case 80
+            case 96: {
+              eventId_ = input.readInt64();
+              bitField0_ |= 0x00000400;
+              break;
+            } // case 96
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1489,6 +1533,65 @@ private static final long serialVersionUID = 0L;
     public Builder clearRunAttempt() {
       bitField0_ = (bitField0_ & ~0x00000200);
       runAttempt_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private long eventId_ ;
+    /**
+     * <pre>
+     * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+     * The event must belong to the history of the selected run_attempt, including the attempts it
+     * started from, and must still be in the time travel window. An event of another attempt's
+     * abandoned history, an event pruned from the window, the FlowStart event once the window moved
+     * past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+     * other reset types reject a point that cannot be reached.
+     * </pre>
+     *
+     * <code>int64 event_id = 12;</code>
+     * @return The eventId.
+     */
+    @java.lang.Override
+    public long getEventId() {
+      return eventId_;
+    }
+    /**
+     * <pre>
+     * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+     * The event must belong to the history of the selected run_attempt, including the attempts it
+     * started from, and must still be in the time travel window. An event of another attempt's
+     * abandoned history, an event pruned from the window, the FlowStart event once the window moved
+     * past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+     * other reset types reject a point that cannot be reached.
+     * </pre>
+     *
+     * <code>int64 event_id = 12;</code>
+     * @param value The eventId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEventId(long value) {
+
+      eventId_ = value;
+      bitField0_ |= 0x00000400;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+     * The event must belong to the history of the selected run_attempt, including the attempts it
+     * started from, and must still be in the time travel window. An event of another attempt's
+     * abandoned history, an event pruned from the window, the FlowStart event once the window moved
+     * past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+     * other reset types reject a point that cannot be reached.
+     * </pre>
+     *
+     * <code>int64 event_id = 12;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEventId() {
+      bitField0_ = (bitField0_ & ~0x00000400);
+      eventId_ = 0L;
       onChanged();
       return this;
     }

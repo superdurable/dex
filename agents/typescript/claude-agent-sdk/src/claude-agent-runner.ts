@@ -62,7 +62,7 @@ import {
   type SourceRoutedToolCall,
 } from "./claude-tool-sources.js";
 import {
-  answeredToolUseIds,
+  answeredRunningTurnToolUseIds,
   buildResumeTranscript,
   buildUnfinishedToolResultEntries,
   decodeRunState,
@@ -517,7 +517,11 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     const toolCallGate = new ToolCallGate(
       turn,
       toolCatalog,
-      answeredToolUseIds(resumedEntries),
+      // Records belong to the running turn; an earlier turn's result for a reused ID answers none.
+      answeredRunningTurnToolUseIds(committedTranscript.sessionId, [
+        ...loadSessionTranscript(turn.messages.filter((message) => message.turnId === turn.turnId)).entries,
+        ...earlierTurnEntries,
+      ]),
       this.claudeCodeToolPermission,
       await this.loadRecordedToolImages(turn),
     );
@@ -591,7 +595,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * complete Claude session: the model sees what ran and its result, and nothing resumes the abandoned call.
    *
    * The method reads only the turn's stored messages, its run state, and its records, so it returns the same
-   * messages for the same committed state. Applications call it only in tests.
+   * messages for the same committed state. Each entry's uuid derives from the Claude session ID, the uuid of the tool
+   * use's assistant entry, and the tool use ID, so a tool use ID that a later turn reuses gets a different entry, and
+   * the Python adapter builds the same entries. Applications call it only in tests.
    *
    * @example
    * ```ts

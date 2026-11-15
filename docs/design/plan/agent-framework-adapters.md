@@ -469,6 +469,19 @@ for this text, with one line per final record in `deferral_order`:
 Do not repeat these tool calls unless the user asks again.
 ```
 
+Every later turn resends the note, so it bounds each result. A model-visible
+result longer than 2,000 UTF-8 bytes keeps its longest prefix of whole code
+points within 2,000 bytes, followed by this marker, with plain decimal
+numbers:
+
+```text
+… [output truncated: <omitted bytes> of <total bytes> bytes omitted]
+```
+
+The omitted bytes are the total minus the kept bytes. A lone surrogate counts
+3 bytes, as its U+FFFD replacement does. The stored records keep the full
+output. The steered and stopped turn notes below cut results the same way.
+
 Model-visible results for final records, used in the note and when resuming:
 
 | Status | Text |

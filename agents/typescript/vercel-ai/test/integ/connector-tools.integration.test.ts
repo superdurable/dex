@@ -30,6 +30,7 @@ import {
   type AgentToolCallRecord,
   type AgentTurnContext,
   type AgentTurnOutcome,
+  type FrameworkMessage,
 } from "@superdurable/dex-agents";
 import { connectorTool } from "@superdurable/dex-agents/connectors";
 import {
@@ -352,19 +353,24 @@ describe("replay of tool source records when a Vercel AI turn resumes", () => {
   const stateDirectory = mkdtempSync(join(tmpdir(), "vercel-ai-connector-replay-"));
   const flow = createConnectorVercelAiAgentFlow(stateDirectory);
 
-  function runModelStep(frameworkRunState: string | null, records: readonly AgentToolCall[]): Promise<AgentTurnOutcome> {
+  function runModelStep(
+    frameworkRunState: string | null,
+    records: readonly AgentToolCall[],
+    storedTurnMessages: readonly FrameworkMessage[] = [],
+  ): Promise<AgentTurnOutcome> {
     const turn: AgentTurnContext = {
       flowId: "replay-session",
       turnId: "turn-1",
       attempt: 1,
       messages: [
-        {
-          ...flow.runner.buildUserMessage('calls [["get_balance",{"accountId":"a-1"}]]'),
-          sequence: 1,
-          turnId: "turn-1",
-          createdAt: new Date(0).toISOString(),
-        },
-      ],
+        flow.runner.buildUserMessage('calls [["get_balance",{"accountId":"a-1"}]]'),
+        ...storedTurnMessages,
+      ].map((message, index) => ({
+        ...message,
+        sequence: index + 1,
+        turnId: "turn-1",
+        createdAt: new Date(0).toISOString(),
+      })),
       frameworkRunState,
       isResuming: frameworkRunState !== null,
       toolCalls: records,
@@ -378,13 +384,18 @@ describe("replay of tool source records when a Vercel AI turn resumes", () => {
     return flow.runner.runModelStep(turn);
   }
 
-  async function requestBalance(): Promise<{ readonly frameworkRunState: string; readonly record: AgentToolCall }> {
+  async function requestBalance(): Promise<{
+    readonly frameworkRunState: string;
+    readonly storedTurnMessages: readonly FrameworkMessage[];
+    readonly record: AgentToolCall;
+  }> {
     const outcome = await runModelStep(null, []);
     assert.equal(outcome.kind, "tool_calls_requested");
     const call = outcome.kind === "tool_calls_requested" ? outcome.toolCalls[0] : undefined;
     assert.ok(call !== undefined && outcome.kind === "tool_calls_requested");
     return {
       frameworkRunState: outcome.frameworkRunState,
+      storedTurnMessages: outcome.newMessages ?? [],
       record: {
         toolCallId: call.toolCallId,
         turnId: "turn-1",
@@ -403,8 +414,8 @@ describe("replay of tool source records when a Vercel AI turn resumes", () => {
   }
 
   test("the recorded result replays to the model", async () => {
-    const { frameworkRunState, record } = await requestBalance();
-    const outcome = await runModelStep(frameworkRunState, [record]);
+    const { frameworkRunState, storedTurnMessages, record } = await requestBalance();
+    const outcome = await runModelStep(frameworkRunState, [record], storedTurnMessages);
     assert.equal(outcome.kind, "completed");
     assert.equal(
       outcome.kind === "completed" ? outcome.newMessages.at(-1)?.text : undefined,
@@ -413,17 +424,17 @@ describe("replay of tool source records when a Vercel AI turn resumes", () => {
   });
 
   test("a record of another tool under the requested call ID never replays", async () => {
-    const { frameworkRunState, record } = await requestBalance();
+    const { frameworkRunState, storedTurnMessages, record } = await requestBalance();
     await assert.rejects(
-      runModelStep(frameworkRunState, [{ ...record, toolName: "create_payout" }]),
+      runModelStep(frameworkRunState, [{ ...record, toolName: "create_payout" }], storedTurnMessages),
       /resumed tool call call-0 of get_balance with the record of tool create_payout/,
     );
   });
 
   test("a call requested twice in the run state never replays twice", async () => {
-    const { frameworkRunState, record } = await requestBalance();
+    const { frameworkRunState, storedTurnMessages, record } = await requestBalance();
     await assert.rejects(
-      runModelStep(duplicateFirstEntry(frameworkRunState, "requestedToolCallIds"), [record]),
+      runModelStep(duplicateFirstEntry(frameworkRunState, "requestedToolCallIds"), [record], storedTurnMessages),
       /resumed with a tool call requested more than once/,
     );
   });

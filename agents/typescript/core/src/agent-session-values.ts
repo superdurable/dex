@@ -1374,6 +1374,29 @@ export const turnFailureNoteHeader = "[Dex] The previous turn failed after these
 /** Last line of that note. */
 export const turnFailureNoteFooter = "Do not repeat these tool calls unless the user asks again.";
 
+/**
+ * Most UTF-8 bytes of one tool call's outcome that a tool call note keeps.
+ *
+ * {@link buildToolCallNote} and {@link buildTurnFailureNote} cut a longer outcome at the last whole
+ * code point within this budget and append {@link toolCallNoteTruncationMarker}. The stored tool call
+ * record keeps the full output. Every later turn resends the note, so the budget bounds that cost.
+ * The note uses a copy of each outcome with each lone surrogate replaced by U+FFFD, and counts bytes
+ * on that copy.
+ * The same value as the Python core's `TOOL_CALL_NOTE_MAX_OUTPUT_BYTES`.
+ * @since 0.6.12
+ */
+export const toolCallNoteMaxOutputBytes = 2000;
+
+/**
+ * Marker a tool call note appends to a cut outcome.
+ *
+ * `{omitted_bytes}` is the UTF-8 size of the cut part and `{total_bytes}` the size of the whole
+ * outcome, both in plain decimal digits. The same text as the Python core's
+ * `TOOL_CALL_NOTE_TRUNCATION_MARKER`.
+ * @since 0.6.12
+ */
+export const toolCallNoteTruncationMarker = "\u2026 [output truncated: {omitted_bytes} of {total_bytes} bytes omitted]";
+
 /** Tool result text the model sees for a rejection without a message; the same text as the Python core. */
 export const defaultRejectionToolResult = "The user rejected this tool call.";
 
@@ -1441,28 +1464,81 @@ export const toolCallSkippedAfterWriteDetail = "an earlier write of this turn di
  * Do not repeat these tool calls unless the user asks again.
  * ```
  *
+ * An outcome longer than {@link toolCallNoteMaxOutputBytes} UTF-8 bytes keeps its longest prefix of
+ * whole code points within that budget, followed by {@link toolCallNoteTruncationMarker}. The note
+ * shows each outcome with lone surrogates replaced by U+FFFD, and counts bytes on that text. The
+ * records themselves are unchanged.
+ *
+ * Changed in 0.6.12: long outcomes are cut to {@link toolCallNoteMaxOutputBytes}.
+ *
  * @param toolCalls - Final records of the failed turn; they are listed in `deferralOrder`.
  * @returns {@link turnFailureNoteHeader}, one `- <toolName> <arguments> -> <status>: <outcome>` line
- * per record, with the outcome from {@link describeToolCallOutcome}, and {@link turnFailureNoteFooter},
- * joined with newlines.
+ * per record, with the outcome from {@link describeToolCallOutcome} cut as above, and
+ * {@link turnFailureNoteFooter}, joined with newlines.
  * @throws {TypeError} When a record is not final.
  */
 export function buildTurnFailureNote(toolCalls: readonly (AgentToolCall | AgentToolCallRecord)[]): string {
   return buildToolCallNote(turnFailureNoteHeader, toolCalls);
 }
 
-/** Returns a note in the turn-failure note's line format with another first line. */
+/**
+ * Returns a note in the turn-failure note's line format with another first line.
+ *
+ * Changed in 0.6.12: long outcomes are cut to {@link toolCallNoteMaxOutputBytes}, as in
+ * {@link buildTurnFailureNote}.
+ */
 export function buildToolCallNote(
   header: string,
   toolCalls: readonly (AgentToolCall | AgentToolCallRecord)[],
 ): string {
   const lines = [header];
   for (const toolCall of [...toolCalls].sort((left, right) => left.deferralOrder - right.deferralOrder)) {
-    const outcome = describeToolCallOutcome(toolCall);
+    const outcome = truncateNoteOutcome(describeToolCallOutcome(toolCall));
     lines.push(`- ${toolCall.toolName} ${toolCall.arguments} -> ${toolCall.status}: ${outcome}`);
   }
   lines.push(turnFailureNoteFooter);
   return lines.join("\n");
+}
+
+/** The well-formed outcome, cut to the note budget with the marker when longer. */
+function truncateNoteOutcome(outcome: string): string {
+  // Every core cuts the same text: lone surrogates become U+FFFD, 3 bytes each.
+  // Only the kept prefix is copied; the rest is only counted.
+  let keptText = "";
+  let totalBytes = 0;
+  let keptBytes = 0;
+  let index = 0;
+  while (index < outcome.length) {
+    const codePoint = outcome.codePointAt(index) ?? 0;
+    const unitCount = codePoint > 0xffff ? 2 : 1;
+    const isLoneSurrogate = codePoint >= 0xd800 && codePoint <= 0xdfff;
+    totalBytes += isLoneSurrogate ? 3 : utf8CodePointSize(codePoint);
+    if (totalBytes <= toolCallNoteMaxOutputBytes) {
+      keptText += isLoneSurrogate ? "\ufffd" : outcome.slice(index, index + unitCount);
+      keptBytes = totalBytes;
+    }
+    index += unitCount;
+  }
+  if (totalBytes <= toolCallNoteMaxOutputBytes) {
+    return keptText;
+  }
+  const marker = toolCallNoteTruncationMarker
+    .replace("{omitted_bytes}", String(totalBytes - keptBytes))
+    .replace("{total_bytes}", String(totalBytes));
+  return keptText + marker;
+}
+
+function utf8CodePointSize(codePoint: number): number {
+  if (codePoint < 0x80) {
+    return 1;
+  }
+  if (codePoint < 0x800) {
+    return 2;
+  }
+  if (codePoint < 0x10000) {
+    return 3;
+  }
+  return 4;
 }
 
 /**

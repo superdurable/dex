@@ -1497,7 +1497,7 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `AwaitQuestionAnswer` | tool call ID | Waits for the call's `ToolCallCancellations` instance, the question's `InterruptResolutions` instance, or its deadline Timer. A tool's unraised question waits on a zero Timer, and Execute raises it and waits again. Records the answer, the decline, or the passed deadline; a tool's answered question returns the record to `approved` and moves to its tool Step, and a task's answered question returns it to `waiting_for_task` and moves to `PollToolTask`. Steering never cancels a task's question; `cancel_turn` cancels the wait and abandons the task | Locks `PendingInterrupts` in Execute |
 | `AwaitTimer` | tool call ID | Waits on a Timer until the record's `wait_until`, or the call's `ToolCallCancellations` instance, then records `succeeded` or, when cancelled, `rejected` | |
 | `CallTool` | tool call ID | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started` | 3 attempts, failure route `RecordToolFailure` |
-| `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
+| `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, or the runner's `boundedResendExecuteRetry`; failure route `RecordToolOutcomeUnknown` |
 | `PollToolTask` | tool call ID | Waits on a Timer for `taskPollIntervalSeconds`, or a zero Timer while `taskAnswerPending`, then calls `pollToolTask`; records the result, stores the next interval and continuation, or records the task's question. Steering waits for the task's result; `cancel_turn` cancels the poll and drops its result | 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls, else `RecordToolOutcomeUnknown`; no lock |
 | `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text. A call whose tool Step never started (`StepAttemptProgress.NOT_STARTED`) records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
 | `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text. A call whose tool Step never started records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
@@ -1526,6 +1526,12 @@ last message, so the next turn's model does not repeat a write. The text is
 - charge_card {"amount":5} -> outcome_unknown: The tool call's outcome is unknown: ...
 Do not repeat these tool calls unless the user asks again.
 ```
+
+An outcome longer than `toolCallNoteMaxOutputBytes` (2,000 UTF-8 bytes) keeps its longest prefix of
+whole code points within that budget, followed by `toolCallNoteTruncationMarker`, such as
+`… [output truncated: 23456 of 25456 bytes omitted]`. The record keeps the full output; only the note
+is cut, because every later turn resends it. `buildToolCallNote`, which writes the steered and
+stopped turn notes, cuts outcomes the same way.
 
 | Persistence name | Kind | Value |
 | --- | --- | --- |
@@ -2006,12 +2012,30 @@ operation with an `idempotencyKey` method.
 | --- | --- | --- | --- |
 | Query | `read` | `CallTool` | The operation's Execute retry policy, at most three attempts |
 | Mutation with `agent.retry: safe` | `idempotent_write` | `CallTool` | The same |
+| Mutation with `agent.repeatOnUnknown: limited` and `agent.maxSends` | `non_idempotent_write` | `CallSingleAttemptTool` | With a pinned cap of 2 or more, the operation's attempts (3 when unlimited), at least the cap |
 | Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool` | None |
 
 The source gives each call's tool Step the operation's `executeMethodTimeoutMs`
 and retry policy through `toolCallStepOptions`, a movement-scoped option. A
-session `toolPolicies` entry for a connector tool changes only its approval;
-the effect always comes from the manifest. Approval follows
+session `toolPolicies` entry for a connector tool changes only its approval
+and, for a bounded resend, its send cap (`maxSends`, 1 to 10); the effect
+always comes from the manifest.
+
+A bounded resend needs the operation definition to declare
+`repeatOnUnknown: "limited"` with the manifest's cap, as a package built for
+`@superdurable/connectors-sdk` 0.11.0 does. Its effect stays
+`non_idempotent_write`, so released readers decode the record. Each call pins
+its cap, the manifest's or the policy's, in its tool source reference:
+`{"tool": "<name>", "maxSends": <n>}`. With a cap of 2 or more,
+`toolCallStepOptions` returns `boundedResendExecuteRetry`, which
+`CallSingleAttemptTool` takes; a raised cap adds its difference from the
+manifest's to the attempts. Every attempt passes the pinned cap to `createCall`
+as `maxSendsOverride`, also after a deploy changes or drops the manifest's
+tier, and a Mutation call without a pinned cap passes 1, so it never resends.
+Connector SDK 0.9 and 0.10 ignore the option, and their fence never resends.
+The fence observation reads a marker's `sendCount`: a send it counts from an
+earlier attempt keeps an optional branch `outcome_unknown`, and so does an
+earlier attempt's claim that the operation returned before reading. Approval follows
 `agent.approval: recommended`; `requiresApproval` overrides it with a boolean
 or a per-call predicate over the decoded arguments, and a predicate that throws
 asks for approval.

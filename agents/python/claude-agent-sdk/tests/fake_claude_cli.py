@@ -59,6 +59,8 @@ CLI_VERSION = "2.1.316"
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_STATE_DIR"
 RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_RESUME_SKIPS_HOOKS"
 INVOCATION_LOG_NAME = "invocations.log"
+# Its text replaces the random part of every new tool use ID.
+FIXED_TOOL_USE_ID_SUFFIX_FILE_NAME = "fixed-tool-use-id-suffix"
 # One JSON line per CLI start: its kind and the config variables it was started with.
 CLI_ENVIRONMENT_LOG_NAME = "cli-environments.jsonl"
 RECORDED_ENVIRONMENT_VARIABLES = ("CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR")
@@ -514,6 +516,11 @@ class FakeClaudeCli:
         answering.cancel()
         return exit_code
 
+    def _tool_use_id_suffix(self) -> str:
+        # Later turns reuse tool use IDs while the fixed suffix file exists.
+        suffix_path = self._state_dir / FIXED_TOOL_USE_ID_SUFFIX_FILE_NAME
+        return suffix_path.read_text().strip() if suffix_path.exists() else uuid.uuid4().hex[:12]
+
     def _record_environment(self, kind: str) -> None:
         record = {"kind": kind} | {
             name: os.environ.get(name) for name in RECORDED_ENVIRONMENT_VARIABLES
@@ -584,7 +591,7 @@ class FakeClaudeCli:
             tool_uses = [
                 ToolUse(
                     request.reused_tool_use_id
-                    or f"toolu_{request.request_index}_{uuid.uuid4().hex[:12]}",
+                    or f"toolu_{request.request_index}_{self._tool_use_id_suffix()}",
                     self._require_mcp().cli_tool_name(request.tool_name),
                     request.tool_input,
                 )

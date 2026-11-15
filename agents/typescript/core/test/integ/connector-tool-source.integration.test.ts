@@ -16,7 +16,14 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import type { AsyncContext } from "@superdurable/dex";
-import { createCall, deriveCallID, newQueryBranch, type Call, type QueryAttempt } from "@superdurable/connectors-sdk";
+import {
+  RetryError,
+  createCall,
+  deriveCallID,
+  newQueryBranch,
+  type Call,
+  type QueryAttempt,
+} from "@superdurable/connectors-sdk";
 import { Fence } from "@superdurable/connectors-sdk/singledispatch";
 
 import {
@@ -31,8 +38,18 @@ import {
   type ConnectorBranchOutcome,
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
-import { isProvenNotSent, lowerCamelToSnake, mayHaveDispatched } from "../../src/connectors/connector-tool-source.js";
-import type { DeferredToolExecution } from "../../src/agent-framework-runner.js";
+import {
+  boundedResendAttempts,
+  connectorSendCapOf,
+  isProvenNotSent,
+  lowerCamelToSnake,
+  mayHaveDispatched,
+} from "../../src/connectors/connector-tool-source.js";
+import {
+  ToolExecutionError,
+  ToolOutcomeUnknownError,
+  type DeferredToolExecution,
+} from "../../src/agent-framework-runner.js";
 import {
   buildConnectorToolApprovalDisplay,
   isCredentialLikeName,
@@ -46,7 +63,9 @@ import {
   previousByIdToolName,
   readFakeLedgerManifest,
   retriedNoteManifest,
+  unreviewedSendManifest,
 } from "../fixtures/connector-test-agent.js";
+import { ScriptedModelClient, createBuiltinAgentSessionFlow } from "../../src/builtin-loop/index.js";
 import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
 import {
   CloseAccountInputSchema,
@@ -59,6 +78,9 @@ import {
   GetBalanceOperation,
   PostNoteInputSchema,
   PostNoteOperation,
+  SendMessageInputSchema,
+  SendMessageOperation,
+  sendMessageDefinition,
 } from "../fixtures/fake-ledger.js";
 
 interface ConformanceCases {
@@ -83,6 +105,40 @@ interface ConformanceCases {
     readonly mayHaveDispatched: boolean;
     readonly isProvenNotSent: boolean;
   }[];
+  readonly sendCapCases: readonly {
+    readonly name: string;
+    readonly kind: "query" | "mutation";
+    readonly agent: Readonly<Record<string, unknown>>;
+    readonly definition: Readonly<Record<string, unknown>>;
+    readonly maxSends: number | null;
+  }[];
+  readonly boundedResendAttemptCases: readonly {
+    readonly operationAttempts: number;
+    readonly manifestMaxSends: number;
+    readonly callMaxSends: number;
+    readonly attempts: number;
+  }[];
+  readonly boundedResendScenarios: {
+    readonly cases: readonly {
+      readonly name: string;
+      readonly text: string;
+      readonly deferVariant: BoundedResendVariant;
+      readonly policyMaxSends: number | null;
+      readonly reference: string;
+      readonly attemptVariants: readonly BoundedResendVariant[];
+      readonly outcomes: readonly string[];
+      readonly writes: number;
+    }[];
+  };
+  readonly argumentRefusalCases: {
+    readonly cases: readonly {
+      readonly name: string;
+      readonly attempt: number;
+      readonly previousCheckpoint: string | null;
+      readonly arguments: string;
+      readonly outcome: string;
+    }[];
+  };
   readonly resultCases: readonly { readonly json: string; readonly text: string }[];
   readonly truncationCases: readonly {
     readonly output: string;
@@ -157,6 +213,78 @@ describe("connector tools follow the shared conformance cases", () => {
     }
   });
 
+  test("send caps are read as the conformance suite says", () => {
+    for (const testCase of conformance.sendCapCases) {
+      assert.equal(
+        connectorSendCapOf(testCase.kind, testCase.agent, testCase.definition) ?? null,
+        testCase.maxSends,
+        testCase.name,
+      );
+    }
+  });
+
+  test("a bounded resend's attempts follow the conformance suite", () => {
+    for (const testCase of conformance.boundedResendAttemptCases) {
+      assert.equal(
+        boundedResendAttempts(testCase.operationAttempts, testCase.manifestMaxSends, testCase.callMaxSends),
+        testCase.attempts,
+        JSON.stringify(testCase),
+      );
+    }
+  });
+
+  test("bounded resends follow the conformance scenarios across deploys", async () => {
+    for (const scenario of conformance.boundedResendScenarios.cases) {
+      const ledger = new FakeLedgerProvider(mkdtempSync(join(tmpdir(), "fake-ledger-scenario-")));
+      const deferring = boundedResendSource(ledger, scenario.deferVariant);
+      const deferred = deferring.deferredToolCall(
+        turn(scenario.policyMaxSends === null ? undefined : { send: { effect: "non_idempotent_write", maxSends: scenario.policyMaxSends } }),
+        {
+          toolCallId: "call-1",
+          toolName: "send",
+          arguments: JSON.stringify({ accountId: "a-1", text: scenario.text }),
+          listedTool: { name: "send", description: "", inputSchema: {} },
+        },
+      );
+      assert.equal(deferred.toolSourceReference, scenario.reference, scenario.name);
+      const checkpoints = new SessionCheckpoints();
+      const outcomes: string[] = [];
+      for (const [index, variant] of scenario.attemptVariants.entries()) {
+        outcomes.push(
+          await runSendAttempt(boundedResendSource(ledger, variant), deferred.arguments, deferred.toolSourceReference!, index + 1, checkpoints),
+        );
+        if (outcomes.at(-1) !== "retry") {
+          break;
+        }
+      }
+      assert.deepEqual(outcomes, scenario.outcomes, scenario.name);
+      assert.equal(ledger.writes("sendMessage").length, scenario.writes, scenario.name);
+    }
+  });
+
+  test("refused arguments stay unknown after an earlier send, as the conformance suite says", async () => {
+    const operation = { connectorId: "fake-ledger", operationId: "sendMessage" };
+    const callId = deriveCallID("session-1", "CallSingleAttemptTool-5", operation);
+    const otherCallId = deriveCallID("session-1", "CallSingleAttemptTool-6", operation);
+    const ledger = new FakeLedgerProvider(mkdtempSync(join(tmpdir(), "fake-ledger-arguments-")));
+    for (const testCase of conformance.argumentRefusalCases.cases) {
+      const checkpoints = new SessionCheckpoints();
+      checkpoints.checkpoint =
+        testCase.previousCheckpoint === null
+          ? undefined
+          : testCase.previousCheckpoint.replaceAll("<callId>", callId).replaceAll("<otherCallId>", otherCallId);
+      const outcome = await runSendAttempt(
+        boundedResendSource(ledger, "cap3"),
+        testCase.arguments,
+        '{"tool": "send", "maxSends": 3}',
+        testCase.attempt,
+        checkpoints,
+      );
+      assert.equal(outcome, testCase.outcome, testCase.name);
+    }
+    assert.equal(ledger.sends().length, 0);
+  });
+
   test("result text is the same in every core", () => {
     for (const testCase of conformance.resultCases) {
       assert.equal(formatConnectorResult(testCase.json), testCase.text);
@@ -198,6 +326,103 @@ describe("connector tools come from the manifest", () => {
       assert.equal(tool.retryPolicy.maximumAttempts, 3);
       assert.equal(tool.retryPolicy.totalDurationMs, 3_600_000);
     }
+  });
+
+  test("a limited Mutation keeps non_idempotent_write and takes a send cap, unless its manifest predates the tiers", () => {
+    const messages = new SendMessageOperation(provider);
+    const bounded = connectorTool(messages, ledgerConnection, { manifest, inputValidator: SendMessageInputSchema });
+    assert.equal(bounded.effect, "non_idempotent_write");
+    assert.equal(bounded.maxSends, 3);
+    // The operation's five attempts already reach the cap of 3.
+    assert.equal(bounded.retryPolicy.maximumAttempts, 5);
+    const unreviewed = connectorTool(messages, ledgerConnection, {
+      manifest: unreviewedSendManifest(),
+      inputValidator: SendMessageInputSchema,
+    });
+    assert.equal(unreviewed.effect, "non_idempotent_write");
+    assert.equal(unreviewed.maxSends, undefined);
+    assert.equal(unreviewed.retryPolicy.maximumAttempts, 3);
+    // A Connector package built before the tiers declares no tier in its definition.
+    const { repeatOnUnknown: _tier, maxSends: _cap, ...olderDefinition } = sendMessageDefinition;
+    const older = connectorTool(new SendMessageOperation(provider, olderDefinition), ledgerConnection, {
+      manifest,
+      inputValidator: SendMessageInputSchema,
+    });
+    assert.equal(older.effect, "non_idempotent_write");
+    const retried = mutableManifest();
+    retried.factories[3]!.agent!["retry"] = "safe";
+    const safe = connectorTool(messages, ledgerConnection, {
+      manifest: retried as unknown as ConnectorPackageManifest,
+      inputValidator: SendMessageInputSchema,
+    });
+    assert.equal(safe.effect, "idempotent_write");
+  });
+
+  test("a tool policy's maxSends is pinned on the call and raises its attempts", () => {
+    const messages = new SendMessageOperation(provider);
+    const source = new ConnectorToolSource([
+      connectorTool(messages, ledgerConnection, { manifest, inputValidator: SendMessageInputSchema, name: "send" }),
+      connectorTool(new PostNoteOperation(provider), ledgerConnection, {
+        manifest,
+        inputValidator: PostNoteInputSchema,
+        name: "note",
+      }),
+    ]);
+    const defer = (toolName: string, policies?: Record<string, ToolPolicy>) =>
+      source.deferredToolCall(turn(policies), {
+        toolCallId: "call-1",
+        toolName,
+        arguments: "{}",
+        listedTool: { name: toolName, description: "", inputSchema: {} },
+      });
+    const record = (toolName: string, toolSourceReference: string): AgentToolCall => ({
+      toolCallId: "call-1",
+      turnId: "turn-1",
+      toolName,
+      arguments: "{}",
+      effect: "non_idempotent_write",
+      requiresApproval: false,
+      status: "approved",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      toolSourceReference,
+    });
+    const attemptsOf = (toolName: string, toolSourceReference: string) =>
+      source.toolCallStepOptions(record(toolName, toolSourceReference))?.boundedResendExecuteRetry?.maximumAttempts;
+    const plain = defer("send");
+    assert.equal(plain.policy.effect, "non_idempotent_write");
+    assert.equal(plain.policy.requiresApproval, false);
+    assert.equal(plain.ordered, true);
+    // The manifest's cap is pinned too, so a deploy that changes it cannot change this call.
+    assert.equal(plain.toolSourceReference, '{"tool": "send", "maxSends": 3}');
+    assert.equal(attemptsOf("send", plain.toolSourceReference!), 5);
+    const raised = defer("send", { send: { effect: "read", maxSends: 6 } });
+    assert.equal(raised.policy.effect, "non_idempotent_write");
+    assert.equal(raised.toolSourceReference, '{"tool": "send", "maxSends": 6}');
+    assert.equal(attemptsOf("send", raised.toolSourceReference!), 8);
+    // A cap of 1 keeps one attempt, so a Worker that cannot pass the cap never runs a second one.
+    const lowered = defer("send", { send: { effect: "non_idempotent_write", maxSends: 1 } });
+    assert.equal(lowered.toolSourceReference, '{"tool": "send", "maxSends": 1}');
+    assert.equal(attemptsOf("send", lowered.toolSourceReference!), undefined);
+    // Only a Mutation with a send cap takes one; another call keeps its reference bytes.
+    const note = defer("note", { note: { effect: "non_idempotent_write", maxSends: 6 } });
+    assert.equal(note.toolSourceReference, '{"tool": "note"}');
+    assert.equal(attemptsOf("note", note.toolSourceReference!), undefined);
+  });
+
+  test("a tool policy's maxSends must be an integer from 1 to 10", () => {
+    const model = new ScriptedModelClient(async () => ({ text: "unused" }));
+    const flowWith = (maxSends: number) =>
+      createBuiltinAgentSessionFlow(
+        { name: "policy", instructions: "", model, toolPolicies: { send: { effect: "non_idempotent_write", maxSends } } },
+        "SendCapPolicyAgent",
+      );
+    for (const maxSends of [0, 11, 2.5]) {
+      assert.throws(() => flowWith(maxSends), { name: "RangeError", message: /tool policy send maxSends must be an integer from 1 to 10/ });
+    }
+    assert.equal(flowWith(10).options.toolPolicies["send"]?.maxSends, 10);
   });
 
   test("an explicit name keeps a previous default tool name", () => {
@@ -594,6 +819,93 @@ interface MutableFactory {
   kind: string;
   agent?: Record<string, unknown>;
   inputSchema: { properties: Record<string, Record<string, unknown>> };
+}
+
+type BoundedResendVariant = "cap3" | "cap5" | "fallback";
+
+/** A Worker's sendMessage tool: limited with cap 3 or 5, or a cap-3 definition under a manifest without the tier. */
+function boundedResendSource(ledger: FakeLedgerProvider, variant: BoundedResendVariant): ConnectorToolSource {
+  const cap = variant === "cap5" ? 5 : 3;
+  const variantManifest = mutableManifest();
+  const agent = variantManifest.factories[3]!.agent!;
+  if (variant === "fallback") {
+    delete agent["repeatOnUnknown"];
+    delete agent["maxSends"];
+  } else {
+    agent["maxSends"] = cap;
+  }
+  const definition = {
+    ...sendMessageDefinition,
+    maxSends: cap,
+    stepDefaults: {
+      ...sendMessageDefinition.stepDefaults,
+      executeRetry: { ...sendMessageDefinition.stepDefaults.executeRetry!, maximumAttempts: 7 },
+    },
+  };
+  return new ConnectorToolSource([
+    connectorTool(new SendMessageOperation(ledger, definition), ledgerConnection, {
+      manifest: variantManifest as unknown as ConnectorPackageManifest,
+      inputValidator: SendMessageInputSchema,
+      name: "send",
+    }),
+  ]);
+}
+
+/** Runs one attempt of the call as the tool Step does, with the session's checkpoints, and names how it ended. */
+async function runSendAttempt(
+  source: ConnectorToolSource,
+  toolArguments: string,
+  toolSourceReference: string,
+  attempt: number,
+  checkpoints: SessionCheckpoints,
+): Promise<string> {
+  const live = {
+    flowId: "session-1",
+    runId: "run-1",
+    stepExecutionId: "CallSingleAttemptTool-5",
+    attempt,
+    deadline: new Date(Date.now() + 60_000),
+    cancellationSignal: new AbortController().signal,
+  } as unknown as AsyncContext;
+  const execution = {
+    flowId: "session-1",
+    toolCall: {
+      toolCallId: "call-1",
+      turnId: "turn-1",
+      toolName: "send",
+      arguments: toolArguments,
+      effect: "non_idempotent_write",
+      requiresApproval: false,
+      status: "approved",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      toolSourceReference,
+    },
+    idempotencyKey: "session-1/turn-1/call-1",
+    attempt,
+    heartbeat: () => checkpoints.record(),
+    ...(checkpoints.checkpoint === undefined ? {} : { heartbeatCheckpoint: checkpoints.checkpoint }),
+    saveHeartbeatCheckpoint: (checkpoint: string) => checkpoints.save(checkpoint),
+    supportsToolTasks: false,
+    context: live,
+  } as unknown as DeferredToolExecution;
+  try {
+    await source.executeDeferredToolCall(execution);
+    return "succeeded";
+  } catch (error: unknown) {
+    if (error instanceof ToolOutcomeUnknownError) {
+      return "outcome_unknown";
+    }
+    if (error instanceof ToolExecutionError) {
+      return "failed";
+    }
+    if (error instanceof RetryError) {
+      return "retry";
+    }
+    throw error;
+  }
 }
 
 function mutableManifest(): { factories: MutableFactory[] } {

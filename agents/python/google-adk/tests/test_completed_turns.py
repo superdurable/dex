@@ -45,6 +45,7 @@ from dex_agents import (
     MessageRole,
 )
 from dex_agents.testing import AgentTestStack
+from dex_agents_google_adk import UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT
 from tests.conftest import AdkAgentHarness
 from tests.scripted_adk_agent import (
     MODEL_CALL_LOG_NAME,
@@ -178,11 +179,17 @@ async def test_failed_resumed_turn_after_a_write_stores_a_note_the_next_turn_rep
     )
     assert failed.state is not None
     assert "scripted model failure" in (failed.state.last_turn_error or "")
-    assert [(message.role, message.text) for message in failed.messages] == [
-        (MessageRole.USER, command),
-        (MessageRole.USER, note),
+    # The runner stores the turn's call and recorded result before the core's note.
+    assert [
+        (message.role, message.text, message.tool_name, message.tool_output)
+        for message in failed.messages
+    ] == [
+        (MessageRole.USER, command, None, None),
+        (MessageRole.ASSISTANT, None, "publish", None),
+        (MessageRole.TOOL, None, "publish", UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT),
+        (MessageRole.USER, note, None, None),
     ]
-    assert Event.model_validate_json(failed.messages[1].framework_item).author == "user"
+    assert Event.model_validate_json(failed.messages[3].framework_item).author == "user"
     assert harness.invocations.count("publish") == 1
 
     assert await harness.sessions.send_user_message(session_id, "recall")

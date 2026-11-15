@@ -3100,12 +3100,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         overrides = self._tool_call_step_options(tool_call)
         if overrides is not None and overrides.execute_method_timeout is not None:
             options = replace(options, execute_method_timeout=overrides.execute_method_timeout)
-        if (
-            overrides is not None
-            and overrides.execute_retry is not None
-            and step is self._call_tool
-        ):
-            options = replace(options, execute_retry=overrides.execute_retry)
+        if overrides is not None:
+            execute_retry = (
+                overrides.execute_retry
+                if step is self._call_tool
+                else overrides.bounded_resend_execute_retry
+            )
+            if execute_retry is not None:
+                options = replace(options, execute_retry=execute_retry)
         options = options.on_execute_failure_proceed_to(recovery_step, recovery_options)
         return StepMovement.of(step, tool_call.tool_call_id, options=options)
 

@@ -24,6 +24,7 @@ from dex_agents import (
     AgentSnapshot,
     AgentToolCall,
     ToolCallStatus,
+    ToolEffect,
 )
 from dex_agents.connectors import CONNECTOR_NOT_SENT_RETRY_LATER, CONNECTOR_RESULT_TRUNCATED_NOTE
 from dex_agents.testing import resolve_dexcli_path, wait_for_agent_snapshot
@@ -37,6 +38,8 @@ from tests.connector_agent import (
 from tests.fake_ledger import SECRET_ENVIRONMENT_VARIABLE, FakeLedgerProvider
 
 SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}"
+# ToolEffect as dex-agents 0.6.11 decodes it, a pinned copy of that release's contract.
+RELEASED_0_6_11_TOOL_EFFECTS = ("read", "idempotent_write", "non_idempotent_write", "unclassified")
 FAILED = "The tool call failed: "
 
 
@@ -251,6 +254,99 @@ async def test_a_retry_whose_fence_fails_closed_stays_unknown(
     # Attempt 2 reads a checkpoint that is not a marker, so an earlier send cannot be ruled out.
     assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
     assert ledger.sends("postNote") == []
+
+
+async def _run_held_write(
+    harness: ScriptedAgentHarness, tool_name: str, text: str
+) -> tuple[AgentToolCall, list[str]]:
+    session_id = harness.new_session_id()
+    gate = f"held-{uuid4()}"
+    await harness.sessions.start_session(
+        session_id, _calls((tool_name, {"accountId": "a-1", "text": text}), hold=gate)
+    )
+    records = await _held_records(harness, session_id, gate)
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    return records["call-0"], _answer_lines(snapshot)
+
+
+def _stored_reference(record: AgentToolCall) -> str:
+    """Return the connector source's own reference inside the built-in loop's envelope."""
+    envelope = json.loads(record.tool_source_reference or "{}")
+    reference: str = envelope["reference"]
+    return reference
+
+
+async def test_a_limited_write_resends_after_a_lost_response_and_read_back_confirms_an_earlier_send(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    record, lines = await _run_held_write(harness, "send_message", "lose-first")
+    # Read-back cannot see the first message, so attempt 2 sends again: a bounded duplicate.
+    # The effect stays one every released reader decodes; the reference pins the cap.
+    assert record.effect is ToolEffect.NON_IDEMPOTENT_WRITE
+    assert record.effect.value in RELEASED_0_6_11_TOOL_EFFECTS
+    assert _stored_reference(record) == '{"tool": "send_message", "maxSends": 3}'
+    assert record.status is ToolCallStatus.SUCCEEDED
+    assert lines == ['send_message: {"messageId":"sendMessage-2"}']
+    assert len(ledger.writes("sendMessage")) == 2
+
+    record, lines = await _run_held_write(harness, "send_message", "lose-visible")
+    # Read-back finds the first message, so the call succeeds without another send.
+    assert record.status is ToolCallStatus.SUCCEEDED
+    assert lines == ['send_message: {"messageId":"sendMessage-3"}']
+    assert len(ledger.writes("sendMessage")) == 3
+
+
+async def test_a_limited_write_is_never_resent_after_a_definite_failure(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    record, lines = await _run_held_write(harness, "send_message", "reject-on-send")
+    assert record.status is ToolCallStatus.FAILED
+    assert record.error == (
+        "fake-ledger sendMessage returned providerRejected: PROVIDER_REJECTION: message refused"
+    )
+    assert lines == [f"send_message: {FAILED}{record.error}"]
+    assert len(ledger.sends("sendMessage-refused")) == 1
+    assert ledger.writes("sendMessage") == []
+
+
+async def test_a_limited_write_stops_at_its_send_cap_which_a_tool_policy_can_raise(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    uncertain = (
+        "fake-ledger sendMessage returned uncertain: PROVIDER_REJECTION: read-back found no message"
+    )
+    record, lines = await _run_held_write(harness, "send_message", "lose-always")
+    # Three sends, then attempt 4 reads back, finds nothing, and selects uncertain.
+    assert record.status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert record.error == uncertain
+    assert lines == [f"send_message: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("sendMessage")) == 3
+
+    record, lines = await _run_held_write(harness, "send_message_capped", "lose-always")
+    assert _stored_reference(record) == '{"tool": "send_message_capped", "maxSends": 4}'
+    assert record.status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert record.error == uncertain
+    assert lines == [f"send_message_capped: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("sendMessage")) == 3 + 4
+
+
+async def test_a_manifest_without_repeat_on_unknown_keeps_the_write_to_one_attempt(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    record, lines = await _run_held_write(harness, "send_message_unreviewed", "lose-first")
+    assert record.effect is ToolEffect.NON_IDEMPOTENT_WRITE
+    assert _stored_reference(record) == '{"tool": "send_message_unreviewed"}'
+    assert record.status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert lines == [f"send_message_unreviewed: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("sendMessage")) == 1
 
 
 async def test_an_explicit_name_keeps_a_previous_tool_name_and_resumes_its_call(

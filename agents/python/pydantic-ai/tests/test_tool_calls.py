@@ -279,9 +279,16 @@ async def test_failed_turn_after_a_write_leaves_a_note_that_the_next_model_input
             TURN_FAILURE_NOTE_FOOTER,
         ]
     )
-    assert [(message.role, message.text) for message in failed.messages] == [
-        (MessageRole.USER, prompt),
-        (MessageRole.USER, note),
+    # The runner stores the recorded result before the core's note.
+    assert [
+        (message.role, message.text, message.tool_call_id, message.tool_output)
+        for message in failed.messages
+        if message.text is not None or message.tool_call_id is not None
+    ] == [
+        (MessageRole.USER, prompt, None, None),
+        (MessageRole.ASSISTANT, None, "call-1-0-0", None),
+        (MessageRole.TOOL, None, "call-1-0-0", charge_output),
+        (MessageRole.USER, note, None, None),
     ]
     assert failed.tool_calls == []
     assert harness.invocations.count("charge") == 1

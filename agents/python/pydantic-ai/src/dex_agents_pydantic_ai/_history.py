@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 
 from pydantic_ai import (
@@ -17,6 +18,7 @@ from pydantic_ai import (
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -26,6 +28,7 @@ from pydantic_ai.messages import UserContent
 
 from dex_agents import (
     MAX_IMAGES_PER_MESSAGE,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentImageReference,
     AgentMessage,
     FrameworkMessage,
@@ -99,11 +102,65 @@ def rebuild_earlier_turn_history(
     current_turn_id: str,
 ) -> list[ModelMessage]:
     history: list[ModelMessage] = []
+    # Call IDs are unique only within a turn, so each turn pairs calls with its own results.
+    for turn_id, turn_messages in itertools.groupby(messages, key=lambda message: message.turn_id):
+        if turn_id != current_turn_id:
+            # A 0.6.11 Worker may end a turn whose calls are stored with only a note.
+            history.extend(_answer_unanswered_tool_calls(_rebuild_history(list(turn_messages))))
+    return history
+
+
+def rebuild_turn_history(messages: Sequence[AgentMessage], turn_id: str) -> list[ModelMessage]:
+    return _rebuild_history([message for message in messages if message.turn_id == turn_id])
+
+
+def _rebuild_history(messages: Sequence[AgentMessage]) -> list[ModelMessage]:
+    history: list[ModelMessage] = []
     for index, message in enumerate(messages):
-        if message.turn_id == current_turn_id or _is_superseded_user_prompt(messages, index):
+        if _is_superseded_user_prompt(messages, index):
             continue
         history.extend(deserialize_framework_item(message.framework_item))
     return history
+
+
+def _answer_unanswered_tool_calls(history: Sequence[ModelMessage]) -> list[ModelMessage]:
+    answered_call_ids = {
+        part.tool_call_id
+        for message in history
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, ToolReturnPart | RetryPromptPart)
+    }
+    answered_history: list[ModelMessage] = []
+    for message in history:
+        answered_history.append(message)
+        if not isinstance(message, ModelResponse):
+            continue
+        unanswered_calls = [
+            call for call in message.tool_calls if call.tool_call_id not in answered_call_ids
+        ]
+        if not unanswered_calls:
+            continue
+        answered_call_ids.update(call.tool_call_id for call in unanswered_calls)
+        answered_history.append(
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name=call.tool_name,
+                        content=OUTCOME_UNKNOWN_TOOL_RESULT,
+                        tool_call_id=call.tool_call_id,
+                        tool_kind=call.tool_kind,
+                        timestamp=message.timestamp,
+                        outcome="failed",
+                    )
+                    for call in unanswered_calls
+                ],
+                timestamp=message.timestamp,
+                run_id=message.run_id,
+                conversation_id=message.conversation_id,
+            )
+        )
+    return answered_history
 
 
 def read_turn_user_prompt(
