@@ -776,6 +776,32 @@ func TestScriptManifestAcceptsRetrySafeOnMutation(t *testing.T) {
 	}
 }
 
+func TestScriptManifestAcceptsRepeatOnUnknownTiers(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		for name, agent := range map[string]map[string]any{
+			"limited": {"exposed": true, "repeatOnUnknown": "limited", "maxSends": 3},
+			"unsafe":  {"exposed": true, "repeatOnUnknown": "unsafe"},
+			"safe":    {"exposed": true, "retry": "safe", "repeatOnUnknown": "safe"},
+		} {
+			t.Run(language+"/"+name, func(t *testing.T) {
+				sourcePath := scriptFixture(t, language)
+				manifest := readScriptManifest(t, sourcePath, language)
+				factories := manifest["factories"].([]any)
+				mutation := scriptMutationFactory(factories[0].(map[string]any))
+				for name, value := range validScriptToolMetadata() {
+					mutation[name] = value
+				}
+				mutation["agent"] = agent
+				manifest["factories"] = append(factories, mutation)
+				writeScriptManifest(t, sourcePath, language, manifest)
+				graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+				require.NoError(t, err)
+				require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			})
+		}
+	}
+}
+
 func TestScriptManifestIgnoresUnknownFieldOnlyInsideAgent(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {
 		t.Run(language+"/inside agent", func(t *testing.T) {
@@ -837,6 +863,9 @@ func TestConnectorManifestSchemaDeclaresToolMetadata(t *testing.T) {
 	}
 	require.Contains(t, document.Definitions["agent"].Properties, "exposed")
 	require.Contains(t, document.Definitions["agent"].Properties, "approval")
+	require.Equal(t, []any{"safe", "limited", "unsafe"}, document.Definitions["agent"].Properties["repeatOnUnknown"].(map[string]any)["enum"])
+	maxSends := document.Definitions["agent"].Properties["maxSends"].(map[string]any)
+	require.Equal(t, []any{float64(2), float64(10)}, []any{maxSends["minimum"], maxSends["maximum"]})
 	branches := document.Definitions["agent"].Properties["branches"].(map[string]any)
 	require.Equal(t, map[string]any{"enum": []any{"rejected", "unknown"}}, branches["additionalProperties"])
 	require.Equal(t, false, document.Definitions["agent"].AdditionalProperties, "authors still get an error for a typo")

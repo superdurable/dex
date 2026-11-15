@@ -1489,7 +1489,7 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `AwaitToolApproval` | tool call ID | Waits for the call's `ToolCallCancellations` instance, its `InterruptResolutions` instance, or its deadline Timer. A cancellation records `rejected` with its reason. Approved: moves to the call's tool Step. Rejected or expired: records `rejected` | Locks `PendingInterrupts` in Execute |
 | `AwaitQuestionAnswer` | tool call ID | Waits for the call's `ToolCallCancellations` instance, the question's `InterruptResolutions` instance, or its deadline Timer. A tool's unraised question waits on a zero Timer, and Execute raises it and waits again. Records the answer, the decline, or the passed deadline; a tool's answered question returns the record to `approved` and moves to its tool Step, and a task's answered question returns it to `waiting_for_task` and moves to `PollToolTask`. Steering never cancels a task's question; `cancel_turn` cancels the wait and abandons the task | Locks `PendingInterrupts` in Execute |
 | `AwaitTimer` | tool call ID | Waits on a Timer until the record's `wait_until`, or the call's `ToolCallCancellations` instance, then records `succeeded` or, when cancelled, `rejected` | |
-| `CallTool` | tool call ID | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started` | 3 attempts, failure route `RecordToolFailure` |
+| `CallTool` | tool call ID | Runs one `read`, `idempotent_write`, or `bounded_write` call, unless the turn is steered or cancelled before `tool_call_started` | 3 attempts, failure route `RecordToolFailure` |
 | `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
 | `PollToolTask` | tool call ID | Waits on a Timer for `taskPollIntervalSeconds`, or a zero Timer while `taskAnswerPending`, then calls `pollToolTask`; records the result, stores the next interval and continuation, or records the task's question. Steering waits for the task's result; `cancel_turn` cancels the poll and drops its result | 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls, else `RecordToolOutcomeUnknown`; no lock |
 | `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text. A call whose tool Step never started (`StepAttemptProgress.NOT_STARTED`) records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
@@ -1609,6 +1609,7 @@ text with the stored messages.
 | --- | --- | --- | --- | --- |
 | `read` | `CallTool` | Up to 3 attempts | Runs again; `failed` after the last attempt | No |
 | `idempotent_write` | `CallTool` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>` | Runs again with the same key; `outcome_unknown` after the last attempt | No |
+| `bounded_write` | `CallTool` | Up to 3 attempts, or a connector tool's own attempts | Runs again; `outcome_unknown` after the last attempt | Yes |
 | `non_idempotent_write` | `CallSingleAttemptTool` | One attempt | `outcome_unknown` | Yes |
 | `unclassified` | `CallSingleAttemptTool` | One attempt | `outcome_unknown` | Yes |
 
@@ -1999,12 +2000,27 @@ operation with an `idempotencyKey` method.
 | --- | --- | --- | --- |
 | Query | `read` | `CallTool` | The operation's Execute retry policy, at most three attempts |
 | Mutation with `agent.retry: safe` | `idempotent_write` | `CallTool` | The same |
+| Mutation with `agent.repeatOnUnknown: limited` and `agent.maxSends` | `bounded_write` | `CallTool` | The operation's attempts (3 when unlimited), at least `maxSends` |
 | Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool` | None |
 
 The source gives each call's tool Step the operation's `executeMethodTimeoutMs`
 and retry policy through `toolCallStepOptions`, a movement-scoped option. A
-session `toolPolicies` entry for a connector tool changes only its approval;
-the effect always comes from the manifest. Approval follows
+session `toolPolicies` entry for a connector tool changes only its approval
+and, for a `bounded_write` tool, its send cap (`maxSends`, 1 to 10); the effect
+always comes from the manifest.
+
+A `bounded_write` tool needs the operation definition to declare
+`repeatOnUnknown: "limited"` with the manifest's cap, as a package built for
+`@superdurable/connectors-sdk` 0.11.0 does; otherwise the Mutation stays
+`non_idempotent_write`. When a send's outcome is unknown, the connector returns
+a Retry, and the next attempt's fence lets it read back and resend while the
+call's sends stay below the cap. The call keeps a policy's cap in its tool
+source reference, `{"tool": "<name>", "maxSends": <n>}`, passes it to
+`createCall` as `maxSendsOverride` on every attempt, and adds a raised cap's
+difference from the manifest's to the attempts. Connector SDK 0.9 and 0.10
+ignore the cap, and their fence never resends. The fence observation reads a
+marker's `sendCount`: a send it counts from an earlier attempt keeps an
+optional branch `outcome_unknown`. Approval follows
 `agent.approval: recommended`; `requiresApproval` overrides it with a boolean
 or a per-call predicate over the decoded arguments, and a predicate that throws
 asks for approval.

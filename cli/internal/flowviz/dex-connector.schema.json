@@ -233,6 +233,8 @@
               "agent": {
                 "properties": {
                   "retry": false,
+                  "repeatOnUnknown": false,
+                  "maxSends": false,
                   "branches": {
                     "additionalProperties": {
                       "const": "rejected"
@@ -291,6 +293,20 @@
           ],
           "description": "Repeating the call with the same Call ID, inside the operation's own Execute retry policy, cannot make a second effect. Absence means a repeat may not be safe."
         },
+        "repeatOnUnknown": {
+          "enum": [
+            "safe",
+            "limited",
+            "unsafe"
+          ],
+          "description": "The Mutation's execution.repeatOnUnknown tier: safe repeats an unknown outcome, limited reads back and then resends while possible sends stay below maxSends, unsafe never resends. Hosts that do not know it rely on retry, which is safe exactly when this is safe."
+        },
+        "maxSends": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 10,
+          "description": "Cap on possibly effective sends of one Call ID for a limited Mutation. A host's per-tool override ranges from 1 to 10."
+        },
         "branches": {
           "type": "object",
           "minProperties": 1,
@@ -306,20 +322,74 @@
           "description": "Classification of optional branches by whether the operation's effect may have happened: rejected means the call changed nothing, unknown means the effect may have happened. A host treats an unlisted optional Mutation branch as unknown, and an unlisted optional Query branch as a failure. Every key is an optional branch ID of this factory."
         }
       },
-      "if": {
-        "properties": {
-          "exposed": {
-            "const": false
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "exposed": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "approval": false,
+              "retry": false,
+              "repeatOnUnknown": false,
+              "maxSends": false,
+              "branches": false
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "repeatOnUnknown"
+            ],
+            "properties": {
+              "repeatOnUnknown": {
+                "const": "limited"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "maxSends"
+            ]
+          },
+          "else": {
+            "properties": {
+              "maxSends": false
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "repeatOnUnknown"
+            ]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "repeatOnUnknown": {
+                  "const": "safe"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "retry"
+              ]
+            },
+            "else": {
+              "properties": {
+                "retry": false
+              }
+            }
           }
         }
-      },
-      "then": {
-        "properties": {
-          "approval": false,
-          "retry": false,
-          "branches": false
-        }
-      }
+      ]
     },
     "configurationUI": {
       "type": "object",

@@ -55,13 +55,88 @@ manifest.
 ## Step options {#step-options}
 
 A Connector tool's Step uses the operation's own Execute timeout and retry
-policy, with at most three attempts. A session's **tool_policies**
-(**toolPolicies**) entry for a Connector tool changes only its approval. The
-manifest decides the effect class.
+policy, with at most three attempts. A `bounded_write` tool is the exception;
+see [Bounded resends](#bounded-resends). A session's **tool_policies**
+(**toolPolicies**) entry for a Connector tool changes only its approval and,
+for a `bounded_write` tool, its send cap. The manifest decides the effect
+class.
 
 To override approval, pass **requires_approval** in Python or
 **requiresApproval** in TypeScript to the tool. It takes a bool or a predicate
 over the call's arguments.
+
+Changed in 0.6.12: a `bounded_write` tool gets more than three attempts when
+its send cap needs them, and a tool policy can set its send cap.
+
+## Bounded resends {#bounded-resends}
+
+Since 0.6.12.
+
+A Connector Mutation can resend a write whose outcome is unknown, such as
+after a timeout or a 5xx response, a bounded number of times. The manifest
+declares it in two **agent** fields of **dex-connector.json**:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| **repeatOnUnknown** | `safe`, `limited`, or `unsafe` | What the Connector may do when a send's outcome is unknown |
+| **maxSends** | An integer from 2 to 10, with `limited` only | The most sends of one call |
+
+The core maps the tier to an effect class:
+
+| Manifest | Effect class | Runs in |
+| --- | --- | --- |
+| **agent.retry: safe** | `idempotent_write` | `CallTool`, at most three attempts |
+| **repeatOnUnknown: limited** with a valid **maxSends** | `bounded_write` | `CallTool`, with the attempts below |
+| Anything else, including `unsafe` and a manifest without the fields | `non_idempotent_write` | `CallSingleAttemptTool`, once |
+
+A `bounded_write` tool also needs the operation definition in the Connector
+package to declare `limited` with the same cap. A Connector package built for
+`@superdurable/connectors-sdk` 0.11.0 or `dex-connectors-sdk` 0.10.0 or later
+does. An unknown **repeatOnUnknown** value, a **maxSends** outside 2 to 10, or a
+definition that disagrees keeps the Mutation `non_idempotent_write`.
+
+When a send's outcome is unknown, the Connector returns a retry. The next
+attempt's single-dispatch fence lets the Connector read the write back first.
+If read-back finds it, the call records **succeeded** without another send.
+Otherwise the Connector sends again, while the call's sends stay below the cap.
+At the cap, a write that read-back cannot find selects **uncertain**, and the
+call records `outcome_unknown`. A definite failure, such as a branch marked
+**rejected**, is never resent.
+
+A `bounded_write` call gets the operation's own maximum attempts. When those
+are unlimited, it gets three. Either way it gets at least **maxSends**. The
+operation's retry window still applies, so a short window can end the call
+before the cap. When the attempts run out, the call records `outcome_unknown`.
+
+A `bounded_write` call waits for approval as any Connector tool does: when the
+manifest recommends it or the application asks for it.
+
+### Set the send cap per tool {#max-sends}
+
+Set **max_sends** (**maxSends** in TypeScript) on the tool's `ToolPolicy` to
+replace the manifest's cap, from 1 to 10. `1` turns resending off. A value
+outside that range fails when the session Flow is built in TypeScript, and when
+the `ToolPolicy` is created in Python. A tool that is not `bounded_write`
+ignores it. The policy's **effect** does not change a Connector tool's effect
+class.
+
+The call keeps the cap it was deferred with on every attempt, so a deploy that
+changes the policy affects only later calls. A raised cap adds its difference
+from the manifest's cap to the call's attempts, so the Connector can reach it.
+A lower cap keeps the attempts, which pre-send retries such as rate limits can
+use.
+
+The send cap reaches the Connector through the Connector SDK. TypeScript needs
+`@superdurable/connectors-sdk` 0.11.0 or later; an earlier release ignores the
+cap. Python needs `dex-connectors-sdk` 0.10.0 or later; with an earlier
+release, the Connector never resends.
+
+### Upgrade every Worker first {#bounded-write-upgrade}
+
+A Worker older than 0.6.12 cannot read a session that recorded a
+`bounded_write` call. Neither can an older **dexcli agents-tui**. Upgrade every
+Worker of a session Flow type, and the Dex CLI that opens its sessions, before
+a Worker offers a `limited` Connector tool.
 
 ## Result size {#connector-tools-result-size}
 
@@ -112,7 +187,9 @@ The operation ends in one of its branches, and the branch decides the tool call'
 | A branch marked **unknown**, or a Mutation branch that is not listed | `outcome_unknown` | That the outcome is unknown |
 | A Query branch that is not listed, including **defect** | **failed** | The branch and the message |
 
-A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection.
+A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection. For a `bounded_write` call, the fence also counts the sends of earlier attempts. When an earlier send may have taken effect, a later branch marked **rejected** still records `outcome_unknown`.
+
+Changed in 0.6.12: the core reads the send count that a fence with a send cap records. Earlier releases did not count a claim that carries a send count as a possible send.
 
 Reconcile `outcome_unknown` as for any tool; see [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown).
 
@@ -130,6 +207,8 @@ A Worker crash during a Connector write never sends the write twice. How a write
 | The provider asked to retry later, such as for a rate limit | Dex retries. The write happens once. | Dex retries. The write happens once. | The call records **failed**, with "not sent; the provider asked to retry later", if the Connector recorded that the request never left the Worker or that the provider refused it without acting. Otherwise it records `outcome_unknown`. |
 
 A single-attempt write records **failed** only when the Connector's record proves that nothing was sent, because a request to retry later alone proves nothing. The model can then call it again without anyone checking the provider. The later writes of that response are still skipped.
+
+A `bounded_write` call recovers like a write that is looked up first, except that the retry may send again. A crash after a send counts as a send whose outcome is unknown. The retry reads back first and sends again only while the call's sends stay below its cap. So a crash can make a duplicate, at most up to the cap. See [Bounded resends](#bounded-resends).
 
 ## The Slack tool in the examples {#slack-example}
 

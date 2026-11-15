@@ -18,6 +18,7 @@ Each tool gets a `ToolPolicy`. The policy sets the tool's effect class, which de
 | --- | --- | --- |
 | **read** | Only reads. Running it again is harmless. | `CallTool`, with retries |
 | `idempotent_write` | Writes, and a repeat with the same idempotency key has no further effect. | `CallTool`, with retries |
+| `bounded_write` | Writes, and a repeat can repeat the effect a bounded number of times. | `CallTool`, with retries |
 | `non_idempotent_write` | Writes, and a repeat can repeat the effect. | `CallSingleAttemptTool`, once |
 | **unclassified** | Nothing is known about it. Dex treats it as a non-idempotent write. | `CallSingleAttemptTool`, once |
 
@@ -31,6 +32,7 @@ A policy has two fields: the effect class, and `requires_approval` (`requiresApp
 | --- | --- |
 | **read** | No |
 | `idempotent_write` | No |
+| `bounded_write` | Yes |
 | `non_idempotent_write` | Yes |
 | **unclassified** | Yes |
 
