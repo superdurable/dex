@@ -525,6 +525,8 @@ received that result yet: the time travel reads the result from the child run.
 When the child run still runs, the condition keeps waiting for it. A child
 cannot be attached when the parent has no result and the child run no longer
 exists, for example because it was purged after its retention.
+When the child Flows a time travel reads keep changing while it computes,
+`ResetFlow` fails with `ABORTED`, and the caller may retry the same request.
 
 The values are:
 

@@ -56,7 +56,7 @@ const MAX_HISTORY_READ_ROUNDS: usize = 16;
 /// the round's two views straddled a child start or report.
 const STABLE_GONE_CHILD_FLOW_ROUNDS: usize = 3;
 
-/// Rounds that may find children gone before the ResetFlow aborts, which the client retries.
+/// Rounds that may find children gone before ResetFlow aborts; the caller may retry.
 const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
 
 /// How one committed view round of a computation ended.

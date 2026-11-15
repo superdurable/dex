@@ -1461,6 +1461,72 @@ fn child_reads_charge_only_the_run_record_they_keep() {
     );
 }
 
+#[test]
+fn child_reads_release_a_purging_run_record_before_the_target() {
+    let mut harness = Harness::new();
+    harness.prepare_child(ChildState::Running);
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let target_key = run_singleton_key(child_hash, RunId(FIRST_CHILD_RUN), RunTable::RunRecord);
+    let target_bytes = harness.state.rows[&(ColumnFamily::Flow, target_key)].clone();
+    let target = RunRecord::decode(target_bytes.as_slice()).expect("the child record decodes");
+    let directory_key = flow_directory_key(child_hash, TenantId::DEFAULT, CHILD_ID);
+    let mut directory = FlowDirectoryRecord::decode(
+        harness.state.rows[&(ColumnFamily::Flow, directory_key.clone())].as_slice(),
+    )
+    .expect("the directory decodes");
+    let purging_run_id = [0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    let purging_bytes = RunRecord {
+        run_id: purging_run_id.to_vec(),
+        is_purging: true,
+        ..target
+    }
+    .encode_to_vec();
+    harness.state.rows.insert(
+        (
+            ColumnFamily::Flow,
+            run_singleton_key(child_hash, RunId(purging_run_id), RunTable::RunRecord),
+        ),
+        purging_bytes.clone(),
+    );
+    directory.runs.push(FlowDirectoryRun {
+        run_id: purging_run_id.to_vec(),
+        status: FlowStatus::Running as i32,
+        start_request_id: "another start".to_owned(),
+        ..FlowDirectoryRun::default()
+    });
+    let directory_bytes = directory.encoded_len();
+    harness.state.rows.insert(
+        (ColumnFamily::Flow, directory_key),
+        directory.encode_to_vec(),
+    );
+    let parent = parent_reference();
+    let query = ChildFlowRunQuery {
+        tenant_id: TenantId::DEFAULT,
+        child_flow_id: CHILD_ID,
+        start_request_id: "a start request that started no run",
+        parent: &parent,
+        should_read_start: false,
+    };
+    let memory = RecordingReadMemory::granting(usize::MAX, u64::MAX);
+    let ChildFlowRead::Found(run) = StateChildFlowRuns::new(&harness.state, &harness.hasher)
+        .child_flow_run(&query, &memory)
+        .expect("the read runs")
+    else {
+        panic!("the read finds the target after the purging run");
+    };
+    assert_eq!(run.run_id, RunId(FIRST_CHILD_RUN));
+    assert_eq!(
+        memory.granted_bytes.get(),
+        (directory_bytes + purging_bytes.len() + target_bytes.len()) as u64,
+        "the read reserves the purging record before finding the target"
+    );
+    assert_eq!(
+        memory.reserved_bytes.get(),
+        target_bytes.len() as u64,
+        "the purging record's reservation is released"
+    );
+}
+
 /// A child read budget that grants the first `granted_reservations` reservations within
 /// `limit_bytes`, and records what it holds.
 struct RecordingReadMemory {
