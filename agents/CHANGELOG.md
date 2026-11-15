@@ -4,6 +4,12 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.11 (2026-11-15)
+
+### Fixed
+
+- Pin npm sibling Dex Agents peers to the exact release version so pinned commands keep installing after newer releases change the Dex SDK pin.
+
 ## 0.6.10 (2026-11-14)
 
 ### Changed
