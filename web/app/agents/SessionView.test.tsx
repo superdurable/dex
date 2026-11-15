@@ -536,18 +536,65 @@ describe('SessionView scrolling', () => {
     expect(screen.queryByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeNull();
   });
 
-  it('does not follow a reader who opened a Dex note just before a new message', () => {
+  it('does not follow a reader who clicked a Dex note open, before its toggle event or a measure', () => {
     const scrolled = stubScrollIntoView();
     queueAnimationFrames();
     loaded = sessionOf({ items: [userMessage(1, 'A note.', 'turn_steered_note')] });
     const { rerender } = render(renderSession());
 
     const note = document.querySelector('details.ses-dexnote') as HTMLDetailsElement;
-    note.open = true;
-    fireEvent(note, new Event('toggle'));
+    fireEvent.click(note.querySelector('summary') as HTMLElement);
+    expect(note.open).toBe(true);
     loaded = sessionOf({ items: [userMessage(1, 'A note.', 'turn_steered_note'), userMessage(2, 'New message.')] });
     rerender(renderSession(1));
     expect(scrolled).toHaveLength(0);
+  });
+
+  it('does not follow a reader who clicked a tool call open, before its toggle event or a measure', () => {
+    const scrolled = stubScrollIntoView();
+    queueAnimationFrames();
+    const call = pastCall('call-1', 'Read', '{"file_path":"/tmp/a.py"}');
+    const items = [{ kind: 'tool' as const, key: 'call-1', call }];
+    loaded = sessionOf({ items });
+    const { rerender } = render(renderSession());
+
+    const card = document.querySelector('details.atc-disclosure') as HTMLDetailsElement;
+    expect(card.open).toBe(false);
+    fireEvent.click(card.querySelector('summary') as HTMLElement);
+    expect(card.open).toBe(true);
+    loaded = sessionOf({ items: [...items, userMessage(2, 'New message.')] });
+    rerender(renderSession(1));
+    expect(scrolled).toHaveLength(0);
+  });
+
+  it('keeps following after a tool card opens by itself and fires its toggle event', async () => {
+    const scrolled = stubScrollIntoView();
+    const runFrames = queueAnimationFrames();
+    loaded = sessionOf({ items: [userMessage(1, 'Refund orders.')] });
+    const { rerender } = render(renderSession());
+    loaded = withWaitingCalls(waitingCall('call-1'));
+    rerender(renderSession(1));
+    expect((document.querySelector('details.atc-disclosure') as HTMLDetailsElement).open).toBe(true);
+    // Let the asynchronous toggle event fire, then the measure it queued.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    runFrames();
+
+    scrolled.length = 0;
+    loaded = { ...loaded, view: { ...loaded.view, items: [...loaded.view.items, userMessage(2, 'New message.')] } };
+    rerender(renderSession(2));
+    expect(scrolled.map((element) => element.className)).toEqual(['ses-latest']);
+  });
+
+  it('keeps following after a click that opens nothing', () => {
+    const scrolled = stubScrollIntoView();
+    queueAnimationFrames();
+    loaded = sessionOf({ items: [userMessage(1, 'First.')] });
+    const { rerender } = render(renderSession());
+    fireEvent.click(document.querySelector('.ses-text') as HTMLElement);
+
+    loaded = sessionOf({ items: [userMessage(1, 'First.'), userMessage(2, 'Second.')] });
+    rerender(renderSession(1));
+    expect(scrolled.map((element) => element.className)).toEqual(['ses-latest']);
   });
 
   it('keeps measuring the composer after StrictMode sets the effects up twice', () => {

@@ -74,14 +74,14 @@ export function useSessionStreamScroll({
     scheduleMeasureAtLatest();
   }, [scheduleMeasureAtLatest]);
 
-  // Opening a message, note, or call pushes the end down before any measure runs.
-  const handleExpand = useCallback((event: Event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const isOpening = event.type === 'toggle'
-      ? target instanceof HTMLDetailsElement && target.open
-      : target.closest('.ses-more')?.getAttribute('aria-expanded') === 'false';
-    if (!isOpening) return;
+  // A reader's click or keyboard activation opening content moves the end before any measure runs.
+  const handleExpandClick = useCallback((event: Event) => {
+    if (!(event.target instanceof Element)) return;
+    const summary = event.target.closest('summary');
+    const details = summary?.parentElement;
+    const isOpeningDetails = details instanceof HTMLDetailsElement && details.firstElementChild === summary && !details.open;
+    const isShowingMore = event.target.closest('.ses-more')?.getAttribute('aria-expanded') === 'false';
+    if (!isOpeningDetails && !isShowingMore) return;
     isAtLatestRef.current = false;
     scheduleMeasureAtLatest();
   }, [scheduleMeasureAtLatest]);
@@ -106,17 +106,17 @@ export function useSessionStreamScroll({
     };
   }, [handleScroll, scheduleMeasureAtLatest]);
 
-  // Toggle does not bubble, so both listeners capture.
+  // A toggle, user or automatic, only schedules the measure; toggle does not bubble, so it captures.
   useEffect(() => {
     const stream = streamRef.current;
     if (!stream) return;
-    stream.addEventListener('toggle', handleExpand, { capture: true });
-    stream.addEventListener('click', handleExpand, { capture: true });
+    stream.addEventListener('toggle', scheduleMeasureAtLatest, { capture: true });
+    stream.addEventListener('click', handleExpandClick, { capture: true });
     return () => {
-      stream.removeEventListener('toggle', handleExpand, { capture: true });
-      stream.removeEventListener('click', handleExpand, { capture: true });
+      stream.removeEventListener('toggle', scheduleMeasureAtLatest, { capture: true });
+      stream.removeEventListener('click', handleExpandClick, { capture: true });
     };
-  }, [streamRef, isLoaded, handleExpand]);
+  }, [streamRef, isLoaded, handleExpandClick, scheduleMeasureAtLatest]);
 
   // Opening a long message, note, or call moves the end without a scroll event.
   useEffect(() => {
