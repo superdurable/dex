@@ -142,8 +142,30 @@ func TestCloneForkKeepsTheSourceConfigAndGeneratesARequestID(t *testing.T) {
 	}
 	request := client.cloneForkRequests[0]
 	if request.GetFlowConfigOverride() != nil || request.GetRequestId() == "" ||
-		request.GetPointType() != dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED {
+		request.GetPointType() != dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED ||
+		len(request.GetAttributes()) != 0 {
 		t.Fatalf("clone fork request = %+v", request)
+	}
+}
+
+func TestCloneForkDeletesTheNamedAttributes(t *testing.T) {
+	client := &runHistoryOperationsTestClient{}
+	response := performRunHistoryOperation(client, "/api/flows/clone-fork",
+		`{"sourceFlowId":"session-1","flowId":"session-2","reason":"fork",`+
+			`"deleteAttributeKeys":["SessionTerminalLease","SessionLastTerminalEnvironment"]}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+	writes := client.cloneForkRequests[0].GetAttributes()
+	if len(writes) != 2 ||
+		writes[0].GetKey() != "SessionTerminalLease" ||
+		writes[1].GetKey() != "SessionLastTerminalEnvironment" {
+		t.Fatalf("attribute writes = %+v", writes)
+	}
+	for _, write := range writes {
+		if _, isNull := write.GetValue().GetKind().(*dexpb.Value_NullValue); !isNull {
+			t.Fatalf("attribute write %q is not a deletion: %+v", write.GetKey(), write.GetValue())
+		}
 	}
 }
 
@@ -203,6 +225,7 @@ func TestCloneForkRejectsInvalidRequests(t *testing.T) {
 		`{"sourceFlowId":"order-1","flowId":"order-1","reason":"branch"}`,
 		`{"sourceFlowId":"order-1","flowId":"order-1-fork","runAttempt":-1,"reason":"branch"}`,
 		`{"sourceFlowId":"order-1","flowId":"order-1-fork","pointType":6,"reason":"branch"}`,
+		`{"sourceFlowId":"order-1","flowId":"order-1-fork","reason":"branch","deleteAttributeKeys":[""]}`,
 	} {
 		client := &runHistoryOperationsTestClient{}
 		response := performRunHistoryOperation(client, "/api/flows/clone-fork", body)

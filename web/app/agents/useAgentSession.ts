@@ -29,6 +29,8 @@ export interface LoadedAgentSession {
   hasHistory: boolean;
   unreadableChunks: number;
   readAt: number;
+  /** The run's task queue from its Flow config; '' for the default task queue. */
+  taskQueue: string;
 }
 
 /** Reads one session without calling a session RPC, so it works while Workers are down. */
@@ -121,7 +123,13 @@ async function loadAgentSession(
       hasHistory: recentHistory !== undefined,
       unreadableChunks,
       readAt: Date.now(),
+      taskQueue: taskQueueOf(state),
     },
     recentHistory,
   };
+}
+
+function taskQueueOf(state: FlowState): string {
+  const workerTarget = state.flowConfig?.workerTarget as Record<string, unknown> | undefined;
+  return typeof workerTarget?.taskQueue === 'string' ? workerTarget.taskQueue : '';
 }

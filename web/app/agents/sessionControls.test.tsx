@@ -63,9 +63,9 @@ function sessionWith(state: Partial<AgentStateRecord>): LoadedAgentSession {
         ...state,
       },
       usage: null, sessionSettings: null, messageIndex: null, pendingInterrupts: [], items: [], waitingCalls: [],
-      missing: [], hasCallsFromMessagesOnly: false, chunkKeys: [],
+      missing: [], hasCallsFromMessagesOnly: false, chunkKeys: [], latestTurnEndEventId: null,
     },
-    activeSteps: [], hasHistory: true, unreadableChunks: 0, readAt: 0,
+    activeSteps: [], hasHistory: true, unreadableChunks: 0, readAt: 0, taskQueue: '',
   };
 }
 

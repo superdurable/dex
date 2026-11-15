@@ -9,6 +9,7 @@
 import { isBlobReferenceValue, isStoredValueUnavailable } from '@/lib/blobs';
 import type { ActiveStepExecution, FlowHistoryEvent, KeyValue } from '@/lib/types';
 import {
+  AWAIT_USER_MESSAGE_STEP_TYPE,
   SESSION_ATTRIBUTE,
   TOOL_CALL_NOT_RUN_PREFIX,
   TOOL_CALL_RECOVERY_STEP_TYPES,
@@ -81,7 +82,14 @@ export interface ToolCallView {
 }
 
 export type ConversationItem =
-  | { kind: 'message'; key: string; message: AgentMessageRecord; stepExecutionId?: string }
+  | {
+    kind: 'message';
+    key: string;
+    message: AgentMessageRecord;
+    stepExecutionId?: string;
+    /** The history event that ended the turn with this message; a session can fork right after it. */
+    turnEndEventId?: string;
+  }
   | { kind: 'tool'; key: string; call: ToolCallView }
   | { kind: 'missing'; key: string; label: string };
 
@@ -110,6 +118,8 @@ export interface SessionView {
   /** True when a past call shows only what its message text keeps. */
   hasCallsFromMessagesOnly: boolean;
   chunkKeys: string[];
+  /** The newest event in the loaded history after which the session was between turns; null when none is loaded. */
+  latestTurnEndEventId: string | null;
 }
 
 const PHASE_PENDING = new Set<unknown>([1, 'STEP_METHOD_INVOCATION_PHASE_PENDING']);
@@ -238,6 +248,9 @@ export function readSession(input: SessionReadInput): SessionView {
         key: `message:${message.sequence}`,
         message,
         stepExecutionId: fromHistory.messageWriters.get(message.sequence),
+        turnEndEventId: message.role === 'assistant' && !message.origin
+          ? fromHistory.turnEndEvents.get(message.sequence)
+          : undefined,
       });
     }
     const next = ordered[index + 1];
@@ -264,6 +277,7 @@ export function readSession(input: SessionReadInput): SessionView {
     missing,
     hasCallsFromMessagesOnly,
     chunkKeys,
+    latestTurnEndEventId: fromHistory.latestTurnEndEventId,
   };
 }
 
@@ -382,30 +396,59 @@ interface HistoryRecords {
   calls: Map<string, AgentToolCallRecord>;
   /** The Step or RPC execution that wrote each message sequence. */
   messageWriters: Map<number, string>;
+  /** The last message sequence each turn-ending Step wrote, to that Step's completion event ID. */
+  turnEndEvents: Map<number, string>;
+  /** The newest turn-ending event ID in the window, or null when the window has none. */
+  latestTurnEndEventId: string | null;
 }
 
 /** Reads AgentToolCalls and AgentMessages writes from the loaded history window. */
 export function historyRecords(events: readonly FlowHistoryEvent[]): HistoryRecords {
   const calls = new Map<string, AgentToolCallRecord>();
   const messageWriters = new Map<number, string>();
+  const turnEndEvents = new Map<number, string>();
+  let latestTurnEndEventId: string | null = null;
   for (const event of events) {
+    const turnEndEventId = isTurnEnd(event) ? historyEventIdText(event.eventId) : null;
+    if (turnEndEventId !== null) latestTurnEndEventId = turnEndEventId;
     const payload = asData(event.payload);
     const upserts = asData(payload.output).upsertAttributes;
     if (!Array.isArray(upserts)) continue;
     const writer = String(asData(payload.context).stepExecutionId ?? '') || event.type;
+    let lastMessageSequence: number | null = null;
     for (const upsert of upserts) {
       const key = String(asData(upsert).key ?? '');
       const messageKey = attributeMapInstance(key, SESSION_ATTRIBUTE.messages);
       if (messageKey !== null) {
         messageWriters.set(Number(messageKey), writer);
+        lastMessageSequence = Math.max(lastMessageSequence ?? 0, Number(messageKey));
         continue;
       }
       if (attributeMapInstance(key, SESSION_ATTRIBUTE.toolCalls) === null) continue;
       const record = decodeAgentToolCall(decodeDexValue(asData(upsert).value));
       if (record) calls.set(record.toolCallId, record);
     }
+    if (lastMessageSequence !== null && turnEndEventId !== null) turnEndEvents.set(lastMessageSequence, turnEndEventId);
   }
-  return { calls, messageWriters };
+  return { calls, messageWriters, turnEndEvents, latestTurnEndEventId };
+}
+
+/**
+ * Returns a history event ID as its decimal text, or null when it is not a positive integer.
+ * Text passes through unchanged, so an int64 ID read as a string keeps every digit.
+ */
+function historyEventIdText(eventId: unknown): string | null {
+  if (typeof eventId === 'string') return /^[1-9]\d*$/.test(eventId) ? eventId : null;
+  return typeof eventId === 'number' && Number.isSafeInteger(eventId) && eventId > 0 ? String(eventId) : null;
+}
+
+/** A completed Step whose decision waits for the next user message: the session is between turns after it. */
+function isTurnEnd(event: FlowHistoryEvent): boolean {
+  if (event.type !== 'StepExecuteCompleted') return false;
+  const nextSteps = asData(asData(event.payload.output).stepDecision).nextSteps;
+  return Array.isArray(nextSteps)
+    && nextSteps.length === 1
+    && asData(nextSteps[0]).stepType === AWAIT_USER_MESSAGE_STEP_TYPE;
 }
 
 /** Decodes a Dex Value from history; blob references stay as they are. */

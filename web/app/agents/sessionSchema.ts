@@ -43,6 +43,8 @@ export const TOOL_CALL_STEP_TYPES: readonly string[] = ['CallTool', 'CallSingleA
 /** Step types that record a tool call's failure; their input is the tool call ID too. */
 export const TOOL_CALL_RECOVERY_STEP_TYPES: readonly string[] = ['RecordToolFailure', 'RecordToolOutcomeUnknown'];
 export const APPROVAL_STEP_TYPE = 'AwaitToolApproval';
+/** The Step a session waits in between turns. */
+export const AWAIT_USER_MESSAGE_STEP_TYPE = 'AwaitUserMessage';
 export const QUESTION_STEP_TYPE = 'AwaitQuestionAnswer';
 
 /**

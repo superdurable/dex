@@ -14,6 +14,7 @@ import {
   CircleAlert,
   CircleDashed,
   Gauge,
+  GitFork,
   History,
   Info,
   Layers,
@@ -33,6 +34,8 @@ import { SESSION_COPY } from './copy';
 import { InterruptControls, useSessionActionInvoker } from './InterruptControls';
 import type { SessionControlContext } from './sessionActions';
 import { SessionComposer } from './SessionComposer';
+import { SessionForkDialog } from './SessionForkDialog';
+import { forkEventIdOf, latestSessionForkPoint, type SessionForkPoint } from './sessionFork';
 import type { ConversationItem, ToolCallView } from './sessionModel';
 import { sessionActionPermission, sessionRouteBlockedReason, type SessionRouteContext } from './sessionRequests';
 import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
@@ -53,6 +56,7 @@ export function SessionView({
   onChooseWorkingAs,
   workingAsPermission = '',
   workingAsOptions = [],
+  onSessionForked,
 }: {
   flowType: string;
   flowId: string;
@@ -65,8 +69,12 @@ export function SessionView({
   workingAsPermission?: string;
   /** Every permission the Flow type declares, which Acting as offers under Change. */
   workingAsOptions?: readonly string[];
+  /** Opens a session that a fork created; without it, the view offers no fork. */
+  onSessionForked?: (sessionId: string, runId: string) => void;
 }) {
   const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
+  /** The point is pinned when a fork action is clicked; later reads never move it. */
+  const [fork, setFork] = useState<PinnedSessionFork | null>(null);
   const { revisionFor } = useWebCatalog();
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);
   const [steerText, setSteerText] = useState('');
@@ -137,6 +145,7 @@ export function SessionView({
 
   const { view } = session;
   const settingsBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.updateSessionSettings, controlContext);
+  const sessionForkPoint = latestSessionForkPoint(session);
   // Sending checks this permission, which can differ from the first one Working as lacks.
   const sendPermission = sessionActionPermission(schema);
   // Working as is set where it blocks a control; the tab has no banner or selector of its own.
@@ -146,7 +155,28 @@ export function SessionView({
   return (
     <WorkingAsChoiceProvider value={workingAsChoice}>
     <section className="ses" aria-label={SESSION_COPY.tabSession} ref={sectionRef}>
-      <SessionHeader session={session} onReload={reload} onShowWaitingCall={showWaitingCall} />
+      <SessionHeader
+        session={session}
+        onForkCurrent={onSessionForked && sessionForkPoint
+          ? () => setFork({ point: sessionForkPoint, isFromMessage: false, runId: session.summary.runId, taskQueue: session.taskQueue })
+          : undefined}
+        onReload={reload}
+        onShowWaitingCall={showWaitingCall}
+      />
+      {fork && onSessionForked && (
+        <SessionForkDialog
+          isFromMessage={fork.isFromMessage}
+          point={fork.point}
+          sourceRunId={fork.runId}
+          sourceTaskQueue={fork.taskQueue}
+          sourceSessionId={flowId}
+          onClose={() => setFork(null)}
+          onForked={(sessionId, runId) => {
+            setFork(null);
+            onSessionForked(sessionId, runId);
+          }}
+        />
+      )}
       {held.liveness === 'stale' && (
         <p className="ses-note" data-kind="stale" role="status">
           <Info aria-hidden="true" size={13} />
@@ -189,6 +219,12 @@ export function SessionView({
             previousTurnId={turnOf(view.items[index - 1])}
             renderControls={renderControls}
             onTellAgent={sessionActionPermission(schema) !== null ? tellAgent : undefined}
+            onForkAfter={onSessionForked
+              ? (eventId) => setFork({
+                point: { kind: 'event', eventId }, isFromMessage: true, runId: session.summary.runId, taskQueue: session.taskQueue,
+              })
+              : undefined}
+            activeTurnId={view.state?.activeTurnId}
           />
         ))}
         {view.state?.lastTurnError && (
@@ -227,6 +263,14 @@ export function SessionView({
   );
 }
 
+/** A fork's source run, task queue, and point, as they were read when its action was clicked. */
+interface PinnedSessionFork {
+  point: SessionForkPoint;
+  isFromMessage: boolean;
+  runId: string;
+  taskQueue: string;
+}
+
 /** The Flow type's permissions, with every permission the session's controls check. */
 function workingAsChoiceOptions(schema: AgentSessionSchema, declared: readonly string[]): string[] {
   const checked = [schema.resolveInterrupt, schema.answerQuestion, schema.steerUserMessage, schema.cancelTurn]
@@ -262,10 +306,13 @@ const SESSION_STATUS_LOOK: Record<string, { icon: LucideIcon; tone: 'idle' | 'ac
 
 function SessionHeader({
   session,
+  onForkCurrent,
   onReload,
   onShowWaitingCall,
 }: {
   session: LoadedAgentSession;
+  /** Absent unless the session is between turns with a known turn boundary to copy. */
+  onForkCurrent?: () => void;
   onReload: () => void;
   onShowWaitingCall: (toolCallId: string) => void;
 }) {
@@ -298,6 +345,12 @@ function SessionHeader({
         )}
         {state?.activeTurnId && <span className="ses-turn">{SESSION_COPY.turn(state.activeTurnId)}</span>}
         <ReloadButton onReload={onReload} />
+        {onForkCurrent && (
+          <button className="ses-reload ses-fork" onClick={onForkCurrent} title={SESSION_COPY.forkSessionTitle} type="button">
+            <GitFork aria-hidden="true" size={13} strokeWidth={2.2} />
+            {SESSION_COPY.forkSession}
+          </button>
+        )}
       </div>
       {usage && (
         <p className="ses-usage" title={SESSION_COPY.usageHeading}>
@@ -336,12 +389,16 @@ function StreamItem({
   now,
   renderControls,
   onTellAgent,
+  onForkAfter,
+  activeTurnId,
 }: {
   item: ConversationItem;
   previousTurnId: string | undefined;
   now: number;
   renderControls: (call: ToolCallView) => ReactNode;
   onTellAgent?: (call: ToolCallView) => void;
+  onForkAfter?: (eventId: string) => void;
+  activeTurnId?: string | null;
 }) {
   if (item.kind === 'missing') {
     return (
@@ -375,6 +432,7 @@ function StreamItem({
     );
   }
   const isUser = message.role === 'user';
+  const forkEventId = onForkAfter ? forkEventIdOf(item, activeTurnId) : null;
   return (
     <>
       {divider}
@@ -393,6 +451,12 @@ function StreamItem({
             {isUser && message.senderName && <span className="ses-who-note"> · {SESSION_COPY.senderNameUnverifiedShort}</span>}
           </span>
           {message.text === null ? <p className="ses-text" /> : <MessageText text={message.text} />}
+          {forkEventId !== null && onForkAfter && (
+            <button className="ses-more ses-fork-after" onClick={() => onForkAfter(forkEventId)} title={SESSION_COPY.forkFromMessageTitle} type="button">
+              <GitFork aria-hidden="true" size={12} strokeWidth={2.2} />
+              {SESSION_COPY.forkFromMessage}
+            </button>
+          )}
         </div>
       </div>
     </>
