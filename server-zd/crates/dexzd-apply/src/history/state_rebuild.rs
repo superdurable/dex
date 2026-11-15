@@ -88,6 +88,12 @@ impl ReplayMemoryBudget {
         true
     }
 
+    /// Returns `bytes` of an earlier reservation whose allocation the computation dropped.
+    pub(crate) fn release(&self, bytes: u64) {
+        self.reserved_bytes
+            .set(self.reserved_bytes.get().saturating_sub(bytes));
+    }
+
     /// Whether `transient_bytes` fit beside the reservations, without reserving them.
     pub(crate) fn fits(&self, transient_bytes: u64) -> bool {
         self.reserved_bytes.get().saturating_add(transient_bytes) <= self.limit_bytes

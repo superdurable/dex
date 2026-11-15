@@ -201,6 +201,11 @@ export enum FlowErrorType {
   FLOW_ERROR_TYPE_FLOW_TIMEOUT = 5,
   /** FLOW_ERROR_TYPE_INTERNAL - either bug in sdk or server */
   FLOW_ERROR_TYPE_INTERNAL = 6,
+  /**
+   * FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED - A SubFlow reset policy failed the SubFlow condition of a restored wait. Only a SubFlow
+   * result carries it; the child run itself never closes with it.
+   */
+  FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED = 7,
   UNRECOGNIZED = -1,
 }
 
@@ -280,6 +285,58 @@ export enum FlowResetStepMethod {
   FLOW_RESET_STEP_METHOD_UNSPECIFIED = 0,
   FLOW_RESET_STEP_METHOD_WAIT_FOR = 1,
   FLOW_RESET_STEP_METHOD_EXECUTE = 2,
+  UNRECOGNIZED = -1,
+}
+
+/**
+ * Decides what happens to a SubFlow condition that a restored Step still waits on.
+ *
+ * An operation that restores an earlier state of a Flow can restore a Step whose WaitFor waits
+ * on SubFlow conditions. Each such condition names the child Flow that its Step started. The
+ * policy decides, per condition, whether the restored wait attaches to that child, restarts the
+ * child, fails the condition, or rejects the whole operation.
+ *
+ * Attaching keeps the condition on its original child. When the child run has ended, its result
+ * completes the condition, even if the parent has not received that result yet. When the child
+ * run still runs, the condition keeps waiting for it. A child cannot be attached when the parent
+ * has no result and the child run it started no longer exists, for example because it was
+ * deleted. The ATTACH_ELSE policies then take their second action.
+ *
+ * Restarting a child starts it again with the start it originally received: its Flow type,
+ * starting Step, input, and options. The child keeps its Flow ID. A still-running run of the
+ * child is terminated first. The restored wait then accepts only the restarted run's result.
+ * The original start is read from the child run, so a child whose run no longer exists cannot
+ * be restarted, and the operation is rejected. Under ResetFlow, a child that cannot be attached
+ * always has no run left, so ATTACH_ELSE_RESTART rejects it too.
+ *
+ * Failing a condition terminates the child run when it still runs. The condition then completes
+ * with a FAILED child result whose error type is FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED. The Step's
+ * Execute receives it like any failed child.
+ *
+ * A restart or a failure is rejected while the child's start has not reached the child yet;
+ * retry the operation later. An attaching policy keeps waiting for such a child instead.
+ *
+ * Rejecting fails the operation with FAILED_PRECONDITION. Nothing changes. The error names each
+ * Step execution and child Flow ID that caused it.
+ */
+export enum SubFlowResetPolicy {
+  /** SUB_FLOW_RESET_POLICY_UNSPECIFIED - The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART. */
+  SUB_FLOW_RESET_POLICY_UNSPECIFIED = 0,
+  /** SUB_FLOW_RESET_POLICY_ALWAYS_RESTART - Restarts every child, whether it ended or still runs. */
+  SUB_FLOW_RESET_POLICY_ALWAYS_RESTART = 1,
+  /** SUB_FLOW_RESET_POLICY_ALWAYS_FAIL - Fails every condition, whether its child ended or still runs. */
+  SUB_FLOW_RESET_POLICY_ALWAYS_FAIL = 2,
+  /** SUB_FLOW_RESET_POLICY_ALWAYS_REJECT - Rejects the operation when any restored Step waits on a SubFlow condition. */
+  SUB_FLOW_RESET_POLICY_ALWAYS_REJECT = 3,
+  /** SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART - Attaches each condition to its child. Restarts a child that cannot be attached. */
+  SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART = 4,
+  /** SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL - Attaches each condition to its child. Fails a condition whose child cannot be attached. */
+  SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL = 5,
+  /**
+   * SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT - Attaches each condition to its child. Rejects the operation when a child cannot be
+   * attached.
+   */
+  SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT = 6,
   UNRECOGNIZED = -1,
 }
 
@@ -1574,6 +1631,11 @@ export interface ResetFlowRequest {
    * Zero selects the current run attempt.
    */
   runAttempt: number;
+  /**
+   * Decides what happens to the SubFlow conditions that restored Steps wait on.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
+   */
+  subFlowResetPolicy: SubFlowResetPolicy;
   /**
    * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
    * The event must belong to the history of the selected run_attempt, including the attempts it
@@ -10917,6 +10979,7 @@ function createBaseResetFlowRequest(): ResetFlowRequest {
     skipWritesReapply: false,
     stepMethod: 0,
     runAttempt: 0,
+    subFlowResetPolicy: 0,
     eventId: 0n,
   };
 }
@@ -10952,6 +11015,9 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
     }
     if (message.runAttempt !== 0) {
       writer.uint32(80).int32(message.runAttempt);
+    }
+    if (message.subFlowResetPolicy !== 0) {
+      writer.uint32(88).int32(message.subFlowResetPolicy);
     }
     if (message.eventId !== 0n) {
       if (BigInt.asIntN(64, message.eventId) !== message.eventId) {
@@ -11049,6 +11115,14 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
           message.runAttempt = reader.int32();
           continue;
         }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.subFlowResetPolicy = reader.int32() as any;
+          continue;
+        }
         case 12: {
           if (tag !== 96) {
             break;
@@ -11081,6 +11155,7 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
     message.skipWritesReapply = object.skipWritesReapply ?? false;
     message.stepMethod = object.stepMethod ?? 0;
     message.runAttempt = object.runAttempt ?? 0;
+    message.subFlowResetPolicy = object.subFlowResetPolicy ?? 0;
     message.eventId = (object.eventId !== undefined && object.eventId !== null) ? BigInt(object.eventId) : 0n;
     return message;
   },

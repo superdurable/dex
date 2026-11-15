@@ -16,8 +16,9 @@ use dexzd_protocol::dex::{ErrorSubStatus, FlowStatus, ResetFlowRequest};
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRow,
     CommandReply, LockRecord, RunRecord, StepCounterRecord, StepExecutionRecord,
-    TimeTravelStageCommand, TimeTravelStagedChunk, TimeTravelStagedTarget, TimeTravelStagingState,
-    TimerId, TimerRecord,
+    TimeTravelStageCommand, TimeTravelStagedChildFlow, TimeTravelStagedChunk,
+    TimeTravelStagedTarget, TimeTravelStagingState, TimerId, TimerRecord,
+    time_travel_staged_child_flow::Finding,
 };
 use prost::Message;
 
@@ -236,6 +237,32 @@ fn validate_staged_entries(chunk: &TimeTravelStagedChunk) -> Result<(), String> 
             ));
         }
         previous_position = Some(position);
+    }
+    for child_flow in &chunk.child_flows {
+        validate_staged_child_flow(child_flow)?;
+    }
+    Ok(())
+}
+
+/// Checks that a child Flow finding names its condition and holds one complete finding.
+fn validate_staged_child_flow(child_flow: &TimeTravelStagedChildFlow) -> Result<(), String> {
+    if child_flow.step_execution_id.is_empty()
+        || child_flow.child_flow_id.is_empty()
+        || child_flow.sub_flow_index < 0
+    {
+        return Err("a child Flow finding does not name its SubFlow condition".to_owned());
+    }
+    let is_complete = match &child_flow.finding {
+        Some(Finding::IsRunning(is_set) | Finding::IsUnattachable(is_set)) => *is_set,
+        Some(Finding::EndedResult(completed)) => completed.result.is_some(),
+        Some(Finding::RestartStart(start)) => start.condition.is_some(),
+        None => false,
+    };
+    if !is_complete {
+        return Err(format!(
+            "the child Flow finding of {} is empty",
+            child_flow.child_flow_id
+        ));
     }
     Ok(())
 }
@@ -457,8 +484,14 @@ pub(super) fn staged_result_bytes(result: &TimeTravelResult) -> u64 {
         .reapplied_inputs
         .iter()
         .map(|input| entry_bytes(input.encoded_len()));
+    let child_flows = result
+        .child_flows
+        .iter()
+        .flatten()
+        .map(|child_flow| entry_bytes(child_flow.encoded_len()));
     rows.chain(values)
         .chain(inputs)
+        .chain(child_flows)
         .map(encoded_bytes)
         .fold(0, u64::saturating_add)
 }
@@ -485,6 +518,7 @@ pub(super) fn staged_chunks(
         request: Some(request.clone()),
         expected_run_attempt,
         computed_through_seq,
+        has_child_flow_findings: result.child_flows.is_some(),
     };
     let mut builder = ChunkBuilder {
         encoded_chunks: Vec::new(),
@@ -504,6 +538,11 @@ pub(super) fn staged_chunks(
     for input in &result.reapplied_inputs {
         builder.add("external input", input.encoded_len(), |chunk| {
             chunk.reapplied_inputs.push(input.clone());
+        })?;
+    }
+    for child_flow in result.child_flows.iter().flatten() {
+        builder.add("child Flow finding", child_flow.encoded_len(), |chunk| {
+            chunk.child_flows.push(child_flow.clone());
         })?;
     }
     let encoded_chunks = builder.finish();

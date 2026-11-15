@@ -12,7 +12,7 @@
 use super::*;
 use dexzd_apply::values::{NoOffloadedValues, OffloadedValues};
 use dexzd_apply::{
-    ApplyError, ComputedTimeTravel, StateHistorySource, TimeTravelComputation,
+    ApplyError, ComputedTimeTravel, NoChildFlowRuns, StateHistorySource, TimeTravelComputation,
     TimeTravelComputationRequest, TimeTravelComputationSources, compute_time_travel,
 };
 use dexzd_keyspace::row_keys::{time_travel_staging_key, value_garbage_key};
@@ -85,6 +85,7 @@ impl Harness {
                 state: &self.state,
                 history: &history,
                 offloaded_values,
+                child_flow_runs: &NoChildFlowRuns,
             },
             &TimeTravelComputationRequest {
                 run_id,

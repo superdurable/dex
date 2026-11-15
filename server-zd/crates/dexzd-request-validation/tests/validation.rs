@@ -427,6 +427,26 @@ fn client_request_variants_preserve_go_messages() {
         validate_client_request(ClientRequest::ResetFlow(&reset), &config),
         "step execution ID is required",
     );
+    let unknown_policy = dex::ResetFlowRequest {
+        flow_id: "flow".into(),
+        reset_type: 1,
+        sub_flow_reset_policy: 99,
+        ..dex::ResetFlowRequest::default()
+    };
+    assert_invalid(
+        validate_client_request(ClientRequest::ResetFlow(&unknown_policy), &config),
+        "SubFlow reset policy is unknown",
+    );
+    for policy in 0..=6 {
+        let known_policy = dex::ResetFlowRequest {
+            sub_flow_reset_policy: policy,
+            ..unknown_policy.clone()
+        };
+        assert!(
+            validate_client_request(ClientRequest::ResetFlow(&known_policy), &config).is_ok(),
+            "policy {policy} is valid"
+        );
+    }
 
     let wait_attribute = dex::WaitForAttributeRequest {
         flow_id: "flow".into(),

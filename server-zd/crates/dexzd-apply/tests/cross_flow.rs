@@ -13,7 +13,7 @@ use dexzd_apply::read_model::{get_search_document, search_order_index_keys_of_do
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
-    stage_time_travel_for_test,
+    stage_time_travel_reading_child_flows_for_test,
 };
 use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, flow_list_index_key, hard_delete_pending_key,
@@ -59,6 +59,8 @@ const CHILD_ID: &str = "SubFlow:parent-StartStep-1-0";
 mod child_close_results;
 #[path = "cross_flow/child_result_limit.rs"]
 mod child_result_limit;
+#[path = "cross_flow/sub_flow_reset_policy.rs"]
+mod sub_flow_reset_policy;
 
 #[derive(Default)]
 struct MemoryState {
@@ -165,8 +167,13 @@ impl Harness {
     /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
     fn apply_command(&mut self, context: ApplyContext, command: FlowCommand) -> ApplyOutcome {
         if is_unstaged_time_travel_for_test(&command) {
-            let staged = stage_time_travel_for_test(&context, &self.state, &command)
-                .expect("time travel computes");
+            let staged = stage_time_travel_reading_child_flows_for_test(
+                &context,
+                &self.state,
+                &self.hasher,
+                &command,
+            )
+            .expect("time travel computes");
             return apply_staged_time_travel_for_test(staged, |staged_command| {
                 self.apply_command(context, staged_command)
             });

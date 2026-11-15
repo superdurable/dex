@@ -10,6 +10,7 @@
 //!
 //! Owners run it before they stage a result; apply runs it only for unstaged log records.
 
+use std::collections::BTreeSet;
 use std::ops::RangeInclusive;
 
 use dexzd_keyspace::{RunId, TenantId};
@@ -21,8 +22,12 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::TimeTravelResult;
+use super::child_flow_runs::ChildFlowRuns;
 use super::reapplied_input_values::unstored_input_values;
 use super::staging::{staged_chunks, staged_result_bytes};
+use super::sub_flow_reset_findings::{
+    ChildFlowSources, GoneChildFlowCondition, child_flow_findings,
+};
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::flow_not_found_reply;
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
@@ -46,6 +51,11 @@ pub struct TimeTravelComputationSources<'sources> {
     pub history: &'sources dyn HistorySource,
     /// Values of the run that `state` no longer holds.
     pub offloaded_values: &'sources dyn OffloadedValues,
+    /// Child runs of the restored SubFlow conditions, for the request's SubFlow reset policy.
+    ///
+    /// Its reads should be no newer than `state`. A child that looks gone across views of
+    /// different times may be a race; [`compute_time_travel_from_segments`] reports it.
+    pub child_flow_runs: &'sources dyn ChildFlowRuns,
 }
 
 /// A time travel request that an owner computes before it proposes TimeTravel.
@@ -66,6 +76,14 @@ pub struct TimeTravelComputationRequest<'request> {
 pub enum SegmentedTimeTravelComputation {
     /// The computation read every history record and checkpoint it needed.
     Computed(TimeTravelComputation),
+    /// Like `Computed`, but a condition's child looked gone; views of different times may need
+    /// a new round.
+    ComputedWithGoneChildFlow {
+        /// The computation of this round.
+        computation: TimeTravelComputation,
+        /// The conditions whose child looked gone; never empty.
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    },
     /// The computation reached uploaded segments that are not loaded. Fetch them, then compute
     /// again on a new committed view.
     NeedsSegments(MissingHistorySegments),
@@ -174,23 +192,39 @@ pub struct StagedEntryTooLarge {
 ///
 /// Returns [`TimeTravelComputation::Rejected`] with the reply apply would give, including when
 /// the replay exceeds its memory budget or the target state holds a value that no source has.
-/// Returns an error when stored state is corrupt.
+/// Also returns it with FAILED_PRECONDITION when the SubFlow reset policy rejects a restored
+/// SubFlow condition. Returns an error when stored state is corrupt.
 pub fn compute_time_travel(
     context: &ApplyContext,
     sources: &TimeTravelComputationSources<'_>,
     request: &TimeTravelComputationRequest<'_>,
 ) -> Result<TimeTravelComputation, ApplyError> {
+    compute_noting_gone_child_flows(context, sources, request)
+        .map(|(computation, _gone_child_flows)| computation)
+}
+
+/// Computes as [`compute_time_travel`] does.
+///
+/// Returns the computation and the restored conditions whose child looked gone, or an error
+/// when stored state is corrupt.
+fn compute_noting_gone_child_flows(
+    context: &ApplyContext,
+    sources: &TimeTravelComputationSources<'_>,
+    request: &TimeTravelComputationRequest<'_>,
+) -> Result<(TimeTravelComputation, BTreeSet<GoneChildFlowCondition>), ApplyError> {
     let transaction = FlowTransaction::new(sources.state, *context);
     let rows = RunRows::new(context.flow_hash, request.run_id);
     let Some(record) = rows.run_record(&transaction)? else {
-        return Ok(TimeTravelComputation::Rejected(flow_not_found_reply(
-            &request.reset.flow_id,
-        )));
+        return Ok((
+            TimeTravelComputation::Rejected(flow_not_found_reply(&request.reset.flow_id)),
+            BTreeSet::new(),
+        ));
     };
     if record.is_purging {
-        return Ok(TimeTravelComputation::Rejected(flow_not_found_reply(
-            &record.flow_id,
-        )));
+        return Ok((
+            TimeTravelComputation::Rejected(flow_not_found_reply(&record.flow_id)),
+            BTreeSet::new(),
+        ));
     }
     let computed_through_seq = record.next_run_seq.saturating_sub(1);
     let memory_budget = ReplayMemoryBudget::new(request.replay_memory_budget_bytes);
@@ -198,7 +232,7 @@ pub fn compute_time_travel(
         offloaded_values: sources.offloaded_values,
         memory_budget: &memory_budget,
     };
-    let result = match compute_result(
+    let mut result = match compute_result(
         &transaction,
         sources.history,
         rows,
@@ -209,26 +243,46 @@ pub fn compute_time_travel(
         resources,
     )? {
         Ok(result) => result,
-        Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
+        Err(reply) => return Ok((TimeTravelComputation::Rejected(reply), BTreeSet::new())),
+    };
+    let findings = child_flow_findings(
+        &transaction,
+        rows,
+        &record,
+        request.reset,
+        &result,
+        ChildFlowSources {
+            child_flow_runs: sources.child_flow_runs,
+            memory_budget: &memory_budget,
+        },
+    )?;
+    let gone_child_flows = findings.gone_child_flows;
+    result.child_flows = match findings.outcome {
+        Ok(findings) => Some(findings),
+        Err(reply) => {
+            return Ok((TimeTravelComputation::Rejected(reply), gone_child_flows));
+        }
     };
     // Staging encodes every entry once more.
     if !memory_budget.reserve(staged_result_bytes(&result)) {
-        return Ok(TimeTravelComputation::Rejected(
-            replay_memory_exceeded_reply(
+        return Ok((
+            TimeTravelComputation::Rejected(replay_memory_exceeded_reply(
                 result.target.point,
                 memory_budget.limit_bytes(),
                 "the staged result",
-            ),
+            )),
+            gone_child_flows,
         ));
     }
-    Ok(TimeTravelComputation::Computed(Box::new(
-        ComputedTimeTravel {
+    Ok((
+        TimeTravelComputation::Computed(Box::new(ComputedTimeTravel {
             request: request.reset.clone(),
             run_attempt: record.current_attempt,
             computed_through_seq,
             result,
-        },
-    )))
+        })),
+        gone_child_flows,
+    ))
 }
 
 /// Computes `request` as [`compute_time_travel`] does, reading the run's history from local
@@ -242,6 +296,7 @@ pub fn compute_time_travel_from_segments(
     state: &dyn FlowStateReader,
     segments: &LoadedHistorySegments,
     offloaded_values: &dyn OffloadedValues,
+    child_flow_runs: &dyn ChildFlowRuns,
     request: &TimeTravelComputationRequest<'_>,
 ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
     let transaction = FlowTransaction::new(state, *context);
@@ -263,12 +318,13 @@ pub fn compute_time_travel_from_segments(
         Some(segmented) => segmented,
         None => &local,
     };
-    let computation = compute_time_travel(
+    let computation = compute_noting_gone_child_flows(
         context,
         &TimeTravelComputationSources {
             state,
             history,
             offloaded_values,
+            child_flow_runs,
         },
         request,
     );
@@ -286,7 +342,16 @@ pub fn compute_time_travel_from_segments(
             });
         }
     }
-    computation.map(SegmentedTimeTravelComputation::Computed)
+    computation.map(|(computation, gone_child_flows)| {
+        if gone_child_flows.is_empty() {
+            SegmentedTimeTravelComputation::Computed(computation)
+        } else {
+            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            }
+        }
+    })
 }
 
 /// Computes the result of `request` through `computed_through_seq` on the state `transaction`
@@ -380,6 +445,7 @@ pub(super) fn compute_result(
         rows: rebuilt.rows,
         unstored_values,
         reapplied_inputs,
+        child_flows: None,
     }))
 }
 

@@ -17,8 +17,9 @@ use std::time::Duration;
 
 use dexzd_apply::SegmentCheckpoint;
 use dexzd_apply::{
-    ApplyContext, ComputedTimeTravel, LoadedHistorySegments, MissingHistorySegments,
-    SegmentedTimeTravelComputation, TimeTravelComputation, TimeTravelComputationRequest,
+    ApplyContext, ComputedTimeTravel, GoneChildFlowCondition, LoadedHistorySegments,
+    MissingHistorySegments, SegmentedTimeTravelComputation, StateChildFlowRuns,
+    TimeTravelComputation, TimeTravelComputationRequest,
 };
 use dexzd_keyspace::{RunId, TenantId, ValueId, ValueReference};
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, ResetFlowResponse};
@@ -50,9 +51,22 @@ const FIRST_RECOMPUTATION_BACKOFF: Duration = Duration::from_millis(100);
 /// fetches every segment its reads go on to need, so a computation takes about three.
 const MAX_HISTORY_READ_ROUNDS: usize = 16;
 
+/// Rounds in a row that must find a condition's child gone before the computation accepts it. A
+/// child is purged only after its parent acknowledged its report, so a gone child usually means
+/// the round's two views straddled a child start or report.
+const STABLE_GONE_CHILD_FLOW_ROUNDS: usize = 3;
+
+/// Rounds that may find children gone before ResetFlow aborts; the caller may retry.
+const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
+
 /// How one committed view round of a computation ended.
 enum ComputationRound {
     Computed(TimeTravelComputation),
+    /// A condition's child looked gone, which views of different times can cause.
+    ComputedWithGoneChildFlow {
+        computation: TimeTravelComputation,
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    },
     /// The round reached uploaded segments it lacks.
     NeedsSegments(MissingHistorySegments),
     /// The round read values that offload deleted locally, which it lacks; the UPLOADED
@@ -219,10 +233,15 @@ impl FlowCoordinatorRegistry {
         }
     }
 
-    /// Computes the result on blocking threads in committed view rounds, the first on `view`.
-    /// Between rounds it fetches the uploaded segments the last round reached, holding no view.
+    /// Computes the result on blocking threads in committed view rounds, the first reading child
+    /// runs on `view`. Between rounds it fetches the uploaded segments the last round reached,
+    /// holding no view.
     ///
-    /// Returns the computation's rejection, or a failure to read history, as an error.
+    /// A round that finds children gone is accepted only once each of them stayed gone for
+    /// [`STABLE_GONE_CHILD_FLOW_ROUNDS`] rounds in a row; until then the computation runs again.
+    ///
+    /// Returns the computation's rejection, or a failure to read history, as an error. Returns
+    /// ABORTED when the gone children did not settle in [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds.
     async fn compute(
         &self,
         flow: &FlowAddress,
@@ -236,18 +255,49 @@ impl FlowCoordinatorRegistry {
             TimeTravelSegmentReads::new(self.inner.config.time_travel_replay_memory_bytes);
         let mut first_view = Some(view);
         let mut segment_rounds = 0;
+        let mut gone_child_flow_streaks = GoneChildFlowStreaks::default();
         loop {
-            let view = match first_view.take() {
+            // The parent view opens after the child view, so a child purged after its report
+            // shows its result in the parent.
+            let child_view = match first_view.take() {
                 Some(view) => view,
                 None => self.inner.dependencies.committer.committed_view()?,
             };
+            let view = self.inner.dependencies.committer.committed_view()?;
             match self
-                .compute_round(view, context, run_id, request, now_micros, &reads)
+                .compute_round(
+                    view, child_view, context, run_id, request, now_micros, &reads,
+                )
                 .await?
             {
                 ComputationRound::Computed(computation) => {
                     return computed_or_rejected(computation);
                 }
+                ComputationRound::ComputedWithGoneChildFlow {
+                    computation,
+                    gone_child_flows,
+                } => match gone_child_flow_streaks.record_round(gone_child_flows) {
+                    GoneChildFlowVerdict::Accept => return computed_or_rejected(computation),
+                    GoneChildFlowVerdict::ComputeAgain => {
+                        tracing::debug!(
+                            flow_id = %flow.flow_id,
+                            gone_child_flow_rounds = gone_child_flow_streaks.rounds,
+                            "a time travel found a child Flow gone; computing again on new views"
+                        );
+                    }
+                    GoneChildFlowVerdict::Unstable => {
+                        return Err(FlowCoordinationError::rejected(
+                            grpc_code::ABORTED,
+                            ErrorSubStatus::Uncategorized,
+                            format!(
+                                "the time travel of flow {} found different child Flows gone in \
+                                 {MAX_GONE_CHILD_FLOW_ROUNDS} rounds while its child Flows \
+                                 changed; retry",
+                                flow.flow_id
+                            ),
+                        ));
+                    }
+                },
                 ComputationRound::NeedsSegments(needed) => {
                     segment_rounds += 1;
                     if segment_rounds == MAX_HISTORY_READ_ROUNDS {
@@ -283,12 +333,18 @@ impl FlowCoordinatorRegistry {
 
     /// Opens the run's history from `view` with the segments and offloaded values `reads`
     /// fetched, and computes the result on a blocking thread, which releases the view.
+    /// It reads child runs on `child_view`, which is no newer than `view`.
     ///
     /// A round that read offloaded values it lacks needs them, whatever it computed, since it
     /// computed without them.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Each input is a distinct part of one computation round."
+    )]
     async fn compute_round(
         &self,
         view: Box<dyn dexzd_apply::FlowStateReader + Send>,
+        child_view: Box<dyn dexzd_apply::FlowStateReader + Send>,
         context: ApplyContext,
         run_id: RunId,
         request: &ResetFlowRequest,
@@ -312,11 +368,14 @@ impl FlowCoordinatorRegistry {
             })?;
         let reset = request.clone();
         let replay_memory_budget_bytes = self.inner.config.time_travel_replay_memory_bytes;
+        // Child Flows may live on other partitions; this node's store holds them all for now.
+        let hasher = self.inner.dependencies.hasher.clone();
         let (computation, missing_values) = self
             .inner
             .config
             .blocking_work
             .run(move || {
+                let child_flow_runs = StateChildFlowRuns::new(child_view.as_ref(), &hasher);
                 let computation = history.compute_time_travel(
                     &context,
                     &TimeTravelComputationRequest {
@@ -325,6 +384,7 @@ impl FlowCoordinatorRegistry {
                         now_micros,
                         replay_memory_budget_bytes,
                     },
+                    &child_flow_runs,
                 );
                 (computation, history.take_missing_offloaded_values())
             })
@@ -339,6 +399,13 @@ impl FlowCoordinatorRegistry {
             SegmentedTimeTravelComputation::Computed(computation) => {
                 ComputationRound::Computed(computation)
             }
+            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            } => ComputationRound::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            },
             SegmentedTimeTravelComputation::NeedsSegments(needed) => {
                 ComputationRound::NeedsSegments(needed)
             }
@@ -624,6 +691,60 @@ impl TimeTravelSegmentReads {
             ));
         }
         Ok(())
+    }
+}
+
+/// For each condition whose child the last round found gone, the rounds in a row that found it
+/// gone.
+#[derive(Default)]
+struct GoneChildFlowStreaks {
+    /// Rounds so far that found a child gone.
+    rounds: usize,
+    streaks: BTreeMap<GoneChildFlowCondition, usize>,
+}
+
+/// What a computation does after a round that found children gone.
+enum GoneChildFlowVerdict {
+    /// Every gone child was gone in each of the last rounds; the round's result stands.
+    Accept,
+    ComputeAgain,
+    /// The gone children kept changing until the round limit.
+    Unstable,
+}
+
+impl GoneChildFlowStreaks {
+    /// Records a round that found the children of `gone_child_flows` gone.
+    ///
+    /// Returns [`GoneChildFlowVerdict::Accept`] when each of them was gone in the last
+    /// [`STABLE_GONE_CHILD_FLOW_ROUNDS`] rounds, [`GoneChildFlowVerdict::Unstable`] when
+    /// [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds passed without that, and
+    /// [`GoneChildFlowVerdict::ComputeAgain`] otherwise.
+    fn record_round(
+        &mut self,
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    ) -> GoneChildFlowVerdict {
+        self.rounds += 1;
+        let previous_streaks = std::mem::take(&mut self.streaks);
+        self.streaks = gone_child_flows
+            .into_iter()
+            .map(|condition| {
+                let streak = previous_streaks
+                    .get(&condition)
+                    .map_or(1, |streak| streak + 1);
+                (condition, streak)
+            })
+            .collect();
+        if self
+            .streaks
+            .values()
+            .all(|streak| *streak >= STABLE_GONE_CHILD_FLOW_ROUNDS)
+        {
+            GoneChildFlowVerdict::Accept
+        } else if self.rounds >= MAX_GONE_CHILD_FLOW_ROUNDS {
+            GoneChildFlowVerdict::Unstable
+        } else {
+            GoneChildFlowVerdict::ComputeAgain
+        }
     }
 }
 

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use dexzd_apply::read_model::{OffloadedValueLocation, ReadModelError, locate_offloaded_value};
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyError, LoadedHistorySegments, SegmentCheckpoint,
+    ApplyContext, ApplyError, LoadedHistorySegments, NoChildFlowRuns, SegmentCheckpoint,
     SegmentedTimeTravelComputation, TimeTravelComputation, TimeTravelComputationRequest,
     compute_time_travel_from_segments,
 };
@@ -78,8 +78,18 @@ pub(crate) fn compute_offloaded_time_travel(
     };
     let mut loaded = LoadedHistorySegments::default();
     for _ in 0..MAX_SEGMENT_ROUNDS {
-        match compute_time_travel_from_segments(&context, state, &loaded, &objects, &request)? {
-            SegmentedTimeTravelComputation::Computed(computation) => {
+        // The apply model starts no SubFlows, so no child Flow is read.
+        match compute_time_travel_from_segments(
+            &context,
+            state,
+            &loaded,
+            &objects,
+            &NoChildFlowRuns,
+            &request,
+        )? {
+            // One state holds parent and child, so a gone child is no race.
+            SegmentedTimeTravelComputation::Computed(computation)
+            | SegmentedTimeTravelComputation::ComputedWithGoneChildFlow { computation, .. } => {
                 return Ok(OffloadedTimeTravel {
                     computation,
                     has_read_objects: !loaded.is_empty() || objects.has_served_values.get(),

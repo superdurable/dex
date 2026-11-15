@@ -127,6 +127,27 @@ public interface ResetFlowRequestOrBuilder extends
 
   /**
    * <pre>
+   * Decides what happens to the SubFlow conditions that restored Steps wait on.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
+   * </pre>
+   *
+   * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+   * @return The enum numeric value on the wire for subFlowResetPolicy.
+   */
+  int getSubFlowResetPolicyValue();
+  /**
+   * <pre>
+   * Decides what happens to the SubFlow conditions that restored Steps wait on.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
+   * </pre>
+   *
+   * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
+   * @return The subFlowResetPolicy.
+   */
+  io.superdurable.gen.SubFlowResetPolicy getSubFlowResetPolicy();
+
+  /**
+   * <pre>
    * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
    * The event must belong to the history of the selected run_attempt, including the attempts it
    * started from, and must still be in the time travel window. An event of another attempt's

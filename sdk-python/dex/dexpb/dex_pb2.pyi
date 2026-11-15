@@ -117,6 +117,7 @@ class FlowErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: _ClassVar[FlowErrorType]
     FLOW_ERROR_TYPE_FLOW_TIMEOUT: _ClassVar[FlowErrorType]
     FLOW_ERROR_TYPE_INTERNAL: _ClassVar[FlowErrorType]
+    FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED: _ClassVar[FlowErrorType]
 
 class PendingStepMethodPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -164,6 +165,16 @@ class FlowResetStepMethod(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FLOW_RESET_STEP_METHOD_UNSPECIFIED: _ClassVar[FlowResetStepMethod]
     FLOW_RESET_STEP_METHOD_WAIT_FOR: _ClassVar[FlowResetStepMethod]
     FLOW_RESET_STEP_METHOD_EXECUTE: _ClassVar[FlowResetStepMethod]
+
+class SubFlowResetPolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SUB_FLOW_RESET_POLICY_UNSPECIFIED: _ClassVar[SubFlowResetPolicy]
+    SUB_FLOW_RESET_POLICY_ALWAYS_RESTART: _ClassVar[SubFlowResetPolicy]
+    SUB_FLOW_RESET_POLICY_ALWAYS_FAIL: _ClassVar[SubFlowResetPolicy]
+    SUB_FLOW_RESET_POLICY_ALWAYS_REJECT: _ClassVar[SubFlowResetPolicy]
+    SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART: _ClassVar[SubFlowResetPolicy]
+    SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL: _ClassVar[SubFlowResetPolicy]
+    SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT: _ClassVar[SubFlowResetPolicy]
 
 class AttributeMatchOperator(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -303,6 +314,7 @@ FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType
 FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: FlowErrorType
 FLOW_ERROR_TYPE_FLOW_TIMEOUT: FlowErrorType
 FLOW_ERROR_TYPE_INTERNAL: FlowErrorType
+FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED: FlowErrorType
 PENDING_STEP_METHOD_PHASE_UNSPECIFIED: PendingStepMethodPhase
 PENDING_STEP_METHOD_PHASE_SCHEDULED: PendingStepMethodPhase
 PENDING_STEP_METHOD_PHASE_STARTED: PendingStepMethodPhase
@@ -329,6 +341,13 @@ FLOW_RESET_TYPE_EVENT_ID: FlowResetType
 FLOW_RESET_STEP_METHOD_UNSPECIFIED: FlowResetStepMethod
 FLOW_RESET_STEP_METHOD_WAIT_FOR: FlowResetStepMethod
 FLOW_RESET_STEP_METHOD_EXECUTE: FlowResetStepMethod
+SUB_FLOW_RESET_POLICY_UNSPECIFIED: SubFlowResetPolicy
+SUB_FLOW_RESET_POLICY_ALWAYS_RESTART: SubFlowResetPolicy
+SUB_FLOW_RESET_POLICY_ALWAYS_FAIL: SubFlowResetPolicy
+SUB_FLOW_RESET_POLICY_ALWAYS_REJECT: SubFlowResetPolicy
+SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART: SubFlowResetPolicy
+SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL: SubFlowResetPolicy
+SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT: SubFlowResetPolicy
 ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED: AttributeMatchOperator
 ATTRIBUTE_MATCH_OPERATOR_EQUAL: AttributeMatchOperator
 ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL: AttributeMatchOperator
@@ -1543,7 +1562,7 @@ class GetFlowStateResponse(_message.Message):
     def __init__(self, flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., active_step_executions: _Optional[_Iterable[_Union[ActiveStepExecutionState, _Mapping]]] = ..., queued_steps: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., pending_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., completed_steps: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., sticky_app_worker_id: _Optional[str] = ...) -> None: ...
 
 class ResetFlowRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "reset_type", "reason", "history_event_time", "step_type", "step_execution_id", "skip_writes_reapply", "step_method", "run_attempt", "event_id")
+    __slots__ = ("flow_id", "run_id", "reset_type", "reason", "history_event_time", "step_type", "step_execution_id", "skip_writes_reapply", "step_method", "run_attempt", "sub_flow_reset_policy", "event_id")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     RESET_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1554,6 +1573,7 @@ class ResetFlowRequest(_message.Message):
     SKIP_WRITES_REAPPLY_FIELD_NUMBER: _ClassVar[int]
     STEP_METHOD_FIELD_NUMBER: _ClassVar[int]
     RUN_ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_RESET_POLICY_FIELD_NUMBER: _ClassVar[int]
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
@@ -1565,8 +1585,9 @@ class ResetFlowRequest(_message.Message):
     skip_writes_reapply: bool
     step_method: FlowResetStepMethod
     run_attempt: int
+    sub_flow_reset_policy: SubFlowResetPolicy
     event_id: int
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reset_type: _Optional[_Union[FlowResetType, str]] = ..., reason: _Optional[str] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., skip_writes_reapply: _Optional[bool] = ..., step_method: _Optional[_Union[FlowResetStepMethod, str]] = ..., run_attempt: _Optional[int] = ..., event_id: _Optional[int] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reset_type: _Optional[_Union[FlowResetType, str]] = ..., reason: _Optional[str] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., skip_writes_reapply: _Optional[bool] = ..., step_method: _Optional[_Union[FlowResetStepMethod, str]] = ..., run_attempt: _Optional[int] = ..., sub_flow_reset_policy: _Optional[_Union[SubFlowResetPolicy, str]] = ..., event_id: _Optional[int] = ...) -> None: ...
 
 class ResetFlowResponse(_message.Message):
     __slots__ = ("run_id", "run_attempt")

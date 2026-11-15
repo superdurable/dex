@@ -18,7 +18,7 @@ use bytes::Bytes;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyError, FlowStateReader, LoadedHistorySegments,
+    ApplyContext, ApplyEffect, ApplyError, ChildFlowRuns, FlowStateReader, LoadedHistorySegments,
     SegmentedTimeTravelComputation, TimeTravelComputationRequest,
     compute_time_travel_from_segments,
 };
@@ -694,12 +694,14 @@ impl TimeTravelRunHistory for ScriptedRunHistory {
         &self,
         context: &ApplyContext,
         request: &TimeTravelComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
         compute_time_travel_from_segments(
             context,
             self.view.as_ref(),
             &self.segments,
             &self.removed_values,
+            child_flow_runs,
             request,
         )
     }
@@ -2526,4 +2528,209 @@ async fn a_hot_standby_replays_the_revive_of_an_offloaded_value_to_the_serving_s
     travel.shutdown().await;
     standby.shutdown().await;
     crate::hot_standby::assert_same_stores(&serving_directory, &standby_directory);
+}
+
+/// ResetFlow reads the child Flow of a restored SubFlow wait through the owner's committed view.
+mod sub_flow_reset {
+    use dexzd_protocol::dex::{
+        InvokeWaitForMethodResponse, SubFlowCondition, SubFlowResetPolicy, WaitingCondition,
+        WaitingConditionType,
+    };
+    use dexzd_protocol::dexzd::v1::{
+        InboxMessageCommand, OutboxAckCommand, OutboxRecord, StepAttemptStartedCommand,
+        StepInvocationKey, StepMethod, StepMethodCompletedCommand, command_reply,
+        inbox_message_command, outbox_record, step_method_completed_command,
+    };
+
+    use super::*;
+
+    const CHILD_FLOW_ID: &str = "SubFlow:travel-flow-ChargeStep-1-0";
+    const CHILD_INPUT: &str = "child input";
+
+    impl TravelNode {
+        /// Commits `body` for run `run_id` of `flow_id` straight to the log and checks that it
+        /// applied.
+        async fn commit_to_flow(&self, flow_id: &str, run_id: Vec<u8>, body: Command) {
+            let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, flow_id);
+            let context = ApplyContext {
+                partition: self.hasher.partition_of(flow_hash),
+                flow_hash,
+            };
+            let (_, ticket) = self
+                .committer()
+                .submit(
+                    context,
+                    FlowCommand {
+                        flow_id: flow_id.to_owned(),
+                        run_id,
+                        command: Some(body),
+                        ..FlowCommand::default()
+                    },
+                    CommitUrgency::Prompt,
+                )
+                .expect("the command is submitted");
+            let committed = ticket.wait().await.expect("the command commits");
+            assert!(
+                !matches!(
+                    committed.outcome.reply.reply,
+                    Some(command_reply::Reply::Error(_))
+                ),
+                "{:?}",
+                committed.outcome.reply
+            );
+        }
+
+        fn parent_outbox(&self, run_id: RunId) -> Vec<OutboxRecord> {
+            let prefix = run_table_prefix(self.context().flow_hash, run_id, RunTable::Outbox);
+            let (start, end) = prefix_range(&prefix);
+            self.view()
+                .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
+                .expect("the outbox reads")
+                .into_iter()
+                .map(|(_, bytes)| OutboxRecord::decode(bytes.as_slice()).expect("outbox decodes"))
+                .collect()
+        }
+
+        /// Makes ChargeStep wait on a child, delivers the child's start, and returns the time
+        /// of the wait's point.
+        async fn wait_on_a_running_child(&self, run_id: RunId) -> i64 {
+            let invocation = StepInvocationKey {
+                step_execution_id: START_STEP_EXECUTION.to_owned(),
+                method: StepMethod::WaitFor as i32,
+            };
+            self.commit_to_flow(
+                FLOW_ID,
+                run_id.as_bytes().to_vec(),
+                Command::StepAttemptStarted(StepAttemptStartedCommand {
+                    invocation: Some(invocation.clone()),
+                    attempt: 1,
+                    task_id: vec![7; 16],
+                    pull_routing: None,
+                }),
+            )
+            .await;
+            self.commit_to_flow(
+                FLOW_ID,
+                run_id.as_bytes().to_vec(),
+                Command::StepMethodCompleted(StepMethodCompletedCommand {
+                    invocation: Some(invocation),
+                    attempt: 1,
+                    response: Some(step_method_completed_command::Response::WaitFor(
+                        InvokeWaitForMethodResponse {
+                            waiting_condition: Some(WaitingCondition {
+                                waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+                                sub_flow_conditions: vec![SubFlowCondition {
+                                    condition_id: "child".to_owned(),
+                                    sub_flow_type: "ChildFlow".to_owned(),
+                                    start_step_type: "ChildStep".to_owned(),
+                                    step_input: Some(string_value(CHILD_INPUT)),
+                                    ..SubFlowCondition::default()
+                                }],
+                                ..WaitingCondition::default()
+                            }),
+                            ..InvokeWaitForMethodResponse::default()
+                        },
+                    )),
+                    ..StepMethodCompletedCommand::default()
+                }),
+            )
+            .await;
+            let wait_seq = self.run_record(run_id).next_run_seq - 1;
+            let start = self
+                .parent_outbox(run_id)
+                .pop()
+                .expect("the wait starts its child");
+            let Some(outbox_record::Payload::ChildStart(child_start)) = start.payload else {
+                panic!("expected a child start");
+            };
+            let source = child_start
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.parent.clone());
+            self.commit_to_flow(
+                CHILD_FLOW_ID,
+                Vec::new(),
+                Command::InboxMessage(InboxMessageCommand {
+                    message_id: start.message_id.clone(),
+                    source,
+                    payload: Some(inbox_message_command::Payload::ChildStart(child_start)),
+                    new_run_id: vec![9; 16],
+                    settings: Some(FlowCoordinationConfig::default().run_settings),
+                }),
+            )
+            .await;
+            // The outbox effect acknowledges a delivered start, as here.
+            self.commit_to_flow(
+                FLOW_ID,
+                run_id.as_bytes().to_vec(),
+                Command::OutboxAck(OutboxAckCommand {
+                    message_ids: vec![start.message_id],
+                }),
+            )
+            .await;
+            self.history_record(run_id, wait_seq).timestamp_micros
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reset_flow_rejects_or_restarts_the_child_of_a_restored_wait() {
+        let cluster = TestCluster::new();
+        let travel = TravelNode::start(
+            &cluster,
+            LocalStoreConfig::InMemory,
+            segmented_opener(),
+            FlowCoordinationConfig::default(),
+        )
+        .await;
+        let run_id = travel.start_flow(None).await;
+        let wait_time = travel.wait_on_a_running_child(run_id).await;
+
+        let rejected = travel
+            .reset(ResetFlowRequest {
+                sub_flow_reset_policy: SubFlowResetPolicy::AlwaysReject as i32,
+                ..reset_to_time(wait_time)
+            })
+            .await
+            .expect_err("ALWAYS_REJECT rejects a restored SubFlow wait");
+        assert_eq!(rejected.grpc_code(), grpc_code::FAILED_PRECONDITION);
+        assert!(rejected.to_string().contains(CHILD_FLOW_ID), "{rejected}");
+        assert_eq!(travel.run_record(run_id).current_attempt, 1);
+
+        let attached = travel
+            .reset(reset_to_time(wait_time))
+            .await
+            .expect("the default policy attaches the running child");
+        assert_eq!(attached, 2);
+        assert_eq!(travel.parent_outbox(run_id).len(), 1, "no child message");
+
+        let restarted = travel
+            .reset(ResetFlowRequest {
+                sub_flow_reset_policy: SubFlowResetPolicy::AlwaysRestart as i32,
+                ..reset_to_time(wait_time)
+            })
+            .await
+            .expect("ALWAYS_RESTART restarts the child from its start");
+        assert_eq!(restarted, 3);
+        let restart = travel
+            .parent_outbox(run_id)
+            .into_iter()
+            .find_map(|record| match record.payload {
+                Some(outbox_record::Payload::ChildStart(start))
+                    if start.request_id == format!("{run_id}:3:{START_STEP_EXECUTION}:0") =>
+                {
+                    Some(start)
+                }
+                _ => None,
+            })
+            .expect("the restart writes a child start for run attempt 3");
+        assert_eq!(
+            restart
+                .condition
+                .expect("the restart has its condition")
+                .step_input,
+            Some(string_value(CHILD_INPUT))
+        );
+        travel.assert_every_travel_verified(2);
+        travel.shutdown().await;
+    }
 }

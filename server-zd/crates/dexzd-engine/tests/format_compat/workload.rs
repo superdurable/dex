@@ -10,9 +10,9 @@ use bytes::Bytes;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateHistorySource,
-    TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
-    WaitableChange, compute_time_travel,
+    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateChildFlowRuns,
+    StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
+    TimeTravelComputationSources, WaitableChange, compute_time_travel,
 };
 use dexzd_clock::WallClock;
 use dexzd_engine::{
@@ -1961,12 +1961,14 @@ impl Workload<'_> {
                 .committed_view()
                 .expect("the committed view opens");
             let history = StateHistorySource::new(&view, context, run.run_id);
+            let child_flow_runs = StateChildFlowRuns::new(&view, self.hasher);
             let computation = compute_time_travel(
                 &context,
                 &TimeTravelComputationSources {
                     state: &view,
                     history: &history,
                     offloaded_values: &NoOffloadedValues,
+                    child_flow_runs: &child_flow_runs,
                 },
                 &TimeTravelComputationRequest {
                     run_id: run.run_id,

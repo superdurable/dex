@@ -25,6 +25,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::TimeTravelResult;
+use super::sub_flow_reset::{RestoredSubFlowAction, apply_restored_sub_flow_actions};
 use crate::command_handlers::command_replies::{TERMINAL_CLEANUP_MESSAGE, grpc_code};
 use crate::command_handlers::flow_close::{
     FlowClosing, close_flow, close_flow_immediately, finalize_pending_close_if_ready,
@@ -58,6 +59,7 @@ pub(super) fn fork_attempt(
     command: &TimeTravelCommand,
     request: &ResetFlowRequest,
     result: TimeTravelResult,
+    sub_flow_actions: Vec<RestoredSubFlowAction>,
 ) -> Result<HandlerResult, ApplyError> {
     let previous_attempt = cursor.attempt();
     let TimeTravelResult {
@@ -119,6 +121,8 @@ pub(super) fn fork_attempt(
         &holder_rows(&restored_rows, &run_status_of(&cursor.record)),
         cursor.seq,
     )?;
+    // Acts on the rows the owner planned on; restored waits complete after reapply.
+    apply_restored_sub_flow_actions(transaction, &mut cursor, scope, sub_flow_actions)?;
     // Remarks precede reapplied input, so a reapplied natural close waits; the reset's end
     // re-checks it.
     // Marks synced Attributes of the abandoned state, so stores converge on the restored one (D16).

@@ -129,6 +129,7 @@ pub(crate) fn register_wait(
         sub_flow_child_ids,
         started_waiting_seq: cursor.seq,
         sub_flow_registration_attempt: cursor.attempt(),
+        sub_flow_registration_attempts: Vec::new(),
     });
     evaluate_waiting_step(transaction, cursor, scope.now_micros, step)?;
     cursor.rows.put_step_execution(transaction, step);
@@ -227,8 +228,13 @@ fn evaluate_sub_flow_waiters(
             let started_waiting_seq = step.wait.as_ref().and_then(|wait| {
                 (!wait.sub_flow_child_ids.is_empty()
                     && arrived.is_none_or(|(child_flow_id, attempt)| {
-                        wait.sub_flow_registration_attempt == attempt
-                            && wait.sub_flow_child_ids.iter().any(|id| id == child_flow_id)
+                        wait.sub_flow_child_ids
+                            .iter()
+                            .enumerate()
+                            .any(|(index, id)| {
+                                id == child_flow_id
+                                    && sub_flow_registration_attempt(wait, index) == attempt
+                            })
                     }))
                 .then_some(wait.started_waiting_seq)
             })?;
@@ -395,12 +401,12 @@ fn evaluate_waiting_step(
         .map(|index| is_status_completed(wait.timer_statuses.get(index).copied()))
         .collect();
     let mut sub_flow_results = Vec::with_capacity(wait.sub_flow_child_ids.len());
-    for child_flow_id in &wait.sub_flow_child_ids {
+    for (index, child_flow_id) in wait.sub_flow_child_ids.iter().enumerate() {
         sub_flow_results.push(sub_flow_result(
             transaction,
             cursor.rows,
             child_flow_id,
-            wait.sub_flow_registration_attempt,
+            sub_flow_registration_attempt(wait, index),
         )?);
     }
     let is_sub_flow_completed: Vec<bool> = sub_flow_results.iter().map(Option::is_some).collect();
@@ -642,6 +648,29 @@ fn channel_waiters(
             Ok((record.started_waiting_seq, step_execution_id))
         })
         .collect()
+}
+
+/// Returns the attempt whose child results the SubFlow condition at `index` accepts.
+pub(crate) fn sub_flow_registration_attempt(wait: &WaitStateRecord, index: usize) -> u32 {
+    wait.sub_flow_registration_attempts
+        .get(index)
+        .copied()
+        .unwrap_or(wait.sub_flow_registration_attempt)
+}
+
+/// Makes the SubFlow condition at `index` accept only the child results of `attempt`.
+pub(crate) fn set_sub_flow_registration_attempt(
+    wait: &mut WaitStateRecord,
+    index: usize,
+    attempt: u32,
+) {
+    if wait.sub_flow_registration_attempts.is_empty() {
+        wait.sub_flow_registration_attempts =
+            vec![wait.sub_flow_registration_attempt; wait.sub_flow_child_ids.len()];
+    }
+    if let Some(condition_attempt) = wait.sub_flow_registration_attempts.get_mut(index) {
+        *condition_attempt = attempt;
+    }
 }
 
 fn sub_flow_result(

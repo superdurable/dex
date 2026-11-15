@@ -33,8 +33,10 @@ pub use command_handlers::command_replies::{CLOSED_RUN_STOP_MESSAGE, TERMINAL_CL
 pub use command_handlers::flow_close::{TransactionalRpcHold, transactional_rpc_hold};
 pub use hard_delete_admission::{HardDeleteAdmissionError, validate_hard_delete_command};
 pub use history::{
-    ComputedTimeTravel, HistoryRecords, HistorySource, SegmentedTimeTravelComputation,
-    StagedEntryTooLarge, StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
+    ChildFlowRead, ChildFlowReadMemory, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns,
+    ChildFlowStartRead, ComputedTimeTravel, GoneChildFlowCondition, HistoryRecords, HistorySource,
+    NoChildFlowRuns, SegmentedTimeTravelComputation, StagedEntryTooLarge, StateChildFlowRuns,
+    StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
     TimeTravelComputationSources, compute_time_travel, compute_time_travel_from_segments,
     diagnostics,
 };
@@ -42,6 +44,7 @@ pub use history::{
 pub use history::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
     stage_computed_time_travel_for_test, stage_time_travel_for_test,
+    stage_time_travel_reading_child_flows_for_test,
 };
 pub use history_offload::segment_expiry::is_expired_history_object_deletion_enabled;
 pub use history_offload::segmented_history::{

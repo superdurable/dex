@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use dexzd_apply::read_model::{OffloadedValueLocation, ReadModelError, locate_offloaded_value};
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyError, FlowStateReader, LoadedHistorySegments,
+    ApplyContext, ApplyEffect, ApplyError, ChildFlowRuns, FlowStateReader, LoadedHistorySegments,
     SegmentedTimeTravelComputation, TimeTravelComputationRequest,
     compute_time_travel_from_segments,
 };
@@ -235,6 +235,7 @@ pub trait HardDeleteValueUploader: Send + Sync + 'static {
 /// shows, with the uploaded segments fetched before the view was pinned.
 pub trait TimeTravelRunHistory: Send {
     /// Computes `request` over this history on the calling thread, which may block.
+    /// It reads child runs from `child_flow_runs`.
     ///
     /// Returns [`SegmentedTimeTravelComputation::NeedsSegments`] when the computation reached
     /// uploaded segments this history lacks. Returns an error when stored state is corrupt.
@@ -242,6 +243,7 @@ pub trait TimeTravelRunHistory: Send {
         &self,
         context: &ApplyContext,
         request: &TimeTravelComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError>;
 
     /// Returns the values that offload deleted locally which the last computation read and
@@ -330,12 +332,14 @@ impl TimeTravelRunHistory for SegmentedRunHistory {
         &self,
         context: &ApplyContext,
         request: &TimeTravelComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
         compute_time_travel_from_segments(
             context,
             self.view.as_ref(),
             &self.segments,
             self,
+            child_flow_runs,
             request,
         )
     }

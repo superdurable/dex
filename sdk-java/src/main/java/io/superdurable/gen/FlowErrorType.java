@@ -47,6 +47,15 @@ public enum FlowErrorType
    * <code>FLOW_ERROR_TYPE_INTERNAL = 6;</code>
    */
   FLOW_ERROR_TYPE_INTERNAL(6),
+  /**
+   * <pre>
+   * A SubFlow reset policy failed the SubFlow condition of a restored wait. Only a SubFlow
+   * result carries it; the child run itself never closes with it.
+   * </pre>
+   *
+   * <code>FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED = 7;</code>
+   */
+  FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED(7),
   UNRECOGNIZED(-1),
   ;
 
@@ -95,6 +104,15 @@ public enum FlowErrorType
    * <code>FLOW_ERROR_TYPE_INTERNAL = 6;</code>
    */
   public static final int FLOW_ERROR_TYPE_INTERNAL_VALUE = 6;
+  /**
+   * <pre>
+   * A SubFlow reset policy failed the SubFlow condition of a restored wait. Only a SubFlow
+   * result carries it; the child run itself never closes with it.
+   * </pre>
+   *
+   * <code>FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED = 7;</code>
+   */
+  public static final int FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED_VALUE = 7;
 
 
   public final int getNumber() {
@@ -128,6 +146,7 @@ public enum FlowErrorType
       case 4: return FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE;
       case 5: return FLOW_ERROR_TYPE_FLOW_TIMEOUT;
       case 6: return FLOW_ERROR_TYPE_INTERNAL;
+      case 7: return FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED;
       default: return null;
     }
   }

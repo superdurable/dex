@@ -21,8 +21,8 @@ use dexzd_apply::read_model::{
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, ApplyOutcome, FlowStateReader, LoadedHistorySegments,
-    SegmentCheckpoint, SegmentedTimeTravelComputation, StateReadError, StateRow, StateWrite,
-    TimeTravelComputation, TimeTravelComputationRequest, apply_flow_command,
+    NoChildFlowRuns, SegmentCheckpoint, SegmentedTimeTravelComputation, StateReadError, StateRow,
+    StateWrite, TimeTravelComputation, TimeTravelComputationRequest, apply_flow_command,
     apply_staged_time_travel_for_test, compute_time_travel_from_segments,
     stage_computed_time_travel_for_test,
 };
@@ -656,6 +656,7 @@ impl Harness {
             &self.state,
             &self.loaded_segments(),
             &UploadedValues(&self.uploaded),
+            &NoChildFlowRuns,
             &TimeTravelComputationRequest {
                 run_id: self.run(),
                 reset: &request,
@@ -1497,6 +1498,7 @@ fn time_travel_computes_from_uploaded_segments_without_expired_ones() {
             &harness.state,
             &uploaded_only,
             &UploadedValues(&harness.uploaded),
+            &NoChildFlowRuns,
             &TimeTravelComputationRequest {
                 run_id: harness.run(),
                 reset: request,
