@@ -189,10 +189,8 @@ pub(crate) fn child_start_request_id(
     format!("{parent_run_id}:{parent_run_attempt}:{step_execution_id}:{sub_flow_index}")
 }
 
-/// Writes the start of a child that a time travel restarts from its original `start`.
-///
-/// The new start belongs to the current run attempt and terminates a still-running child run.
-/// History rebuild writes nothing, as for [`start_child_flows`].
+/// Writes the restart of a child from its original `start` under the current run attempt.
+/// History rebuild writes nothing.
 pub(crate) fn write_restarted_child_start(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -247,8 +245,8 @@ pub(crate) fn restarted_child_condition(start: &ChildFlowStartMessage) -> SubFlo
     condition
 }
 
-/// Writes the message that terminates the child run reporting to `parent` while it still runs.
-/// History rebuild writes nothing, as for [`start_child_flows`].
+/// Writes the message that terminates the child run reporting to `parent`. History rebuild
+/// writes nothing.
 pub(crate) fn write_child_terminate(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

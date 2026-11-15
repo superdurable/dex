@@ -58,8 +58,7 @@ pub(crate) struct TimeTravelResult {
     pub(crate) unstored_values: Vec<TimeTravelStagedValue>,
     /// External input after the target point, in (run seq, index in record) order.
     pub(crate) reapplied_inputs: Vec<TimeTravelStagedInput>,
-    /// What the owner found in the child Flows of restored SubFlow conditions; `None` for a
-    /// result that older binaries computed, which keeps every restored SubFlow wait.
+    /// The owner's child Flow findings; `None` for older owners, which kept every restored wait.
     pub(crate) child_flows: Option<Vec<TimeTravelStagedChildFlow>>,
 }
 
@@ -201,8 +200,7 @@ mod owner_staging {
         stage_time_travel_with_child_flows(context, state, &NoChildFlowRuns, command)
     }
 
-    /// Stages `command` as [`stage_time_travel_for_test`] does, reading child Flows from
-    /// `state`, which holds every partition that `hasher` places them in.
+    /// Stages `command` as [`stage_time_travel_for_test`] does, reading child Flows from `state`.
     ///
     /// Returns what [`stage_time_travel_for_test`] returns.
     pub fn stage_time_travel_reading_child_flows_for_test(

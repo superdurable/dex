@@ -431,8 +431,8 @@ pub(crate) fn store_sub_flow_result(
     Ok(())
 }
 
-/// Terminates the child Flow's latest run when it still runs and reports to the abandoned
-/// condition. Otherwise acknowledges without a change, so redelivery is harmless.
+/// Terminates the child's latest run while it runs for the abandoned condition; redelivery
+/// changes nothing.
 fn apply_child_terminate(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,

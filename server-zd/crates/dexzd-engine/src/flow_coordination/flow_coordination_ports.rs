@@ -234,8 +234,8 @@ pub trait HardDeleteValueUploader: Send + Sync + 'static {
 /// The history of one run that a time travel computation replays: what one committed view
 /// shows, with the uploaded segments fetched before the view was pinned.
 pub trait TimeTravelRunHistory: Send {
-    /// Computes `request` over this history on the calling thread, which may block. It reads
-    /// the child runs of restored SubFlow conditions from `child_flow_runs`.
+    /// Computes `request` over this history on the calling thread, which may block.
+    /// It reads child runs from `child_flow_runs`.
     ///
     /// Returns [`SegmentedTimeTravelComputation::NeedsSegments`] when the computation reached
     /// uploaded segments this history lacks. Returns an error when stored state is corrupt.

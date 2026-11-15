@@ -444,8 +444,8 @@ message ChildFlowCompletedMessage {
   ParentFlowReference parent = 5;
 }
 
-// A parent's time travel abandoned a SubFlow condition: terminate the child run that reports to
-// `parent` while it still runs. Written into the parent's outbox by apply.
+// Terminates the child run that reports to `parent`, for a SubFlow condition a time travel
+// abandoned.
 message ChildFlowTerminateMessage {
   string child_flow_id = 1;
   // The abandoned condition's reference, with the run attempt that registered it.

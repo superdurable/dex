@@ -497,9 +497,8 @@ message WaitStateRecord {
   uint64 started_waiting_seq = 5;
   // Attempt that registered these SubFlow conditions, retained across time travel.
   uint32 sub_flow_registration_attempt = 6;
-  // Per SubFlow condition, in declaration order: the attempt whose child results it accepts.
-  // Empty means every condition uses sub_flow_registration_attempt. A time travel that
-  // restarts or fails a condition sets it.
+  // Per SubFlow condition: the attempt whose child results it accepts. Empty means
+  // sub_flow_registration_attempt for all.
   repeated uint32 sub_flow_registration_attempts = 7;
 }
 
@@ -740,8 +739,8 @@ message TimeTravelStagedChunk {
   repeated TimeTravelStagedChildFlow child_flows = 5;
 }
 
-// What the owner found in the child Flow of one restored SubFlow condition, for its SubFlow
-// reset policy. Apply uses it only when its own reads still call for it.
+// The owner's finding in the child Flow of one restored SubFlow condition. Apply uses it only if
+// its reads agree.
 message TimeTravelStagedChildFlow {
   string step_execution_id = 1;
   int32 sub_flow_index = 2;
@@ -777,8 +776,7 @@ message TimeTravelStagedTarget {
   uint32 expected_run_attempt = 8;
   // Last run seq the result covers; the TimeTravel command names the same seq.
   uint64 computed_through_seq = 9;
-  // True when the owner staged child Flow findings for the SubFlow reset policy. Older owners
-  // leave it false, and apply then keeps every restored SubFlow wait.
+  // Set when the owner staged child Flow findings; without it apply keeps every restored wait.
   bool has_child_flow_findings = 10;
 }
 

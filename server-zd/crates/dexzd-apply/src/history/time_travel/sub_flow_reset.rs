@@ -196,9 +196,8 @@ pub(super) fn is_result_received(
     Ok(transaction.get(ColumnFamily::Flow, &key)?.is_some())
 }
 
-/// Decides, for each restored SubFlow condition, what the fork does beyond keeping its wait.
-///
-/// A result without findings comes from an older binary, which kept every restored wait.
+/// Decides what the fork does with each restored SubFlow condition; results of older owners keep
+/// every wait.
 ///
 /// Returns ABORTED when the owner's findings no longer fit apply's reads, so the owner computes
 /// again, and INVALID_ARGUMENT for a malformed finding or an unknown policy.
@@ -337,10 +336,8 @@ fn stale_finding_reply(condition: &RestoredSubFlowCondition, mismatch: &str) -> 
     )
 }
 
-/// Acts on the planned restored SubFlow conditions in the new attempt's restored rows.
-///
-/// Restarts and failures move a condition to the new attempt, so results that older child runs
-/// report are ignored.
+/// Acts on the planned SubFlow conditions in the restored rows. Restarts and failures move a
+/// condition to the new attempt.
 pub(super) fn apply_restored_sub_flow_actions(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
