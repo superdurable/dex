@@ -619,11 +619,11 @@ The dialog has two fields:
 **Fork** calls **POST /api/flows/clone-fork** with:
 
 - the point: **Current state**, or **Event ID** set to the history event that ended the turn;
-- **taskQueue**, the new session's own task queue: **s-** and the first 20 lowercase hex characters of the SHA-256 of the new session ID in UTF-8, the rule in [Sessions in other environments](/reference/agents/cli#other-environments). The dialog shows it under the ID;
+- **taskQueue** only when the source runs on its own session task queue: **s-** and the first 20 lowercase hex characters of the SHA-256 of the session ID in UTF-8, the rule in [Sessions in other environments](/reference/agents/cli#other-environments). An Agents CLI command starts its sessions that way. The fork then gets the same kind of task queue, derived from the new session ID. Any other source, such as a session on the default task queue or one that an application's Client started, sends no **taskQueue**, so the fork inherits the source's task queue and its Workers. The dialog shows the result under the ID;
 - **deleteAttributeKeys** with **SessionTerminalLease** and **SessionLastTerminalEnvironment**, so no terminal has the new session open and it was never open anywhere, as for a new session;
 - **idReusePolicy** 3, so a session ID that already has a run is refused.
 
-On success, Dex Web opens the new session's **Conversation** tab. The new session runs once an Agents CLI command opens it, such as **dex-agents-builtin --resume NEW_ID**. The task queue keeps the source session's Workers from running it. The browser computes the task queue with Web Crypto, which needs HTTPS or localhost; elsewhere, the dialog shows an error and does not fork.
+On success, Dex Web opens the new session's **Conversation** tab. A fork on its own task queue runs once an Agents CLI command opens it, such as **dex-agents-builtin --resume NEW_ID**; its task queue keeps the source's terminal from running it. A fork that inherits the task queue runs on the source's Workers. The browser computes the task queue with Web Crypto, which needs HTTPS or localhost; elsewhere, the dialog shows an error and does not fork.
 
 ### Compatibility {#agent-session-compatibility}
 

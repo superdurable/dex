@@ -65,6 +65,7 @@ function sessionOf(view: Partial<SessionReadView>): LoadedAgentSession {
     hasHistory: false,
     unreadableChunks: 0,
     readAt: 0,
+    taskQueue: '',
   };
 }
 
@@ -669,7 +670,8 @@ describe('SessionView fork', () => {
   it('forks from a message onto the new session task queue and opens the new session', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ flowId: 'x', runId: 'run-9' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    loaded = sessionOf({ items: [agentMessage(3, 'turn-1', 14)] });
+    // The source runs on its own session task queue, as the Agents CLI starts it.
+    loaded = { ...sessionOf({ items: [agentMessage(3, 'turn-1', 14)] }), taskQueue: 's-d62aab3ae1bd8c5cf84f' };
     const onSessionForked = renderForkable();
 
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkFromMessage }));
@@ -693,5 +695,25 @@ describe('SessionView fork', () => {
       idReusePolicy: 3,
       reason: 'Fork session builtin-20261113-203123-3efeb4 after event 14',
     });
+  });
+
+  it('lets the fork of a session on the default task queue inherit it', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ flowId: 'x', runId: 'run-9' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    loaded = sessionOf({ items: [agentMessage(3, 'turn-1', 14)] });
+    const onSessionForked = renderForkable();
+
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
+    await waitFor(() => expect(screen.getByText(/inherits the default task queue/)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Fork' }));
+
+    await waitFor(() => expect(onSessionForked).toHaveBeenCalled());
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      pointType: 1,
+      deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
+    });
+    expect(body).not.toHaveProperty('taskQueue');
   });
 });

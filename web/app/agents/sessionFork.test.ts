@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SESSION_FORK_DELETED_ATTRIBUTES,
   sessionForkPayload,
+  sessionForkTaskQueue,
   sessionTaskQueue,
   suggestedForkSessionId,
 } from './sessionFork';
@@ -63,17 +64,18 @@ describe('sessionForkPayload', () => {
     for (const name of SESSION_FORK_DELETED_ATTRIBUTES) expect(declared).toContain(name);
   });
 
-  it('forks right after a turn-end event onto the new session task queue', async () => {
-    const vector = taskQueueCases()[0];
+  it('moves a fork of a session on its own task queue to the new session task queue', async () => {
+    const [source, vector] = taskQueueCases();
     expect(await sessionForkPayload({
-      sourceSessionId: 'builtin-1',
+      sourceSessionId: source.session_id,
       sourceRunId: 'run-1',
+      sourceTaskQueue: source.task_queue,
       sessionId: vector.session_id,
       point: { kind: 'event', eventId: 14 },
       reason: 'try another answer',
       requestId: 'request-1',
     })).toEqual({
-      sourceFlowId: 'builtin-1',
+      sourceFlowId: source.session_id,
       sourceRunId: 'run-1',
       flowId: vector.session_id,
       requestId: 'request-1',
@@ -86,11 +88,29 @@ describe('sessionForkPayload', () => {
     });
   });
 
-  it('forks the current state without an event ID', async () => {
-    const payload = await sessionForkPayload({
-      sourceSessionId: 'builtin-1', sourceRunId: 'run-1', sessionId: 'x', point: { kind: 'current' }, reason: 'r', requestId: 'q',
-    });
-    expect(payload).toMatchObject({ pointType: 1, taskQueue: 's-2d711642b726b0440162' });
-    expect(payload).not.toHaveProperty('eventId');
+  it('lets a fork of a session on another task queue inherit it, and still deletes the lease', async () => {
+    const [source, other] = taskQueueCases();
+    // The default task queue, a shared queue, and another session's own queue are not the source's own.
+    for (const sourceTaskQueue of ['', 'agents', other.task_queue]) {
+      const payload = await sessionForkPayload({
+        sourceSessionId: source.session_id, sourceRunId: 'run-1', sourceTaskQueue,
+        sessionId: 'x', point: { kind: 'current' }, reason: 'r', requestId: 'q',
+      });
+      expect(payload, sourceTaskQueue).toMatchObject({
+        pointType: 1, deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
+      });
+      expect(payload, sourceTaskQueue).not.toHaveProperty('taskQueue');
+      expect(payload, sourceTaskQueue).not.toHaveProperty('eventId');
+    }
+  });
+
+  it('derives the fork task queue for every conformance vector from a source on its own queue', async () => {
+    const cases = taskQueueCases();
+    for (const [index, vector] of cases.entries()) {
+      const source = cases[(index + 1) % cases.length];
+      expect(await sessionForkTaskQueue(source.session_id, source.task_queue, vector.session_id), vector.name)
+        .toBe(vector.task_queue);
+      expect(await sessionForkTaskQueue(source.session_id, '', vector.session_id), vector.name).toBeNull();
+    }
   });
 });

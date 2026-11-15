@@ -163,6 +163,7 @@ export function SessionView({
         <SessionForkDialog
           point={forkPoint}
           sourceRunId={session.summary.runId}
+          sourceTaskQueue={session.taskQueue}
           sourceSessionId={flowId}
           onClose={() => setForkPoint(null)}
           onForked={(sessionId, runId) => {

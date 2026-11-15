@@ -75,17 +75,35 @@ export function forkEventIdOf(item: ConversationItem, activeTurnId: string | nul
   return item.message.turnId === activeTurnId ? null : item.turnEndEventId;
 }
 
+/**
+ * The fork's task queue override, or null to inherit the source's task queue.
+ * A source on its own session task queue, as the Agents CLI starts it, moves the fork to the
+ * new session's own task queue. Any other source, such as one on the default task queue,
+ * keeps the Workers that run it.
+ */
+export async function sessionForkTaskQueue(
+  sourceSessionId: string,
+  sourceTaskQueue: string,
+  sessionId: string,
+): Promise<string | null> {
+  if (sourceTaskQueue !== await sessionTaskQueue(sourceSessionId)) return null;
+  return sessionTaskQueue(sessionId);
+}
+
 export interface SessionForkRequest {
   sourceSessionId: string;
   sourceRunId: string;
+  /** The source run's task queue; '' for the default task queue. */
+  sourceTaskQueue: string;
   sessionId: string;
   point: SessionForkPoint;
   reason: string;
   requestId: string;
 }
 
-/** The POST /api/flows/clone-fork body that forks a session onto its own task queue. */
+/** The POST /api/flows/clone-fork body that forks a session between turns. */
 export async function sessionForkPayload(request: SessionForkRequest): Promise<Record<string, unknown>> {
+  const taskQueue = await sessionForkTaskQueue(request.sourceSessionId, request.sourceTaskQueue, request.sessionId);
   return {
     sourceFlowId: request.sourceSessionId,
     sourceRunId: request.sourceRunId,
@@ -94,7 +112,7 @@ export async function sessionForkPayload(request: SessionForkRequest): Promise<R
     ...(request.point.kind === 'current'
       ? { pointType: CLONE_FORK_POINT_TYPE.CURRENT }
       : { pointType: CLONE_FORK_POINT_TYPE.EVENT_ID, eventId: String(request.point.eventId) }),
-    taskQueue: await sessionTaskQueue(request.sessionId),
+    ...(taskQueue === null ? {} : { taskQueue }),
     deleteAttributeKeys: SESSION_FORK_DELETED_ATTRIBUTES,
     idReusePolicy: ID_REUSE_POLICY.DISALLOW_REUSE,
     reason: request.reason,
