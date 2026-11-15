@@ -100,7 +100,7 @@ after E2E tests for manual HTTP exploration.
 - [AI Agent](./src/products/ai-agent)
 - [Agent harnesses](./src/products/agent-harnesses): one order-support agent per agent framework
 - [Quick Start](./quick-start): the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate npm package
-- [Slack thread agent](./slack-thread-agent): Slack Connector Triggers start one agent session per thread and send each reply to it once; a separate npm package
+- [Slack thread agent](./slack-thread-agent): Slack Connector Triggers start one agent session per thread and send each reply to it once while Dex Server keeps its request ID; a separate npm package
 
 ## Patterns
 
