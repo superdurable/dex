@@ -24,18 +24,21 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, RunId, RunTable, TenantId, flow_directory_key, run_table_prefix,
 };
+use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dex::{
     AttributeWrite, CloneForkFlowRequest, CloneForkFlowResponse, CloseDecision, CloseDecisionType,
     FlowAlreadyStartedOptions, FlowCloneForkPointType, FlowConfig, FlowResetStepMethod,
-    FlowResetType, FlowStartOptions, FlowStatus, IdReusePolicy, InvokeExecuteMethodResponse,
-    ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepDecision, StepOptions,
-    StopFlowRequest, StopType, Value, WorkerTarget, flow_history_event, value,
+    FlowResetType, FlowStartOptions, FlowStatus, GetAttributesRequest, GetHistoryEventsRequest,
+    IdReusePolicy, InvokeExecuteMethodResponse, ResetFlowRequest, SetAttributesRequest,
+    StartFlowRequest, StepDecision, StepOptions, StopFlowRequest, StopType, Value, WorkerTarget,
+    flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, FlowCloneForkStageCommand, FlowCloneForkStagedChunk,
     FlowCloneForkStagedTarget, FlowCloneForkStagingExpireCommand, FlowCommand, FlowDirectoryRecord,
-    HistoryRecord, RunRecord, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
-    StepInvocationPhase, StepMethod, StepMethodCompletedCommand, TimerId, flow_command::Command,
+    HistoryRecord, RetentionTimerId, RunPurgeCommand, RunRecord, StepAttemptStartedCommand,
+    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepMethodCompletedCommand, TimerId, TimersFiredCommand, flow_command::Command,
     step_method_completed_command, stored_value, timer_id,
 };
 use prost::Message;
@@ -165,7 +168,8 @@ impl TravelNode {
             .unwrap_or_default()
     }
 
-    /// Returns each Attribute of the run with its complete value.
+    /// Returns each Attribute of the run with its complete value, except hard-delete Attributes,
+    /// whose values live in objects.
     fn attributes_of(&self, flow_id: &str, run_id: RunId) -> BTreeMap<String, Value> {
         let flow_hash = self.context_of(flow_id).flow_hash;
         let prefix = run_table_prefix(flow_hash, run_id, RunTable::Attribute);
@@ -174,7 +178,7 @@ impl TravelNode {
         view.scan(ColumnFamily::Flow, &start, &end, usize::MAX)
             .expect("the Attributes scan")
             .into_iter()
-            .map(|(key, bytes)| {
+            .filter_map(|(key, bytes)| {
                 let name = String::from_utf8(key[prefix.len()..].to_vec()).expect("UTF-8 key");
                 let record = AttributeRecord::decode(bytes.as_slice()).expect("it decodes");
                 let stored = record.value.expect("a set Attribute has a value");
@@ -183,7 +187,7 @@ impl TravelNode {
                     flow_hash,
                     run_id,
                     &match stored.kind.expect("a stored value has a kind") {
-                        stored_value::Kind::InlineValue(value) => return (name, value),
+                        stored_value::Kind::InlineValue(value) => return Some((name, value)),
                         stored_value::Kind::TableValue(reference) => {
                             let id = reference.value_id.expect("a table value has an ID");
                             dexzd_keyspace::ValueReference {
@@ -195,16 +199,36 @@ impl TravelNode {
                             }
                             .to_string()
                         }
-                        stored_value::Kind::HardDeleteObject(_) => {
-                            panic!("tests write no hard-delete Attribute")
-                        }
+                        stored_value::Kind::HardDeleteObject(_) => return None,
                     },
                 )
                 .expect("the value reads")
                 .expect("the copied value is stored in the new run");
-                (name, value)
+                Some((name, value))
             })
             .collect()
+    }
+
+    /// Returns the object that holds the value of the run's hard-delete Attribute `key`.
+    fn hard_delete_object_of(&self, flow_id: &str, run_id: RunId, key: &str) -> Option<String> {
+        let row_key = run_named_key(
+            self.context_of(flow_id).flow_hash,
+            run_id,
+            RunTable::Attribute,
+            key,
+        );
+        let record = AttributeRecord::decode(
+            self.view()
+                .get(ColumnFamily::Flow, &row_key)
+                .expect("the Attribute reads")
+                .expect("the Attribute exists")
+                .as_slice(),
+        )
+        .expect("the Attribute decodes");
+        match record.value.and_then(|stored| stored.kind) {
+            Some(stored_value::Kind::HardDeleteObject(object)) => Some(object.object_id),
+            _ => None,
+        }
     }
 
     fn step_of(
@@ -1401,26 +1425,8 @@ async fn hard_delete_attributes_are_uploaded_again_for_the_new_run() {
         )),
         "the copied hard-delete Attributes upload first, under the new run"
     );
-    let object_of = |flow_id: &str, run_id: RunId, key: &str| {
-        let row_key = run_named_key(
-            node.context_of(flow_id).flow_hash,
-            run_id,
-            RunTable::Attribute,
-            key,
-        );
-        let record = AttributeRecord::decode(
-            node.view()
-                .get(ColumnFamily::Flow, &row_key)
-                .expect("the Attribute reads")
-                .expect("the Attribute exists")
-                .as_slice(),
-        )
-        .expect("the Attribute decodes");
-        match record.value.and_then(|stored| stored.kind) {
-            Some(stored_value::Kind::HardDeleteObject(object)) => Some(object.object_id),
-            _ => None,
-        }
-    };
+    let object_of =
+        |flow_id: &str, run_id: RunId, key: &str| node.hard_delete_object_of(flow_id, run_id, key);
     let source_object = object_of(SOURCE_FLOW, source_run, "secret").expect("an object");
     let copied_object = object_of("clone-secret", clone_run, "secret").expect("an object");
     assert_ne!(copied_object, source_object, "the new run owns its object");
@@ -1534,5 +1540,211 @@ async fn synced_attributes_are_marked_for_the_new_flow() {
     assert_eq!(entries.len(), 1, "{entries:?}");
     assert_eq!(entries[0].attribute_key, "customer");
     assert_eq!(entries[0].store_name, "customer-store");
+    node.shutdown().await;
+}
+
+/// The source run's retention purges it after the clone fork. The new run keeps its copied
+/// values, including an offloaded one and a hard-delete one, its history, and its beginning.
+#[tokio::test(start_paused = true)]
+async fn the_new_run_outlives_the_purge_of_its_source() {
+    // Offloading helpers name the time travel tests' Flow.
+    const PURGED_SOURCE: &str = "travel-flow";
+    const CLONE: &str = "clone-of-purged";
+    const RETENTION_MICROS: i64 = 60 * 1_000_000;
+    let objects = std::sync::Arc::new(MemoryHardDeleteObjects::default());
+    let cluster = TestCluster::new();
+    let mut config = crate::time_travel::offloading_config();
+    config.validation.has_blob_store = true;
+    config.run_settings.retention_after_close_micros = RETENTION_MICROS;
+    let node = TravelNode::start_with_hard_delete_ports(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        vec![segmented_opener()],
+        config,
+        dexzd_engine::HistoryReadsConfig::default(),
+        crate::time_travel::HardDeletePorts {
+            reader: objects.clone(),
+            uploader: objects.clone(),
+        },
+    )
+    .await;
+    node.enable_history_offload().await;
+    let source_run = node
+        .start_flow_with(StartFlowRequest {
+            flow_id: PURGED_SOURCE.to_owned(),
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(pull_config("source-queue")),
+                attributes: vec![hard_delete_write("secret", "source secret")],
+                ..FlowStartOptions::default()
+            }),
+            ..source_start("start-purged")
+        })
+        .await;
+    node.set_flow_attribute(PURGED_SOURCE, "report", large_text('a', 400))
+        .await;
+    let point_event_id = node.record_of(PURGED_SOURCE, source_run).next_event_id - 1;
+    let first_value_id = table_value_id(
+        &node
+            .attribute(source_run, "report")
+            .expect("the report is set"),
+    );
+    node.set_flow_attribute(PURGED_SOURCE, "report", large_text('b', 400))
+        .await;
+    // The first report lives on only in an uploaded segment.
+    node.offload_sealed_history(source_run).await;
+    node.offload_superseded_value(source_run, first_value_id);
+    let reads_before = node.history_object_reads();
+    let response = node
+        .clone_fork(CloneForkFlowRequest {
+            source_flow_id: PURGED_SOURCE.to_owned(),
+            point_type: FlowCloneForkPointType::EventId as i32,
+            event_id: point_event_id,
+            ..clone_request(CLONE, "request-purged")
+        })
+        .await
+        .expect("the clone fork applies");
+    assert!(
+        node.history_object_reads() > reads_before,
+        "the clone fork read the uploaded segments"
+    );
+    let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+
+    // The source closes; its retention fires, its owner deletes its objects, then it purges.
+    node.registry
+        .stop_flow(
+            TenantId::DEFAULT,
+            StopFlowRequest {
+                flow_id: PURGED_SOURCE.to_owned(),
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            },
+        )
+        .await
+        .expect("the source stops");
+    // Retention postpones while a segment is SEALED.
+    node.offload_sealed_history(source_run).await;
+    cluster.clock.shift(RETENTION_MICROS + 1_000_000);
+    node.commit_to(
+        PURGED_SOURCE,
+        Some(source_run),
+        Command::TimersFired(TimersFiredCommand {
+            timers: vec![TimerId {
+                run_attempt: 0,
+                kind: Some(timer_id::Kind::Retention(RetentionTimerId {})),
+            }],
+        }),
+    )
+    .await;
+    assert!(
+        node.record_of(PURGED_SOURCE, source_run).is_purging,
+        "the retention requests the purge"
+    );
+    let source_object = node
+        .hard_delete_object_of(PURGED_SOURCE, source_run, "secret")
+        .expect("the source's secret is an object");
+    objects
+        .values
+        .lock()
+        .expect("value lock")
+        .remove(&source_object);
+    // Only the source uploaded history, so every history object is the source's.
+    let history_objects = cluster
+        .object_store
+        .list("history/", None, 1000)
+        .await
+        .expect("the history objects list");
+    assert!(
+        !history_objects.objects.is_empty(),
+        "the source's history was uploaded"
+    );
+    for object in history_objects.objects {
+        cluster
+            .object_store
+            .delete(&object.key)
+            .await
+            .expect("the source's history object is deleted");
+    }
+    node.commit_to(
+        PURGED_SOURCE,
+        Some(source_run),
+        Command::RunPurge(RunPurgeCommand {}),
+    )
+    .await;
+    let source_record_key = run_singleton_key(
+        node.context_of(PURGED_SOURCE).flow_hash,
+        source_run,
+        RunTable::RunRecord,
+    );
+    assert!(
+        node.view()
+            .get(ColumnFamily::Flow, &source_record_key)
+            .expect("the run record reads")
+            .is_none(),
+        "the source run is purged"
+    );
+
+    let copied = node.attributes_of(CLONE, clone_run);
+    assert_eq!(copied["report"], large_text('a', 400));
+    let read_secret = || async {
+        node.registry
+            .get_attributes(
+                TenantId::DEFAULT,
+                GetAttributesRequest {
+                    flow_id: CLONE.to_owned(),
+                    keys: vec!["secret".to_owned()],
+                    ..GetAttributesRequest::default()
+                },
+            )
+            .await
+            .expect("the new run's Attributes read")
+            .attributes
+    };
+    let secret = read_secret().await;
+    assert_eq!(secret.len(), 1, "{secret:?}");
+    assert_eq!(secret[0].value, Some(string_value("source secret")));
+    let events = node
+        .registry
+        .get_history_events(
+            TenantId::DEFAULT,
+            GetHistoryEventsRequest {
+                flow_id: CLONE.to_owned(),
+                ..GetHistoryEventsRequest::default()
+            },
+        )
+        .await
+        .expect("the new run's history reads")
+        .events;
+    let Some(flow_history_event::Payload::FlowStartedOrContinued(started)) =
+        events.first().and_then(|event| event.payload.as_ref())
+    else {
+        panic!("the new run starts with its start event: {events:?}");
+    };
+    let source = started
+        .clone_fork_source
+        .as_ref()
+        .expect("the start event names its source");
+    assert_eq!(source.flow_id, PURGED_SOURCE);
+    assert_eq!(source.run_id, source_run.to_string());
+
+    node.set_flow_attribute(CLONE, "report", string_value("replaced"))
+        .await;
+    node.registry
+        .reset_flow(
+            TenantId::DEFAULT,
+            ResetFlowRequest {
+                flow_id: CLONE.to_owned(),
+                reset_type: FlowResetType::Beginning as i32,
+                skip_writes_reapply: true,
+                ..ResetFlowRequest::default()
+            },
+        )
+        .await
+        .expect("the new run travels to its beginning without its source");
+    assert_eq!(node.attributes_of(CLONE, clone_run), copied);
+    assert_eq!(read_secret().await, secret);
+    assert_eq!(
+        node.record_of(CLONE, clone_run).status,
+        FlowStatus::Running as i32
+    );
     node.shutdown().await;
 }
