@@ -14,7 +14,6 @@ import json
 from typing import Any
 
 from dex_agents import (
-    OUTCOME_UNKNOWN_TOOL_RESULT,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TURN_CANCELLED_NOTE_HEADER,
@@ -28,13 +27,10 @@ from dex_agents import (
     ToolCallStatus,
 )
 from dex_agents.testing import wait_for_agent_snapshot
+from dex_agents_google_adk import UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT
 from tests.conftest import AdkAgentHarness
 from tests.scripted_adk_agent import SLOW_WRITE_GATE
-from tests.scripted_adk_topologies import (
-    PARALLEL_APPROVAL_FLOW_TYPE,
-    REDACTED_RESULT,
-    REDACTING_FLOW_TYPE,
-)
+from tests.scripted_adk_topologies import PARALLEL_APPROVAL_FLOW_TYPE, REDACTING_FLOW_TYPE
 
 SLOW_WRITE_COMMAND = 'call slow_write {"message": "note"}'
 APPROVAL_COMMAND = 'call publish {"message": "note"}'
@@ -54,7 +50,7 @@ async def test_a_completed_turn_stores_what_the_after_tool_callback_returns(
     assert snapshot.messages[-1].text == "slow_write: redacted"
 
 
-async def test_steering_withholds_a_result_that_an_after_tool_callback_would_replace(
+async def test_steering_stores_the_known_success_without_the_raw_output(
     harness: AdkAgentHarness,
 ) -> None:
     await harness.stack.start_worker()
@@ -68,11 +64,33 @@ async def test_steering_withholds_a_result_that_an_after_tool_callback_would_rep
     gate.release()
     snapshot = await harness.wait_for_turns(session_id, 2, sessions)
 
-    # The raw output never reaches storage; the callback would have replaced it.
-    assert _tool_responses(snapshot) == [("slow_write", {"error": OUTCOME_UNKNOWN_TOOL_RESULT})]
+    # The callback would have replaced the output, so no stored message holds it.
+    assert _tool_responses(snapshot) == [
+        ("slow_write", {"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT})
+    ]
     assert not any("wrote note" in message.framework_item for message in snapshot.messages)
-    assert REDACTED_RESULT["result"] not in (snapshot.messages[-1].text or "")
     assert snapshot.messages[-1].text == f"history: {SLOW_WRITE_COMMAND}"
+    assert harness.invocations.count("slow_write") == 1
+
+
+async def test_cancel_turn_stores_the_known_success_without_the_raw_output(
+    harness: AdkAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    sessions = harness.sessions_for(REDACTING_FLOW_TYPE)
+    await sessions.start_session(session_id, SLOW_WRITE_COMMAND)
+    gate = harness.gate(SLOW_WRITE_GATE)
+    await gate.wait_until_reached()
+
+    assert await sessions.cancel_turn(session_id)
+    gate.release()
+    snapshot = await harness.wait_for_turns(session_id, 1, sessions)
+
+    assert _tool_responses(snapshot) == [
+        ("slow_write", {"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT})
+    ]
+    assert not any("wrote note" in message.framework_item for message in snapshot.messages)
     assert harness.invocations.count("slow_write") == 1
 
 
@@ -94,7 +112,7 @@ async def test_steering_during_a_tool_stores_its_call_and_result_instead_of_a_no
         (MessageRole.ASSISTANT, None, "slow_write"),
         (MessageRole.TOOL, None, "slow_write"),
     ]
-    assert _tool_outputs(snapshot) == [("slow_write", "wrote note")]
+    assert _tool_outputs(snapshot) == [("slow_write", UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT)]
     assert not _has_core_note(snapshot)
     # The next model call replays the stored call and result, and no note.
     assert snapshot.messages[-1].text == f"history: {SLOW_WRITE_COMMAND}"
@@ -150,13 +168,13 @@ async def test_cancel_turn_during_a_resumed_model_call_stores_the_recorded_resul
     assert await harness.sessions.cancel_turn(session_id)
     snapshot = await harness.wait_for_turns(session_id, 1)
 
-    # The cancelled model call never gave ADK the lookup result, so the runner stores it.
+    # The cancelled model call never gave ADK the lookup result, so the runner stores its success.
     assert _turn_messages(snapshot, "turn-1") == [
         (MessageRole.USER, "stall model-gate", None),
         (MessageRole.ASSISTANT, None, "lookup"),
         (MessageRole.TOOL, None, "lookup"),
     ]
-    assert _tool_outputs(snapshot) == [("lookup", "found stall")]
+    assert _tool_outputs(snapshot) == [("lookup", UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT)]
     assert not _has_core_note(snapshot)
     assert await _turn_event_types(harness, session_id) == [
         AgentEventType.TURN_STARTED,
@@ -207,7 +225,12 @@ async def test_steering_parallel_branches_gives_each_branch_its_own_results(
         (author, branch, response["name"], response["response"])
         for author, branch, response in steered_responses
     ) == [
-        ("researcher_a", "research.researcher_a", "record_a", {"result": "recorded a: first"}),
+        (
+            "researcher_a",
+            "research.researcher_a",
+            "record_a",
+            {"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT},
+        ),
         (
             "researcher_b",
             "research.researcher_b",
@@ -249,9 +272,11 @@ def _tool_outputs(snapshot: AgentSnapshot) -> list[tuple[str | None, str | None]
 
 def _tool_responses(snapshot: AgentSnapshot) -> list[tuple[str | None, Any]]:
     return [
-        (message.tool_name, json.loads(message.tool_output or "null"))
+        (part["function_response"]["name"], part["function_response"]["response"])
         for message in snapshot.messages
         if message.role is MessageRole.TOOL
+        for part in _event(message).get("content", {}).get("parts", [])
+        if "function_response" in part
     ]
 
 

@@ -45,6 +45,7 @@ from dex_agents import (
     MessageRole,
 )
 from dex_agents.testing import AgentTestStack
+from dex_agents_google_adk import UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT
 from tests.conftest import AdkAgentHarness
 from tests.scripted_adk_agent import (
     MODEL_CALL_LOG_NAME,
@@ -185,7 +186,7 @@ async def test_failed_resumed_turn_after_a_write_stores_a_note_the_next_turn_rep
     ] == [
         (MessageRole.USER, command, None, None),
         (MessageRole.ASSISTANT, None, "publish", None),
-        (MessageRole.TOOL, None, "publish", "published launch"),
+        (MessageRole.TOOL, None, "publish", UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT),
         (MessageRole.USER, note, None, None),
     ]
     assert Event.model_validate_json(failed.messages[3].framework_item).author == "user"

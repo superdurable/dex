@@ -27,7 +27,6 @@ from google.adk.events import Event
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.memory import BaseMemoryService
 from google.adk.models import BaseLlm, LlmRequest, LlmResponse
-from google.adk.plugins import BasePlugin
 from google.adk.plugins.plugin_manager import PluginManager
 from google.adk.runners import Runner
 from google.adk.tools import ToolContext
@@ -98,7 +97,6 @@ from dex_agents_google_adk._images import (
     extract_tool_result_images,
     image_placeholder_part,
     image_references_in_parts,
-    tool_result_image_response_parts,
 )
 from dex_agents_google_adk._run_state import SuspendedAdkTurn
 from dex_agents_google_adk._session_service import TurnSessionService
@@ -117,6 +115,23 @@ from dex_agents_google_adk.tools import IDEMPOTENCY_KEY_CUSTOM_METADATA_KEY
 
 #: ADK user ID of every session unless ``AdkAgentRunner`` gets another.
 DEFAULT_ADK_USER_ID = "user"
+
+#: Model-visible result of a succeeded call in a turn that ended before ADK resumed it.
+#:
+#: ``AdkAgentRunner.build_unfinished_turn_messages`` stores it as
+#: ``{"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT}`` in place of the
+#: recorded output when the user steers or cancels a turn, or the turn fails,
+#: while its calls wait. A resumed invocation passes the output through
+#: application code, such as an ``after_tool_callback``, a plugin, or an
+#: ``on_event_callback``, which may redact it; the unfinished turn runs none,
+#: so it stores this fixed text instead. The text keeps the known success, so
+#: the model does not repeat a write.
+#:
+#: .. versionadded:: 0.6.12
+UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT = (
+    "The tool call succeeded. Its output is omitted because the turn ended before the "
+    "application processed it. Do not repeat the call."
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -502,14 +517,15 @@ class AdkAgentRunner:
         this method returns them as a completed turn would store them,
         without the user event and the confirmation requests. It adds one
         function response event for the tool calls that waited on their
-        Steps, as the resumed invocation would have appended it: each
-        response is the call's final record, the output, the failure, or the
-        rejection, such as the steering or cancellation result. A call
-        without a final record gets ``OUTCOME_UNKNOWN_TOOL_RESULT``. So does a
-        succeeded call whose output an ``after_tool_callback`` could change,
-        of the calling agent or of an App plugin: the resumed invocation runs
-        those callbacks on the output, and this method runs no application
-        code, so it never stores the raw output in their place. Each
+        Steps. A failed or rejected call gets its record's error, such as the
+        steering or cancellation result, as the resumed invocation would have
+        given it. A succeeded call gets
+        ``{"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT}``, never the
+        recorded output: a resumed invocation passes that output through
+        application code, such as tool callbacks and plugins, and this method
+        runs none. The model still learns that the call succeeded and is told
+        not to repeat it. A call without a final record gets
+        ``OUTCOME_UNKNOWN_TOOL_RESULT``. Each
         event carries the author, branch, and isolation scope of the event
         that made its calls, so every agent of a ``ParallelAgent`` sees its
         own results. The next turn then replays a complete history, and the
@@ -543,12 +559,7 @@ class AdkAgentRunner:
             return []
         suspended = SuspendedAdkTurn.from_framework_run_state(turn.framework_run_state)
         turn_events = without_confirmation_plumbing(suspended.events)
-        response_events = _unfinished_tool_response_events(
-            turn,
-            turn_events,
-            include_images=self._media_store is not None,
-            has_output_callbacks=self._has_after_tool_callbacks,
-        )
+        response_events = _unfinished_tool_response_events(turn, turn_events)
         image_references_by_uri = (
             {}
             if self._media_store is None
@@ -559,17 +570,6 @@ class AdkAgentRunner:
             for event in [*turn_events, *response_events]
             if event.id != suspended.user_event_id and is_adk_event_kept_after_turn(event)
         ]
-
-    def _has_after_tool_callbacks(self, agent_name: str) -> bool:
-        """Report whether a resumed call of the agent would pass its output to application code."""
-        if any(
-            type(plugin).after_tool_callback is not BasePlugin.after_tool_callback
-            for plugin in self._app.plugins
-        ):
-            return True
-        agent = self._root_agent.find_agent(agent_name)
-        # An author outside the tree may have any callbacks, so its output stays withheld.
-        return not isinstance(agent, LlmAgent) or bool(agent.canonical_after_tool_callbacks)
 
     def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
         """Estimate the next model input from the stored events and the agents' prompts.
@@ -1047,11 +1047,7 @@ def _confirmation_response_messages(
 
 
 def _unfinished_tool_response_events(
-    turn: AgentTurnContext,
-    turn_events: Sequence[Event],
-    *,
-    include_images: bool,
-    has_output_callbacks: Callable[[str], bool],
+    turn: AgentTurnContext, turn_events: Sequence[Event]
 ) -> list[Event]:
     """Answer each unanswered call, grouped as ADK groups the responses of aborted calls."""
     answered_call_ids = {
@@ -1074,7 +1070,6 @@ def _unfinished_tool_response_events(
     response_events: list[Event] = []
     for issuer, function_calls in calls_by_issuer.items():
         issuing_event = issuing_events[issuer]
-        is_output_withheld = has_output_callbacks(issuing_event.author)
         response_events.append(
             Event(
                 # Derived from committed state, so a retried Step stores the same event.
@@ -1097,8 +1092,6 @@ def _unfinished_tool_response_events(
                             function_response=_unfinished_function_response(
                                 function_call,
                                 turn.recorded_tool_call(function_call.id or ""),
-                                include_images=include_images,
-                                is_output_withheld=is_output_withheld,
                             )
                         )
                         for function_call in function_calls
@@ -1110,28 +1103,16 @@ def _unfinished_tool_response_events(
 
 
 def _unfinished_function_response(
-    function_call: types.FunctionCall,
-    record: AgentToolCall | None,
-    *,
-    include_images: bool,
-    is_output_withheld: bool,
+    function_call: types.FunctionCall, record: AgentToolCall | None
 ) -> types.FunctionResponse:
-    if (
-        record is None
-        or not record.status.is_final
-        or (is_output_withheld and record.status is ToolCallStatus.SUCCEEDED)
-    ):
-        return types.FunctionResponse(
-            id=function_call.id,
-            name=function_call.name,
-            response={"error": OUTCOME_UNKNOWN_TOOL_RESULT},
-        )
-    return types.FunctionResponse(
-        id=function_call.id,
-        name=function_call.name,
-        response=recorded_tool_response(record),
-        parts=tool_result_image_response_parts(record) if include_images else None,
-    )
+    if record is None or not record.status.is_final:
+        response = {"error": OUTCOME_UNKNOWN_TOOL_RESULT}
+    elif record.status is ToolCallStatus.SUCCEEDED:
+        # The resumed invocation would pass the output through application code first.
+        response = {"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT}
+    else:
+        response = recorded_tool_response(record)
+    return types.FunctionResponse(id=function_call.id, name=function_call.name, response=response)
 
 
 def _raise_for_control_tools_beside_deferred_calls(

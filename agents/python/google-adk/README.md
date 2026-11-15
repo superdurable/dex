@@ -281,12 +281,19 @@ When the user steers or cancels a turn, or the turn fails, while its calls
 are paused, `build_unfinished_turn_messages` stores the turn's events as a
 completed turn would store them. It adds one function response event per
 agent, branch, and isolation scope that answers each paused call from its
-final record, as the table above maps it; the rejection is the steering or
-cancellation result. A call without a final record gets
-`OUTCOME_UNKNOWN_TOOL_RESULT`. So does a succeeded call when the calling
-agent or an App plugin has an `after_tool_callback`: the resumed invocation
-would pass the output through it, and the method runs no application code,
-so the raw output is never stored. Each event takes the invocation ID, author,
+final record:
+
+| Record status | Stored function response |
+| --- | --- |
+| `succeeded` | `{"result": UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT}` |
+| `failed`, `rejected`, `outcome_unknown` | As in the table above; the rejection is the steering or cancellation result |
+| No final record | `{"error": "<OUTCOME_UNKNOWN_TOOL_RESULT>"}` |
+
+A succeeded call never stores its recorded output here. A resumed invocation
+passes that output through application code, such as tool callbacks,
+plugins, and event callbacks, which may redact it, and the method runs no
+application code. The fixed text says that the call succeeded and must not be
+repeated, so the model does not repeat a write. Each event takes the invocation ID, author,
 branch, isolation scope, and timestamp of the event that made the calls, and
 an ID derived from the turn and the first call, so a retried Step stores the
 same events and every branch of a `ParallelAgent` sees its own results. A
