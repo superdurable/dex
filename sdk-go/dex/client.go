@@ -371,7 +371,8 @@ func (status FlowStatus) String() string {
 	}
 }
 
-// FlowErrorType categorizes the failure recorded for a terminal Flow.
+// FlowErrorType categorizes the failure recorded for a terminal Flow, or for a failed SubFlow
+// result that Execute reads with SubFlowResult.
 type FlowErrorType uint8
 
 const (

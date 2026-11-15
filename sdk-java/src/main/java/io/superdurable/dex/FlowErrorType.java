@@ -11,9 +11,14 @@
 package io.superdurable.dex;
 
 /**
- * Classifies why a Flow reached a terminal status other than {@link FlowStatus#COMPLETED}.
+ * Classifies why a Flow reached a terminal status other than {@link FlowStatus#COMPLETED}, or why
+ * a SubFlow result that Execute reads is failed.
  *
- * <p>{@link FlowResult#getErrorType()} exposes this value after Dex records a Flow failure.
+ * <p>{@link FlowResult#getErrorType()} exposes this value after Dex records a Flow failure. It
+ * also exposes it on a failed SubFlow result read with {@link SubFlow#getConditionResults}.
+ *
+ * <p>Dex may add values in later releases. Code that handles every value exhaustively, such as a
+ * switch expression, must handle new values too.
  */
 public enum FlowErrorType {
     /** A Step returned a decision that failed the Flow. */
