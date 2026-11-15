@@ -1313,8 +1313,8 @@ public final class Client implements AutoCloseable {
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
      * @throws IllegalStateException if the Dex Server does not support protocol version 4
-     * @throws IllegalArgumentException if the type is {@link TimeTravelType#CURRENT}, or the type is
-     *     {@link TimeTravelType#EVENT_ID} without a positive event ID. Changed in 1.45.2: accepts
+     * @throws IllegalArgumentException if the type is {@link TimeTravelType#CURRENT}, or the point
+     *     has a missing or mixed selector. Changed in 1.45.2: accepts
      *     {@link TimeTravelType#EVENT_ID} and sends
      *     {@link TimeTravelOptions.Builder#subFlowResetPolicy(SubFlowResetPolicy)}.
      */
@@ -1323,16 +1323,18 @@ public final class Client implements AutoCloseable {
             throw new IllegalArgumentException(
                     "timeTravel point CURRENT is valid only for cloneForkFlow");
         }
-        if (options.getType() == TimeTravelType.EVENT_ID && options.getEventId() <= 0) {
-            throw new IllegalArgumentException("timeTravel point EVENT_ID requires a positive eventId");
-        }
+        validateHistoryPoint("timeTravel", options.getType(), options.getHistoryEventTime(),
+                options.getStepType(), options.getStepExecutionId(), options.getStepMethod(),
+                options.getEventId());
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
                 .setFlowId(flowId)
                 .setResetType(mapTimeTravelType(options.getType()))
                 .setReason(options.getReason() == null ? "" : options.getReason())
                 .setSkipWritesReapply(options.isSkipWritesReapply())
-                .setEventId(options.getEventId())
                 .setSubFlowResetPolicy(mapSubFlowResetPolicy(options.getSubFlowResetPolicy()));
+        if (options.getType() == TimeTravelType.EVENT_ID) {
+            request.setEventId(options.getEventId());
+        }
         if (options.getHistoryEventTime() != null) {
             request.setHistoryEventTime(options.getHistoryEventTime().toString());
         }

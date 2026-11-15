@@ -38,6 +38,7 @@ import {
   type Flow,
   type Step,
   type StepDecision,
+  type TimeTravelOptions,
 } from "../src/index.js";
 import {
   ErrorSubStatus,
@@ -314,6 +315,50 @@ test("timeTravel sends the event ID and SubFlow reset policy", async () => {
       /unsupported SubFlow reset policy/,
     );
     assert.equal(resetRequests.length, 2);
+  });
+});
+
+test("timeTravel maps every point and leaves eventId zero for other types", async () => {
+  const points: readonly [TimeTravelOptions, FlowResetType, bigint][] = [
+    [{ type: TimeTravelType.BEGINNING }, FlowResetType.FLOW_RESET_TYPE_BEGINNING, 0n],
+    [{ type: TimeTravelType.HISTORY_EVENT_TIME, historyEventTime: new Date("2026-01-01T00:00:00Z") },
+      FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME, 0n],
+    [{ type: TimeTravelType.STEP_TYPE, stepType: "ChargeOrder" }, FlowResetType.FLOW_RESET_TYPE_STEP_TYPE, 0n],
+    [{ type: TimeTravelType.STEP_EXECUTION_ID, stepExecutionId: "step-1", stepMethod: TimeTravelStepMethod.WAIT_FOR },
+      FlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID, 0n],
+    [{ type: TimeTravelType.EVENT_ID, eventId: 7 }, FlowResetType.FLOW_RESET_TYPE_EVENT_ID, 7n],
+  ];
+  await withFakeService(6, async ({ client, resetRequests }) => {
+    for (const [options, wireType, eventId] of points) {
+      await client.timeTravel("flow-1", options);
+      const request = resetRequests.at(-1)!;
+      assert.equal(request.resetType, wireType);
+      assert.equal(request.eventId, eventId);
+    }
+    assert.equal(resetRequests[1]!.historyEventTime, "2026-01-01T00:00:00.000Z");
+    assert.equal(resetRequests[2]!.stepType, "ChargeOrder");
+    assert.equal(resetRequests[3]!.stepExecutionId, "step-1");
+    assert.equal(resetRequests[3]!.stepMethod, FlowResetStepMethod.FLOW_RESET_STEP_METHOD_WAIT_FOR);
+  });
+});
+
+test("timeTravel rejects mixed point selectors before sending", async () => {
+  const timestamp = new Date("2026-01-01T00:00:00Z");
+  const invalid: readonly TimeTravelOptions[] = [
+    { type: TimeTravelType.BEGINNING, eventId: 3 },
+    { type: TimeTravelType.HISTORY_EVENT_TIME, historyEventTime: timestamp, eventId: 3 },
+    { type: TimeTravelType.STEP_TYPE, stepType: "A", eventId: 3 },
+    { type: TimeTravelType.STEP_EXECUTION_ID, stepExecutionId: "A-1", stepMethod: TimeTravelStepMethod.EXECUTE, eventId: 3 },
+    { type: TimeTravelType.EVENT_ID, eventId: 3, historyEventTime: timestamp },
+    { type: TimeTravelType.EVENT_ID, eventId: 3, stepType: "A" },
+    { type: TimeTravelType.EVENT_ID, eventId: 3, stepExecutionId: "A-1" },
+    { type: TimeTravelType.EVENT_ID, eventId: 3, stepMethod: TimeTravelStepMethod.EXECUTE },
+  ];
+  await withFakeService(6, async ({ client, resetRequests }) => {
+    for (const options of invalid) {
+      await assert.rejects(client.timeTravel("flow-1", options), TypeError);
+    }
+    assert.equal(resetRequests.length, 0);
   });
 });
 

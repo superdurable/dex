@@ -1225,11 +1225,12 @@ export class Client {
    * @param flowId - Non-empty Flow ID whose history supplies the time travel point.
    * @param options - Time travel selector, reason, replay controls, and SubFlow reset policy.
    * @returns The Flow's server-assigned run ID, which time travel leaves unchanged.
-   * @throws {@link TypeError} when `options.type` is `CURRENT` or unknown, or `EVENT_ID` lacks a
-   * positive safe-integer `eventId`, or `options.subFlowResetPolicy` is unknown.
+   * @throws {@link TypeError} when `options.type` is `CURRENT` or unknown, its selector is missing
+   * or mixed with another selector, or `options.subFlowResetPolicy` is unknown.
    */
   public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
     const resetType = mapTimeTravelType(options.type);
+    validateHistoryPointSelection("time travel", options);
     const eventId = timeTravelEventId(options);
     const subFlowResetPolicy = mapSubFlowResetPolicy(options.subFlowResetPolicy);
     const response = await this.unary<ResetFlowResponse>(
@@ -2003,19 +2004,10 @@ function mapStopType(type: StopType | undefined): ProtoStopType {
 }
 
 function timeTravelEventId(options: TimeTravelOptions): bigint {
-  if (options.type === TimeTravelType.EVENT_ID) {
-    validateHistoryPointSelection("time travel", {
-      type: TimeTravelType.EVENT_ID,
-      eventId: options.eventId,
-    });
-  }
-  if (options.eventId === undefined) {
+  if (options.type !== TimeTravelType.EVENT_ID) {
     return 0n;
   }
-  if (!Number.isSafeInteger(options.eventId)) {
-    throw new TypeError("time travel eventId must be a safe integer");
-  }
-  return BigInt(options.eventId);
+  return BigInt(options.eventId!);
 }
 
 function mapCloneForkFlowRequest(

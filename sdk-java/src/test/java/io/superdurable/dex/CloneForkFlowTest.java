@@ -239,6 +239,66 @@ final class CloneForkFlowTest {
     }
 
     @Test
+    void timeTravelMapsEveryPointWithoutAnEventIdForOtherTypes() throws Exception {
+        try (CloneForkService service = new CloneForkService(6);
+                Client client = service.newClient(new CloneForkFlowTestFlow())) {
+            client.timeTravel("flow-1", TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING).build());
+            client.timeTravel("flow-1", TimeTravelOptions.newBuilder(TimeTravelType.HISTORY_EVENT_TIME)
+                    .historyEventTime(Instant.parse("2026-01-01T00:00:00Z")).build());
+            client.timeTravel("flow-1", TimeTravelOptions.newBuilder(TimeTravelType.STEP_TYPE)
+                    .stepType("ChargeOrder").build());
+            client.timeTravel("flow-1", TimeTravelOptions.newBuilder(TimeTravelType.STEP_EXECUTION_ID)
+                    .stepExecutionId("step-1").stepMethod(TimeTravelStepMethod.WAIT_FOR).build());
+            client.timeTravel("flow-1", TimeTravelOptions.newBuilder(TimeTravelType.EVENT_ID)
+                    .eventId(7).build());
+
+            final FlowResetType[] types = {
+                FlowResetType.FLOW_RESET_TYPE_BEGINNING,
+                FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
+                FlowResetType.FLOW_RESET_TYPE_STEP_TYPE,
+                FlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+                FlowResetType.FLOW_RESET_TYPE_EVENT_ID,
+            };
+            assertEquals(types.length, service.resetRequests.size());
+            for (int index = 0; index < types.length; index++) {
+                assertEquals(types[index], service.resetRequests.get(index).getResetType());
+                assertEquals(index == 4 ? 7L : 0L, service.resetRequests.get(index).getEventId());
+            }
+            assertEquals("2026-01-01T00:00:00Z", service.resetRequests.get(1).getHistoryEventTime());
+            assertEquals("ChargeOrder", service.resetRequests.get(2).getStepType());
+            assertEquals("step-1", service.resetRequests.get(3).getStepExecutionId());
+            assertEquals(FlowResetStepMethod.FLOW_RESET_STEP_METHOD_WAIT_FOR,
+                    service.resetRequests.get(3).getStepMethod());
+        }
+    }
+
+    @Test
+    void timeTravelRejectsMixedPointSelectorsBeforeSending() throws Exception {
+        try (CloneForkService service = new CloneForkService(6);
+                Client client = service.newClient(new CloneForkFlowTestFlow())) {
+            final TimeTravelOptions.Builder[] invalid = {
+                TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING).eventId(3),
+                TimeTravelOptions.newBuilder(TimeTravelType.HISTORY_EVENT_TIME)
+                        .historyEventTime(Instant.parse("2026-01-01T00:00:00Z")).eventId(3),
+                TimeTravelOptions.newBuilder(TimeTravelType.STEP_TYPE).stepType("A").eventId(3),
+                TimeTravelOptions.newBuilder(TimeTravelType.STEP_EXECUTION_ID)
+                        .stepExecutionId("A-1").stepMethod(TimeTravelStepMethod.EXECUTE).eventId(3),
+                TimeTravelOptions.newBuilder(TimeTravelType.EVENT_ID).eventId(3)
+                        .historyEventTime(Instant.parse("2026-01-01T00:00:00Z")),
+                TimeTravelOptions.newBuilder(TimeTravelType.EVENT_ID).eventId(3).stepType("A"),
+                TimeTravelOptions.newBuilder(TimeTravelType.EVENT_ID).eventId(3).stepExecutionId("A-1"),
+                TimeTravelOptions.newBuilder(TimeTravelType.EVENT_ID).eventId(3)
+                        .stepMethod(TimeTravelStepMethod.EXECUTE),
+            };
+            for (TimeTravelOptions.Builder options : invalid) {
+                assertThrows(IllegalArgumentException.class,
+                        () -> client.timeTravel("flow-1", options.build()));
+            }
+            assertEquals(0, service.resetRequests.size());
+        }
+    }
+
+    @Test
     void mapsEverySubFlowResetPolicy() {
         assertEquals(io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_UNSPECIFIED,
                 Client.mapSubFlowResetPolicy(SubFlowResetPolicy.DEFAULT));

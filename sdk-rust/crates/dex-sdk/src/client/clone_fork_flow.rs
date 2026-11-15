@@ -73,26 +73,36 @@ impl CloneForkFlowOptions {
     ///
     /// The copy includes every change that committed before the call read the source, and no
     /// change in flight.
+    ///
+    /// Since 1.45.2.
     pub fn new() -> Self {
         Self::at(None)
     }
 
     /// Copies the state right after the source run started.
+    ///
+    /// Since 1.45.2.
     pub fn from_beginning() -> Self {
         Self::at(Some(TimeTravelPoint::Beginning))
     }
 
     /// Copies the first point at or after `event_time`.
+    ///
+    /// Since 1.45.2.
     pub fn from_history_event_time(event_time: SystemTime) -> Self {
         Self::at(Some(TimeTravelPoint::HistoryEventTime(event_time)))
     }
 
     /// Copies the point before the first execution of the selected Step type.
+    ///
+    /// Since 1.45.2.
     pub fn from_step<SomeStep: Step>(step: &SomeStep) -> Self {
         Self::at(Some(TimeTravelPoint::StepType(step.step_type())))
     }
 
     /// Copies the point before one method of the exact Step execution `step_execution`.
+    ///
+    /// Since 1.45.2.
     pub fn from_step_execution(
         step_execution: StepExecutionId,
         method: TimeTravelStepMethod,
@@ -104,6 +114,8 @@ impl CloneForkFlowOptions {
     ///
     /// A non-positive `event_id` makes [`Client::clone_fork_flow`] return
     /// [`SdkError::InvalidArgument`] before it sends the request.
+    ///
+    /// Since 1.45.2.
     pub fn from_event_id(event_id: i64) -> Self {
         Self::at(Some(TimeTravelPoint::EventId(event_id)))
     }
@@ -111,6 +123,8 @@ impl CloneForkFlowOptions {
     /// Selects the source run of the source Flow ID; without it, the latest run is the source.
     ///
     /// The source run may be closed.
+    ///
+    /// Since 1.45.2.
     pub fn source_run_id(mut self, run_id: impl Into<String>) -> Self {
         self.source_run_id = run_id.into();
         self
@@ -120,6 +134,8 @@ impl CloneForkFlowOptions {
     ///
     /// Zero, the default, selects the current run attempt. The current point accepts only zero;
     /// [`Client::clone_fork_flow`] returns [`SdkError::InvalidArgument`] otherwise.
+    ///
+    /// Since 1.45.2.
     pub fn source_run_attempt(mut self, run_attempt: u32) -> Self {
         self.source_run_attempt = run_attempt;
         self
@@ -128,6 +144,8 @@ impl CloneForkFlowOptions {
     /// Decides whether the call may start a run for a Flow ID that already has a run.
     ///
     /// It works as [`crate::StartFlowOptions::id_reuse_policy`] does for a start.
+    ///
+    /// Since 1.45.2.
     pub fn id_reuse_policy(mut self, policy: IdReusePolicy) -> Self {
         self.id_reuse_policy = policy;
         self
@@ -137,6 +155,8 @@ impl CloneForkFlowOptions {
     ///
     /// It applies only when [`Self::request_id`] matches the request that created that run, so a
     /// retry with the same request ID returns [`CloneForkFlowResult`] for the run it created.
+    ///
+    /// Since 1.45.2.
     pub fn ignore_already_started(mut self, value: bool) -> Self {
         self.ignore_already_started = value;
         self
@@ -148,6 +168,8 @@ impl CloneForkFlowOptions {
     /// with [`Self::ignore_already_started`], to retry a call whose outcome is unknown. A retry
     /// with the request ID of the new Flow's latest run copies nothing again. An empty request
     /// ID returns [`SdkError::InvalidArgument`].
+    ///
+    /// Since 1.45.2.
     pub fn request_id(mut self, value: impl Into<String>) -> Self {
         self.request_id = Some(value.into());
         self
@@ -156,6 +178,8 @@ impl CloneForkFlowOptions {
     /// Changes the Flow configuration copied from the source run.
     ///
     /// Settings that `value` leaves unset keep the source run's values.
+    ///
+    /// Since 1.45.2.
     pub fn config_override(mut self, value: FlowConfig) -> Self {
         self.config_override = Some(value);
         self
@@ -167,12 +191,16 @@ impl CloneForkFlowOptions {
     /// default task queue. Set a task queue when Workers pick their Flows by task queue, so that
     /// the source run's Workers do not run the new Flow's Steps. Names follow
     /// [`crate::StartFlowOptions::task_queue`].
+    ///
+    /// Since 1.45.2.
     pub fn task_queue(mut self, value: impl Into<String>) -> Self {
         self.task_queue = value.into();
         self
     }
 
     /// Writes a declared Attribute after the copy, in the change that creates the new Flow.
+    ///
+    /// Since 1.45.2.
     pub fn initial_attribute<T: Value>(mut self, attribute: &Attribute<T>, value: T) -> Self {
         self.attributes
             .push(InitialAttribute::for_attribute(attribute, value));
@@ -180,6 +208,8 @@ impl CloneForkFlowOptions {
     }
 
     /// Writes one Attribute-map instance after the copy, in the change that creates the new Flow.
+    ///
+    /// Since 1.45.2.
     pub fn initial_attribute_map<T: Value>(
         mut self,
         attribute: &AttributeMap<T>,
@@ -197,12 +227,16 @@ impl CloneForkFlowOptions {
     /// Without it, or with zero, the new Flow keeps the source run's Flow timeout duration, also
     /// counted from the call. A source run without a Flow timeout gives a new Flow without one.
     /// The new Flow keeps the source run's timeout policy and handler options.
+    ///
+    /// Since 1.45.2.
     pub fn timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);
         self
     }
 
     /// Adds a reason that Dex records with the new Flow's start.
+    ///
+    /// Since 1.45.2.
     pub fn reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
         self
@@ -212,6 +246,8 @@ impl CloneForkFlowOptions {
     ///
     /// Without this option, Dex uses [`SubFlowResetPolicy::AttachElseRestart`]. A child that
     /// ended attaches; a child that still runs takes the policy's second action.
+    ///
+    /// Since 1.45.2.
     pub fn sub_flow_reset_policy(mut self, policy: SubFlowResetPolicy) -> Self {
         self.sub_flow_reset_policy = Some(policy);
         self
@@ -248,12 +284,20 @@ impl Default for CloneForkFlowOptions {
 /// Since 1.45.2.
 pub struct CloneForkFlowResult {
     /// Run ID of the new Flow's run.
+    ///
+    /// Since 1.45.2.
     pub run_id: String,
     /// Run ID of the source run.
+    ///
+    /// Since 1.45.2.
     pub source_run_id: String,
     /// Run attempt of the source run that holds the copied point.
+    ///
+    /// Since 1.45.2.
     pub source_run_attempt: u32,
     /// ID of the last source history event that the copied point includes.
+    ///
+    /// Since 1.45.2.
     pub source_event_id: i64,
 }
 
