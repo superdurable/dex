@@ -141,7 +141,10 @@ RunModel -> CallTool | CallSingleAttemptTool | AwaitToolApproval (one per call, 
    policy, after `AwaitToolApproval` when approval is required.
 4. When every call has a final record, the next `RunModel` adds one AI SDK tool
    result per call in a tool message after the response. A succeeded call becomes the
-   tool's output, through its `toModelOutput` when it has one. A rejected call
+   tool's output, through its `toModelOutput` when it has one. The tool Step
+   runs `toModelOutput` once, right after `execute`, and keeps its result with
+   the call's record, so every later model call and an early turn end read the
+   same result. A rejected call
    becomes `execution-denied` with the rejection message. A failed or
    `outcome_unknown` call becomes `error-text` with the core's outcome text.
 5. It then checks the agent's `stopWhen` over every model step of the turn, as
@@ -186,13 +189,26 @@ next turn sends every call with its result. A failed turn still appends the
 core's turn-failure note through this runner's `buildUserMessage` after those
 results, as a plain user message, so the model does not repeat a write.
 
-A Worker of the same Flow type without that method, such as adapter 0.6.11, can
-end a turn after this adapter stored its tool calls. The stored calls then have
-no result. Every later model call sends each such call with the unknown-outcome
-text, so the provider never receives a call without a result; the stored
-messages do not change. An adapter before 0.6.12 cannot resume a turn whose
-tool calls this adapter stored, and fails that model call; finish a rolling
-deploy before relying on it.
+That method runs no application code. A succeeded call of a tool with
+`toModelOutput` gets the result its tool Step kept. A call whose record keeps
+none, because an adapter before 0.6.12 ran it or its `toModelOutput` threw,
+gets the core's unknown-outcome text instead of the raw output, which may hold
+what `toModelOutput` keeps from the model.
+
+### Upgrading from 0.6.11
+
+Adapter 0.6.12 writes run state version 2, because its run state no longer
+holds the turn's stored messages. It still reads version 1, so it resumes every
+turn that 0.6.11 started. Adapter 0.6.11 refuses version 2: the model call it
+takes over fails with `TypeError`, and after the retries the turn fails with
+the core's failure note. No stored message is lost or written twice.
+
+Upgrade all Workers of the Flow type together, or drain the 0.6.11 Workers
+before 0.6.12 Workers take work, so no turn moves from a 0.6.12 Worker to a
+0.6.11 one. A turn that 0.6.11 ends after 0.6.12 stored its
+tool calls leaves those calls without a stored result. Every later model call
+sends each such call with the unknown-outcome text, so the provider never
+receives a call without a result; the stored messages do not change.
 
 ## Effects
 
@@ -451,7 +467,8 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   may repeat across turns.
 - While a turn runs, each succeeded tool output is stored twice: in the tool
   result message and in the model step summaries in `FrameworkRunState` that
-  stop conditions read.
+  stop conditions read. A tool with `toModelOutput` also keeps its converted
+  result with the call's record.
 - Usage from a crashed attempt is lost, and AI SDK stream retries inside one
   step are not counted as model calls.
 - The core's limits apply: best-effort events, and one queued message per
@@ -525,7 +542,10 @@ The tests check each turn's Step shape with `readStepHistory` and cover:
   stored twice, also for a response that mixes a valid and an invalid call; a
   turn steered or cancelled after tool calls, which stores
   each call's result and no note; a call left open by a Worker without
-  `buildUnfinishedTurnMessages`; and a run state of an earlier adapter;
+  `buildUnfinishedTurnMessages`; a version 1 run state of an earlier adapter;
+  and an asynchronous, impure `toModelOutput` that runs once in its tool Step,
+  whose private output field never reaches a stored tool result after a steer,
+  a cancel, or a failure;
 - a plain error that exhausts `CallTool` retries and records `outcome_unknown`,
   and outputs JSON cannot hold;
 - trusted MCP annotations and reasoning deltas;

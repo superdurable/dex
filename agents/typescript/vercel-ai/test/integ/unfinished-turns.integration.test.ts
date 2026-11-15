@@ -36,7 +36,7 @@ import {
 } from "@superdurable/dex-agents/testing";
 
 import { readRecordedModelPrompts } from "../fixtures/scripted-language-model.js";
-import { createScriptedVercelAiAgentFlow } from "../fixtures/scripted-vercel-ai-agent.js";
+import { createScriptedVercelAiAgentFlow, scriptedPrivateFieldValue } from "../fixtures/scripted-vercel-ai-agent.js";
 import type { AgentSessionFlow } from "../../src/index.js";
 import type { VercelAiAgentRunner } from "../../src/vercel-ai-agent-runner.js";
 
@@ -285,18 +285,21 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     const runner = flow.runner as VercelAiAgentRunner;
     const [userMessage, ...storedTurnMessages] = waiting.messages;
     assert.ok(userMessage !== undefined);
-    const runState = (turnMessages: readonly AgentMessage[]): string =>
+    const [committedRunState] = await environment.client.getAttributes(sessionId, flow.frameworkRunState);
+    // Version 2 makes an adapter before 0.6.12 refuse the run state instead of misreading it.
+    assert.equal((JSON.parse(committedRunState ?? "null") as { version: number }).version, 2);
+    const runState = (version: number, turnMessages: readonly AgentMessage[]): string =>
       JSON.stringify({
-        version: 1,
+        version,
         turnMessages: turnMessages.map((message) => JSON.parse(message.frameworkItem) as unknown),
         requestedToolCallIds: ["call-1-send_email"],
         modelSteps: [],
       });
-    // This adapter stored the turn so far; an earlier one kept the same messages in the run state instead.
+    // This adapter stored the turn so far; an earlier one kept the same messages in a version 1 run state.
     const storedTurn = (flowId: string): AgentTurnContext =>
-      resumedTurnContext(flowId, waiting.messages, runState([]), [rejected]);
+      resumedTurnContext(flowId, waiting.messages, runState(2, []), [rejected]);
     const legacyTurn = (flowId: string): AgentTurnContext =>
-      resumedTurnContext(flowId, [userMessage], runState(storedTurnMessages), [rejected]);
+      resumedTurnContext(flowId, [userMessage], runState(1, storedTurnMessages), [rejected]);
 
     const storedEnd = runner.buildUnfinishedTurnMessages(storedTurn(sessionId));
     const legacyEnd = runner.buildUnfinishedTurnMessages(legacyTurn(sessionId));
@@ -320,6 +323,113 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
       frameworkItems([...storedTurnMessages, ...storedResume.newMessages]),
     );
   });
+
+  test("an async toModelOutput runs once in its tool Step, and a steered turn stores that result", async () => {
+    const sessionId = newSessionId("model-output-steered");
+    await sessions.startSession(sessionId, "call read_profile then send_email");
+    await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    const modelOutput = await readPersistedModelOutput(sessionId, "call-1-read_profile");
+    assert.match(modelOutput, /^visible [0-9a-f-]{36}$/);
+
+    const waiting = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(readFrameworkItemText(waiting.messages[2]), modelOutput);
+    const [frameworkRunState] = await environment.client.getAttributes(sessionId, flow.frameworkRunState);
+    const readProfileRecord = await sessions.readToolCall(sessionId, "call-1-read_profile");
+    const sendEmailRecord = await sessions.readToolCall(sessionId, "call-1-send_email");
+    assert.ok(frameworkRunState !== undefined && readProfileRecord !== undefined && sendEmailRecord !== undefined);
+    const records = [
+      readProfileRecord,
+      { ...sendEmailRecord, status: "rejected", rejectionMessage: toolCallCancelledBySteeringResult },
+    ] as unknown as AgentToolCall[];
+    const runner = flow.runner as VercelAiAgentRunner;
+    const endedTurn = (): AgentTurnContext =>
+      resumedTurnContext(sessionId, waiting.messages, frameworkRunState, records);
+    // The hook runs no application code, so the same committed state gives the same messages.
+    assert.deepEqual(runner.buildUnfinishedTurnMessages(endedTurn()), runner.buildUnfinishedTurnMessages(endedTurn()));
+
+    assert.equal(await sessions.steerUserMessage(sessionId, "never mind"), true);
+    const snapshot = await waitForTurns(sessionId, 2);
+    assert.equal(readFrameworkItemText(snapshot.messages[2]), modelOutput);
+    assertNoPrivateField(sessionId, snapshot.messages);
+    assert.deepEqual(toolLog("read_profile-model-output", sessionId), [`${sessionId} call-1-read_profile`]);
+  });
+
+  test("a turn cancelled after an async toModelOutput stores its converted result, never the raw output", async () => {
+    const sessionId = newSessionId("model-output-cancelled");
+    await sessions.startSession(sessionId, "call read_profile then pause");
+    await sessions.waitForToolCall(sessionId, "call-1-read_profile", (toolCall) => toolCall.status === "succeeded");
+    const modelOutput = await readPersistedModelOutput(sessionId, "call-1-read_profile");
+    await pollUntil(() => (toolLog("turn", sessionId).length > 0 ? true : undefined), {
+      description: `the resumed model call of ${sessionId} waiting at the turn gate`,
+    });
+
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    const cancelled = await waitForTurns(sessionId, 1);
+    assert.equal(cancelled.messages.length, 3);
+    assert.equal(readFrameworkItemText(cancelled.messages[2]), modelOutput);
+    assertNoPrivateField(sessionId, cancelled.messages);
+    assert.deepEqual(toolLog("read_profile-model-output", sessionId), [`${sessionId} call-1-read_profile`]);
+  });
+
+  test("a failed turn stores the converted result of an async toModelOutput before the core's note", async () => {
+    const sessionId = newSessionId("model-output-failed");
+    await sessions.startSession(sessionId, "call read_profile then fail");
+    await sessions.waitForToolCall(sessionId, "call-1-read_profile", (toolCall) => toolCall.status === "succeeded");
+    const modelOutput = await readPersistedModelOutput(sessionId, "call-1-read_profile");
+
+    const failed = await waitForTurns(sessionId, 1);
+    assert.match(failed.state?.lastTurnError ?? "", /scripted model failure/);
+    assert.deepEqual(
+      failed.messages.map((message) => message.role),
+      ["user", "assistant", "tool", "user"],
+    );
+    assert.equal(readFrameworkItemText(failed.messages[2]), modelOutput);
+    assert.equal(failed.messages[2]?.frameworkItem.includes(scriptedPrivateFieldValue), false);
+    assert.deepEqual(toolLog("read_profile-model-output", sessionId), [`${sessionId} call-1-read_profile`]);
+  });
+
+  test("a call whose record keeps no converted result gets the unknown outcome, never the raw output", async () => {
+    const sessionId = newSessionId("model-output-missing");
+    await sessions.startSession(sessionId, "call read_profile then send_email");
+    await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    const waiting = await sessions.getAgentSnapshot(sessionId);
+    const readProfileRecord = await sessions.readToolCall(sessionId, "call-1-read_profile");
+    assert.ok(readProfileRecord !== undefined);
+    // As an adapter before 0.6.12 records it: the raw output, with no converted result.
+    const legacyRecord = { ...readProfileRecord, runnerToolState: null } as unknown as AgentToolCall;
+    const assistant = waiting.messages[1];
+    assert.ok(assistant !== undefined);
+    const runState = JSON.stringify({
+      version: 2,
+      turnMessages: [],
+      requestedToolCallIds: ["call-1-read_profile"],
+      modelSteps: [],
+    });
+    const runner = flow.runner as VercelAiAgentRunner;
+
+    const messages = runner.buildUnfinishedTurnMessages(
+      resumedTurnContext(sessionId, waiting.messages.slice(0, 2), runState, [legacyRecord]),
+    );
+    assert.deepEqual(messages.map(describeFrameworkMessage), [
+      `tool tool-result call-1-read_profile read_profile ${outcomeUnknownToolResult}`,
+    ]);
+    assert.equal(JSON.stringify(messages).includes(scriptedPrivateFieldValue), false);
+  });
+
+  async function readPersistedModelOutput(sessionId: string, toolCallId: string): Promise<string> {
+    const record = await sessions.readToolCall(sessionId, toolCallId);
+    const state = JSON.parse(record?.runnerToolState ?? "null") as { model_output?: { value?: unknown } } | null;
+    const value = state?.model_output?.value;
+    assert.equal(typeof value, "string", `tool call ${toolCallId} keeps no converted result`);
+    return value as string;
+  }
+
+  function assertNoPrivateField(sessionId: string, messages: readonly AgentMessage[]): void {
+    assert.equal(JSON.stringify(messages).includes(scriptedPrivateFieldValue), false);
+    const prompts = readRecordedModelPrompts(markerDirectory, sessionId);
+    assert.ok(prompts.length > 0);
+    assert.equal(JSON.stringify(prompts).includes(scriptedPrivateFieldValue), false);
+  }
 
   async function waitForTurns(sessionId: string, turnCount: number): Promise<AgentSnapshot> {
     await sessions.waitForCompletedTurns(sessionId, turnCount, { timeoutMs: 120_000 });
@@ -414,6 +524,13 @@ function newSessionId(prefix: string): string {
 function readFrameworkItem(message: AgentMessage | undefined): ModelMessage {
   assert.ok(message !== undefined, "message is missing");
   return JSON.parse(message.frameworkItem) as ModelMessage;
+}
+
+/** The text of a stored tool message's only result. */
+function readFrameworkItemText(message: AgentMessage | undefined): unknown {
+  const item = readFrameworkItem(message);
+  const [part] = item.role === "tool" ? item.content : [];
+  return part?.type === "tool-result" && part.output.type === "text" ? part.output.value : undefined;
 }
 
 function toolResultsOf(message: ModelMessage): string[][] {

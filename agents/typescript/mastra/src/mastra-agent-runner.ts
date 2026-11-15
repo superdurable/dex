@@ -456,8 +456,9 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
    * Each invocation then has state `result`, as Mastra stores a call after its result, so the next turn replays a
    * complete conversation and the session stores no note.
    *
-   * The method reads only the turn's run state and its records, so it returns the same messages for the same
-   * committed state. Applications call it only in tests.
+   * The method runs no application code and reads only the turn's run state and its records, so it returns the same
+   * messages for the same committed state. Each result is the text the next model call would have sent. Applications
+   * call it only in tests.
    *
    * @example
    * ```ts
