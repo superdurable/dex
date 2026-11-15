@@ -78,11 +78,15 @@ func awaitWaitForCompletedTime(
 ) time.Time {
 	t.Helper()
 	var waitTime time.Time
+	var historyErr error
 	require.Eventually(t, func() bool {
-		response, err := flowService.GetHistoryEvents(integrationContext(t), &dexpb.GetHistoryEventsRequest{
+		var response *dexpb.GetHistoryEventsResponse
+		response, historyErr = flowService.GetHistoryEvents(integrationContext(t), &dexpb.GetHistoryEventsRequest{
 			FlowId: flowID, RunId: runID, EstimatePageSize: 100,
 		})
-		require.NoError(t, err)
+		if historyErr != nil {
+			return false
+		}
 		for _, event := range response.Events {
 			if event.GetStepWaitForCompleted() != nil {
 				waitTime = event.EventTime.AsTime()
@@ -91,5 +95,6 @@ func awaitWaitForCompletedTime(
 		}
 		return false
 	}, 30*time.Second, 20*time.Millisecond)
+	require.NoError(t, historyErr)
 	return waitTime
 }
