@@ -501,7 +501,7 @@ workspace, belongs to another user, is skipped with a warning.
 
 Each session has a settings JSON object of at most 16 KiB. It is set when the
 session starts and changed with **update_session_settings**, such as from the
-**Agent session** tab in Dex Web. The command reads the settings at the start
+**Conversation** tab in Dex Web. The command reads the settings at the start
 of every turn. They can change the model and the instructions. They can only
 narrow the rest of the file, because anyone who can edit the session in Dex
 Web can edit its settings.
@@ -718,8 +718,8 @@ the session's model calls and tool calls run there.
 - **--resume** of another command's session, such as a **dex-agents-pi**
   session in **dex-agents-builtin**, exits with code 2.
 - **--resume** of a session of the harness's Flow type that another client
-  started without its own task queue, such as from the Dex Web **Start**
-  dialog, exits with code 2 at once. No command pulls the task queue it runs
+  started without its own task queue, such as an application's Client that
+  sets no task queue, exits with code 2 at once. No command pulls the task queue it runs
   on. Start sessions with the command instead.
 - A session that no command has open does not run. A message, an approval, or
   another session Action sent to it from Dex Web or another client waits for a
@@ -1175,12 +1175,12 @@ that **read** returns reaches the model too, after the result's text.
 
 When it starts, the command uploads the session graph of its session Flow
 type to the Dex Server. Dex Web then shows each session's Steps and its
-**Agent session** tab, with no **--flow-rendering-dir**. Open Dex Web at
+**Conversation** tab, with no **--flow-rendering-dir**. Open Dex Web at
 **http://127.0.0.1:8802** for the local **dexcli dev**. Dex Web stops with a
 **dexcli dev** that the command started; see
 [The local Dex server](#dex-server).
 
-- The **Agent session** tab shows the conversation and its tool calls, an
+- The **Conversation** tab shows the conversation and its tool calls, an
   approval card for each pending call, and a message box with **Steer** and
   **Stop turn**. It can also edit the session's settings. See
   [Agent session view](/reference/web/dex-web#agent-session-view).

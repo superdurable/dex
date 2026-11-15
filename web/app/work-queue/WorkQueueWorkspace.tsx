@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, MousePointerClick, Plus, SearchX, X } from 'lucide-react';
 import { SplitHandle, useCollapsibleColumn } from '../workspace/SplitHandle';
-import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, sessionRunPath, workQueuePath } from '../routes';
+import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, workQueuePath } from '../routes';
 import '../workspace/css/workspace.css';
 import '../workspace/css/experimental.css';
 import './workQueue.css';
@@ -18,9 +18,7 @@ import { RUN_COPY } from '../workspace/runCopy';
 import { useFlowTypesDefinitions, useV2Catalog } from '../catalog/WebCatalogProvider';
 import { drawableDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { StartFlowDialog } from '../start/StartFlowDialog';
-import { SESSION_COPY } from '../agents/copy';
 import { WorkingAsChoiceProvider } from '../agents/WorkingAsChoice';
-import { agentSessionFlowTypes, NewSessionDialog } from '../agents/NewSessionDialog';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
 import {
@@ -67,7 +65,6 @@ function RunQueueWorkspace() {
   const error = listError || catalogError;
   const [startOpen, setStartOpen] = useState(false);
   const [startNotice, setStartNotice] = useState('');
-  const [isNewSessionOpen, setNewSessionOpen] = useState(false);
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
   const runQuery = useRunQuery(
@@ -98,7 +95,6 @@ function RunQueueWorkspace() {
   useEffect(() => {
     if (definitionUpdateKey > 0) {
       setStartOpen(false);
-      setNewSessionOpen(false);
       navigate(workQueuePath(flowType || undefined), { replace: true });
     }
   }, [definitionUpdateKey, flowType, navigate]);
@@ -125,8 +121,6 @@ function RunQueueWorkspace() {
   if (!entry) return <Navigate to={workQueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
-  const sessionFlowTypes = agentSessionFlowTypes(catalog);
-  const isSessionFlowType = sessionFlowTypes.includes(entry.flowType);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run wq" ref={shellRef} style={paneStyle}>
@@ -149,12 +143,6 @@ function RunQueueWorkspace() {
                 <button className="wq-start" onClick={() => setStartOpen(true)} type="button">
                   <Plus aria-hidden="true" size={15} strokeWidth={2.4} />
                   Start Flow
-                </button>
-              )}
-              {!entry.definition.start && isSessionFlowType && (
-                <button className="wq-start" onClick={() => setNewSessionOpen(true)} type="button">
-                  <Plus aria-hidden="true" size={15} strokeWidth={2.4} />
-                  {SESSION_COPY.newSession}
                 </button>
               )}
             </>
@@ -256,19 +244,6 @@ function RunQueueWorkspace() {
         </section>
       </div>
       {startNotice && <div className="sfd-notice" role="status">{startNotice}</div>}
-      {isNewSessionOpen && isSessionFlowType && (
-        <NewSessionDialog
-          definitionRevisionFor={(sessionFlowType) => revisionFor([sessionFlowType])}
-          flowTypes={sessionFlowTypes}
-          initialFlowType={entry.flowType}
-          onClose={() => setNewSessionOpen(false)}
-          onDefinitionChanged={handleDefinitionError}
-          onStarted={(_startedFlowType, sessionId) => {
-            setNewSessionOpen(false);
-            navigate(sessionRunPath(sessionId));
-          }}
-        />
-      )}
       {startOpen && entry.definition.start && (
         <StartFlowDialog
           definition={entry.definition.start}

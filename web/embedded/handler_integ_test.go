@@ -462,7 +462,6 @@ func TestIsMutatingRequest(t *testing.T) {
 		{http.MethodPost, "/dex-web/a/api/flows/stop", true},
 		{http.MethodPost, "/dex-web/a/api/v2/start", true},
 		{http.MethodPost, "/dex-web/a/api/v2/actions", true},
-		{http.MethodPost, "/dex-web/a/api/v2/agent-sessions/start", true},
 		{http.MethodPost, "/dex-web/a/api/v2/agent-sessions/messages", true},
 		{http.MethodPost, "/dex-web/a/api/v2/agent-sessions/settings", true},
 		{http.MethodPatch, "/dex-web/a/api/v2/display", true},

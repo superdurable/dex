@@ -6,16 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import type { V2CatalogEntry } from '@/lib/types';
-import { SESSION_COPY } from '../../agents/copy';
-import { agentSessionFlowTypes, NewSessionDialog } from '../../agents/NewSessionDialog';
 import type { AgentSessionSchema } from '../../agents/sessionSchema';
 import { SessionView } from '../../agents/SessionView';
-import { useV2Catalog } from '../../catalog/WebCatalogProvider';
-import { sessionRunPath } from '../../routes';
-import { ChevronDown, Plus, UserRound } from 'lucide-react';
+import { ChevronDown, UserRound } from 'lucide-react';
 import { SelectedRunPanel } from '../../workspace/SelectedRunPanel';
 import type { useWorkingAs } from '../../workspace/useWorkingAs';
 import '../../workspace/css/workspace.css';
@@ -38,29 +32,11 @@ export function AgentSessionTab({
   schema: AgentSessionSchema;
   workingAs: RunWorkingAs;
 }) {
-  const navigate = useNavigate();
-  const [isNewSessionOpen, setNewSessionOpen] = useState(false);
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Agent session">
       <header className="xp-head">
         <h3>Agent session</h3>
-        <div className="xp-head-tools">
-          <button className="xp-new-session" onClick={() => setNewSessionOpen(true)} type="button">
-            <Plus aria-hidden="true" size={14} strokeWidth={2.2} />
-            {SESSION_COPY.newSession}
-          </button>
-        </div>
       </header>
-      {isNewSessionOpen && (
-        <CatalogNewSessionDialog
-          entry={entry}
-          onClose={() => setNewSessionOpen(false)}
-          onStarted={(sessionId) => {
-            setNewSessionOpen(false);
-            navigate(sessionRunPath(sessionId));
-          }}
-        />
-      )}
       <SessionView
         key={flowId}
         flowId={flowId}
@@ -73,34 +49,6 @@ export function AgentSessionTab({
         workingAsPermission={workingAs.permission}
       />
     </section>
-  );
-}
-
-/**
- * New session for a session run. It lists every session Flow type, so it reads the whole catalog,
- * but only once the reader opens it; until then it offers the run's own Flow type.
- */
-function CatalogNewSessionDialog({
-  entry,
-  onClose,
-  onStarted,
-}: {
-  entry: V2CatalogEntry;
-  onClose: () => void;
-  onStarted: (sessionId: string) => void;
-}) {
-  const { catalog, handleDefinitionError, revisionFor } = useV2Catalog();
-  const catalogFlowTypes = agentSessionFlowTypes(catalog);
-  const flowTypes = catalogFlowTypes.includes(entry.flowType) ? catalogFlowTypes : [entry.flowType, ...catalogFlowTypes];
-  return (
-    <NewSessionDialog
-      definitionRevisionFor={(flowType) => revisionFor([flowType])}
-      flowTypes={flowTypes}
-      initialFlowType={entry.flowType}
-      onClose={onClose}
-      onDefinitionChanged={handleDefinitionError}
-      onStarted={(_flowType, sessionId) => onStarted(sessionId)}
-    />
   );
 }
 

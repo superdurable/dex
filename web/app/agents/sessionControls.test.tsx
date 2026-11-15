@@ -12,7 +12,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
 import { SESSION_COPY } from './copy';
-import { NewSessionDialog, newSessionSettings, sessionIdProblem } from './NewSessionDialog';
 import { SessionComposer, type ComposerWorkingAsChoice } from './SessionComposer';
 import type { SessionActionInvoker } from './InterruptControls';
 import { MAX_SESSION_SETTINGS_BYTES, parseSessionSettings, sessionRouteBlockedReason } from './sessionRequests';
@@ -344,67 +343,5 @@ describe('SessionSettingsPanel', () => {
       ok: false, message: SESSION_COPY.settingsTooLarge(MAX_SESSION_SETTINGS_BYTES + 1, MAX_SESSION_SETTINGS_BYTES),
     });
     expect(sessionSettingsSummary(null)).toBe(SESSION_COPY.settingsNone);
-  });
-});
-
-describe('NewSessionDialog', () => {
-  it('starts a session with the first message, model, system prompt, and other settings', async () => {
-    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ flowId: 'my-session', runId: 'r' }), { status: 200 }));
-    const onStarted = vi.fn();
-    render(
-      <NewSessionDialog
-        definitionRevisionFor={() => 'sha256:r'}
-        flowTypes={['SupportAgent', 'ResearchAgent']}
-        initialFlowType="ResearchAgent"
-        onClose={vi.fn()}
-        onDefinitionChanged={() => false}
-        onStarted={onStarted}
-      />,
-    );
-    const sessionId = screen.getByRole('textbox', { name: /Session ID/ }) as HTMLInputElement;
-    expect(sessionId.value).toMatch(/^session-[0-9a-f-]{36}$/);
-    fireEvent.change(sessionId, { target: { value: 'my-session' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /First message/ }), { target: { value: 'Hello' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /^model/ }), { target: { value: ' mock/dex ' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /^system_prompt/ }), { target: { value: 'Be brief' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /Other settings/ }), { target: { value: '{"model":"old","max_turns":3}' } });
-    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.startSession }));
-
-    await waitFor(() => expect(onStarted).toHaveBeenCalledWith('ResearchAgent', 'my-session'));
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/v2/agent-sessions/start');
-    expect(postedBody()).toEqual({
-      flowType: 'ResearchAgent',
-      flowId: 'my-session',
-      initialMessage: 'Hello',
-      sessionSettings: { model: 'mock/dex', max_turns: 3, system_prompt: 'Be brief' },
-    });
-  });
-
-  it('checks the session ID and the other settings before starting', () => {
-    expect(sessionIdProblem(' ')).toBe(SESSION_COPY.sessionIdRequired);
-    expect(sessionIdProblem('a/b')).toBe(SESSION_COPY.sessionIdReserved);
-    const draft = { sessionId: 's', firstMessage: '', model: '', systemPrompt: '', otherSettings: '' };
-    expect(newSessionSettings(draft)).toEqual({ ok: true, value: null });
-    expect(newSessionSettings({ ...draft, otherSettings: '[]' })).toEqual({ ok: false, message: SESSION_COPY.settingsNotObject });
-  });
-
-  it('shows the server error and stays open', async () => {
-    fetchMock.mockImplementation(async () => new Response(
-      JSON.stringify({ error: 'Flow already started', grpcCode: 6 }), { status: 409 },
-    ));
-    const onStarted = vi.fn();
-    render(
-      <NewSessionDialog
-        definitionRevisionFor={() => 'sha256:r'}
-        flowTypes={['SupportAgent']}
-        onClose={vi.fn()}
-        onDefinitionChanged={() => false}
-        onStarted={onStarted}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.startSession }));
-    expect(await screen.findByText('Flow already started')).toBeTruthy();
-    expect(onStarted).not.toHaveBeenCalled();
-    expect(postedBody()).toMatchObject({ flowType: 'SupportAgent', initialMessage: null, sessionSettings: null });
   });
 });

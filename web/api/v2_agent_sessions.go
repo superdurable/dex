@@ -18,12 +18,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 const (
-	agentSessionStartStepType           = "StartAgentSession"
 	agentSessionSendUserMessageRPC      = "send_user_message"
 	agentSessionUpdateSettingsRPC       = "update_session_settings"
 	maximumAgentSessionSettingsBytes    = 16 * 1024
@@ -33,13 +31,6 @@ const (
 
 // agentSessionActionRPCNames are the Actions every Dex Agents session graph declares; they share one permission.
 var agentSessionActionRPCNames = []string{"resolve_interrupt", "steer_user_message", "cancel_turn", "answer_question"}
-
-type v2AgentSessionStartRequest struct {
-	FlowType        string          `json:"flowType"`
-	FlowID          string          `json:"flowId"`
-	InitialMessage  *string         `json:"initialMessage"`
-	SessionSettings json.RawMessage `json:"sessionSettings"`
-}
 
 type v2AgentSessionMessageRequest struct {
 	FlowType             string   `json:"flowType"`
@@ -59,77 +50,8 @@ type v2AgentSessionSettingsRequest struct {
 }
 
 func registerAgentSessionHandlers(mux *http.ServeMux, handler *v2Handler) {
-	mux.HandleFunc("POST /api/v2/agent-sessions/start", handler.startAgentSession)
 	mux.HandleFunc("POST /api/v2/agent-sessions/messages", handler.sendAgentSessionMessage)
 	mux.HandleFunc("POST /api/v2/agent-sessions/settings", handler.updateAgentSessionSettings)
-}
-
-// startAgentSession starts a session as AgentSessionClient.start_session does, including its search mode.
-func (h *v2Handler) startAgentSession(response http.ResponseWriter, request *http.Request) {
-	var body v2AgentSessionStartRequest
-	if err := decodeJSON(response, request, &body); err != nil {
-		WriteError(response, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
-	if !ok {
-		return
-	}
-	definition, exists := snapshot.Definitions[body.FlowType]
-	if !exists || definition.AgentSession == nil {
-		WriteError(response, http.StatusBadRequest, agentSessionNotDeclaredErrorMessage, nil)
-		return
-	}
-	if strings.TrimSpace(body.FlowID) == "" {
-		WriteError(response, http.StatusBadRequest, "flow ID is required", nil)
-		return
-	}
-	if err := validateFlowID(body.FlowID); err != nil {
-		WriteError(response, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	input := map[string]json.RawMessage{"initial_message": json.RawMessage("null"), "session_settings": json.RawMessage("null")}
-	if body.InitialMessage != nil && strings.TrimSpace(*body.InitialMessage) != "" {
-		message, err := json.Marshal(*body.InitialMessage)
-		if err != nil {
-			WriteError(response, http.StatusBadRequest, err.Error(), nil)
-			return
-		}
-		input["initial_message"] = message
-	}
-	if len(body.SessionSettings) > 0 && !bytes.Equal(bytes.TrimSpace(body.SessionSettings), []byte("null")) {
-		settings, err := compactAgentSessionSettings(body.SessionSettings)
-		if err != nil {
-			WriteError(response, http.StatusBadRequest, err.Error(), nil)
-			return
-		}
-		input["session_settings"] = settings
-	}
-	payload, err := json.Marshal(input)
-	if err != nil {
-		WriteError(response, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	result, err := h.client.StartFlow(request.Context(), &dexpb.StartFlowRequest{
-		FlowId: body.FlowID, FlowType: body.FlowType, StartStepType: agentSessionStartStepType,
-		StepInput: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: "json", Payload: payload,
-		}}},
-		RequestId:   uuid.NewString(),
-		StepOptions: &dexpb.StepOptions{SkipWaitFor: definition.AgentSession.StartStepSkipWaitFor},
-		FlowStartOptions: &dexpb.FlowStartOptions{
-			FlowConfigOverride: &dexpb.FlowConfig{
-				WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true},
-				// The agent inbox finds sessions by the waiting Steps they are in.
-				ActiveStepSearchMode: dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR.Enum(),
-			},
-		},
-	})
-	if err != nil {
-		writeGRPCError(response, err, "StartFlow")
-		return
-	}
-	writeJSON(response, http.StatusOK, v2StartResponse{FlowID: body.FlowID, RunID: result.GetRunId()})
 }
 
 func (h *v2Handler) sendAgentSessionMessage(response http.ResponseWriter, request *http.Request) {

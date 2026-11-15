@@ -59,7 +59,6 @@ func loadAgentSession(rawNodes []json.RawMessage, language string) (*api.V2Agent
 			}
 			if node.Name == agentSessionStartStepType && node.Start {
 				isStartStepFound = true
-				session.StartStepSkipWaitFor = node.Phase == "execute"
 			}
 		case "rpc":
 			session.RPCNames[node.Name] = true

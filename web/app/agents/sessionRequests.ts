@@ -44,29 +44,6 @@ export function updateSessionSettings(
   return postSessionRoute(context, 'settings', { sessionSettings }, SESSION_COPY.settingsRefused, fetcher);
 }
 
-export interface StartSessionRequest {
-  flowType: string;
-  flowId: string;
-  initialMessage: string;
-  sessionSettings: Record<string, unknown> | null;
-  definitionRevision: string;
-}
-
-/** Starts one session with the session start input; resolves to its Flow ID. */
-export async function startAgentSession(request: StartSessionRequest, fetcher: typeof fetch = fetch): Promise<string> {
-  const response = await fetcher(webURL(`${AGENT_SESSIONS_API}/start`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...definitionRevisionHeaders(request.definitionRevision) },
-    body: JSON.stringify({
-      flowType: request.flowType,
-      flowId: request.flowId,
-      initialMessage: request.initialMessage.trim() === '' ? null : request.initialMessage,
-      sessionSettings: request.sessionSettings,
-    }),
-  });
-  return (await readResponseJSON<{ flowId: string }>(response)).flowId;
-}
-
 async function postSessionRoute(
   context: SessionRouteContext,
   route: 'messages' | 'settings',
@@ -135,15 +112,10 @@ export function parseSessionSettings(text: string, blankAllowed: boolean): Sessi
 }
 
 /** Checks the compact JSON size of settings against MAX_SESSION_SETTINGS_BYTES. */
-export function checkSessionSettingsSize(value: Record<string, unknown>): SessionSettingsParse {
+function checkSessionSettingsSize(value: Record<string, unknown>): SessionSettingsParse {
   const size = new TextEncoder().encode(JSON.stringify(value)).length;
   if (size > MAX_SESSION_SETTINGS_BYTES) {
     return { ok: false, message: SESSION_COPY.settingsTooLarge(size, MAX_SESSION_SETTINGS_BYTES) };
   }
   return { ok: true, value };
-}
-
-/** A new session ID: a random UUID, which never holds a character a Flow ID reserves. */
-export function newSessionId(): string {
-  return `session-${crypto.randomUUID()}`;
 }
