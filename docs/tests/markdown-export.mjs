@@ -203,6 +203,8 @@ try {
     dexcli: compatibilityRange('0.9.0', '1.2.0'),
     agents: {npm: {oldest: {version: '0.1.0', pinnedSdk: '1.0.0'}, newest: {version: agentsNewest, pinnedSdk: '1.1.0'}}, pypi: null},
     agentsCli: {npm: compatibilityRange('0.2.0', agentsNewest), pypi: null},
+    agentsCliCommands: {npm: {'@superdurable/dex-agents-mastra-cli': compatibilityRange('0.2.0', agentsNewest)},
+      pypi: {'dex-agents-google-adk-cli': null}},
   });
   await mkdir(join(siteDir, 'static/compatibility'), {recursive: true});
   await writeFile(join(siteDir, 'static/compatibility/server-zd.json'), JSON.stringify({schemaVersion: 1, generatedAt: '2026-11-14',
@@ -238,6 +240,9 @@ try {
   assert.match(compatibilityPage, /server-zd 0\.1\.3 接受协议版本 1 到 5。/);
   assert.match(compatibilityPage, /\| Dex Agents \(npm\) +\| 0\.1\.0 \(SDK 1\.0\.0\) \| 0\.2\.0 \(SDK 1\.1\.0\) \|/);
   assert.match(compatibilityPage, /\| Agents CLI \(PyPI\) +\| 无 +\| 无 +\|/);
+  // Each Agents CLI command package gets its own row, after the other clients.
+  assert.match(compatibilityPage, /\| @superdurable\/dex-agents-mastra-cli \(npm\) +\| 0\.2\.0 +\| 0\.3\.0 +\|/);
+  assert.match(compatibilityPage, /\| dex-agents-google-adk-cli \(PyPI\) +\| 无 +\| 无 +\|/);
   assert.match(compatibilityPage, /不再列出 server-zd 0\.1\.1。/);
   const home = await readFile(join(outDir, 'index.md'), 'utf8');
   // CrashTimeline exports its events as a numbered list in the page locale, without the animation.

@@ -55,6 +55,18 @@ const clients = [
   {label: 'Agents CLI (PyPI)', range: (server) => server.agentsCli.pypi},
 ];
 
+const commandRegistryLabels = {npm: 'npm', pypi: 'PyPI'};
+
+// One client per Agents CLI command package, labeled by its published name.
+function commandClients(server) {
+  return Object.entries(commandRegistryLabels).flatMap(([registry, registryLabel]) =>
+    Object.keys(server.agentsCliCommands?.[registry] ?? {}).map((name) => ({
+      label: `${name} (${registryLabel})`,
+      range: (entry) => entry.agentsCliCommands[registry][name],
+    })),
+  );
+}
+
 function copyFor(locale) {
   return copies[locale] ?? copies.en;
 }
@@ -107,7 +119,7 @@ export function compatibilityMatrixTable(document, locale) {
 }
 
 /**
- * Returns the compatible client releases of one server-zd release.
+ * Returns the compatible client releases of one server-zd release, then each Agents CLI command package.
  *
  * @param {{servers: object[]}} document The parsed server-zd.json.
  * @param {string} version The server-zd release.
@@ -125,7 +137,7 @@ export function serverCompatibilityTable(document, version, locale) {
   return {
     summary: copy.protocolSentence(version, server.protocolVersion),
     header: [copy.component, copy.oldest, copy.newest],
-    rows: clients.map((client) => {
+    rows: [...clients, ...commandClients(server)].map((client) => {
       const range = client.range(server);
       if (range === null) return [client.label, copy.none, copy.none];
       return [client.label, endText(range.oldest, copy), endText(range.newest, copy)];

@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -56,6 +57,10 @@ A client release works with a server-zd release when both are true:
 - their protocol ranges overlap: client minimum <= server maximum and server minimum <= client maximum;
 - the server is at least the client line's minimumServerZd, when the line names one.
 The Dex Agents packages and the Agents CLI take the protocol range of the SDK they pin on each registry.
+
+agentsCliCommands lists each Agents CLI command package by its published name. A command package ships in an
+agents release when its manifest is in the release tag. It is published from that release on, unless the rules'
+agentsCliCommandsFirstPublished names a later first release on that registry.
 """
 
 
@@ -85,6 +90,17 @@ AGENTS_PIN_SOURCES = {
     "agents": {"npm": "agents/typescript/core/package.json", "pypi": "agents/python/core/pyproject.toml"},
     "agentsCli": {"npm": "agents/cli/typescript/core/package.json", "pypi": "agents/cli/python/core/pyproject.toml"},
 }
+# Each Agents CLI command package is one child directory of the registry's directory, with this manifest.
+AGENTS_CLI_COMMAND_SOURCES = {
+    "npm": ("agents/cli/typescript", "package.json"),
+    "pypi": ("agents/cli/python", "pyproject.toml"),
+}
+# Command package names; the CLI core and the test packages do not match.
+AGENTS_CLI_COMMAND_NAMES = {
+    "npm": re.compile(r"^@superdurable/dex-agents-[a-z0-9-]+-cli$"),
+    "pypi": re.compile(r"^dex-agents-[a-z0-9-]+-cli$"),
+}
+COMMAND_FIRST_PUBLISHED_RULES = "agentsCliCommandsFirstPublished"
 # The package each registry check reads for a component.
 REGISTRY_PACKAGES = {
     ("go", "goproxy"): "github.com/superdurable/dex/sdk-go",
@@ -128,6 +144,8 @@ class Rules:
     server_lines: tuple[RuleLine, ...]
     client_lines: Mapping[str, tuple[RuleLine, ...]]
     unpublished: frozenset[tuple[str, str, str]]
+    # The first published release of a command package, keyed by (registry, package).
+    command_first_published: Mapping[tuple[str, str], str]
 
 
 class RepositoryReader:
@@ -136,10 +154,36 @@ class RepositoryReader:
     def __init__(self, repository: Path) -> None:
         self.repository = repository
         self._tags: frozenset[str] | None = None
+        self._blobs: dict[str, str] = {}
 
     def working_file(self, path: str) -> str | None:
         file_path = self.repository / path
         return file_path.read_text(encoding="utf-8") if file_path.is_file() else None
+
+    def working_child_files(self, directory: str, file_name: str) -> dict[str, str]:
+        """Returns the text of each directory/<child>/file_name in the working tree, by path."""
+        return {
+            path.relative_to(self.repository).as_posix(): path.read_text(encoding="utf-8")
+            for path in sorted((self.repository / directory).glob(f"*/{file_name}"))
+            if path.is_file()
+        }
+
+    def tag_child_files(self, tag: str, directory: str, file_name: str) -> dict[str, str]:
+        """Returns the text of each directory/<child>/file_name at tag, by path."""
+        result = run_git(self.repository, "ls-tree", "-r", tag, "--", directory)
+        files = {}
+        for line in result.stdout.splitlines():
+            metadata, path = line.split("\t", 1)
+            object_type, object_id = metadata.split()[1:3]
+            if object_type == "blob" and Path(path).name == file_name and Path(path).parent.parent == Path(directory):
+                files[path] = self._blob(object_id)
+        return files
+
+    def _blob(self, object_id: str) -> str:
+        # Manifests rarely change between releases, so most tags share their blobs.
+        if object_id not in self._blobs:
+            self._blobs[object_id] = run_git(self.repository, "cat-file", "blob", object_id).stdout
+        return self._blobs[object_id]
 
     def tags(self) -> frozenset[str]:
         if self._tags is None:
@@ -267,10 +311,20 @@ def load_rules(reader: RepositoryReader) -> Rules:
     for index, entry in enumerate(data.get("unpublished") or []):
         component, registry = entry.get("component"), entry.get("registry")
         version = require_version(entry.get("version"), f"unpublished[{index}].version")
-        if (component, registry) not in REGISTRY_PACKAGES:
+        if (component, registry) not in REGISTRY_PACKAGES and not is_command_package(component, registry):
             raise CompatibilityError(f"{RULES_FILE}: unpublished[{index}] names no known component and registry")
         unpublished.add((component, registry, version))
-    return Rules(oldest_supported_server, server_lines, client_lines, frozenset(unpublished))
+    command_first_published = {}
+    for index, entry in enumerate(data.get(COMMAND_FIRST_PUBLISHED_RULES) or []):
+        label = f"{COMMAND_FIRST_PUBLISHED_RULES}[{index}]"
+        package, registry = entry.get("package"), entry.get("registry")
+        version = require_version(entry.get("version"), f"{label}.version")
+        if not is_command_package(package, registry):
+            raise CompatibilityError(f"{RULES_FILE}: {label} names no Agents CLI command package on npm or pypi")
+        if (registry, package) in command_first_published:
+            raise CompatibilityError(f"{RULES_FILE}: {label} repeats {package} on {registry}")
+        command_first_published[(registry, package)] = version
+    return Rules(oldest_supported_server, server_lines, client_lines, frozenset(unpublished), command_first_published)
 
 
 def parse_lines(entries: object, label: str, is_protocol_required: bool) -> tuple[RuleLine, ...]:
@@ -310,6 +364,9 @@ def compute_servers(reader: RepositoryReader, rules: Rules) -> list[dict]:
     releases = {client.name: released_versions(reader, client.changelog) for client in PROTOCOL_CLIENTS}
     agents_releases = released_versions(reader, AGENTS_CHANGELOG)
     pins = AgentsPins(reader, agents_releases)
+    commands = AgentsCliCommands(reader, rules, agents_releases)
+    # Validates the rules' first published releases before any entry uses them.
+    commands.first_published_guards()
     entries = []
     for server in sorted(servers, key=version_key, reverse=True):
         server_line = line_for(rules.server_lines, server)
@@ -332,6 +389,7 @@ def compute_servers(reader: RepositoryReader, rules: Rules) -> list[dict]:
                     registry: agents_range(rules, "agentsCli", registry, agents_releases, pins, context, is_pin_listed=False)
                     for registry in AGENTS_REGISTRIES
                 },
+                "agentsCliCommands": {registry: commands.ranges(registry, context) for registry in AGENTS_REGISTRIES},
             }
         )
     return entries
@@ -397,13 +455,7 @@ def agents_range(
         if line is None or (component, registry, version) in rules.unpublished:
             continue
         pinned_sdk = pins.pinned_sdk(component, registry, version)
-        sdk_line = line_for(sdk_lines, pinned_sdk)
-        # Both the agents line and the pinned SDK's line may name a minimum server-zd.
-        if (
-            sdk_line is not None
-            and is_line_compatible(sdk_line, sdk_line.protocol, context)
-            and is_line_compatible(line, sdk_line.protocol, context)
-        ):
+        if is_agents_release_compatible(line, line_for(sdk_lines, pinned_sdk), context):
             compatible.append((version, pinned_sdk))
     if not compatible:
         return None
@@ -413,6 +465,16 @@ def agents_range(
         "oldest": {"version": compatible[0][0], "pinnedSdk": compatible[0][1]},
         "newest": {"version": compatible[-1][0], "pinnedSdk": compatible[-1][1]},
     }
+
+
+def is_agents_release_compatible(line: RuleLine, sdk_line: RuleLine | None, context: ServerContext) -> bool:
+    """Returns whether an agents release of line, pinning an SDK of sdk_line, works with the server."""
+    # Both the agents line and the pinned SDK's line may name a minimum server-zd.
+    return (
+        sdk_line is not None
+        and is_line_compatible(sdk_line, sdk_line.protocol, context)
+        and is_line_compatible(line, sdk_line.protocol, context)
+    )
 
 
 def is_line_compatible(line: RuleLine, protocol: ProtocolRange | None, context: ServerContext) -> bool:
@@ -437,19 +499,137 @@ class AgentsPins:
 
     def _read_pin(self, component: str, registry: str, version: str) -> str:
         path = AGENTS_PIN_SOURCES[component][registry]
-        tag = COMPONENT_CHANGELOGS[AGENTS_CHANGELOG].tag(version)
-        if tag in self.reader.tags():
+        tag = agents_release_tag(self.reader, self.newest, version)
+        if tag is not None:
             text = self.reader.tag_file(tag, path)
             source = f"{tag}:{path}"
-        elif version == self.newest:
-            # A release-prep pull request records the newest release before its tag exists.
+        else:
             text = self.reader.working_file(path)
             source = path
-        else:
-            raise CompatibilityError(f"tag {tag} is missing. Fetch the release tags: git fetch --tags origin")
         if text is None:
             raise CompatibilityError(f"{source} is missing, so the SDK that agents {version} pins is unknown")
         return parse_pinned_sdk(registry, text, source)
+
+
+class AgentsCliCommands:
+    """Reads the Agents CLI command packages that each agents release ships, and the SDK each one pins."""
+
+    def __init__(self, reader: RepositoryReader, rules: Rules, releases: Sequence[str]) -> None:
+        self.reader = reader
+        self.rules = rules
+        self.newest = max(releases, key=version_key) if releases else None
+        lines = rules.client_lines["agentsCli"]
+        self.releases = [version for version in sorted(releases, key=version_key) if line_for(lines, version) is not None]
+        self._shipped: dict[tuple[str, str], dict[str, str]] = {}
+
+    def ranges(self, registry: str, context: ServerContext) -> dict[str, dict | None]:
+        """Returns the oldest and newest compatible release of each command package on registry, or None."""
+        lines = self.rules.client_lines["agentsCli"]
+        sdk_lines = self.rules.client_lines[AGENTS_PINNED_SDK[registry]]
+        ranges: dict[str, dict | None] = {}
+        for package in self.packages(registry):
+            compatible = [
+                version
+                for version, pinned_sdk in self.published_releases(registry, package)
+                if is_agents_release_compatible(line_for(lines, version), line_for(sdk_lines, pinned_sdk), context)
+            ]
+            ranges[package] = {"oldest": compatible[0], "newest": compatible[-1]} if compatible else None
+        return ranges
+
+    def first_published_guards(self) -> list[tuple[str, str, str]]:
+        """Returns, for each first published release in the rules, the release before it, which the registry lacks.
+
+        Each item is (package, registry, version). Raises CompatibilityError when an entry names a package that no
+        release ships, a release that does not ship it, or the first release that ships it.
+        """
+        guards = []
+        for (registry, package), first in sorted(self.rules.command_first_published.items()):
+            label = f"{RULES_FILE}: {COMMAND_FIRST_PUBLISHED_RULES} entry {package} on {registry}"
+            if first not in self.releases or package not in self.shipped(registry, first):
+                raise CompatibilityError(f"{label} names {first}, which is no agents release that ships {package}")
+            earlier = [
+                version
+                for version in self.shipped_releases(registry, package)
+                if version_key(version) < version_key(first)
+            ]
+            if not earlier:
+                raise CompatibilityError(f"{label} names the first release that ships it; remove the entry")
+            guards.append((package, registry, earlier[-1]))
+        return guards
+
+    def packages(self, registry: str) -> list[str]:
+        """Returns every command package that any agents release ships on registry, sorted by name."""
+        return sorted({package for version in self.releases for package in self.shipped(registry, version)})
+
+    def published_releases(self, registry: str, package: str) -> list[tuple[str, str]]:
+        """Returns each (release, pinned SDK) of package published on registry, oldest first."""
+        first = self.rules.command_first_published.get((registry, package))
+        return [
+            (version, self.shipped(registry, version)[package])
+            for version in self.shipped_releases(registry, package)
+            if first is None or version_key(version) >= version_key(first)
+        ]
+
+    def shipped_releases(self, registry: str, package: str) -> list[str]:
+        """Returns each release that ships package and that no unpublished entry leaves out, oldest first."""
+        return [
+            version
+            for version in self.releases
+            if ("agentsCli", registry, version) not in self.rules.unpublished
+            and (package, registry, version) not in self.rules.unpublished
+            and package in self.shipped(registry, version)
+        ]
+
+    def shipped(self, registry: str, version: str) -> Mapping[str, str]:
+        """Returns each command package that the release ships on registry, mapped to the SDK version it pins."""
+        key = (registry, version)
+        if key not in self._shipped:
+            self._shipped[key] = self._read_shipped(registry, version)
+        return self._shipped[key]
+
+    def _read_shipped(self, registry: str, version: str) -> dict[str, str]:
+        directory, file_name = AGENTS_CLI_COMMAND_SOURCES[registry]
+        tag = agents_release_tag(self.reader, self.newest, version)
+        if tag is not None:
+            manifests = {f"{tag}:{path}": text for path, text in self.reader.tag_child_files(tag, directory, file_name).items()}
+        else:
+            manifests = self.reader.working_child_files(directory, file_name)
+        shipped = {}
+        for source, text in sorted(manifests.items()):
+            package = parse_package_name(registry, text, source)
+            if AGENTS_CLI_COMMAND_NAMES[registry].match(package):
+                shipped[package] = parse_pinned_sdk(registry, text, source)
+        return shipped
+
+
+def agents_release_tag(reader: RepositoryReader, newest: str | None, version: str) -> str | None:
+    """Returns the tag of an agents release, or None when the release reads the working tree."""
+    tag = COMPONENT_CHANGELOGS[AGENTS_CHANGELOG].tag(version)
+    if tag in reader.tags():
+        return tag
+    if version == newest:
+        # A release-prep pull request records the newest release before its tag exists.
+        return None
+    raise CompatibilityError(f"tag {tag} is missing. Fetch the release tags: git fetch --tags origin")
+
+
+def is_command_package(package: object, registry: object) -> bool:
+    """Returns whether package is an Agents CLI command package name on registry."""
+    pattern = AGENTS_CLI_COMMAND_NAMES.get(registry) if isinstance(registry, str) else None
+    return pattern is not None and isinstance(package, str) and pattern.match(package) is not None
+
+
+def parse_package_name(registry: str, text: str, source: str) -> str:
+    if registry == "npm":
+        name = json.loads(text).get("name")
+    else:
+        try:
+            name = tomllib.loads(text).get("project", {}).get("name")
+        except tomllib.TOMLDecodeError as error:
+            raise CompatibilityError(f"{source} is not TOML: {error}") from error
+    if not isinstance(name, str):
+        raise CompatibilityError(f"{source} names no package")
+    return name
 
 
 def parse_pinned_sdk(registry: str, text: str, source: str) -> str:
@@ -573,7 +753,8 @@ def run_verify_registries(options: argparse.Namespace, repository: Path) -> int:
         raise CompatibilityError(f"{COMPATIBILITY_FILE} is missing")
     expected = published_versions(json.loads(text))
     rules = load_rules(reader)
-    errors = registry_errors(expected, rules.unpublished, RegistryClient(options.attempts, options.delay))
+    guards = AgentsCliCommands(reader, rules, released_versions(reader, AGENTS_CHANGELOG)).first_published_guards()
+    errors = registry_errors(expected, rules.unpublished, RegistryClient(options.attempts, options.delay), guards)
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -597,6 +778,9 @@ def published_versions(document: Mapping) -> list[tuple[str, str, str]]:
                     found.add(("agents", registry, agents[end]["version"]))
                     found.add((AGENTS_PINNED_SDK[registry], registry, agents[end]["pinnedSdk"]))
             add_range(found, "agentsCli", registry, server["agentsCli"][registry])
+            # A command package is its own component, named by its published name.
+            for package, version_range in server["agentsCliCommands"][registry].items():
+                add_range(found, package, registry, version_range)
     return sorted(found)
 
 
@@ -607,8 +791,15 @@ def add_range(found: set[tuple[str, str, str]], component: str, registry: str, v
 
 
 def registry_errors(
-    expected: Sequence[tuple[str, str, str]], unpublished: frozenset[tuple[str, str, str]], client: RegistryClient
+    expected: Sequence[tuple[str, str, str]],
+    unpublished: frozenset[tuple[str, str, str]],
+    client: RegistryClient,
+    first_published_guards: Sequence[tuple[str, str, str]] = (),
 ) -> list[str]:
+    """Returns every listed version the registry lacks and every rules exception the registry contradicts.
+
+    first_published_guards holds, per first published release in the rules, the release before it.
+    """
     errors = []
     for component, registry, version in expected:
         if not client.exists(component, registry, version, should_wait=True):
@@ -616,6 +807,12 @@ def registry_errors(
     for component, registry, version in sorted(unpublished):
         if client.exists(component, registry, version, should_wait=False):
             errors.append(f"{component} {version} is published on {registry}; remove its unpublished entry from {RULES_FILE}")
+    for package, registry, version in first_published_guards:
+        if client.exists(package, registry, version, should_wait=False):
+            errors.append(
+                f"{package} {version} is published on {registry}; "
+                f"move its {COMMAND_FIRST_PUBLISHED_RULES} entry in {RULES_FILE} earlier or remove it"
+            )
     return errors
 
 
@@ -650,7 +847,15 @@ class RegistryClient:
 
 
 def registry_request(component: str, registry: str, version: str) -> tuple[str, dict[str, str]]:
-    package = REGISTRY_PACKAGES[(component, registry)]
+    """Returns the URL and headers that answer whether one version is published.
+
+    component is a key of REGISTRY_PACKAGES, or the published name of an Agents CLI command package.
+    """
+    package = REGISTRY_PACKAGES.get((component, registry))
+    if package is None:
+        if not is_command_package(component, registry):
+            raise CompatibilityError(f"no registry package for {component} on {registry}")
+        package = component
     headers = {"User-Agent": HTTP_USER_AGENT}
     if registry == "goproxy":
         return f"https://proxy.golang.org/{package}/@v/v{version}.info", headers
