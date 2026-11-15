@@ -10,6 +10,7 @@
 //! apply on an in-memory state and feeds the committed effects back to the runner.
 
 mod attribute_sync_tests;
+mod clone_fork_staging_expiry_tests;
 mod deadline_tests;
 mod dispatch_tests;
 mod eventual_listing_purge_tests;
