@@ -1226,6 +1226,9 @@ func (FlowResetStepMethod) EnumDescriptor() ([]byte, []int) {
 // with a FAILED child result whose error type is FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED. The Step's
 // Execute receives it like any failed child.
 //
+// A restart or a failure is rejected while the child's start has not reached the child yet;
+// retry the operation later. An attaching policy keeps waiting for such a child instead.
+//
 // Rejecting fails the operation with FAILED_PRECONDITION. Nothing changes. The error names each
 // Step execution and child Flow ID that caused it.
 type SubFlowResetPolicy int32

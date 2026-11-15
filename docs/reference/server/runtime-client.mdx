@@ -557,6 +557,11 @@ completes with a **FAILED** child result whose error type is
 **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED**. The Step's Execute receives it like any
 failed child.
 
+A restart or a failure needs the child's start to have reached the child. While
+the start is still on its way, the time travel is rejected, so no child starts
+after its condition was abandoned. Retry the time travel a moment later. An
+attaching policy keeps waiting for such a child instead.
+
 A rejection returns **FAILED_PRECONDITION** and changes nothing. Its message
 names each Step execution and child Flow ID that caused it. An unknown policy
 value fails with **INVALID_ARGUMENT**.
