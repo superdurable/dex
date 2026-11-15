@@ -178,7 +178,8 @@ nothing.
 
 Dex Web posts with the target origin of its own page. The handler serves Dex
 Web on your origin, so only a parent page on that origin receives the
-message. Check **event.origin** against your origin, and **event.source**
+message. A parent page on another origin receives none, even when
+**FrameAncestors** lists it. Check **event.origin** against your origin, and **event.source**
 against the frame's **contentWindow**, before you use the message.
 
 The frame's URL is the deep link. Load the frame at **BasePath** plus

@@ -64,6 +64,19 @@ describe('HostLocationReporter', () => {
     );
   });
 
+  it('posts the path without the base path', () => {
+    setHostNavigationMeta('true');
+    render(
+      <MemoryRouter basename="/dex-web/server-a" initialEntries={['/dex-web/server-a/v1/flows?q=x']}>
+        <HostLocationReporter />
+      </MemoryRouter>,
+    );
+    expect(parentPostMessage).toHaveBeenLastCalledWith(
+      { type: 'dex-web:location', version: 1, path: '/v1/flows', search: '?q=x' },
+      window.location.origin,
+    );
+  });
+
   it('posts the page a redirect lands on', () => {
     setHostNavigationMeta('true');
     renderReporter('/v1/flows/flow-1');
