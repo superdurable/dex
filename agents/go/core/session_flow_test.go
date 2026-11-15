@@ -153,3 +153,34 @@ func TestToolCallNotRunErrorPrefixMatchesTheConformanceSuite(t *testing.T) {
 	require.NoError(t, json.Unmarshal(text, &texts))
 	require.Equal(t, texts.Constants["tool_call_not_run_error_prefix"], ToolCallNotRunErrorPrefix)
 }
+
+func TestToolCallNotesMatchTheConformanceSuite(t *testing.T) {
+	t.Parallel()
+	text, err := os.ReadFile(filepath.Join("..", "..", "conformance", "texts.json"))
+	require.NoError(t, err)
+	var texts struct {
+		Constants map[string]string `json:"constants"`
+		Templates map[string][]struct {
+			Input struct {
+				Records []AgentToolCall `json:"records"`
+			} `json:"input"`
+			Text string `json:"text"`
+		} `json:"templates"`
+	}
+	require.NoError(t, json.Unmarshal(text, &texts))
+	require.Equal(t, texts.Constants["tool_call_note_truncation_marker"], ToolCallNoteTruncationMarker)
+	namesText, err := os.ReadFile(filepath.Join("..", "..", "conformance", "names.json"))
+	require.NoError(t, err)
+	var names struct {
+		Limits map[string]int `json:"limits"`
+	}
+	require.NoError(t, json.Unmarshal(namesText, &names))
+	require.Equal(t, names.Limits["tool_call_note_max_output_bytes"], ToolCallNoteMaxOutputBytes)
+	cases := texts.Templates["turn_failure_note"]
+	require.NotEmpty(t, cases)
+	for index, textCase := range cases {
+		note, err := BuildTurnFailureNote(textCase.Input.Records)
+		require.NoError(t, err, "turn_failure_note[%d]", index)
+		require.Equal(t, textCase.Text, note, "turn_failure_note[%d]", index)
+	}
+}

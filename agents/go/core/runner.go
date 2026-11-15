@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // OutcomeUnknownToolResult is the model-visible text for a call whose outcome is unknown.
@@ -31,6 +33,26 @@ const TurnFailureNoteHeader = "[Dex] The previous turn failed after these tool c
 
 // TurnFailureNoteFooter is the last line of that note.
 const TurnFailureNoteFooter = "Do not repeat these tool calls unless the user asks again."
+
+// ToolCallNoteMaxOutputBytes is the most UTF-8 bytes of one tool call's outcome that a tool call
+// note keeps.
+//
+// BuildToolCallNote and BuildTurnFailureNote cut a longer outcome at the last whole rune within
+// this budget and append ToolCallNoteTruncationMarker. The stored tool call record keeps the full
+// output. Every later turn resends the note, so the budget bounds that cost.
+// The note uses a copy of each outcome with each invalid UTF-8 sequence replaced by U+FFFD, and
+// counts bytes on that copy.
+//
+// Since 0.6.12.
+const ToolCallNoteMaxOutputBytes = 2000
+
+// ToolCallNoteTruncationMarker is the marker a tool call note appends to a cut outcome.
+//
+// {omitted_bytes} is the UTF-8 size of the cut part and {total_bytes} the size of the whole
+// outcome, both in plain decimal digits.
+//
+// Since 0.6.12.
+const ToolCallNoteTruncationMarker = "\u2026 [output truncated: {omitted_bytes} of {total_bytes} bytes omitted]"
 
 // DefaultRejectionToolResult is the model-visible text for a rejection without a message.
 const DefaultRejectionToolResult = "The user rejected this tool call."
@@ -138,6 +160,11 @@ func DescribeToolCallOutcome(toolCall AgentToolCall) (string, error) {
 //	- charge {"amount": 5} -> succeeded: charged 5
 //	Do not repeat these tool calls unless the user asks again.
 //
+// An outcome longer than ToolCallNoteMaxOutputBytes keeps its longest prefix of whole runes within
+// that budget, followed by ToolCallNoteTruncationMarker. The records themselves are unchanged.
+//
+// Changed in 0.6.12: long outcomes are cut to ToolCallNoteMaxOutputBytes.
+//
 // It returns an error when a record is not final.
 func BuildTurnFailureNote(toolCalls []AgentToolCall) (string, error) {
 	return BuildToolCallNote(TurnFailureNoteHeader, toolCalls)
@@ -146,8 +173,11 @@ func BuildTurnFailureNote(toolCalls []AgentToolCall) (string, error) {
 // BuildToolCallNote returns a note in the turn-failure note's line format with another first line.
 //
 // It returns header, one "- <tool_name> <arguments> -> <status>: <result>"
-// line per record in DeferralOrder, and TurnFailureNoteFooter, joined with
-// newlines, or an error when a record is not final.
+// line per record in DeferralOrder, with long results cut as in
+// BuildTurnFailureNote, and TurnFailureNoteFooter, joined with newlines, or an
+// error when a record is not final.
+//
+// Changed in 0.6.12: long outcomes are cut to ToolCallNoteMaxOutputBytes.
 func BuildToolCallNote(header string, toolCalls []AgentToolCall) (string, error) {
 	ordered := slices.Clone(toolCalls)
 	sort.SliceStable(ordered, func(left, right int) bool {
@@ -159,10 +189,30 @@ func BuildToolCallNote(header string, toolCalls []AgentToolCall) (string, error)
 		if err != nil {
 			return "", err
 		}
-		lines = append(lines, fmt.Sprintf("- %s %s -> %s: %s", toolCall.ToolName, toolCall.Arguments, toolCall.Status, outcome))
+		lines = append(lines, fmt.Sprintf("- %s %s -> %s: %s", toolCall.ToolName, toolCall.Arguments, toolCall.Status, truncateNoteOutcome(outcome)))
 	}
 	lines = append(lines, TurnFailureNoteFooter)
 	return strings.Join(lines, "\n"), nil
+}
+
+// truncateNoteOutcome returns the valid UTF-8 outcome, cut to the note budget with the marker when
+// longer.
+func truncateNoteOutcome(outcome string) string {
+	// Every core cuts the same text; JSON decoding already turned lone surrogates into U+FFFD.
+	text := strings.ToValidUTF8(outcome, string(utf8.RuneError))
+	totalBytes := len(text)
+	if totalBytes <= ToolCallNoteMaxOutputBytes {
+		return text
+	}
+	keptBytes := ToolCallNoteMaxOutputBytes
+	for !utf8.RuneStart(text[keptBytes]) {
+		keptBytes--
+	}
+	marker := strings.NewReplacer(
+		"{omitted_bytes}", strconv.Itoa(totalBytes-keptBytes),
+		"{total_bytes}", strconv.Itoa(totalBytes),
+	).Replace(ToolCallNoteTruncationMarker)
+	return text[:keptBytes] + marker
 }
 
 // FrameworkMessage describes one framework item that the session should store.

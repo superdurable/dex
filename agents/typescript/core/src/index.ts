@@ -128,6 +128,8 @@ export {
   questionDeadlinePassed,
   toolCallCancelledBySteeringResult,
   toolCallCancelledByTurnCancellationResult,
+  toolCallNoteMaxOutputBytes,
+  toolCallNoteTruncationMarker,
   turnCancelledNoteHeader,
   turnFailureNoteFooter,
   turnFailureNoteHeader,

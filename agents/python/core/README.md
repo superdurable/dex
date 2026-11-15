@@ -1076,6 +1076,13 @@ renders it, one line per record in `deferral_order`:
 Do not repeat these tool calls unless the user asks again.
 ```
 
+An outcome longer than `TOOL_CALL_NOTE_MAX_OUTPUT_BYTES` (2,000 UTF-8 bytes)
+keeps its longest prefix of whole characters within that budget, followed by
+`TOOL_CALL_NOTE_TRUNCATION_MARKER`, such as
+`… [output truncated: 23456 of 25456 bytes omitted]`. The record keeps the
+full output; only the note is cut, because every later turn resends it. The
+steered and stopped turn notes below cut outcomes the same way.
+
 ### `execute_deferred_tool_call(call)`
 
 `DeferredToolExecution` carries `flow_id`, the approved `tool_call` record,

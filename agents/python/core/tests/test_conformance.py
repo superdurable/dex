@@ -24,12 +24,14 @@ from dex_agents import (
     MAX_SESSION_SETTINGS_BYTES,
     MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
     MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
+    TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
     AgentSessionFlow,
     AgentSessionOptions,
     BuiltInTool,
     ListAgentMessagesRequest,
     ToolCallStatus,
     build_plan_execution_message,
+    build_turn_failure_note,
 )
 from dex_agents.builtin_loop import DEFAULT_MAX_MODEL_CALLS_PER_TURN
 from dex_agents.builtin_loop.runner import _read_tool_source_envelope, _write_tool_source_envelope
@@ -131,6 +133,18 @@ def test_the_text_table_matches_the_python_core() -> None:
     assert build_plan_execution_message(case["input"]["revision"]) == case["text"]
 
 
+def test_a_tool_call_note_combines_a_native_surrogate_pair_before_cutting() -> None:
+    def note(output: str) -> str:
+        record = generate.final_record(ToolCallStatus.SUCCEEDED, 0, output=output)
+        return build_turn_failure_note([record])
+
+    prefix = "a" * (TOOL_CALL_NOTE_MAX_OUTPUT_BYTES - 3)
+    # Python keeps "\ud83d\ude00" as two code points; the note treats it as one 4-byte emoji.
+    assert note(prefix + "\ud83d\ude00x") == note(prefix + "\U0001f600x")
+    assert "\ud83d" not in note(prefix + "\ud83d\ude00x")
+    assert "[output truncated: 5 of 2002 bytes omitted]" in note(prefix + "\ud83d\ude00x")
+
+
 def test_the_python_core_reads_every_core_s_tool_source_envelope() -> None:
     names = json.loads((SUITE_DIR / "names.json").read_text(encoding="utf-8"))
     for case in names["stepwise_tool_source_reference"]["cases"]:
@@ -178,6 +192,7 @@ def test_limits_and_final_statuses_match_the_python_constants() -> None:
         "message_rollover_max_chunks_per_commit": MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
         "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
         "default_retained_message_limit": AgentSessionOptions().retained_message_limit,
+        "tool_call_note_max_output_bytes": TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
         "session_terminal_lease_maximum_ttl_seconds": SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS,
         "session_terminal_lease_maximum_host_name_length": (
             SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH
