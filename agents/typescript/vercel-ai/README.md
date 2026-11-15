@@ -141,10 +141,8 @@ RunModel -> CallTool | CallSingleAttemptTool | AwaitToolApproval (one per call, 
    policy, after `AwaitToolApproval` when approval is required.
 4. When every call has a final record, the next `RunModel` adds one AI SDK tool
    result per call in a tool message after the response. A succeeded call becomes the
-   tool's output, through its `toModelOutput` when it has one. The tool Step
-   runs `toModelOutput` once, right after `execute`, and keeps its result with
-   the call's record, so every later model call and an early turn end read the
-   same result. A rejected call
+   tool's output, through its `toModelOutput` when it has one; each `RunModel`
+   attempt converts it again. A rejected call
    becomes `execution-denied` with the rejection message. A failed or
    `outcome_unknown` call becomes `error-text` with the core's outcome text.
 5. It then checks the agent's `stopWhen` over every model step of the turn, as
@@ -190,10 +188,11 @@ core's turn-failure note through this runner's `buildUserMessage` after those
 results, as a plain user message, so the model does not repeat a write.
 
 That method runs no application code. A succeeded call of a tool with
-`toModelOutput` gets the result its tool Step kept. A call whose record keeps
-none, because an adapter before 0.6.12 ran it or its `toModelOutput` threw,
-gets the core's unknown-outcome text instead of the raw output, which may hold
-what `toModelOutput` keeps from the model.
+`toModelOutput` whose result is not stored yet, usually a call of the last
+response, gets the core's unknown-outcome text. Its converted result exists
+only inside a model call, and its raw output may hold what `toModelOutput`
+keeps from the model, so neither is stored. Results of earlier rounds were
+already stored with their converted output.
 
 ### Upgrading from 0.6.11
 
@@ -467,8 +466,10 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   may repeat across turns.
 - While a turn runs, each succeeded tool output is stored twice: in the tool
   result message and in the model step summaries in `FrameworkRunState` that
-  stop conditions read. A tool with `toModelOutput` also keeps its converted
-  result with the call's record.
+  stop conditions read.
+- A turn steered, cancelled, or failed before the model read a result of a
+  tool with `toModelOutput` stores the unknown-outcome text for that call,
+  although the call succeeded.
 - Usage from a crashed attempt is lost, and AI SDK stream retries inside one
   step are not counted as model calls.
 - The core's limits apply: best-effort events, and one queued message per
@@ -543,9 +544,9 @@ The tests check each turn's Step shape with `readStepHistory` and cover:
   turn steered or cancelled after tool calls, which stores
   each call's result and no note; a call left open by a Worker without
   `buildUnfinishedTurnMessages`; a version 1 run state of an earlier adapter;
-  and an asynchronous, impure `toModelOutput` that runs once in its tool Step,
-  whose private output field never reaches a stored tool result after a steer,
-  a cancel, or a failure;
+  and an asynchronous, impure `toModelOutput` whose private output field never
+  reaches a stored tool result after a steer, a cancel, or a failure, with a
+  record that still fits the value limit;
 - a plain error that exhausts `CallTool` retries and records `outcome_unknown`,
   and outputs JSON cannot hold;
 - trusted MCP annotations and reasoning deltas;

@@ -110,7 +110,6 @@ export interface ResolvedVercelAiAgentDefinition {
 // Version 2 means the turn's messages are stored; adapters before 0.6.12 refuse it.
 const frameworkRunStateVersion = 2;
 const legacyFrameworkRunStateVersion = 1;
-const persistedModelOutputKey = "model_output";
 // The AI SDK runs tool calls only for these finish reasons.
 const toolExecutionFinishReasons: ReadonlySet<FinishReason> = new Set(["stop", "tool-calls"]);
 const toolInputCallbackNames = ["onInputStart", "onInputDelta", "onInputAvailable"] as const;
@@ -382,10 +381,11 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
    * A call without a final record gets {@link outcomeUnknownToolResult}. The next turn then sends every call with its
    * result, and no note.
    *
-   * A succeeded call of a tool with `toModelOutput` gets the result that the tool Step converted and kept with the
-   * record. When the record keeps none, such as a call that an adapter before 0.6.12 ran, or whose conversion threw,
-   * the call gets {@link outcomeUnknownToolResult}, never the raw output, which may hold what `toModelOutput` keeps
-   * from the model. Images are stored as references, as in every stored message.
+   * A succeeded call of a tool with `toModelOutput` whose result is not stored yet gets
+   * {@link outcomeUnknownToolResult}. Its converted result exists only in a model call, and its raw output may hold
+   * what `toModelOutput` keeps from the model, so the method stores neither. Results of earlier rounds were stored
+   * with their converted output by the model call that read them. Images are stored as references, as in every
+   * stored message.
    *
    * The method runs no application code and reads only the turn's stored messages, its run state, and its records,
    * so it returns the same messages for the same committed state. Applications call it only in tests.
@@ -422,15 +422,9 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
   /**
    * Runs one deferred call in its tool Step. A call that a tool source built goes to that source with the whole
    * execution, including the Step context and the heartbeat checkpoint. Any other call runs the AI SDK tool's
-   * `execute` once. For a tool with `toModelOutput`, the Step then converts the output once and keeps the
-   * model-visible result in `runnerToolState`, so every later model call and an early turn end read that committed
-   * result instead of converting again. A conversion that throws keeps no result, and the next model call converts
-   * the output again.
-   *
-   * Changed in 0.6.12: the Step runs `toModelOutput` and returns its result as `runnerToolState`.
+   * `execute` once.
    * @param call - The approved call.
-   * @returns The source's result, or the tool output as text, with the `toModelOutput` result as
-   * `runnerToolState` when the tool has one and it returned.
+   * @returns The source's result, or the tool output as text.
    * @throws {ToolExecutionError} When the agent has no such tool, the tool or its source throws it, or the source
    * asks the user a question, which this runner cannot ask.
    * @throws {RangeError} When a source built the call but is not configured on this Worker, so the effect decides
@@ -448,28 +442,25 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     }
     const execute = tool.execute;
     const input: unknown = JSON.parse(toolCall.arguments);
-    const scope = {
-      flowId: call.flowId,
-      turnId: toolCall.turnId,
-      attempt: call.attempt,
-      idempotencyKey: call.idempotencyKey,
-      events: call.events,
-    };
-    const output = await runInAgentToolExecutionScope(scope, () =>
-      readFinalToolOutput(
-        execute(input, {
-          toolCallId: toolCall.toolCallId,
-          messages: [],
-          abortSignal: call.cancellationSignal,
-          context: undefined,
-        }),
-      ),
+    const output = await runInAgentToolExecutionScope(
+      {
+        flowId: call.flowId,
+        turnId: toolCall.turnId,
+        attempt: call.attempt,
+        idempotencyKey: call.idempotencyKey,
+        events: call.events,
+      },
+      () =>
+        readFinalToolOutput(
+          execute(input, {
+            toolCallId: toolCall.toolCallId,
+            messages: [],
+            abortSignal: call.cancellationSignal,
+            context: undefined,
+          }),
+        ),
     );
-    const outputText = serializeToolOutput(output);
-    const runnerToolState = await runInAgentToolExecutionScope(scope, () =>
-      this.encodeToolModelOutput(tool, toolCall, outputText),
-    );
-    return { output: outputText, ...(runnerToolState === undefined ? {} : { runnerToolState }) };
+    return { output: serializeToolOutput(output) };
   }
 
   /**
@@ -518,11 +509,6 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
         output: { type: "text", value: record.output ?? "" },
       };
     }
-    const persistedModelOutput = readPersistedModelOutput(record);
-    if (persistedModelOutput !== undefined) {
-      return { type: "tool-result", toolCallId: record.toolCallId, toolName: record.toolName, output: persistedModelOutput };
-    }
-    // A record from an adapter before 0.6.12, or whose conversion threw in the tool Step.
     return createRecordedToolResultPart(record, this.findTool(record.toolName));
   }
 
@@ -548,45 +534,11 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     if (this.agent.toolSources.isSourceToolCall(record)) {
       return { type: "text", value: record.output ?? "" };
     }
-    const persistedModelOutput = readPersistedModelOutput(record);
-    if (persistedModelOutput !== undefined) {
-      return persistedModelOutput;
-    }
     // The raw output may hold what toModelOutput keeps from the model, and this method runs no application code.
     if (this.findTool(record.toolName)?.toModelOutput !== undefined) {
       return { type: "error-text", value: outcomeUnknownToolResult };
     }
     return createPlainRecordedToolResultOutput(record);
-  }
-
-  /**
-   * Converts a succeeded output with the tool's `toModelOutput` once, inside the tool Step, so later model calls and
-   * an early turn end read the same committed result.
-   * @returns The `runnerToolState` text, or `undefined` for a tool without `toModelOutput` or a conversion that threw.
-   */
-  private async encodeToolModelOutput(
-    tool: Tool,
-    toolCall: AgentToolCall,
-    outputText: string,
-  ): Promise<string | undefined> {
-    if (tool.toModelOutput === undefined) {
-      return undefined;
-    }
-    try {
-      const modelOutput = await tool.toModelOutput({
-        toolCallId: toolCall.toolCallId,
-        input: parseRecordedJson(toolCall.arguments),
-        output: parseRecordedJson(outputText),
-      });
-      return serializeJsonValue({ [persistedModelOutputKey]: modelOutput });
-    } catch (error: unknown) {
-      // The tool already ran, so the Step keeps its output; the next model call converts it again.
-      console.warn(
-        `dex-agents-vercel-ai: toModelOutput of ${toolCall.toolName} failed for tool call ${toolCall.toolCallId}:`,
-        error,
-      );
-      return undefined;
-    }
   }
 
   private findTool(toolName: string): Tool | undefined {
@@ -913,34 +865,6 @@ async function readFinalToolOutput(result: unknown): Promise<unknown> {
     return lastOutput;
   }
   return await result;
-}
-
-const toolResultOutputTypes: ReadonlySet<string> = new Set([
-  "text",
-  "json",
-  "error-text",
-  "error-json",
-  "execution-denied",
-  "content",
-]);
-
-/**
- * Reads the `toModelOutput` result that the tool Step kept in `runnerToolState`.
- * @returns The result, or `undefined` when the record keeps none.
- * @throws {TypeError} When `runnerToolState` is not a result this adapter wrote.
- */
-function readPersistedModelOutput(record: AgentToolCall): ToolResultPart["output"] | undefined {
-  if (record.status !== "succeeded" || typeof record.runnerToolState !== "string") {
-    return undefined;
-  }
-  const state: unknown = JSON.parse(record.runnerToolState);
-  const modelOutput =
-    typeof state === "object" && state !== null ? (state as Record<string, unknown>)[persistedModelOutputKey] : null;
-  const outputType = typeof modelOutput === "object" && modelOutput !== null ? (modelOutput as { type?: unknown }).type : null;
-  if (typeof outputType !== "string" || !toolResultOutputTypes.has(outputType)) {
-    throw new TypeError(`tool call ${record.toolCallId} keeps a runnerToolState that is not a model output`);
-  }
-  return modelOutput as ToolResultPart["output"];
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {

@@ -8,11 +8,13 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
-import type { ModelMessage } from "ai";
+import { tool, type ModelMessage } from "ai";
+import { z } from "zod";
 
 import {
   outcomeUnknownToolResult,
@@ -35,9 +37,9 @@ import {
   pollUntil,
 } from "@superdurable/dex-agents/testing";
 
-import { readRecordedModelPrompts } from "../fixtures/scripted-language-model.js";
+import { createScriptedLanguageModel, readRecordedModelPrompts } from "../fixtures/scripted-language-model.js";
 import { createScriptedVercelAiAgentFlow, scriptedPrivateFieldValue } from "../fixtures/scripted-vercel-ai-agent.js";
-import type { AgentSessionFlow } from "../../src/index.js";
+import { createVercelAiAgentSessionFlow, type AgentSessionFlow } from "../../src/index.js";
 import type { VercelAiAgentRunner } from "../../src/vercel-ai-agent-runner.js";
 
 describe("Vercel AI SDK agent turns store their messages as they run and when they end early", () => {
@@ -208,7 +210,7 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
 
   test("a turn cancelled during its resumed model call stores the tool results, and the next turn resumes", async () => {
     const sessionId = newSessionId("cancelled-model-call");
-    await sessions.startSession(sessionId, "call get_weather then pause");
+    await sessions.startSession(sessionId, "call lookup_inventory then pause");
     await pollUntil(() => (toolLog("turn", sessionId).length > 0 ? true : undefined), {
       description: `the resumed model call of ${sessionId} waiting at the turn gate`,
     });
@@ -216,17 +218,17 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     assert.equal(await sessions.cancelTurn(sessionId), true);
     const cancelled = await waitForTurns(sessionId, 1);
     assert.deepEqual(cancelled.messages.map(describeMessage), [
-      "1 turn-1 user call get_weather then pause",
-      "2 turn-1 assistant tool-call call-1-get_weather get_weather",
-      "3 turn-1 tool tool-result call-1-get_weather get_weather sunny in Paris",
+      "1 turn-1 user call lookup_inventory then pause",
+      "2 turn-1 assistant tool-call call-1-lookup_inventory lookup_inventory",
+      '3 turn-1 tool tool-result call-1-lookup_inventory lookup_inventory {"in_stock":3}',
     ]);
-    // toModelOutput shaped the stored result as the resumed model call would have sent it.
+    // The tool has no toModelOutput, so the stored result is what the resumed model call would have sent.
     assert.deepEqual(readFrameworkItem(cancelled.messages[2]).content, [
       {
         type: "tool-result",
-        toolCallId: "call-1-get_weather",
-        toolName: "get_weather",
-        output: { type: "text", value: "sunny in Paris" },
+        toolCallId: "call-1-lookup_inventory",
+        toolName: "lookup_inventory",
+        output: { type: "json", value: { in_stock: 3 } },
       },
     ]);
     assertNoNote(cancelled.messages);
@@ -234,12 +236,12 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     assert.equal(await sessions.sendUserMessage(sessionId, "history"), true);
     const next = await waitForTurns(sessionId, 2);
     assert.equal(next.state?.lastTurnError, null);
-    assert.equal(next.messages.at(-1)?.text, "history | user: call get_weather then pause");
+    assert.equal(next.messages.at(-1)?.text, "history | user: call lookup_inventory then pause");
     assertNoMessageStoredTwice(next.messages);
     assert.deepEqual(readToolResultsOfLastPrompt(sessionId, "turn-2"), [
-      ["call-1-get_weather", "text", "sunny in Paris"],
+      ["call-1-lookup_inventory", "json", '{"in_stock":3}'],
     ]);
-    assert.deepEqual(toolLog("get_weather", sessionId), [`${sessionId} call-1-get_weather attempt 1`]);
+    assert.deepEqual(toolLog("lookup_inventory", sessionId), [`${sessionId} call-1-lookup_inventory attempt 1`]);
   });
 
   test("the next model call answers a call that a Worker without buildUnfinishedTurnMessages left open", async () => {
@@ -324,15 +326,14 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     );
   });
 
-  test("an async toModelOutput runs once in its tool Step, and a steered turn stores that result", async () => {
+  test("a steered turn keeps the converted result that the model read, and the hook gives the same messages twice", async () => {
     const sessionId = newSessionId("model-output-steered");
     await sessions.startSession(sessionId, "call read_profile then send_email");
     await sessions.waitForPendingInterrupt(sessionId, "send_email");
-    const modelOutput = await readPersistedModelOutput(sessionId, "call-1-read_profile");
-    assert.match(modelOutput, /^visible [0-9a-f-]{36}$/);
-
     const waiting = await sessions.getAgentSnapshot(sessionId);
-    assert.equal(readFrameworkItemText(waiting.messages[2]), modelOutput);
+    // The model call that read the result stored it with its converted output.
+    const modelOutput = readFrameworkItemText(waiting.messages[2]);
+    assert.match(String(modelOutput), /^visible [0-9a-f-]{36}$/);
     const [frameworkRunState] = await environment.client.getAttributes(sessionId, flow.frameworkRunState);
     const readProfileRecord = await sessions.readToolCall(sessionId, "call-1-read_profile");
     const sendEmailRecord = await sessions.readToolCall(sessionId, "call-1-send_email");
@@ -344,38 +345,38 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     const runner = flow.runner as VercelAiAgentRunner;
     const endedTurn = (): AgentTurnContext =>
       resumedTurnContext(sessionId, waiting.messages, frameworkRunState, records);
+    const conversions = toolLog("read_profile-model-output", sessionId).length;
     // The hook runs no application code, so the same committed state gives the same messages.
     assert.deepEqual(runner.buildUnfinishedTurnMessages(endedTurn()), runner.buildUnfinishedTurnMessages(endedTurn()));
+    assert.equal(toolLog("read_profile-model-output", sessionId).length, conversions);
 
     assert.equal(await sessions.steerUserMessage(sessionId, "never mind"), true);
     const snapshot = await waitForTurns(sessionId, 2);
     assert.equal(readFrameworkItemText(snapshot.messages[2]), modelOutput);
     assertNoPrivateField(sessionId, snapshot.messages);
-    assert.deepEqual(toolLog("read_profile-model-output", sessionId), [`${sessionId} call-1-read_profile`]);
   });
 
-  test("a turn cancelled after an async toModelOutput stores its converted result, never the raw output", async () => {
+  test("a turn cancelled before the model read a toModelOutput result stores the unknown outcome, never the raw output", async () => {
     const sessionId = newSessionId("model-output-cancelled");
     await sessions.startSession(sessionId, "call read_profile then pause");
-    await sessions.waitForToolCall(sessionId, "call-1-read_profile", (toolCall) => toolCall.status === "succeeded");
-    const modelOutput = await readPersistedModelOutput(sessionId, "call-1-read_profile");
     await pollUntil(() => (toolLog("turn", sessionId).length > 0 ? true : undefined), {
       description: `the resumed model call of ${sessionId} waiting at the turn gate`,
     });
 
     assert.equal(await sessions.cancelTurn(sessionId), true);
     const cancelled = await waitForTurns(sessionId, 1);
-    assert.equal(cancelled.messages.length, 3);
-    assert.equal(readFrameworkItemText(cancelled.messages[2]), modelOutput);
+    assert.deepEqual(cancelled.messages.map(describeMessage), [
+      "1 turn-1 user call read_profile then pause",
+      "2 turn-1 assistant tool-call call-1-read_profile read_profile",
+      `3 turn-1 tool tool-result call-1-read_profile read_profile ${outcomeUnknownToolResult}`,
+    ]);
+    assertNoNote(cancelled.messages);
     assertNoPrivateField(sessionId, cancelled.messages);
-    assert.deepEqual(toolLog("read_profile-model-output", sessionId), [`${sessionId} call-1-read_profile`]);
   });
 
-  test("a failed turn stores the converted result of an async toModelOutput before the core's note", async () => {
+  test("a failed turn stores the unknown outcome for an unread toModelOutput result before the core's note", async () => {
     const sessionId = newSessionId("model-output-failed");
     await sessions.startSession(sessionId, "call read_profile then fail");
-    await sessions.waitForToolCall(sessionId, "call-1-read_profile", (toolCall) => toolCall.status === "succeeded");
-    const modelOutput = await readPersistedModelOutput(sessionId, "call-1-read_profile");
 
     const failed = await waitForTurns(sessionId, 1);
     assert.match(failed.state?.lastTurnError ?? "", /scripted model failure/);
@@ -383,46 +384,10 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
       failed.messages.map((message) => message.role),
       ["user", "assistant", "tool", "user"],
     );
-    assert.equal(readFrameworkItemText(failed.messages[2]), modelOutput);
+    assert.equal(failed.messages[2]?.toolOutput, outcomeUnknownToolResult);
+    // The core's failure note after it still lists the raw output; that is tracked separately.
     assert.equal(failed.messages[2]?.frameworkItem.includes(scriptedPrivateFieldValue), false);
-    assert.deepEqual(toolLog("read_profile-model-output", sessionId), [`${sessionId} call-1-read_profile`]);
   });
-
-  test("a call whose record keeps no converted result gets the unknown outcome, never the raw output", async () => {
-    const sessionId = newSessionId("model-output-missing");
-    await sessions.startSession(sessionId, "call read_profile then send_email");
-    await sessions.waitForPendingInterrupt(sessionId, "send_email");
-    const waiting = await sessions.getAgentSnapshot(sessionId);
-    const readProfileRecord = await sessions.readToolCall(sessionId, "call-1-read_profile");
-    assert.ok(readProfileRecord !== undefined);
-    // As an adapter before 0.6.12 records it: the raw output, with no converted result.
-    const legacyRecord = { ...readProfileRecord, runnerToolState: null } as unknown as AgentToolCall;
-    const assistant = waiting.messages[1];
-    assert.ok(assistant !== undefined);
-    const runState = JSON.stringify({
-      version: 2,
-      turnMessages: [],
-      requestedToolCallIds: ["call-1-read_profile"],
-      modelSteps: [],
-    });
-    const runner = flow.runner as VercelAiAgentRunner;
-
-    const messages = runner.buildUnfinishedTurnMessages(
-      resumedTurnContext(sessionId, waiting.messages.slice(0, 2), runState, [legacyRecord]),
-    );
-    assert.deepEqual(messages.map(describeFrameworkMessage), [
-      `tool tool-result call-1-read_profile read_profile ${outcomeUnknownToolResult}`,
-    ]);
-    assert.equal(JSON.stringify(messages).includes(scriptedPrivateFieldValue), false);
-  });
-
-  async function readPersistedModelOutput(sessionId: string, toolCallId: string): Promise<string> {
-    const record = await sessions.readToolCall(sessionId, toolCallId);
-    const state = JSON.parse(record?.runnerToolState ?? "null") as { model_output?: { value?: unknown } } | null;
-    const value = state?.model_output?.value;
-    assert.equal(typeof value, "string", `tool call ${toolCallId} keeps no converted result`);
-    return value as string;
-  }
 
   function assertNoPrivateField(sessionId: string, messages: readonly AgentMessage[]): void {
     assert.equal(JSON.stringify(messages).includes(scriptedPrivateFieldValue), false);
@@ -467,11 +432,73 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
         ? message.content.map((part) => [
             part.toolCallId ?? "",
             part.output?.type ?? "",
-            String(part.output?.value ?? part.output?.reason ?? ""),
+            describePromptOutputValue(part.output?.value ?? part.output?.reason ?? ""),
           ])
         : [],
     );
   }
+});
+
+describe("a Vercel AI SDK tool result near the server's value limit", () => {
+  const maxValueBytes = 65_536;
+  const rawBody = "b".repeat(32_768);
+  const summary = "s".repeat(20_480);
+  let engine: PrivateDexEngine;
+  let environment: AgentTestEnvironment;
+  let sessions: AgentSessionTestClient;
+  const stateDirectory = mkdtempSync(join(tmpdir(), "vercel-ai-value-limit-"));
+
+  before(async () => {
+    const configPath = join(stateDirectory, "zd-overrides.yaml");
+    writeFileSync(configPath, `dev:\n  durabilityMode: processCrashSafe\nvalues:\n  maxValueBytes: ${maxValueBytes}\n`);
+    engine = await PrivateDexEngine.start({ stateDirectory, serverZdConfigPath: configPath });
+    const markerDirectory = mkdtempSync(join(stateDirectory, "markers-"));
+    const flow = createVercelAiAgentSessionFlow(
+      {
+        model: createScriptedLanguageModel(markerDirectory),
+        tools: {
+          read_report: tool({
+            description: "Read a large report",
+            inputSchema: z.object({ requested_by: z.string() }),
+            execute: async () => ({ body: rawBody, summary }),
+            toModelOutput: ({ output }) => ({ type: "text", value: output.summary }),
+          }),
+        },
+        toolPolicies: { read_report: { effect: "read" } },
+      },
+      "ScriptedVercelAiAgentNearValueLimit",
+    );
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: true,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+  });
+
+  after(async () => {
+    await environment?.close();
+    await engine?.stop();
+    // A supplied state directory outlives the engine.
+    rmSync(stateDirectory, { recursive: true, force: true });
+  });
+
+  test("a raw output and its converted result that each fit, but not together, keep the call succeeded", async () => {
+    const sessionId = newSessionId("near-value-limit");
+    await sessions.startSession(sessionId, "call read_report");
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.state?.lastTurnError, null);
+    const rawOutputBytes = Buffer.byteLength(JSON.stringify({ body: rawBody, summary }));
+    assert.ok(rawOutputBytes < maxValueBytes && rawOutputBytes + summary.length > maxValueBytes);
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.role),
+      ["user", "assistant", "tool", "assistant"],
+    );
+    assert.equal(readFrameworkItemText(snapshot.messages[2]), summary);
+    assert.equal(snapshot.messages[3]?.text, `read_report -> ${summary}`);
+  });
 });
 
 const turnOneUntilApproval = [
@@ -515,6 +542,10 @@ function resumedTurnContext(
     recordedToolCall: (toolCallId: string) => toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId),
     heartbeat: () => Promise.resolve(),
   } as unknown as AgentTurnContext;
+}
+
+function describePromptOutputValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 function newSessionId(prefix: string): string {
