@@ -145,7 +145,7 @@ framework range it was tested against.
 | 0.5.0 | `@superdurable/dex@1.45.0` | `@superdurable/dex-agents-pi` | `@earendil-works/pi-ai@^1.5.1` | 1.5.1 |
 
 A Python adapter requires `dex-agents==<same version>`. An npm adapter
-peer-depends on `@superdurable/dex-agents@^<same version>`. Add a row for
+peer-depends on `@superdurable/dex-agents@<same version>`. Add a row for
 every release. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 0.2.0 uses Dex SDK v1.35.0 in every language, including the Go core

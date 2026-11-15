@@ -71,7 +71,7 @@ cd agents/typescript/core
 DEXCLI=/path/to/dexcli ./ci.sh
 ```
 
-An adapter peer-depends on `@superdurable/dex-agents@^<same version>`. All
+An adapter peer-depends on `@superdurable/dex-agents@<same version>`. All
 agents packages share one version line; see the
 [compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
 
