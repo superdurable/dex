@@ -11,7 +11,7 @@
 //
 // One Flow execution is one agent session, and the Flow ID is the session ID.
 // Every model call is one RunModel Step, and every tool call is its own Step:
-// CallTool for read and idempotent_write tools, with up to three attempts and
+// CallTool for read, idempotent_write, and bounded_write tools, with up to three attempts and
 // a stable idempotency key, and CallSingleAttemptTool for every other tool,
 // after AwaitToolApproval when the call needs approval. The tool calls of one
 // model response run as parallel Steps, and ResumeTurn waits for all of their

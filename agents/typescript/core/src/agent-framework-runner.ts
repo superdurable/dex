@@ -38,17 +38,37 @@ import type {
  * const toolPolicies = {
  *   search_orders: { effect: "read" },
  *   refund_order: { effect: "idempotent_write", requiresApproval: true },
+ *   slack_post_message: { effect: "bounded_write", maxSends: 5 },
  * } satisfies Record<string, ToolPolicy>;
  * ```
  */
 export interface ToolPolicy {
-  /** Effect of the tool. */
+  /**
+   * Effect of the tool. A connector tool's effect always comes from its manifest, so this field does not
+   * change it.
+   */
   readonly effect: ToolEffect;
   /**
    * Whether every call waits for `resolve_interrupt` before it runs. When omitted, calls with effect
-   * `non_idempotent_write` or `unclassified` require approval and the others do not.
+   * `bounded_write`, `non_idempotent_write`, or `unclassified` require approval and the others do not.
+   *
+   * Changed in 0.6.12: `bounded_write` requires approval by default.
    */
   readonly requiresApproval?: boolean;
+  /**
+   * The most times one call of a connector tool may send its write when the outcome of a send is unknown, an
+   * integer from 1 to 10. It replaces the manifest's `agent.maxSends` for this tool. `1` turns resending off.
+   *
+   * It applies only to a connector tool whose effect is `bounded_write`: a Mutation whose manifest says
+   * `agent.repeatOnUnknown: limited`. Every other tool ignores it. A call keeps the value it was deferred with on
+   * every attempt, so a later deploy that changes it affects only new calls. A raised value also raises the call's
+   * attempt limit by the difference, so the connector can reach it.
+   *
+   * It needs `@superdurable/connectors-sdk` 0.11.0 or later. An older Connector SDK ignores it, and the
+   * connector never resends.
+   * @since 0.6.12
+   */
+  readonly maxSends?: number;
 }
 
 /** Effective policy of one tool, returned by {@link resolveToolPolicy}. */
@@ -86,7 +106,8 @@ export function resolveToolPolicy(
   const policy = Object.hasOwn(toolPolicies, toolName) ? toolPolicies[toolName] : undefined;
   const effect = policy?.effect ?? frameworkEffect ?? defaultToolEffect;
   const requiresApproval =
-    policy?.requiresApproval ?? (effect === "non_idempotent_write" || effect === "unclassified");
+    policy?.requiresApproval ??
+    (effect === "bounded_write" || effect === "non_idempotent_write" || effect === "unclassified");
   return { effect, requiresApproval };
 }
 

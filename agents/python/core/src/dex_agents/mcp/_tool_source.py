@@ -153,8 +153,9 @@ _YES_NO_CHOICES = ("yes", "no")
 _EFFECT_CONSERVATISM = {
     ToolEffect.READ: 0,
     ToolEffect.IDEMPOTENT_WRITE: 1,
-    ToolEffect.NON_IDEMPOTENT_WRITE: 2,
-    ToolEffect.UNCLASSIFIED: 3,
+    ToolEffect.BOUNDED_WRITE: 2,
+    ToolEffect.NON_IDEMPOTENT_WRITE: 3,
+    ToolEffect.UNCLASSIFIED: 4,
 }
 # The SDK also reports HTTP error statuses and unreadable bodies with these codes, after the
 # server may have run the call, so they leave the outcome unknown.
@@ -741,7 +742,7 @@ class McpToolSource:
         For a tool with a ``dex_effect``, your policy may keep or raise its
         safety but never lowers it. The tool gets the more conservative of
         ``dex_effect`` and your policy's effect, ranked ``READ``,
-        ``IDEMPOTENT_WRITE``, ``NON_IDEMPOTENT_WRITE``, then ``UNCLASSIFIED``.
+        ``IDEMPOTENT_WRITE``, ``BOUNDED_WRITE``, ``NON_IDEMPOTENT_WRITE``, then ``UNCLASSIFIED``.
         Your ``requires_approval``, when set, wins, so ``False`` turns off a
         recommended approval. When it is ``None``, the tool requires approval
         when ``is_approval_recommended`` is ``True`` or your policy's effect
@@ -802,7 +803,7 @@ class McpToolSource:
         For a tool with a ``dex_effect``, the session's ``ToolPolicy`` for
         the tool may keep or raise its safety but never lowers it. The call
         gets the more conservative of ``dex_effect`` and the policy's effect,
-        ranked ``READ``, ``IDEMPOTENT_WRITE``, ``NON_IDEMPOTENT_WRITE``, then
+        ranked ``READ``, ``IDEMPOTENT_WRITE``, ``BOUNDED_WRITE``, ``NON_IDEMPOTENT_WRITE``, then
         ``UNCLASSIFIED``. It waits for approval when the policy sets
         ``requires_approval``. When the policy leaves ``requires_approval``
         ``None``, the call waits when ``is_approval_recommended`` is ``True``

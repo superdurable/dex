@@ -468,6 +468,7 @@ describe("the conformance suite's names manifest", () => {
     ToolEffect: {
       read: true,
       idempotent_write: true,
+      bounded_write: true,
       non_idempotent_write: true,
       unclassified: true,
     } satisfies Record<ToolEffect, true>,

@@ -920,7 +920,7 @@ func (step AwaitToolApproval) Execute(ctx dex.Context, toolCallID string) (*dex.
 	}
 }
 
-// CallTool runs one read or idempotent_write tool call with up to three attempts.
+// CallTool runs one read, idempotent_write, or bounded_write tool call with up to three attempts.
 //
 // dex:group group-id:tools group-label:"Tools"
 // dex:explanation text:"Run one read or idempotent write tool call, retrying it up to three attempts with a stable idempotency key."

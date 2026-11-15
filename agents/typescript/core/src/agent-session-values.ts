@@ -324,10 +324,17 @@ export interface AgentMessage extends FrameworkMessage {
  * - `read`: runs in `CallTool`, up to 3 attempts; no approval by default.
  * - `idempotent_write`: runs in `CallTool`, up to 3 attempts with one idempotency key; when they run
  *   out, the session records `outcome_unknown`.
+ * - `bounded_write`: runs in `CallTool` with retries, and a repeat can repeat the effect a bounded number of
+ *   times. A connector Mutation whose manifest says `agent.repeatOnUnknown: limited` has it, and its connector
+ *   resends at most `maxSends` times when a send's outcome is unknown. When the attempts run out, the session
+ *   records `outcome_unknown`. It waits for approval by default.
  * - `non_idempotent_write`: runs once in `CallSingleAttemptTool`; a crash records `outcome_unknown`.
  * - `unclassified`: treated like `non_idempotent_write`; the default for tools without a policy.
+ *
+ * Changed in 0.6.12: added `bounded_write`. A Worker older than 0.6.12 cannot read a session that recorded a
+ * `bounded_write` call, so upgrade every Worker of a session Flow type before it offers such a tool.
  */
-export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | "unclassified";
+export type ToolEffect = "read" | "idempotent_write" | "bounded_write" | "non_idempotent_write" | "unclassified";
 
 /**
  * Status of one deferred tool call record, as a runner sees it.

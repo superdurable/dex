@@ -628,7 +628,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.35,<2" },
-    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = "==0.9.0" },
+    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = ">=0.9.0,<0.11" },
     { name = "dex-python-sdk", specifier = "==1.45.2" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.104,<1.106" },
@@ -648,7 +648,7 @@ dev = [
 
 [[package]]
 name = "dex-connectors-sdk"
-version = "0.9.0"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -658,9 +658,9 @@ dependencies = [
     { name = "httpcore" },
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/1c/6a5cf67124d1ebb9fa4068c63d23f37e09945cf4fb084bab09718cd86472/dex_connectors_sdk-0.9.0.tar.gz", hash = "sha256:bb5f5f3408e304504aeb086ca49fad405932f7e7e55df0cbe931d05ef2183b66", size = 230639, upload-time = "2026-11-10T06:50:26.104Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/a9/7e7c24b31e92dd7b8947f65a618e2510ce21a7b2fa7381233f3e2ccc7ec4/dex_connectors_sdk-0.10.0.tar.gz", hash = "sha256:e01004e24daebeecb8ce0ee89e871c70488b2d87ea6922b30b92e3eed08975e5", size = 240284, upload-time = "2026-11-15T05:41:18.522Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/d1/6b294e6f7a3724c8d43da429bca143010db21024344d6712444efcc986dd/dex_connectors_sdk-0.9.0-py3-none-any.whl", hash = "sha256:b75ff95a1aaa247d198b04b4fc417a6e00b776c6a87b4ada0a47b42fe42d005c", size = 121111, upload-time = "2026-11-10T06:50:25.105Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/85/b785ef7dadfbe15747035104a56a04a4b39e0c1c9d6c1ffc4d62f4ae9a27/dex_connectors_sdk-0.10.0-py3-none-any.whl", hash = "sha256:96238022ddbcb01d2208b9f82d4aceacc82a0846bbe010c82eeaacf77a58b617", size = 125376, upload-time = "2026-11-15T05:41:17.338Z" },
 ]
 
 [[package]]

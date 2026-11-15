@@ -11,7 +11,13 @@ import type { MediaStore } from "../agent-media.js";
 import type { AgentImageReference, QuestionAnswer, ToolEffect } from "../agent-session-values.js";
 
 const toolNamePattern = /^[A-Za-z0-9_-]{1,64}$/;
-const toolEffects: readonly ToolEffect[] = ["read", "idempotent_write", "non_idempotent_write", "unclassified"];
+const toolEffects: readonly ToolEffect[] = [
+  "read",
+  "idempotent_write",
+  "bounded_write",
+  "non_idempotent_write",
+  "unclassified",
+];
 // Identity, not fields, marks a result, so a tool's plain JSON with the same keys stays JSON.
 const createdFunctionToolResults = new WeakSet<object>();
 

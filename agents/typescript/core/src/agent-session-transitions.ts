@@ -1232,6 +1232,7 @@ export function toolStepTypeForEffect(effect: ToolEffect): string {
   switch (effect) {
     case "read":
     case "idempotent_write":
+    case "bounded_write":
       return agentSessionStepTypes.callTool;
     case "non_idempotent_write":
     case "unclassified":

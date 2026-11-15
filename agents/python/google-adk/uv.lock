@@ -454,7 +454,7 @@ connectors = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.35,<2" },
-    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = "==0.9.0" },
+    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = ">=0.9.0,<0.11" },
     { name = "dex-python-sdk", specifier = "==1.45.2" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.104,<1.106" },

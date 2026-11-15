@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeVar, runtime_che
 
 from dex import AsyncContext, RetryPolicy
 
+from dex_agents._connector_max_sends import CONNECTOR_MAX_SENDS_CEILING, is_connector_max_sends
 from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
 from dex_agents.values import (
@@ -114,18 +115,46 @@ class ToolPolicy:
         ...     "search_tickets": ToolPolicy(ToolEffect.READ),
         ...     "create_refund": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=True),
         ...     "send_email": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        ...     "slack_post_message": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=5),
         ... })
 
     Attributes:
-        effect: What the tool does outside the session.
+        effect: What the tool does outside the session. A connector tool's
+            effect always comes from its manifest, so this field does not
+            change it.
         requires_approval: Whether a person must approve each call. ``None``
             uses the effect's default: ``False`` for ``READ`` and
-            ``IDEMPOTENT_WRITE``, ``True`` for ``NON_IDEMPOTENT_WRITE`` and
-            ``UNCLASSIFIED``.
+            ``IDEMPOTENT_WRITE``, ``True`` for ``BOUNDED_WRITE``,
+            ``NON_IDEMPOTENT_WRITE``, and ``UNCLASSIFIED``.
+        max_sends: The most times one call of a connector tool may send its
+            write when the outcome of a send is unknown, an integer from 1 to
+            10. It replaces the manifest's ``agent.maxSends`` for this tool;
+            ``1`` turns resending off. It applies only to a connector tool
+            whose effect is ``BOUNDED_WRITE``: a Mutation whose manifest says
+            ``agent.repeatOnUnknown: limited``. Every other tool ignores it.
+            A call keeps the value it was deferred with on every attempt, so a
+            later deploy that changes it affects only new calls. A raised value
+            also raises the call's attempt limit by the difference, so the
+            connector can reach it. It needs ``dex-connectors-sdk`` 0.10.0 or
+            later; an earlier Connector SDK never resends. ``None`` keeps the
+            manifest's cap.
+
+    Raises:
+        ValueError: If ``max_sends`` is not an integer from 1 to 10.
+
+    .. versionchanged:: 0.6.12
+        Added ``max_sends``. ``BOUNDED_WRITE`` requires approval by default.
     """
 
     effect: ToolEffect
     requires_approval: bool | None = None
+    max_sends: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_sends is not None and not is_connector_max_sends(self.max_sends):
+            raise ValueError(
+                f"max_sends must be an integer from 1 to {CONNECTOR_MAX_SENDS_CEILING}"
+            )
 
     @property
     def is_approval_required(self) -> bool:
@@ -136,7 +165,11 @@ class ToolPolicy:
         """
         if self.requires_approval is not None:
             return self.requires_approval
-        return self.effect in (ToolEffect.NON_IDEMPOTENT_WRITE, ToolEffect.UNCLASSIFIED)
+        return self.effect in (
+            ToolEffect.BOUNDED_WRITE,
+            ToolEffect.NON_IDEMPOTENT_WRITE,
+            ToolEffect.UNCLASSIFIED,
+        )
 
 
 def resolve_tool_policy(

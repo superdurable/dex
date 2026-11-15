@@ -14,7 +14,7 @@ import importlib
 import importlib.resources
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Literal, cast
@@ -36,9 +36,17 @@ from dex_connectors.sdk import (
 )
 from dex_connectors.sdk.singledispatch import Marker, State
 
+from dex_agents._connector_max_sends import (
+    CONNECTOR_MANIFEST_MINIMUM_MAX_SENDS,
+    is_connector_max_sends,
+)
 from dex_agents.approval_display import build_connector_tool_approval_display
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
-from dex_agents.connectors._step_context import ConnectorStepContext, FenceEvidence
+from dex_agents.connectors._step_context import (
+    ConnectorStepContext,
+    FenceEvidence,
+    prior_send_count,
+)
 from dex_agents.runner import (
     AgentTurnContext,
     DeferredToolCall,
@@ -78,8 +86,11 @@ CONNECTOR_NOT_SENT_RETRY_LATER = "not sent; the provider asked to retry later"
 #: .. versionadded:: 0.4.0
 CONNECTOR_MANIFEST_FILE_NAME = "dex-connector.json"
 
-# The most CallTool attempts of any tool; a connector's own policy can only narrow it.
+# The most CallTool attempts of a read or idempotent_write tool; a connector's own policy can
+# only narrow it.
 _MAXIMUM_TOOL_ATTEMPTS = 3
+# Connector SDK 0.10 added Call.max_sends; an earlier Call has no send cap and never resends.
+_CALL_CARRIES_MAX_SENDS = "max_sends" in {call_field.name for call_field in fields(Call)}
 _DEFECT_BRANCH = "defect"
 _UNCERTAIN_BRANCH = "uncertain"
 _CODECS = CodecRegistry()
@@ -176,7 +187,8 @@ def classify_connector_branch(
             ``"rejected"`` or ``"unknown"``.
         may_have_dispatched: Whether the attempt's single-dispatch fence
             checkpoints leave open that the request reached the provider: this
-            attempt claimed a send and no canResend followed, or the earlier
+            attempt claimed a send and no canResend followed, a marker's
+            ``sendCount`` counts a send of an earlier attempt, or the earlier
             attempt's checkpoint is missing, not a fence marker, malformed,
             foreign, or does not allow this attempt a send.
             ``ConnectorToolSource`` computes it. It applies only to a Mutation.
@@ -220,8 +232,10 @@ class ConnectorTool:
         operation_id: The operation ID, such as ``createRefund``.
         kind: ``"query"`` or ``"mutation"``.
         effect: ``READ`` for a Query, ``IDEMPOTENT_WRITE`` for a Mutation with
-            ``agent.retry: safe``, and ``NON_IDEMPOTENT_WRITE`` for any other
-            Mutation.
+            ``agent.retry: safe``, ``BOUNDED_WRITE`` for a Mutation whose
+            manifest and operation definition both say
+            ``repeatOnUnknown: limited`` with the same send cap, and
+            ``NON_IDEMPOTENT_WRITE`` for any other Mutation.
         is_approval_recommended: Whether the manifest says
             ``agent.approval: recommended``.
         requires_approval: The application's choice: ``True`` or ``False``
@@ -236,9 +250,17 @@ class ConnectorTool:
         required_branches: The operation's branches that are not optional.
         execute_method_timeout: The operation's Execute timeout, or ``None``.
         retry_policy: The operation's Execute retry policy, which bounds a
-            ``CallTool`` call's retries.
+            ``CallTool`` call's retries. A ``READ`` or ``IDEMPOTENT_WRITE``
+            tool gets at most 3 attempts. A ``BOUNDED_WRITE`` tool gets the
+            operation's attempts, at least ``max_sends``.
+        max_sends: The send cap of a ``BOUNDED_WRITE`` tool, the manifest's
+            ``agent.maxSends``; ``None`` for every other tool.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.6.12
+        Added ``max_sends``. A ``limited`` Mutation is ``BOUNDED_WRITE``; it
+        was ``NON_IDEMPOTENT_WRITE``.
     """
 
     name: str
@@ -258,6 +280,7 @@ class ConnectorTool:
     required_branches: frozenset[str] = frozenset()
     execute_method_timeout: timedelta | None = None
     retry_policy: RetryPolicy | None = None
+    max_sends: int | None = None
 
 
 def connector_tool(
@@ -281,10 +304,23 @@ def connector_tool(
     The manifest decides how the call runs. A Query is ``READ`` and runs in
     ``CallTool``. A Mutation with ``agent.retry: safe`` is
     ``IDEMPOTENT_WRITE`` and runs in ``CallTool``, whose retries stay inside
-    the operation's own Execute retry policy and timeout. Any other Mutation is
-    ``NON_IDEMPOTENT_WRITE`` and runs once in ``CallSingleAttemptTool``. The
-    effect class always comes from the manifest; a session's
-    ``tool_policies`` entry for the tool changes only its approval.
+    the operation's own Execute retry policy and timeout. A Mutation whose
+    manifest says ``agent.repeatOnUnknown: limited`` is ``BOUNDED_WRITE`` and
+    runs in ``CallTool``. When a send's outcome is unknown, such as after a
+    timeout or a 5xx, its connector reads back when it can and resends, at
+    most ``agent.maxSends`` times per call. A definite failure is never
+    resent. Its attempts are the operation's own, at least
+    ``agent.maxSends``. Any other Mutation is ``NON_IDEMPOTENT_WRITE`` and
+    runs once in ``CallSingleAttemptTool``. The effect class always comes from
+    the manifest; a session's ``tool_policies`` entry for the tool changes only
+    its approval and, for a ``BOUNDED_WRITE`` tool, its send cap through
+    ``max_sends``.
+
+    A ``BOUNDED_WRITE`` tool needs the manifest and the operation definition
+    to agree on the tier and the cap, which a Connector package built for
+    ``dex-connectors-sdk`` 0.10.0 or later does. Any other combination, an
+    unknown ``repeatOnUnknown`` value, or a ``maxSends`` outside 2 to 10 keeps
+    the Mutation ``NON_IDEMPOTENT_WRITE``.
 
     Approval: a call waits for ``resolve_interrupt`` when the manifest says
     ``agent.approval: recommended``. ``requires_approval`` overrides that.
@@ -340,6 +376,10 @@ def connector_tool(
         The default name keeps an acronym run as one word, as the Connector
         library does: ``listStoryIDs`` became ``list_story_ids``, not
         ``list_story_i_d_s``.
+
+    .. versionchanged:: 0.6.12
+        A Mutation whose manifest says ``agent.repeatOnUnknown: limited`` is
+        ``BOUNDED_WRITE``.
     """
     definition = operation.definition()
     kind: Literal["query", "mutation"] = (
@@ -397,11 +437,14 @@ def connector_tool(
     input_type = _input_type(package, factory.get("inputType"), label)
     if max_result_bytes is not None and max_result_bytes < 1:
         raise ValueError("max_result_bytes must be positive")
+    send_cap = None if retry == "safe" else connector_send_cap(kind, agent, definition)
     effect = (
         ToolEffect.READ
         if kind == "query"
         else ToolEffect.IDEMPOTENT_WRITE
         if retry == "safe"
+        else ToolEffect.BOUNDED_WRITE
+        if send_cap is not None
         else ToolEffect.NON_IDEMPOTENT_WRITE
     )
     step_defaults = definition.step_defaults
@@ -425,7 +468,8 @@ def connector_tool(
             branch.id for branch in definition.branches or () if not branch.optional
         ),
         execute_method_timeout=step_defaults.execute_method_timeout or None,
-        retry_policy=_bounded_retry_policy(step_defaults),
+        retry_policy=_tool_retry_policy(step_defaults, send_cap),
+        max_sends=send_cap,
     )
 
 
@@ -454,7 +498,12 @@ class ConnectorToolSource:
 
     The branch the operation selects maps as ``classify_connector_branch``
     describes. A connector retry raises through the Step, so the tool Step's
-    retry policy applies. A single-attempt write that asks to retry ends
+    retry policy applies. For a ``BOUNDED_WRITE`` call, the next attempt's
+    fence lets the connector read back and resend while the call's sends stay
+    below its cap. A read-back that confirms an earlier send succeeds. At the
+    cap, an unconfirmed write selects ``uncertain``, so the call records
+    ``OUTCOME_UNKNOWN``, as it does when the attempts run out. A
+    single-attempt write that asks to retry ends
     ``OUTCOME_UNKNOWN``, unless its single-dispatch fence saved a ``notSent`` or
     ``canResend`` marker in this attempt: that proves the provider did not
     process the request, so the call records ``FAILED`` with
@@ -546,7 +595,9 @@ class ConnectorToolSource:
 
         Args:
             turn: The ``RunModel`` context. A ``tool_policies`` entry for the
-                tool changes only whether the call waits for approval.
+                tool changes only whether the call waits for approval and, for
+                a ``BOUNDED_WRITE`` tool, the send cap the call keeps on every
+                attempt.
             tool_call_id: Model tool call ID.
             tool_name: The tool name.
             arguments: Tool arguments as JSON text.
@@ -561,12 +612,17 @@ class ConnectorToolSource:
             requires_approval = session_policy.requires_approval
         else:
             requires_approval = _requires_approval(tool, arguments)
+        # The reference pins the policy's cap, so every attempt of this call passes the same one.
+        policy_max_sends = session_policy.max_sends if session_policy is not None else None
+        reference: dict[str, object] = {"tool": tool.name}
+        if tool.max_sends is not None and policy_max_sends is not None:
+            reference["maxSends"] = policy_max_sends
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
             policy=ToolPolicy(tool.effect, requires_approval),
-            tool_source_reference=json.dumps({"tool": tool.name}),
+            tool_source_reference=json.dumps(reference),
             ordered=tool.effect is not ToolEffect.READ,
             approval_display=(
                 build_connector_tool_approval_display(
@@ -592,8 +648,17 @@ class ConnectorToolSource:
         tool = self._tools.get(_reference_tool_name(tool_call))
         if tool is None:
             return None
+        execute_retry = tool.retry_policy
+        call_max_sends = _reference_max_sends(tool_call)
+        if tool.max_sends is not None and call_max_sends is not None and execute_retry is not None:
+            execute_retry = replace(
+                execute_retry,
+                maximum_attempts=bounded_write_attempts(
+                    execute_retry.maximum_attempts, tool.max_sends, call_max_sends
+                ),
+            )
         return ToolCallStepOptions(
-            execute_method_timeout=tool.execute_method_timeout, execute_retry=tool.retry_policy
+            execute_method_timeout=tool.execute_method_timeout, execute_retry=execute_retry
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -715,12 +780,20 @@ def _connector_call(
         heartbeat=call.heartbeat,
         save_checkpoint=call.save_heartbeat_checkpoint,
     )
-    return Call(
-        derive_call_id(context.flow_id, context.step_execution_id, operation_ref),
-        tool.connection,
-        operation_ref,
-        context=cast(AsyncContext, step_context),
+    call_id = derive_call_id(context.flow_id, context.step_execution_id, operation_ref)
+    send_cap = (
+        None if tool.max_sends is None else _reference_max_sends(call.tool_call) or tool.max_sends
     )
+    if send_cap is not None and _CALL_CARRIES_MAX_SENDS:
+        # The connector hands Call.max_sends to its fence, as a Step factory does.
+        return Call(
+            call_id,
+            tool.connection,
+            operation_ref,
+            context=cast(AsyncContext, step_context),
+            max_sends=send_cap,  # type: ignore[call-arg, unused-ignore]
+        )
+    return Call(call_id, tool.connection, operation_ref, context=cast(AsyncContext, step_context))
 
 
 def _requires_approval(tool: ConnectorTool, arguments: str) -> bool:
@@ -820,10 +893,12 @@ def _observe_fence(call: Call) -> _FenceObservation:
     evidence = context._fence_evidence.get(str(call.id), FenceEvidence())
     is_claimed = evidence.is_claimed
     has_not_sent_proof = evidence.has_not_sent_proof
+    # A bounded resend's markers count earlier sends that may still have taken effect.
+    has_prior_send = evidence.has_prior_send
     is_prior_dispatch_possible = context._has_read_checkpoint and _is_prior_dispatch_possible(
         call, context
     )
-    may_have_dispatched = is_claimed or is_prior_dispatch_possible
+    may_have_dispatched = is_claimed or has_prior_send or is_prior_dispatch_possible
     return _FenceObservation(
         may_have_dispatched=may_have_dispatched,
         is_proven_not_sent=has_not_sent_proof and not may_have_dispatched,
@@ -846,6 +921,7 @@ def _is_prior_dispatch_possible(call: Call, context: ConnectorStepContext) -> bo
         and marker.attempt == context.attempt - 1
         and not marker.provider_id
         and marker.state in (State.NOT_SENT, State.CAN_RESEND)
+        and prior_send_count(marker) == 0
     )
     return not is_send_allowed
 
@@ -862,6 +938,16 @@ def _branch_detail(tool: ConnectorTool, branch: str, failure: Any) -> str:
     return detail
 
 
+def _reference_max_sends(record: AgentToolCall) -> int | None:
+    """Return the send cap a tool policy pinned when the call was deferred, or ``None``."""
+    try:
+        reference = json.loads(record.tool_source_reference or "")
+    except json.JSONDecodeError:
+        return None
+    max_sends = reference.get("maxSends") if isinstance(reference, dict) else None
+    return cast(int, max_sends) if is_connector_max_sends(max_sends) else None
+
+
 def _reference_tool_name(record: AgentToolCall) -> str:
     try:
         reference = json.loads(record.tool_source_reference or "")
@@ -871,7 +957,47 @@ def _reference_tool_name(record: AgentToolCall) -> str:
     return name if isinstance(name, str) else record.tool_name
 
 
-def _bounded_retry_policy(step_defaults: Any) -> RetryPolicy:
+def connector_send_cap(
+    kind: Literal["query", "mutation"], agent: Mapping[str, Any], definition: object
+) -> int | None:
+    """Return the send cap of a Mutation that may resend a write whose outcome is unknown.
+
+    The manifest must say ``agent.repeatOnUnknown: limited`` with an integer
+    ``agent.maxSends`` from 2 to 10, and the operation definition must
+    declare ``repeat_on_unknown`` ``limited`` with the same ``max_sends``. Any
+    other value, a Query, or an operation from a Connector package built
+    before the tiers fails closed to ``None``, so the call runs once as today.
+    """
+    manifest_cap = agent.get("maxSends")
+    if (
+        kind != "mutation"
+        or agent.get("repeatOnUnknown") != "limited"
+        or not is_connector_max_sends(manifest_cap)
+        or cast(int, manifest_cap) < CONNECTOR_MANIFEST_MINIMUM_MAX_SENDS
+    ):
+        return None
+    definition_tier = getattr(definition, "repeat_on_unknown", None)
+    definition_cap = getattr(definition, "max_sends", None)
+    if definition_tier != "limited" or definition_cap != manifest_cap:
+        return None
+    return cast(int, manifest_cap)
+
+
+def bounded_write_attempts(operation_attempts: int, manifest_cap: int, call_cap: int) -> int:
+    """Return the attempts one call of a ``BOUNDED_WRITE`` tool gets.
+
+    They are the operation's attempts, or 3 when those are unlimited, raised
+    to at least the manifest's send cap, plus the amount by which the call's
+    cap exceeds the manifest's. A raised cap needs one attempt per send, as
+    the Connector SDK's Step factories add.
+    """
+    attempts = max(
+        _MAXIMUM_TOOL_ATTEMPTS if operation_attempts <= 0 else operation_attempts, manifest_cap
+    )
+    return attempts + max(call_cap - manifest_cap, 0)
+
+
+def _tool_retry_policy(step_defaults: Any, send_cap: int | None) -> RetryPolicy:
     policy = step_defaults.execute_retry or default_connector_step_execute_retry_policy()
     attempts = policy.maximum_attempts
     return RetryPolicy(
@@ -879,7 +1005,11 @@ def _bounded_retry_policy(step_defaults: Any) -> RetryPolicy:
         backoff_coefficient=policy.backoff_coefficient,
         maximum_interval=policy.maximum_interval,
         maximum_attempts=(
-            _MAXIMUM_TOOL_ATTEMPTS if attempts <= 0 else min(attempts, _MAXIMUM_TOOL_ATTEMPTS)
+            bounded_write_attempts(attempts, send_cap, send_cap)
+            if send_cap is not None
+            else _MAXIMUM_TOOL_ATTEMPTS
+            if attempts <= 0
+            else min(attempts, _MAXIMUM_TOOL_ATTEMPTS)
         ),
         total_duration=policy.total_duration,
     )

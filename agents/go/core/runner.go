@@ -59,8 +59,8 @@ type ToolPolicy struct {
 	// Effect is what the tool does outside the session.
 	Effect ToolEffect
 	// RequiresApproval reports whether a person approves each call. Nil uses the effect's
-	// default: false for read and idempotent_write, true for non_idempotent_write and
-	// unclassified.
+	// default: false for read and idempotent_write, true for bounded_write,
+	// non_idempotent_write, and unclassified.
 	RequiresApproval *bool
 }
 
@@ -71,7 +71,7 @@ func (policy ToolPolicy) IsApprovalRequired() bool {
 	if policy.RequiresApproval != nil {
 		return *policy.RequiresApproval
 	}
-	return policy.Effect == ToolEffectNonIdempotentWrite || policy.Effect == ToolEffectUnclassified
+	return policy.Effect == ToolEffectBoundedWrite || policy.Effect == ToolEffectNonIdempotentWrite || policy.Effect == ToolEffectUnclassified
 }
 
 // ResolveToolPolicy returns the policy that applies to one tool.

@@ -77,6 +77,7 @@ const agentMessageRoles: readonly AgentMessageRole[] = ["user", "assistant", "to
 const toolEffects: readonly ToolEffect[] = [
   "read",
   "idempotent_write",
+  "bounded_write",
   "non_idempotent_write",
   "unclassified",
 ];

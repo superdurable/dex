@@ -282,7 +282,11 @@ _MODEL_CALL_STEP_OPTIONS = StepOptions(
     execute_retry=RetryPolicy(maximum_attempts=3, total_duration=timedelta(minutes=30)),
     execute_durability=StepDurability.SYNC,
 )
-MULTI_ATTEMPT_TOOL_EFFECTS = (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE)
+MULTI_ATTEMPT_TOOL_EFFECTS = (
+    ToolEffect.READ,
+    ToolEffect.IDEMPOTENT_WRITE,
+    ToolEffect.BOUNDED_WRITE,
+)
 BUILT_IN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
 EXECUTABLE_PLAN_STATUSES = (PlanStatus.DRAFT, PlanStatus.ACTIVE)
 # Consumes every pending message of a Channel at once; the plan's MAX.
