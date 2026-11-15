@@ -1,0 +1,69 @@
+{
+  "connectorId": "ambiguous-messages",
+  "releaseTag": "connectors/ambiguous-messages/v1.0.0",
+  "package": {
+    "ecosystem": "npm",
+    "name": "@dex-test/ambiguous-messages",
+    "version": "1.0.0"
+  },
+  "factories": [
+    {
+      "name": "defineReplyCreatedTriggerBinding",
+      "kind": "trigger",
+      "triggerName": "replyCreated",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName"
+      },
+      "configurationUI": {
+        "units": [
+          {
+            "id": "channel",
+            "unitId": "channelPicker",
+            "label": "Channel",
+            "required": true,
+            "bindings": [
+              {
+                "port": "channelId",
+                "jsonPointer": "/channelId"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "defineAnyReplyCreatedTriggerBinding",
+      "kind": "trigger",
+      "triggerName": "replyCreated",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName"
+      },
+      "configurationUI": {
+        "units": []
+      }
+    },
+    {
+      "name": "defineThreadCreatedTriggerBinding",
+      "kind": "trigger",
+      "triggerName": "threadCreated",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName"
+      }
+    },
+    {
+      "name": "defineThreadCreatedTriggerBindingAlias",
+      "kind": "trigger",
+      "triggerName": "threadCreated",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName"
+      },
+      "configurationUI": {
+        "units": []
+      }
+    }
+  ]
+}

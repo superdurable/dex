@@ -20,7 +20,7 @@ import {
 
 const usage =
   "usage: dex-agents-session-graph --flow-type TYPE --permission PERMISSION [--out FILE]\n" +
-  "         [--trigger-binding CONNECTION=PACKAGE@VERSION:TRIGGER:BINDING ...] [--trigger-bindings FILE]\n";
+  "         [--trigger-binding CONNECTION=PACKAGE@VERSION:TRIGGER[#FACTORY]:BINDING ...] [--trigger-bindings FILE]\n";
 
 function main(): number {
   let values: {

@@ -27,7 +27,10 @@ from dex_agents import (
     resolve_session_trigger_binding,
 )
 from dex_agents.session_graph import main
-from dex_agents.session_trigger_bindings import parse_session_trigger_binding_flag
+from dex_agents.session_trigger_bindings import (
+    parse_session_trigger_binding_flag,
+    read_session_trigger_bindings_file,
+)
 from tests.test_conformance import SUITE_DIR
 
 SUITE = json.loads((SUITE_DIR / "session_graph_trigger_bindings.json").read_text(encoding="utf-8"))
@@ -188,6 +191,34 @@ def test_an_unknown_trigger_a_missing_package_and_a_mismatched_version_fail_with
         resolve_session_trigger_binding(spec_of(entry, configuration_ui=bad_pointer))
 
 
+@pytest.mark.parametrize("case", SUITE["file_cases"], ids=lambda case: case["name"])
+def test_every_file_case_resolves_to_its_entry_or_fails_with_its_error(
+    case: dict[str, Any], tmp_path: Path
+) -> None:
+    entry = dict(case["entry"])
+    if "packageDirectory" not in entry:
+        entry["packageDirectory"] = str(SUITE_DIR / case["package_directory"])
+    bindings_file = tmp_path / "trigger-bindings.json"
+    bindings_file.write_text(json.dumps([entry]), encoding="utf-8")
+
+    def resolve() -> list[dict[str, Any]]:
+        specs = read_session_trigger_bindings_file(bindings_file)
+        return [resolve_session_trigger_binding(spec) for spec in specs]
+
+    if "error" in case:
+        with pytest.raises(ValueError) as raised:
+            resolve()
+        assert case["error"] in str(raised.value)
+    else:
+        assert compact(resolve()) == compact([case["binding"]])
+    if "flag" in case:
+        parsed = parse_session_trigger_binding_flag(case["flag"])
+        assert parsed == dataclasses.replace(
+            spec_of(case["entry"], package_directory=None),
+            factory_name=case["entry"].get("factoryName"),
+        )
+
+
 def test_two_bindings_with_one_identity_are_refused() -> None:
     with pytest.raises(ValueError, match="declared twice"):
         render_session_flow_graph(
@@ -250,8 +281,8 @@ def test_the_command_reads_flags_and_a_bindings_file(tmp_path: Path) -> None:
     malformed = run_command(tmp_path, "--trigger-binding", "workspace")
     assert malformed.returncode == 2
     assert (
-        "must be <connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>"
-        in malformed.stderr
+        "must be <connectionName>=<packageName>@<packageVersion>:"
+        "<triggerName>[#<factoryName>]:<bindingName>" in malformed.stderr
     )
     bindings_file.write_text(
         json.dumps([dict(first, triggerName="messageDeleted")]), encoding="utf-8"

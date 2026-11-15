@@ -45,6 +45,12 @@ export interface SessionTriggerBindingSpec {
   /** The binding name, unique for this Connector, connection, and Trigger. */
   readonly bindingName: string;
   /**
+   * The name of the manifest's Trigger factory, such as `defineThreadReplyCreatedTriggerBinding`. Needed only when
+   * several Trigger factories of the package have this Trigger with different `configurationUI`; otherwise the
+   * Trigger name selects the factory.
+   */
+  readonly factoryName?: string | undefined;
+  /**
    * The directory that holds the package's `dex-connector.json`. When omitted, the package is looked up in
    * `node_modules` directories from the search directory upward.
    */
@@ -146,6 +152,7 @@ const specFieldNames = new Set([
   "packageVersion",
   "triggerName",
   "bindingName",
+  "factoryName",
   "packageDirectory",
   "configurationUI",
 ]);
@@ -184,7 +191,9 @@ const unitFieldNames = new Set(["id", "unitId", "label", "description", "require
  *   Defaults to the current working directory.
  * @returns The `v2.connectorTriggerBindings` entry.
  * @throws {Error} When the package is not installed, has no `dex-connector.json`, has another name or version, has
- *   no Trigger named `triggerName`, or when a spec field or the configuration UI is invalid.
+ *   no Trigger named `triggerName` (or no such factory named `factoryName`), has several Trigger factories for it
+ *   with different `configurationUI` and the spec names none, or when a spec field or the configuration UI is
+ *   invalid.
  * @since 0.6.12
  */
 export function resolveSessionTriggerBinding(
@@ -210,13 +219,36 @@ export function resolveSessionTriggerBinding(
       `${label}: Connector manifest ${manifestPath} is for ${identity.package.name}@${identity.package.version}, not ${spec.packageName}@${spec.packageVersion}`,
     );
   }
-  const factory = identity.triggers.find((candidate) => candidate.triggerName === spec.triggerName);
-  if (factory === undefined) {
-    const known = identity.triggers.map((candidate) => candidate.triggerName).join(", ") || "none";
+  if (spec.factoryName !== undefined && (typeof spec.factoryName !== "string" || spec.factoryName === "")) {
+    throw new Error(`${label}: factoryName must be a non-empty string`);
+  }
+  const packageText = `${spec.packageName}@${spec.packageVersion}`;
+  const sameTrigger = identity.triggers.filter((candidate) => candidate.triggerName === spec.triggerName);
+  if (sameTrigger.length === 0) {
+    const known = [...new Set(identity.triggers.map((candidate) => candidate.triggerName))].join(", ") || "none";
+    throw new Error(`${label}: ${packageText} has no Trigger ${spec.triggerName}; its Triggers: ${known}`);
+  }
+  const candidates = sameTrigger.filter(
+    (candidate) => spec.factoryName === undefined || candidate.factoryName === spec.factoryName,
+  );
+  if (candidates.length === 0) {
+    const known = sameTrigger.map((candidate) => candidate.factoryName).join(", ");
     throw new Error(
-      `${label}: ${spec.packageName}@${spec.packageVersion} has no Trigger ${spec.triggerName}; its Triggers: ${known}`,
+      `${label}: ${packageText} has no Trigger factory ${spec.factoryName} for Trigger ${spec.triggerName}; its factories: ${known}`,
     );
   }
+  const manifestUIs = new Set(
+    candidates.map((candidate) =>
+      JSON.stringify(canonicalConfigurationUI(candidate.configurationUI ?? { units: [] }, label)),
+    ),
+  );
+  if (manifestUIs.size > 1) {
+    const names = candidates.map((candidate) => candidate.factoryName).join(", ");
+    throw new Error(
+      `${label}: ${packageText} has several Trigger factories for ${spec.triggerName} with different configurationUI: ${names}; name one with factoryName`,
+    );
+  }
+  const factory = candidates[0]!;
   return canonicalSessionTriggerBinding({
     connectorId: identity.connectorId,
     triggerName: spec.triggerName,
@@ -232,24 +264,28 @@ export function resolveSessionTriggerBinding(
 }
 
 /**
- * Parses one `--trigger-binding` value: `<connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>`.
+ * Parses one `--trigger-binding` value:
+ * `<connectionName>=<packageName>@<packageVersion>:<triggerName>[#<factoryName>]:<bindingName>`.
  *
  * @param text - The flag value, such as `slack-workspace=@superdurable/connector-slack@0.6.0:threadReplyCreated:replies`.
  * @returns The spec, without a package directory or configuration UI.
  * @throws {Error} When the value does not have that shape.
  */
 export function parseSessionTriggerBindingFlag(text: string): SessionTriggerBindingSpec {
-  const shape = "<connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>";
+  const shape = "<connectionName>=<packageName>@<packageVersion>:<triggerName>[#<factoryName>]:<bindingName>";
   const separator = text.indexOf("=");
   const parts = text.slice(separator + 1).split(":");
   const packageText = parts.slice(0, -2).join(":");
   const versionSeparator = packageText.lastIndexOf("@");
+  const triggerText = parts.at(-2) ?? "";
+  const factorySeparator = triggerText.indexOf("#");
   const spec = {
     connectionName: text.slice(0, Math.max(separator, 0)),
     packageName: packageText.slice(0, Math.max(versionSeparator, 0)),
     packageVersion: packageText.slice(versionSeparator + 1),
-    triggerName: parts.at(-2) ?? "",
+    triggerName: factorySeparator < 0 ? triggerText : triggerText.slice(0, factorySeparator),
     bindingName: parts.at(-1) ?? "",
+    ...(factorySeparator < 0 ? {} : { factoryName: triggerText.slice(factorySeparator + 1) }),
   };
   if (separator <= 0 || parts.length < 3 || versionSeparator <= 0 || Object.values(spec).some((value) => value === "")) {
     throw new Error(`--trigger-binding ${JSON.stringify(text)} must be ${shape}`);
@@ -281,6 +317,10 @@ export function readSessionTriggerBindingsFile(filePath: string): SessionTrigger
     const unknown = Object.keys(entry).filter((name) => !specFieldNames.has(name));
     if (unknown.length > 0) {
       throw new Error(`Trigger bindings file ${filePath}: entry ${index} has unknown fields ${unknown.join(", ")}`);
+    }
+    const nullField = Object.keys(entry).find((name) => entry[name] === null);
+    if (nullField !== undefined) {
+      throw new Error(`Trigger bindings file ${filePath}: entry ${index} field ${nullField} must not be null`);
     }
     const spec = entry as unknown as SessionTriggerBindingSpec;
     if (spec.packageDirectory === undefined) {
@@ -348,6 +388,7 @@ function connectorManifestPath(spec: SessionTriggerBindingSpec, searchDirectory:
 }
 
 interface ManifestTrigger {
+  readonly factoryName: string;
   readonly triggerName: string;
   readonly configurationUI: SessionConnectorConfigurationUI | undefined;
 }
@@ -404,6 +445,7 @@ function connectorManifestIdentity(
       }
     }
     triggers.push({
+      factoryName: String(factory.name),
       triggerName: factory.triggerName,
       configurationUI: configurationUI as SessionConnectorConfigurationUI | undefined,
     });
@@ -434,8 +476,8 @@ function canonicalConfigurationUI(
     }
     const { id, unitId, description } = unit;
     const label = unit["label"];
-    const required = unit.required ?? false;
-    const bindings = unit.bindings ?? [];
+    const required = unit.required === undefined ? false : unit.required;
+    const bindings = unit.bindings === undefined ? [] : unit.bindings;
     if (
       typeof id !== "string" ||
       id === "" ||
@@ -448,8 +490,11 @@ function canonicalConfigurationUI(
       throw invalid("units require unique IDs, unitId, and label");
     }
     unitIds.add(id);
-    if ((description !== undefined && typeof description !== "string") || typeof required !== "boolean") {
-      throw invalid(`unit ${id} needs a string description and a boolean required`);
+    if (description !== undefined && typeof description !== "string") {
+      throw invalid(`unit ${id} description must be a string`);
+    }
+    if (typeof required !== "boolean") {
+      throw invalid(`unit ${id} required must be a boolean`);
     }
     if (!Array.isArray(bindings) || bindings.length > maxListItems) {
       throw invalid(`unit ${id} bindings must be an array of at most ${maxListItems} items`);

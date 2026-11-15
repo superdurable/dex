@@ -33,11 +33,14 @@ _FILE_FIELDS = {
     "packageVersion": "package_version",
     "triggerName": "trigger_name",
     "bindingName": "binding_name",
+    "factoryName": "factory_name",
     "packageDirectory": "package_directory",
     "configurationUI": "configuration_ui",
 }
 _UNIT_FIELDS = ("id", "unitId", "label", "description", "required", "bindings")
-_FLAG_SHAPE = "<connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>"
+_FLAG_SHAPE = (
+    "<connectionName>=<packageName>@<packageVersion>:<triggerName>[#<factoryName>]:<bindingName>"
+)
 
 
 @dataclass(frozen=True)
@@ -50,8 +53,9 @@ class SessionTriggerBindingSpec:
     ``resolve_session_trigger_binding``, or write it as one entry of the file
     that ``dex-agents-session-graph --trigger-bindings`` reads. That JSON entry
     uses the camelCase names ``connectionName``, ``packageName``,
-    ``packageVersion``, ``triggerName``, ``bindingName``, ``packageDirectory``,
-    and ``configurationUI``.
+    ``packageVersion``, ``triggerName``, ``bindingName``, ``factoryName``,
+    ``packageDirectory``, and ``configurationUI``. A field set to ``null``
+    is refused; leave it out instead.
 
     The binding only declares that the Trigger delivers into the session Flow.
     Your Trigger target still does the delivery: for user messages it calls the
@@ -86,6 +90,11 @@ class SessionTriggerBindingSpec:
             ``{"units": [...]}``. ``None`` uses the Trigger's
             ``configurationUI`` from the manifest, or no units when the
             manifest has none.
+        factory_name: The name of the manifest's Trigger factory, such as
+            ``"defineThreadReplyCreatedTriggerBinding"``. Needed only when
+            several Trigger factories of the package have this Trigger with
+            different ``configurationUI``; otherwise the Trigger name selects
+            the factory.
     """
 
     connection_name: str
@@ -95,6 +104,7 @@ class SessionTriggerBindingSpec:
     binding_name: str
     package_directory: Path | None = None
     configuration_ui: Mapping[str, Any] | None = None
+    factory_name: str | None = None
 
 
 def resolve_session_trigger_binding(
@@ -128,9 +138,11 @@ def resolve_session_trigger_binding(
 
     Raises:
         ValueError: If the package is not installed, has no
-            ``dex-connector.json``, has another name or version, or has no
-            Trigger named ``trigger_name``, or if a spec field or the
-            configuration UI is invalid.
+            ``dex-connector.json``, has another name or version, has no
+            Trigger named ``trigger_name`` (or no such factory named
+            ``factory_name``), or has several Trigger factories for it with
+            different ``configurationUI`` and the spec names none, or if a
+            spec field or the configuration UI is invalid.
     """
     label = f"Trigger binding {spec.binding_name}"
     for field in (
@@ -159,15 +171,41 @@ def resolve_session_trigger_binding(
             f"{package['name']}@{package['version']}, "
             f"not {spec.package_name}@{spec.package_version}"
         )
-    if spec.trigger_name not in triggers:
-        known = ", ".join(triggers) or "none"
+    if spec.factory_name is not None and (
+        not isinstance(spec.factory_name, str) or not spec.factory_name
+    ):
+        raise ValueError(f"{label}: factoryName must be a non-empty string")
+    package_text = f"{spec.package_name}@{spec.package_version}"
+    same_trigger = [trigger for trigger in triggers if trigger[1] == spec.trigger_name]
+    if not same_trigger:
+        known = ", ".join(dict.fromkeys(trigger[1] for trigger in triggers)) or "none"
         raise ValueError(
-            f"{label}: {spec.package_name}@{spec.package_version} has no Trigger "
-            f"{spec.trigger_name}; its Triggers: {known}"
+            f"{label}: {package_text} has no Trigger {spec.trigger_name}; its Triggers: {known}"
+        )
+    candidates = [
+        trigger
+        for trigger in same_trigger
+        if spec.factory_name is None or trigger[0] == spec.factory_name
+    ]
+    if not candidates:
+        known = ", ".join(trigger[0] for trigger in same_trigger)
+        raise ValueError(
+            f"{label}: {package_text} has no Trigger factory {spec.factory_name} for Trigger "
+            f"{spec.trigger_name}; its factories: {known}"
+        )
+    manifest_uis = {
+        json.dumps(_canonical_configuration_ui(trigger[2] or {"units": []}, label))
+        for trigger in candidates
+    }
+    if len(manifest_uis) > 1:
+        names = ", ".join(trigger[0] for trigger in candidates)
+        raise ValueError(
+            f"{label}: {package_text} has several Trigger factories for {spec.trigger_name} "
+            f"with different configurationUI: {names}; name one with factoryName"
         )
     configuration_ui = spec.configuration_ui
     if configuration_ui is None:
-        configuration_ui = triggers[spec.trigger_name] or {"units": []}
+        configuration_ui = candidates[0][2] or {"units": []}
     return canonical_session_trigger_binding(
         {
             "connectorId": connector_id,
@@ -185,7 +223,7 @@ def parse_session_trigger_binding_flag(text: str) -> SessionTriggerBindingSpec:
     """Parse one ``--trigger-binding`` value.
 
     The value is
-    ``<connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>``.
+    ``<connectionName>=<packageName>@<packageVersion>:<triggerName>[#<factoryName>]:<bindingName>``.
 
     Args:
         text: The flag value.
@@ -200,16 +238,19 @@ def parse_session_trigger_binding_flag(text: str) -> SessionTriggerBindingSpec:
     parts = rest.split(":")
     package_text = ":".join(parts[:-2])
     version_separator = package_text.rfind("@")
+    trigger_name, factory_separator, factory_name = (
+        parts[-2] if len(parts) >= 3 else ""
+    ).partition("#")
     values = (
         connection_name,
         package_text[:version_separator] if version_separator > 0 else "",
         package_text[version_separator + 1 :],
-        parts[-2] if len(parts) >= 3 else "",
+        trigger_name,
         parts[-1] if len(parts) >= 3 else "",
     )
-    if not separator or not all(values):
+    if not separator or not all(values) or (factory_separator and not factory_name):
         raise ValueError(f"--trigger-binding {json.dumps(text)} must be {_FLAG_SHAPE}")
-    return SessionTriggerBindingSpec(*values)
+    return SessionTriggerBindingSpec(*values, factory_name=factory_name or None)
 
 
 def read_session_trigger_bindings_file(path: Path) -> list[SessionTriggerBindingSpec]:
@@ -241,6 +282,12 @@ def read_session_trigger_bindings_file(path: Path) -> list[SessionTriggerBinding
             raise ValueError(
                 f"Trigger bindings file {path}: entry {index} has unknown fields "
                 f"{', '.join(unknown)}"
+            )
+        null_fields = [name for name, value in entry.items() if value is None]
+        if null_fields:
+            raise ValueError(
+                f"Trigger bindings file {path}: entry {index} field {null_fields[0]} "
+                "must not be null"
             )
         arguments = {_FILE_FIELDS[name]: value for name, value in entry.items()}
         package_directory = arguments.get("package_directory")
@@ -328,7 +375,7 @@ def _connector_manifest_path(spec: SessionTriggerBindingSpec, search_directory: 
 
 def _connector_manifest_identity(
     manifest: Any, manifest_path: Path
-) -> tuple[str, str, dict[str, str], dict[str, Mapping[str, Any] | None]]:
+) -> tuple[str, str, dict[str, str], list[tuple[str, str, Mapping[str, Any] | None]]]:
     def invalid(reason: str) -> ValueError:
         return ValueError(f"Connector manifest {manifest_path}: {reason}")
 
@@ -356,7 +403,7 @@ def _connector_manifest_identity(
         raise invalid("package must have an npm or pypi ecosystem, a name, and an exact version")
     if not isinstance(factories, list):
         raise invalid("factories must be an array")
-    triggers: dict[str, Mapping[str, Any] | None] = {}
+    triggers: list[tuple[str, str, Mapping[str, Any] | None]] = []
     for factory in factories:
         if not isinstance(factory, dict) or factory.get("kind") != "trigger":
             continue
@@ -364,7 +411,7 @@ def _connector_manifest_identity(
         if not isinstance(trigger_name, str) or not trigger_name:
             raise invalid(f"Trigger factory {factory.get('name')} requires triggerName")
         configuration_ui = factory.get("configurationUI")
-        if configuration_ui is not None and (
+        if "configurationUI" in factory and (
             not isinstance(configuration_ui, dict)
             or not isinstance(configuration_ui.get("units"), list)
         ):
@@ -379,7 +426,7 @@ def _connector_manifest_identity(
                     f"Trigger factory {factory.get('name')}: configurationUI units require "
                     "required and bindings"
                 )
-        triggers[trigger_name] = configuration_ui
+        triggers.append((str(factory.get("name")), trigger_name, configuration_ui))
     identity = {
         "ecosystem": package["ecosystem"],
         "name": package["name"],
@@ -421,10 +468,10 @@ def _canonical_configuration_ui(configuration_ui: Any, label: str) -> dict[str, 
         ):
             raise invalid("units require unique IDs, unitId, and label")
         unit_ids.add(unit_id)
-        if (description is not None and not isinstance(description, str)) or not isinstance(
-            required, bool
-        ):
-            raise invalid(f"unit {unit_id} needs a string description and a boolean required")
+        if "description" in unit and not isinstance(description, str):
+            raise invalid(f"unit {unit_id} description must be a string")
+        if not isinstance(required, bool):
+            raise invalid(f"unit {unit_id} required must be a boolean")
         if not isinstance(bindings_in, list) or len(bindings_in) > _MAX_LIST_ITEMS:
             raise invalid(
                 f"unit {unit_id} bindings must be an array of at most {_MAX_LIST_ITEMS} items"

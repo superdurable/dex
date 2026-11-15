@@ -87,9 +87,9 @@ Render the files again after you upgrade the agents packages.
 
 Since 0.6.12. The session graph can declare the Connector Trigger bindings
 that deliver into the session Flow. A hosting platform reads them from
-**v2.connectorTriggerBindings** and offers their configuration, as it does for
+`v2.connectorTriggerBindings` and offers their configuration, as it does for
 bindings that application code declares. Without them, it finds no Flow that
-declares the Trigger. Add one **--trigger-binding** for each binding:
+declares the Trigger. Add one `--trigger-binding` for each binding:
 
 ```bash
 npx --no-install dex-agents-session-graph --flow-type SupportAgent \
@@ -99,28 +99,37 @@ npx --no-install dex-agents-session-graph --flow-type SupportAgent \
 ```
 
 The value is
-**connectionName=packageName@packageVersion:triggerName:bindingName**:
+`connectionName=packageName@packageVersion:triggerName[#factoryName]:bindingName`:
 
 | Part | Meaning |
 | --- | --- |
-| **connectionName** | The Connector connection that the hosting platform configures. |
-| **packageName** | The published Connector package, as **package.name** in its **dex-connector.json**. |
-| **packageVersion** | The exact installed version. It must equal **package.version** in the manifest. |
-| **triggerName** | A Trigger of the package, as **triggerName** of a Trigger factory in the manifest. |
-| **bindingName** | The binding's name. One Connector, connection, Trigger, and binding name appear once. |
+| `connectionName` | The Connector connection that the hosting platform configures. |
+| `packageName` | The published Connector package, as `package.name` in its `dex-connector.json`. |
+| `packageVersion` | The exact installed version. It must equal `package.version` in the manifest. |
+| `triggerName` | A Trigger of the package, as `triggerName` of a Trigger factory in the manifest. |
+| `factoryName` | Optional. The `name` of one Trigger factory in the manifest. See the rule below. |
+| `bindingName` | The binding's name. One Connector, connection, Trigger, and binding name appear once. |
+
+Trigger and binding names cannot contain `:` or `#` in this form. Write such a
+binding in a `--trigger-bindings` file instead.
 
 The command reads the manifest of the installed package. The npm command
-looks in **node_modules** from the current directory upward. The Python
+looks in `node_modules` from the current directory upward. The Python
 command looks among the installed files of the distribution named
-**packageName**. A package that is not installed, a package without
-**dex-connector.json**, another version, or an unknown Trigger exits with
+`packageName`. A package that is not installed, a package without
+`dex-connector.json`, another version, or an unknown Trigger exits with
 status 2 and names the cause. The command still uses no network.
 
-Each binding becomes the same entry that **dexcli visualize** writes for a
+Each binding becomes the same entry that `dexcli visualize` writes for a
 binding declared in code, with the same fields, order, and values. Its
-**configurationUI** is the Trigger's **configurationUI** from the manifest, or
-no units when the manifest has none. To set the UI units yourself, or to read a
-package from a directory, pass **--trigger-bindings** with a JSON array:
+`configurationUI` is the Trigger factory's `configurationUI` from the manifest,
+or no units when the factory has none. A manifest may have several Trigger
+factories for one Trigger. When their `configurationUI` is the same, any of
+them gives the binding. When it differs, the command exits with status 2 unless
+`factoryName` names one of them.
+
+To set the UI units yourself, or to read a package from a directory, pass
+`--trigger-bindings` with a JSON array:
 
 ```json
 [
@@ -154,23 +163,27 @@ package from a directory, pass **--trigger-bindings** with a JSON array:
 
 | Field | Meaning |
 | --- | --- |
-| **connectionName**, **packageName**, **packageVersion**, **triggerName**, **bindingName** | The same parts as in **--trigger-binding**. Required. |
-| **packageDirectory** | Optional. The directory that holds **dex-connector.json**, relative to the file. It replaces the installed-package lookup. |
-| **configurationUI** | Optional. Replaces the manifest's UI units. Each unit has a unique **id**, a **unitId**, a **label**, an optional **description**, **required** (default false), and **bindings** (default none), each with a unique **port** and a JSON pointer. |
+| `connectionName`, `packageName`, `packageVersion`, `triggerName`, `bindingName` | The same parts as in `--trigger-binding`. Required. |
+| `factoryName` | Optional. The same as in `--trigger-binding`. |
+| `packageDirectory` | Optional. The directory that holds `dex-connector.json`, relative to the file. It replaces the installed-package lookup. |
+| `configurationUI` | Optional. Replaces the manifest's UI units. Each unit has a unique `id`, a `unitId`, a `label`, an optional `description`, `required` (default `false`), and `bindings` (default none), each with a unique `port` and a `jsonPointer`. |
 
-The graph lists the bindings of **--trigger-binding** first, in order, and then
+Leave out an optional field instead of setting it to `null`. A `null` value
+anywhere in an entry exits with status 2, in both packages.
+
+The graph lists the bindings of `--trigger-binding` first, in order, and then
 the file's. Without either option, the graph is byte for byte the same as
-before. In code, resolve each binding with **resolve_session_trigger_binding**
-(Python) or **resolveSessionTriggerBinding** (TypeScript), and pass the results
-to **render_session_flow_graph** or **renderSessionFlowGraph** in
-**connector_trigger_bindings** or **connectorTriggerBindings**. The Flow
+before. In code, resolve each binding with `resolve_session_trigger_binding`
+(Python) or `resolveSessionTriggerBinding` (TypeScript), and pass the results
+to `render_session_flow_graph` or `renderSessionFlowGraph` in
+`connector_trigger_bindings` or `connectorTriggerBindings`. The Flow
 definition document functions take the same option. An uploaded graph keeps
 the template's generation time, so a binding change needs one forced upload,
 as a permission change does.
 
 A binding declares only where the Trigger delivers. The application's Trigger
-target still delivers each event, such as with **newDexRPCTriggerTarget** to
-the session's **send_user_message** RPC. See
+target still delivers each event, such as with `newDexRPCTriggerTarget` to
+the session's `send_user_message` RPC. See
 [Connector Triggers](/reference/agents/connector-triggers#session-graph-bindings).
 
 ## Rendered file or uploaded graph {#definition-authority}

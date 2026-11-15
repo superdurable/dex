@@ -129,11 +129,11 @@ npx --no-install dex-agents-session-graph --flow-type SupportAgent \
 
 - Use the connection and binding names that your Trigger runner uses.
 - Run the command where the Connector package is installed. It reads the
-  package's **dex-connector.json** and fails when the package or Trigger is
+  package's `dex-connector.json` and fails when the package or Trigger is
   missing.
 - `@superdurable/connector-slack` 0.6.0 declares no UI units for its
   Triggers. To offer a channel picker and a member picker, pass the units in a
-  **--trigger-bindings** file.
+  `--trigger-bindings` file.
 - The binding does not deliver events. The reply target still calls
   `send_user_message`, and the start target still starts the session Flow.
 

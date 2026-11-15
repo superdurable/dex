@@ -16,7 +16,10 @@ import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { renderSessionFlowGraph, resolveSessionTriggerBinding, type SessionTriggerBindingSpec } from "../../src/index.js";
-import { parseSessionTriggerBindingFlag } from "../../src/agent-session-trigger-bindings.js";
+import {
+  parseSessionTriggerBindingFlag,
+  readSessionTriggerBindingsFile,
+} from "../../src/agent-session-trigger-bindings.js";
 import { conformanceSuiteDirectory, readConformanceJson } from "../fixtures/conformance-suite.js";
 
 interface TriggerBindingsSuite {
@@ -24,6 +27,14 @@ interface TriggerBindingsSuite {
   readonly flow_type: string;
   readonly action_permission: string;
   readonly cases: readonly { readonly flag?: string; readonly entry: SessionTriggerBindingSpec; readonly binding: unknown }[];
+  readonly file_cases: readonly {
+    readonly name: string;
+    readonly package_directory: string;
+    readonly flag?: string;
+    readonly entry: Record<string, unknown>;
+    readonly binding?: unknown;
+    readonly error?: string;
+  }[];
   readonly rendered_sha256: string;
 }
 
@@ -119,6 +130,27 @@ describe("session graph Connector Trigger bindings", () => {
     );
   });
 
+  test("every file case resolves to its entry or fails with its error, like every core", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "session-trigger-binding-cases-"));
+    for (const fileCase of suite.file_cases) {
+      const entry =
+        "packageDirectory" in fileCase.entry
+          ? fileCase.entry
+          : { ...fileCase.entry, packageDirectory: path.join(conformanceSuiteDirectory, fileCase.package_directory) };
+      const bindingsFile = path.join(directory, "trigger-bindings.json");
+      writeFileSync(bindingsFile, JSON.stringify([entry]));
+      const resolve = () => readSessionTriggerBindingsFile(bindingsFile).map((spec) => resolveSessionTriggerBinding(spec));
+      if (fileCase.error === undefined) {
+        assert.equal(JSON.stringify(resolve()), JSON.stringify([fileCase.binding]), fileCase.name);
+      } else {
+        assert.throws(resolve, (error: Error) => error.message.includes(fileCase.error!), fileCase.name);
+      }
+      if (fileCase.flag !== undefined) {
+        assert.deepEqual(parseSessionTriggerBindingFlag(fileCase.flag), fileCase.entry, fileCase.name);
+      }
+    }
+  });
+
   test("two bindings with one identity are refused", () => {
     assert.throws(
       () => renderSessionFlowGraph({ ...graphOptions, connectorTriggerBindings: [resolveCase(0), resolveCase(0)] }),
@@ -148,6 +180,6 @@ describe("session graph Connector Trigger bindings", () => {
     assert.match(missing.stderr, /package @dex-test\/missing is not installed/);
     const malformed = runCommand(project, "--trigger-binding", "workspace");
     assert.equal(malformed.status, 2);
-    assert.match(malformed.stderr, /must be <connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>/);
+    assert.match(malformed.stderr, /must be <connectionName>=<packageName>@<packageVersion>:<triggerName>\[#<factoryName>\]:<bindingName>/);
   });
 });
