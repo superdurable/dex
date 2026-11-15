@@ -40,13 +40,21 @@ export function useSessionStreamScroll({
   const shownSignatureRef = useRef<string | null>(null);
   const seenWaitingCallIdsRef = useRef<Set<string> | null>(null);
 
+  /** The element that scrolls the session, and its scroll offset at the last look. */
+  const scrollPositionRef = useRef<{ container: Element; scrollTop: number } | null>(null);
+
   const measureAtLatest = useCallback(() => {
     const section = sectionRef.current;
     const latest = latestRef.current;
     if (!section || !latest) return;
+    const container = scrollContainerOf(section);
+    scrollPositionRef.current = { container, scrollTop: container.scrollTop };
     const controls = section.querySelector('.ses-controls');
+    const containerBottom = container === document.scrollingElement || container === document.documentElement
+      ? window.innerHeight
+      : container.getBoundingClientRect().bottom;
     const viewBottom = Math.min(
-      scrollContainerBottom(section),
+      containerBottom,
       controls ? controls.getBoundingClientRect().top : Number.POSITIVE_INFINITY,
     );
     const isNowAtLatest = latest.getBoundingClientRect().top <= viewBottom + AT_LATEST_TOLERANCE_PX;
@@ -54,6 +62,29 @@ export function useSessionStreamScroll({
     setAtLatest(isNowAtLatest);
   }, [sectionRef, latestRef]);
   const scheduleMeasureAtLatest = useFrameCoalesced(measureAtLatest);
+
+  // The full measure waits a frame, so a scroll up marks the reader as left at once.
+  const handleScroll = useCallback((event: Event) => {
+    const position = scrollPositionRef.current;
+    const target = event.target === document ? document.scrollingElement ?? document.documentElement : event.target;
+    if (position && target === position.container) {
+      if (position.container.scrollTop < position.scrollTop - 1) isAtLatestRef.current = false;
+      position.scrollTop = position.container.scrollTop;
+    }
+    scheduleMeasureAtLatest();
+  }, [scheduleMeasureAtLatest]);
+
+  // Opening a message, note, or call pushes the end down before any measure runs.
+  const handleExpand = useCallback((event: Event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const isOpening = event.type === 'toggle'
+      ? target instanceof HTMLDetailsElement && target.open
+      : target.closest('.ses-more')?.getAttribute('aria-expanded') === 'false';
+    if (!isOpening) return;
+    isAtLatestRef.current = false;
+    scheduleMeasureAtLatest();
+  }, [scheduleMeasureAtLatest]);
 
   // Scroll margins keep scrolled-to content above the sticky composer.
   const updateComposerHeight = useCallback(() => {
@@ -67,13 +98,25 @@ export function useSessionStreamScroll({
 
   // The scroll container varies, so a capturing listener hears whichever element scrolls.
   useEffect(() => {
-    document.addEventListener('scroll', scheduleMeasureAtLatest, { capture: true, passive: true });
+    document.addEventListener('scroll', handleScroll, { capture: true, passive: true });
     window.addEventListener('resize', scheduleMeasureAtLatest);
     return () => {
-      document.removeEventListener('scroll', scheduleMeasureAtLatest, { capture: true });
+      document.removeEventListener('scroll', handleScroll, { capture: true });
       window.removeEventListener('resize', scheduleMeasureAtLatest);
     };
-  }, [scheduleMeasureAtLatest]);
+  }, [handleScroll, scheduleMeasureAtLatest]);
+
+  // Toggle does not bubble, so both listeners capture.
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    stream.addEventListener('toggle', handleExpand, { capture: true });
+    stream.addEventListener('click', handleExpand, { capture: true });
+    return () => {
+      stream.removeEventListener('toggle', handleExpand, { capture: true });
+      stream.removeEventListener('click', handleExpand, { capture: true });
+    };
+  }, [streamRef, isLoaded, handleExpand]);
 
   // Opening a long message, note, or call moves the end without a scroll event.
   useEffect(() => {
@@ -140,7 +183,10 @@ function useFrameCoalesced(work: () => void): () => void {
   workRef.current = work;
   const frameRef = useRef<number | null>(null);
   useEffect(() => () => {
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    if (frameRef.current === null) return;
+    cancelAnimationFrame(frameRef.current);
+    // StrictMode sets effects up again; a stale ID would block every later frame.
+    frameRef.current = null;
   }, []);
   return useCallback(() => {
     if (frameRef.current !== null) return;
@@ -164,13 +210,13 @@ function waitingCallControls(section: HTMLElement | null, toolCallId: string): H
   return card?.querySelector<HTMLElement>(':scope > .agc') ?? card ?? null;
 }
 
-/** The bottom edge, on screen, of the nearest element that scrolls the session, or of the window. */
-function scrollContainerBottom(section: HTMLElement): number {
+/** The nearest element that scrolls the session, or the document's scrolling element. */
+function scrollContainerOf(section: HTMLElement): Element {
   for (let element = section.parentElement; element; element = element.parentElement) {
     const overflowY = getComputedStyle(element).overflowY;
     if ((overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight) {
-      return element.getBoundingClientRect().bottom;
+      return element;
     }
   }
-  return window.innerHeight;
+  return document.scrollingElement ?? document.documentElement;
 }

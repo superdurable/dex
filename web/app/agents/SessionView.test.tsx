@@ -8,7 +8,7 @@
 
 // @vitest-environment jsdom
 
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_COPY } from './copy';
@@ -445,7 +445,7 @@ describe('SessionView scrolling', () => {
       observe() {}
       disconnect() {}
     });
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const runFrames = queueAnimationFrames();
     const long = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n');
     loaded = sessionOf({ items: [userMessage(1, long)] });
     const { rerender } = render(renderSession());
@@ -454,12 +454,109 @@ describe('SessionView scrolling', () => {
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.showMore }));
     placeLatestBelowTheView();
     act(() => observers.forEach((callback) => callback([], {} as ResizeObserver)));
+    runFrames();
     expect(screen.getByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeTruthy();
 
     loaded = sessionOf({ items: [userMessage(1, long), userMessage(2, 'New message.')] });
     rerender(renderSession(1));
     expect(scrolled).toHaveLength(0);
     expect(screen.getByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeTruthy();
+  });
+
+  /** Queues animation frames without running them, as a browser does until its next frame. */
+  function queueAnimationFrames() {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextId = 1;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(nextId, callback);
+      return nextId++;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id); });
+    return () => act(() => {
+      const due = [...frames.values()];
+      frames.clear();
+      due.forEach((callback) => callback(0));
+    });
+  }
+
+  it('does not follow a reader who scrolled up just before a new message, within the same frame', () => {
+    const scrolled = stubScrollIntoView();
+    queueAnimationFrames();
+    let scrollTop = 900;
+    const container = document.scrollingElement ?? document.documentElement;
+    Object.defineProperty(container, 'scrollTop', { configurable: true, get: () => scrollTop });
+    try {
+      loaded = sessionOf({ items: [userMessage(1, 'First.')] });
+      const { rerender } = render(renderSession());
+
+      scrollTop = 600;
+      fireEvent.scroll(document);
+      loaded = sessionOf({ items: [userMessage(1, 'First.'), userMessage(2, 'Second.')] });
+      rerender(renderSession(1));
+      expect(scrolled).toHaveLength(0);
+    } finally {
+      delete (container as Partial<Element> & { scrollTop?: number }).scrollTop;
+    }
+  });
+
+  it('keeps following a reader whose view only scrolled down', () => {
+    const scrolled = stubScrollIntoView();
+    queueAnimationFrames();
+    let scrollTop = 600;
+    const container = document.scrollingElement ?? document.documentElement;
+    Object.defineProperty(container, 'scrollTop', { configurable: true, get: () => scrollTop });
+    try {
+      loaded = sessionOf({ items: [userMessage(1, 'First.')] });
+      const { rerender } = render(renderSession());
+
+      scrollTop = 900;
+      fireEvent.scroll(document);
+      loaded = sessionOf({ items: [userMessage(1, 'First.'), userMessage(2, 'Second.')] });
+      rerender(renderSession(1));
+      expect(scrolled.map((element) => element.className)).toEqual(['ses-latest']);
+    } finally {
+      delete (container as Partial<Element> & { scrollTop?: number }).scrollTop;
+    }
+  });
+
+  it('does not follow a reader who opened a long message just before a new message, within the same frame', () => {
+    const scrolled = stubScrollIntoView();
+    const runFrames = queueAnimationFrames();
+    const long = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n');
+    loaded = sessionOf({ items: [userMessage(1, long)] });
+    const { rerender } = render(renderSession());
+
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.showMore }));
+    loaded = sessionOf({ items: [userMessage(1, long), userMessage(2, 'New message.')] });
+    rerender(renderSession(1));
+    expect(scrolled).toHaveLength(0);
+
+    // The frame's full measure then decides; here the end still fits, so following resumes.
+    runFrames();
+    expect(screen.queryByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeNull();
+  });
+
+  it('does not follow a reader who opened a Dex note just before a new message', () => {
+    const scrolled = stubScrollIntoView();
+    queueAnimationFrames();
+    loaded = sessionOf({ items: [userMessage(1, 'A note.', 'turn_steered_note')] });
+    const { rerender } = render(renderSession());
+
+    const note = document.querySelector('details.ses-dexnote') as HTMLDetailsElement;
+    note.open = true;
+    fireEvent(note, new Event('toggle'));
+    loaded = sessionOf({ items: [userMessage(1, 'A note.', 'turn_steered_note'), userMessage(2, 'New message.')] });
+    rerender(renderSession(1));
+    expect(scrolled).toHaveLength(0);
+  });
+
+  it('keeps measuring the composer after StrictMode sets the effects up twice', () => {
+    const runFrames = queueAnimationFrames();
+    loaded = sessionOf({ items: [userMessage(1, 'First.')] });
+    render(<StrictMode>{renderSession()}</StrictMode>);
+    runFrames();
+    const section = document.querySelector('section.ses') as HTMLElement;
+    expect(section.style.getPropertyValue('--ses-composer-height')).toBe('0px');
   });
 
   it('jumps from the waiting chip to the call and focuses its first control', () => {
