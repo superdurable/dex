@@ -9,8 +9,13 @@
 //! SubFlow reset policies of a time travel, for each state of a restored wait's child.
 
 use super::*;
+use dexzd_apply::values::NoOffloadedValues;
+use dexzd_apply::{
+    StateChildFlowRuns, StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
+    TimeTravelComputationSources, compute_time_travel,
+};
 use dexzd_protocol::dex::{
-    ChannelCondition, ChannelMessage, PublishToChannelRequest, SubFlowResetPolicy,
+    ChannelCondition, ChannelMessage, PublishToChannelRequest, StepMovement, SubFlowResetPolicy,
 };
 use dexzd_protocol::dexzd::v1::{ChannelPublishCommand, CommandErrorReply};
 
@@ -41,14 +46,17 @@ enum ChildState {
     EndedUnreceived,
     /// The child run no longer exists, as after a purge.
     Gone,
+    /// The child start still waits in the parent's outbox.
+    StartPending,
 }
 
-const CHILD_STATES: [ChildState; 5] = [
+const CHILD_STATES: [ChildState; 6] = [
     ChildState::ReceivedBeforeTarget,
     ChildState::ReceivedAfterTarget,
     ChildState::Running,
     ChildState::EndedUnreceived,
     ChildState::Gone,
+    ChildState::StartPending,
 ];
 
 /// What a time travel does with the restored SubFlow condition.
@@ -67,10 +75,14 @@ enum ResetOutcome {
 }
 
 fn expected_outcome(policy: SubFlowResetPolicy, state: ChildState) -> ResetOutcome {
-    use ChildState::{EndedUnreceived, Gone, ReceivedAfterTarget, ReceivedBeforeTarget, Running};
+    use ChildState::{
+        EndedUnreceived, Gone, ReceivedAfterTarget, ReceivedBeforeTarget, Running, StartPending,
+    };
     use SubFlowResetPolicy as Policy;
     match (policy, state) {
-        (Policy::AlwaysReject, _) | (Policy::AlwaysRestart, Gone) => ResetOutcome::Rejected,
+        (Policy::AlwaysReject, _)
+        | (Policy::AlwaysRestart, Gone)
+        | (Policy::AlwaysRestart | Policy::AlwaysFail, StartPending) => ResetOutcome::Rejected,
         (Policy::AlwaysRestart, _) => ResetOutcome::Restarted,
         (Policy::AlwaysFail, ReceivedBeforeTarget | ReceivedAfterTarget) => ResetOutcome::Failed {
             terminates_child: false,
@@ -81,7 +93,8 @@ fn expected_outcome(policy: SubFlowResetPolicy, state: ChildState) -> ResetOutco
         (_, ReceivedBeforeTarget | ReceivedAfterTarget | EndedUnreceived) => {
             ResetOutcome::UsesChildResult
         }
-        (_, Running) => ResetOutcome::KeepsWaiting,
+        // A start on its way attaches: the child it starts reports to the condition.
+        (_, Running | StartPending) => ResetOutcome::KeepsWaiting,
         (Policy::AttachElseFail, Gone) => ResetOutcome::Failed {
             terminates_child: false,
         },
@@ -121,8 +134,18 @@ impl Harness {
     /// Registers a wait on the SubFlow conditions and a signal, so the Step keeps waiting after
     /// its children complete. Returns the child starts.
     fn register_children_and_signal_wait(&mut self, condition_ids: &[&str]) -> Vec<OutboxRecord> {
+        self.register_step_children_and_signal_wait("StartStep-1", condition_ids)
+    }
+
+    /// Registers the wait of `step_execution_id` as [`Self::register_children_and_signal_wait`]
+    /// does. Returns every child start in the parent's outbox.
+    fn register_step_children_and_signal_wait(
+        &mut self,
+        step_execution_id: &str,
+        condition_ids: &[&str],
+    ) -> Vec<OutboxRecord> {
         let invocation = StepInvocationKey {
-            step_execution_id: "StartStep-1".to_owned(),
+            step_execution_id: step_execution_id.to_owned(),
             method: StepMethod::WaitFor as i32,
         };
         assert_ok(&self.apply(
@@ -275,13 +298,16 @@ impl Harness {
             .pop()
             .expect("the wait starts its child");
         let wait_time = self.parent_history_time(self.last_parent_seq());
+        if state == ChildState::StartPending {
+            return wait_time;
+        }
         // A gone child emulates a purge: its start was delivered, and its run no longer exists.
         if state != ChildState::Gone {
             assert_ok(&self.deliver_start_outbox(&start, FIRST_CHILD_RUN));
         }
         self.ack_parent_outbox(&start.message_id);
         match state {
-            ChildState::Running | ChildState::Gone => wait_time,
+            ChildState::Running | ChildState::Gone | ChildState::StartPending => wait_time,
             ChildState::EndedUnreceived => {
                 self.terminate_child(CHILD_ID, FIRST_CHILD_RUN);
                 wait_time
@@ -911,5 +937,550 @@ fn an_unknown_policy_is_rejected() {
     let travel = harness.travel_with_policy(target, 99);
     let error = error_of(&travel).expect("the travel is rejected");
     assert_eq!(error.grpc_code, 3, "INVALID_ARGUMENT: {}", error.message);
+    assert_eq!(harness.state.rows, rows_before);
+}
+
+fn assert_applied(outcome: &ApplyOutcome) {
+    assert!(
+        matches!(
+            outcome.reply.reply,
+            Some(command_reply::Reply::TimeTravel(_))
+        ),
+        "{:?}",
+        outcome.reply
+    );
+}
+
+/// Returns a parent command proposed at a new time of `harness`.
+fn parent_command(harness: &mut Harness, command_id: u8, body: Command) -> FlowCommand {
+    harness.now_micros += 1000;
+    FlowCommand {
+        flow_id: "parent".to_owned(),
+        run_id: PARENT_RUN.to_vec(),
+        epoch: 1,
+        behavior_version: 1,
+        proposed_at_micros: harness.now_micros,
+        command_id: [command_id; 16].to_vec(),
+        command: Some(body),
+        ..FlowCommand::default()
+    }
+}
+
+fn travel_body(target_micros: i64, run_attempt: i32, policy: SubFlowResetPolicy) -> Command {
+    Command::TimeTravel(TimeTravelCommand {
+        request: Some(ResetFlowRequest {
+            flow_id: "parent".to_owned(),
+            reset_type: FlowResetType::HistoryEventTime as i32,
+            history_event_time: (i128::from(target_micros) * 1000).to_string(),
+            run_attempt,
+            sub_flow_reset_policy: policy as i32,
+            ..ResetFlowRequest::default()
+        }),
+        ..TimeTravelCommand::default()
+    })
+}
+
+#[test]
+fn fail_and_restart_reject_a_child_start_that_has_not_reached_the_child() {
+    for policy in [
+        SubFlowResetPolicy::AlwaysFail,
+        SubFlowResetPolicy::AlwaysRestart,
+    ] {
+        let mut harness = Harness::new();
+        let target = harness.prepare_child(ChildState::StartPending);
+        let start = harness
+            .outbox("parent", PARENT_RUN)
+            .pop()
+            .expect("the start is pending");
+        let rows_before = harness.state.rows.clone();
+        let travel = harness.travel_with_policy(target, policy as i32);
+        let error = error_of(&travel).expect("the travel is rejected");
+        assert_eq!(error.grpc_code, 9, "{policy:?}: {}", error.message);
+        assert!(
+            error
+                .message
+                .contains("the child start has not reached the child yet")
+                && error.message.contains("retry the time travel later"),
+            "{policy:?}: {}",
+            error.message
+        );
+        assert_eq!(harness.state.rows, rows_before, "{policy:?}");
+
+        // Once the start reached the child, the same travel abandons a watched child.
+        assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+        harness.ack_parent_outbox(&start.message_id);
+        assert_applied(&harness.travel_with_policy(target, policy as i32));
+        let abandoning = harness
+            .parent_outbox_written_at(harness.last_parent_seq())
+            .pop()
+            .expect("the travel writes a message to the child");
+        assert_ok(&harness.deliver_to_child(&abandoning, SECOND_CHILD_RUN));
+        assert_eq!(
+            harness.record(CHILD_ID, FIRST_CHILD_RUN).status,
+            FlowStatus::Terminated as i32,
+            "{policy:?}"
+        );
+    }
+}
+
+#[test]
+fn attach_else_fail_attaches_a_child_start_that_has_not_reached_the_child() {
+    let mut harness = Harness::new();
+    let target = harness.prepare_child(ChildState::StartPending);
+    let start = harness
+        .outbox("parent", PARENT_RUN)
+        .pop()
+        .expect("the start is pending");
+    let travel = harness.travel_with_policy(target, SubFlowResetPolicy::AttachElseFail as i32);
+    assert_applied(&travel);
+    assert!(harness.parent_sub_flow_result_of(CHILD_ID, 2).is_none());
+    // The start arrives after the travel; its child reports to the restored condition.
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    harness.publish_signal();
+    harness.terminate_child(CHILD_ID, FIRST_CHILD_RUN);
+    let report = harness.latest_child_report(CHILD_ID, FIRST_CHILD_RUN);
+    assert_ok(&harness.deliver_report(CHILD_ID, &report));
+    let step = harness.step("parent", PARENT_RUN, "StartStep-1");
+    assert_eq!(step.phase, StepExecutionPhase::Execute as i32);
+    assert_eq!(
+        step.condition_results.expect("results").sub_flow_results[0].flow_status,
+        FlowStatus::Terminated as i32
+    );
+}
+
+#[test]
+fn apply_aborts_an_abandoning_policy_when_it_finds_the_child_start_pending() {
+    let mut harness = Harness::new();
+    let target = harness.prepare_child(ChildState::Running);
+    let start = harness
+        .outbox("parent", PARENT_RUN)
+        .into_iter()
+        .find(|record| record.written_seq > 0)
+        .expect("the child start");
+    let command = parent_command(
+        &mut harness,
+        7,
+        travel_body(target, 1, SubFlowResetPolicy::AlwaysFail),
+    );
+    let context = harness.parent_context();
+    let staged = stage_time_travel_reading_child_flows_for_test(
+        &context,
+        &harness.state,
+        &harness.hasher,
+        &command,
+    )
+    .expect("the owner computes")
+    .expect("the owner finds the start delivered");
+    let mut diverged = harness.snapshot();
+    diverged.state.rows.insert(
+        (
+            ColumnFamily::PartitionIndex,
+            harness.parent_pending_index(&start.message_id),
+        ),
+        Vec::new(),
+    );
+    let mut last = None;
+    for staged_command in staged.commands {
+        let outcome =
+            apply_flow_command(&context, &diverged.state, &staged_command).expect("apply runs");
+        diverged.state.commit(&outcome);
+        last = Some(outcome);
+    }
+    let error = error_of(last.as_ref().expect("the owner proposes the TimeTravel"))
+        .expect("apply rejects the travel")
+        .clone();
+    assert_eq!(error.grpc_code, 10, "ABORTED: {}", error.message);
+    assert!(error.message.contains("has not reached the child yet"));
+}
+
+#[test]
+fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let invocation = StepInvocationKey {
+        step_execution_id: "StartStep-1".to_owned(),
+        method: StepMethod::WaitFor as i32,
+    };
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![9; 16],
+            pull_routing: None,
+        }),
+    ));
+    let large_input = "x".repeat(600_000);
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::WaitFor(
+                InvokeWaitForMethodResponse {
+                    waiting_condition: Some(WaitingCondition {
+                        waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+                        sub_flow_conditions: vec![SubFlowCondition {
+                            step_input: Some(string_value(&large_input)),
+                            ..sub_flow_condition("child")
+                        }],
+                        ..WaitingCondition::default()
+                    }),
+                    ..InvokeWaitForMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }),
+    ));
+    let target = harness.parent_history_time(harness.last_parent_seq());
+    let start = harness
+        .outbox("parent", PARENT_RUN)
+        .pop()
+        .expect("the child start");
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    harness.ack_parent_outbox(&start.message_id);
+
+    let context = harness.parent_context();
+    let compute = |policy: SubFlowResetPolicy, budget_bytes: u64| {
+        let travel = travel_body(target, 1, policy);
+        let Command::TimeTravel(time_travel) = &travel else {
+            unreachable!("travel_body builds a TimeTravel");
+        };
+        let reset = time_travel
+            .request
+            .clone()
+            .expect("the travel has a request");
+        let history = StateHistorySource::new(&harness.state, context, RunId(PARENT_RUN));
+        let child_flow_runs = StateChildFlowRuns::new(&harness.state, &harness.hasher);
+        compute_time_travel(
+            &context,
+            &TimeTravelComputationSources {
+                state: &harness.state,
+                history: &history,
+                offloaded_values: &NoOffloadedValues,
+                child_flow_runs: &child_flow_runs,
+            },
+            &TimeTravelComputationRequest {
+                run_id: RunId(PARENT_RUN),
+                reset: &reset,
+                now_micros: harness.now_micros + 1000,
+                replay_memory_budget_bytes: budget_bytes,
+            },
+        )
+        .expect("the computation runs")
+    };
+    let budget_bytes = 300_000;
+    assert!(
+        matches!(
+            compute(SubFlowResetPolicy::AlwaysFail, budget_bytes),
+            TimeTravelComputation::Computed(_)
+        ),
+        "the target state fits the budget without child reads"
+    );
+    let TimeTravelComputation::Rejected(reply) =
+        compute(SubFlowResetPolicy::AlwaysRestart, budget_bytes)
+    else {
+        panic!("reading the child's large start exceeds the budget");
+    };
+    let Some(command_reply::Reply::Error(error)) = reply.reply else {
+        panic!("expected a rejection");
+    };
+    assert_eq!(error.grpc_code, 8, "RESOURCE_EXHAUSTED: {}", error.message);
+    assert!(error.message.contains("child Flow"), "{}", error.message);
+    assert!(matches!(
+        compute(SubFlowResetPolicy::AlwaysRestart, 64 << 20),
+        TimeTravelComputation::Computed(_)
+    ));
+}
+
+#[test]
+fn one_wait_uses_an_ended_child_and_fails_a_gone_one() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let starts = harness.register_children_and_signal_wait(&["child", "second"]);
+    let target = harness.parent_history_time(harness.last_parent_seq());
+    let first_start = starts
+        .iter()
+        .find(|start| matches!(&start.payload, Some(outbox_record::Payload::ChildStart(start)) if start.child_flow_id == CHILD_ID))
+        .expect("the first child start");
+    assert_ok(&harness.deliver_to_child(first_start, FIRST_CHILD_RUN));
+    for start in &starts {
+        harness.ack_parent_outbox(&start.message_id);
+    }
+    harness.terminate_child(CHILD_ID, FIRST_CHILD_RUN);
+
+    let travel = harness.travel_with_policy(target, SubFlowResetPolicy::AttachElseFail as i32);
+    assert_applied(&travel);
+    let wait = harness
+        .step("parent", PARENT_RUN, "StartStep-1")
+        .wait
+        .expect("the signal keeps the Step waiting");
+    assert_eq!(wait.sub_flow_registration_attempts, vec![1, 2]);
+    assert!(
+        harness
+            .parent_outbox_written_at(harness.last_parent_seq())
+            .is_empty(),
+        "a gone child needs no termination"
+    );
+    harness.publish_signal();
+    let step = harness.step("parent", PARENT_RUN, "StartStep-1");
+    assert_eq!(step.phase, StepExecutionPhase::Execute as i32);
+    let results = step.condition_results.expect("results").sub_flow_results;
+    assert_eq!(results[0].flow_status, FlowStatus::Terminated as i32);
+    assert_eq!(results[1].flow_status, FlowStatus::Failed as i32);
+    assert_eq!(
+        results[1].error_type,
+        FlowErrorType::SubFlowAbandoned as i32
+    );
+}
+
+impl Harness {
+    /// Makes StartStep-1 move on to LeftStep and RightStep, which each wait on one child and the
+    /// signal. Returns the time of the point where both wait.
+    fn wait_in_two_steps(&mut self) -> i64 {
+        self.start_parent();
+        let wait_for = StepInvocationKey {
+            step_execution_id: "StartStep-1".to_owned(),
+            method: StepMethod::WaitFor as i32,
+        };
+        let execute = StepInvocationKey {
+            step_execution_id: "StartStep-1".to_owned(),
+            method: StepMethod::Execute as i32,
+        };
+        for (invocation, response) in [
+            (
+                wait_for,
+                step_method_completed_command::Response::WaitFor(
+                    InvokeWaitForMethodResponse::default(),
+                ),
+            ),
+            (
+                execute,
+                step_method_completed_command::Response::Execute(InvokeExecuteMethodResponse {
+                    step_decision: Some(StepDecision {
+                        next_steps: ["LeftStep", "RightStep"]
+                            .into_iter()
+                            .map(|step_type| StepMovement {
+                                step_type: step_type.to_owned(),
+                                ..StepMovement::default()
+                            })
+                            .collect(),
+                        ..StepDecision::default()
+                    }),
+                    ..InvokeExecuteMethodResponse::default()
+                }),
+            ),
+        ] {
+            assert_ok(&self.apply(
+                "parent",
+                &PARENT_RUN,
+                Command::StepAttemptStarted(StepAttemptStartedCommand {
+                    invocation: Some(invocation.clone()),
+                    attempt: 1,
+                    task_id: vec![9; 16],
+                    pull_routing: None,
+                }),
+            ));
+            assert_ok(&self.apply(
+                "parent",
+                &PARENT_RUN,
+                Command::StepMethodCompleted(StepMethodCompletedCommand {
+                    invocation: Some(invocation),
+                    attempt: 1,
+                    response: Some(response),
+                    ..StepMethodCompletedCommand::default()
+                }),
+            ));
+        }
+        let mut wait_time = 0;
+        for (step_execution_id, run_id) in [
+            ("LeftStep-1", FIRST_CHILD_RUN),
+            ("RightStep-1", SECOND_CHILD_RUN),
+        ] {
+            let start = self
+                .register_step_children_and_signal_wait(step_execution_id, &["child"])
+                .into_iter()
+                .find(|record| matches!(&record.payload, Some(outbox_record::Payload::ChildStart(start)) if start.parent.as_ref().is_some_and(|parent| parent.step_execution_id == step_execution_id)))
+                .expect("the Step's child start");
+            wait_time = self.parent_history_time(self.last_parent_seq());
+            assert_ok(&self.deliver_to_child(&start, run_id));
+            self.ack_parent_outbox(&start.message_id);
+        }
+        wait_time
+    }
+}
+
+#[test]
+fn one_time_travel_resets_the_waits_of_several_steps() {
+    let mut harness = Harness::new();
+    let target = harness.wait_in_two_steps();
+    let rows_before = harness.state.rows.clone();
+    let rejected = harness.travel_with_policy(target, SubFlowResetPolicy::AlwaysReject as i32);
+    let error = error_of(&rejected).expect("ALWAYS_REJECT rejects");
+    for named in [
+        "LeftStep-1",
+        "RightStep-1",
+        "SubFlow:parent-LeftStep-1-0",
+        "SubFlow:parent-RightStep-1-0",
+    ] {
+        assert!(error.message.contains(named), "{}", error.message);
+    }
+    assert_eq!(harness.state.rows, rows_before);
+
+    assert_applied(&harness.travel_with_policy(target, SubFlowResetPolicy::AlwaysFail as i32));
+    let terminations = harness.parent_outbox_written_at(harness.last_parent_seq());
+    assert_eq!(terminations.len(), 2);
+    assert_ne!(terminations[0].message_id, terminations[1].message_id);
+    for (step_execution_id, child_run) in [
+        ("LeftStep-1", FIRST_CHILD_RUN),
+        ("RightStep-1", SECOND_CHILD_RUN),
+    ] {
+        let wait = harness
+            .step("parent", PARENT_RUN, step_execution_id)
+            .wait
+            .expect("the Step waits for the signal");
+        assert_eq!(
+            wait.sub_flow_registration_attempts,
+            vec![2],
+            "{step_execution_id}"
+        );
+        let child_flow_id = format!("SubFlow:parent-{step_execution_id}-0");
+        let termination = terminations
+            .iter()
+            .find(|record| matches!(&record.payload, Some(outbox_record::Payload::ChildTerminate(terminate)) if terminate.child_flow_id == child_flow_id))
+            .expect("the child's termination");
+        assert_ok(&harness.deliver_to_child(termination, child_run));
+        assert_eq!(
+            harness.record(&child_flow_id, child_run).status,
+            FlowStatus::Terminated as i32
+        );
+    }
+}
+
+#[test]
+fn a_second_time_travel_attaches_the_restarted_child_and_ignores_the_first() {
+    let mut harness = Harness::new();
+    let target = harness.prepare_child(ChildState::Running);
+    assert_applied(&harness.travel_with_policy(target, SubFlowResetPolicy::AlwaysRestart as i32));
+    let restart_seq = harness.last_parent_seq();
+    let restart_time = harness.parent_history_time(restart_seq);
+    let restart = harness
+        .parent_outbox_written_at(restart_seq)
+        .pop()
+        .expect("the restart");
+    assert_ok(&harness.deliver_to_child(&restart, SECOND_CHILD_RUN));
+    harness.ack_parent_outbox(&restart.message_id);
+    assert_eq!(
+        harness.record(CHILD_ID, FIRST_CHILD_RUN).status,
+        FlowStatus::Terminated as i32
+    );
+
+    // Travels back to the restart point of attempt 2; the restarted child still runs.
+    let command = parent_command(
+        &mut harness,
+        8,
+        travel_body(restart_time, 2, SubFlowResetPolicy::Unspecified),
+    );
+    let again = harness.apply_command(harness.parent_context(), command);
+    assert_applied(&again);
+    assert_eq!(harness.record("parent", PARENT_RUN).current_attempt, 3);
+    assert!(
+        harness
+            .parent_outbox_written_at(harness.last_parent_seq())
+            .is_empty(),
+        "the restarted child stays attached"
+    );
+    let wait = harness
+        .step("parent", PARENT_RUN, "StartStep-1")
+        .wait
+        .expect("the Step waits");
+    assert_eq!(wait.sub_flow_registration_attempts, vec![2]);
+
+    harness.publish_signal();
+    let first_report = harness.latest_child_report(CHILD_ID, FIRST_CHILD_RUN);
+    assert_ok(&harness.deliver_report(CHILD_ID, &first_report));
+    assert_eq!(
+        harness.step("parent", PARENT_RUN, "StartStep-1").phase,
+        StepExecutionPhase::Waiting as i32,
+        "the first child's late report does not complete the condition"
+    );
+    harness.terminate_child(CHILD_ID, SECOND_CHILD_RUN);
+    let second_report = harness.latest_child_report(CHILD_ID, SECOND_CHILD_RUN);
+    assert_ok(&harness.deliver_report(CHILD_ID, &second_report));
+    assert_eq!(
+        harness.step("parent", PARENT_RUN, "StartStep-1").phase,
+        StepExecutionPhase::Execute as i32
+    );
+    assert_eq!(
+        harness
+            .parent_sub_flow_result_of(CHILD_ID, 2)
+            .expect("the restarted child's result")
+            .child_run_id,
+        SECOND_CHILD_RUN.to_vec()
+    );
+}
+
+#[test]
+fn a_child_whose_start_wrote_hard_delete_attributes_cannot_restart() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let reference = HardDeleteObjectReference {
+        object_id: "staged-secret".to_owned(),
+        write_index: 0,
+        size_bytes: 19,
+        is_string_value: true,
+    };
+    assert_ok(&harness.submit_sub_flow_wait_with_objects(
+        SubFlowCondition {
+            sub_flow_type: "ChildFlow".to_owned(),
+            start_step_type: "ChildStep".to_owned(),
+            options: Some(SubFlowOptions {
+                attributes: vec![AttributeWrite {
+                    key: "secret".to_owned(),
+                    value: Some(Value { kind: None }),
+                    is_hard_delete_on_null: true,
+                    ..AttributeWrite::default()
+                }],
+                ..SubFlowOptions::default()
+            }),
+            ..SubFlowCondition::default()
+        },
+        vec![reference],
+    ));
+    let target = harness.parent_history_time(harness.last_parent_seq());
+    let message = harness.outbox("parent", PARENT_RUN).remove(0);
+    let Some(outbox_record::Payload::ChildStart(mut start)) = message.payload.clone() else {
+        panic!("child start");
+    };
+    start.hard_delete_objects[0].object_id = "child-secret".to_owned();
+    let source = start
+        .parent
+        .as_ref()
+        .and_then(|parent| parent.parent.clone());
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &[],
+        Command::InboxMessage(InboxMessageCommand {
+            message_id: message.message_id.clone(),
+            source,
+            payload: Some(inbox_message_command::Payload::ChildStart(start)),
+            new_run_id: FIRST_CHILD_RUN.to_vec(),
+            settings: Some(settings()),
+        }),
+    ));
+    harness.ack_parent_outbox(&message.message_id);
+    let rows_before = harness.state.rows.clone();
+    let travel = harness.travel_with_policy(target, SubFlowResetPolicy::AlwaysRestart as i32);
+    let error = error_of(&travel).expect("the restart is rejected");
+    assert_eq!(error.grpc_code, 9, "{}", error.message);
+    assert!(
+        error
+            .message
+            .contains("its start wrote hard-delete Attributes, which a restart cannot repeat"),
+        "{}",
+        error.message
+    );
     assert_eq!(harness.state.rows, rows_before);
 }

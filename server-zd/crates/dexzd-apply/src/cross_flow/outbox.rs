@@ -664,6 +664,46 @@ pub(crate) fn apply_outbox_ack(
     )?))
 }
 
+/// Returns the parent references of the run's unacknowledged child starts. It reads only the
+/// pending child-start index, not the whole outbox.
+///
+/// Returns an error when a pending index entry has no outbox row.
+pub(crate) fn pending_child_start_parents(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+) -> Result<Vec<ParentFlowReference>, ApplyError> {
+    let pending_prefix = run_item_index_key(
+        transaction.context().partition,
+        IndexKind::OutboxPending,
+        rows.flow_hash,
+        rows.run_id,
+        &[CHILD_START_MESSAGE_KIND],
+    );
+    let message_id_offset = pending_prefix.len() - 1;
+    let (start, end) = prefix_range(&pending_prefix);
+    let mut parents = Vec::new();
+    for (pending_key, _) in
+        transaction.scan(ColumnFamily::PartitionIndex, &start, &end, usize::MAX)?
+    {
+        let key = outbox_key(
+            rows.flow_hash,
+            rows.run_id,
+            &pending_key[message_id_offset..],
+        );
+        let record: OutboxRecord = transaction
+            .get_message(ColumnFamily::Flow, &key, "outbox")?
+            .ok_or_else(|| ApplyError::InvariantViolation {
+                detail: "pending outbox index has no outbox row".to_owned(),
+            })?;
+        if let Some(outbox_record::Payload::ChildStart(start)) = record.payload
+            && let Some(parent) = start.parent
+        {
+            parents.push(parent);
+        }
+    }
+    Ok(parents)
+}
+
 /// Acknowledges pending child starts carrying exactly `parent`; the child's report proves
 /// delivery, so its purge cannot precede redelivery.
 pub(crate) fn acknowledge_child_starts_of_reporting_child(

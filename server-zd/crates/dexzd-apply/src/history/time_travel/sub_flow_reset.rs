@@ -25,8 +25,9 @@ use crate::command_handlers::CommandScope;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::cross_flow::{
-    StoredSubFlowResult, restarted_child_condition, store_sub_flow_result, sub_flow_result_key,
-    validate_child_start_parameters, write_child_terminate, write_restarted_child_start,
+    StoredSubFlowResult, pending_child_start_parents, restarted_child_condition,
+    store_sub_flow_result, sub_flow_result_key, validate_child_start_parameters,
+    write_child_terminate, write_restarted_child_start,
 };
 use crate::history::attempt_scope::{AttemptRow, hex};
 use crate::state_access::{FlowTransaction, RunRows};
@@ -214,8 +215,13 @@ pub(super) fn plan_restored_sub_flow_actions(
         Ok(policy) => policy,
         Err(reply) => return Ok(Err(reply)),
     };
+    let conditions = restored_sub_flow_conditions(&result.rows)?;
+    if conditions.is_empty() {
+        return Ok(Ok(Vec::new()));
+    }
+    let pending_parents = pending_child_start_parents(transaction, cursor.rows)?;
     let mut actions = Vec::new();
-    for condition in restored_sub_flow_conditions(&result.rows)? {
+    for condition in conditions {
         let is_received = is_result_received(transaction, cursor.rows, &condition)?;
         let finding = child_flows
             .iter()
@@ -226,6 +232,23 @@ pub(super) fn plan_restored_sub_flow_actions(
             Ok(None) => continue,
             Err(mismatch) => return Ok(Err(stale_finding_reply(&condition, mismatch))),
         };
+        // The owner rejects these; a start still on its way could outlive the abandoned wait.
+        let is_abandoning = matches!(
+            kind,
+            RestoredSubFlowActionKind::Restart(_) | RestoredSubFlowActionKind::Fail { .. }
+        );
+        let parent = condition.parent_reference(
+            cursor.record.tenant_id,
+            &cursor.record.flow_id,
+            cursor.run_id(),
+            condition.registration_attempt,
+        );
+        if is_abandoning && pending_parents.contains(&parent) {
+            return Ok(Err(stale_finding_reply(
+                &condition,
+                "its child start has not reached the child yet",
+            )));
+        }
         if let Err(detail) = validate_staged_action(&condition, &kind) {
             return Ok(Err(error_reply(
                 grpc_code::INVALID_ARGUMENT,

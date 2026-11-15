@@ -23,9 +23,9 @@ use crate::state_access::{FlowTransaction, RunRows};
 pub(crate) use inbox::{StoredSubFlowResult, apply_inbox_message, store_sub_flow_result};
 pub(crate) use outbox::{
     apply_outbox_ack, child_start_request_id, closed_run_flow_result, on_outbox_retention_fired,
-    report_child_closed, restarted_child_condition, start_child_flows, sub_flow_step_type_error,
-    validate_child_start_conditions, validate_child_start_parameters, write_child_terminate,
-    write_restarted_child_start,
+    pending_child_start_parents, report_child_closed, restarted_child_condition, start_child_flows,
+    sub_flow_step_type_error, validate_child_start_conditions, validate_child_start_parameters,
+    write_child_terminate, write_restarted_child_start,
 };
 pub(crate) use run_purge::{
     apply_hard_delete_objects_deleted, apply_run_purge, on_retention_fired,

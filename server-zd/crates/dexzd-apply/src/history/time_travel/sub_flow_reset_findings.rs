@@ -8,30 +8,37 @@
 
 //! SubFlow reset policies at the owner: reads child Flows, then stages findings or rejects.
 
-use dexzd_keyspace::row_keys::prefix_range;
-use dexzd_keyspace::{ColumnFamily, RunTable, TenantId, run_table_prefix};
+use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, SubFlowResetPolicy};
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowCompletedMessage, CommandReply, OutboxRecord, ParentFlowReference, RunRecord,
-    TimeTravelStagedChildFlow, outbox_record, time_travel_staged_child_flow::Finding,
+    ChildFlowCompletedMessage, CommandReply, ParentFlowReference, RunRecord,
+    TimeTravelStagedChildFlow, time_travel_staged_child_flow::Finding,
 };
 
 use super::TimeTravelResult;
-use super::child_flow_runs::{ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns, ChildFlowStartRead};
+use super::child_flow_runs::{
+    ChildFlowRead, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns, ChildFlowStartRead,
+};
 use super::sub_flow_reset::{
     RestoredSubFlowCondition, is_result_received, reset_policy, restored_sub_flow_conditions,
 };
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::cross_flow::{
-    child_start_request_id, restarted_child_condition, validate_child_start_parameters,
+    child_start_request_id, pending_child_start_parents, restarted_child_condition,
+    validate_child_start_parameters,
 };
+use crate::history::state_rebuild::{ReplayMemoryBudget, replay_memory_exceeded_reply};
 use crate::state_access::{FlowTransaction, RunRows};
 
 /// A running child keeps its condition attached under ResetFlow; another operation may not.
 const DOES_RUNNING_CHILD_ATTACH: bool = true;
 
 const GONE_CHILD_REASON: &str = "its child run no longer exists, for example because it was purged";
+
+/// A child whose start is still on its way could start after the time travel abandons it.
+const PENDING_START_REASON: &str = "the child start has not reached the child yet, so it can be neither restarted nor failed; \
+     retry the time travel later";
 
 /// How a restored condition relates to its child, as the owner reads it.
 enum ChildAttachment {
@@ -54,6 +61,8 @@ enum OwnerDecision {
     Stage(Box<Finding>),
     /// Reject the ResetFlow for this reason.
     Reject(String),
+    /// A child read would exceed the memory budget.
+    MemoryExceeded,
 }
 
 impl OwnerDecision {
@@ -62,32 +71,38 @@ impl OwnerDecision {
     }
 }
 
-/// Reads what the restored SubFlow conditions of `result` need from their child Flows.
+/// Reads what the restored SubFlow conditions of `result` need from their child Flows. Each read
+/// reserves what it loads in `memory_budget`.
 ///
 /// Returns the findings to stage, or the FAILED_PRECONDITION reply that names each condition
-/// the policy rejects, or INVALID_ARGUMENT for an unknown policy. Returns an error when stored
-/// state is corrupt.
+/// the policy rejects, or RESOURCE_EXHAUSTED once a read exceeds the memory budget, or
+/// INVALID_ARGUMENT for an unknown policy. Returns an error when stored state is corrupt.
 pub(super) fn child_flow_findings(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
     record: &RunRecord,
     request: &ResetFlowRequest,
     result: &TimeTravelResult,
-    child_flow_runs: &dyn ChildFlowRuns,
+    sources: ChildFlowSources<'_>,
 ) -> Result<Result<Vec<TimeTravelStagedChildFlow>, CommandReply>, ApplyError> {
     let policy = match reset_policy(request) {
         Ok(policy) => policy,
         Err(reply) => return Ok(Err(reply)),
     };
+    let conditions = restored_sub_flow_conditions(&result.rows)?;
+    if conditions.is_empty() {
+        return Ok(Ok(Vec::new()));
+    }
     let reads = ChildFlowReads {
         transaction,
         rows,
         record,
-        child_flow_runs,
+        sources,
+        pending_parents: pending_child_start_parents(transaction, rows)?,
     };
     let mut findings = Vec::new();
     let mut rejections = Vec::new();
-    for condition in restored_sub_flow_conditions(&result.rows)? {
+    for condition in conditions {
         match reads.decide(policy, &condition)? {
             OwnerDecision::Nothing => {}
             OwnerDecision::Stage(finding) => findings.push(TimeTravelStagedChildFlow {
@@ -100,6 +115,13 @@ pub(super) fn child_flow_findings(
                 "Step execution {} waits on child Flow {}: {reason}",
                 condition.step_execution_id, condition.child_flow_id
             )),
+            OwnerDecision::MemoryExceeded => {
+                return Ok(Err(replay_memory_exceeded_reply(
+                    result.target.point,
+                    sources.memory_budget.limit_bytes(),
+                    "the child Flow results and starts its SubFlow reset policy reads",
+                )));
+            }
         }
     }
     if !rejections.is_empty() {
@@ -117,12 +139,21 @@ pub(super) fn child_flow_findings(
     Ok(Ok(findings))
 }
 
+/// Where the owner reads child Flows, and the memory budget the reads reserve in.
+#[derive(Clone, Copy)]
+pub(super) struct ChildFlowSources<'sources> {
+    pub(super) child_flow_runs: &'sources dyn ChildFlowRuns,
+    pub(super) memory_budget: &'sources ReplayMemoryBudget,
+}
+
 /// What the owner reads for one computation: the parent's state and the child Flows.
 struct ChildFlowReads<'reads> {
     transaction: &'reads FlowTransaction<'reads>,
     rows: RunRows,
     record: &'reads RunRecord,
-    child_flow_runs: &'reads dyn ChildFlowRuns,
+    sources: ChildFlowSources<'reads>,
+    /// Parent references of the parent's unacknowledged child starts.
+    pending_parents: Vec<ParentFlowReference>,
 }
 
 impl ChildFlowReads<'_> {
@@ -136,17 +167,20 @@ impl ChildFlowReads<'_> {
             SubFlowResetPolicy::AlwaysReject => Ok(OwnerDecision::Reject(
                 "the policy rejects every restored SubFlow wait".to_owned(),
             )),
-            SubFlowResetPolicy::AlwaysFail => Ok(OwnerDecision::Nothing),
+            SubFlowResetPolicy::AlwaysFail => Ok(if self.is_child_start_pending(condition) {
+                OwnerDecision::Reject(PENDING_START_REASON.to_owned())
+            } else {
+                OwnerDecision::Nothing
+            }),
             SubFlowResetPolicy::AlwaysRestart => {
-                let run = self.child_run(condition, true)?;
-                if run.is_none() && self.is_child_start_pending(condition)? {
-                    return Ok(OwnerDecision::Reject(
-                        "its child start has not reached the child yet, so it cannot be \
-                         restarted; retry the time travel"
-                            .to_owned(),
-                    ));
+                if self.is_child_start_pending(condition) {
+                    return Ok(OwnerDecision::Reject(PENDING_START_REASON.to_owned()));
                 }
-                Ok(restart_decision(condition, run))
+                Ok(match self.child_run(condition, true)? {
+                    ChildFlowRead::Found(run) => restart_decision(condition, Some(*run)),
+                    ChildFlowRead::Missing => restart_decision(condition, None),
+                    ChildFlowRead::MemoryExceeded => OwnerDecision::MemoryExceeded,
+                })
             }
             SubFlowResetPolicy::Unspecified
             | SubFlowResetPolicy::AttachElseRestart
@@ -154,38 +188,42 @@ impl ChildFlowReads<'_> {
             | SubFlowResetPolicy::AttachElseReject => {
                 let should_read_start =
                     policy == SubFlowResetPolicy::AttachElseRestart && !DOES_RUNNING_CHILD_ATTACH;
-                let attachment = self.attachment(condition, should_read_start)?;
-                Ok(attach_decision(policy, condition, attachment))
+                Ok(match self.attachment(condition, should_read_start)? {
+                    Some(attachment) => attach_decision(policy, condition, attachment),
+                    None => OwnerDecision::MemoryExceeded,
+                })
             }
         }
     }
 
+    /// Returns how `condition` relates to its child, or `None` when the read exceeded the
+    /// memory budget.
     fn attachment(
         &self,
         condition: &RestoredSubFlowCondition,
         should_read_start: bool,
-    ) -> Result<ChildAttachment, ApplyError> {
+    ) -> Result<Option<ChildAttachment>, ApplyError> {
         if is_result_received(self.transaction, self.rows, condition)? {
-            return Ok(ChildAttachment::Received);
+            return Ok(Some(ChildAttachment::Received));
         }
-        if let Some(run) = self.child_run(condition, should_read_start)? {
-            return Ok(if run.ended_result.is_some() {
-                ChildAttachment::Ended(run)
-            } else {
-                ChildAttachment::Running(run)
-            });
-        }
-        if self.is_child_start_pending(condition)? {
-            return Ok(ChildAttachment::StartPending);
-        }
-        Ok(ChildAttachment::Gone)
+        let attachment = match self.child_run(condition, should_read_start)? {
+            ChildFlowRead::MemoryExceeded => return Ok(None),
+            ChildFlowRead::Found(run) if run.ended_result.is_some() => ChildAttachment::Ended(*run),
+            ChildFlowRead::Found(run) => ChildAttachment::Running(*run),
+            // A start on its way attaches: the child it starts reports to this condition.
+            ChildFlowRead::Missing if self.is_child_start_pending(condition) => {
+                ChildAttachment::StartPending
+            }
+            ChildFlowRead::Missing => ChildAttachment::Gone,
+        };
+        Ok(Some(attachment))
     }
 
     fn child_run(
         &self,
         condition: &RestoredSubFlowCondition,
         should_read_start: bool,
-    ) -> Result<Option<ChildFlowRun>, ApplyError> {
+    ) -> Result<ChildFlowRead, ApplyError> {
         let parent = self.parent_reference(condition);
         let start_request_id = child_start_request_id(
             self.rows.run_id,
@@ -193,38 +231,23 @@ impl ChildFlowReads<'_> {
             &condition.step_execution_id,
             condition.sub_flow_index,
         );
-        self.child_flow_runs.child_flow_run(&ChildFlowRunQuery {
-            tenant_id: TenantId(self.record.tenant_id),
-            child_flow_id: &condition.child_flow_id,
-            start_request_id: &start_request_id,
-            parent: &parent,
-            should_read_start,
-        })
+        let memory_budget = self.sources.memory_budget;
+        self.sources.child_flow_runs.child_flow_run(
+            &ChildFlowRunQuery {
+                tenant_id: TenantId(self.record.tenant_id),
+                child_flow_id: &condition.child_flow_id,
+                start_request_id: &start_request_id,
+                parent: &parent,
+                should_read_start,
+            },
+            &|bytes| memory_budget.reserve(bytes),
+        )
     }
 
     /// Returns whether the parent's outbox still holds the unacknowledged start of the child.
-    fn is_child_start_pending(
-        &self,
-        condition: &RestoredSubFlowCondition,
-    ) -> Result<bool, ApplyError> {
-        let parent = self.parent_reference(condition);
-        let prefix = run_table_prefix(self.rows.flow_hash, self.rows.run_id, RunTable::Outbox);
-        let (start, end) = prefix_range(&prefix);
-        let records = self.transaction.scan_messages::<OutboxRecord>(
-            ColumnFamily::Flow,
-            &start,
-            &end,
-            usize::MAX,
-            "outbox",
-        )?;
-        Ok(records.iter().any(|(_, record)| {
-            record.acknowledged_at_micros == 0
-                && matches!(
-                    &record.payload,
-                    Some(outbox_record::Payload::ChildStart(start))
-                        if start.parent.as_ref() == Some(&parent)
-                )
-        }))
+    fn is_child_start_pending(&self, condition: &RestoredSubFlowCondition) -> bool {
+        self.pending_parents
+            .contains(&self.parent_reference(condition))
     }
 
     fn parent_reference(&self, condition: &RestoredSubFlowCondition) -> ParentFlowReference {

@@ -24,7 +24,7 @@ use super::TimeTravelResult;
 use super::child_flow_runs::ChildFlowRuns;
 use super::reapplied_input_values::unstored_input_values;
 use super::staging::{staged_chunks, staged_result_bytes};
-use super::sub_flow_reset_findings::child_flow_findings;
+use super::sub_flow_reset_findings::{ChildFlowSources, child_flow_findings};
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::flow_not_found_reply;
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
@@ -222,7 +222,10 @@ pub fn compute_time_travel(
         &record,
         request.reset,
         &result,
-        sources.child_flow_runs,
+        ChildFlowSources {
+            child_flow_runs: sources.child_flow_runs,
+            memory_budget: &memory_budget,
+        },
     )? {
         Ok(findings) => Some(findings),
         Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
