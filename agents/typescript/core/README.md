@@ -1436,6 +1436,13 @@ a file with `renderSessionFlowGraph` or the `dex-agents-session-graph` command
 and pass its directory to Dex Web with `--flow-rendering-dir`. See
 [Show sessions in Dex Web](https://docs.superdurable.io/reference/agents/dex-web).
 
+To let a hosting platform configure the Connector Triggers that deliver into
+the session, declare them in the graph: `--trigger-binding
+<connectionName>=<packageName>@<packageVersion>:<triggerName>:<bindingName>` or
+`--trigger-bindings <file.json>` on the command, or `resolveSessionTriggerBinding`
+and `connectorTriggerBindings` in code. See
+[Declare Connector Trigger bindings](https://docs.superdurable.io/reference/agents/dex-web#trigger-bindings).
+
 ## Spend limits
 
 `ModelSpendLimit` is an application's spend limit, usually per account or API key

@@ -11,14 +11,34 @@ import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 import { renderSessionFlowGraph } from "./agent-session-flow-graph.js";
+import {
+  parseSessionTriggerBindingFlag,
+  readSessionTriggerBindingsFile,
+  resolveSessionTriggerBinding,
+  type SessionConnectorTriggerBinding,
+} from "./agent-session-trigger-bindings.js";
 
-const usage = "usage: dex-agents-session-graph --flow-type TYPE --permission PERMISSION [--out FILE]\n";
+const usage =
+  "usage: dex-agents-session-graph --flow-type TYPE --permission PERMISSION [--out FILE]\n" +
+  "         [--trigger-binding CONNECTION=PACKAGE@VERSION:TRIGGER[#FACTORY]:BINDING ...] [--trigger-bindings FILE]\n";
 
 function main(): number {
-  let values: { "flow-type"?: string | undefined; permission?: string | undefined; out?: string | undefined };
+  let values: {
+    "flow-type"?: string | undefined;
+    permission?: string | undefined;
+    out?: string | undefined;
+    "trigger-binding"?: string[] | undefined;
+    "trigger-bindings"?: string | undefined;
+  };
   try {
     ({ values } = parseArgs({
-      options: { "flow-type": { type: "string" }, permission: { type: "string" }, out: { type: "string" } },
+      options: {
+        "flow-type": { type: "string" },
+        permission: { type: "string" },
+        out: { type: "string" },
+        "trigger-binding": { type: "string", multiple: true },
+        "trigger-bindings": { type: "string" },
+      },
     }));
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n${usage}`);
@@ -32,7 +52,15 @@ function main(): number {
   }
   let graph: string;
   try {
-    graph = renderSessionFlowGraph({ flowType, actionPermission });
+    const connectorTriggerBindings: SessionConnectorTriggerBinding[] = [];
+    for (const flag of values["trigger-binding"] ?? []) {
+      connectorTriggerBindings.push(resolveSessionTriggerBinding(parseSessionTriggerBindingFlag(flag)));
+    }
+    const bindingsFile = values["trigger-bindings"];
+    for (const spec of bindingsFile === undefined ? [] : readSessionTriggerBindingsFile(bindingsFile)) {
+      connectorTriggerBindings.push(resolveSessionTriggerBinding(spec));
+    }
+    graph = renderSessionFlowGraph({ flowType, actionPermission, connectorTriggerBindings });
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     return 2;

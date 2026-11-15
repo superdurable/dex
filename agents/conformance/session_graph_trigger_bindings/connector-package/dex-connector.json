@@ -1,0 +1,60 @@
+{
+  "connectorId": "messages",
+  "releaseTag": "connectors/messages/v2.3.4",
+  "package": {
+    "ecosystem": "npm",
+    "name": "@dex-test/messages",
+    "version": "2.3.4"
+  },
+  "factories": [
+    {
+      "name": "defineReplyCreatedTriggerBinding",
+      "kind": "trigger",
+      "triggerName": "replyCreated",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName",
+        "configurationUI": "configurationUI"
+      },
+      "configurationUI": {
+        "units": [
+          {
+            "id": "channel",
+            "unitId": "channelPicker",
+            "label": "Channel",
+            "required": true,
+            "bindings": [
+              {
+                "port": "channelId",
+                "jsonPointer": "/channelId"
+              }
+            ]
+          },
+          {
+            "id": "posters",
+            "unitId": "memberPicker",
+            "label": "Posters",
+            "description": "People whose replies reach the session.",
+            "required": false,
+            "bindings": [
+              {
+                "port": "memberIds",
+                "jsonPointer": "/threadReplyMatcher/posterUserIds"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "defineThreadCreatedTriggerBinding",
+      "kind": "trigger",
+      "triggerName": "threadCreated",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName",
+        "configurationUI": "configurationUI"
+      }
+    }
+  ]
+}

@@ -1,0 +1,351 @@
+{
+  "description": "Connector Trigger bindings of a session graph. Each core renders each case's entry as the binding, in case order, and the TypeScript Flow analyzer of dexcli derives the same entries from code that declares these bindings.",
+  "package_directory": "session_graph_trigger_bindings/connector-package",
+  "flow_type": "SupportAgent",
+  "action_permission": "support-agent.operate",
+  "cases": [
+    {
+      "flag": "workspace=@dex-test/messages@2.3.4:replyCreated:session-replies",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies"
+      },
+      "binding": {
+        "connectorId": "messages",
+        "triggerName": "replyCreated",
+        "connectionName": "workspace",
+        "bindingName": "session-replies",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/messages/v2.3.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dex-test/messages",
+          "version": "2.3.4"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": [
+            {
+              "id": "channel",
+              "unitId": "channelPicker",
+              "label": "Channel",
+              "required": true,
+              "bindings": [
+                {
+                  "port": "channelId",
+                  "jsonPointer": "/channelId"
+                }
+              ]
+            },
+            {
+              "id": "posters",
+              "unitId": "memberPicker",
+              "label": "Posters",
+              "description": "People whose replies reach the session.",
+              "required": false,
+              "bindings": [
+                {
+                  "port": "memberIds",
+                  "jsonPointer": "/threadReplyMatcher/posterUserIds"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "threadCreated",
+        "bindingName": "session-threads",
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "bindings": [
+                {
+                  "port": "text",
+                  "jsonPointer": "/threadTriggerMatcher/messageContains"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "binding": {
+        "connectorId": "messages",
+        "triggerName": "threadCreated",
+        "connectionName": "workspace",
+        "bindingName": "session-threads",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/messages/v2.3.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dex-test/messages",
+          "version": "2.3.4"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "required": false,
+              "bindings": [
+                {
+                  "port": "text",
+                  "jsonPointer": "/threadTriggerMatcher/messageContains"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "file_cases_description": "Each case writes its entry as the only item of a --trigger-bindings file, with packageDirectory set to the case's package_directory when the entry has none, then reads and resolves it. A case with binding must render that entry; a case with error must fail with a message that contains error. A case with flag must parse to the entry without packageDirectory.",
+  "file_cases": [
+    {
+      "name": "factories with different UI for one Trigger are ambiguous",
+      "package_directory": "session_graph_trigger_bindings/ambiguous-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/ambiguous-messages",
+        "packageVersion": "1.0.0",
+        "triggerName": "replyCreated",
+        "bindingName": "replies"
+      },
+      "error": "has several Trigger factories for replyCreated with different configurationUI: defineReplyCreatedTriggerBinding, defineAnyReplyCreatedTriggerBinding; name one with factoryName"
+    },
+    {
+      "name": "factoryName selects one of them",
+      "package_directory": "session_graph_trigger_bindings/ambiguous-package",
+      "flag": "workspace=@dex-test/ambiguous-messages@1.0.0:replyCreated#defineReplyCreatedTriggerBinding:replies",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/ambiguous-messages",
+        "packageVersion": "1.0.0",
+        "triggerName": "replyCreated",
+        "bindingName": "replies",
+        "factoryName": "defineReplyCreatedTriggerBinding"
+      },
+      "binding": {
+        "connectorId": "ambiguous-messages",
+        "triggerName": "replyCreated",
+        "connectionName": "workspace",
+        "bindingName": "replies",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/ambiguous-messages/v1.0.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dex-test/ambiguous-messages",
+          "version": "1.0.0"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": [
+            {
+              "id": "channel",
+              "unitId": "channelPicker",
+              "label": "Channel",
+              "required": true,
+              "bindings": [
+                {
+                  "port": "channelId",
+                  "jsonPointer": "/channelId"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "factories with the same UI collapse",
+      "package_directory": "session_graph_trigger_bindings/ambiguous-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/ambiguous-messages",
+        "packageVersion": "1.0.0",
+        "triggerName": "threadCreated",
+        "bindingName": "threads"
+      },
+      "binding": {
+        "connectorId": "ambiguous-messages",
+        "triggerName": "threadCreated",
+        "connectionName": "workspace",
+        "bindingName": "threads",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/ambiguous-messages/v1.0.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dex-test/ambiguous-messages",
+          "version": "1.0.0"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": []
+        }
+      }
+    },
+    {
+      "name": "factoryName of another Trigger",
+      "package_directory": "session_graph_trigger_bindings/ambiguous-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/ambiguous-messages",
+        "packageVersion": "1.0.0",
+        "triggerName": "threadCreated",
+        "bindingName": "threads",
+        "factoryName": "defineReplyCreatedTriggerBinding"
+      },
+      "error": "has no Trigger factory defineReplyCreatedTriggerBinding for Trigger threadCreated; its factories: defineThreadCreatedTriggerBinding, defineThreadCreatedTriggerBindingAlias"
+    },
+    {
+      "name": "null configurationUI",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "configurationUI": null
+      },
+      "error": "entry 0 field configurationUI must not be null"
+    },
+    {
+      "name": "null factoryName",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "factoryName": null
+      },
+      "error": "entry 0 field factoryName must not be null"
+    },
+    {
+      "name": "null packageDirectory",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "packageDirectory": null
+      },
+      "error": "entry 0 field packageDirectory must not be null"
+    },
+    {
+      "name": "null unit required",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "required": null
+            }
+          ]
+        }
+      },
+      "error": "configurationUI unit keyword required must be a boolean"
+    },
+    {
+      "name": "null unit bindings",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "bindings": null
+            }
+          ]
+        }
+      },
+      "error": "configurationUI unit keyword bindings must be an array of at most 256 items"
+    },
+    {
+      "name": "null unit description",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "description": null
+            }
+          ]
+        }
+      },
+      "error": "configurationUI unit keyword description must be a string"
+    },
+    {
+      "name": "null binding jsonPointer",
+      "package_directory": "session_graph_trigger_bindings/connector-package",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies",
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "bindings": [
+                {
+                  "port": "text",
+                  "jsonPointer": null
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "error": "configurationUI unit keyword binding text has invalid JSON pointer null"
+    }
+  ],
+  "rendered_sha256": "80ebe728e05c37ab597d3120718ddd4bee2435bc73f0399ff476cdc494b5f213"
+}

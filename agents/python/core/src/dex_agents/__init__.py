@@ -210,6 +210,10 @@ from dex_agents.session_summary import (
     list_agent_sessions,
     sort_agent_sessions_by_last_activity,
 )
+from dex_agents.session_trigger_bindings import (
+    SessionTriggerBindingSpec,
+    resolve_session_trigger_binding,
+)
 from dex_agents.spend_limit import (
     MODEL_CALL_REFUSED_ERROR_PREFIX,
     SPEND_LIMIT_CALL_TIMEOUT,
@@ -436,6 +440,7 @@ __all__ = [
     "SessionTerminalLease",
     "SessionTerminalLeaseResult",
     "SessionTitleSearchUnavailableError",
+    "SessionTriggerBindingSpec",
     "SteerUserMessageRequest",
     "ToolCallCancellation",
     "ToolCallCancellationReason",
@@ -495,6 +500,7 @@ __all__ = [
     "render_session_flow_graph",
     "require_short_image_uris",
     "require_store_image_reference",
+    "resolve_session_trigger_binding",
     "resolve_tool_policy",
     "select_turn_boundary_cutoff",
     "session_flow_definition_document",
