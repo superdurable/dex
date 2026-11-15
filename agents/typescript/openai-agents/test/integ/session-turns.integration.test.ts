@@ -482,11 +482,14 @@ describe("OpenAI Agents SDK sessions in Step mode with an in-process Worker", ()
       "[Dex] The previous turn failed after these tool calls ran:\n" +
       `- send_email {"to":"ana@example.com"} -> succeeded: email sent for ${sessionId}/turn-1/call_1_send_email\n` +
       "Do not repeat these tool calls unless the user asks again.";
+    // The turn's items come first, so the next model sees the call with its result, then the note.
     assert.deepEqual(snapshot.messages.map(describeMessage), [
       "1 turn-1 user call send_email then fail",
-      `2 turn-1 user ${noteText}`,
+      "2 turn-1 assistant function_call send_email",
+      `3 turn-1 tool function_call_result send_email email sent for ${sessionId}/turn-1/call_1_send_email`,
+      `4 turn-1 user ${noteText}`,
     ]);
-    assert.deepEqual(JSON.parse(snapshot.messages[1]?.frameworkItem ?? "null"), {
+    assert.deepEqual(JSON.parse(snapshot.messages[3]?.frameworkItem ?? "null"), {
       type: "message",
       role: "user",
       content: noteText,

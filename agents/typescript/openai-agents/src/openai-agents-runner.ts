@@ -80,6 +80,7 @@ import {
   runningDeferredToolExecutionScope,
   runningModelStepScope,
 } from "./openai-agents-tool-scopes.js";
+import { readUnfinishedTurnItems } from "./openai-agents-unfinished-turns.js";
 
 type AnyAgent = Agent<any, any>;
 type AnyRunState = RunState<any, AnyAgent>;
@@ -232,6 +233,29 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
       usage,
       ...modelCallMetadata,
     };
+  }
+
+  /**
+   * Returns the items of a steered, cancelled, or failed turn, which the runner keeps in the `RunState` until the
+   * turn completes. They are the SDK's items of the turn so far, as a completed turn stores them, and a
+   * `function_call_result` for every call of the last model response without one. That result is what the resumed
+   * run would give the model from the call's final record: its output, failure, or rejection text, such as the
+   * core's steering result. A call without a final record gets `outcomeUnknownToolResult`. The next turn's model
+   * input then holds every call with its result, and no note.
+   * @param turn - The ended turn, with every record final.
+   * @returns The turn's items not stored yet, in order; none when the turn has no run state.
+   * @throws {Error} When the `RunState` cannot be read or holds a call that cannot be answered, such as one before
+   * the last model response; the session then stores its note instead.
+   * @since 0.6.12
+   */
+  public buildUnfinishedTurnMessages(turn: AgentTurnContext): readonly FrameworkMessage[] {
+    const showsToolImages = this.settings.mediaStore !== undefined;
+    const items = readUnfinishedTurnItems(turn, (functionCall) => {
+      const toolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
+      const hasOutputSchema = this.agentGraph.functionTools.get(toolName)?.originalTool.outputSchema !== undefined;
+      return { hasOutputSchema, showsToolImages };
+    });
+    return items.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
   }
 
   /**

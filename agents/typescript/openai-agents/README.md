@@ -164,6 +164,16 @@ session Flow with an OpenAI Agents SDK runner. A turn with one read tool runs
   `conversationId`, or `previousResponseId`. The turn failure note that
   `RecordTurnFailure` appends is an ordinary user message item and replays on
   the next turn.
+- **Unfinished turns.** A turn's items stay in the `RunState` until the turn
+  completes. When `steer_user_message`, `cancel_turn`, or a failure ends the
+  turn first, `buildUnfinishedTurnMessages` stores the turn's items from the
+  `RunState`, as a completed turn stores them. It adds a
+  `function_call_result` for every call of the last model response that has
+  none: the result the resumed run would give the model from the call's final
+  record, such as the core's steering result, or `outcomeUnknownToolResult`
+  for a call without one. The next turn sees every call with its result, and
+  a steered or cancelled turn stores no note. When the `RunState` cannot be
+  read, the session logs a warning and stores its note instead.
 - **Tool names.** Policies, records, and events name a function tool by its
   qualified name: `<namespace>.<name>` for a tool inside `toolNamespace`, and
   the tool name otherwise. A tool call is accepted only from an agent that owns
@@ -336,8 +346,10 @@ and cover:
   recorded as `outcome_unknown` and a read that fails after three attempts;
 - a read tool with its own `needsApproval`, a namespaced tool, a handoff whose
   `RunModel` makes two model calls, and reasoning summary events;
-- a model call that fails after a write, whose turn failure note replays on
-  the next turn, and a later call that reuses a finished call ID;
+- a model call that fails after a write, whose items and turn failure note
+  replay on the next turn, and a later call that reuses a finished call ID;
+- steering while a write waits for approval, and cancelling a resumed model
+  call, which store the turn's items with a result for every call;
 - SIGKILL during `RunModel`, which reruns only that model call, before and
   after streamed output, counted in the model's call log;
 - SIGKILL during `CallSingleAttemptTool`, which records `outcome_unknown`;
