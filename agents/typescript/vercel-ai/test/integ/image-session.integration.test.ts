@@ -121,10 +121,13 @@ describe("Vercel AI SDK sessions show images with an in-process Worker", () => {
     assert.equal(await imageSessions.sendUserMessage(sessionId, command, false, [userImage]), true);
 
     const interrupt = await imageSessions.waitForPendingInterrupt(sessionId, "send_email");
-    const [runState] = await environment.client.getAttributes(sessionId, imageSessions.flow.frameworkRunState);
-    assert.ok(runState?.includes(`[image ${screenshot.uri}]`));
-    assertNoImageBytes(runState ?? "");
     const pendingSnapshot = await imageSessions.getAgentSnapshot(sessionId);
+    // The turn so far is stored while send_email waits, with the screenshot as a reference.
+    const storedSoFar = JSON.stringify(pendingSnapshot.messages.map((message) => message.frameworkItem));
+    assert.ok(storedSoFar.includes(`[image ${screenshot.uri}]`));
+    assertNoImageBytes(storedSoFar);
+    const [runState] = await environment.client.getAttributes(sessionId, imageSessions.flow.frameworkRunState);
+    assertNoImageBytes(runState ?? "");
     assert.deepEqual(
       pendingSnapshot.toolCalls.find((record) => record.toolName === "take_screenshot")?.images,
       [screenshot] satisfies AgentImageReference[],
@@ -145,7 +148,7 @@ describe("Vercel AI SDK sessions show images with an in-process Worker", () => {
     for (const recorded of prompts) {
       assert.deepEqual(findUserContent(promptMessages(recorded), command), expectedUserContent);
     }
-    // The last two model calls replay the screenshot: once from the run state, once from stored history.
+    // The last two model calls replay the screenshot from stored history.
     for (const recorded of prompts.slice(2)) {
       assert.deepEqual(findToolResultOutput(promptMessages(recorded), "take_screenshot"), expectedScreenshotOutput);
     }

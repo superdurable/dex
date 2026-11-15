@@ -242,10 +242,17 @@ merges a model response into the latest assistant message, so the runner makes
 `createdAt` strictly increasing in sequence order before every model call. A
 Worker whose clock runs ahead therefore cannot reorder a conversation.
 
-When a turn fails after some of its tool calls finished, the Mastra messages of
-its model calls are lost with the run state. The session then stores
-the core's turn-failure note, built with `buildUserMessage`, as the failed
-turn's last message. It is an ordinary Mastra user message, so the next turn's
+The turn's Mastra messages stay in the run state until the turn ends. When the
+user steers or cancels a turn, or the turn fails, the runner's
+`buildUnfinishedTurnMessages` returns them with a result for each tool
+invocation still in state `call`, from the call's final record, as the next
+model call would have received it. A steered call that never ran gets the
+core's steering or cancellation result, and a call without a final record gets
+the core's unknown-outcome text. Each such invocation is stored in state
+`result`, as Mastra stores an answered call, so the next turn replays a
+complete conversation. A steered or cancelled turn stores no note. A failed
+turn also stores the core's turn-failure note, built with `buildUserMessage`,
+as its last message. It is an ordinary Mastra user message, so the next turn's
 model reads which tools already ran and does not repeat a write.
 
 ## Images
@@ -495,7 +502,10 @@ cover:
 - rejection, duplicate `resolve_interrupt`, the idempotency key, an approval
   deadline, and an approval that survives a Worker restart;
 - `ToolExecutionError`, exhausted `CallTool` retries, and the turn-failure note
-  that the next turn's model reads;
+  after the stored write result, which the next turn's model reads;
+- a turn steered at an approval or cancelled during a model call, which stores
+  each call's result and no note, and the same messages for the same committed
+  state;
 - SIGKILL during `CallSingleAttemptTool`, which records `outcome_unknown`, and
   SIGKILL during `RunModel`, which reruns only that model call, before and after
   streamed output;

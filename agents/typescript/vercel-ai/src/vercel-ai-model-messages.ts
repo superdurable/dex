@@ -13,6 +13,7 @@ import type { ModelMessage, TextPart, Tool, ToolCallPart, ToolResultPart } from 
 import {
   defaultRejectionToolResult,
   describeToolCallOutcome,
+  outcomeUnknownToolResult,
   type AgentImageReference,
   type AgentMessage,
   type AgentToolCall,
@@ -20,6 +21,27 @@ import {
 } from "@superdurable/dex-agents";
 
 import { buildImagePlaceholderPart, listDisplayImages, readImagePlaceholder } from "./vercel-ai-model-images.js";
+
+/**
+ * Model-visible result of a succeeded tool call whose output a turn that ended early cannot show.
+ *
+ * `buildUnfinishedTurnMessages` stores it as the `text` result of a succeeded call of a tool with `toModelOutput`
+ * when the turn is steered, cancelled, or failed before a model call read that result. The converted result exists
+ * only inside a model call, and the raw output may hold what `toModelOutput` keeps from the model, so neither is
+ * stored. The text holds no tool output. It tells the model that the call took effect, so the model does not
+ * repeat a write. A call without a succeeded final record gets the core's `outcomeUnknownToolResult` instead.
+ *
+ * @example
+ * ```ts
+ * import { toolCallOutputOmittedResult } from "@superdurable/dex-agents-vercel-ai";
+ *
+ * const isOmitted = message.role === "tool" && message.toolOutput === toolCallOutputOmittedResult;
+ * ```
+ * @since 0.6.12
+ */
+export const toolCallOutputOmittedResult =
+  "The tool call succeeded. Its output is omitted because the turn ended before the application processed it. " +
+  "Do not repeat the call.";
 
 /** Tool result output in an AI SDK `ToolResultPart`. */
 export type ToolResultOutput = ToolResultPart["output"];
@@ -196,16 +218,24 @@ async function createRecordedToolResultOutput(
   record: AgentToolCall,
   tool: Tool | undefined,
 ): Promise<ToolResultOutput> {
+  if (record.status === "succeeded" && tool?.toModelOutput !== undefined) {
+    return await tool.toModelOutput({
+      toolCallId: record.toolCallId,
+      input: parseRecordedJson(record.arguments),
+      output: parseRecordedJson(record.output ?? "null"),
+    });
+  }
+  return createPlainRecordedToolResultOutput(record);
+}
+
+/**
+ * Builds the model's tool result for a final record without the tool's `toModelOutput`: the output as text or
+ * JSON, a rejection as `execution-denied`, and a failure or unknown outcome as `error-text`.
+ */
+export function createPlainRecordedToolResultOutput(record: AgentToolCall): ToolResultOutput {
   switch (record.status) {
     case "succeeded": {
       const output = parseRecordedJson(record.output ?? "null");
-      if (tool?.toModelOutput !== undefined) {
-        return await tool.toModelOutput({
-          toolCallId: record.toolCallId,
-          input: parseRecordedJson(record.arguments),
-          output,
-        });
-      }
       return typeof output === "string"
         ? { type: "text", value: output }
         : { type: "json", value: output as ToolResultJsonValue };
@@ -260,15 +290,22 @@ export function describeToolResultOutput(output: ToolResultOutput): string | nul
   }
 }
 
-/** Adds recorded results to the response's tool message in tool call order, as one AI SDK step does. */
+/**
+ * Adds recorded results to the response's tool message in tool call order, as one AI SDK step does.
+ * @param turnMessages - The turn's messages that are not stored yet; only their trailing tool message takes results.
+ * @param toolResultParts - The results to add.
+ * @param storedTurnMessages - The turn's stored messages before them, whose last one may hold the calls.
+ * @returns `turnMessages` with the results in their trailing tool message, or in a new one after them.
+ */
 export function appendToolResultParts(
   turnMessages: readonly ModelMessage[],
   toolResultParts: readonly ToolResultPart[],
+  storedTurnMessages: readonly ModelMessage[] = [],
 ): ModelMessage[] {
   const lastMessage = turnMessages.at(-1);
   const hasTrailingToolMessage = lastMessage?.role === "tool";
   const precedingMessages = hasTrailingToolMessage ? turnMessages.slice(0, -1) : [...turnMessages];
-  const toolCallOrder = readToolCallOrder(precedingMessages.at(-1));
+  const toolCallOrder = readToolCallOrder([...storedTurnMessages, ...precedingMessages].at(-1));
   const content = [...(hasTrailingToolMessage ? lastMessage.content : []), ...toolResultParts];
   const orderOf = (part: (typeof content)[number]): number =>
     part.type === "tool-result" ? (toolCallOrder.get(part.toolCallId) ?? toolCallOrder.size) : toolCallOrder.size;
@@ -277,6 +314,64 @@ export function appendToolResultParts(
     .sort((left, right) => orderOf(left.part) - orderOf(right.part) || left.index - right.index)
     .map(({ part }) => part);
   return [...precedingMessages, { ...(hasTrailingToolMessage ? lastMessage : {}), role: "tool", content: sortedContent }];
+}
+
+/** Returns the calls that the model asked Dex to run and that no tool message in `messages` answers, in order. */
+export function listUnansweredToolCalls(messages: readonly ModelMessage[]): ToolCallPart[] {
+  const answeredToolCallIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "tool"
+        ? message.content.flatMap((part) => (part.type === "tool-result" ? [part.toolCallId] : []))
+        : [],
+    ),
+  );
+  return messages.flatMap((message) =>
+    listDeferredToolCalls(message).filter((toolCall) => !answeredToolCallIds.has(toolCall.toolCallId)),
+  );
+}
+
+/**
+ * Gives every call without a result in the next message the unknown-outcome result, for the model input only.
+ * A Worker without `buildUnfinishedTurnMessages` leaves such calls when it ends a turn after a deferral.
+ * @returns `messages` unchanged when every call has a result.
+ */
+export function addMissingToolResults(messages: readonly ModelMessage[]): ModelMessage[] {
+  const pairedMessages: ModelMessage[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index] as ModelMessage;
+    pairedMessages.push(message);
+    const nextMessage = messages[index + 1];
+    const followingToolMessage = nextMessage?.role === "tool" ? nextMessage : undefined;
+    const missingResults = listUnansweredToolCalls(
+      followingToolMessage === undefined ? [message] : [message, followingToolMessage],
+    ).map(
+      (toolCall): ToolResultPart => ({
+        type: "tool-result",
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        output: { type: "error-text", value: outcomeUnknownToolResult },
+      }),
+    );
+    if (missingResults.length === 0) {
+      continue;
+    }
+    if (followingToolMessage === undefined) {
+      pairedMessages.push({ role: "tool", content: missingResults });
+      continue;
+    }
+    pairedMessages.push(...appendToolResultParts([followingToolMessage], missingResults, [message]));
+    index += 1;
+  }
+  return pairedMessages;
+}
+
+function listDeferredToolCalls(message: ModelMessage): ToolCallPart[] {
+  if (message.role !== "assistant" || typeof message.content === "string") {
+    return [];
+  }
+  return message.content.filter(
+    (part): part is ToolCallPart => part.type === "tool-call" && part.providerExecuted !== true,
+  );
 }
 
 function readToolCallOrder(message: ModelMessage | undefined): Map<string, number> {

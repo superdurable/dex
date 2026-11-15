@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import { jsonSchema, tool, type StopCondition, type ToolSet } from "ai";
@@ -29,6 +30,9 @@ export const scriptedVercelAiAgentFlowType = "ScriptedVercelAiAgent";
 export const scriptedAgentMarkerDirectoryVariable = "SCRIPTED_AGENT_MARKER_DIRECTORY";
 /** Environment variable naming the root of the Worker's `LocalDirectoryMediaStore`; unset means no store. */
 export const scriptedAgentMediaDirectoryVariable = "SCRIPTED_AGENT_MEDIA_DIRECTORY";
+
+/** Value of the `read_profile` output field that its `toModelOutput` keeps from the model. */
+export const scriptedPrivateFieldValue = "SHOULD_NOT_BE_MODEL_INPUT";
 
 /** Options of {@link createScriptedVercelAiAgentFlow}. */
 export interface ScriptedVercelAiAgentFlowOptions {
@@ -94,6 +98,22 @@ export function createScriptedVercelAiAgentFlow(
             return { forecast: "sunny", city: "Paris" };
           },
           toModelOutput: ({ output }) => ({ type: "text", value: `${output.forecast} in ${output.city}` }),
+        }),
+        read_profile: tool({
+          description: "Read a profile whose private field the model must not see",
+          inputSchema: scriptedToolInputSchema,
+          execute: async (_input, options) => {
+            recordToolRun("read_profile", options.toolCallId);
+            return { summary: "visible", privateField: scriptedPrivateFieldValue };
+          },
+          // Asynchronous and impure, so only a converted result that Dex kept stays the same.
+          toModelOutput: async ({ toolCallId, output }) => {
+            new InvocationLog(join(markerDirectory, "read_profile-model-output.log")).record(
+              `${getAgentToolExecutionScope()?.flowId} ${toolCallId}`,
+            );
+            await Promise.resolve();
+            return { type: "text", value: `${output.summary} ${randomUUID()}` };
+          },
         }),
         lookup_a: tool({
           description: "Look up record A",
@@ -185,6 +205,7 @@ export function createScriptedVercelAiAgentFlow(
       },
       toolPolicies: {
         get_weather: { effect: "read" },
+        read_profile: { effect: "read" },
         lookup_a: { effect: "read" },
         lookup_b: { effect: "read" },
         count_records: { effect: "read" },
