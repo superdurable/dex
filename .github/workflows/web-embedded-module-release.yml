@@ -3,8 +3,13 @@ name: Publish embedded Dex Web Go module
 # Publishes github.com/superdurable/dex/web/embedded from a web/vX.Y.Z release. The module tag
 # web/embedded/vX.Y.Z points to a release commit off main that adds the built SPA and a go.mod
 # without replace directives; main never contains that commit.
+#
+# It runs once for each published stable web/v* release. Release changed components calls it
+# instead: releases created with GITHUB_TOKEN start no release-event runs, so nothing publishes twice.
 
 on:
+  release:
+    types: [published]
   workflow_call:
     inputs:
       version:
@@ -34,7 +39,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Tests are optional; run_tests=true runs the Dex Web suite on this commit before publishing.
@@ -47,42 +52,85 @@ jobs:
 
   publish:
     needs: tests
+    # A release event publishes only for a stable web/v* release; other components' releases skip.
     if: >-
-      !cancelled() && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+      !cancelled() && (needs.tests.result == 'success' || needs.tests.result == 'skipped') && (
+      github.event_name != 'release' || (
+      startsWith(github.event.release.tag_name, 'web/v') && !github.event.release.prerelease))
     runs-on: ubuntu-latest
-    env:
-      WEB_VERSION: ${{ inputs.version }}
+    permissions:
+      contents: write
     steps:
-      - name: Validate version
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [[ ! "${WEB_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid Dex Web version: ${WEB_VERSION}" >&2
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            web_version="${RELEASE_TAG#web/v}"
+          else
+            web_version="${INPUT_VERSION}"
+          fi
+          if [[ ! "${web_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid Dex Web version: ${web_version}" >&2
             exit 1
           fi
+          echo "web_version=${web_version}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@v7
         with:
-          ref: web/v${{ inputs.version }}
+          ref: web/v${{ steps.version.outputs.web_version }}
           fetch-depth: 0
+      # A rerun, or a manual dispatch after an automatic run, finds the tag and publishes nothing.
+      - name: Skip when the module tag exists
+        id: existing
+        env:
+          WEB_VERSION: ${{ steps.version.outputs.web_version }}
+        run: |
+          module_tag="web/embedded/v${WEB_VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${module_tag}" >/dev/null; then
+            echo "${module_tag} already exists; nothing to publish" | tee -a "${GITHUB_STEP_SUMMARY}"
+            echo "is_published=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "is_published=false" >> "${GITHUB_OUTPUT}"
+          fi
       - uses: actions/setup-node@v6
+        if: steps.existing.outputs.is_published == 'false'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v7
+        if: steps.existing.outputs.is_published == 'false'
         with:
           go-version-file: web/go.mod
       - name: Build Dex Web assets
+        if: steps.existing.outputs.is_published == 'false'
         working-directory: web
         run: npm ci && npm run build
+      # Fails while web needs sdk-go code that no sdk-go/v* tag contains; release sdk-go first.
       - name: Check a host module builds against the package
-        run: python3 script/release/check_embedded_web_module.py
-      - name: Create the module release commit and tag
+        if: steps.existing.outputs.is_published == 'false'
         run: |
-          module_tag="web/embedded/v${WEB_VERSION}"
-          if git rev-parse --verify --quiet "refs/tags/${module_tag}" >/dev/null; then
-            echo "${module_tag} already exists" >&2
+          errors="$(mktemp)"
+          if ! python3 script/release/check_embedded_web_module.py 2> "${errors}"; then
+            cat "${errors}" >&2
+            {
+              echo "### Embedded Dex Web module not published"
+              echo
+              echo '```text'
+              cat "${errors}"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "::error title=Embedded Dex Web module not published::$(head -n 1 "${errors}")"
             exit 1
           fi
+      - name: Create the module release commit and tag
+        if: steps.existing.outputs.is_published == 'false'
+        env:
+          WEB_VERSION: ${{ steps.version.outputs.web_version }}
+        run: |
+          module_tag="web/embedded/v${WEB_VERSION}"
           module_directory="$(mktemp -d)/module"
           python3 script/release/package_embedded_web_module.py --output "${module_directory}"
           rm -rf web/embedded
@@ -94,5 +142,7 @@ jobs:
           git tag "${module_tag}"
           echo "Created ${module_tag} at $(git rev-parse HEAD)" >> "${GITHUB_STEP_SUMMARY}"
       - name: Push the module tag
-        if: ${{ !inputs.dry_run }}
+        if: steps.existing.outputs.is_published == 'false' && !inputs.dry_run
+        env:
+          WEB_VERSION: ${{ steps.version.outputs.web_version }}
         run: git push origin "refs/tags/web/embedded/v${WEB_VERSION}"

@@ -23,6 +23,7 @@ from component_changelogs import PACKAGES_STYLE, TARGETS, release_key, released_
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
 WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
+WEB_EMBEDDED_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/web-embedded-module-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
 RELEASE_NOTES_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-notes.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
@@ -337,6 +338,46 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn("startsWith(github.event.release.tag_name, 'web/v')", workflow)
         self.assertIn('image_tag="${RELEASE_TAG#web/}"', workflow)
         self.assertNotIn("server/v", workflow)
+
+    def test_embedded_web_module_publishes_for_each_stable_web_release(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(workflow_trigger_events(workflow), ["release", "workflow_call", "workflow_dispatch"])
+        self.assertIn("types: [published]", workflow)
+        self.assertIn("startsWith(github.event.release.tag_name, 'web/v')", workflow)
+        self.assertIn("!github.event.release.prerelease", workflow)
+        self.assertIn("RELEASE_TAG: ${{ github.event.release.tag_name }}", workflow)
+        self.assertIn('web_version="${RELEASE_TAG#web/v}"', workflow)
+        self.assertIn("ref: web/v${{ steps.version.outputs.web_version }}", workflow)
+        self.assertIn("\npermissions:\n  contents: read\n", workflow)
+        self.assertIn('git push origin "refs/tags/web/embedded/v${WEB_VERSION}"', workflow)
+        self.assertNotIn("run: git push origin \"refs/tags/web/embedded/v${{", workflow)
+
+    def test_embedded_web_module_skips_an_existing_tag(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('git ls-remote --exit-code --tags origin "refs/tags/${module_tag}"', workflow)
+        self.assertIn("is_published=true", workflow)
+        for step in ("Build Dex Web assets", "Check a host module builds", "Create the module release commit"):
+            step_text = workflow.split(f"- name: {step}", 1)[1].split("\n      - ", 1)[0]
+            self.assertIn("if: steps.existing.outputs.is_published == 'false'", step_text, step)
+        self.assertIn("if: steps.existing.outputs.is_published == 'false' && !inputs.dry_run", workflow)
+
+    def test_embedded_web_module_fails_loudly_while_sdk_go_is_unreleased(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        check_step = workflow.split("- name: Check a host module builds against the package", 1)[1]
+        check_step = check_step.split("\n      - ", 1)[0]
+        self.assertIn("python3 script/release/check_embedded_web_module.py", check_step)
+        self.assertNotIn("--skip-if-sdk-go-unreleased", check_step)
+        self.assertIn("::error title=Embedded Dex Web module not published::", check_step)
+        self.assertIn("exit 1", check_step)
+
+    def test_coordinated_release_publishes_the_embedded_web_module_once(self) -> None:
+        # Releases created with GITHUB_TOKEN start no release-event runs, so only the call publishes.
+        coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/workflows/web-embedded-module-release.yml", coordinated_workflow)
+        create_releases = coordinated_workflow.split("\n  create-releases:\n", 1)[1].split("\n  snapshot-references:\n", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", create_releases)
+        self.assertIn('gh release create "${tag}"', create_releases)
+        self.assertNotIn("secrets.", create_releases)
 
     def test_release_workflows_build_notes_from_component_changelogs(self) -> None:
         coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
