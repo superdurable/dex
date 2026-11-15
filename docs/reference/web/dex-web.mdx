@@ -602,6 +602,29 @@ A queued tool call does not disable the controls. A Step waits for a Worker when
 
 When **resolve_interrupt** or **answer_question** returns false, another operator or a deadline answered the call first. The card says **Already handled** and the tab reloads from committed state. An RPC that cannot take its locks commits nothing, so Dex Web retries it after 200, 500, and 1000 ms. If it still conflicts, the card says "The session is busy. Try again." and keeps its controls.
 
+### Fork a session {#agent-session-fork}
+
+Since 1.45.8. The **Conversation** tab forks a session into a new session. The new session starts from a copy of the conversation and goes on by itself. The source session does not change. Dex Web forks only between turns, so the copy never holds a turn in progress.
+
+- **Fork session**, beside **Reload**, copies the session as it is now. It appears while the session is open, waits for a message, and has no turn running or waiting for an approval or answer.
+- **Fork from this message**, under an agent message, copies the session right after the turn that this message ended. It appears on the last message of each ended turn whose history event is in the loaded Flow history. A message in the middle of a turn, such as one followed by tool calls, offers no fork.
+
+The dialog has two fields:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| **New session ID** | The source's harness name, the UTC time, and 6 random hex characters, such as **builtin-20261115-090807-a1b2c3**, the format the Agents CLI uses. A source ID in another format is the prefix instead of the harness name. | Required. It must differ from the source session ID. |
+| **Reason** | **Fork session SOURCE_ID**, plus **after event N** for a message fork | Required. Recorded with the new session's start. |
+
+**Fork** calls **POST /api/flows/clone-fork** with:
+
+- the point: **Current state**, or **Event ID** set to the history event that ended the turn;
+- **taskQueue**, the new session's own task queue: **s-** and the first 20 lowercase hex characters of the SHA-256 of the new session ID in UTF-8, the rule in [Sessions in other environments](/reference/agents/cli#other-environments). The dialog shows it under the ID;
+- **deleteAttributeKeys** with **SessionTerminalLease** and **SessionLastTerminalEnvironment**, so no terminal has the new session open and it was never open anywhere, as for a new session;
+- **idReusePolicy** 3, so a session ID that already has a run is refused.
+
+On success, Dex Web opens the new session's **Conversation** tab. The new session runs once an Agents CLI command opens it, such as **dex-agents-builtin --resume NEW_ID**. The task queue keeps the source session's Workers from running it. The browser computes the task queue with Web Crypto, which needs HTTPS or localhost; elsewhere, the dialog shows an error and does not fork.
+
 ### Compatibility {#agent-session-compatibility}
 
 Dex Web shows the **Conversation** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps, and the others must not be. Changed in 1.43.0: the graph's Start Step must also be **StartAgentSession**, the same rule that the session routes apply. The [session graph](/reference/agents/dex-web) that Dex Agents renders declares them.
@@ -744,6 +767,8 @@ A run that Dex Web identifies as an agent session through its loaded Flow Defini
 Graph offers no **Clone fork**. Dex Web also hides the action until it loads a
 definition that identifies the Flow as another type. A session's clone fork needs
 its own task queue and session state, which a generic clone fork does not set.
+Since 1.45.8, the **Conversation** tab forks a session with both; see
+[Fork a session](#agent-session-fork).
 
 **POST /api/flows/clone-fork** takes **sourceFlowId**, **sourceRunId**,
 **flowId**, **reason**, an optional **requestId**, and the point fields
@@ -751,7 +776,10 @@ its own task queue and session state, which a generic clone fork does not set.
 **stepMethod**, **eventId**, and **runAttempt**. **pointType** is a
 **FlowCloneForkPointType** number; its numbers differ from **timeTravelType**.
 **idReusePolicy** and **subFlowResetPolicy** take the FlowService enum numbers.
-**taskQueue** sets the new run's task queue; empty keeps the source's. Without
+**taskQueue** sets the new run's task queue; empty keeps the source's. Since
+1.45.8, **deleteAttributeKeys** lists Attribute keys that the new run deletes
+after the copy, in the same change that creates it; an empty key returns HTTP
+400. Without
 **requestId**, Dex Web makes one for each call. A call whose **requestId**
 started the latest run of **flowId** returns that run. It answers with **flowId**,
 **runId**, **sourceRunId**, **sourceRunAttempt**, and **sourceEventId**. A

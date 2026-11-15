@@ -16,6 +16,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -74,6 +75,13 @@ func cloneForkFlowRequestOf(body cloneForkFlowRequest, requestID string) *dexpb.
 			WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: body.TaskQueue},
 		}
 	}
+	var attributeDeletions []*dexpb.AttributeWrite
+	for _, key := range body.DeleteAttributeKeys {
+		attributeDeletions = append(attributeDeletions, &dexpb.AttributeWrite{
+			Key:   key,
+			Value: &dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}},
+		})
+	}
 	return &dexpb.CloneForkFlowRequest{
 		SourceFlowId:       body.SourceFlowID,
 		SourceRunId:        body.SourceRunID,
@@ -81,6 +89,7 @@ func cloneForkFlowRequestOf(body cloneForkFlowRequest, requestID string) *dexpb.
 		RequestId:          requestID,
 		IdReusePolicy:      dexpb.IdReusePolicy(body.IDReusePolicy),
 		FlowConfigOverride: flowConfigOverride,
+		Attributes:         attributeDeletions,
 		Reason:             body.Reason,
 		PointType:          dexpb.FlowCloneForkPointType(body.PointType),
 		HistoryEventTime:   body.HistoryEventTime,

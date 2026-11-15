@@ -173,6 +173,31 @@ describe('readSession', () => {
     expect(call).toMatchObject({ source: 'history', state: 'rejected', effect: 'idempotent_write', rejectionMessage: 'wait' });
   });
 
+  it('marks only the message whose Step moved the session to AwaitUserMessage as a turn end', () => {
+    const written = (eventId: number, sequences: number[], nextStepType: string): FlowHistoryEvent => ({
+      eventId, eventTime: null, type: 'StepExecuteCompleted',
+      payload: {
+        context: { stepExecutionId: `RunModel-${eventId}` },
+        output: {
+          upsertAttributes: sequences.map((sequence) => ({ key: `AgentMessages/${String(sequence).padStart(12, '0')}`, value: {} })),
+          stepDecision: { nextSteps: [{ stepType: nextStepType }] },
+        },
+      },
+    });
+    const view = readSession({
+      attributes: [
+        state({ status: 'waiting_for_user_message', active_turn_id: null }),
+        message(1, 'user', { text: 'hi' }),
+        message(2, 'assistant', { text: 'checking' }),
+        message(3, 'assistant', { text: 'done' }),
+      ],
+      activeSteps: [],
+      events: [written(10, [2], 'CallTool'), written(14, [3], 'AwaitUserMessage')],
+    });
+    const turnEnds = view.items.map((item) => (item.kind === 'message' ? item.turnEndEventId : 'not a message'));
+    expect(turnEnds).toEqual([undefined, undefined, 14]);
+  });
+
   it('falls back to message text for a call outside the history window and says so', () => {
     const view = readSession({
       attributes: [

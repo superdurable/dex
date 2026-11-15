@@ -416,6 +416,22 @@ button.ses-status:hover {
   cursor: pointer;
 }
 
+.ses-fork {
+  margin-left: 0;
+}
+
+.ses-fork-after {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--as-ink-3);
+  font-size: 12px;
+}
+
+.ses-fork-after:hover {
+  color: var(--as-accent);
+}
+
 /* A note the session wrote for the model: a quiet row, never a user bubble. */
 .ses-dexnote {
   margin: 6px 0;

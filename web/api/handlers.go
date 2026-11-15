@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -508,6 +509,10 @@ func (h *handler) cloneForkFlow(response http.ResponseWriter, request *http.Requ
 	}
 	if body.PointType == int32(dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID) && body.EventID <= 0 {
 		WriteError(response, http.StatusBadRequest, "eventId must be a positive integer", nil)
+		return
+	}
+	if slices.Contains(body.DeleteAttributeKeys, "") {
+		WriteError(response, http.StatusBadRequest, "deleteAttributeKeys must not contain an empty key", nil)
 		return
 	}
 	requestID := body.RequestID

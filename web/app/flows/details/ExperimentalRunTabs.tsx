@@ -10,6 +10,8 @@ import type { V2CatalogEntry } from '@/lib/types';
 import type { AgentSessionSchema } from '../../agents/sessionSchema';
 import { SessionView } from '../../agents/SessionView';
 import { ChevronDown, UserRound } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { sessionRunPath } from '../../routes';
 import { SelectedRunPanel } from '../../workspace/SelectedRunPanel';
 import type { useWorkingAs } from '../../workspace/useWorkingAs';
 import '../../workspace/css/workspace.css';
@@ -32,6 +34,7 @@ export function AgentSessionTab({
   schema: AgentSessionSchema;
   workingAs: RunWorkingAs;
 }) {
+  const navigate = useNavigate();
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Agent session">
       <header className="xp-head">
@@ -47,6 +50,7 @@ export function AgentSessionTab({
         onChooseWorkingAs={workingAs.setPermission}
         workingAsOptions={workingAs.permissionOptions}
         workingAsPermission={workingAs.permission}
+        onSessionForked={(sessionId) => navigate(sessionRunPath(sessionId))}
       />
     </section>
   );

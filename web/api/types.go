@@ -242,6 +242,8 @@ type cloneForkFlowRequest struct {
 	// SubFlowResetPolicy is a SubFlowResetPolicy number; zero selects the server default.
 	SubFlowResetPolicy int32  `json:"subFlowResetPolicy"`
 	Reason             string `json:"reason"`
+	// DeleteAttributeKeys names Attributes the new run deletes after the copy; empty deletes none.
+	DeleteAttributeKeys []string `json:"deleteAttributeKeys"`
 }
 
 type cloneForkFlowResponse struct {
