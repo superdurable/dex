@@ -1,5 +1,5 @@
 {
-  "description": "Session forks: the point a fork copies, the Attributes it resets, its errors, and the CLI lines. Both cores and both CLI cores test against this file.",
+  "description": "Session forks: the point a fork copies, the Attributes it resets, its errors, and the CLI lines. Both cores and both CLI cores test against this file. Every point is the WaitFor of an AwaitUserMessage execution: the one waiting now for the current state (waiting_step_execution_id, absent means null), or the one that started the turn after the message.",
   "turn_start_step_type": "AwaitUserMessage",
   "reset_attributes": ["SessionTerminalLease", "SessionLastTerminalEnvironment"],
   "id_reuse_policy": "DISALLOW",
@@ -21,15 +21,25 @@
       "name": "the current state of an idle session",
       "after_message": null,
       "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": "AwaitUserMessage-3",
       "turn_starts": [],
-      "expected": {"after_message": 4, "step_execution_id": null}
+      "expected": {"after_message": 4, "step_execution_id": "AwaitUserMessage-3"}
     },
     {
       "name": "the current state of a session without messages",
       "after_message": null,
       "state": {"next_message_sequence": 1, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": "AwaitUserMessage-1",
       "turn_starts": [],
-      "expected": {"after_message": 0, "step_execution_id": null}
+      "expected": {"after_message": 0, "step_execution_id": "AwaitUserMessage-1"}
+    },
+    {
+      "name": "an idle state whose wait for a message has not started",
+      "after_message": null,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": null,
+      "turn_starts": [],
+      "expected": {"error": "turn_in_progress", "values": {"session_id": "source-1"}}
     },
     {
       "name": "the current state while a turn runs",
@@ -42,8 +52,9 @@
       "name": "after the last message of an idle session",
       "after_message": 4,
       "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": "AwaitUserMessage-3",
       "turn_starts": [],
-      "expected": {"after_message": 4, "step_execution_id": null}
+      "expected": {"after_message": 4, "step_execution_id": "AwaitUserMessage-3"}
     },
     {
       "name": "after the last message while its turn runs",

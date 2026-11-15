@@ -53,6 +53,7 @@ def test_the_fork_point_follows_the_conformance_suite(case: dict[str, Any]) -> N
             state["next_message_sequence"],
             state["active_turn_id"],
             AgentSessionStatus(state["status"]),
+            case.get("waiting_step_execution_id"),
             [
                 AgentSessionTurnStart(start["sequence"], start["step_execution_id"])
                 for start in case["turn_starts"]

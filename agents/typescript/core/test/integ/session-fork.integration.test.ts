@@ -30,9 +30,10 @@ interface PointCase {
   readonly name: string;
   readonly after_message: number | null;
   readonly state: { next_message_sequence: number; active_turn_id: string | null; status: AgentSessionStatus };
+  readonly waiting_step_execution_id?: string | null;
   readonly turn_starts: readonly { sequence: number; step_execution_id: string }[];
   readonly expected:
-    | { after_message: number; step_execution_id: string | null }
+    | { after_message: number; step_execution_id: string }
     | { error: string; values: Record<string, string | number> };
 }
 
@@ -53,6 +54,7 @@ describe("session fork points", () => {
           point.state.next_message_sequence,
           point.state.active_turn_id,
           point.state.status,
+          point.waiting_step_execution_id ?? null,
           point.turn_starts.map((start) => ({ sequence: start.sequence, stepExecutionId: start.step_execution_id })),
         );
       const expected = point.expected;

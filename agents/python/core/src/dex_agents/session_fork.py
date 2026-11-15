@@ -99,12 +99,12 @@ class AgentSessionForkPoint:
     Attributes:
         after_message: The last message sequence the fork keeps; ``0`` keeps none.
         step_execution_id: The ``AwaitUserMessage`` execution whose WaitFor
-            starts right after that message's turn, or ``None`` for the
-            source's current state.
+            starts right after that message's turn. For the current state, it
+            is the execution open now.
     """
 
     after_message: int
-    step_execution_id: str | None
+    step_execution_id: str
 
 
 @dataclass(frozen=True)
@@ -195,23 +195,27 @@ async def fork_agent_session(
     the new session, and ``SessionLastTerminalEnvironment``, so opening it is
     no takeover.
 
-    The point is the source's current state when ``after_message`` is
-    ``None``, or when it names the last message. A turn must not be running
-    then. For an earlier message, it is the point right after the turn that
-    the message ends: the WaitFor of the ``AwaitUserMessage`` execution that
-    started the next turn, read from that turn's ``turn_started`` event. That
-    event must still be on ``AgentEvents``, and the point must still be in the
+    Every point is the start of the WaitFor of one ``AwaitUserMessage``
+    execution, so a turn that starts during the call never reaches the copy.
+    When ``after_message`` is ``None`` or names the last message, it is the
+    execution that waits now; the session must wait for a user message, with
+    no turn running. For an earlier message, it is the execution that started
+    the next turn, read from that turn's ``turn_started`` event. That event
+    must still be on ``AgentEvents``, and the point must still be in the
     source run's history window. A message inside a turn, or one whose next
-    turn steering started, has no such point.
+    turn steering started, has no such point. The new Flow ID must be unused:
+    the fork never reuses an ID.
 
     After the copy, the new session's ``AgentState`` must show no running
     turn and exactly the kept messages. Otherwise the new session is stopped
     and the call raises ``session_changed``.
 
-    Messages queued before the point and not yet taken by a turn are copied
-    too, so the new session runs them as soon as a Worker serves it. A point
-    between turns has no SubFlow wait, so the SubFlow reset policy does not
-    apply; the server default is kept.
+    Changes the source received after the point are not copied, such as a
+    settings update or a message queued while it waited. Messages queued
+    before the point and not yet taken by a turn are copied, so the new
+    session runs them as soon as a Worker serves it. A point between turns has
+    no SubFlow wait, so the SubFlow reset policy does not apply; the server
+    default is kept.
 
     Example:
         >>> fork = await fork_agent_session(
@@ -251,9 +255,8 @@ async def fork_agent_session(
             "not_started",
             f"session {source_session_id} has not started yet, so it cannot be forked",
         )
-    is_earlier_message = after_message is not None and 1 <= after_message < (
-        state.next_message_sequence - 1
-    )
+    last_message = state.next_message_sequence - 1
+    is_earlier_message = after_message is not None and 1 <= after_message < last_message
     turn_starts = (
         await read_agent_session_turn_starts(
             client, flow.agent_events, source_session_id, cast(int, after_message) + 1
@@ -261,12 +264,18 @@ async def fork_agent_session(
         if is_earlier_message
         else []
     )
+    waiting_step_execution_id = (
+        None
+        if is_earlier_message
+        else await _read_waiting_step_execution_id(client, source_session_id)
+    )
     point = plan_agent_session_fork_point(
         source_session_id,
         after_message,
         state.next_message_sequence,
         state.active_turn_id,
         state.status,
+        waiting_step_execution_id,
         turn_starts,
     )
     result = await _clone_fork(
@@ -288,6 +297,7 @@ def plan_agent_session_fork_point(
     next_message_sequence: int,
     active_turn_id: str | None,
     status: AgentSessionStatus,
+    waiting_step_execution_id: str | None,
     turn_starts: Sequence[AgentSessionTurnStart],
 ) -> AgentSessionForkPoint:
     """Return the point a fork copies, from the source's state and its turn starts.
@@ -300,6 +310,8 @@ def plan_agent_session_fork_point(
         next_message_sequence: ``AgentState.next_message_sequence`` of the source.
         active_turn_id: ``AgentState.active_turn_id`` of the source.
         status: ``AgentState.status`` of the source.
+        waiting_step_execution_id: The ``AwaitUserMessage`` execution that is
+            open in the source now, or ``None``.
         turn_starts: The source's retained turn starts, in any order.
 
     Returns:
@@ -314,13 +326,17 @@ def plan_agent_session_fork_point(
         )
     last_message = next_message_sequence - 1
     if after_message is None or (after_message == last_message and last_message > 0):
-        if active_turn_id or status is not AgentSessionStatus.WAITING_FOR_USER_MESSAGE:
+        if (
+            active_turn_id
+            or status is not AgentSessionStatus.WAITING_FOR_USER_MESSAGE
+            or waiting_step_execution_id is None
+        ):
             raise AgentSessionForkError(
                 "turn_in_progress",
                 f"session {source_session_id} is running a turn; fork it once the turn ends, "
                 "or after an earlier message",
             )
-        return AgentSessionForkPoint(last_message, None)
+        return AgentSessionForkPoint(last_message, waiting_step_execution_id)
     if last_message == 0:
         raise AgentSessionForkError(
             "no_messages",
@@ -398,6 +414,19 @@ async def read_agent_session_turn_starts(
     return starts
 
 
+async def _read_waiting_step_execution_id(client: AsyncClient, session_id: str) -> str | None:
+    """Return the ``AwaitUserMessage`` execution open in the session now, or ``None``."""
+    state = await client.get_flow_state(session_id)
+    return next(
+        (
+            step.step_execution_id
+            for step in state.active_step_executions
+            if step.step_type == SESSION_FORK_TURN_START_STEP_TYPE
+        ),
+        None,
+    )
+
+
 def _turn_start_of(event: AgentEvent) -> AgentSessionTurnStart | None:
     if event.type != AgentEventType.TURN_STARTED or not event.step_execution_id:
         return None
@@ -421,15 +450,9 @@ async def _clone_fork(
     request_id: str | None,
 ) -> Any:
     reason = f"fork of agent session {source_session_id} after message {point.after_message}"
-    if point.step_execution_id is None:
-        options = CloneForkFlowOptions(
-            id_reuse_policy=IdReusePolicy.DISALLOW,
-            task_queue=task_queue,
-            request_id=request_id,
-            reason=reason,
-        )
-    else:
-        options = CloneForkFlowOptions(
+    # A null write deletes each Attribute in the change that creates the fork.
+    options = (
+        CloneForkFlowOptions(
             type=TimeTravelType.STEP_EXECUTION_ID,
             step_execution_id=point.step_execution_id,
             step_method=TimeTravelStepMethod.WAIT_FOR,
@@ -438,9 +461,8 @@ async def _clone_fork(
             request_id=request_id,
             reason=reason,
         )
-    # A null write deletes each Attribute in the change that creates the fork.
-    options = options.with_attribute(SESSION_TERMINAL_LEASE, cast(Any, None)).with_attribute(
-        SESSION_LAST_TERMINAL_ENVIRONMENT, cast(Any, None)
+        .with_attribute(SESSION_TERMINAL_LEASE, cast(Any, None))
+        .with_attribute(SESSION_LAST_TERMINAL_ENVIRONMENT, cast(Any, None))
     )
     try:
         return await client.clone_fork_flow(flow, source_session_id, session_id, options)

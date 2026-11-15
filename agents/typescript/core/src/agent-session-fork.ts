@@ -18,7 +18,6 @@ import {
   TimeTravelType,
   type Attribute,
   type Client,
-  type CloneForkFlowOptions,
   type CloneForkFlowResult,
   type Flow,
   type PersistenceSchema,
@@ -111,10 +110,10 @@ export interface AgentSessionForkPoint {
   /** The last message sequence the fork keeps; `0` keeps none. */
   readonly afterMessage: number;
   /**
-   * The `AwaitUserMessage` execution whose WaitFor starts right after that message's turn, or `null` for the
-   * source's current state.
+   * The `AwaitUserMessage` execution whose WaitFor starts right after that message's turn. For the current state, it
+   * is the execution open now.
    */
-  readonly stepExecutionId: string | null;
+  readonly stepExecutionId: string;
 }
 
 /**
@@ -204,16 +203,18 @@ export function createAgentSessionForkingFlow(flowType: string): AgentSessionFor
  * no terminal holds the new session, and `SessionLastTerminalEnvironment`, so opening it is no takeover. The new
  * Flow ID must be unused: the fork never reuses an ID.
  *
- * The point is the source's current state when `afterMessage` is omitted or names the last message. The session
- * must then wait for a user message, with no turn running. For an earlier message, it is the point right after the
- * turn that the message ends: the WaitFor of the `AwaitUserMessage` execution that started the next turn, read from
- * that turn's `turn_started` event. That event must still be on `AgentEvents`, and the point must still be in the
- * source run's history window. A message inside a turn, or one whose next turn steering started, has no such point.
+ * Every point is the start of the WaitFor of one `AwaitUserMessage` execution, so a turn that starts during the call
+ * never reaches the copy. When `afterMessage` is omitted or names the last message, it is the execution that waits
+ * now; the session must wait for a user message, with no turn running. For an earlier message, it is the execution
+ * that started the next turn, read from that turn's `turn_started` event. That event must still be on
+ * `AgentEvents`, and the point must still be in the source run's history window. A message inside a turn, or one
+ * whose next turn steering started, has no such point.
  *
  * After the copy, the new session's `AgentState` must show no running turn and exactly the kept messages. Otherwise
  * the new session is stopped and the call throws `session_changed`.
  *
- * Messages queued before the point and not yet taken by a turn are copied too, so the new session runs them as
+ * Changes the source received after the point are not copied, such as a settings update or a message queued while
+ * it waited. Messages queued before the point and not yet taken by a turn are copied, so the new session runs them as
  * soon as a Worker serves it. A point between turns has no SubFlow wait, so the SubFlow reset policy does not apply;
  * the server default is kept.
  *
@@ -254,12 +255,14 @@ export async function forkAgentSession(
   const turnStarts = isEarlierMessage
     ? await readAgentSessionTurnStarts(client, flow.agentEvents, sourceSessionId, afterMessage + 1)
     : [];
+  const waitingStepExecutionId = isEarlierMessage ? null : await readWaitingStepExecutionId(client, sourceSessionId);
   const point = planAgentSessionForkPoint(
     sourceSessionId,
     afterMessage,
     state.nextMessageSequence,
     state.activeTurnId,
     state.status,
+    waitingStepExecutionId,
     turnStarts,
   );
   const result = await cloneFork(client, flow, sourceSessionId, sessionId, point, options);
@@ -281,6 +284,7 @@ export async function forkAgentSession(
  * @param nextMessageSequence - `AgentState.nextMessageSequence` of the source.
  * @param activeTurnId - `AgentState.activeTurnId` of the source.
  * @param status - `AgentState.status` of the source.
+ * @param waitingStepExecutionId - The `AwaitUserMessage` execution open in the source now, or `null`.
  * @param turnStarts - The source's retained turn starts, in any order.
  * @returns The point.
  * @throws {AgentSessionForkError} When no point between turns follows the message.
@@ -292,6 +296,7 @@ export function planAgentSessionForkPoint(
   nextMessageSequence: number,
   activeTurnId: string | null,
   status: AgentSessionStatus,
+  waitingStepExecutionId: string | null,
   turnStarts: readonly AgentSessionTurnStart[],
 ): AgentSessionForkPoint {
   if (status === "failed") {
@@ -299,13 +304,13 @@ export function planAgentSessionForkPoint(
   }
   const lastMessage = nextMessageSequence - 1;
   if (afterMessage === null || (afterMessage === lastMessage && lastMessage > 0)) {
-    if (activeTurnId || status !== "waiting_for_user_message") {
+    if (activeTurnId || status !== "waiting_for_user_message" || waitingStepExecutionId === null) {
       throw new AgentSessionForkError(
         "turn_in_progress",
         `session ${sourceSessionId} is running a turn; fork it once the turn ends, or after an earlier message`,
       );
     }
-    return { afterMessage: lastMessage, stepExecutionId: null };
+    return { afterMessage: lastMessage, stepExecutionId: waitingStepExecutionId };
   }
   if (lastMessage === 0) {
     throw new AgentSessionForkError(
@@ -386,6 +391,13 @@ export async function readAgentSessionTurnStarts(
   return starts;
 }
 
+/** Returns the `AwaitUserMessage` execution open in the session now, or `null`. */
+async function readWaitingStepExecutionId(client: Client, sessionId: string): Promise<string | null> {
+  const state = await client.getFlowState(sessionId);
+  const waiting = state.activeStepExecutions.find((step) => step.stepType === sessionForkTurnStartStepType);
+  return waiting?.stepExecutionId ?? null;
+}
+
 function turnStartOf(event: AgentEvent): AgentSessionTurnStart | null {
   if (event.type !== "turn_started" || event.stepExecutionId === "") {
     return null;
@@ -411,17 +423,11 @@ async function cloneFork(
   point: AgentSessionForkPoint,
   options: AgentSessionForkOptions,
 ): Promise<CloneForkFlowResult> {
-  const pointOptions: CloneForkFlowOptions =
-    point.stepExecutionId === null
-      ? {}
-      : {
-          type: TimeTravelType.STEP_EXECUTION_ID,
-          stepExecutionId: point.stepExecutionId,
-          stepMethod: TimeTravelStepMethod.WAIT_FOR,
-        };
   try {
     return await client.cloneForkFlow(flow, sourceSessionId, sessionId, {
-      ...pointOptions,
+      type: TimeTravelType.STEP_EXECUTION_ID,
+      stepExecutionId: point.stepExecutionId,
+      stepMethod: TimeTravelStepMethod.WAIT_FOR,
       idReusePolicy: IdReusePolicy.DISALLOW,
       ...(options.taskQueue ? { taskQueue: options.taskQueue } : {}),
       ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
