@@ -97,9 +97,17 @@ fn resolve_target_from(
     // Only BEGINNING may target the preserved genesis point outside the window (D12).
     let is_genesis_included =
         reset_type == FlowResetType::Beginning && candidates.genesis < candidates.window_start;
+    // Metadata cannot bound the first window record's events without max_pruned_event_id.
+    let is_pruned_bound_unknown =
+        record.max_pruned_event_id == 0 && candidates.genesis < candidates.window_start;
+    let source = if reset_type == FlowResetType::EventId && is_pruned_bound_unknown {
+        CandidateSource::Records
+    } else {
+        source
+    };
     let selection = match matcher {
         Some(matcher) => {
-            select_first_match(candidates.stream(source, is_genesis_included), &matcher)?
+            select_first_match(candidates.stream(source, is_genesis_included), matcher)?
         }
         None => None,
     };
@@ -138,7 +146,7 @@ fn has_target_metadata(
     Ok(genesis_metadata.is_some_and(|metadata| metadata.max_event_id > 0))
 }
 
-/// A point a target may select: a History record, read from the record or its metadata.
+/// A History record that target resolution reads, from the record or its metadata.
 struct TargetCandidate {
     attempt: u32,
     seq: u64,
@@ -146,21 +154,25 @@ struct TargetCandidate {
     pending_step_methods: Vec<HistoryStepMethodPending>,
     /// Largest event ID of the record, zero without events.
     max_event_id: i64,
+    /// Smallest event ID of the record; `None` without events or when read from metadata.
+    first_event_id: Option<i64>,
     flow_closed_message: Option<String>,
+    is_in_lineage: bool,
+    /// Whether a target may select the record: the included genesis or a semantic lineage record.
+    is_target_point: bool,
 }
 
 impl TargetCandidate {
-    fn from_record(record: HistoryRecord) -> Self {
+    fn from_record(record: HistoryRecord, is_in_lineage: bool, is_target_point: bool) -> Self {
+        let event_ids = || record.events.iter().map(|event| event.event_id);
         Self {
             attempt: record.attempt,
             seq: record.seq,
             timestamp_micros: record.timestamp_micros,
-            max_event_id: record
-                .events
-                .iter()
-                .map(|event| event.event_id)
-                .max()
-                .unwrap_or(0),
+            max_event_id: event_ids().max().unwrap_or(0),
+            first_event_id: event_ids().min(),
+            is_in_lineage,
+            is_target_point,
             flow_closed_message: record
                 .events
                 .iter()
@@ -175,14 +187,22 @@ impl TargetCandidate {
         }
     }
 
-    fn from_metadata(seq: u64, metadata: HistoryRowMetadata) -> Self {
+    fn from_metadata(
+        seq: u64,
+        metadata: HistoryRowMetadata,
+        is_in_lineage: bool,
+        is_target_point: bool,
+    ) -> Self {
         Self {
             attempt: metadata.attempt,
             seq,
             timestamp_micros: metadata.timestamp_micros,
             pending_step_methods: metadata.pending_step_methods,
             max_event_id: metadata.max_event_id,
+            first_event_id: None,
             flow_closed_message: metadata.flow_closed_message,
+            is_in_lineage,
+            is_target_point,
         }
     }
 }
@@ -202,7 +222,7 @@ struct TargetCandidates<'transaction, 'reader> {
 }
 
 impl TargetCandidates<'_, '_> {
-    /// Streams the genesis point when included, then the window's semantic lineage points.
+    /// Streams the genesis point when included, then every History record of the window.
     fn stream(
         &self,
         source: CandidateSource,
@@ -215,24 +235,29 @@ impl TargetCandidates<'_, '_> {
     }
 
     fn record_stream(&self, is_genesis_included: bool) -> TargetCandidateStream<'_> {
+        let lineage = self.lineage;
         let genesis_records = if is_genesis_included {
             self.history.history_records(self.genesis..=self.genesis, 1)
         } else {
             Box::new(std::iter::empty())
         };
-        let window_records = self
+        let genesis_candidates = genesis_records.map(move |record| {
+            record.map(|record| {
+                let is_in_lineage = lineage.contains(record.attempt, record.seq);
+                TargetCandidate::from_record(record, is_in_lineage, true)
+            })
+        });
+        let window_candidates = self
             .history
             .history_records(self.window_start..=u64::MAX, HISTORY_PAGE_RECORDS)
-            .filter(|record| {
-                record.as_ref().map_or(true, |record| {
-                    record.is_semantic && self.lineage.contains(record.attempt, record.seq)
+            .map(move |record| {
+                record.map(|record| {
+                    let is_in_lineage = lineage.contains(record.attempt, record.seq);
+                    let is_target_point = record.is_semantic && is_in_lineage;
+                    TargetCandidate::from_record(record, is_in_lineage, is_target_point)
                 })
             });
-        Box::new(
-            genesis_records
-                .chain(window_records)
-                .map(|record| record.map(TargetCandidate::from_record)),
-        )
+        Box::new(genesis_candidates.chain(window_candidates))
     }
 
     fn metadata_stream(&self, is_genesis_included: bool) -> TargetCandidateStream<'_> {
@@ -252,7 +277,10 @@ impl TargetCandidates<'_, '_> {
                 )
                 .transpose()
                 .map(|metadata| {
-                    metadata.map(|metadata| TargetCandidate::from_metadata(self.genesis, metadata))
+                    metadata.map(|metadata| {
+                        let is_in_lineage = self.lineage.contains(metadata.attempt, self.genesis);
+                        TargetCandidate::from_metadata(self.genesis, metadata, is_in_lineage, true)
+                    })
                 })
         } else {
             None
@@ -276,7 +304,7 @@ impl TargetCandidates<'_, '_> {
 /// Metadata rows read per scan while listing target candidates.
 const TARGET_METADATA_SCAN_ROWS: usize = 256;
 
-/// Pages through the metadata from the window start, yielding semantic lineage records.
+/// Pages through the metadata from the window start, yielding every History record.
 struct WindowMetadataCandidates<'candidates, 'transaction, 'reader> {
     candidates: &'candidates TargetCandidates<'transaction, 'reader>,
     prefix: Vec<u8>,
@@ -295,11 +323,15 @@ impl Iterator for WindowMetadataCandidates<'_, '_, '_> {
                     Ok(identity) => identity,
                     Err(error) => return Some(self.fail(error)),
                 };
-                if history_table == RunTable::HistoryRecord
-                    && metadata.is_semantic
-                    && self.candidates.lineage.contains(metadata.attempt, seq)
-                {
-                    return Some(Ok(TargetCandidate::from_metadata(seq, metadata)));
+                if history_table == RunTable::HistoryRecord {
+                    let is_in_lineage = self.candidates.lineage.contains(metadata.attempt, seq);
+                    let is_target_point = metadata.is_semantic && is_in_lineage;
+                    return Some(Ok(TargetCandidate::from_metadata(
+                        seq,
+                        metadata,
+                        is_in_lineage,
+                        is_target_point,
+                    )));
                 }
             }
             let start = self.next_key.take()?;
@@ -342,7 +374,7 @@ impl WindowMetadataCandidates<'_, '_, '_> {
     }
 }
 
-/// The candidate a request selects: the first one that matches.
+/// The candidate a request selects: the first target point that matches.
 enum TargetMatcher<'request> {
     Seq(u64),
     AtOrAfterNanos(i128),
@@ -351,6 +383,52 @@ enum TargetMatcher<'request> {
         step_execution_id: &'request str,
         method: FlowResetStepMethod,
     },
+    EventId(EventSearch),
+}
+
+/// What [`TargetMatcher::inspect`] decides about one candidate.
+enum CandidateInspection {
+    Selects,
+    Continues,
+    /// No later candidate can match.
+    EndsSearch,
+}
+
+/// Finds the window record that holds an event, then the first target point at or after it.
+struct EventSearch {
+    event_id: i64,
+    /// Largest event ID before the inspected candidate; `None` when unknown.
+    events_before: Option<i64>,
+    /// Seq of the lineage record that holds the event, once inspected.
+    holding_seq: Option<u64>,
+}
+
+impl EventSearch {
+    /// Event IDs grow with seq across attempts, so the first record reaching the ID holds it.
+    fn inspect(&mut self, candidate: &TargetCandidate) -> CandidateInspection {
+        if self.holding_seq.is_none() {
+            if candidate.max_event_id < self.event_id {
+                if candidate.max_event_id > 0 {
+                    self.events_before = Some(candidate.max_event_id);
+                }
+                return CandidateInspection::Continues;
+            }
+            let events_before = candidate
+                .first_event_id
+                .map(|first_event_id| first_event_id - 1)
+                .or(self.events_before);
+            let is_held = events_before.is_some_and(|before| before < self.event_id);
+            if !is_held || !candidate.is_in_lineage {
+                return CandidateInspection::EndsSearch;
+            }
+            self.holding_seq = Some(candidate.seq);
+        }
+        if candidate.is_target_point {
+            CandidateInspection::Selects
+        } else {
+            CandidateInspection::Continues
+        }
+    }
 }
 
 impl<'request> TargetMatcher<'request> {
@@ -384,14 +462,36 @@ impl<'request> TargetMatcher<'request> {
                     method,
                 }))
             }
+            FlowResetType::EventId => {
+                let event_id = request.event_id;
+                if event_id <= 0 {
+                    return Err(invalid_argument("event ID must be positive".to_owned()));
+                }
+                // Pruned events include genesis's once the window moved past it.
+                let is_retained =
+                    event_id > record.max_pruned_event_id && event_id < record.next_event_id;
+                // Runs that pruned before max_pruned_event_id existed leave the bound unknown.
+                let events_before =
+                    if record.max_pruned_event_id == 0 && genesis < record.window_start_seq {
+                        None
+                    } else {
+                        Some(record.max_pruned_event_id)
+                    };
+                Ok(is_retained.then_some(Self::EventId(EventSearch {
+                    event_id,
+                    events_before,
+                    holding_seq: None,
+                })))
+            }
             FlowResetType::Unspecified => {
                 Err(invalid_argument("time travel type is required".to_owned()))
             }
         }
     }
 
-    fn matches(&self, candidate: &TargetCandidate) -> bool {
-        match self {
+    fn inspect(&mut self, candidate: &TargetCandidate) -> CandidateInspection {
+        let is_match = match self {
+            Self::EventId(search) => return search.inspect(candidate),
             Self::Seq(seq) => candidate.seq == *seq,
             Self::AtOrAfterNanos(target_nanos) => {
                 i128::from(candidate.timestamp_micros) * 1000 >= *target_nanos
@@ -410,32 +510,43 @@ impl<'request> TargetMatcher<'request> {
                         _ => pending.method == StepMethod::Execute as i32,
                     }
             }),
+        };
+        if candidate.is_target_point && is_match {
+            CandidateInspection::Selects
+        } else {
+            CandidateInspection::Continues
         }
     }
 }
 
-/// Returns the first matching candidate as a target, with the event ID and FlowClosed message
-/// of the candidates up to it.
+/// Returns the first matching target point as a target, with the event ID and FlowClosed
+/// message of the target points up to it.
 fn select_first_match(
     candidates: TargetCandidateStream<'_>,
-    matcher: &TargetMatcher<'_>,
+    mut matcher: TargetMatcher<'_>,
 ) -> Result<Option<TravelTarget>, ApplyError> {
     let mut last_event_id = 0;
     let mut close_history_message = None;
     for candidate in candidates {
         let candidate = candidate?;
-        last_event_id = last_event_id.max(candidate.max_event_id);
-        if matcher.matches(&candidate) {
-            return Ok(Some(TravelTarget {
-                point: HistoryPoint {
-                    attempt: candidate.attempt,
-                    seq: candidate.seq,
-                },
-                last_event_id,
-                close_history_message: candidate.flow_closed_message.or(close_history_message),
-            }));
+        if candidate.is_target_point {
+            last_event_id = last_event_id.max(candidate.max_event_id);
         }
-        if candidate.flow_closed_message.is_some() {
+        match matcher.inspect(&candidate) {
+            CandidateInspection::Selects => {
+                return Ok(Some(TravelTarget {
+                    point: HistoryPoint {
+                        attempt: candidate.attempt,
+                        seq: candidate.seq,
+                    },
+                    last_event_id,
+                    close_history_message: candidate.flow_closed_message.or(close_history_message),
+                }));
+            }
+            CandidateInspection::EndsSearch => return Ok(None),
+            CandidateInspection::Continues => {}
+        }
+        if candidate.is_target_point && candidate.flow_closed_message.is_some() {
             close_history_message = candidate.flow_closed_message;
         }
     }
@@ -492,12 +603,14 @@ pub(crate) fn resolve_target_from_records_for_test(
     {
         candidates.push(record);
     }
+    let window_records = history
+        .history_records(window_start..=u64::MAX, HISTORY_PAGE_RECORDS)
+        .collect::<Result<Vec<_>, _>>()?;
     candidates.extend(
-        history
-            .history_records(window_start..=u64::MAX, HISTORY_PAGE_RECORDS)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter(|record| record.is_semantic && lineage.contains(record.attempt, record.seq)),
+        window_records
+            .iter()
+            .filter(|record| record.is_semantic && lineage.contains(record.attempt, record.seq))
+            .cloned(),
     );
     let selection = match reset_type {
         FlowResetType::Beginning => candidates.iter().find(|record| record.seq == genesis),
@@ -537,6 +650,23 @@ pub(crate) fn resolve_target_from_records_for_test(
                         }
                 })
             })
+        }
+        FlowResetType::EventId => {
+            if request.event_id <= 0 {
+                return Ok(Err(invalid_argument(
+                    "event ID must be positive".to_owned(),
+                )));
+            }
+            window_records
+                .iter()
+                .find(|record| {
+                    record
+                        .events
+                        .iter()
+                        .any(|event| event.event_id == request.event_id)
+                })
+                .filter(|holding| lineage.contains(holding.attempt, holding.seq))
+                .and_then(|holding| candidates.iter().find(|record| record.seq >= holding.seq))
         }
         FlowResetType::Unspecified => {
             return Ok(Err(invalid_argument(
@@ -597,6 +727,7 @@ fn describe_reset_type(reset_type: FlowResetType) -> &'static str {
         FlowResetType::HistoryEventTime => "history event time",
         FlowResetType::StepType => "Step type",
         FlowResetType::StepExecutionId => "Step execution",
+        FlowResetType::EventId => "event ID",
         FlowResetType::Unspecified => "unspecified",
     }
 }
@@ -732,7 +863,81 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_reset_time;
+    use super::{CandidateInspection, EventSearch, TargetCandidate, parse_reset_time};
+
+    /// A metadata candidate holding event IDs up to `max_event_id`.
+    fn metadata_candidate(
+        seq: u64,
+        max_event_id: i64,
+        is_semantic: bool,
+        is_in_lineage: bool,
+    ) -> TargetCandidate {
+        TargetCandidate {
+            attempt: 1,
+            seq,
+            timestamp_micros: 0,
+            pending_step_methods: Vec::new(),
+            max_event_id,
+            first_event_id: None,
+            flow_closed_message: None,
+            is_in_lineage,
+            is_target_point: is_semantic && is_in_lineage,
+        }
+    }
+
+    /// Returns the seq the search selects, or `None` when it ends without a target.
+    fn search(
+        event_id: i64,
+        events_before: Option<i64>,
+        candidates: &[TargetCandidate],
+    ) -> Option<u64> {
+        let mut search = EventSearch {
+            event_id,
+            events_before,
+            holding_seq: None,
+        };
+        for candidate in candidates {
+            match search.inspect(candidate) {
+                CandidateInspection::Selects => return Some(candidate.seq),
+                CandidateInspection::EndsSearch => return None,
+                CandidateInspection::Continues => {}
+            }
+        }
+        None
+    }
+
+    // Real commands record no event outside a semantic record, so these cases are synthetic.
+    #[test]
+    fn an_event_outside_a_semantic_record_selects_the_next_lineage_point() {
+        let candidates = [
+            metadata_candidate(4, 10, true, true),
+            metadata_candidate(5, 12, false, true),
+            metadata_candidate(6, 0, false, true),
+            metadata_candidate(7, 14, true, false),
+            metadata_candidate(8, 15, true, true),
+        ];
+        assert_eq!(search(11, Some(9), &candidates), Some(8));
+        assert_eq!(search(10, Some(9), &candidates), Some(4));
+        assert_eq!(search(13, Some(9), &candidates), None, "another attempt");
+        assert_eq!(search(9, Some(9), &candidates), None, "pruned");
+        assert_eq!(search(10, None, &candidates), None, "unknown pruned bound");
+        assert_eq!(search(11, None, &candidates), Some(8));
+        let trailing = [
+            metadata_candidate(4, 10, true, true),
+            metadata_candidate(5, 12, false, true),
+        ];
+        assert_eq!(search(12, Some(9), &trailing), None, "no point after it");
+    }
+
+    #[test]
+    fn a_record_candidate_holds_only_its_own_event_ids() {
+        let record = TargetCandidate {
+            first_event_id: Some(11),
+            ..metadata_candidate(4, 12, true, true)
+        };
+        assert_eq!(search(11, None, std::slice::from_ref(&record)), Some(4));
+        assert_eq!(search(10, None, std::slice::from_ref(&record)), None);
+    }
 
     #[test]
     fn reset_times_parse_like_the_go_server() {

@@ -1230,6 +1230,7 @@ export class Client {
           skipWritesReapply: options.skipWritesReapply ?? false,
           stepMethod: mapTimeTravelStepMethod(options.stepMethod),
           runAttempt: 0,
+          eventId: 0n,
         },
         callback,
       ),

@@ -31,6 +31,18 @@ public enum FlowResetType
    * <code>FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4;</code>
    */
   FLOW_RESET_TYPE_STEP_EXECUTION_ID(4),
+  /**
+   * <pre>
+   * Targets the point right after the change that recorded ResetFlowRequest.event_id.
+   * Events recorded together, such as a Step completion and the Steps it starts, share that
+   * point, so the restored state includes them all. Time Travel stops only after events that
+   * change Flow progress, never inside a Step attempt; like HISTORY_EVENT_TIME, any other event
+   * resolves to the next point where Time Travel can stop.
+   * </pre>
+   *
+   * <code>FLOW_RESET_TYPE_EVENT_ID = 6;</code>
+   */
+  FLOW_RESET_TYPE_EVENT_ID(6),
   UNRECOGNIZED(-1),
   ;
 
@@ -63,6 +75,18 @@ public enum FlowResetType
    * <code>FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4;</code>
    */
   public static final int FLOW_RESET_TYPE_STEP_EXECUTION_ID_VALUE = 4;
+  /**
+   * <pre>
+   * Targets the point right after the change that recorded ResetFlowRequest.event_id.
+   * Events recorded together, such as a Step completion and the Steps it starts, share that
+   * point, so the restored state includes them all. Time Travel stops only after events that
+   * change Flow progress, never inside a Step attempt; like HISTORY_EVENT_TIME, any other event
+   * resolves to the next point where Time Travel can stop.
+   * </pre>
+   *
+   * <code>FLOW_RESET_TYPE_EVENT_ID = 6;</code>
+   */
+  public static final int FLOW_RESET_TYPE_EVENT_ID_VALUE = 6;
 
 
   public final int getNumber() {
@@ -94,6 +118,7 @@ public enum FlowResetType
       case 2: return FLOW_RESET_TYPE_HISTORY_EVENT_TIME;
       case 3: return FLOW_RESET_TYPE_STEP_TYPE;
       case 4: return FLOW_RESET_TYPE_STEP_EXECUTION_ID;
+      case 6: return FLOW_RESET_TYPE_EVENT_ID;
       default: return null;
     }
   }

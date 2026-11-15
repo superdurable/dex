@@ -1395,6 +1395,15 @@ enum FlowResetType {
   FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 2;
   FLOW_RESET_TYPE_STEP_TYPE = 3;
   FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4;
+  // Value 5 and this name were used before the reset types were renumbered.
+  reserved 5;
+  reserved "FLOW_RESET_TYPE_HISTORY_EVENT_ID";
+  // Targets the point right after the change that recorded ResetFlowRequest.event_id.
+  // Events recorded together, such as a Step completion and the Steps it starts, share that
+  // point, so the restored state includes them all. Time Travel stops only after events that
+  // change Flow progress, never inside a Step attempt; like HISTORY_EVENT_TIME, any other event
+  // resolves to the next point where Time Travel can stop.
+  FLOW_RESET_TYPE_EVENT_ID = 6;
 }
 
 enum FlowResetStepMethod {
@@ -1404,6 +1413,8 @@ enum FlowResetStepMethod {
 }
 
 message ResetFlowRequest {
+  // Removed in the reset-type renumbering; its number 4 is reused by reason.
+  reserved "history_event_id";
   string flow_id = 1;
   string run_id = 2;
   FlowResetType reset_type = 3;
@@ -1417,6 +1428,13 @@ message ResetFlowRequest {
   // Selects the run attempt whose history is searched for the reset point.
   // Zero selects the current run attempt.
   int32 run_attempt = 10;
+  // FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+  // The event must belong to the history of the selected run_attempt, including the attempts it
+  // started from, and must still be in the time travel window. An event of another attempt's
+  // abandoned history, an event pruned from the window, the FlowStart event once the window moved
+  // past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+  // other reset types reject a point that cannot be reached.
+  int64 event_id = 12;
 }
 
 message ResetFlowResponse {

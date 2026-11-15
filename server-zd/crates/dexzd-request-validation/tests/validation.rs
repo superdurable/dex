@@ -455,6 +455,32 @@ fn client_request_variants_preserve_go_messages() {
 }
 
 #[test]
+fn reset_by_event_id_requires_a_positive_event_id() {
+    let config = config();
+    let by_event_id = |event_id: i64| dex::ResetFlowRequest {
+        flow_id: "flow".into(),
+        reset_type: dex::FlowResetType::EventId as i32,
+        event_id,
+        ..dex::ResetFlowRequest::default()
+    };
+    assert!(validate_client_request(ClientRequest::ResetFlow(&by_event_id(7)), &config).is_ok());
+    for event_id in [0, -1] {
+        assert_invalid(
+            validate_client_request(ClientRequest::ResetFlow(&by_event_id(event_id)), &config),
+            "event ID must be positive",
+        );
+    }
+    let with_step_method = dex::ResetFlowRequest {
+        step_method: dex::FlowResetStepMethod::Execute as i32,
+        ..by_event_id(7)
+    };
+    assert_invalid(
+        validate_client_request(ClientRequest::ResetFlow(&with_step_method), &config),
+        "step method is only valid for a Step execution ID",
+    );
+}
+
+#[test]
 fn worker_responses_reject_blob_values_and_bad_decisions() {
     let config = config();
     let bad_write = AttributeWrite {

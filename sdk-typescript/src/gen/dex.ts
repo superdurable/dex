@@ -265,6 +265,14 @@ export enum FlowResetType {
   FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 2,
   FLOW_RESET_TYPE_STEP_TYPE = 3,
   FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4,
+  /**
+   * FLOW_RESET_TYPE_EVENT_ID - Targets the point right after the change that recorded ResetFlowRequest.event_id.
+   * Events recorded together, such as a Step completion and the Steps it starts, share that
+   * point, so the restored state includes them all. Time Travel stops only after events that
+   * change Flow progress, never inside a Step attempt; like HISTORY_EVENT_TIME, any other event
+   * resolves to the next point where Time Travel can stop.
+   */
+  FLOW_RESET_TYPE_EVENT_ID = 6,
   UNRECOGNIZED = -1,
 }
 
@@ -1566,6 +1574,15 @@ export interface ResetFlowRequest {
    * Zero selects the current run attempt.
    */
   runAttempt: number;
+  /**
+   * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+   * The event must belong to the history of the selected run_attempt, including the attempts it
+   * started from, and must still be in the time travel window. An event of another attempt's
+   * abandoned history, an event pruned from the window, the FlowStart event once the window moved
+   * past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+   * other reset types reject a point that cannot be reached.
+   */
+  eventId: bigint;
 }
 
 export interface ResetFlowResponse {
@@ -10900,6 +10917,7 @@ function createBaseResetFlowRequest(): ResetFlowRequest {
     skipWritesReapply: false,
     stepMethod: 0,
     runAttempt: 0,
+    eventId: 0n,
   };
 }
 
@@ -10934,6 +10952,12 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
     }
     if (message.runAttempt !== 0) {
       writer.uint32(80).int32(message.runAttempt);
+    }
+    if (message.eventId !== 0n) {
+      if (BigInt.asIntN(64, message.eventId) !== message.eventId) {
+        throw new globalThis.Error("value provided for field message.eventId of type int64 too large");
+      }
+      writer.uint32(96).int64(message.eventId);
     }
     return writer;
   },
@@ -11025,6 +11049,14 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
           message.runAttempt = reader.int32();
           continue;
         }
+        case 12: {
+          if (tag !== 96) {
+            break;
+          }
+
+          message.eventId = reader.int64() as bigint;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11049,6 +11081,7 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
     message.skipWritesReapply = object.skipWritesReapply ?? false;
     message.stepMethod = object.stepMethod ?? 0;
     message.runAttempt = object.runAttempt ?? 0;
+    message.eventId = (object.eventId !== undefined && object.eventId !== null) ? BigInt(object.eventId) : 0n;
     return message;
   },
 };

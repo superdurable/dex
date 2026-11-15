@@ -1093,6 +1093,12 @@ const (
 	FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME FlowResetType = 2
 	FlowResetType_FLOW_RESET_TYPE_STEP_TYPE          FlowResetType = 3
 	FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID  FlowResetType = 4
+	// Targets the point right after the change that recorded ResetFlowRequest.event_id.
+	// Events recorded together, such as a Step completion and the Steps it starts, share that
+	// point, so the restored state includes them all. Time Travel stops only after events that
+	// change Flow progress, never inside a Step attempt; like HISTORY_EVENT_TIME, any other event
+	// resolves to the next point where Time Travel can stop.
+	FlowResetType_FLOW_RESET_TYPE_EVENT_ID FlowResetType = 6
 )
 
 // Enum value maps for FlowResetType.
@@ -1103,6 +1109,7 @@ var (
 		2: "FLOW_RESET_TYPE_HISTORY_EVENT_TIME",
 		3: "FLOW_RESET_TYPE_STEP_TYPE",
 		4: "FLOW_RESET_TYPE_STEP_EXECUTION_ID",
+		6: "FLOW_RESET_TYPE_EVENT_ID",
 	}
 	FlowResetType_value = map[string]int32{
 		"FLOW_RESET_TYPE_UNSPECIFIED":        0,
@@ -1110,6 +1117,7 @@ var (
 		"FLOW_RESET_TYPE_HISTORY_EVENT_TIME": 2,
 		"FLOW_RESET_TYPE_STEP_TYPE":          3,
 		"FLOW_RESET_TYPE_STEP_EXECUTION_ID":  4,
+		"FLOW_RESET_TYPE_EVENT_ID":           6,
 	}
 )
 
@@ -8873,7 +8881,14 @@ type ResetFlowRequest struct {
 	StepMethod        FlowResetStepMethod `protobuf:"varint,9,opt,name=step_method,json=stepMethod,proto3,enum=dex.FlowResetStepMethod" json:"step_method,omitempty"`
 	// Selects the run attempt whose history is searched for the reset point.
 	// Zero selects the current run attempt.
-	RunAttempt    int32 `protobuf:"varint,10,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
+	RunAttempt int32 `protobuf:"varint,10,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
+	// FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+	// The event must belong to the history of the selected run_attempt, including the attempts it
+	// started from, and must still be in the time travel window. An event of another attempt's
+	// abandoned history, an event pruned from the window, the FlowStart event once the window moved
+	// past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+	// other reset types reject a point that cannot be reached.
+	EventId       int64 `protobuf:"varint,12,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8974,6 +8989,13 @@ func (x *ResetFlowRequest) GetStepMethod() FlowResetStepMethod {
 func (x *ResetFlowRequest) GetRunAttempt() int32 {
 	if x != nil {
 		return x.RunAttempt
+	}
+	return 0
+}
+
+func (x *ResetFlowRequest) GetEventId() int64 {
+	if x != nil {
+		return x.EventId
 	}
 	return 0
 }
@@ -13774,7 +13796,7 @@ const file_dex_proto_rawDesc = "" +
 	"\x14sticky_app_worker_id\x18\a \x01(\tR\x11stickyAppWorkerId\x1a]\n" +
 	"\x1bPendingChannelMessagesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
-	"\x05value\x18\x02 \x01(\v2\x12.dex.ChannelValuesR\x05value:\x028\x01\"\x90\x03\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.dex.ChannelValuesR\x05value:\x028\x01\"\xbd\x03\n" +
 	"\x10ResetFlowRequest\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x121\n" +
@@ -13789,7 +13811,8 @@ const file_dex_proto_rawDesc = "" +
 	"stepMethod\x12\x1f\n" +
 	"\vrun_attempt\x18\n" +
 	" \x01(\x05R\n" +
-	"runAttempt\"K\n" +
+	"runAttempt\x12\x19\n" +
+	"\bevent_id\x18\f \x01(\x03R\aeventIdR\x10history_event_id\"K\n" +
 	"\x11ResetFlowResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vrun_attempt\x18\x02 \x01(\x05R\n" +
@@ -14259,13 +14282,14 @@ const file_dex_proto_rawDesc = "" +
 	"&STEP_METHOD_PENDING_REASON_UNSPECIFIED\x10\x00\x121\n" +
 	"-STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER\x10\x01\x12<\n" +
 	"8STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER\x10\x02\x120\n" +
-	",STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS\x10\x03*\xbd\x01\n" +
+	",STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS\x10\x03*\x83\x02\n" +
 	"\rFlowResetType\x12\x1f\n" +
 	"\x1bFLOW_RESET_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19FLOW_RESET_TYPE_BEGINNING\x10\x01\x12&\n" +
 	"\"FLOW_RESET_TYPE_HISTORY_EVENT_TIME\x10\x02\x12\x1d\n" +
 	"\x19FLOW_RESET_TYPE_STEP_TYPE\x10\x03\x12%\n" +
-	"!FLOW_RESET_TYPE_STEP_EXECUTION_ID\x10\x04*\x86\x01\n" +
+	"!FLOW_RESET_TYPE_STEP_EXECUTION_ID\x10\x04\x12\x1c\n" +
+	"\x18FLOW_RESET_TYPE_EVENT_ID\x10\x06\"\x04\b\x05\x10\x05* FLOW_RESET_TYPE_HISTORY_EVENT_ID*\x86\x01\n" +
 	"\x13FlowResetStepMethod\x12&\n" +
 	"\"FLOW_RESET_STEP_METHOD_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fFLOW_RESET_STEP_METHOD_WAIT_FOR\x10\x01\x12\"\n" +

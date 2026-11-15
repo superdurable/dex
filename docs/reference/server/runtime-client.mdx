@@ -477,6 +477,18 @@ Attributes, its Channel messages, and the Steps that were waiting or ready. The 
 otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
 
+**reset_type** selects the target point: the beginning, a history event time, a
+Step type, a Step execution, or an event ID. Since 0.1.33,
+**FLOW_RESET_TYPE_EVENT_ID** takes **event_id**, the **event_id** of an event
+that **GetHistoryEvents** returns. The target is the first point at or after
+that event where time travel can stop, as for a history event time. Time travel
+stops only after events that change Flow progress, never inside a Step attempt.
+The event must belong to the history of the selected **run_attempt**, which
+includes the attempts it started from, and must be inside the window. An event
+of an abandoned attempt, or one the window pruned, fails with
+**FAILED_PRECONDITION**. An **event_id** of zero or less fails with
+**INVALID_ARGUMENT**.
+
 The Flow timeout restarts at the time travel, as if the run started then. When
 the restored state still waits for the timeout, the new attempt times out after
 the run's full Flow timeout, counted from the time travel. When the timeout had

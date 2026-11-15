@@ -312,6 +312,58 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
         closed.results[0].completed_step_output,
         Some(string_value("done"))
     );
+
+    // The FlowClosed event's ID selects the same closed point as its time.
+    let by_event_id = ResetFlowRequest {
+        flow_id: flow_id.to_owned(),
+        reset_type: FlowResetType::EventId as i32,
+        event_id: original_close.event_id,
+        run_attempt: 1,
+        skip_writes_reapply: true,
+        ..ResetFlowRequest::default()
+    };
+    let invalid = flow_client
+        .reset_flow(ResetFlowRequest {
+            event_id: 0,
+            ..by_event_id.clone()
+        })
+        .await
+        .expect_err("a zero event ID is invalid");
+    assert_eq!(invalid.code(), tonic::Code::InvalidArgument);
+    let restored = reset_flow(&mut flow_client, by_event_id).await;
+    assert_eq!(restored.run_attempt, 4);
+    assert_eq!(
+        wait_for_status(&mut flow_client, flow_id).await,
+        FlowStatus::Completed
+    );
+    let events = flow_client
+        .get_history_events(GetHistoryEventsRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: restored.run_id,
+            run_attempt: 4,
+            estimate_page_size: 100,
+            ..GetHistoryEventsRequest::default()
+        })
+        .await
+        .expect("GetHistoryEvents succeeds after the event ID reset")
+        .into_inner()
+        .events;
+    let fork_index = events
+        .iter()
+        .position(|event| {
+            event.run_attempt == 4
+                && matches!(
+                    event.payload,
+                    Some(flow_history_event::Payload::TimeTravelFork(_))
+                )
+        })
+        .expect("fork event in attempt 4");
+    let Some(flow_history_event::Payload::FlowClosed(closed_again)) =
+        &events[fork_index + 1].payload
+    else {
+        panic!("FlowClosed follows TimeTravelFork");
+    };
+    assert_eq!(closed_again.results, closed.results);
     worker.stop().await;
     server.shutdown().await;
 }
