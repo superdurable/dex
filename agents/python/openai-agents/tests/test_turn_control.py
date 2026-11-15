@@ -111,9 +111,12 @@ async def test_steering_during_a_tool_ends_the_turn_and_starts_a_new_one(
         AgentEventType.TURN_STARTED,
         AgentEventType.TURN_COMPLETED,
     ]
-    # The next model call sees the core's note, because the runner stores no partial transcript.
-    assert (snapshot.messages[1].text or "").startswith(TURN_STEERED_NOTE_HEADER)
-    assert "wrote note" in (snapshot.messages[-1].text or "")
+    # The runner stores the call and its recorded result instead of the core's note.
+    assert [message.tool_output for message in snapshot.messages[1:3]] == [None, "wrote note"]
+    assert not any(
+        (message.text or "").startswith(TURN_STEERED_NOTE_HEADER) for message in snapshot.messages
+    )
+    assert snapshot.messages[-1].text == f"history: {SLOW_WRITE_COMMAND}; tools: wrote note"
     assert snapshot.state is not None
     assert snapshot.state.last_turn_error is None
 

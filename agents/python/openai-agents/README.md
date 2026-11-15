@@ -380,9 +380,13 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   [Compaction](#compaction) for long sessions.
 - `steer_user_message` and `cancel_turn` work as the
   [core describes](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#steering-and-turn-cancellation).
-  The runner has no `build_unfinished_turn_messages`, so after either one the
-  next model call sees the core's note about the tool calls that ran, not
-  their exact items.
+  The runner's `build_unfinished_turn_messages` stores the turn's items from
+  the `RunState`, as `to_input_list()` gives them to a completed turn, with a
+  `function_call_output` from the final record of every call that has none,
+  such as the core's steering result. A failed turn stores them before the
+  turn-failure note. The next model call sees every call with its result, and
+  a steered or cancelled turn stores no note. When the `RunState` cannot be
+  read, the session logs a warning and stores its note instead.
 
 ## Testing
 

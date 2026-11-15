@@ -45,6 +45,7 @@ from pydantic import ValidationError
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentFrameworkRunner,
     AgentImageReference,
     AgentMessage,
@@ -88,7 +89,11 @@ from dex_agents_openai_agents._agent_graph import (
     DeferrableAgentGraph,
     DeferrableFunctionTool,
 )
-from dex_agents_openai_agents._images import ImageBytesInputFilter, build_user_image_input_item
+from dex_agents_openai_agents._images import (
+    ImageBytesInputFilter,
+    build_tool_image_outputs,
+    build_user_image_input_item,
+)
 from dex_agents_openai_agents._items import (
     build_user_input_item,
     format_tool_output,
@@ -96,6 +101,7 @@ from dex_agents_openai_agents._items import (
     read_input_items,
 )
 from dex_agents_openai_agents._streaming import forward_stream_events
+from dex_agents_openai_agents._unfinished_turns import read_unfinished_turn_items
 
 _OPAQUE_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
@@ -176,6 +182,11 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     enters as the first input item of a turn's first model call. A resumed model
     call continues from the ``RunState``, which holds its input already, so it
     never compacts. Without a policy nothing changes.
+
+    The runner implements ``UnfinishedTurnMessageBuilder``. When steering,
+    ``cancel_turn``, or a failure ends a turn before its final answer, the
+    session stores the turn's items from the ``RunState``, with a result for
+    every call, instead of a note.
 
     With a ``media_store``, the runner shows images to the model. A user
     message with images becomes one SDK user message whose ``content`` holds
@@ -433,6 +444,52 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
+        """Return the items of a steered, cancelled, or failed turn from its ``RunState``.
+
+        The runner keeps a turn's items in the ``RunState`` until the turn
+        completes. When steering, ``cancel_turn``, or a failure ends the turn
+        first, the session calls this method. It returns the SDK's input items
+        of the turn so far, as ``to_input_list()`` gives them to a completed
+        turn. It adds a ``function_call_output`` for every call of the last
+        model response that has none. That output is what the resumed run
+        would give the model from the call's final record: its output,
+        failure, or rejection text, such as the core's steering result. A call
+        without a final record gets ``OUTCOME_UNKNOWN_TOOL_RESULT``. The next
+        turn's model input then holds every call with its result, and no note.
+
+        .. versionadded:: 0.6.12
+
+        Args:
+            turn: The ending turn, with every record final.
+
+        Returns:
+            The turn's items not stored yet, in order; none when the turn has
+            no run state.
+
+        Raises:
+            ValueError: If the ``RunState`` cannot be read or holds a call that
+                cannot be answered, such as one before the last model response.
+                The session logs it and stores its note instead.
+        """
+        items = read_unfinished_turn_items(turn, self._pending_tool_output)
+        return project_input_items(turn.messages, items, turn.recorded_tool_call)
+
+    def _pending_tool_output(
+        self, function_call: ResponseFunctionToolCall, record: AgentToolCall | None
+    ) -> Any:
+        if record is None or not record.status.is_final:
+            return OUTCOME_UNKNOWN_TOOL_RESULT
+        output = describe_tool_call_outcome(record)
+        name = function_call.name
+        namespace = function_call.namespace
+        qualified_name = f"{namespace}.{name}" if namespace and namespace != name else name
+        tool = self._graph.tools_by_qualified_name.get(qualified_name)
+        # As the gated tool's recorded result: an output schema keeps it text.
+        if self._media_store is None or not record.images or (tool and tool.has_output_schema):
+            return output
+        return build_tool_image_outputs(output, record.images)
 
     def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
         """Estimate the next model input from the stored items and the agents' prompts.
