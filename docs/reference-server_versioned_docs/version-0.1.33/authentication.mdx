@@ -78,7 +78,7 @@ Workers and Clients.
 ## Admin credentials {#admin-credentials}
 
 Admin calls, such as
-[describe and step down](/reference/server/0.1.28/high-availability#step-down), need
+[describe and step down](/reference/server/0.1.33/high-availability#step-down), need
 their own credential. Each **jwt** authenticator can list **adminAudiences**: a
 token from that issuer with one of these audiences is an admin credential. The
 list is empty by default, so no issuer authorizes admin calls until you

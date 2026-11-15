@@ -57,19 +57,28 @@ S3-compatible store, set it to an HTTP or HTTPS URL. Set
 - **s3** (default): Amazon S3 or an S3-compatible store.
 - **db9**, since 0.1.24: db9, a PostgreSQL-compatible database. The server then
   depends on that database instead of object storage. See
-  [db9 provider](/reference/server/0.1.28/object-storage#db9).
+  [db9 provider](/reference/server/0.1.33/object-storage#db9).
 - **aliyunOSS**, since 0.1.27: an Aliyun OSS bucket. See
-  [Aliyun OSS provider](/reference/server/0.1.28/object-storage#aliyun-oss).
+  [Aliyun OSS provider](/reference/server/0.1.33/object-storage#aliyun-oss).
+- **tencentCOS**, since 0.1.31: a Tencent COS bucket. See
+  [Tencent COS provider](/reference/server/0.1.33/object-storage#tencent-cos).
 - **azureBlob** or **googleCloudStorage**, since 0.1.28: Azure Blob Storage or
   Google Cloud Storage through its native API. See
   [Azure Blob Storage and Google Cloud Storage](#azure-gcs).
+
+Since 0.1.31, **objectStore.versionDiscovery** selects how **aliyunOSS** finds
+the newest version of a replaced object: **list**, the default, or **head**.
+**tencentCOS** always uses **head** and rejects **list**. Other providers keep
+no versions and reject the key. Set **head** only on an empty prefix; startup
+checks this on a best-effort basis. A prefix never returns to **list**. See
+[Finding the newest version](/reference/server/0.1.33/object-storage#version-discovery).
 
 A prefix cannot switch providers on existing data.
 
 This configuration runs a single replica, so it sets **lease.duration** to 60
 seconds. No standby can take over a single replica, and the longer lease makes
 fewer lease requests to object storage. With hot standbys, keep the 10-second
-default. [Lease, hot standby, and step down](/reference/server/0.1.28/high-availability#lease)
+default. [Lease, hot standby, and step down](/reference/server/0.1.33/high-availability#lease)
 explains the trade-off.
 
 A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
@@ -114,8 +123,8 @@ objectStore:
 
 Leave **objectStore.endpoint** empty and **objectStore.forcePathStyle** false.
 The server connects to the cloud's public endpoint. **objectStore.region** and
-**commit.multipartThresholdBytes** apply only to the **s3** and **aliyunOSS**
-providers. **dev** and **local**
+**commit.multipartThresholdBytes** apply only to the **s3**, **aliyunOSS**, and
+**tencentCOS** providers. **dev** and **local**
 reject both providers.
 
 ### Credentials {#azure-gcs-credentials}
@@ -202,8 +211,9 @@ on a new, empty prefix.
 
 **objectStore.hardDeleteStore** takes **provider** and **azureAccount** too,
 with the same rules. Its **provider** can be **s3**, **aliyunOSS**,
-**azureBlob**, or **googleCloudStorage**, but not **db9**. Without one, it uses
-**aliyunOSS** when the primary store does, and **s3** otherwise. With
+**tencentCOS** (since 0.1.31), **azureBlob**, or **googleCloudStorage**, but not
+**db9**. Without one, it uses **aliyunOSS** or **tencentCOS** when the primary
+store does, and **s3** otherwise. With
 **environment** credentials, it reads
 **DEX_ZD_HARD_DELETE_STORE_AZURE_ACCOUNT_KEY** or
 **DEX_ZD_HARD_DELETE_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH**.
@@ -293,7 +303,9 @@ spelled **strict**, **process-crash-safe**, and **relaxed**.
 | **processCrashSafe** | A process kill. A host crash or power loss can lose recent writes. | Faster. Every write reaches the files before the reply, without fsync. |
 | **relaxed** | Only a graceful stop. | Writes stay in memory until a graceful stop. After an abrupt exit, every start fails until you delete the data directory. |
 
-Keep the default **strict** mode in production.
+Keep the default **strict** mode in production. Since 0.1.29, the running
+server reports its mode; see
+[Effective configuration](#effective-configuration).
 
 ### Application bucket {#single-node-application-bucket}
 
@@ -331,7 +343,7 @@ process per data directory.
 On SIGTERM, **local** waits for running Step attempts for up to
 **lifecycle.attemptDrainTimeout**, 30 seconds by default. It then stops as
 described in
-[Graceful shutdown](/reference/server/0.1.28/kubernetes#graceful-shutdown). Give a
+[Graceful shutdown](/reference/server/0.1.33/kubernetes#graceful-shutdown). Give a
 service manager at least 45 seconds to stop it.
 
 [Streams](#streams) use the **memory** backend by default, as in **serve**.
@@ -340,10 +352,10 @@ Stream messages are lost when the process stops or restarts.
 **local** listens on **127.0.0.1:8801** by default, so only the same host can
 reach it. To serve clients and Workers on other hosts, pass
 **--listen 0.0.0.0:8801** or set **api.listen** in the overrides. **local** has
-no [authentication](/reference/server/0.1.28/authentication) unless the overrides
+no [authentication](/reference/server/0.1.33/authentication) unless the overrides
 configure authenticators. When it listens on a non-loopback address without
 authenticators, it logs a warning at startup. Configure authentication before
-you expose it. To turn on [metrics](/reference/server/0.1.28/metrics), set
+you expose it. To turn on [metrics](/reference/server/0.1.33/metrics), set
 **metrics.listen** in the overrides.
 
 ### Disk use {#single-node-local-disk}
@@ -379,7 +391,7 @@ To restore, stop **local**, replace the data directory with the copy, and
 start **local** again. Writes acknowledged after the backup are lost.
 
 The general rules in
-[Backup and restore](/reference/server/0.1.28/object-storage#backup-and-restore) apply
+[Backup and restore](/reference/server/0.1.33/object-storage#backup-and-restore) apply
 too. With a PostgreSQL or ParadeDB search backend, the restored data directory
 needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 
@@ -413,11 +425,32 @@ Each Flow run records the value when it starts. A new value applies only to
 Flow runs that start after the node restarts with it. Flow runs that already
 started keep their recorded duration.
 
+The server accepts any positive duration. To confirm the value that a running
+server uses, read it back as described in
+[Effective configuration](#effective-configuration).
+
 From server-zd v0.1.8, a transactional or locking RPC on a closed Flow run
 returns NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A
 retry with an already recorded request ID returns its earlier reply. Other RPCs
 still run their handlers on a closed Flow run that is not yet purged, so they
 can read it. server-zd rejects any write that such a handler returns.
+
+### Retention and start deduplication {#retention-and-start-deduplication}
+
+Start deduplication depends on the Flow run still existing:
+
+- **One Flow per ID** holds while any run of that Flow ID exists. With the
+  default ID reuse policy, a second start of the same ID is rejected, or
+  returns the existing run with the already-started option.
+- **A repeated start request** returns the run it started for as long as that
+  run exists.
+
+Dex deletes a closed run after **retention.closedFlowDuration**. The Flow ID is
+then free, so a start with the same ID creates a new Flow. That Flow repeats
+its external effects, such as a charge, unless the external service still
+drops the repeated idempotency key. Keep retention longer than the longest time
+a client can retry, or record the business state in your own table and check it
+before you start.
 
 ## History window {#history-window}
 
@@ -451,7 +484,7 @@ is an invalid Worker response: the Step attempt fails and is retried under the
 Step's retry policy.
 
 History reads, such as **dexcli flow history --all**, return only the retained
-events. [Time travel](/reference/server/0.1.28/runtime-client#time-travel) can target only
+events. [Time travel](/reference/server/0.1.33/runtime-client#time-travel) can target only
 a point inside the window. Time travel to the beginning is always available.
 
 Each history page also reports the range of event IDs that the window removed.
@@ -660,7 +693,7 @@ logs an error, and increments
 
 Uploads never delay commands. While object storage fails them, they retry with
 backoff, sealed segments stay on local disk, and the upload backlog metrics
-grow; see [Metrics](/reference/server/0.1.28/metrics). A permanent rejection, such as
+grow; see [Metrics](/reference/server/0.1.33/metrics). A permanent rejection, such as
 denied access, is retried once a minute instead. Retention postpones the
 deletion of a closed Flow run until its sealed segments are uploaded.
 
@@ -704,6 +737,7 @@ than the whole budget exceeds it, and that segment uploads alone. The budget
 does not count the rows an upload reads from local disk before it reserves, or
 the compressor's working state.
 
+At the **verbose** [metrics level](#metrics),
 **dexzd_history_upload_concurrency_limit** shows the current limit, and
 **dexzd_history_upload_in_flight_bytes** shows the reserved bytes. To keep the limit
 fixed, set **history.uploadMinConcurrency** and **history.uploadConcurrency** to
@@ -776,6 +810,15 @@ A request that a limit rejects fails at once; it does not wait for capacity.
 The request ID limit never rejects a request; instead, the server forgets the
 oldest request IDs.
 
+Dex Server deduplicates an RPC that reuses a request ID it still keeps: the
+newest 1,000 request IDs per run, set by **limits.maxRequestIdsPerRun**. A
+retry with an older request ID runs as a new request. By default, SDKs send a
+new request ID on each call and reuse one only when they resend a request that
+never ran, such as after an authentication refresh. Calling an RPC again from
+your code therefore runs it again, unless your code passes the same request ID
+on each call. [RPC request IDs](/reference/server/0.1.33/runtime-data#rpc-request-ids)
+describes which repeats run the handler again and which RPCs keep no request ID.
+
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
@@ -813,6 +856,42 @@ Changed in 0.1.23: the rows of completed Steps and of Steps canceled without a F
 
 Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the bookkeeping rows of superseded values. Those rows wait for the history window or for an upload, like history. Before, a run that offloads history and rewrites values often could fill a small budget with them before its first history segment was sealed and uploaded.
 
+## Metrics {#metrics}
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| **metrics.listen** | empty | Address of the plain HTTP **GET /metrics** listener, such as **0.0.0.0:9090**. Empty turns the endpoint off. |
+| **metrics.level** | **advanced** | Since 0.1.29. Which metric families the endpoint exports: **basic**, **advanced**, or **verbose**. Each level includes every family of the levels below it. It applies only while **metrics.listen** is set. |
+
+The endpoint has no authentication, so never expose it publicly. See
+[Metrics and alerts](/reference/server/0.1.33/metrics#metrics-levels) for what each
+level exports.
+
+Changed in 0.1.29: the default **advanced** level no longer exports the
+**verbose** families or the Linux **process_** metrics. Set
+**metrics.level** to **verbose** to export every family.
+
+## Effective configuration {#effective-configuration}
+
+Since 0.1.29, the server logs the values it runs with for these keys at
+startup: **retention.closedFlowDuration**, **values.maxValueBytes**,
+**limits.maxFlowStateBytes**, **lifecycle.attemptDrainTimeout**, and
+**metrics.level**. **dev** and **local** also log **dev.durabilityMode**. Each
+value is the one in effect: a key the configuration leaves unset logs its
+default, including the 2-second **lifecycle.attemptDrainTimeout** of **dev**,
+and a **--durability** flag logs the mode it selected.
+
+The server writes them in one INFO line with the message **effective
+configuration** and these fields: **closed_flow_retention_seconds**,
+**max_value_bytes**, **max_flow_state_bytes**,
+**attempt_drain_timeout_seconds**, **metrics_level**, and, for **dev** and
+**local**, **durability_mode**. **metrics_level** and **durability_mode** use
+their YAML spelling.
+
+~~~text
+INFO dexzd_server::config: effective configuration closed_flow_retention_seconds=2592000.0 max_value_bytes=16777216 max_flow_state_bytes=67108864 attempt_drain_timeout_seconds=30.0 metrics_level="advanced" durability_mode="strict"
+~~~
+
 ## Flow definitions {#flow-definitions}
 
 Since 0.1.26. **flowDefinitions.maxDefinitionBytes** (default 8388608, 8 MiB,
@@ -820,7 +899,7 @@ must be positive) is the largest Flow Definition Graph document that
 **UploadFlowDefinitions** stores. A larger document fails with
 **INVALID_ARGUMENT**. One upload request must also fit in
 **api.grpcMaxMessageBytes**. See
-[Flow definitions](/reference/server/0.1.28/runtime-client#flow-definitions).
+[Flow definitions](/reference/server/0.1.33/runtime-client#flow-definitions).
 
 ~~~yaml
 flowDefinitions:
@@ -841,8 +920,9 @@ load. Each key takes effect when the node starts.
 | **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
 | **commit.batchWindow** | 20ms | How long an ASYNC command waits for more commands before its batch is sealed. A SYNC command seals its batch at once while the write pipeline has room. Both write the same data. The speculation limits apply to both, so Step proposals retry without failing the Step, while Client calls can get UNAVAILABLE. |
 | **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
+| **commit.maxInFlight** | 4 | Most log batches that the node writes to object storage at once. Must be positive. Since 0.1.31, **objectStore.provider: tencentCOS** also limits it to 32. A Tencent COS listing can miss the newest log batches for a few seconds, so recovery after a restart or failover checks the next 32 seqs past the last batch it knows of, and repeats from each batch it finds, until 32 seqs in a row are absent. |
 | **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |
-| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. |
+| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. Since 0.1.31, **objectStore.provider: tencentCOS** also limits it to 1 GiB, because each snapshot file is one object of at most 5 GiB. |
 | **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, from 2 to 1024 | Most RocksDB flushes and compactions that run at once. RocksDB starts one thread for each job. An explicit value must be from 1 to 1024. |
 | **localStorage.maxSubcompactions** | 1 | Threads that one RocksDB compaction may split into. A larger value can reduce write stalls under sustained writes. |
 
