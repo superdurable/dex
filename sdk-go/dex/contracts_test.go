@@ -396,6 +396,35 @@ func TestPublicContractsCompile(t *testing.T) {
 	if !errors.As(err, &definition) {
 		t.Fatalf("unregistered Flow error is not FlowDefinitionError: %v", err)
 	}
+	cloneRequestID := "clone-request"
+	var cloneForkFlow func(
+		*dex.Client, context.Context, dex.Flow, string, string, dex.CloneForkFlowOptions,
+	) (dex.CloneForkFlowResult, error) = (*dex.Client).CloneForkFlow
+	_ = cloneForkFlow
+	_ = dex.CloneForkFlowOptions{
+		SourceRunID:        "run-1",
+		SourceRunAttempt:   1,
+		Type:               dex.TimeTravelByEventID,
+		EventID:            12,
+		IDReusePolicy:      dex.IDReuseAllowIfNotRunning,
+		AlreadyStarted:     &dex.AlreadyStartedOptions{IgnoreError: true},
+		RequestID:          &cloneRequestID,
+		ConfigOverride:     &dex.FlowConfig{},
+		TaskQueue:          "tenant-a",
+		Timeout:            ptr.Any(time.Minute),
+		Reason:             "branch",
+		SubFlowResetPolicy: dex.SubFlowResetAttachElseReject,
+	}
+	_ = dex.CloneForkFlowResult{RunID: "run-2", SourceRunID: "run-1", SourceRunAttempt: 1, SourceEventID: 12}
+	_ = dex.TimeTravelOptions{Type: dex.TimeTravelByEventID, EventID: 12, SubFlowResetPolicy: dex.SubFlowResetAlwaysFail}
+	_ = []dex.SubFlowResetPolicy{
+		dex.SubFlowResetDefault,
+		dex.SubFlowResetAlwaysRestart,
+		dex.SubFlowResetAlwaysReject,
+		dex.SubFlowResetAttachElseRestart,
+		dex.SubFlowResetAttachElseFail,
+	}
+	_ = dex.TimeTravelToCurrent
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -619,6 +648,10 @@ var _ error = &dex.HardDeleteAttributeUnsupportedError{
 	AttributeName:                 "contract-secret",
 	NegotiatedServerProtocol:      2,
 	RequiredServerProtocolVersion: 3,
+}
+var _ error = &dex.CloneForkFlowUnsupportedError{
+	NegotiatedServerProtocol:      5,
+	RequiredServerProtocolVersion: 6,
 }
 var _ error = &dex.TaskQueueUnsupportedError{
 	TaskQueue:                     "tenant-a",

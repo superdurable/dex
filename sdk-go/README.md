@@ -1088,6 +1088,14 @@ Client methods target the current run by sending an empty run ID. This always
 reaches the Flow's current run. `StartFlow` and `TimeTravel` return run IDs for
 diagnostics, while normal calls need only the flow ID.
 
+`CloneForkFlow` creates a new Flow from a point of another Flow run, while the
+source keeps running. It takes the source run's registered Flow, the source and
+new Flow IDs, and `CloneForkFlowOptions`, which select the point the way
+`TimeTravelOptions` do; the zero value copies the current state. It returns
+`CloneForkFlowResult` with the new run ID and the copied source point. It needs
+Server protocol 6 (server-zd 0.1.33 or later) and returns
+`*CloneForkFlowUnsupportedError` against an older Server.
+
 `ClientOptions.Credential` and `WorkerOptions.Credential` send a bearer
 credential with every FlowService call. A Dex server with authentication enabled
 requires one on every public API call. `dex.FileCredential(path)` reads a
@@ -1260,7 +1268,8 @@ if errors.As(err, &inactive) {
 ```
 
 `FlowNotFoundError` is returned by operations requiring an existing Flow,
-including DescribeFlow, GetAttributes, WaitForFlow, and TimeTravel. RPCs, timer operations,
+including DescribeFlow, GetAttributes, WaitForFlow, TimeTravel, and CloneForkFlow for
+its source Flow. RPCs, timer operations,
 and step or attribute waits return `FlowNotActiveOrNotFoundError` when no active
 Flow is available.
 

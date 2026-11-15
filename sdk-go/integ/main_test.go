@@ -152,6 +152,7 @@ func integrationFlows() []dex.Flow {
 		requestIDCounterFlow{},
 		selectiveRPCFlow{},
 		channelFlow{},
+		cloneForkSessionFlow{},
 		joinFlow{},
 		streamTestFlow{},
 		heartbeatRecoveryFlow{},
