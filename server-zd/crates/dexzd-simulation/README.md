@@ -609,9 +609,19 @@ is still detected at the same command:
 | `retry-fresh-snapshot.patch` | `161503589` | `S5-retained-snapshot`, command 26. |
 | Remove `\|\| scope.is_replay` from both request-deduplication guards. | `1592590341` | `apply-error`: replayed command rejected, command 500. |
 
-The Attribute Sync mutant has no detecting seed, and the model-stamp revert for `2204788261`
-was not rerun; both stay as described above. Seed `1592590450` (400 commands) was added in #1372
-to cover an abandoned history migration. It started no history migration either before or
+The Attribute Sync mutant has no detecting seed and stays as described above.
+
+The model-stamp revert was rerun in a scratch source copy with its own Cargo target. It drops
+the run attempt that `invocation_envelope` stamps on invocation commands and the one that a
+redelivered result copies. Seed `2204788261` then completes all 1,000 commands without an
+invariant failure, as it did after the event-counted window change, so it stays a historical
+case. No replacement seed was found: under the same mutation, the 500 seeds from `3000000000`
+at 1,000 commands each and every regression seed also completed without an invariant failure.
+The deterministic test `worker_commands_keep_their_dispatched_run_attempt_on_redelivery` still
+fails on the mutant, because it requires every Worker command to carry its dispatched run
+attempt.
+
+Seed `1592590450` (400 commands) was added in #1372 to cover an abandoned history migration. It started no history migration either before or
 after this change, so it is a historical case; the seed set still abandons one.
 
 ### Running
