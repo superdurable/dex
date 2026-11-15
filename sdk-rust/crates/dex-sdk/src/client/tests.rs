@@ -362,6 +362,54 @@ mod hard_delete {
     }
 
     #[test]
+    fn clone_fork_flow_rejects_protocol_five_before_sending() {
+        let server = ProtocolServer::new(5);
+        let directory = tempfile::tempdir().unwrap();
+        let client = client_for(&server.address, &directory);
+        let error = client
+            .clone_fork_flow(
+                &HardDeleteClientFlow,
+                "source",
+                "clone",
+                crate::CloneForkFlowOptions::new(),
+            )
+            .unwrap_err();
+        assert!(matches!(error, SdkError::Service { .. }), "{error:?}");
+        let message = error.to_string();
+        assert!(message.contains("protocol version 6 or later"), "{message}");
+        assert!(message.contains("server-zd 0.1.33"), "{message}");
+        assert_eq!(
+            *server.paths.lock().unwrap(),
+            ["/dex.FlowService/GetServerInfo"]
+        );
+
+        server.version.store(6, Ordering::SeqCst);
+        let directory = tempfile::tempdir().unwrap();
+        let client = client_for(&server.address, &directory);
+        let sent = client
+            .clone_fork_flow(
+                &HardDeleteClientFlow,
+                "source",
+                "clone",
+                crate::CloneForkFlowOptions::new().initial_attribute(&PLAIN_NOTE, "copied".into()),
+            )
+            .unwrap_err();
+        assert_eq!(
+            sent.service_error().map(crate::ServiceError::code),
+            Some(tonic::Code::Unimplemented)
+        );
+        assert!(
+            server
+                .paths
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|path| path == "/dex.FlowService/CloneForkFlow")
+        );
+        server.finish();
+    }
+
+    #[test]
     fn client_retries_transient_negotiation_then_caches_success() {
         let server = ProtocolServer::new(u32::MAX);
         let directory = tempfile::tempdir().unwrap();

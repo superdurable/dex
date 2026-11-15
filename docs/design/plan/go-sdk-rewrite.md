@@ -1574,6 +1574,7 @@ The remaining calls map as follows:
 | `StopFlow` | zero type cancels; terminate/fail preserve the optional reason |
 | `SearchFlows` | validates non-negative page size and maps full flow metadata |
 | `TimeTravel` | validates the field required by the selected time travel type and returns a non-empty new run ID |
+| `CloneForkFlow` | validates the selected point like `TimeTravel` (zero type selects the current point), generates a request ID when none is set, fails with `CloneForkFlowUnsupportedError` below Server protocol 6, and returns the new run ID with the copied source point |
 | `UpdateFlowConfig` | maps a partial config and preserves pointer presence |
 | `HealthCheck` | maps the returned health record; it is also the explicit readiness check |
 
@@ -2614,6 +2615,7 @@ The remaining FlowService operations use non-generic public types:
 | `GetFlowSummary` | `Client.DescribeFlow(ctx, flowID)` returns `FlowInfo` for the current or latest run without waiting |
 | `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
 | `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
+| `CloneForkFlow` | `Client.CloneForkFlow(ctx, flow, sourceFlowID, flowID, CloneForkFlowOptions)` returns `CloneForkFlowResult` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
 | `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
 | `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID, WaitForStepCompletionOptions)` |
@@ -2845,6 +2847,21 @@ const (
 	TimeTravelByHistoryEventTime
 	TimeTravelByStepType
 	TimeTravelByStepExecutionID
+	TimeTravelByEventID
+	// TimeTravelToCurrent is valid only for CloneForkFlow.
+	TimeTravelToCurrent
+)
+
+type SubFlowResetPolicy uint8
+
+const (
+	SubFlowResetDefault SubFlowResetPolicy = iota
+	SubFlowResetAlwaysRestart
+	SubFlowResetAlwaysFail
+	SubFlowResetAlwaysReject
+	SubFlowResetAttachElseRestart
+	SubFlowResetAttachElseFail
+	SubFlowResetAttachElseReject
 )
 
 type TimeTravelStepMethod uint8
@@ -2862,6 +2879,35 @@ type TimeTravelOptions struct {
 	StepExecutionID            string
 	StepMethod                 TimeTravelStepMethod
 	SkipWritesReapply          bool
+	EventID                    int64
+	SubFlowResetPolicy         SubFlowResetPolicy
+}
+
+type CloneForkFlowOptions struct {
+	SourceRunID        string
+	SourceRunAttempt   int32
+	Type               TimeTravelType // zero selects TimeTravelToCurrent
+	HistoryEventTime   time.Time
+	StepType           string
+	StepExecutionID    string
+	StepMethod         TimeTravelStepMethod
+	EventID            int64
+	IDReusePolicy      IDReusePolicy
+	AlreadyStarted     *AlreadyStartedOptions
+	RequestID          *string
+	ConfigOverride     *FlowConfig
+	TaskQueue          string
+	Attributes         []InitialAttributeDef
+	Timeout            *time.Duration
+	Reason             string
+	SubFlowResetPolicy SubFlowResetPolicy
+}
+
+type CloneForkFlowResult struct {
+	RunID            string
+	SourceRunID      string
+	SourceRunAttempt int32
+	SourceEventID    int64
 }
 ```
 

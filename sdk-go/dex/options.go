@@ -779,6 +779,80 @@ const (
 	TimeTravelByStepType
 	// TimeTravelByStepExecutionID resumes before an exact Step execution.
 	TimeTravelByStepExecutionID
+	// TimeTravelByEventID resumes right after the change that recorded a history event.
+	//
+	// Set TimeTravelOptions.EventID or CloneForkFlowOptions.EventID to the event's ID, as the
+	// Server's history events report it. Events recorded together, such as a Step completion
+	// and the Steps it starts, share one point, so the restored state includes them all. An
+	// event inside a Step attempt resolves to the next point where the Flow can stop. The event
+	// must still be in the run's history window.
+	//
+	// Since 1.45.5.
+	TimeTravelByEventID
+	// TimeTravelToCurrent selects the latest committed state of the source run's current run
+	// attempt. Only Client.CloneForkFlow accepts it; it is also CloneForkFlowOptions' default.
+	// Client.TimeTravel rejects it, because a Flow cannot return to the state it is in.
+	//
+	// Since 1.45.5.
+	TimeTravelToCurrent
+)
+
+// SubFlowResetPolicy decides what happens to a SubFlow condition that a restored Step still
+// waits on.
+//
+// Client.TimeTravel and Client.CloneForkFlow restore Steps from an earlier state. A restored
+// Step whose WaitFor waits on SubFlow conditions names, in each condition, the child Flow that
+// the Step started. The policy decides, per condition, whether the restored wait attaches to
+// that child, restarts the child, fails the condition, or rejects the whole call.
+//
+// Attaching keeps the condition on its original child. When the child run has ended, its
+// result completes the condition. When the child still runs, the condition keeps waiting for
+// it. A child whose run no longer exists cannot be attached; the AttachElse policies then take
+// their second action. Under CloneForkFlow, the source run's children report only to the
+// source run, so a child that still runs cannot be attached either.
+//
+// Restarting starts the child again with the start it originally received. Under TimeTravel,
+// the child keeps its Flow ID and a still-running run of it is terminated first. Under
+// CloneForkFlow, the restart starts a new child Flow whose Flow ID derives from the new Flow
+// ID, and the source run's child never changes. A child whose run no longer exists cannot be
+// restarted, and the call fails.
+//
+// Failing completes the condition with a failed child result whose error type is
+// FlowErrorSubFlowAbandoned; the Step's Execute receives it like any failed child. Under
+// TimeTravel, a child that still runs is terminated.
+//
+// Rejecting fails the call with a *ServiceError whose Code is codes.FailedPrecondition, and
+// nothing changes. Its Detail names each Step execution and child Flow ID that caused it.
+//
+//	_, err := client.TimeTravel(ctx, "order-123", dex.TimeTravelOptions{
+//		Type:               dex.TimeTravelByStepType,
+//		StepType:           "ShipOrder",
+//		SubFlowResetPolicy: dex.SubFlowResetAttachElseFail,
+//	})
+//
+// Since 1.45.5.
+type SubFlowResetPolicy uint8
+
+const (
+	// SubFlowResetDefault leaves the choice to the Server, which uses
+	// SubFlowResetAttachElseRestart.
+	SubFlowResetDefault SubFlowResetPolicy = iota
+	// SubFlowResetAlwaysRestart restarts every child, whether it ended or still runs.
+	SubFlowResetAlwaysRestart
+	// SubFlowResetAlwaysFail fails every condition, whether its child ended or still runs.
+	SubFlowResetAlwaysFail
+	// SubFlowResetAlwaysReject rejects the call when any restored Step waits on a SubFlow
+	// condition.
+	SubFlowResetAlwaysReject
+	// SubFlowResetAttachElseRestart attaches each condition to its child and restarts a child
+	// that cannot be attached.
+	SubFlowResetAttachElseRestart
+	// SubFlowResetAttachElseFail attaches each condition to its child and fails a condition
+	// whose child cannot be attached.
+	SubFlowResetAttachElseFail
+	// SubFlowResetAttachElseReject attaches each condition to its child and rejects the call
+	// when a child cannot be attached.
+	SubFlowResetAttachElseReject
 )
 
 // TimeTravelStepMethod selects the Step method used as a time travel boundary.
@@ -807,4 +881,113 @@ type TimeTravelOptions struct {
 	StepMethod TimeTravelStepMethod
 	// SkipWritesReapply prevents replay of later RPCs, Channel publications, and Attribute writes; false reapplies them.
 	SkipWritesReapply bool
+	// EventID supplies the history event ID for TimeTravelByEventID. It must be positive for
+	// that type and zero for the others.
+	//
+	// Since 1.45.5.
+	EventID int64
+	// SubFlowResetPolicy decides what happens to the SubFlow conditions that restored Steps
+	// wait on. SubFlowResetDefault, the zero value, uses SubFlowResetAttachElseRestart.
+	//
+	// Since 1.45.5.
+	SubFlowResetPolicy SubFlowResetPolicy
+}
+
+// CloneForkFlowOptions configures Client.CloneForkFlow: the copied point of the source run and
+// the start of the new Flow.
+//
+// The zero value copies the latest committed state of the source Flow's latest run, keeps the
+// source run's Flow configuration, task queue, and Flow timeout duration, and sends a new
+// SDK-generated request ID.
+//
+// The point fields work as in TimeTravelOptions. Type selects which one Dex reads:
+//
+//   - zero or TimeTravelToCurrent: the latest committed state of the current run attempt;
+//   - TimeTravelToBeginning: the state right after the source run started;
+//   - TimeTravelByHistoryEventTime: HistoryEventTime;
+//   - TimeTravelByStepType: StepType;
+//   - TimeTravelByStepExecutionID: StepExecutionID and StepMethod;
+//   - TimeTravelByEventID: EventID.
+//
+// Every point other than the current one must be inside the source run's history window.
+// The state at the point must be running.
+//
+//	requestID := "branch-" + sessionID
+//	result, err := client.CloneForkFlow(ctx, SessionFlow{}, sessionID, sessionID+"-branch", dex.CloneForkFlowOptions{
+//		Type:      dex.TimeTravelByEventID,
+//		EventID:   42,
+//		RequestID: &requestID,
+//		Reason:    "try another answer",
+//	})
+//
+// Since 1.45.5.
+type CloneForkFlowOptions struct {
+	// SourceRunID selects the source run of the source Flow ID. Empty, the default, selects the
+	// latest run. The source run may be closed.
+	SourceRunID string
+	// SourceRunAttempt selects the run attempt of the source run whose history holds the point.
+	// Zero, the default, selects the current run attempt. The current point accepts only zero.
+	SourceRunAttempt int32
+	// Type selects the copied point. Zero selects TimeTravelToCurrent.
+	Type TimeTravelType
+	// HistoryEventTime supplies the time for TimeTravelByHistoryEventTime.
+	HistoryEventTime time.Time
+	// StepType supplies the stable Step type for TimeTravelByStepType.
+	StepType string
+	// StepExecutionID supplies the exact execution for TimeTravelByStepExecutionID.
+	StepExecutionID string
+	// StepMethod selects WaitFor or Execute when Type is TimeTravelByStepExecutionID.
+	StepMethod TimeTravelStepMethod
+	// EventID supplies the history event ID for TimeTravelByEventID.
+	EventID int64
+	// IDReusePolicy decides whether CloneForkFlow may start a run for a Flow ID that already
+	// has a run, as StartFlowOptions.IDReusePolicy does for StartFlow.
+	IDReusePolicy IDReusePolicy
+	// AlreadyStarted chooses the result when Dex does not start a new run, as for StartFlow.
+	// IgnoreError returns the existing run only when RequestID matches the request that
+	// created it.
+	AlreadyStarted *AlreadyStartedOptions
+	// RequestID identifies one logical clone fork. Nil, the default, sends a new SDK-generated
+	// UUID. Set a stable ID, together with AlreadyStarted.IgnoreError, to retry a call whose
+	// outcome is unknown: a retry with the request ID of the new Flow's latest run copies
+	// nothing again. A non-nil RequestID must not be empty.
+	RequestID *string
+	// ConfigOverride changes the Flow configuration copied from the source run. Nil fields keep
+	// the source run's values.
+	ConfigOverride *FlowConfig
+	// TaskQueue names the task queue of the new Flow. Empty, the default, keeps the source
+	// run's task queue; DefaultTaskQueue selects the default task queue. Set a task queue when
+	// Workers pick their Flows by task queue, so that the source run's Workers do not run the
+	// new Flow's Steps. Names follow StartFlowOptions.TaskQueue.
+	TaskQueue string
+	// Attributes are Attribute writes applied after the copy, in the same change that creates
+	// the new Flow. Build them with InitialAttribute and InitialAttributeMapValue of the Flow
+	// passed to CloneForkFlow.
+	Attributes []InitialAttributeDef
+	// Timeout sets the new Flow's Flow timeout, counted from the call, in whole seconds. Nil
+	// or zero keeps the source run's Flow timeout duration, also counted from the call; a
+	// source run without a Flow timeout gives a new Flow without one. The new Flow keeps the
+	// source run's timeout policy and handler options. Negative values are rejected.
+	Timeout *time.Duration
+	// Reason explains the clone fork. Dex records it with the new Flow's start.
+	Reason string
+	// SubFlowResetPolicy decides what happens to the SubFlow conditions that copied Steps wait
+	// on. SubFlowResetDefault, the zero value, uses SubFlowResetAttachElseRestart. A child that
+	// ended attaches; a child that still runs takes the policy's second action.
+	SubFlowResetPolicy SubFlowResetPolicy
+}
+
+// CloneForkFlowResult describes the Flow run that Client.CloneForkFlow created and the copied
+// point of the source run.
+//
+// Since 1.45.5.
+type CloneForkFlowResult struct {
+	// RunID is the run ID of the new Flow's run.
+	RunID string
+	// SourceRunID is the run ID of the source run.
+	SourceRunID string
+	// SourceRunAttempt is the run attempt of the source run that holds the copied point.
+	SourceRunAttempt int32
+	// SourceEventID is the ID of the last source history event that the copied point includes.
+	SourceEventID int64
 }

@@ -14,9 +14,12 @@ import io.superdurable.gen.ServerInfo;
 
 final class ServerProtocolCompatibility {
     static final int MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4;
-    static final int MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 5;
+    static final int MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 6;
     static final int HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3;
     static final int NAMED_TASK_QUEUE_PROTOCOL_VERSION = 5;
+    static final int CLONE_FORK_FLOW_PROTOCOL_VERSION = 6;
+    // The first server-zd release that serves CLONE_FORK_FLOW_PROTOCOL_VERSION.
+    static final String CLONE_FORK_FLOW_SERVER_RELEASE = "server-zd 0.1.33";
     // The first server-zd release line that serves MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION.
     private static final String MINIMUM_SERVER_RELEASE = "server-zd newer than v0.1.16";
 

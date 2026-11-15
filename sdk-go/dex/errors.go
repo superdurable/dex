@@ -197,6 +197,42 @@ func (e *TaskQueueUnsupportedError) Error() string {
 	)
 }
 
+// CloneForkFlowUnsupportedError reports a Client.CloneForkFlow call to a Server that has no
+// CloneForkFlow.
+//
+// CloneForkFlow requires Server protocol version 6 or later, which server-zd 0.1.33 and later
+// releases provide. Client.CloneForkFlow returns this error before it sends the request when
+// the Server negotiated an older protocol. Nothing was created. Upgrade the Dex Server to
+// resolve it.
+//
+// Example:
+//
+//	var unsupported *dex.CloneForkFlowUnsupportedError
+//	if errors.As(err, &unsupported) {
+//		log.Printf("upgrade Dex: CloneForkFlow needs protocol %d", unsupported.RequiredServerProtocolVersion)
+//	}
+//
+// Since 1.45.5.
+type CloneForkFlowUnsupportedError struct {
+	// NegotiatedServerProtocol is the protocol version agreed with the Server.
+	NegotiatedServerProtocol uint32
+	// RequiredServerProtocolVersion is the minimum Server protocol version for CloneForkFlow.
+	RequiredServerProtocolVersion uint32
+}
+
+// Error describes the required Server protocol version and server-zd release.
+func (e *CloneForkFlowUnsupportedError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf(
+		"dex: CloneForkFlow requires Server protocol %d or later (%s or later), but the Server negotiated %d",
+		e.RequiredServerProtocolVersion,
+		cloneForkFlowServerZDRelease,
+		e.NegotiatedServerProtocol,
+	)
+}
+
 // ValueMappingError reports a Dex value conversion failure.
 type ValueMappingError struct {
 	// Operation describes whether encoding, decoding, indexing, or hydration failed.

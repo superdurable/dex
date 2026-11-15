@@ -31,7 +31,10 @@ import io.superdurable.dex.exceptions.RequestTimeoutException;
 import io.superdurable.dex.exceptions.ValueMappingException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
+import io.superdurable.gen.CloneForkFlowRequest;
+import io.superdurable.gen.CloneForkFlowResponse;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
+import io.superdurable.gen.FlowCloneForkPointType;
 import io.superdurable.gen.FlowRunID;
 import io.superdurable.gen.FlowResetStepMethod;
 import io.superdurable.gen.FlowResetType;
@@ -1304,19 +1307,40 @@ public final class Client implements AutoCloseable {
      * replayed after the selected point repeat, so effect keys built only from the Flow, run, and
      * Step execution IDs treat the re-run as a duplicate.
      *
+     * <p>Changed in 1.45.2: accepts {@link TimeTravelType#EVENT_ID} and sends
+     * {@link TimeTravelOptions.Builder#subFlowResetPolicy(SubFlowResetPolicy)}.
+     *
      * @param flowId the target Flow ID
      * @param options the time travel point and replay behavior
      * @return the run ID of the time-traveled Flow, which is unchanged by time travel
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
      * @throws IllegalStateException if the Dex Server does not support protocol version 4
+     * @throws IllegalArgumentException if the type is {@link TimeTravelType#CURRENT}, an event ID
+     *     is set for another type, or {@link TimeTravelType#EVENT_ID} has an invalid selector.
      */
     public String timeTravel(final String flowId, final TimeTravelOptions options) {
+        if (options.getType() == TimeTravelType.CURRENT) {
+            throw new IllegalArgumentException(
+                    "timeTravel point CURRENT is valid only for cloneForkFlow");
+        }
+        if (options.getType() != TimeTravelType.EVENT_ID && options.isEventIdSet()) {
+            throw new IllegalArgumentException("timeTravel eventId requires EVENT_ID");
+        }
+        if (options.getType() == TimeTravelType.EVENT_ID) {
+            validateHistoryPoint("timeTravel", options.getType(), options.getHistoryEventTime(),
+                    options.getStepType(), options.getStepExecutionId(), options.getStepMethod(),
+                    options.getEventId());
+        }
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
                 .setFlowId(flowId)
                 .setResetType(mapTimeTravelType(options.getType()))
                 .setReason(options.getReason() == null ? "" : options.getReason())
-                .setSkipWritesReapply(options.isSkipWritesReapply());
+                .setSkipWritesReapply(options.isSkipWritesReapply())
+                .setSubFlowResetPolicy(mapSubFlowResetPolicy(options.getSubFlowResetPolicy()));
+        if (options.getType() == TimeTravelType.EVENT_ID) {
+            request.setEventId(options.getEventId());
+        }
         if (options.getHistoryEventTime() != null) {
             request.setHistoryEventTime(options.getHistoryEventTime().toString());
         }
@@ -1333,6 +1357,88 @@ public final class Client implements AutoCloseable {
                 () -> service.resetFlow(request.build()),
                 FlowTargetRequirement.EXISTING,
                 flowId).getRunId();
+    }
+
+    /**
+     * Creates a new Flow whose first run starts from a copy of another Flow run's state at one
+     * point.
+     *
+     * <p>The source run is the run of {@code sourceFlowId} that
+     * {@link CloneForkFlowOptions.Builder#sourceRunId(String)} selects; empty selects the latest
+     * run. The options select the copied point, as for {@link #timeTravel}; the default copies the
+     * latest committed state. Dex copies the source run's Attributes, pending Channel messages,
+     * Step executions, waits, and timers at that point. The new Flow gets the Flow ID
+     * {@code flowId}, the source run's Flow type, a new run ID, and run attempt 1, and continues on
+     * its own from the copied state. The source run keeps running and never changes. A typical use
+     * is a session that branches into a new session while the old one continues.
+     *
+     * <p>Steps that were running at the point start again in the new Flow. Steps that waited keep
+     * waiting, and their timers keep their fire times. The new Flow copies no history, Stream
+     * messages, request IDs of RPCs and Channel publications, parent Flow, or sticky Worker. Input
+     * that the source run received after the point, such as RPCs and Channel publications, is not
+     * applied. {@link CloneForkFlowOptions.Builder#subFlowResetPolicy(SubFlowResetPolicy)} decides
+     * what happens to SubFlow conditions of copied Steps.
+     *
+     * <p>The call requires Server protocol version 6 or later, which server-zd 0.1.33 and later
+     * releases provide.
+     *
+     * <pre>{@code
+     * CloneForkFlowResult result = client.cloneForkFlow("session-1", "session-1-branch",
+     *         CloneForkFlowOptions.newBuilder()
+     *                 .pointType(TimeTravelType.STEP_TYPE)
+     *                 .stepType("AnswerQuestion")
+     *                 .reason("explore another answer")
+     *                 .build());
+     * String branchRunId = result.getRunId();
+     * }</pre>
+     *
+     * @param sourceFlowId the nonblank Flow ID of the source run
+     * @param flowId the nonblank Flow ID of the new Flow; it must differ from {@code sourceFlowId}.
+     *     To return a Flow to an earlier point, use {@link #timeTravel}
+     * @param options the copied point and the new Flow's start options
+     * @return the new run ID and the copied point of the source run
+     * @throws IllegalArgumentException if a Flow ID is invalid, the Flow IDs are equal, or the point
+     *     selectors do not match the point type
+     * @throws IllegalStateException if the Server negotiated a protocol older than version 6; the
+     *     request is not sent
+     * @throws FlowAlreadyStartedException if the ID reuse policy rejects a run of {@code flowId}
+     * @throws FlowNotFoundException if the source run does not exist
+     * @throws DexServiceException if Dex otherwise rejects the call, for example with
+     *     {@code FAILED_PRECONDITION} when the point is outside the source run's history window or
+     *     its state is not running
+     * @since 1.45.2
+     */
+    public CloneForkFlowResult cloneForkFlow(
+            final String sourceFlowId,
+            final String flowId,
+            final CloneForkFlowOptions options) {
+        final String sourceId = Attribute.requireName(sourceFlowId);
+        final String targetId = Attribute.requireName(flowId);
+        if (sourceId.equals(targetId)) {
+            throw new IllegalArgumentException(
+                    "cloneForkFlow flow ID must differ from the source flow ID; "
+                            + "use timeTravel to return a Flow to an earlier point");
+        }
+        final CloneForkFlowRequest.Builder request = mapCloneForkFlowOptions(options)
+                .setSourceFlowId(sourceId)
+                .setFlowId(targetId)
+                .setRequestId(options.getRequestId() == null
+                        ? UUID.randomUUID().toString()
+                        : options.getRequestId());
+        negotiateServerProtocol();
+        serverProtocol.requireCloneForkFlowSupport();
+        final CloneForkFlowResponse response = call(
+                () -> service.cloneForkFlow(request.build()),
+                FlowTargetRequirement.EXISTING,
+                sourceId);
+        if (response.getRunId().isEmpty()) {
+            throw new IllegalStateException("cloneForkFlow response has no run ID");
+        }
+        return new CloneForkFlowResult(
+                response.getRunId(),
+                response.getSourceRunId(),
+                response.getSourceRunAttempt(),
+                response.getSourceEventId());
     }
 
     /**
@@ -1827,7 +1933,18 @@ public final class Client implements AutoCloseable {
         if (options.getRetryPolicy() != null) {
             mapped.setRetryPolicy(mapFlowRetry(options.getRetryPolicy()));
         }
-        for (StartFlowOptions.AttributeInitialization initialization : options.getAttributes()) {
+        mapped.addAllAttributes(mapAttributeInitializations(options.getAttributes()));
+        final FlowConfig config = options.getConfigOverride();
+        mapped.setFlowConfigOverride(mapFlowConfig(config).toBuilder()
+                .setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder().setIsPullMode(true)
+                        .setTaskQueue(options.getTaskQueue())));
+        return mapped.build();
+    }
+
+    private List<AttributeWrite> mapAttributeInitializations(
+            final List<StartFlowOptions.AttributeInitialization> initializations) {
+        final List<AttributeWrite> writes = new ArrayList<AttributeWrite>(initializations.size());
+        for (StartFlowOptions.AttributeInitialization initialization : initializations) {
             final PersistenceDefinition definition = initialization.getDefinition();
             final String key = initialization.getInstance() == null
                     ? definition.getName()
@@ -1837,13 +1954,123 @@ public final class Client implements AutoCloseable {
                     .setValue(values.encode(initialization.getValue()));
             applyAttributeSync(write, definition);
             HardDeleteAttributes.applyHardDeleteOnNull(write, definition);
-            mapped.addAttributes(write);
+            writes.add(write.build());
         }
-        final FlowConfig config = options.getConfigOverride();
-        mapped.setFlowConfigOverride(mapFlowConfig(config).toBuilder()
-                .setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder().setIsPullMode(true)
-                        .setTaskQueue(options.getTaskQueue())));
-        return mapped.build();
+        return writes;
+    }
+
+    // Maps everything except the Flow IDs and the request ID.
+    CloneForkFlowRequest.Builder mapCloneForkFlowOptions(final CloneForkFlowOptions options) {
+        final TimeTravelType pointType = options.getPointType();
+        validateHistoryPoint("cloneForkFlow", pointType, options.getHistoryEventTime(),
+                options.getStepType(), options.getStepExecutionId(), options.getStepMethod(),
+                options.getEventId());
+        if (options.getSourceRunAttempt() < 0) {
+            throw new IllegalArgumentException("cloneForkFlow source run attempt must not be negative");
+        }
+        if (pointType == TimeTravelType.CURRENT && options.getSourceRunAttempt() != 0) {
+            throw new IllegalArgumentException(
+                    "cloneForkFlow to the CURRENT point accepts only source run attempt zero");
+        }
+        final CloneForkFlowRequest.Builder request = CloneForkFlowRequest.newBuilder()
+                .setSourceRunId(options.getSourceRunId())
+                .setRunAttempt(options.getSourceRunAttempt())
+                .setPointType(mapCloneForkPointType(pointType))
+                .setEventId(options.getEventId())
+                .setIdReusePolicy(mapIdReuse(options.getIdReusePolicy()))
+                .setReason(options.getReason())
+                .setSubFlowResetPolicy(mapSubFlowResetPolicy(options.getSubFlowResetPolicy()))
+                .addAllAttributes(mapAttributeInitializations(options.getAttributes()));
+        if (options.isIgnoreAlreadyStarted()) {
+            request.setFlowAlreadyStartedOptions(FlowAlreadyStartedOptions.newBuilder()
+                    .setIgnoreAlreadyStartedError(true));
+        }
+        if (options.getHistoryEventTime() != null) {
+            request.setHistoryEventTime(options.getHistoryEventTime().toString());
+        }
+        if (options.getStepType() != null) {
+            request.setStepType(options.getStepType());
+        }
+        if (options.getStepExecutionId() != null) {
+            request.setStepExecutionId(options.getStepExecutionId());
+        }
+        if (options.getStepMethod() != null) {
+            request.setStepMethod(mapTimeTravelStepMethod(options.getStepMethod()));
+        }
+        if (options.getTimeout() != null) {
+            request.setFlowTimeoutSeconds(seconds32(options.getTimeout()));
+        }
+        if (options.getConfigOverride() != null || !options.getTaskQueue().isEmpty()) {
+            final io.superdurable.gen.FlowConfig.Builder config =
+                    mapFlowConfig(options.getConfigOverride()).toBuilder();
+            if (!options.getTaskQueue().isEmpty()) {
+                config.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
+                        .setIsPullMode(true).setTaskQueue(options.getTaskQueue()));
+            }
+            request.setFlowConfigOverride(config);
+        }
+        return request;
+    }
+
+    // Rejects selector combinations the Server would reject, before sending the request.
+    private static void validateHistoryPoint(
+            final String operation,
+            final TimeTravelType type,
+            final Instant historyEventTime,
+            final String stepType,
+            final String stepExecutionId,
+            final TimeTravelStepMethod stepMethod,
+            final long eventId) {
+        final boolean hasHistoryEventTime = historyEventTime != null;
+        final boolean hasStepType = stepType != null && !stepType.isEmpty();
+        final boolean hasStepExecutionId = stepExecutionId != null && !stepExecutionId.isEmpty();
+        final boolean hasStepMethod = stepMethod != null;
+        final boolean hasEventId = eventId != 0;
+        final boolean isValid;
+        switch (Objects.requireNonNull(type, "type")) {
+            case BEGINNING:
+            case CURRENT:
+                isValid = !hasHistoryEventTime && !hasStepType && !hasStepExecutionId
+                        && !hasStepMethod && !hasEventId;
+                break;
+            case HISTORY_EVENT_TIME:
+                isValid = hasHistoryEventTime && !hasStepType && !hasStepExecutionId
+                        && !hasStepMethod && !hasEventId;
+                break;
+            case STEP_TYPE:
+                isValid = hasStepType && !hasHistoryEventTime && !hasStepExecutionId
+                        && !hasStepMethod && !hasEventId;
+                break;
+            case STEP_EXECUTION_ID:
+                isValid = hasStepExecutionId && hasStepMethod && !hasHistoryEventTime
+                        && !hasStepType && !hasEventId;
+                break;
+            case EVENT_ID:
+                isValid = eventId > 0 && !hasHistoryEventTime && !hasStepType
+                        && !hasStepExecutionId && !hasStepMethod;
+                break;
+            default:
+                isValid = false;
+        }
+        if (!isValid) {
+            throw new IllegalArgumentException(operation + " point " + type
+                    + " requires exactly its own selector: " + describeHistoryPointSelector(type));
+        }
+    }
+
+    private static String describeHistoryPointSelector(final TimeTravelType type) {
+        switch (type) {
+            case HISTORY_EVENT_TIME:
+                return "historyEventTime";
+            case STEP_TYPE:
+                return "stepType";
+            case STEP_EXECUTION_ID:
+                return "stepExecutionId and stepMethod";
+            case EVENT_ID:
+                return "a positive eventId";
+            default:
+                return "no selector";
+        }
     }
 
     io.superdurable.gen.FlowConfig mapFlowConfig(final FlowConfig config) {
@@ -2007,8 +2234,47 @@ public final class Client implements AutoCloseable {
                 return FlowResetType.FLOW_RESET_TYPE_STEP_TYPE;
             case STEP_EXECUTION_ID:
                 return FlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID;
+            case EVENT_ID:
+                return FlowResetType.FLOW_RESET_TYPE_EVENT_ID;
             default:
                 return FlowResetType.FLOW_RESET_TYPE_UNSPECIFIED;
+        }
+    }
+
+    private static FlowCloneForkPointType mapCloneForkPointType(final TimeTravelType type) {
+        switch (type) {
+            case BEGINNING:
+                return FlowCloneForkPointType.FLOW_CLONE_FORK_POINT_TYPE_BEGINNING;
+            case HISTORY_EVENT_TIME:
+                return FlowCloneForkPointType.FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME;
+            case STEP_TYPE:
+                return FlowCloneForkPointType.FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE;
+            case STEP_EXECUTION_ID:
+                return FlowCloneForkPointType.FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID;
+            case EVENT_ID:
+                return FlowCloneForkPointType.FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID;
+            default:
+                return FlowCloneForkPointType.FLOW_CLONE_FORK_POINT_TYPE_CURRENT;
+        }
+    }
+
+    static io.superdurable.gen.SubFlowResetPolicy mapSubFlowResetPolicy(
+            final SubFlowResetPolicy policy) {
+        switch (policy) {
+            case ALWAYS_RESTART:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_ALWAYS_RESTART;
+            case ALWAYS_FAIL:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_ALWAYS_FAIL;
+            case ALWAYS_REJECT:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_ALWAYS_REJECT;
+            case ATTACH_ELSE_RESTART:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART;
+            case ATTACH_ELSE_FAIL:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL;
+            case ATTACH_ELSE_REJECT:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT;
+            default:
+                return io.superdurable.gen.SubFlowResetPolicy.SUB_FLOW_RESET_POLICY_UNSPECIFIED;
         }
     }
 

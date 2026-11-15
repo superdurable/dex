@@ -34,7 +34,6 @@ import {
   FlowErrorType as ProtoFlowErrorType,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowResetStepMethod as ProtoFlowResetStepMethod,
-  FlowResetType as ProtoFlowResetType,
   FlowServiceClient,
   FlowStatus as ProtoFlowStatus,
   ActiveStepPhase as ProtoActiveStepPhase,
@@ -52,6 +51,8 @@ import {
   type InvokeRPCResponse,
   type ListStreamMessagesResponse,
   type ReadStreamResponse,
+  type CloneForkFlowRequest,
+  type CloneForkFlowResponse,
   type ResetFlowResponse,
   type SearchFlowsResponse,
   type SearchFlowsResponseEntry,
@@ -64,7 +65,6 @@ import {
   StepOptions as ProtoStepOptions,
   FlowTimeoutHandlerOptions as ProtoFlowTimeoutHandlerOptions,
   StopType as ProtoStopType,
-  SubFlowResetPolicy as ProtoSubFlowResetPolicy,
   WaitForMethodFailurePolicy,
   type FlowServiceClient as FlowServiceClientType,
   type FlowConfig as ProtoFlowConfig,
@@ -109,6 +109,8 @@ import {
   TimeTravelType,
   StopType,
   type ClientOptions,
+  type CloneForkFlowOptions,
+  type CloneForkFlowResult,
   type FlowConfig,
   type ActiveStepExecution,
   type FlowInfo,
@@ -141,6 +143,13 @@ import {
 import type { RPCInvokeOptions, RPCResult } from "./rpc.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { negotiateServerProtocol } from "./server-protocol.js";
+import {
+  mapCloneForkPointType,
+  mapSubFlowResetPolicy,
+  mapTimeTravelType,
+  requireCloneForkFlowSupport,
+  validateHistoryPointSelection,
+} from "./clone-fork-flow.js";
 import { requireNamedTaskQueueSupport, validateFlowTaskQueue } from "./task-queue.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
@@ -1211,11 +1220,23 @@ export class Client {
    * Rewinds a Flow to a selected point in its history and re-runs it from there.
    * Time travel keeps the Flow ID and run ID and starts a new run attempt.
    * Re-run Steps reuse their Step execution IDs, so keys built only from IDs repeat.
+   * Changed in 1.45.5: accepts `TimeTravelType.EVENT_ID` with `options.eventId`, sends
+   * `options.subFlowResetPolicy`, and throws `TypeError` for `TimeTravelType.CURRENT`.
    * @param flowId - Non-empty Flow ID whose history supplies the time travel point.
-   * @param options - Time travel selector, reason, and replay controls.
+   * @param options - Time travel selector, reason, replay controls, and SubFlow reset policy.
    * @returns The Flow's server-assigned run ID, which time travel leaves unchanged.
+   * @throws {@link TypeError} when `options.type` is `CURRENT` or unknown, `eventId` is used with
+   * another type, `EVENT_ID` has an invalid selector, or `options.subFlowResetPolicy` is unknown.
    */
   public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
+    const resetType = mapTimeTravelType(options.type);
+    if (options.type === TimeTravelType.EVENT_ID) {
+      validateHistoryPointSelection("time travel", options);
+    } else if (options.eventId !== undefined) {
+      throw new TypeError("time travel eventId requires EVENT_ID");
+    }
+    const eventId = timeTravelEventId(options);
+    const subFlowResetPolicy = mapSubFlowResetPolicy(options.subFlowResetPolicy);
     const response = await this.unary<ResetFlowResponse>(
       { operation: "timeTravel", flowId, requirement: "existing" },
       (callback) =>
@@ -1223,7 +1244,7 @@ export class Client {
         {
           flowId: requireName(flowId),
           runId: "",
-          resetType: mapTimeTravelType(options.type),
+          resetType,
           reason: options.reason ?? "",
           historyEventTime: options.historyEventTime?.toISOString() ?? "",
           stepType: options.stepType ?? "",
@@ -1231,13 +1252,93 @@ export class Client {
           skipWritesReapply: options.skipWritesReapply ?? false,
           stepMethod: mapTimeTravelStepMethod(options.stepMethod),
           runAttempt: 0,
-          subFlowResetPolicy: ProtoSubFlowResetPolicy.SUB_FLOW_RESET_POLICY_UNSPECIFIED,
-          eventId: 0n,
+          subFlowResetPolicy,
+          eventId,
         },
         callback,
       ),
     );
     return response.runId;
+  }
+
+  /**
+   * Creates a new Flow whose first run starts from a copy of another Flow run's state at one point.
+   *
+   * The source run is the run of `sourceFlowId` that `options.sourceRunId` selects; omitted selects
+   * the latest run. `options.type` selects the copied point, as for {@link Client.timeTravel}; the
+   * default, `TimeTravelType.CURRENT`, copies the latest committed state. Dex copies the source
+   * run's Attributes, pending Channel messages, Step executions, waits, and timers at that point.
+   * The new Flow gets the Flow ID `flowId`, a new run ID, and run attempt 1, and continues on its
+   * own from the copied state. The source run keeps running and never changes. A typical use is a
+   * session that branches into a new session while the old one continues.
+   *
+   * `flow` must be the registered Flow type of the source run. The new Flow keeps that Flow type,
+   * and the call uses `flow` to encode `options.attributes`, which Dex writes after the copy.
+   * `flowId` must differ from `sourceFlowId`; to return a Flow to an earlier point, use
+   * `timeTravel`.
+   *
+   * Steps that were running at the point start again in the new Flow. Steps that waited keep
+   * waiting, and their timers keep their fire times. The new Flow copies no history, Stream
+   * messages, request IDs of RPCs and Channel publications, parent Flow, or sticky Worker. Input
+   * that the source run received after the point, such as RPCs and Channel publications, is not
+   * applied. `options.subFlowResetPolicy` decides what happens to SubFlow conditions of copied
+   * Steps.
+   *
+   * The call requires Server protocol version 6, which server-zd 0.1.33 and later provide.
+   *
+   * @example
+   * ```ts
+   * const result = await client.cloneForkFlow(sessionFlow, "session-1", "session-1-branch", {
+   *   type: TimeTravelType.STEP_TYPE,
+   *   stepType: "AnswerQuestion",
+   *   reason: "explore another answer",
+   * });
+   * console.log(`branch run ${result.runId} copies source event ${result.sourceEventId}`);
+   * ```
+   * @typeParam StartInput - Starting Step input type of `flow`.
+   * @param flow - Exact Flow instance registered with this Client; the source run's Flow type.
+   * @param sourceFlowId - Non-empty Flow ID of the source run.
+   * @param flowId - Non-empty Flow ID of the new Flow; must differ from `sourceFlowId`.
+   * @param options - Copied point, start options of the new Flow, and SubFlow reset policy.
+   * @returns The new run ID and the source run ID, run attempt, and last event ID of the copied point.
+   * @throws {@link FlowDefinitionError} when `flow` is not registered.
+   * @throws {@link TypeError} when the Flow IDs are empty or equal, the point options are invalid,
+   * `options.requestId` is empty, `options.taskQueue` is not a valid task queue name, or an enum
+   * option is unknown.
+   * @throws {@link RangeError} when `options.timeoutMs` is not a non-negative whole number of
+   * seconds within int32, or `options.sourceRunAttempt` is not a non-negative int32.
+   * @throws {@link Error} when the Server negotiated a protocol older than 6, before the request is sent.
+   * @throws {@link FlowAlreadyStartedError} when the ID reuse policy rejects a run of `flowId`.
+   * @throws {@link FlowNotFoundError} when the source run does not exist.
+   * @throws {@link DexServiceError} for other failures, including FAILED_PRECONDITION when the point is
+   * outside the source run's history window or the state at the point is not running.
+   * @since 1.45.5
+   */
+  public async cloneForkFlow<StartInput>(
+    flow: Flow<StartInput>,
+    sourceFlowId: string,
+    flowId: string,
+    options: CloneForkFlowOptions = {},
+  ): Promise<CloneForkFlowResult> {
+    const registered = registeredFlow(this.registry, flow);
+    requireName(sourceFlowId);
+    requireName(flowId);
+    if (sourceFlowId === flowId) {
+      throw new TypeError(
+        "cloneForkFlow flowId must differ from sourceFlowId; use timeTravel to return a Flow to an earlier point",
+      );
+    }
+    const request = mapCloneForkFlowRequest(registered, sourceFlowId, flowId, options);
+    requireCloneForkFlowSupport(await this.negotiateServerProtocol());
+    try {
+      const response = await this.unary<CloneForkFlowResponse>(
+        { operation: "cloneForkFlow", flowId, requirement: "none" },
+        (callback) => this.service.cloneForkFlow(request, callback),
+      );
+      return mapCloneForkFlowResult(response);
+    } catch (failure) {
+      throw attributeCloneForkFlowNotFound(failure, sourceFlowId);
+    }
   }
 
   /**
@@ -1906,14 +2007,100 @@ function mapStopType(type: StopType | undefined): ProtoStopType {
   }
 }
 
-function mapTimeTravelType(type: TimeTravelType): ProtoFlowResetType {
-  const types: Record<TimeTravelType, ProtoFlowResetType> = {
-    [TimeTravelType.BEGINNING]: ProtoFlowResetType.FLOW_RESET_TYPE_BEGINNING,
-    [TimeTravelType.HISTORY_EVENT_TIME]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
-    [TimeTravelType.STEP_TYPE]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_TYPE,
-    [TimeTravelType.STEP_EXECUTION_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+function timeTravelEventId(options: TimeTravelOptions): bigint {
+  if (options.type !== TimeTravelType.EVENT_ID) {
+    return 0n;
+  }
+  return BigInt(options.eventId!);
+}
+
+function mapCloneForkFlowRequest(
+  registered: RegisteredFlow,
+  sourceFlowId: string,
+  flowId: string,
+  options: CloneForkFlowOptions,
+): CloneForkFlowRequest {
+  const type = options.type ?? TimeTravelType.CURRENT;
+  validateHistoryPointSelection("clone fork", {
+    type,
+    historyEventTime: options.historyEventTime,
+    stepType: options.stepType,
+    stepExecutionId: options.stepExecutionId,
+    stepMethod: options.stepMethod,
+    eventId: options.eventId,
+  });
+  const sourceRunAttempt = options.sourceRunAttempt ?? 0;
+  if (!Number.isSafeInteger(sourceRunAttempt) || sourceRunAttempt < 0 || sourceRunAttempt > 2_147_483_647) {
+    throw new RangeError("clone fork sourceRunAttempt must be a non-negative int32");
+  }
+  if (type === TimeTravelType.CURRENT && sourceRunAttempt !== 0) {
+    throw new TypeError("clone fork type CURRENT accepts only sourceRunAttempt zero");
+  }
+  if (options.requestId === "") {
+    throw new TypeError("clone fork requestId must not be empty");
+  }
+  const taskQueue = options.taskQueue ?? "";
+  validateFlowTaskQueue(taskQueue);
+  return {
+    sourceFlowId,
+    sourceRunId: options.sourceRunId ?? "",
+    flowId,
+    requestId: options.requestId ?? crypto.randomUUID(),
+    idReusePolicy: mapIdReusePolicy(options.idReusePolicy),
+    flowAlreadyStartedOptions: options.ignoreAlreadyStarted === undefined
+      ? undefined
+      : { ignoreAlreadyStartedError: options.ignoreAlreadyStarted },
+    flowConfigOverride: mapCloneForkFlowConfigOverride(options.configOverride, taskQueue),
+    attributes: (options.attributes ?? []).map((initial) => mapInitialAttributeWrite(registered, initial)),
+    flowTimeoutSeconds: seconds32(options.timeoutMs),
+    reason: options.reason ?? "",
+    pointType: mapCloneForkPointType(type),
+    historyEventTime: options.historyEventTime?.toISOString() ?? "",
+    stepType: options.stepType ?? "",
+    stepExecutionId: options.stepExecutionId ?? "",
+    stepMethod: mapTimeTravelStepMethod(options.stepMethod),
+    eventId: BigInt(options.eventId ?? 0),
+    runAttempt: sourceRunAttempt,
+    subFlowResetPolicy: mapSubFlowResetPolicy(options.subFlowResetPolicy),
   };
-  return types[type];
+}
+
+// Sends no override when nothing changes, so the new Flow keeps every copied FlowConfig field.
+function mapCloneForkFlowConfigOverride(
+  config: FlowConfig | undefined,
+  taskQueue: string,
+): ProtoFlowConfig | undefined {
+  if (config === undefined && taskQueue === "") {
+    return undefined;
+  }
+  return {
+    ...mapFlowConfig(config),
+    workerTarget: taskQueue === "" ? undefined : { isPullMode: true, taskQueue },
+  };
+}
+
+// Not-found concerns the source Flow; every other error concerns the new Flow.
+function attributeCloneForkFlowNotFound(failure: unknown, sourceFlowId: string): unknown {
+  if (
+    failure instanceof DexServiceError
+    && failure.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS
+    && isGrpcServiceError(failure.cause)
+  ) {
+    return translateServiceError(failure.cause, "cloneForkFlow", sourceFlowId, "existing");
+  }
+  return failure;
+}
+
+function mapCloneForkFlowResult(response: CloneForkFlowResponse): CloneForkFlowResult {
+  if (response.runId === "") {
+    throw new Error("cloneForkFlow response has no run ID");
+  }
+  return {
+    runId: response.runId,
+    sourceRunId: response.sourceRunId,
+    sourceRunAttempt: response.sourceRunAttempt,
+    sourceEventId: number64(response.sourceEventId),
+  };
 }
 
 function mapTimeTravelStepMethod(

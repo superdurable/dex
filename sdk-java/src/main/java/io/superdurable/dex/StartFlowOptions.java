@@ -366,7 +366,7 @@ public final class StartFlowOptions {
         private final String instance;
         private final Object value;
 
-        private AttributeInitialization(
+        AttributeInitialization(
                 final PersistenceDefinition definition,
                 final String instance,
                 final Object value) {

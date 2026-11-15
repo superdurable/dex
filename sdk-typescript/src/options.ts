@@ -800,6 +800,24 @@ export const TimeTravelType = Object.freeze({
   STEP_TYPE: "stepType",
   /** Resumes at one exact Step execution ID. */
   STEP_EXECUTION_ID: "stepExecutionId",
+  /**
+   * Resumes right after the change that recorded one history event, named by `eventId`.
+   *
+   * Events recorded together, such as a Step completion and the Steps it starts, share one point,
+   * so the restored state includes them all. An event inside a Step attempt resolves to the next
+   * point where the Flow can stop. The event must still be in the run's history window.
+   * @since 1.45.5
+   */
+  EVENT_ID: "eventId",
+  /**
+   * Selects the latest committed state of the source run's current run attempt.
+   *
+   * Only `Client.cloneForkFlow` accepts it, and it is that call's default.
+   * `Client.timeTravel` throws `TypeError` for it, because a Flow cannot return to the state it
+   * is in.
+   * @since 1.45.5
+   */
+  CURRENT: "current",
 } as const);
 
 /** Represents a value from {@link TimeTravelType}. */
@@ -832,6 +850,186 @@ export interface TimeTravelOptions {
   readonly reason?: string;
   /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after the selected point. */
   readonly skipWritesReapply?: boolean;
+  /**
+   * History event ID used with `EVENT_ID`; a positive safe integer. Omit it for the other types.
+   * @since 1.45.5
+   */
+  readonly eventId?: number;
+  /**
+   * Decides what happens to the SubFlow conditions that restored Steps wait on.
+   * Omitted or `DEFAULT` uses `ATTACH_ELSE_RESTART`.
+   * @since 1.45.5
+   */
+  readonly subFlowResetPolicy?: SubFlowResetPolicy;
+}
+
+/**
+ * Decides what happens to a SubFlow condition that a restored Step still waits on.
+ *
+ * `Client.timeTravel` and `Client.cloneForkFlow` restore Steps from an earlier state. A restored
+ * Step whose WaitFor waits on SubFlow conditions names, in each condition, the child Flow that the
+ * Step started. The policy decides, per condition, whether the restored wait attaches to that
+ * child, restarts the child, fails the condition, or rejects the whole call.
+ *
+ * Attaching keeps the condition on its original child. When the child run has ended, its result
+ * completes the condition. When the child still runs, the condition keeps waiting for it. A child
+ * whose run no longer exists cannot be attached; the `ATTACH_ELSE_*` policies then take their
+ * second action. Under `cloneForkFlow`, the source run's children report only to the source run,
+ * so a child that still runs cannot be attached either.
+ *
+ * Restarting starts the child again with the start it originally received. Under `timeTravel`, the
+ * child keeps its Flow ID, and a still-running run of it is terminated first. Under
+ * `cloneForkFlow`, the restart starts a new child Flow whose Flow ID derives from the new Flow ID,
+ * and the source run's child never changes. A child whose run no longer exists cannot be
+ * restarted, and the call fails.
+ *
+ * Failing completes the condition with a failed child result whose error type is
+ * `SUB_FLOW_ABANDONED`; the Step's Execute receives it like any failed child. Under `timeTravel`, a
+ * child that still runs is terminated.
+ *
+ * Rejecting fails the call with a `DexServiceError` whose code is FAILED_PRECONDITION, and nothing
+ * changes. Its detail names each Step execution and child Flow ID that caused it.
+ *
+ * @example
+ * ```ts
+ * await client.timeTravel("order-42", {
+ *   type: TimeTravelType.STEP_TYPE,
+ *   stepType: "ShipOrder",
+ *   subFlowResetPolicy: SubFlowResetPolicy.ATTACH_ELSE_FAIL,
+ * });
+ * ```
+ * @since 1.45.5
+ */
+export const SubFlowResetPolicy = Object.freeze({
+  /** Leaves the choice to the Server, which uses `ATTACH_ELSE_RESTART`. */
+  DEFAULT: "default",
+  /** Restarts every child, whether it ended or still runs. */
+  ALWAYS_RESTART: "alwaysRestart",
+  /** Fails every condition, whether its child ended or still runs. */
+  ALWAYS_FAIL: "alwaysFail",
+  /** Rejects the call when any restored Step waits on a SubFlow condition. */
+  ALWAYS_REJECT: "alwaysReject",
+  /** Attaches each condition to its child, and restarts a child that cannot be attached. */
+  ATTACH_ELSE_RESTART: "attachElseRestart",
+  /** Attaches each condition to its child, and fails a condition whose child cannot be attached. */
+  ATTACH_ELSE_FAIL: "attachElseFail",
+  /** Attaches each condition to its child, and rejects the call when a child cannot be attached. */
+  ATTACH_ELSE_REJECT: "attachElseReject",
+} as const);
+
+/**
+ * Represents a value from {@link SubFlowResetPolicy}.
+ * @since 1.45.5
+ */
+export type SubFlowResetPolicy = (typeof SubFlowResetPolicy)[keyof typeof SubFlowResetPolicy];
+
+/**
+ * Configures `Client.cloneForkFlow` with a copied point and the new Flow's start.
+ *
+ * Omitted options copy the latest committed state of the source Flow's latest run, keep the source
+ * run's Flow configuration, task queue, and Flow timeout duration, and send a new SDK-generated
+ * request ID.
+ *
+ * The point options work as in {@link TimeTravelOptions}. `type` selects which one Dex reads:
+ * `CURRENT` (the default) copies the latest committed state of the current run attempt;
+ * `BEGINNING` copies the state right after the source run started; `HISTORY_EVENT_TIME`,
+ * `STEP_TYPE`, `STEP_EXECUTION_ID` with `stepMethod`, and `EVENT_ID` select a point as time travel
+ * does. Every point other than `CURRENT` must be inside the source run's history window, and the
+ * state at the point must be running.
+ *
+ * @example
+ * ```ts
+ * const result = await client.cloneForkFlow(sessionFlow, "session-1", "session-1-branch", {
+ *   type: TimeTravelType.EVENT_ID,
+ *   eventId: 42,
+ *   requestId: "branch-session-1",
+ *   ignoreAlreadyStarted: true,
+ *   reason: "try another answer",
+ * });
+ * console.log(result.runId, result.sourceEventId);
+ * ```
+ * @since 1.45.5
+ */
+export interface CloneForkFlowOptions {
+  /** Run ID of the source run; omitted or empty selects the latest run. The source run may be closed. */
+  readonly sourceRunId?: string;
+  /**
+   * Run attempt of the source run whose history holds the point.
+   * Omitted or zero selects the current run attempt; `CURRENT` accepts only zero.
+   */
+  readonly sourceRunAttempt?: number;
+  /** Copied point selector kind; omitted means `CURRENT`. */
+  readonly type?: TimeTravelType;
+  /** Timestamp used with `HISTORY_EVENT_TIME`. */
+  readonly historyEventTime?: Date;
+  /** Registered Step type used with `STEP_TYPE`. */
+  readonly stepType?: string;
+  /** Exact execution ID used with `STEP_EXECUTION_ID`. */
+  readonly stepExecutionId?: string;
+  /** WaitFor or Execute boundary required with `STEP_EXECUTION_ID`. */
+  readonly stepMethod?: TimeTravelStepMethod;
+  /** History event ID used with `EVENT_ID`; a positive safe integer. */
+  readonly eventId?: number;
+  /** Decides whether the call may start a run for a Flow ID that already has a run, as for `startFlow`. */
+  readonly idReusePolicy?: IdReusePolicy;
+  /**
+   * Returns the existing run instead of raising an already-started error.
+   * It applies only when `requestId` matches the request that created the existing run.
+   */
+  readonly ignoreAlreadyStarted?: boolean;
+  /**
+   * Non-empty idempotency key; generates a UUID when omitted.
+   *
+   * A retry with the request ID of the new Flow's latest run copies nothing again. Set it together
+   * with `ignoreAlreadyStarted` to retry a call whose outcome is unknown.
+   */
+  readonly requestId?: string;
+  /** Changes the Flow configuration copied from the source run; omitted fields keep the source run's values. */
+  readonly configOverride?: FlowConfig;
+  /**
+   * Task queue of the new Flow; omitted or empty keeps the source run's task queue.
+   *
+   * `dex.default` selects the default task queue. Names follow {@link StartFlowOptions.taskQueue}.
+   * Set one when Workers pick their Flows by task queue, so that the source run's Workers do not
+   * run the new Flow's Steps.
+   */
+  readonly taskQueue?: string;
+  /**
+   * Attribute writes applied after the copy, in the same change that creates the new Flow.
+   * Build them from the Attributes of the Flow passed to `cloneForkFlow`.
+   */
+  readonly attributes?: readonly InitialAttribute<any>[];
+  /**
+   * Flow timeout of the new Flow in milliseconds, counted from the call.
+   *
+   * It must be a non-negative whole number of seconds. Omitted or zero keeps the source run's Flow timeout duration, also counted from
+   * the call; a source run without a Flow timeout gives a new Flow without one. The new Flow keeps
+   * the source run's timeout policy and handler options.
+   */
+  readonly timeoutMs?: number;
+  /** Operator-readable reason, recorded with the new Flow's start. */
+  readonly reason?: string;
+  /**
+   * Decides what happens to the SubFlow conditions that copied Steps wait on.
+   * Omitted or `DEFAULT` uses `ATTACH_ELSE_RESTART`. A child that ended attaches; a child that still
+   * runs takes the policy's second action.
+   */
+  readonly subFlowResetPolicy?: SubFlowResetPolicy;
+}
+
+/**
+ * Describes the Flow run that `Client.cloneForkFlow` created and the copied point of the source run.
+ * @since 1.45.5
+ */
+export interface CloneForkFlowResult {
+  /** Run ID of the new Flow's run. */
+  readonly runId: string;
+  /** Run ID of the source run. */
+  readonly sourceRunId: string;
+  /** Run attempt of the source run that holds the copied point. */
+  readonly sourceRunAttempt: number;
+  /** ID of the last source history event that the copied point includes. */
+  readonly sourceEventId: number;
 }
 
 /** Selects how an active Flow should close. */

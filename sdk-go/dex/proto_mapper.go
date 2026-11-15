@@ -1189,6 +1189,9 @@ func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
 }
 
 func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, error) {
+	if options.Type == TimeTravelToCurrent {
+		return nil, fmt.Errorf("dex: time travel type TimeTravelToCurrent is valid only for CloneForkFlow")
+	}
 	if err := validateTimeTravelOptions(options); err != nil {
 		return nil, err
 	}
@@ -1200,59 +1203,216 @@ func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, e
 	if err != nil {
 		return nil, err
 	}
-	historyTime := ""
-	if !options.HistoryEventTime.IsZero() {
-		historyTime = options.HistoryEventTime.Format(dateTimeFormat)
+	subFlowResetPolicy, err := mapSubFlowResetPolicy(options.SubFlowResetPolicy)
+	if err != nil {
+		return nil, err
+	}
+	eventID := int64(0)
+	if options.Type == TimeTravelByEventID {
+		eventID = options.EventID
 	}
 	return &dexpb.ResetFlowRequest{
-		ResetType:         resetType,
-		Reason:            options.Reason,
-		HistoryEventTime:  historyTime,
-		StepType:          options.StepType,
-		StepExecutionId:   options.StepExecutionID,
-		SkipWritesReapply: options.SkipWritesReapply,
-		StepMethod:        stepMethod,
+		ResetType:          resetType,
+		Reason:             options.Reason,
+		HistoryEventTime:   formatHistoryPointTime(options.HistoryEventTime),
+		StepType:           options.StepType,
+		StepExecutionId:    options.StepExecutionID,
+		SkipWritesReapply:  options.SkipWritesReapply,
+		StepMethod:         stepMethod,
+		EventId:            eventID,
+		SubFlowResetPolicy: subFlowResetPolicy,
 	}, nil
 }
 
 func validateTimeTravelOptions(options TimeTravelOptions) error {
-	hasHistoryEventTime := !options.HistoryEventTime.IsZero()
-	hasStepType := options.StepType != ""
-	hasStepExecutionID := options.StepExecutionID != ""
-	hasStepMethod := options.StepMethod != 0
-	switch options.Type {
+	if options.Type != TimeTravelByEventID && options.EventID != 0 {
+		return fmt.Errorf("dex: time travel event ID requires TimeTravelByEventID")
+	}
+	if options.Type == TimeTravelByEventID {
+		if options.EventID <= 0 {
+			return fmt.Errorf("dex: time travel event ID must be positive")
+		}
+		if !options.HistoryEventTime.IsZero() || options.StepType != "" || options.StepExecutionID != "" || options.StepMethod != 0 {
+			return fmt.Errorf("dex: time travel event ID cannot be combined with another selector")
+		}
+		return nil
+	}
+	point := historyPointSelection{
+		pointType:        options.Type,
+		historyEventTime: options.HistoryEventTime,
+		stepType:         options.StepType,
+		stepExecutionID:  options.StepExecutionID,
+		stepMethod:       options.StepMethod,
+	}
+	return validateHistoryPointSelection("time travel", point)
+}
+
+// historyPointSelection holds the point fields that TimeTravelOptions and CloneForkFlowOptions share.
+type historyPointSelection struct {
+	pointType        TimeTravelType
+	historyEventTime time.Time
+	stepType         string
+	stepExecutionID  string
+	stepMethod       TimeTravelStepMethod
+	eventID          int64
+}
+
+func validateHistoryPointSelection(operation string, point historyPointSelection) error {
+	hasHistoryEventTime := !point.historyEventTime.IsZero()
+	hasStepType := point.stepType != ""
+	hasStepExecutionID := point.stepExecutionID != ""
+	hasStepMethod := point.stepMethod != 0
+	hasEventID := point.eventID != 0
+	switch point.pointType {
 	case TimeTravelToBeginning:
-		if hasHistoryEventTime || hasStepType || hasStepExecutionID || hasStepMethod {
-			return fmt.Errorf("dex: time travel to beginning cannot include another selector")
+		if hasHistoryEventTime || hasStepType || hasStepExecutionID || hasStepMethod || hasEventID {
+			return fmt.Errorf("dex: %s to beginning cannot include another selector", operation)
+		}
+	case TimeTravelToCurrent:
+		if hasHistoryEventTime || hasStepType || hasStepExecutionID || hasStepMethod || hasEventID {
+			return fmt.Errorf("dex: %s to the current point cannot include another selector", operation)
 		}
 	case TimeTravelByHistoryEventTime:
 		if !hasHistoryEventTime {
-			return fmt.Errorf("dex: time travel history event time must not be zero")
+			return fmt.Errorf("dex: %s history event time must not be zero", operation)
 		}
-		if hasStepType || hasStepExecutionID || hasStepMethod {
-			return fmt.Errorf("dex: time travel history event time cannot be combined with another selector")
+		if hasStepType || hasStepExecutionID || hasStepMethod || hasEventID {
+			return fmt.Errorf("dex: %s history event time cannot be combined with another selector", operation)
 		}
 	case TimeTravelByStepType:
 		if !hasStepType {
-			return fmt.Errorf("dex: time travel Step type must not be empty")
+			return fmt.Errorf("dex: %s Step type must not be empty", operation)
 		}
-		if hasHistoryEventTime || hasStepExecutionID || hasStepMethod {
-			return fmt.Errorf("dex: time travel Step type cannot be combined with another selector")
+		if hasHistoryEventTime || hasStepExecutionID || hasStepMethod || hasEventID {
+			return fmt.Errorf("dex: %s Step type cannot be combined with another selector", operation)
 		}
 	case TimeTravelByStepExecutionID:
 		if !hasStepExecutionID {
-			return fmt.Errorf("dex: time travel Step execution ID must not be empty")
+			return fmt.Errorf("dex: %s Step execution ID must not be empty", operation)
 		}
-		if hasHistoryEventTime || hasStepType {
-			return fmt.Errorf("dex: time travel Step execution ID cannot be combined with another selector")
+		if hasHistoryEventTime || hasStepType || hasEventID {
+			return fmt.Errorf("dex: %s Step execution ID cannot be combined with another selector", operation)
 		}
-		if options.StepMethod != TimeTravelStepWaitFor && options.StepMethod != TimeTravelStepExecute {
-			return fmt.Errorf("dex: time travel Step method must be WaitFor or Execute")
+		if point.stepMethod != TimeTravelStepWaitFor && point.stepMethod != TimeTravelStepExecute {
+			return fmt.Errorf("dex: %s Step method must be WaitFor or Execute", operation)
+		}
+	case TimeTravelByEventID:
+		if point.eventID <= 0 {
+			return fmt.Errorf("dex: %s event ID must be positive", operation)
+		}
+		if hasHistoryEventTime || hasStepType || hasStepExecutionID || hasStepMethod {
+			return fmt.Errorf("dex: %s event ID cannot be combined with another selector", operation)
 		}
 	default:
-		return fmt.Errorf("dex: unsupported time travel type %d", options.Type)
+		return fmt.Errorf("dex: unsupported %s type %d", operation, point.pointType)
 	}
 	return nil
+}
+
+func formatHistoryPointTime(historyEventTime time.Time) string {
+	if historyEventTime.IsZero() {
+		return ""
+	}
+	return historyEventTime.Format(dateTimeFormat)
+}
+
+// mapCloneForkFlowOptions maps everything except the Flow IDs, the request ID, and the Attributes.
+func mapCloneForkFlowOptions(options CloneForkFlowOptions) (*dexpb.CloneForkFlowRequest, error) {
+	pointType := options.Type
+	if pointType == 0 {
+		pointType = TimeTravelToCurrent
+	}
+	point := historyPointSelection{
+		pointType:        pointType,
+		historyEventTime: options.HistoryEventTime,
+		stepType:         options.StepType,
+		stepExecutionID:  options.StepExecutionID,
+		stepMethod:       options.StepMethod,
+		eventID:          options.EventID,
+	}
+	if err := validateHistoryPointSelection("clone fork", point); err != nil {
+		return nil, err
+	}
+	if options.SourceRunAttempt < 0 {
+		return nil, fmt.Errorf("dex: clone fork source run attempt must not be negative")
+	}
+	if pointType == TimeTravelToCurrent && options.SourceRunAttempt != 0 {
+		return nil, fmt.Errorf("dex: clone fork to the current point accepts only source run attempt zero")
+	}
+	clonePointType, err := mapCloneForkPointType(pointType)
+	if err != nil {
+		return nil, err
+	}
+	stepMethod, err := mapTimeTravelStepMethod(options.StepMethod)
+	if err != nil {
+		return nil, err
+	}
+	subFlowResetPolicy, err := mapSubFlowResetPolicy(options.SubFlowResetPolicy)
+	if err != nil {
+		return nil, err
+	}
+	idReusePolicy, err := mapIDReusePolicy(options.IDReusePolicy)
+	if err != nil {
+		return nil, err
+	}
+	if options.Timeout != nil && *options.Timeout < 0 {
+		return nil, fmt.Errorf("dex: clone fork Flow timeout must not be negative")
+	}
+	timeoutSeconds, err := optionalDurationSeconds32(options.Timeout)
+	if err != nil {
+		return nil, fmt.Errorf("dex: clone fork Flow timeout: %w", err)
+	}
+	configOverride, err := mapCloneForkFlowConfigOverride(options.ConfigOverride, options.TaskQueue)
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.CloneForkFlowRequest{
+		SourceRunId:               options.SourceRunID,
+		IdReusePolicy:             idReusePolicy,
+		FlowAlreadyStartedOptions: mapAlreadyStartedOptions(options.AlreadyStarted),
+		FlowConfigOverride:        configOverride,
+		FlowTimeoutSeconds:        timeoutSeconds,
+		Reason:                    options.Reason,
+		PointType:                 clonePointType,
+		HistoryEventTime:          formatHistoryPointTime(options.HistoryEventTime),
+		StepType:                  options.StepType,
+		StepExecutionId:           options.StepExecutionID,
+		StepMethod:                stepMethod,
+		EventId:                   options.EventID,
+		RunAttempt:                options.SourceRunAttempt,
+		SubFlowResetPolicy:        subFlowResetPolicy,
+	}, nil
+}
+
+// mapCloneForkFlowConfigOverride leaves the copied FlowConfig untouched when nothing overrides it.
+func mapCloneForkFlowConfigOverride(config *FlowConfig, taskQueue string) (*dexpb.FlowConfig, error) {
+	if config == nil && taskQueue == "" {
+		return nil, nil
+	}
+	mapped, err := mapFlowConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	if taskQueue == "" {
+		return mapped, nil
+	}
+	if err := validateTargetTaskQueueName(taskQueue); err != nil {
+		return nil, err
+	}
+	mapped.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: taskQueue}
+	return mapped, nil
+}
+
+func mapCloneForkFlowResult(response *dexpb.CloneForkFlowResponse) (CloneForkFlowResult, error) {
+	if response == nil || response.GetRunId() == "" {
+		return CloneForkFlowResult{}, fmt.Errorf("dex: CloneForkFlow response has no run ID")
+	}
+	return CloneForkFlowResult{
+		RunID:            response.GetRunId(),
+		SourceRunID:      response.GetSourceRunId(),
+		SourceRunAttempt: response.GetSourceRunAttempt(),
+		SourceEventID:    response.GetSourceEventId(),
+	}, nil
 }
 
 func mapWaitForFlowOptions(options WaitForFlowOptions) bool {
@@ -1570,9 +1730,53 @@ func mapTimeTravelType(timeTravelType TimeTravelType) (dexpb.FlowResetType, erro
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, nil
 	case TimeTravelByStepExecutionID:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID, nil
+	case TimeTravelByEventID:
+		return dexpb.FlowResetType_FLOW_RESET_TYPE_EVENT_ID, nil
 	default:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_UNSPECIFIED,
 			fmt.Errorf("dex: unsupported time travel type %d", timeTravelType)
+	}
+}
+
+func mapCloneForkPointType(pointType TimeTravelType) (dexpb.FlowCloneForkPointType, error) {
+	switch pointType {
+	case TimeTravelToCurrent:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, nil
+	case TimeTravelToBeginning:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_BEGINNING, nil
+	case TimeTravelByHistoryEventTime:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME, nil
+	case TimeTravelByStepType:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE, nil
+	case TimeTravelByStepExecutionID:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID, nil
+	case TimeTravelByEventID:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID, nil
+	default:
+		return dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_UNSPECIFIED,
+			fmt.Errorf("dex: unsupported clone fork type %d", pointType)
+	}
+}
+
+func mapSubFlowResetPolicy(policy SubFlowResetPolicy) (dexpb.SubFlowResetPolicy, error) {
+	switch policy {
+	case SubFlowResetDefault:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_UNSPECIFIED, nil
+	case SubFlowResetAlwaysRestart:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_RESTART, nil
+	case SubFlowResetAlwaysFail:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_FAIL, nil
+	case SubFlowResetAlwaysReject:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_REJECT, nil
+	case SubFlowResetAttachElseRestart:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART, nil
+	case SubFlowResetAttachElseFail:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL, nil
+	case SubFlowResetAttachElseReject:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT, nil
+	default:
+		return dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_UNSPECIFIED,
+			fmt.Errorf("dex: unsupported SubFlow reset policy %d", policy)
 	}
 }
 

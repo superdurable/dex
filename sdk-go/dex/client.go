@@ -951,6 +951,9 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []flowValuePoi
 //
 // TimeTravel returns validation errors before sending the request. It returns context,
 // transport, Flow-not-found, or server errors after the request is sent.
+//
+// Changed in 1.45.5: TimeTravel accepts TimeTravelByEventID with TimeTravelOptions.EventID, and
+// sends TimeTravelOptions.SubFlowResetPolicy.
 func (client *Client) TimeTravel(
 	ctx context.Context,
 	flowID string,
@@ -972,6 +975,111 @@ func (client *Client) TimeTravel(
 		return "", fmt.Errorf("dex: TimeTravel response has no run ID")
 	}
 	return response.RunId, nil
+}
+
+// CloneForkFlow creates a new Flow whose first run starts from a copy of another Flow run's
+// state at one point.
+//
+// The source run is the run of sourceFlowID that options.SourceRunID selects; empty selects
+// the latest run. options selects the copied point, as for TimeTravel; the default copies the
+// latest committed state. Dex copies the source run's Attributes, pending Channel messages,
+// Step executions, waits, and timers at that point. The new Flow gets the Flow ID flowID, a
+// new run ID, and run attempt 1, and continues on its own from the copied state. The source run
+// keeps running and never changes. A typical use is a session that branches into a new session
+// while the old one continues.
+//
+// flow must be the registered Flow type of the source run. The new Flow keeps that Flow type.
+// CloneForkFlow uses flow to validate and encode options.Attributes, which Dex writes after the
+// copy. flowID must differ from sourceFlowID; to return a Flow to an earlier point, use
+// TimeTravel.
+//
+// Steps that were running at the point start again in the new Flow. Steps that waited keep
+// waiting, and their timers keep their fire times. The new Flow copies no history, Stream
+// messages, request IDs of RPCs and Channel publications, parent Flow, or sticky Worker. Input
+// that the source run received after the point, such as RPCs and Channel publications, is not
+// applied. options.SubFlowResetPolicy decides what happens to SubFlow conditions of copied
+// Steps.
+//
+// Example:
+//
+//	result, err := client.CloneForkFlow(ctx, SessionFlow{}, "session-1", "session-1-branch", dex.CloneForkFlowOptions{
+//		Type:     dex.TimeTravelByStepType,
+//		StepType: "AnswerQuestion",
+//		Reason:   "explore another answer",
+//	})
+//	if err != nil {
+//		return err
+//	}
+//	log.Printf("branch run %s copies source event %d", result.RunID, result.SourceEventID)
+//
+// CloneForkFlow returns validation errors before it sends the request. It returns
+// *CloneForkFlowUnsupportedError, before it sends the request, when the Server negotiated a
+// protocol older than version 6; server-zd 0.1.33 and later support it. It returns
+// FlowAlreadyStartedError when IDReusePolicy rejects a run of flowID, FlowNotFoundError for a
+// missing source run, a *ServiceError whose Code is codes.FailedPrecondition when the point is
+// outside the source run's history window or its state is not running, and context, transport,
+// or other server errors.
+//
+// Since 1.45.5.
+func (client *Client) CloneForkFlow(
+	ctx context.Context,
+	flow Flow,
+	sourceFlowID string,
+	flowID string,
+	options CloneForkFlowOptions,
+) (CloneForkFlowResult, error) {
+	if err := client.validateCallContext(ctx); err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	registered, err := client.registry.resolveFlow(flow)
+	if err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	if strings.TrimSpace(sourceFlowID) == "" {
+		return CloneForkFlowResult{}, fmt.Errorf("dex: CloneForkFlow source flow ID must not be empty")
+	}
+	if sourceFlowID == flowID {
+		return CloneForkFlowResult{}, fmt.Errorf("dex: CloneForkFlow flow ID must differ from the source flow ID; use TimeTravel to return a Flow to an earlier point")
+	}
+	request, err := mapCloneForkFlowOptions(options)
+	if err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	attributes, err := validateInitialAttributes(registered, options.Attributes)
+	if err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	request.Attributes, err = mapInitialAttributes(attributes)
+	if err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	if err := client.serverProtocol.requireCloneForkFlowSupport(); err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	request.RequestId, err = resolveClientRequestID("CloneForkFlow", options.RequestID)
+	if err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	request.SourceFlowId = sourceFlowID
+	request.FlowId = flowID
+	response, err := client.service.CloneForkFlow(ctx, request)
+	if err != nil {
+		return CloneForkFlowResult{}, translateCloneForkFlowError(err, sourceFlowID, flowID)
+	}
+	return mapCloneForkFlowResult(response)
+}
+
+// translateCloneForkFlowError attributes not-found to the source Flow and every other error to the new Flow.
+func translateCloneForkFlowError(err error, sourceFlowID string, flowID string) error {
+	translated := translateRPCError(err, "CloneForkFlow", flowID, flowTargetNone)
+	var serviceError *ServiceError
+	if errors.As(translated, &serviceError) && serviceError.SubStatus == ErrorSubStatusFlowNotFound {
+		return translateRPCError(err, "CloneForkFlow", sourceFlowID, flowTargetExisting)
+	}
+	return translated
 }
 
 // SkipTimer makes one waiting Timer condition immediately ready.

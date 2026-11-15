@@ -15,11 +15,14 @@ from typing import Iterable
 import grpc
 
 from dex.dexpb import dex_pb2 as pb
+from dex.runtime_errors import CloneForkFlowUnsupportedError
 
 MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 4
-MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 5
+MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION = 6
 HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION = 3
 NAMED_TASK_QUEUE_PROTOCOL_VERSION = 5
+CLONE_FORK_FLOW_PROTOCOL_VERSION = 6
+CLONE_FORK_FLOW_SERVER_ZD_RELEASE = "server-zd 0.1.33"
 LAST_SERVER_ZD_RELEASE_BEFORE_MINIMUM_PROTOCOL = "v0.1.16"
 
 
@@ -106,6 +109,15 @@ class NegotiatedServerProtocol:
             f"{NAMED_TASK_QUEUE_PROTOCOL_VERSION} or later, but the negotiated "
             f"protocol version is {self._version}; upgrade the Server or use "
             "the default task queue"
+        )
+
+    def require_clone_fork_flow_support(self) -> None:
+        if self._version >= CLONE_FORK_FLOW_PROTOCOL_VERSION:
+            return
+        raise CloneForkFlowUnsupportedError(
+            self._version,
+            CLONE_FORK_FLOW_PROTOCOL_VERSION,
+            CLONE_FORK_FLOW_SERVER_ZD_RELEASE,
         )
 
 

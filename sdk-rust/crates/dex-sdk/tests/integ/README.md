@@ -9,6 +9,7 @@ Step streaming, heartbeat recovery, and cancellation scenarios.
 | --- | --- |
 | `AnyCommandCombinationTest` | `any_command_combination_test.rs` |
 | `BasicTest` | `basic_test.rs` |
+| Rust clone fork and event-ID time travel | `clone_fork_flow_test.rs` |
 | `ConditionalCompleteTest` | `conditional_complete_test.rs` |
 | `FlowDefinitionUploadTest` | `flow_definition_upload_test.rs` |
 | Rust GetAttributes | `get_attributes_test.rs` |

@@ -385,3 +385,48 @@ class ValueMappingError(RuntimeError):
         super().__init__(f"Cannot {operation} Dex Value: {detail}")
         self.operation = operation
         self.detail = detail
+
+
+class CloneForkFlowUnsupportedError(RuntimeError):
+    """Report a ``clone_fork_flow`` call to a Server that has no CloneForkFlow.
+
+    CloneForkFlow requires Dex Server protocol version 6 or later, which
+    server-zd 0.1.33 and later releases provide. The Client raises this error
+    before it sends the request, so nothing was created. Upgrade the Server to
+    resolve it. It is a ``RuntimeError``, like the other Server protocol
+    compatibility errors.
+
+    Attributes:
+        negotiated_server_protocol: The protocol version agreed with the Server.
+        required_server_protocol: The minimum protocol version for CloneForkFlow.
+
+    Examples:
+        >>> try:
+        ...     client.clone_fork_flow(session_flow, "session-1", "session-1-b")
+        ... except CloneForkFlowUnsupportedError as error:
+        ...     print(f"upgrade Dex: needs protocol {error.required_server_protocol}")
+
+    .. versionadded:: 1.45.3
+    """
+
+    def __init__(
+        self,
+        negotiated_server_protocol: int,
+        required_server_protocol: int,
+        required_server_release: str,
+    ) -> None:
+        """Create the error for a negotiated protocol older than required.
+
+        Args:
+            negotiated_server_protocol: The protocol version agreed with the Server.
+            required_server_protocol: The minimum protocol version for CloneForkFlow.
+            required_server_release: The first server-zd release with that protocol.
+        """
+        super().__init__(
+            "clone_fork_flow requires Dex Server protocol version "
+            f"{required_server_protocol} or later ({required_server_release} or "
+            f"later), but the negotiated protocol version is "
+            f"{negotiated_server_protocol}; upgrade the Server"
+        )
+        self.negotiated_server_protocol = negotiated_server_protocol
+        self.required_server_protocol = required_server_protocol

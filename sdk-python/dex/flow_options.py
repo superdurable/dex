@@ -460,12 +460,30 @@ class TimeTravelType(Enum):
         HISTORY_EVENT_TIME: Resume at the first event at or after a timestamp.
         STEP_TYPE: Resume at the latest execution of a Step type.
         STEP_EXECUTION_ID: Resume at one exact Step execution ID.
+        EVENT_ID: Resume right after the change that recorded one history event.
+            Set ``event_id`` to the event's ID, as the Server's history events
+            report it. Events recorded together, such as a Step completion and
+            the Steps it starts, share one point, so the restored state includes
+            them all. An event inside a Step attempt resolves to the next point
+            where the Flow can stop. The event must still be in the run's
+            history window.
+
+            .. versionadded:: 1.45.3
+        CURRENT: The latest committed state of the source run's current run
+            attempt. Only ``clone_fork_flow`` accepts it, and it is the default
+            of :class:`CloneForkFlowOptions`. ``time_travel`` raises
+            ``ValueError`` for it, because a Flow cannot return to the state it
+            is in.
+
+            .. versionadded:: 1.45.3
     """
 
     BEGINNING = "beginning"
     HISTORY_EVENT_TIME = "history_event_time"
     STEP_TYPE = "step_type"
     STEP_EXECUTION_ID = "step_execution_id"
+    EVENT_ID = "event_id"
+    CURRENT = "current"
 
 
 class TimeTravelStepMethod(Enum):
@@ -478,6 +496,117 @@ class TimeTravelStepMethod(Enum):
 
     WAIT_FOR = "wait_for"
     EXECUTE = "execute"
+
+
+class SubFlowResetPolicy(Enum):
+    """Decide what happens to a SubFlow condition that a restored Step waits on.
+
+    ``time_travel`` and ``clone_fork_flow`` restore Steps from an earlier state.
+    A restored Step whose WaitFor waits on SubFlow conditions names, in each
+    condition, the child Flow that the Step started. The policy decides, per
+    condition, whether the restored wait attaches to that child, restarts the
+    child, fails the condition, or rejects the whole call.
+
+    Attaching keeps the condition on its original child. When the child run
+    has ended, its result completes the condition. When the child still runs,
+    the condition keeps waiting for it. A child whose run no longer exists
+    cannot be attached; the ``ATTACH_ELSE`` policies then take their second
+    action. Under ``clone_fork_flow``, the source run's children report only to
+    the source run, so a child that still runs cannot be attached either.
+
+    Restarting starts the child again with the start it originally received.
+    Under ``time_travel``, the child keeps its Flow ID and a still-running run
+    of it is terminated first. Under ``clone_fork_flow``, the restart starts a
+    new child Flow whose Flow ID derives from the new Flow ID, and the source
+    run's child never changes. A child whose run no longer exists cannot be
+    restarted, and the call fails.
+
+    Failing completes the condition with a failed child result whose error
+    type is ``FlowErrorType.SUB_FLOW_ABANDONED``; the Step's Execute receives it
+    like any failed child. Under ``time_travel``, a child that still runs is
+    terminated.
+
+    Rejecting fails the call with ``DexServiceError`` whose code is
+    ``FAILED_PRECONDITION``, and nothing changes. Its detail names each Step
+    execution and child Flow ID that caused it.
+
+    Attributes:
+        DEFAULT: Leave the choice to the Server, which uses
+            ``ATTACH_ELSE_RESTART``.
+        ALWAYS_RESTART: Restart every child, whether it ended or still runs.
+        ALWAYS_FAIL: Fail every condition, whether its child ended or still runs.
+        ALWAYS_REJECT: Reject the call when any restored Step waits on a SubFlow
+            condition.
+        ATTACH_ELSE_RESTART: Attach each condition to its child; restart a child
+            that cannot be attached.
+        ATTACH_ELSE_FAIL: Attach each condition to its child; fail a condition
+            whose child cannot be attached.
+        ATTACH_ELSE_REJECT: Attach each condition to its child; reject the call
+            when a child cannot be attached.
+
+    Examples:
+        >>> client.time_travel(
+        ...     "order-123",
+        ...     TimeTravelOptions(
+        ...         type=TimeTravelType.STEP_TYPE,
+        ...         step_type="ShipOrder",
+        ...         sub_flow_reset_policy=SubFlowResetPolicy.ATTACH_ELSE_FAIL,
+        ...     ),
+        ... )
+
+    .. versionadded:: 1.45.3
+    """
+
+    DEFAULT = "default"
+    ALWAYS_RESTART = "always_restart"
+    ALWAYS_FAIL = "always_fail"
+    ALWAYS_REJECT = "always_reject"
+    ATTACH_ELSE_RESTART = "attach_else_restart"
+    ATTACH_ELSE_FAIL = "attach_else_fail"
+    ATTACH_ELSE_REJECT = "attach_else_reject"
+
+
+def _validate_history_point(
+    operation: str,
+    point_type: TimeTravelType,
+    history_event_time: datetime | None,
+    step_type: str | None,
+    step_execution_id: str | None,
+    step_method: TimeTravelStepMethod | None,
+    event_id: int | None,
+) -> None:
+    selectors = {
+        TimeTravelType.HISTORY_EVENT_TIME: history_event_time is not None,
+        TimeTravelType.STEP_TYPE: bool(step_type),
+        TimeTravelType.STEP_EXECUTION_ID: bool(step_execution_id),
+        TimeTravelType.EVENT_ID: event_id is not None,
+    }
+    has_step_method = step_method is not None
+    others = [
+        selector_type
+        for selector_type, is_set in selectors.items()
+        if is_set and selector_type is not point_type
+    ]
+    if point_type not in selectors:
+        if others or has_step_method:
+            raise ValueError(
+                f"{operation} to {point_type.value} cannot include another selector"
+            )
+        return
+    if not selectors[point_type]:
+        raise ValueError(f"{operation} {point_type.value} selector must be set")
+    if others or (
+        has_step_method and point_type is not TimeTravelType.STEP_EXECUTION_ID
+    ):
+        raise ValueError(
+            f"{operation} {point_type.value} cannot be combined with another selector"
+        )
+    if point_type is TimeTravelType.STEP_EXECUTION_ID and not has_step_method:
+        raise ValueError(f"{operation} step_method must be WAIT_FOR or EXECUTE")
+    if point_type is TimeTravelType.EVENT_ID and (
+        isinstance(event_id, bool) or not isinstance(event_id, int) or event_id <= 0
+    ):
+        raise ValueError(f"{operation} event_id must be a positive integer")
 
 
 @dataclass(frozen=True)
@@ -497,6 +626,14 @@ class TimeTravelOptions:
         reason: Optional operator-readable time travel reason.
         skip_writes_reapply: Do not replay RPCs, Channel publications, or Attribute
             writes after the selected point.
+        event_id: Positive history event ID used by ``EVENT_ID``; leave it
+            ``None`` for the other types.
+
+            .. versionadded:: 1.45.3
+        sub_flow_reset_policy: What happens to the SubFlow conditions that
+            restored Steps wait on. ``DEFAULT`` uses ``ATTACH_ELSE_RESTART``.
+
+            .. versionadded:: 1.45.3
     """
 
     type: TimeTravelType
@@ -506,6 +643,207 @@ class TimeTravelOptions:
     step_method: TimeTravelStepMethod | None = None
     reason: str | None = None
     skip_writes_reapply: bool = False
+    event_id: int | None = None
+    sub_flow_reset_policy: SubFlowResetPolicy = SubFlowResetPolicy.DEFAULT
+
+
+@dataclass(frozen=True)
+class CloneForkFlowOptions:
+    """Configure ``clone_fork_flow``: the copied point and the new Flow's start.
+
+    The default copies the latest committed state of the source Flow's latest
+    run, keeps the source run's Flow configuration, task queue, and Flow
+    timeout duration, and sends a new SDK-generated request ID.
+
+    The point fields work as in :class:`TimeTravelOptions`; ``type`` selects
+    which one Dex reads. ``CURRENT``, the default, takes no selector.
+    ``BEGINNING`` selects the state right after the source run started. The
+    other types read ``history_event_time``, ``step_type``,
+    ``step_execution_id`` with ``step_method``, or ``event_id``. Every point
+    other than the current one must be inside the source run's history window,
+    and the state at the point must be running. Invalid combinations raise
+    ``ValueError`` when the options are constructed.
+
+    Attributes:
+        type: The copied point. Defaults to ``CURRENT``.
+        history_event_time: Timestamp used by ``HISTORY_EVENT_TIME``.
+        step_type: Registered Step type used by ``STEP_TYPE``.
+        step_execution_id: Exact execution ID used by ``STEP_EXECUTION_ID``.
+        step_method: WaitFor or Execute boundary required by
+            ``STEP_EXECUTION_ID``.
+        event_id: Positive history event ID used by ``EVENT_ID``.
+        source_run_id: The run of the source Flow ID to copy. The empty default
+            selects the latest run. The source run may be closed.
+        source_run_attempt: The run attempt of the source run whose history
+            holds the point. Zero, the default, selects the current run attempt.
+            ``CURRENT`` accepts only zero.
+        id_reuse_policy: Whether the call may start a run for a Flow ID that
+            already has a run, as for ``start_flow``.
+        ignore_already_started: Return the existing run instead of raising
+            ``FlowAlreadyStartedError`` when ``request_id`` matches the request
+            that created it, as for ``start_flow``.
+        request_id: Optional non-empty idempotency key. ``None`` generates one.
+            Set a stable ID, together with ``ignore_already_started``, to retry
+            a call whose outcome is unknown: a retry with the request ID of the
+            new Flow's latest run copies nothing again.
+        config_override: Optional FlowConfig whose set fields change the
+            configuration copied from the source run. Unset fields keep the
+            source run's values.
+        task_queue: The task queue of the new Flow. The empty default keeps the
+            source run's task queue; ``dex.default`` selects the default task
+            queue. Set a task queue when Workers pick their Flows by task
+            queue, so that the source run's Workers do not run the new Flow's
+            Steps. Names follow ``StartFlowOptions.task_queue``.
+        timeout: The new Flow's Flow timeout in whole seconds, counted from the
+            call. ``None`` or zero keeps the source run's Flow timeout
+            duration, also counted from the call; a source run without a Flow
+            timeout gives a new Flow without one. The new Flow keeps the source
+            run's timeout policy and handler options.
+        reason: Optional text that explains the clone fork. Dex records it with
+            the new Flow's start.
+        sub_flow_reset_policy: What happens to the SubFlow conditions that
+            copied Steps wait on. ``DEFAULT`` uses ``ATTACH_ELSE_RESTART``. A
+            child that ended attaches; a child that still runs takes the
+            policy's second action.
+
+    Use :meth:`with_attribute` to add Attribute writes that Dex applies after
+    the copy, in the same change that creates the new Flow.
+
+    Examples:
+        >>> options = CloneForkFlowOptions(
+        ...     type=TimeTravelType.EVENT_ID,
+        ...     event_id=42,
+        ...     request_id=f"branch-{session_id}",
+        ...     reason="try another answer",
+        ... ).with_attribute(label, "branch")
+        >>> result = client.clone_fork_flow(
+        ...     session_flow, session_id, f"{session_id}-branch", options
+        ... )
+
+    .. versionadded:: 1.45.3
+    """
+
+    type: TimeTravelType = TimeTravelType.CURRENT
+    history_event_time: datetime | None = None
+    step_type: str | None = None
+    step_execution_id: str | None = None
+    step_method: TimeTravelStepMethod | None = None
+    event_id: int | None = None
+    source_run_id: str = ""
+    source_run_attempt: int = 0
+    id_reuse_policy: IdReusePolicy = IdReusePolicy.DEFAULT
+    ignore_already_started: bool = False
+    request_id: str | None = None
+    config_override: FlowConfig | None = None
+    task_queue: str = ""
+    timeout: timedelta | None = None
+    reason: str | None = None
+    sub_flow_reset_policy: SubFlowResetPolicy = SubFlowResetPolicy.DEFAULT
+    _attribute_initializations: tuple[_AttributeInitialization, ...] = ()
+
+    def __post_init__(self) -> None:
+        _validate_history_point(
+            "clone fork",
+            self.type,
+            self.history_event_time,
+            self.step_type,
+            self.step_execution_id,
+            self.step_method,
+            self.event_id,
+        )
+        if self.source_run_attempt < 0:
+            raise ValueError("clone fork source_run_attempt must not be negative")
+        if self.type is TimeTravelType.CURRENT and self.source_run_attempt != 0:
+            raise ValueError(
+                "clone fork to the current point accepts only source_run_attempt 0"
+            )
+        if self.timeout is not None and self.timeout.total_seconds() < 0:
+            raise ValueError("clone fork timeout must not be negative")
+        if self.request_id == "":
+            raise ValueError("clone fork request_id must not be empty")
+        if self.task_queue:
+            _require_valid_target_task_queue(self.task_queue)
+
+    @overload
+    def with_attribute(
+        self,
+        attribute: Attribute[ValueT],
+        value: ValueT,
+        /,
+    ) -> CloneForkFlowOptions: ...
+
+    @overload
+    def with_attribute(
+        self,
+        attribute: AttributeMap[ValueT],
+        instance: str,
+        value: ValueT,
+        /,
+    ) -> CloneForkFlowOptions: ...
+
+    def with_attribute(
+        self,
+        attribute: Attribute[Any] | AttributeMap[Any],
+        /,
+        *args: object,
+    ) -> CloneForkFlowOptions:
+        """Return a copy with one Attribute write appended.
+
+        Singleton Attributes take ``(attribute, value)``; AttributeMaps take
+        ``(attribute, instance, value)``. Dex applies the writes in order after
+        the copy.
+
+        Args:
+            attribute: An Attribute or AttributeMap definition of the Flow.
+            *args: The value, or the AttributeMap instance followed by its value.
+
+        Returns:
+            A new options object containing the additional write.
+
+        Raises:
+            TypeError: If arguments do not match either supported form.
+            ValueError: If an AttributeMap instance is empty or contains ``/``.
+        """
+        return replace(
+            self,
+            _attribute_initializations=self._attribute_initializations
+            + (_attribute_initialization(attribute, args),),
+        )
+
+
+@dataclass(frozen=True)
+class CloneForkFlowResult:
+    """Describe the run that ``clone_fork_flow`` created and the copied point.
+
+    Attributes:
+        run_id: The run ID of the new Flow's run.
+        source_run_id: The run ID of the source run.
+        source_run_attempt: The run attempt of the source run that holds the
+            copied point.
+        source_event_id: The ID of the last source history event that the
+            copied point includes.
+
+    .. versionadded:: 1.45.3
+    """
+
+    run_id: str
+    source_run_id: str
+    source_run_attempt: int
+    source_event_id: int
+
+
+def _attribute_initialization(
+    attribute: Attribute[Any] | AttributeMap[Any], args: tuple[object, ...]
+) -> _AttributeInitialization:
+    if isinstance(attribute, Attribute) and len(args) == 1:
+        return _AttributeInitialization(attribute, None, args[0])
+    if isinstance(attribute, AttributeMap) and len(args) == 2:
+        instance = args[0]
+        if not isinstance(instance, str):
+            raise TypeError("attribute-map instance must be a string")
+        require_map_instance(instance)
+        return _AttributeInitialization(attribute, instance, args[1])
+    raise TypeError("with_attribute received invalid arguments")
 
 
 class StopType(Enum):

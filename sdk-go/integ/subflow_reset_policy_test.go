@@ -54,13 +54,11 @@ func TestSubFlowAlwaysFailResetDeliversAbandonedChildResult(t *testing.T) {
 	awaitSubFlowRunID(t, childID, "")
 	waitTime := awaitWaitForCompletedTime(t, flowService, flowID, runID)
 
-	// The SDK has no Time Travel option for the policy yet, so send the raw request.
-	_, err = flowService.ResetFlow(integrationContext(t), &dexpb.ResetFlowRequest{
-		FlowId:             flowID,
-		ResetType:          dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
-		HistoryEventTime:   waitTime.UTC().Format(time.RFC3339Nano),
+	_, err = integClient.TimeTravel(integrationContext(t), flowID, dex.TimeTravelOptions{
+		Type:               dex.TimeTravelByHistoryEventTime,
+		HistoryEventTime:   waitTime,
 		Reason:             "verify SubFlow ALWAYS_FAIL reset",
-		SubFlowResetPolicy: dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_FAIL,
+		SubFlowResetPolicy: dex.SubFlowResetAlwaysFail,
 	})
 	require.NoError(t, err)
 

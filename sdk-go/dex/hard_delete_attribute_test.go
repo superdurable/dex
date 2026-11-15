@@ -168,6 +168,33 @@ type hardDeleteTestFlowService struct {
 	serverProtocolVersion uint32
 	serverInfoFailure     error
 	startRequest          *dexpb.StartFlowRequest
+	cloneForkRequest      *dexpb.CloneForkFlowRequest
+	cloneForkFailure      error
+	resetRequest          *dexpb.ResetFlowRequest
+}
+
+func (service *hardDeleteTestFlowService) CloneForkFlow(
+	_ context.Context,
+	request *dexpb.CloneForkFlowRequest,
+) (*dexpb.CloneForkFlowResponse, error) {
+	service.cloneForkRequest = request
+	if service.cloneForkFailure != nil {
+		return nil, service.cloneForkFailure
+	}
+	return &dexpb.CloneForkFlowResponse{
+		RunId:            "clone-run-1",
+		SourceRunId:      "source-run-1",
+		SourceRunAttempt: 2,
+		SourceEventId:    17,
+	}, nil
+}
+
+func (service *hardDeleteTestFlowService) ResetFlow(
+	_ context.Context,
+	request *dexpb.ResetFlowRequest,
+) (*dexpb.ResetFlowResponse, error) {
+	service.resetRequest = request
+	return &dexpb.ResetFlowResponse{RunId: "run-1", RunAttempt: 2}, nil
 }
 
 func (service *hardDeleteTestFlowService) GetServerInfo(

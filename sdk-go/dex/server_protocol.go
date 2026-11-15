@@ -21,12 +21,16 @@ import (
 
 const (
 	minimumSupportedServerProtocolVersion uint32 = 4
-	maximumSupportedServerProtocolVersion uint32 = 5
+	maximumSupportedServerProtocolVersion uint32 = 6
 	// hardDeleteAttributeProtocolVersion is the first Server protocol that keeps hard-delete Attributes out of history.
 	hardDeleteAttributeProtocolVersion uint32 = 3
 	// taskQueueProtocolVersion is the first Server protocol that routes Flows to named task queues.
 	taskQueueProtocolVersion uint32 = 5
-	goSDKModulePath                 = "github.com/superdurable/dex/sdk-go"
+	// cloneForkFlowProtocolVersion is the first Server protocol with CloneForkFlow.
+	cloneForkFlowProtocolVersion uint32 = 6
+	// cloneForkFlowServerZDRelease names the first server-zd release with cloneForkFlowProtocolVersion.
+	cloneForkFlowServerZDRelease = "server-zd 0.1.33"
+	goSDKModulePath              = "github.com/superdurable/dex/sdk-go"
 	// minimumSupportedServerZDRelease names the first server-zd releases with minimumSupportedServerProtocolVersion.
 	minimumSupportedServerZDRelease = "server-zd newer than v0.1.16"
 )
@@ -112,6 +116,17 @@ func (protocol *negotiatedServerProtocol) requireTaskQueueSupport(taskQueue stri
 		TaskQueue:                     taskQueue,
 		NegotiatedServerProtocol:      protocol.version.Load(),
 		RequiredServerProtocolVersion: taskQueueProtocolVersion,
+	}
+}
+
+// requireCloneForkFlowSupport fails before sending, because an older Server answers CloneForkFlow with UNIMPLEMENTED.
+func (protocol *negotiatedServerProtocol) requireCloneForkFlowSupport() error {
+	if protocol.version.Load() >= cloneForkFlowProtocolVersion {
+		return nil
+	}
+	return &CloneForkFlowUnsupportedError{
+		NegotiatedServerProtocol:      protocol.version.Load(),
+		RequiredServerProtocolVersion: cloneForkFlowProtocolVersion,
 	}
 }
 
