@@ -7,7 +7,8 @@ section: Fixed
   result for each call of a steered, cancelled, or failed turn that has none, from its final record.
   A steered or cancelled turn no longer stores the core's note, which repeated every tool output, and
   the next turn sends every call with its result. A succeeded call of a tool with `toModelOutput`
-  whose result the model has not read yet gets the unknown-outcome text, never the raw output. The
+  whose result the model has not read yet gets the new exported text `toolCallOutputOmittedResult`,
+  which states the success without any output, never the raw output. The
   method runs no application code. The run state is
   now version 2. A version 1 run state from an earlier release still resumes, but 0.6.11 refuses
   version 2 and fails that turn, so upgrade all Workers of a Flow type together. When a 0.6.11 Worker

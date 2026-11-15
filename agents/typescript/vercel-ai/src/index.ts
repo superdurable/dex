@@ -16,6 +16,7 @@ export {
   type VercelAiAgentDefinition,
   type VercelAiAgentSessionOptions,
 } from "./vercel-ai-agent-session-flow.js";
+export { toolCallOutputOmittedResult } from "./vercel-ai-model-messages.js";
 export {
   ToolExecutionError,
   type AgentSessionFlow,

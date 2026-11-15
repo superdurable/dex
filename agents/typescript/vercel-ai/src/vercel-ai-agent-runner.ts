@@ -82,6 +82,7 @@ import {
   serializeJsonValue,
   serializeToolOutput,
   toFrameworkMessage,
+  toolCallOutputOmittedResult,
   toUserFrameworkMessageWithImages,
 } from "./vercel-ai-model-messages.js";
 
@@ -381,8 +382,8 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
    * A call without a final record gets {@link outcomeUnknownToolResult}. The next turn then sends every call with its
    * result, and no note.
    *
-   * A succeeded call of a tool with `toModelOutput` whose result is not stored yet gets
-   * {@link outcomeUnknownToolResult}. Its converted result exists only in a model call, and its raw output may hold
+   * A succeeded call of a tool with `toModelOutput` whose result is not stored yet gets the text result
+   * {@link toolCallOutputOmittedResult}, which states the success without any output. Its converted result exists only in a model call, and its raw output may hold
    * what `toModelOutput` keeps from the model, so the method stores neither. Results of earlier rounds were stored
    * with their converted output by the model call that read them. Images are stored as references, as in every
    * stored message.
@@ -536,7 +537,7 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     }
     // The raw output may hold what toModelOutput keeps from the model, and this method runs no application code.
     if (this.findTool(record.toolName)?.toModelOutput !== undefined) {
-      return { type: "error-text", value: outcomeUnknownToolResult };
+      return { type: "text", value: toolCallOutputOmittedResult };
     }
     return createPlainRecordedToolResultOutput(record);
   }

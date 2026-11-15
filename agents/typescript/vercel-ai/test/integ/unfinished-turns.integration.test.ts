@@ -39,7 +39,7 @@ import {
 
 import { createScriptedLanguageModel, readRecordedModelPrompts } from "../fixtures/scripted-language-model.js";
 import { createScriptedVercelAiAgentFlow, scriptedPrivateFieldValue } from "../fixtures/scripted-vercel-ai-agent.js";
-import { createVercelAiAgentSessionFlow, type AgentSessionFlow } from "../../src/index.js";
+import { createVercelAiAgentSessionFlow, toolCallOutputOmittedResult, type AgentSessionFlow } from "../../src/index.js";
 import type { VercelAiAgentRunner } from "../../src/vercel-ai-agent-runner.js";
 
 describe("Vercel AI SDK agent turns store their messages as they run and when they end early", () => {
@@ -349,6 +349,13 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     // The hook runs no application code, so the same committed state gives the same messages.
     assert.deepEqual(runner.buildUnfinishedTurnMessages(endedTurn()), runner.buildUnfinishedTurnMessages(endedTurn()));
     assert.equal(toolLog("read_profile-model-output", sessionId).length, conversions);
+    // Only a call without a succeeded final record gets the unknown outcome.
+    const withoutFinalRecord = runner.buildUnfinishedTurnMessages(
+      resumedTurnContext(sessionId, waiting.messages, frameworkRunState, [readProfileRecord as unknown as AgentToolCall]),
+    );
+    assert.deepEqual(withoutFinalRecord.map(describeFrameworkMessage), [
+      `tool tool-result call-1-send_email send_email ${outcomeUnknownToolResult}`,
+    ]);
 
     assert.equal(await sessions.steerUserMessage(sessionId, "never mind"), true);
     const snapshot = await waitForTurns(sessionId, 2);
@@ -356,7 +363,7 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     assertNoPrivateField(sessionId, snapshot.messages);
   });
 
-  test("a turn cancelled before the model read a toModelOutput result stores the unknown outcome, never the raw output", async () => {
+  test("a turn cancelled before the model read a toModelOutput result stores the omitted-output success, never the raw output", async () => {
     const sessionId = newSessionId("model-output-cancelled");
     await sessions.startSession(sessionId, "call read_profile then pause");
     await pollUntil(() => (toolLog("turn", sessionId).length > 0 ? true : undefined), {
@@ -368,13 +375,21 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
     assert.deepEqual(cancelled.messages.map(describeMessage), [
       "1 turn-1 user call read_profile then pause",
       "2 turn-1 assistant tool-call call-1-read_profile read_profile",
-      `3 turn-1 tool tool-result call-1-read_profile read_profile ${outcomeUnknownToolResult}`,
+      `3 turn-1 tool tool-result call-1-read_profile read_profile ${toolCallOutputOmittedResult}`,
+    ]);
+    assert.deepEqual(readFrameworkItem(cancelled.messages[2]).content, [
+      {
+        type: "tool-result",
+        toolCallId: "call-1-read_profile",
+        toolName: "read_profile",
+        output: { type: "text", value: toolCallOutputOmittedResult },
+      },
     ]);
     assertNoNote(cancelled.messages);
     assertNoPrivateField(sessionId, cancelled.messages);
   });
 
-  test("a failed turn stores the unknown outcome for an unread toModelOutput result before the core's note", async () => {
+  test("a failed turn stores the omitted-output success for an unread toModelOutput result before the core's note", async () => {
     const sessionId = newSessionId("model-output-failed");
     await sessions.startSession(sessionId, "call read_profile then fail");
 
@@ -384,7 +399,7 @@ describe("Vercel AI SDK agent turns store their messages as they run and when th
       failed.messages.map((message) => message.role),
       ["user", "assistant", "tool", "user"],
     );
-    assert.equal(failed.messages[2]?.toolOutput, outcomeUnknownToolResult);
+    assert.equal(failed.messages[2]?.toolOutput, toolCallOutputOmittedResult);
     // The core's failure note after it still lists the raw output; that is tracked separately.
     assert.equal(failed.messages[2]?.frameworkItem.includes(scriptedPrivateFieldValue), false);
   });

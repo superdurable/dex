@@ -189,10 +189,13 @@ results, as a plain user message, so the model does not repeat a write.
 
 That method runs no application code. A succeeded call of a tool with
 `toModelOutput` whose result is not stored yet, usually a call of the last
-response, gets the core's unknown-outcome text. Its converted result exists
-only inside a model call, and its raw output may hold what `toModelOutput`
-keeps from the model, so neither is stored. Results of earlier rounds were
-already stored with their converted output.
+response, gets the text result `toolCallOutputOmittedResult`, exported by this
+package: "The tool call succeeded. Its output is omitted because the turn ended
+before the application processed it. Do not repeat the call." Its converted
+result exists only inside a model call, and its raw output may hold what
+`toModelOutput` keeps from the model, so neither is stored. Results of earlier
+rounds were already stored with their converted output. Only a call without a
+succeeded final record gets the core's unknown-outcome text.
 
 ### Upgrading from 0.6.11
 
@@ -468,8 +471,8 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   result message and in the model step summaries in `FrameworkRunState` that
   stop conditions read.
 - A turn steered, cancelled, or failed before the model read a result of a
-  tool with `toModelOutput` stores the unknown-outcome text for that call,
-  although the call succeeded.
+  tool with `toModelOutput` stores `toolCallOutputOmittedResult` for that
+  call, so the model knows the call succeeded but never sees its output.
 - Usage from a crashed attempt is lost, and AI SDK stream retries inside one
   step are not counted as model calls.
 - The core's limits apply: best-effort events, and one queued message per

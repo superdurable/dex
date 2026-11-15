@@ -22,6 +22,27 @@ import {
 
 import { buildImagePlaceholderPart, listDisplayImages, readImagePlaceholder } from "./vercel-ai-model-images.js";
 
+/**
+ * Model-visible result of a succeeded tool call whose output a turn that ended early cannot show.
+ *
+ * `buildUnfinishedTurnMessages` stores it as the `text` result of a succeeded call of a tool with `toModelOutput`
+ * when the turn is steered, cancelled, or failed before a model call read that result. The converted result exists
+ * only inside a model call, and the raw output may hold what `toModelOutput` keeps from the model, so neither is
+ * stored. The text holds no tool output. It tells the model that the call took effect, so the model does not
+ * repeat a write. A call without a succeeded final record gets the core's `outcomeUnknownToolResult` instead.
+ *
+ * @example
+ * ```ts
+ * import { toolCallOutputOmittedResult } from "@superdurable/dex-agents-vercel-ai";
+ *
+ * const isOmitted = message.role === "tool" && message.toolOutput === toolCallOutputOmittedResult;
+ * ```
+ * @since 0.6.12
+ */
+export const toolCallOutputOmittedResult =
+  "The tool call succeeded. Its output is omitted because the turn ended before the application processed it. " +
+  "Do not repeat the call.";
+
 /** Tool result output in an AI SDK `ToolResultPart`. */
 export type ToolResultOutput = ToolResultPart["output"];
 
