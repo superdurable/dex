@@ -6,9 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! CloneForkFlow: a new Flow whose first run starts from a copy of another run's state at a
-//! point. The source run's owner computes the copy and stages it on the new Flow's partition;
-//! apply then creates the new run from the staging and never reads the source run.
+//! CloneForkFlow: a new Flow whose first run starts from a copy of another run's state.
+//!
+//! The owner stages the copy on the new Flow's partition; apply never reads the source run.
 
 mod computation;
 mod copied_values;

@@ -269,9 +269,10 @@ fn replace_attempt_rows(
 
 /// Writes restored attempt rows into the run under its current attempt.
 ///
-/// Hard-delete Attribute rows, and rows of the keys in `hard_delete_keys`, are skipped. Timers
-/// are armed again; a restored Flow timeout restarts at the command's time. Invocations dispatch
-/// anew as [`replace_attempt_rows`] describes.
+/// It skips hard-delete Attribute rows and the keys in `hard_delete_keys`.
+///
+/// Timers are armed again, a Flow timeout restarting now; invocations follow
+/// [`replace_attempt_rows`].
 pub(in crate::history) fn write_restored_rows(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

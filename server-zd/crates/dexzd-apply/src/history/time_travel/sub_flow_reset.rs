@@ -48,8 +48,7 @@ const CLONE_FORK_ABANDONED_CONDITION_MESSAGE: &str =
 pub(in crate::history) enum SubFlowResetOperation {
     /// ResetFlow: the run keeps the children it started, so a running child stays attached.
     TimeTravel,
-    /// CloneForkFlow: the children report only to the source run, so a running child cannot
-    /// attach, and the new run receives every ended result from the staging.
+    /// CloneForkFlow: children report only to the source run, so a running child cannot attach.
     CloneFork,
 }
 
@@ -300,8 +299,9 @@ pub(super) fn plan_restored_sub_flow_actions(
     Ok(Ok(actions))
 }
 
-/// Decides what a clone fork's new run does with each copied SubFlow condition, from the owner's
-/// findings alone: the new run holds no child results of its own, and every condition acts.
+/// Decides what a clone fork's new run does with each copied SubFlow condition.
+///
+/// Only the owner's findings decide, since the new run holds no child results of its own.
 ///
 /// Returns INVALID_ARGUMENT for a finding that does not fit the policy or its condition, or for
 /// an unknown policy.
@@ -372,8 +372,9 @@ fn clone_fork_condition_action(
 
 /// Acts on the planned SubFlow conditions of a clone fork's new run, after its rows are written.
 ///
-/// Every condition moves to the new run's attempt. A restart starts a child whose Flow ID
-/// derives from the new Flow ID; nothing reaches the source run's children.
+/// Every condition moves to the new run's attempt.
+///
+/// A restarted child's Flow ID derives from the new Flow ID; the source's children never change.
 pub(in crate::history) fn apply_clone_fork_sub_flow_actions(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

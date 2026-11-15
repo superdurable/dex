@@ -6,11 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! CloneForkFlow: the owner computes the source point's copy, stages it on the new Flow's
-//! partition, then commits the FlowCloneFork that creates the new run there.
+//! CloneForkFlow: the owner computes the copy, stages it on the new Flow, then commits the run.
 //!
-//! The source run is only read. Apply rejects a replaced or expired staging with ABORTED, and
-//! the owner computes and stages again.
+//! The source run is only read.
+//!
+//! Apply rejects a replaced or expired staging with ABORTED, and the owner stages again.
 
 use std::sync::Arc;
 
@@ -61,11 +61,11 @@ enum CloneForkRound {
 }
 
 impl FlowCoordinatorRegistry {
-    /// Creates the Flow `request.flow_id` with a run that starts from a copy of the source run's
-    /// state at the requested point, and returns the new run once it is committed.
+    /// Creates `request.flow_id` with a run copied from the source point, once it commits.
     ///
-    /// Clone forks into one Flow run one at a time; one clone fork computes and stages its copy
-    /// at most four times.
+    /// Clone forks into one Flow run one at a time.
+    ///
+    /// One clone fork stages its copy at most four times.
     pub async fn clone_fork_flow(
         &self,
         tenant_id: TenantId,
@@ -283,8 +283,7 @@ impl FlowCoordinatorRegistry {
         ))
     }
 
-    /// Reads the values of the source run's current hard-delete Attributes, which the new run
-    /// stores in objects of its own.
+    /// Reads the source run's current hard-delete Attribute values for the new run's objects.
     ///
     /// Returns FAILED_PRECONDITION when an object no longer exists, and UNAVAILABLE when object
     /// storage fails.
@@ -327,8 +326,8 @@ impl FlowCoordinatorRegistry {
     }
 
     /// Computes the copy on blocking threads in committed view rounds, the first on `view`.
-    /// Between rounds it fetches the uploaded segments and offloaded values the last round
-    /// reached, holding no view.
+    ///
+    /// Between rounds, holding no view, it fetches the segments and values the last one reached.
     ///
     /// Returns the computation's rejection, or a failure to read history, as an error.
     async fn compute_clone_fork(
@@ -401,8 +400,7 @@ impl FlowCoordinatorRegistry {
         }
     }
 
-    /// Opens the source run's history from `view` with what `reads` fetched, and computes the
-    /// copy on a blocking thread, which releases the view.
+    /// Computes the copy over `view` and `reads` on a blocking thread, which releases the view.
     async fn clone_fork_round(
         &self,
         view: Box<dyn dexzd_apply::FlowStateReader + Send>,
@@ -478,8 +476,7 @@ fn stale_or_error(error: FlowCoordinationError) -> Result<CloneForkOutcome, Flow
     }
 }
 
-/// The staging ID of one request: it is the same for every retry of the request, so a retry
-/// replaces an abandoned staging instead of adding one.
+/// Every retry of a request gets one staging ID, so it replaces an abandoned staging.
 fn clone_fork_staging_id(target: &FlowAddress, request_id: &str) -> Vec<u8> {
     let mut identity = u64::try_from(target.flow_id.len())
         .expect("a Flow ID length fits a u64")

@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Expiry of abandoned CloneForkFlow stagings. A staging belongs to no run, so no run command
-//! cleans it up: each owned partition is scanned once a minute, and a staging that no chunk
-//! extended for 10 minutes gets a FlowCloneForkStagingExpire command. Apply decides again from
-//! the command's own time, so a staging extended meanwhile stays.
+//! Expiry of abandoned CloneForkFlow stagings, which belong to no run that could clean them up.
+//!
+//! Each owned partition is scanned once a minute for stagings idle for 10 minutes.
+//!
+//! Apply decides again by the command's time, so a staging extended meanwhile stays.
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -503,9 +503,9 @@ fn selected_attempt(record: &RunRecord, request: &ResetFlowRequest) -> Result<u3
     }
 }
 
-/// Computes the attempt state at the point that `request` selects in any run, which may be an
-/// older run of its Flow, without collecting input after the point. `request` must skip
-/// reapplying writes.
+/// Computes the attempt state at the point `request` selects, in any run of its Flow.
+///
+/// `request` must skip reapplying writes, so no input after the point is collected.
 ///
 /// The result holds the values that the store lacks in `unstored_values`.
 ///

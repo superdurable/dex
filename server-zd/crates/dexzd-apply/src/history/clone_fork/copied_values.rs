@@ -21,8 +21,9 @@ use crate::values::held_table_values;
 
 /// Returns every value-table value that `rows` reference, with its size.
 ///
-/// These are the values the rows hold, and the child outputs in Step condition results. The
-/// source run holds those outputs through its run-scoped SubFlowResult rows, which a copy lacks.
+/// Besides held values, these include child outputs in condition results.
+///
+/// The source holds those outputs through SubFlowResult rows, which a copy lacks.
 ///
 /// Returns an error when a row is corrupt.
 pub(super) fn referenced_table_values(

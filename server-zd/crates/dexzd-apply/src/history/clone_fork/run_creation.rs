@@ -65,8 +65,9 @@ struct StagedCopy {
 
 /// Applies ID reuse to the command's Flow and, when allowed, creates its run from the staging.
 ///
-/// A conflict or a retry answers as StartFlow does and deletes the staging. Returns ABORTED,
-/// which the owner settles by staging again, when the staging is missing or incomplete.
+/// A conflict or a retry answers as StartFlow does and deletes the staging.
+///
+/// Returns ABORTED when the staging is missing or incomplete; the owner stages it again.
 pub(crate) fn apply_flow_clone_fork(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,
@@ -214,8 +215,7 @@ pub(crate) fn apply_flow_clone_fork(
     Ok(HandlerResult::Applied(output))
 }
 
-/// Answers a retry or an ID reuse conflict with `reply`. The command then commits only the
-/// deletion of its staging, when one exists.
+/// Answers a retry or an ID reuse conflict with `reply`, committing only the staging's deletion.
 fn answer_without_run(
     transaction: &mut FlowTransaction<'_>,
     staging_id: &[u8],
@@ -340,8 +340,7 @@ fn new_run_record(
 
 /// Writes the staged values and rows into the new run, under its attempt 1.
 ///
-/// Every copied value gets the holders of its rows and a genesis pin: the run's start checkpoint
-/// holds it, and a time travel to the beginning restores it.
+/// Every copied value also gets a genesis pin, since a time travel to the beginning restores it.
 fn write_copied_state(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -476,8 +475,9 @@ fn register_run(
     Ok(())
 }
 
-/// Completes the copied waits whose SubFlow results the command delivered. Dispatch follows the
-/// final copied state instead of these completions' own dispatch effects.
+/// Completes the copied waits whose SubFlow results the command delivered.
+///
+/// Dispatch follows the final copied state, not these completions' dispatch effects.
 fn complete_copied_waits(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -490,8 +490,9 @@ fn complete_copied_waits(
     Ok(())
 }
 
-/// Marks every synced Attribute of the new run, so Attribute Stores receive the new Flow's rows,
-/// in one effect with the marks of the command's Attribute writes.
+/// Marks every synced Attribute of the new run, so Attribute Stores receive the new Flow's rows.
+///
+/// One effect announces these marks and those of the command's Attribute writes.
 fn mark_synced_attributes(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

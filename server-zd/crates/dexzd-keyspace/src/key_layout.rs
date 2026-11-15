@@ -95,9 +95,11 @@ impl ColumnFamily {
 pub const FLOW_DIRECTORY_KEY_TAG: u8 = 0x01;
 /// Tag byte after the Flow hash for a run key.
 pub const RUN_KEY_TAG: u8 = 0x02;
-/// Tag byte after the Flow hash for a CloneForkFlow staging key, which belongs to no run:
-/// `flow_hash(8) ‖ 0x03 ‖ staging_id(16)` in `flow` for the staging record, followed by
-/// `chunk_index(4)` in `value` for its chunks.
+/// Tag byte after the Flow hash for a CloneForkFlow staging key, which belongs to no run.
+///
+/// `flow_hash(8) ‖ 0x03 ‖ staging_id(16)` keys the record in `flow`.
+///
+/// Chunks in `value` append `chunk_index(4)`.
 pub const FLOW_CLONE_FORK_STAGING_KEY_TAG: u8 = 0x03;
 
 /// Tables inside one run. Byte values are permanent.
@@ -269,8 +271,9 @@ pub enum IndexKind {
     /// method(1) ‖ attempt(4) ‖ step_execution_id`: the DispatchQueue rows of named task queues;
     /// default task queue rows stay in [`IndexKind::DispatchQueue`].
     NamedDispatchQueue = 0x12,
-    /// `staged_at(8) ‖ flow_hash(8) ‖ staging_id(16)`: CloneForkFlow stagings by the proposal
-    /// time of their latest chunk, for expiry; times are sign-biased big-endian.
+    /// `staged_at(8) ‖ flow_hash(8) ‖ staging_id(16)`: CloneForkFlow stagings by latest chunk time.
+    ///
+    /// Times are sign-biased big-endian.
     FlowCloneForkStaging = 0x13,
 }
 

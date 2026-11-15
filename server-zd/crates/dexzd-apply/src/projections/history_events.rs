@@ -100,8 +100,9 @@ pub(crate) struct FlowCloneForkStart<'start> {
     pub(crate) source: dexzd_protocol::dex::FlowCloneForkSource,
 }
 
-/// Records the start of a run that CloneForkFlow created. `attribute_references` holds the wire
-/// reference of each request Attribute value stored in the value table, in write order.
+/// Records the start of a run that CloneForkFlow created.
+///
+/// `attribute_references` holds each request Attribute's wire reference, in write order.
 pub(crate) fn record_flow_clone_forked(
     cursor: &mut RunCursor,
     start: FlowCloneForkStart<'_>,

@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! CloneForkFlow stagings: the FlowCloneForkStage command, its chunk rows, the partition cap,
-//! and expiry. A staging belongs to the new Flow, not to a run, since the Flow may have none.
+//! CloneForkFlow stagings: the Stage command, chunk rows, the partition cap, and expiry.
+//!
+//! A staging belongs to the new Flow, not to a run, since the Flow may have none.
 
 use dexzd_keyspace::row_keys::{
     flow_clone_fork_staging_chunk_key, flow_clone_fork_staging_index_key,
@@ -41,8 +42,7 @@ const MAX_PARTITION_STAGINGS: usize = 64;
 
 /// Applies one FlowCloneForkStage chunk. It records no history and takes no run seq.
 ///
-/// A malformed chunk is rejected before anything is stored, so a later FlowCloneFork never reads
-/// one.
+/// A malformed chunk is rejected before it is stored, so FlowCloneFork never reads one.
 pub(crate) fn apply_flow_clone_fork_stage(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,
@@ -123,8 +123,9 @@ pub(crate) fn apply_flow_clone_fork_stage(
     Ok(HandlerResult::Applied(no_run_output(ok_reply())))
 }
 
-/// Deletes the staging the command names when no chunk extended it for 10 minutes of command
-/// time; otherwise changes nothing. It records no history and takes no run seq.
+/// Deletes the named staging when no chunk extended it for 10 minutes of command time.
+///
+/// It records no history and takes no run seq.
 pub(crate) fn apply_flow_clone_fork_staging_expire(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,
@@ -267,8 +268,7 @@ fn partition_staging_count(transaction: &FlowTransaction<'_>) -> Result<usize, A
         .len())
 }
 
-/// Checks a chunk before storing it: its ID, that it decodes, that only chunk 0 has a target,
-/// and that its entries are well formed.
+/// Checks a chunk's ID, decoding, target placement, and entries before storing it.
 ///
 /// Returns the INVALID_ARGUMENT reply for a malformed chunk.
 fn validate_stage_command(command: &FlowCloneForkStageCommand) -> Result<(), CommandReply> {

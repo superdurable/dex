@@ -247,8 +247,9 @@ pub trait TimeTravelRunHistory: Send {
         child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError>;
 
-    /// Computes the CloneForkFlow copy of `request` over this history on the calling thread,
-    /// which may block. It reads child runs from `child_flow_runs`.
+    /// Computes the CloneForkFlow copy of `request` over this history, possibly blocking.
+    ///
+    /// It reads child runs from `child_flow_runs`.
     ///
     /// Returns [`SegmentedCloneForkComputation::NeedsSegments`] when the computation reached
     /// uploaded segments this history lacks. Returns an error when stored state is corrupt.

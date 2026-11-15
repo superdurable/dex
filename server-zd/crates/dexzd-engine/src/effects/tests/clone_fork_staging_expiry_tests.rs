@@ -55,8 +55,7 @@ fn abandoned_chunk(flow_id: &str, staging_id: Vec<u8>) -> flow_command::Command 
     })
 }
 
-/// A staging that no chunk extends stays for 10 minutes; then the sweep proposes its expiry,
-/// and apply deletes it.
+/// An idle staging stays for 10 minutes; then the sweep proposes its expiry.
 #[tokio::test(start_paused = true)]
 async fn the_sweep_expires_a_staging_idle_for_ten_minutes() {
     let harness = EffectHarness::new();

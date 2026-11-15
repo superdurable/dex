@@ -295,8 +295,9 @@ pub(crate) struct IdReuseRequest<'request> {
 
 /// What ID reuse decides for a new run of the command's Flow.
 pub(crate) enum IdReuseDecision {
-    /// No new run starts; the command answers with this reply. A retry of the latest run's
-    /// start request answers with that run when the request ignores the already-started error.
+    /// No new run starts; the command answers with this reply.
+    ///
+    /// A retry may answer with the latest run, as `FlowAlreadyStartedOptions` decides.
     Reply(CommandReply),
     /// The new run starts after terminating the running latest run, when one is named.
     Start {

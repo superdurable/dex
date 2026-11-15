@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The owner's computation of a CloneForkFlow: the source point's state, every value it holds,
-//! and the child Flow findings, ready to stage on the new Flow's partition.
+//! The owner's CloneForkFlow computation: the source point's state, its values, and child
+//! findings.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -88,8 +88,8 @@ pub enum SegmentedCloneForkComputation {
     NeedsSegments(MissingHistorySegments),
 }
 
-/// A source run's current hard-delete Attribute, which a clone fork uploads again for the new
-/// run, since its object belongs to the source run.
+/// A source run's current hard-delete Attribute; the owner uploads its value again for the new
+/// run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CloneForkHardDeleteAttribute {
     /// The Attribute key.
@@ -313,8 +313,7 @@ fn compute_noting_gone_child_flows(
     ))
 }
 
-/// Computes `request` as [`compute_clone_fork`] does, reading the source run's history from
-/// local rows and from the uploaded segments that `segments` holds.
+/// Computes `request` as [`compute_clone_fork`] does, with history from local rows and `segments`.
 ///
 /// Returns [`SegmentedCloneForkComputation::NeedsSegments`] when the computation reached
 /// uploaded segments that `segments` lacks; its result is discarded then. Returns an error when
@@ -578,9 +577,10 @@ fn current_hard_delete_attributes(
 
 /// Returns every value the copied rows reference, complete, in value ID order.
 ///
-/// Each value reserves its size first. Returns FAILED_PRECONDITION naming a value that neither
-/// the store, the computation, nor the offloaded values have, and RESOURCE_EXHAUSTED past the
-/// memory budget.
+/// Each value reserves its size first.
+///
+/// Returns FAILED_PRECONDITION naming a value that neither the store, the computation, nor the
+/// offloaded values have, and RESOURCE_EXHAUSTED past the memory budget.
 fn copied_values(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
