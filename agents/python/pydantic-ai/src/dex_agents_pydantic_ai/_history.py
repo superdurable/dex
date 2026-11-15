@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 
 from pydantic_ai import (
@@ -100,10 +101,13 @@ def rebuild_earlier_turn_history(
     messages: Sequence[AgentMessage],
     current_turn_id: str,
 ) -> list[ModelMessage]:
-    # A 0.6.11 Worker may end a turn whose calls are stored with only a note.
-    return _answer_unanswered_tool_calls(
-        _rebuild_history([message for message in messages if message.turn_id != current_turn_id])
-    )
+    history: list[ModelMessage] = []
+    # Call IDs are unique only within a turn, so each turn pairs calls with its own results.
+    for turn_id, turn_messages in itertools.groupby(messages, key=lambda message: message.turn_id):
+        if turn_id != current_turn_id:
+            # A 0.6.11 Worker may end a turn whose calls are stored with only a note.
+            history.extend(_answer_unanswered_tool_calls(_rebuild_history(list(turn_messages))))
+    return history
 
 
 def rebuild_turn_history(messages: Sequence[AgentMessage], turn_id: str) -> list[ModelMessage]:

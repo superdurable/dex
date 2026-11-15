@@ -229,6 +229,13 @@ state that 0.6.11 or earlier wrote holds the turn's messages instead; the next
 `DeferredToolRequests` in its output type, unless the agent's `output_type`
 already does.
 
+**Upgrading from 0.6.11 or earlier.** A Worker of 0.6.11 or earlier cannot
+read the run state that 0.6.12 writes. When such a Worker takes the next
+`RunModel` of a turn that a newer Worker paused for tools, every attempt
+fails and the turn fails. Upgrade every Worker of the Flow type together, or
+drain the Workers of 0.6.11 and earlier before newer Workers start. A newer
+Worker resumes every run state that an older one wrote.
+
 Because no tool runs during `RunModel`, the agent's own tool hooks run only in
 the tool Steps, where the tool really runs. The capability wraps every other
 capability, so tools that other capabilities add, such as `search_tools`, are

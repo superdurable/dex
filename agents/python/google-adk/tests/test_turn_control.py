@@ -14,6 +14,7 @@ import json
 from typing import Any
 
 from dex_agents import (
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TURN_CANCELLED_NOTE_HEADER,
@@ -29,10 +30,50 @@ from dex_agents import (
 from dex_agents.testing import wait_for_agent_snapshot
 from tests.conftest import AdkAgentHarness
 from tests.scripted_adk_agent import SLOW_WRITE_GATE
-from tests.scripted_adk_topologies import PARALLEL_APPROVAL_FLOW_TYPE
+from tests.scripted_adk_topologies import (
+    PARALLEL_APPROVAL_FLOW_TYPE,
+    REDACTED_RESULT,
+    REDACTING_FLOW_TYPE,
+)
 
 SLOW_WRITE_COMMAND = 'call slow_write {"message": "note"}'
 APPROVAL_COMMAND = 'call publish {"message": "note"}'
+
+
+async def test_a_completed_turn_stores_what_the_after_tool_callback_returns(
+    harness: AdkAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    sessions = harness.sessions_for(REDACTING_FLOW_TYPE)
+    await sessions.start_session(session_id, SLOW_WRITE_COMMAND)
+    harness.gate(SLOW_WRITE_GATE).release()
+    snapshot = await harness.wait_for_turns(session_id, 1, sessions)
+
+    assert _tool_outputs(snapshot) == [("slow_write", "redacted")]
+    assert snapshot.messages[-1].text == "slow_write: redacted"
+
+
+async def test_steering_withholds_a_result_that_an_after_tool_callback_would_replace(
+    harness: AdkAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    sessions = harness.sessions_for(REDACTING_FLOW_TYPE)
+    await sessions.start_session(session_id, SLOW_WRITE_COMMAND)
+    gate = harness.gate(SLOW_WRITE_GATE)
+    await gate.wait_until_reached()
+
+    assert await sessions.steer_user_message(session_id, text="recall")
+    gate.release()
+    snapshot = await harness.wait_for_turns(session_id, 2, sessions)
+
+    # The raw output never reaches storage; the callback would have replaced it.
+    assert _tool_responses(snapshot) == [("slow_write", {"error": OUTCOME_UNKNOWN_TOOL_RESULT})]
+    assert not any("wrote note" in message.framework_item for message in snapshot.messages)
+    assert REDACTED_RESULT["result"] not in (snapshot.messages[-1].text or "")
+    assert snapshot.messages[-1].text == f"history: {SLOW_WRITE_COMMAND}"
+    assert harness.invocations.count("slow_write") == 1
 
 
 async def test_steering_during_a_tool_stores_its_call_and_result_instead_of_a_note(

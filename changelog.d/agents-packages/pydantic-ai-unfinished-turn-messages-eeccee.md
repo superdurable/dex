@@ -9,4 +9,6 @@ section: Fixed
   repeated every tool output, and the next turn replays the exact tool calls and results. A run
   state from an earlier release still resumes. When a Worker of 0.6.11 or earlier ends such a turn
   with only the note, the replay answers each stored tool call without a result with
-  `OUTCOME_UNKNOWN_TOOL_RESULT`, so the model input stays valid.
+  `OUTCOME_UNKNOWN_TOOL_RESULT`, so the model input stays valid. A Worker of 0.6.11 or earlier cannot
+  read the new run state, so upgrade every Worker of the Flow type together, or drain the older
+  Workers first.

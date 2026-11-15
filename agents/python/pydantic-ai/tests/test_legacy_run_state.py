@@ -94,7 +94,7 @@ async def test_a_legacy_run_state_ends_with_its_messages_and_the_recorded_result
     assert runner.build_unfinished_turn_messages(turn) == messages
 
 
-async def test_a_tool_call_an_earlier_worker_left_unanswered_replays_an_unknown_outcome() -> None:
+async def test_tool_calls_an_earlier_worker_left_unanswered_replay_an_unknown_outcome() -> None:
     model_inputs: list[list[ModelMessage]] = []
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
@@ -111,24 +111,22 @@ async def test_a_tool_call_an_earlier_worker_left_unanswered_replays_an_unknown_
             output_type=[str, DeferredToolRequests],
         )
     )
-    # A newer Worker stored the call; a 0.6.11 Worker steered the turn with only a note.
+    # A newer Worker stored the calls of turns 1 and 3; a 0.6.11 Worker ended each with a note.
+    # Turn 2 reuses the call ID and has its own result, which answers only turn 2's call.
     turn = _turn(
-        "turn-2",
+        "turn-4",
         [
-            _message(1, "turn-1", MessageRole.USER, ModelRequest(parts=[UserPromptPart(COMMAND)])),
+            *_steered_turn_messages(1, "turn-1"),
+            _message(4, "turn-2", MessageRole.USER, ModelRequest(parts=[UserPromptPart(COMMAND)])),
+            _message(5, "turn-2", MessageRole.ASSISTANT, _lookup_call_response()),
             _message(
-                2,
-                "turn-1",
-                MessageRole.ASSISTANT,
-                ModelResponse(parts=[ToolCallPart("lookup", '{"query": "a"}', TOOL_CALL_ID)]),
+                6,
+                "turn-2",
+                MessageRole.TOOL,
+                ModelRequest(parts=[ToolReturnPart("lookup", "found a", TOOL_CALL_ID)]),
             ),
-            _message(
-                3,
-                "turn-1",
-                MessageRole.USER,
-                ModelRequest(parts=[UserPromptPart(TURN_STEERED_NOTE_HEADER)]),
-            ),
-            _message(4, "turn-2", MessageRole.USER, ModelRequest(parts=[UserPromptPart("next")])),
+            *_steered_turn_messages(7, "turn-3"),
+            _message(10, "turn-4", MessageRole.USER, ModelRequest(parts=[UserPromptPart("next")])),
         ],
         framework_run_state=None,
         tool_calls={},
@@ -137,13 +135,39 @@ async def test_a_tool_call_an_earlier_worker_left_unanswered_replays_an_unknown_
     outcome = await runner.run_model_step(turn)
 
     assert isinstance(outcome, TurnCompleted)
+    # Each call's result follows its own response, so every turn's call has exactly one result.
     assert [
-        (part.tool_call_id, part.content, part.outcome, part.metadata)
+        (part.content, part.metadata) if isinstance(part, ToolReturnPart) else "call"
         for message in model_inputs[0]
-        if isinstance(message, ModelRequest)
         for part in message.parts
-        if isinstance(part, ToolReturnPart)
-    ] == [(TOOL_CALL_ID, OUTCOME_UNKNOWN_TOOL_RESULT, "failed", None)]
+        if isinstance(part, ToolCallPart | ToolReturnPart)
+    ] == [
+        "call",
+        (OUTCOME_UNKNOWN_TOOL_RESULT, None),
+        "call",
+        ("found a", None),
+        "call",
+        (OUTCOME_UNKNOWN_TOOL_RESULT, None),
+    ]
+
+
+def _lookup_call_response() -> ModelResponse:
+    return ModelResponse(parts=[ToolCallPart("lookup", '{"query": "a"}', TOOL_CALL_ID)])
+
+
+def _steered_turn_messages(first_sequence: int, turn_id: str) -> list[AgentMessage]:
+    return [
+        _message(
+            first_sequence, turn_id, MessageRole.USER, ModelRequest(parts=[UserPromptPart(COMMAND)])
+        ),
+        _message(first_sequence + 1, turn_id, MessageRole.ASSISTANT, _lookup_call_response()),
+        _message(
+            first_sequence + 2,
+            turn_id,
+            MessageRole.USER,
+            ModelRequest(parts=[UserPromptPart(TURN_STEERED_NOTE_HEADER)]),
+        ),
+    ]
 
 
 async def test_unfinished_turn_results_keep_each_part_type_and_outcome(tmp_path: Path) -> None:
