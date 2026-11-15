@@ -675,9 +675,12 @@ children report only to the source run, so the policies act as follows:
 - A child that still runs cannot be attached, and neither can a child whose
   start has not reached it yet. The policy's second action applies.
 - A restart starts a new child whose Flow ID derives from the new Flow ID, with
-  the start that the source run's child received.
+  the start that the source run's child received. While that start is still on
+  its way to the source run's child, a restart is rejected. Retry a moment
+  later.
 - A failure completes the condition with a **FAILED** child result whose error
-  type is **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED**. It terminates no child.
+  type is **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED**. It terminates no child, and
+  it applies at once, even while the child's start is on its way.
 - A rejection fails the call with **FAILED_PRECONDITION** and names each Step
   execution and child Flow ID.
 
@@ -692,7 +695,7 @@ The source run's children never change.
 | **FAILED_PRECONDITION** | The point is outside the history window or does not exist, its state is not RUNNING, the SubFlow reset policy rejects a copied wait, a copied value is no longer stored, or the timeout rule above rejects the request. |
 | **ALREADY_EXISTS** | The ID reuse policy rejects the new run. |
 | **RESOURCE_EXHAUSTED** | The copied state exceeds [**limits.maxFlowStateBytes**](/reference/server/configuration#flow-state-budget), the computation needs more than [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints), or the new Flow's partition already holds 64 clone forks in progress. |
-| **ABORTED** | The staged copy expired or was replaced several times in a row. Retry with the same **request_id**. |
+| **ABORTED** | The staged copy expired or was replaced several times in a row, or the child Flows the call reads kept changing while it computed. Retry with the same **request_id**. |
 
 The server stages the copy on the new Flow's partition in chunks of about
 8 MiB before it creates the run. A staging that no chunk extends for 10 minutes
