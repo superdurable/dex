@@ -69,8 +69,8 @@ export function CloneForkDialog({
   initialEvent: FlowHistoryEvent | null;
   /** The run attempt whose history is shown; 0 selects the current one. */
   runAttempt: number;
-  /** The source run's task queue; empty is the default task queue. */
-  sourceTaskQueue: string;
+  /** The source run's task queue, or null when its configuration is unavailable. */
+  sourceTaskQueue: string | null;
   /** The current state can be copied only while the source run is running. */
   isSourceRunning: boolean;
   timezone: TimezonePreference;
@@ -81,7 +81,7 @@ export function CloneForkDialog({
   const [target, setTarget] = useState(() => (initialEvent ? String(initialEvent.eventId) : ''));
   const [stepMethod, setStepMethod] = useState(0);
   const [flowId, setFlowId] = useState(() => suggestedCloneForkFlowId(summary.flowId, new Date()));
-  const [taskQueue, setTaskQueue] = useState(sourceTaskQueue);
+  const [taskQueue, setTaskQueue] = useState(sourceTaskQueue ?? '');
   const [idReusePolicy, setIdReusePolicy] = useState<number>(ID_REUSE_POLICY.SERVER_DEFAULT);
   const [subFlowResetPolicy, setSubFlowResetPolicy] = useState<number>(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
   const [reason, setReason] = useState('');
@@ -97,7 +97,7 @@ export function CloneForkDialog({
     setTarget(initialEvent ? String(initialEvent.eventId) : '');
     setStepMethod(0);
     setFlowId(suggestedCloneForkFlowId(summary.flowId, new Date()));
-    setTaskQueue(sourceTaskQueue);
+    setTaskQueue(sourceTaskQueue ?? '');
     setIdReusePolicy(ID_REUSE_POLICY.SERVER_DEFAULT);
     setSubFlowResetPolicy(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
     setReason('');
@@ -211,7 +211,9 @@ export function CloneForkDialog({
           />
           {taskQueueError
             ? <small className="field-error">{taskQueueError}</small>
-            : <small className="muted">Empty keeps the source&apos;s task queue; dex.default selects the default one.</small>}
+            : <small className="muted">{sourceTaskQueue === null
+              ? 'Empty inherits the source\'s task queue; dex.default selects the default one.'
+              : 'Empty keeps the source\'s task queue; dex.default selects the default one.'}</small>}
         </label>
         <label>
           ID reuse policy

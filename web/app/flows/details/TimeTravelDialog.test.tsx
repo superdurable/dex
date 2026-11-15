@@ -174,7 +174,7 @@ describe('time travel requests', () => {
       runId: 'run-1',
       timeTravelType: 6,
       reason: 'replay',
-      eventId: 42,
+      eventId: '42',
       subFlowResetPolicy: 3,
     });
   });

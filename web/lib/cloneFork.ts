@@ -30,7 +30,7 @@ export const ID_REUSE_POLICY = {
 
 export const idReusePolicyOptions = [
   { value: ID_REUSE_POLICY.SERVER_DEFAULT, label: 'Server default (disallow reuse)' },
-  { value: ID_REUSE_POLICY.ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY, label: 'Allow if the previous run failed' },
+  { value: ID_REUSE_POLICY.ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY, label: 'Allow if the previous run closed abnormally (failed, canceled, or terminated)' },
   { value: ID_REUSE_POLICY.ALLOW_IF_NO_RUNNING, label: 'Allow if no run is running' },
   { value: ID_REUSE_POLICY.DISALLOW_REUSE, label: 'Disallow reuse' },
   { value: ID_REUSE_POLICY.ALLOW_TERMINATE_IF_RUNNING, label: 'Terminate a running run, then start' },
@@ -41,7 +41,7 @@ export interface CloneForkSource {
   flowId: string;
   runId: string;
   runAttempt: number;
-  eventId: number;
+  eventId: string;
 }
 
 /** Returns the clone fork source of a start event, or null when the run did not start from one. */
@@ -59,9 +59,10 @@ export function cloneForkSourceOf(startEvent: FlowHistoryEvent | null): CloneFor
 }
 
 /** Returns a positive event ID from a number or its decimal string, or 0 when it is absent or invalid. */
-function positiveHistoryEventId(value: unknown): number {
-  const eventId = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-  return typeof eventId === 'number' && Number.isSafeInteger(eventId) && eventId > 0 ? eventId : 0;
+function positiveHistoryEventId(value: unknown): string {
+  if (typeof value === 'string' && /^[1-9]\d*$/.test(value) && BigInt(value) <= 9223372036854775807n) return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return String(value);
+  return '0';
 }
 
 /** Suggests a new Flow ID for a clone fork: the source ID, "-fork-", and the time to the second in UTC. */

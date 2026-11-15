@@ -727,7 +727,7 @@ The dialog has these fields:
 | --- | --- | --- |
 | **Clone fork point** | **Current state** or **Event ID**, as above | **Current state**, **Beginning**, **History event time**, **Step type**, **Step execution ID**, or **Event ID**. **Current state** appears only while the run runs. The other points search the run attempt on screen. |
 | **New Flow ID** | The source Flow ID with **-fork-** and the UTC time to the second, such as **order-1-fork-20261115-080910** | Required. It must differ from the source Flow ID. |
-| **Task queue** | The source run's task queue | An unchanged or empty value keeps the source's task queue. **dex.default** selects the default task queue. Set a task queue of its own when Workers pick their Flows by task queue. |
+| **Task queue** | The source run's task queue when available; otherwise empty | An unchanged or empty value inherits the source's task queue. **dex.default** selects the default task queue. Set a task queue of its own when Workers pick their Flows by task queue. |
 | **ID reuse policy** | **Server default (disallow reuse)** | Decides whether the new Flow ID may already have a run, as for a start. |
 | **SubFlow reset policy** | **Attach, else restart** | Decides what happens to a SubFlow that a copied Step waits on; see [SubFlows across a clone fork](/reference/server/runtime-client#sub-flows-across-a-clone-fork). |
 | **Reason** | Empty | Required. Recorded with the new run's start. |
@@ -740,9 +740,10 @@ A run that a clone fork created shows **Clone forked from FLOW_ID at event #N**
 in the line under the bar. The link opens the source run at the copied run
 attempt, with event N selected. N is the last source event the copy includes.
 
-A run that Dex Web shows as an agent session, through its loaded Flow Definition
-Graph, offers no **Clone fork**. A session's clone fork also needs its own task
-queue and session state, which a generic clone fork does not set.
+A run that Dex Web identifies as an agent session through its loaded Flow Definition
+Graph offers no **Clone fork**. Dex Web also hides the action until it loads a
+definition that identifies the Flow as another type. A session's clone fork needs
+its own task queue and session state, which a generic clone fork does not set.
 
 **POST /api/flows/clone-fork** takes **sourceFlowId**, **sourceRunId**,
 **flowId**, **reason**, an optional **requestId**, and the point fields

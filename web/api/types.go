@@ -8,6 +8,30 @@
 
 package api
 
+import (
+	"strconv"
+	"strings"
+)
+
+type historyEventID int64
+
+func (id *historyEventID) UnmarshalJSON(value []byte) error {
+	decimal := string(value)
+	if strings.HasPrefix(decimal, `"`) {
+		unquoted, err := strconv.Unquote(decimal)
+		if err != nil {
+			return err
+		}
+		decimal = unquoted
+	}
+	parsed, err := strconv.ParseInt(decimal, 10, 64)
+	if err != nil {
+		return err
+	}
+	*id = historyEventID(parsed)
+	return nil
+}
+
 type errorResponse struct {
 	Error    string `json:"error"`
 	Code     string `json:"code,omitempty"`
@@ -185,7 +209,7 @@ type timeTravelFlowRequest struct {
 	// RunAttempt selects the run attempt searched for the time travel point; zero selects the current one.
 	RunAttempt int32 `json:"runAttempt"`
 	// EventID is the history event ID of the event ID time travel type.
-	EventID int64 `json:"eventId"`
+	EventID historyEventID `json:"eventId"`
 	// SubFlowResetPolicy is a SubFlowResetPolicy number; zero selects the server default.
 	SubFlowResetPolicy int32 `json:"subFlowResetPolicy"`
 }
@@ -203,12 +227,12 @@ type cloneForkFlowRequest struct {
 	// RequestID makes a repeated submit a retry; empty makes the handler generate one.
 	RequestID string `json:"requestId"`
 	// PointType is a FlowCloneForkPointType number; zero selects the current state.
-	PointType        int32  `json:"pointType"`
-	HistoryEventTime string `json:"historyEventTime"`
-	StepType         string `json:"stepType"`
-	StepExecutionID  string `json:"stepExecutionId"`
-	StepMethod       int32  `json:"stepMethod"`
-	EventID          int64  `json:"eventId"`
+	PointType        int32          `json:"pointType"`
+	HistoryEventTime string         `json:"historyEventTime"`
+	StepType         string         `json:"stepType"`
+	StepExecutionID  string         `json:"stepExecutionId"`
+	StepMethod       int32          `json:"stepMethod"`
+	EventID          historyEventID `json:"eventId"`
 	// RunAttempt selects the source run attempt searched for the point; zero selects the current one.
 	RunAttempt int32 `json:"runAttempt"`
 	// IDReusePolicy is an IdReusePolicy number; zero selects the server default.

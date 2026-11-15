@@ -164,7 +164,7 @@ const RUN_EVENT_PARAM = 'event';
 function cloneForkSourcePath(source: CloneForkSource): string {
   const params = new URLSearchParams();
   if (source.runAttempt > 0) params.set(RUN_ATTEMPT_SEARCH_PARAM, String(source.runAttempt));
-  if (source.eventId > 0) params.set(RUN_EVENT_PARAM, String(source.eventId));
+  if (source.eventId !== '0') params.set(RUN_EVENT_PARAM, source.eventId);
   const path = source.runId ? currentRunPath(source.flowId, source.runId) : currentRunPath(source.flowId);
   const search = params.toString();
   return search ? `${path}?${search}` : path;
@@ -997,10 +997,15 @@ export function RunDetailsPage({
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const cloneForkSource = cloneForkSourceOf(flowStartEvent);
   // An agent session forks through its agents package, which also moves the session's task queue.
-  const canCloneFork = isCatalogReady && runSessionSchema === null;
+  const canCloneFork = isCatalogReady && catalogEntry !== null && runSessionSchema === null;
   const sourceTaskQueue = (() => {
-    const workerTarget = state?.flowConfig.workerTarget as Record<string, unknown> | undefined;
-    return typeof workerTarget?.taskQueue === 'string' ? workerTarget.taskQueue : '';
+    const startFlowConfig = flowStartEvent?.payload.flowConfig as Record<string, unknown> | undefined;
+    const closedConfig = closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
+      ? closedFlowConfig.value : null;
+    const workerTarget = (state?.flowConfig.workerTarget
+      ?? startFlowConfig?.workerTarget
+      ?? closedConfig?.workerTarget) as Record<string, unknown> | undefined;
+    return typeof workerTarget?.taskQueue === 'string' ? workerTarget.taskQueue : null;
   })();
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
@@ -1035,7 +1040,7 @@ export function RunDetailsPage({
         >
           <Split aria-hidden="true" size={13} strokeWidth={2.25} />
           Clone forked from <span className="mono">{middleTruncate(cloneForkSource.flowId, 32)}</span>
-          {cloneForkSource.eventId > 0 && <> at event #{cloneForkSource.eventId}</>}
+          {cloneForkSource.eventId !== '0' && <> at event #{cloneForkSource.eventId}</>}
         </Link>
       )}
       {relations?.parentFlowId && (

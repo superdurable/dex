@@ -125,7 +125,7 @@ describe('Clone fork from the selected event', () => {
       flowId: 'order-1-copy',
       requestId: expect.any(String),
       pointType: 6,
-      eventId: 42,
+      eventId: '42',
       idReusePolicy: 0,
       subFlowResetPolicy: 4,
       reason: 'try a fix',
@@ -145,6 +145,42 @@ describe('Clone fork from the selected event', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(requestBody(fetchMock)).toMatchObject({ taskQueue: 'orders-fork', idReusePolicy: 4, subFlowResetPolicy: 5 });
+  });
+
+  it.each([
+    { point: 'current', type: 1, target: null, field: {} },
+    { point: 'beginning', type: 2, target: null, field: {} },
+    { point: 'history-event-time', type: 3, target: '2026-08-15T12:00:00', field: { historyEventTime: '2026-08-15T12:00:00.000Z' } },
+    { point: 'step-type', type: 4, target: 'ChargeOrder', field: { stepType: 'ChargeOrder' } },
+    { point: 'step-execution-id', type: 5, target: 'ChargeOrder-2', field: { stepExecutionId: 'ChargeOrder-2', stepMethod: 2 } },
+    { point: 'event-id', type: 6, target: '9007199254740993', field: { eventId: '9007199254740993' } },
+  ])('sends the $point point', async ({ point, type, target, field }) => {
+    const fetchMock = stubCloneFork();
+    renderDialog({ initialEvent: null, isSourceRunning: true });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Clone fork point' }), { target: { value: point } });
+    if (target !== null) fireEvent.change(screen.getByLabelText(/^Target/), { target: { value: target } });
+    if (point === 'step-execution-id') fireEvent.change(screen.getByRole('combobox', { name: 'Step method' }), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'branch' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clone fork' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(requestBody(fetchMock)).toMatchObject({ pointType: type, ...field });
+  });
+
+  it.each([
+    { policy: 1, label: 'Always restart' },
+    { policy: 2, label: 'Always fail' },
+    { policy: 3, label: 'Always reject' },
+    { policy: 4, label: 'Attach, else restart' },
+    { policy: 5, label: 'Attach, else fail' },
+    { policy: 6, label: 'Attach, else reject' },
+  ])('sends SubFlow policy $label', async ({ policy }) => {
+    const fetchMock = stubCloneFork();
+    renderDialog();
+    fireEvent.change(screen.getByRole('combobox', { name: /^SubFlow reset policy/ }), { target: { value: String(policy) } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'branch' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clone fork' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(requestBody(fetchMock).subFlowResetPolicy).toBe(policy);
   });
 });
 

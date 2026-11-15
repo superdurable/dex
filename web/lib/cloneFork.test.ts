@@ -16,7 +16,13 @@ describe('cloneForkSourceOf', () => {
       eventTime: null,
       type: 'FlowStartedOrContinued',
       payload: { cloneForkSource: { flowId: 'order-1', runId: 'run-1', runAttempt: 2, eventId: '12' } },
-    })).toEqual({ flowId: 'order-1', runId: 'run-1', runAttempt: 2, eventId: 12 });
+    })).toEqual({ flowId: 'order-1', runId: 'run-1', runAttempt: 2, eventId: '12' });
+    expect(cloneForkSourceOf({
+      eventId: 1,
+      eventTime: null,
+      type: 'FlowStartedOrContinued',
+      payload: { cloneForkSource: { flowId: 'order-1', eventId: '9007199254740993' } },
+    })?.eventId).toBe('9007199254740993');
   });
 
   it('returns null for a run that did not start from a clone fork', () => {

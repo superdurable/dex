@@ -12,6 +12,7 @@ import { cleanup, configure, within, fireEvent, getConfig, render, screen, waitF
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
+import { WebCatalogProvider } from '@/app/catalog/WebCatalogProvider';
 import {
   historyTestServer,
   historyTestServerResponse,
@@ -387,18 +388,22 @@ describe('time travel on the run page', () => {
 });
 
 describe('clone fork on the run page', () => {
-  function cloneForkDex(startPayload: Record<string, unknown> = {}) {
+  function cloneForkDex(startPayload: Record<string, unknown> = {}, options: { closed?: boolean; taskQueue?: string | null } = {}) {
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
     const cloneForkRequests: Record<string, unknown>[] = [];
     const lineage = [
       { ...historyEvent(1, 1, 'FlowStartedOrContinued'), payload: startPayload },
-      historyEvent(2, 1, 'StepWaitForCompleted'),
+      { ...historyEvent(2, 1, 'StepWaitForCompleted'), payload: { context: { stepExecutionId: 'Charge-1' } } },
     ];
     vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, 'http://dex.test');
-      if (url.pathname === '/api/flows/summary') return json(summary(1));
+      if (url.pathname === '/api/flow-definition-types') return json({ configured: true, operatorAPI: true, flowTypes: [{ flowType: 'OrderFlow', source: 'directory' }] });
+      if (url.pathname === '/api/flow-definitions/by-type') return json({ flowType: 'OrderFlow', definitions: [], v2: { flowType: 'OrderFlow', definition: { actions: [], display: { fields: [] } } } });
+      if (url.pathname === '/api/flows/summary') return json(options.closed
+        ? { ...summary(1), flowStatus: 'Completed', flowStatusCode: 2, closeTime: '2026-10-24T18:00:00Z' }
+        : summary(1));
       if (url.pathname === '/api/flows/state') {
-        return json({ ...emptyState, flowConfig: { workerTarget: { isPullMode: true, taskQueue: 'orders' } } });
+        return json({ ...emptyState, flowConfig: options.taskQueue === null ? {} : { workerTarget: { isPullMode: true, taskQueue: options.taskQueue ?? 'orders' } } });
       }
       if (url.pathname === '/api/flows/history') return json(lineagePage(lineage, url.searchParams));
       if (isNewestEventProbe(url)) return json({ eventAvailable: true, availableInternalEventId: '2' });
@@ -416,11 +421,24 @@ describe('clone fork on the run page', () => {
     return cloneForkRequests;
   }
 
+  function renderCloneForkRun() {
+    render(
+      <MemoryRouter initialEntries={['/v1/flows/order-1/run-1']}>
+        <PreferencesProvider>
+          <WebCatalogProvider>
+            <RunDetailsPage flowId="order-1" runId="run-1" runPath={(runID) => `/v1/flows/order-1/${runID}`} />
+          </WebCatalogProvider>
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+  }
+
   it('clone forks the current state and opens the new Flow', async () => {
     const cloneForkRequests = cloneForkDex();
     render(
       <MemoryRouter initialEntries={['/v1/flows/order-1/run-1']}>
         <PreferencesProvider>
+        <WebCatalogProvider>
           <Routes>
             <Route
               path="/v1/flows/order-1/run-1"
@@ -428,6 +446,7 @@ describe('clone fork on the run page', () => {
             />
             <Route path="/v1/flows/order-1-copy/copy-run-1" element={<p>Run page for the copy</p>} />
           </Routes>
+        </WebCatalogProvider>
         </PreferencesProvider>
       </MemoryRouter>,
     );
@@ -455,11 +474,37 @@ describe('clone fork on the run page', () => {
   });
 
   it('links a clone forked run to its source point', async () => {
-    cloneForkDex({ cloneForkSource: { flowId: 'order-0', runId: 'run-0', runAttempt: 2, eventId: '12' } });
+    cloneForkDex({ cloneForkSource: { flowId: 'order-0', runId: 'run-0', runAttempt: 2, eventId: '9007199254740993' } });
     renderRun();
 
-    const link = await screen.findByRole('link', { name: /Clone forked from order-0 at event #12/ });
-    expect(link.getAttribute('href')).toBe('/v1/flows/order-0/run-0?runAttempt=2&event=12');
+    const link = await screen.findByRole('link', { name: /Clone forked from order-0 at event #9007199254740993/ });
+    expect(link.getAttribute('href')).toBe('/v1/flows/order-0/run-0?runAttempt=2&event=9007199254740993');
+  });
+
+  it('offers Clone fork in the selected event panel for a confirmed non-session', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    cloneForkDex();
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Events' }));
+    await waitFor(() => expect(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')).not.toBeNull());
+    fireEvent.click(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')!);
+    expect(await screen.findByRole('button', { name: 'Clone fork from here…' })).toBeTruthy();
+  });
+
+  it.each([
+    { taskQueue: 'closed-orders', expected: 'closed-orders' },
+    { taskQueue: null, expected: '' },
+  ])('prefills a closed run task queue when it is $taskQueue', async ({ taskQueue, expected }) => {
+    cloneForkDex({ flowConfig: taskQueue === null ? {} : { workerTarget: { taskQueue } } }, { closed: true, taskQueue });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Clone fork/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' });
+    expect((within(dialog).getByRole('textbox', { name: /^Task queue/ }) as HTMLInputElement).value).toBe(expected);
+    if (taskQueue === null) expect(within(dialog).getByText(/inherits the source's task queue/)).toBeTruthy();
   });
 });
 

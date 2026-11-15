@@ -61,7 +61,7 @@ func resetFlowRequestOf(body timeTravelFlowRequest) *dexpb.ResetFlowRequest {
 		HistoryEventTime:   body.HistoryEventTime,
 		StepMethod:         dexpb.FlowResetStepMethod(body.StepMethod),
 		RunAttempt:         body.RunAttempt,
-		EventId:            body.EventID,
+		EventId:            int64(body.EventID),
 		SubFlowResetPolicy: dexpb.SubFlowResetPolicy(body.SubFlowResetPolicy),
 	}
 }
@@ -87,7 +87,7 @@ func cloneForkFlowRequestOf(body cloneForkFlowRequest, requestID string) *dexpb.
 		StepType:           body.StepType,
 		StepExecutionId:    body.StepExecutionID,
 		StepMethod:         dexpb.FlowResetStepMethod(body.StepMethod),
-		EventId:            body.EventID,
+		EventId:            int64(body.EventID),
 		RunAttempt:         body.RunAttempt,
 		SubFlowResetPolicy: dexpb.SubFlowResetPolicy(body.SubFlowResetPolicy),
 

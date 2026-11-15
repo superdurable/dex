@@ -50,7 +50,7 @@ export function isHistoryPointComplete(
     case 'step-execution-id':
       return target.trim() !== '' && stepMethod !== 0;
     case 'event-id':
-      return /^[1-9]\d*$/.test(target.trim()) && Number.isSafeInteger(Number(target.trim()));
+      return /^[1-9]\d*$/.test(target.trim()) && BigInt(target.trim()) <= 9223372036854775807n;
   }
 }
 
@@ -69,7 +69,7 @@ export function historyPointRequestFields(
     case 'step-execution-id':
       return { stepExecutionId: target.trim(), stepMethod };
     case 'event-id':
-      return { eventId: Number(target.trim()) };
+      return { eventId: target.trim() };
     default:
       return {};
   }
