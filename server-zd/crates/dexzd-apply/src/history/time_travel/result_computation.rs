@@ -49,6 +49,9 @@ pub struct TimeTravelComputationSources<'sources> {
     /// Values of the run that `state` no longer holds.
     pub offloaded_values: &'sources dyn OffloadedValues,
     /// Child runs of the restored SubFlow conditions, for the request's SubFlow reset policy.
+    ///
+    /// Its reads must be no newer than `state`. A child run is purged only after its parent
+    /// acknowledged its report, so `state` then holds the result of a child the reads find gone.
     pub child_flow_runs: &'sources dyn ChildFlowRuns,
 }
 

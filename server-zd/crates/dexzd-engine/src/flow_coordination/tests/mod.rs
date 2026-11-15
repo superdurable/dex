@@ -22,4 +22,5 @@ mod overlay_tests;
 mod read_operation_tests;
 mod registry_tests;
 mod rpc_request_tests;
+mod sub_flow_reset_tests;
 mod test_support;

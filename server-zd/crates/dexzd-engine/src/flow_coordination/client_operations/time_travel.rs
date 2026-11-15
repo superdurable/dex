@@ -220,8 +220,9 @@ impl FlowCoordinatorRegistry {
         }
     }
 
-    /// Computes the result on blocking threads in committed view rounds, the first on `view`.
-    /// Between rounds it fetches the uploaded segments the last round reached, holding no view.
+    /// Computes the result on blocking threads in committed view rounds, the first reading child
+    /// runs on `view`. Between rounds it fetches the uploaded segments the last round reached,
+    /// holding no view.
     ///
     /// Returns the computation's rejection, or a failure to read history, as an error.
     async fn compute(
@@ -238,12 +239,17 @@ impl FlowCoordinatorRegistry {
         let mut first_view = Some(view);
         let mut segment_rounds = 0;
         loop {
-            let view = match first_view.take() {
+            // The parent view opens after the child view, so a child purged after its report
+            // shows its result in the parent.
+            let child_view = match first_view.take() {
                 Some(view) => view,
                 None => self.inner.dependencies.committer.committed_view()?,
             };
+            let view = self.inner.dependencies.committer.committed_view()?;
             match self
-                .compute_round(view, context, run_id, request, now_micros, &reads)
+                .compute_round(
+                    view, child_view, context, run_id, request, now_micros, &reads,
+                )
                 .await?
             {
                 ComputationRound::Computed(computation) => {
@@ -284,12 +290,18 @@ impl FlowCoordinatorRegistry {
 
     /// Opens the run's history from `view` with the segments and offloaded values `reads`
     /// fetched, and computes the result on a blocking thread, which releases the view.
+    /// It reads child runs on `child_view`, which is no newer than `view`.
     ///
     /// A round that read offloaded values it lacks needs them, whatever it computed, since it
     /// computed without them.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Each input is a distinct part of one computation round."
+    )]
     async fn compute_round(
         &self,
         view: Box<dyn dexzd_apply::FlowStateReader + Send>,
+        child_view: Box<dyn dexzd_apply::FlowStateReader + Send>,
         context: ApplyContext,
         run_id: RunId,
         request: &ResetFlowRequest,
@@ -314,7 +326,6 @@ impl FlowCoordinatorRegistry {
         let reset = request.clone();
         let replay_memory_budget_bytes = self.inner.config.time_travel_replay_memory_bytes;
         // Child Flows may live on other partitions; this node's store holds them all for now.
-        let child_view = self.inner.dependencies.committer.committed_view()?;
         let hasher = self.inner.dependencies.hasher.clone();
         let (computation, missing_values) = self
             .inner
