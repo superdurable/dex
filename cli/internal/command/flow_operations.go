@@ -465,6 +465,9 @@ func parseHistoryPoint(
 		if !isCurrentAllowed {
 			return historyPoint{}, fmt.Errorf("type must be beginning, history-event-time, step-type, step-execution-id, or event-id")
 		}
+		if target != "" {
+			return historyPoint{}, fmt.Errorf("target is not valid for type current")
+		}
 	case "history-event-time":
 		if _, err := time.Parse(time.RFC3339, target); err != nil {
 			return historyPoint{}, fmt.Errorf("target must be an RFC3339 timestamp: %w", err)

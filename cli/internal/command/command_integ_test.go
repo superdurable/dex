@@ -20,10 +20,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -470,6 +472,97 @@ func TestCloneForkDefaultsToCurrentPointOfLatestRun(t *testing.T) {
 		request.GetPointType() != dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT ||
 		request.GetFlowConfigOverride() != nil {
 		t.Fatalf("unexpected default clone fork request: %#v", request)
+	}
+}
+
+func TestCloneForkRejectsTargetForCurrentPoint(t *testing.T) {
+	service, address := startTestFlowService(t)
+	output := &bytes.Buffer{}
+	app := NewApp(bytes.NewReader(nil), output, &bytes.Buffer{})
+	err := app.Execute(context.Background(), []string{
+		"flow", "clone-fork", "flow-1", "--flow-id", "flow-2", "--type", "current", "--target", "42", "--yes", "--server", address,
+	})
+	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "target is not valid for type current") {
+		t.Fatalf("expected current target usage error, got %v", err)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.cloneForkCalls != 0 {
+		t.Fatalf("clone fork was called with invalid target: %d calls", service.cloneForkCalls)
+	}
+}
+
+func TestCloneForkCommandMapsCompleteRequests(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    []string
+		expected *dexpb.CloneForkFlowRequest
+	}{
+		{
+			name:     "history event time",
+			flags:    []string{"--type", "history-event-time", "--target", "2026-01-02T03:04:05Z"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_HISTORY_EVENT_TIME, HistoryEventTime: "2026-01-02T03:04:05Z"},
+		},
+		{
+			name:     "step type",
+			flags:    []string{"--type", "step-type", "--target", "ChargeOrder"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_STEP_TYPE, StepType: "ChargeOrder"},
+		},
+		{
+			name:     "step execution method",
+			flags:    []string{"--type", "step-execution-id", "--target", "ChargeOrder-2", "--step-method", "execute"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_STEP_EXECUTION_ID, StepExecutionId: "ChargeOrder-2", StepMethod: dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE},
+		},
+		{
+			name:     "beginning",
+			flags:    []string{"--type", "beginning"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_BEGINNING},
+		},
+		{
+			name:     "previous failed reuse",
+			flags:    []string{"--id-reuse-policy", "previous-failed"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, IdReusePolicy: dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY},
+		},
+		{
+			name:     "not running reuse",
+			flags:    []string{"--id-reuse-policy", "not-running"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, IdReusePolicy: dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING},
+		},
+		{
+			name:     "disallow reuse",
+			flags:    []string{"--id-reuse-policy", "disallow"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, IdReusePolicy: dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE},
+		},
+		{
+			name:     "terminate running reuse",
+			flags:    []string{"--id-reuse-policy", "terminate-running"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, IdReusePolicy: dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING},
+		},
+		{
+			name:     "attributes",
+			flags:    []string{"--attributes", `[{"key":"status","value":"forked","index":{"type":"keyword"},"sync":true}]`},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, Attributes: []*dexpb.AttributeWrite{{Key: "status", Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "forked"}}, IndexConfig: &dexpb.IndexConfig{Enable: true, Type: dexpb.IndexType_INDEX_TYPE_KEYWORD}, SyncConfig: &dexpb.AttributeSyncConfig{Enabled: true}}}},
+		},
+		{
+			name:     "config and task queue",
+			flags:    []string{"--config", `{"stepDurability":"async","offloadHistory":false}`, "--task-queue", "fork-queue"},
+			expected: &dexpb.CloneForkFlowRequest{PointType: dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_CURRENT, FlowConfigOverride: &dexpb.FlowConfig{StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC), OffloadHistory: proto.Bool(false), WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: "fork-queue"}}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, address := startTestFlowService(t)
+			args := []string{"flow", "clone-fork", "flow-1", "--flow-id", "flow-2", "--request-id", "request-1", "--yes", "--server", address}
+			executeTestCommand(t, nil, append(args, test.flags...)...)
+			test.expected.SourceFlowId = "flow-1"
+			test.expected.FlowId = "flow-2"
+			test.expected.RequestId = "request-1"
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			if service.cloneForkCalls != 1 || !proto.Equal(test.expected, service.cloneForkRequest) {
+				t.Fatalf("unexpected clone fork request: got %v, want %v", service.cloneForkRequest, test.expected)
+			}
+		})
 	}
 }
 

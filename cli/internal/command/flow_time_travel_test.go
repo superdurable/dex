@@ -108,6 +108,7 @@ func TestCloneForkFlowRequestRejectsInvalidFlags(t *testing.T) {
 		"bad event ID":          {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "event-id", target: "0"},
 		"step-method elsewhere": {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "beginning", stepMethodName: "execute"},
 		"current run attempt":   {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "current", runAttempt: 1},
+		"current target":        {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "current", target: "42"},
 		"negative run attempt":  {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "beginning", runAttempt: -1},
 		"negative timeout":      {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "current", flowTimeout: "-1s"},
 		"worker target config":  {sourceFlowID: "source-1", flowID: "fork-1", pointTypeName: "current", configSource: `{"workerTarget":{"taskQueue":"q"}}`},
