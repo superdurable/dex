@@ -17,9 +17,9 @@ use std::time::Duration;
 
 use dexzd_apply::SegmentCheckpoint;
 use dexzd_apply::{
-    ApplyContext, ComputedTimeTravel, LoadedHistorySegments, MissingHistorySegments,
-    SegmentedTimeTravelComputation, StateChildFlowRuns, TimeTravelComputation,
-    TimeTravelComputationRequest,
+    ApplyContext, ComputedTimeTravel, GoneChildFlowCondition, LoadedHistorySegments,
+    MissingHistorySegments, SegmentedTimeTravelComputation, StateChildFlowRuns,
+    TimeTravelComputation, TimeTravelComputationRequest,
 };
 use dexzd_keyspace::{RunId, TenantId, ValueId, ValueReference};
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, ResetFlowResponse};
@@ -51,16 +51,22 @@ const FIRST_RECOMPUTATION_BACKOFF: Duration = Duration::from_millis(100);
 /// fetches every segment its reads go on to need, so a computation takes about three.
 const MAX_HISTORY_READ_ROUNDS: usize = 16;
 
-/// Rounds that may find a child gone before the computation accepts it. A child is purged only
-/// after its parent acknowledged its report, so a gone child usually means the round's two views
-/// straddled a child start or report.
-const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 3;
+/// Rounds in a row that must find a condition's child gone before the computation accepts it. A
+/// child is purged only after its parent acknowledged its report, so a gone child usually means
+/// the round's two views straddled a child start or report.
+const STABLE_GONE_CHILD_FLOW_ROUNDS: usize = 3;
+
+/// Rounds that may find children gone before the ResetFlow aborts, which the client retries.
+const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
 
 /// How one committed view round of a computation ended.
 enum ComputationRound {
     Computed(TimeTravelComputation),
     /// A condition's child looked gone, which views of different times can cause.
-    ComputedWithGoneChildFlow(TimeTravelComputation),
+    ComputedWithGoneChildFlow {
+        computation: TimeTravelComputation,
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    },
     /// The round reached uploaded segments it lacks.
     NeedsSegments(MissingHistorySegments),
     /// The round read values that offload deleted locally, which it lacks; the UPLOADED
@@ -231,7 +237,11 @@ impl FlowCoordinatorRegistry {
     /// runs on `view`. Between rounds it fetches the uploaded segments the last round reached,
     /// holding no view.
     ///
-    /// Returns the computation's rejection, or a failure to read history, as an error.
+    /// A round that finds children gone is accepted only once each of them stayed gone for
+    /// [`STABLE_GONE_CHILD_FLOW_ROUNDS`] rounds in a row; until then the computation runs again.
+    ///
+    /// Returns the computation's rejection, or a failure to read history, as an error. Returns
+    /// ABORTED when the gone children did not settle in [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds.
     async fn compute(
         &self,
         flow: &FlowAddress,
@@ -245,7 +255,7 @@ impl FlowCoordinatorRegistry {
             TimeTravelSegmentReads::new(self.inner.config.time_travel_replay_memory_bytes);
         let mut first_view = Some(view);
         let mut segment_rounds = 0;
-        let mut gone_child_flow_rounds = 0;
+        let mut gone_child_flow_streaks = GoneChildFlowStreaks::default();
         loop {
             // The parent view opens after the child view, so a child purged after its report
             // shows its result in the parent.
@@ -263,17 +273,31 @@ impl FlowCoordinatorRegistry {
                 ComputationRound::Computed(computation) => {
                     return computed_or_rejected(computation);
                 }
-                ComputationRound::ComputedWithGoneChildFlow(computation) => {
-                    gone_child_flow_rounds += 1;
-                    if gone_child_flow_rounds == MAX_GONE_CHILD_FLOW_ROUNDS {
-                        return computed_or_rejected(computation);
+                ComputationRound::ComputedWithGoneChildFlow {
+                    computation,
+                    gone_child_flows,
+                } => match gone_child_flow_streaks.record_round(gone_child_flows) {
+                    GoneChildFlowVerdict::Accept => return computed_or_rejected(computation),
+                    GoneChildFlowVerdict::ComputeAgain => {
+                        tracing::debug!(
+                            flow_id = %flow.flow_id,
+                            gone_child_flow_rounds = gone_child_flow_streaks.rounds,
+                            "a time travel found a child Flow gone; computing again on new views"
+                        );
                     }
-                    tracing::debug!(
-                        flow_id = %flow.flow_id,
-                        gone_child_flow_rounds,
-                        "a time travel found a child Flow gone; computing again on new views"
-                    );
-                }
+                    GoneChildFlowVerdict::Unstable => {
+                        return Err(FlowCoordinationError::rejected(
+                            grpc_code::ABORTED,
+                            ErrorSubStatus::Uncategorized,
+                            format!(
+                                "the time travel of flow {} found different child Flows gone in \
+                                 {MAX_GONE_CHILD_FLOW_ROUNDS} rounds while its child Flows \
+                                 changed; retry",
+                                flow.flow_id
+                            ),
+                        ));
+                    }
+                },
                 ComputationRound::NeedsSegments(needed) => {
                     segment_rounds += 1;
                     if segment_rounds == MAX_HISTORY_READ_ROUNDS {
@@ -375,9 +399,13 @@ impl FlowCoordinatorRegistry {
             SegmentedTimeTravelComputation::Computed(computation) => {
                 ComputationRound::Computed(computation)
             }
-            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow(computation) => {
-                ComputationRound::ComputedWithGoneChildFlow(computation)
-            }
+            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            } => ComputationRound::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            },
             SegmentedTimeTravelComputation::NeedsSegments(needed) => {
                 ComputationRound::NeedsSegments(needed)
             }
@@ -663,6 +691,60 @@ impl TimeTravelSegmentReads {
             ));
         }
         Ok(())
+    }
+}
+
+/// For each condition whose child the last round found gone, the rounds in a row that found it
+/// gone.
+#[derive(Default)]
+struct GoneChildFlowStreaks {
+    /// Rounds so far that found a child gone.
+    rounds: usize,
+    streaks: BTreeMap<GoneChildFlowCondition, usize>,
+}
+
+/// What a computation does after a round that found children gone.
+enum GoneChildFlowVerdict {
+    /// Every gone child was gone in each of the last rounds; the round's result stands.
+    Accept,
+    ComputeAgain,
+    /// The gone children kept changing until the round limit.
+    Unstable,
+}
+
+impl GoneChildFlowStreaks {
+    /// Records a round that found the children of `gone_child_flows` gone.
+    ///
+    /// Returns [`GoneChildFlowVerdict::Accept`] when each of them was gone in the last
+    /// [`STABLE_GONE_CHILD_FLOW_ROUNDS`] rounds, [`GoneChildFlowVerdict::Unstable`] when
+    /// [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds passed without that, and
+    /// [`GoneChildFlowVerdict::ComputeAgain`] otherwise.
+    fn record_round(
+        &mut self,
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    ) -> GoneChildFlowVerdict {
+        self.rounds += 1;
+        let previous_streaks = std::mem::take(&mut self.streaks);
+        self.streaks = gone_child_flows
+            .into_iter()
+            .map(|condition| {
+                let streak = previous_streaks
+                    .get(&condition)
+                    .map_or(1, |streak| streak + 1);
+                (condition, streak)
+            })
+            .collect();
+        if self
+            .streaks
+            .values()
+            .all(|streak| *streak >= STABLE_GONE_CHILD_FLOW_ROUNDS)
+        {
+            GoneChildFlowVerdict::Accept
+        } else if self.rounds >= MAX_GONE_CHILD_FLOW_ROUNDS {
+            GoneChildFlowVerdict::Unstable
+        } else {
+            GoneChildFlowVerdict::ComputeAgain
+        }
     }
 }
 

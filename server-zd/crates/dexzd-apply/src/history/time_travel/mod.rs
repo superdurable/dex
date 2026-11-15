@@ -26,8 +26,8 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 pub use child_flow_runs::{
-    ChildFlowRead, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns, ChildFlowStartRead,
-    NoChildFlowRuns, StateChildFlowRuns,
+    ChildFlowRead, ChildFlowReadMemory, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns,
+    ChildFlowStartRead, NoChildFlowRuns, StateChildFlowRuns,
 };
 pub use result_computation::{
     ComputedTimeTravel, SegmentedTimeTravelComputation, StagedEntryTooLarge, TimeTravelComputation,
@@ -35,6 +35,7 @@ pub use result_computation::{
     compute_time_travel_from_segments,
 };
 pub(crate) use staging::{apply_time_travel_stage, delete_idle_staging, staged_attempt_state};
+pub use sub_flow_reset_findings::GoneChildFlowCondition;
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;

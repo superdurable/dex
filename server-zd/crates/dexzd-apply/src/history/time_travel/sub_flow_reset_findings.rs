@@ -8,7 +8,8 @@
 
 //! SubFlow reset policies at the owner: reads child Flows, then stages findings or rejects.
 
-use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, SubFlowResetPolicy};
@@ -19,7 +20,8 @@ use dexzd_protocol::dexzd::v1::{
 
 use super::TimeTravelResult;
 use super::child_flow_runs::{
-    ChildFlowRead, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns, ChildFlowStartRead,
+    ChildFlowRead, ChildFlowReadMemory, ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns,
+    ChildFlowStartRead,
 };
 use super::sub_flow_reset::{
     RestoredSubFlowCondition, is_result_received, reset_policy, restored_sub_flow_conditions,
@@ -73,13 +75,37 @@ impl OwnerDecision {
     }
 }
 
+/// Names a restored SubFlow condition whose child run looked gone in one computation.
+///
+/// The conditions a time travel restores are the same in every computation of one request, so
+/// owners compare these across computations.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GoneChildFlowCondition {
+    /// The Step execution that waits on the condition.
+    pub step_execution_id: String,
+    /// The condition's index among the Step's SubFlow conditions.
+    pub sub_flow_index: i32,
+    /// The condition's child Flow ID.
+    pub child_flow_id: String,
+}
+
+impl GoneChildFlowCondition {
+    fn of(condition: &RestoredSubFlowCondition) -> Self {
+        Self {
+            step_execution_id: condition.step_execution_id.clone(),
+            sub_flow_index: condition.sub_flow_index,
+            child_flow_id: condition.child_flow_id.clone(),
+        }
+    }
+}
+
 /// What the owner found for the restored SubFlow conditions of one computation.
 pub(super) struct ChildFlowFindings {
     /// The findings to stage, or the reply that rejects the request.
     pub(super) outcome: Result<Vec<TimeTravelStagedChildFlow>, CommandReply>,
-    /// Whether a condition's child run was missing while the parent had neither its result nor
+    /// The conditions whose child run was missing while the parent had neither its result nor
     /// its pending start.
-    pub(super) has_gone_child_flow: bool,
+    pub(super) gone_child_flows: BTreeSet<GoneChildFlowCondition>,
 }
 
 /// Reads what the restored SubFlow conditions of `result` need from their child Flows. Each read
@@ -110,12 +136,12 @@ pub(super) fn child_flow_findings(
         record,
         sources,
         pending_parents: pending_child_start_parents(transaction, rows)?,
-        has_gone_child_flow: Cell::new(false),
+        gone_child_flows: RefCell::new(BTreeSet::new()),
     };
     let outcome = reads.findings(policy, conditions, result)?;
     Ok(ChildFlowFindings {
         outcome,
-        has_gone_child_flow: reads.has_gone_child_flow.get(),
+        gone_child_flows: reads.gone_child_flows.into_inner(),
     })
 }
 
@@ -123,7 +149,7 @@ impl ChildFlowFindings {
     fn settled(outcome: Result<Vec<TimeTravelStagedChildFlow>, CommandReply>) -> Self {
         Self {
             outcome,
-            has_gone_child_flow: false,
+            gone_child_flows: BTreeSet::new(),
         }
     }
 }
@@ -194,8 +220,8 @@ struct ChildFlowReads<'reads> {
     sources: ChildFlowSources<'reads>,
     /// Parent references of the parent's unacknowledged child starts.
     pending_parents: Vec<ParentFlowReference>,
-    /// Set when a decision found a condition's child gone.
-    has_gone_child_flow: Cell<bool>,
+    /// The conditions whose child a decision found gone.
+    gone_child_flows: RefCell<BTreeSet<GoneChildFlowCondition>>,
 }
 
 impl ChildFlowReads<'_> {
@@ -221,7 +247,7 @@ impl ChildFlowReads<'_> {
                 Ok(match self.child_run(condition, true)? {
                     ChildFlowRead::Found(run) => restart_decision(condition, Some(*run)),
                     ChildFlowRead::Missing => {
-                        self.has_gone_child_flow.set(true);
+                        self.note_gone_child_flow(condition);
                         restart_decision(condition, None)
                     }
                     ChildFlowRead::MemoryExceeded => OwnerDecision::MemoryExceeded,
@@ -260,11 +286,17 @@ impl ChildFlowReads<'_> {
                 ChildAttachment::StartPending
             }
             ChildFlowRead::Missing => {
-                self.has_gone_child_flow.set(true);
+                self.note_gone_child_flow(condition);
                 ChildAttachment::Gone
             }
         };
         Ok(Some(attachment))
+    }
+
+    fn note_gone_child_flow(&self, condition: &RestoredSubFlowCondition) {
+        self.gone_child_flows
+            .borrow_mut()
+            .insert(GoneChildFlowCondition::of(condition));
     }
 
     fn child_run(
@@ -279,7 +311,6 @@ impl ChildFlowReads<'_> {
             &condition.step_execution_id,
             condition.sub_flow_index,
         );
-        let memory_budget = self.sources.memory_budget;
         self.sources.child_flow_runs.child_flow_run(
             &ChildFlowRunQuery {
                 tenant_id: TenantId(self.record.tenant_id),
@@ -288,7 +319,7 @@ impl ChildFlowReads<'_> {
                 parent: &parent,
                 should_read_start,
             },
-            &|bytes| memory_budget.reserve(bytes),
+            self.sources.memory_budget,
         )
     }
 
@@ -305,6 +336,16 @@ impl ChildFlowReads<'_> {
             self.rows.run_id,
             condition.registration_attempt,
         )
+    }
+}
+
+impl ChildFlowReadMemory for ReplayMemoryBudget {
+    fn reserve_bytes(&self, bytes: u64) -> bool {
+        self.reserve(bytes)
+    }
+
+    fn release_bytes(&self, bytes: u64) {
+        self.release(bytes);
     }
 }
 

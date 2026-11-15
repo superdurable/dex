@@ -10,6 +10,7 @@
 //!
 //! Owners run it before they stage a result; apply runs it only for unstaged log records.
 
+use std::collections::BTreeSet;
 use std::ops::RangeInclusive;
 
 use dexzd_keyspace::{RunId, TenantId};
@@ -24,7 +25,9 @@ use super::TimeTravelResult;
 use super::child_flow_runs::ChildFlowRuns;
 use super::reapplied_input_values::unstored_input_values;
 use super::staging::{staged_chunks, staged_result_bytes};
-use super::sub_flow_reset_findings::{ChildFlowSources, child_flow_findings};
+use super::sub_flow_reset_findings::{
+    ChildFlowSources, GoneChildFlowCondition, child_flow_findings,
+};
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::flow_not_found_reply;
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
@@ -75,7 +78,12 @@ pub enum SegmentedTimeTravelComputation {
     Computed(TimeTravelComputation),
     /// Like `Computed`, but a condition's child looked gone; views of different times may need
     /// a new round.
-    ComputedWithGoneChildFlow(TimeTravelComputation),
+    ComputedWithGoneChildFlow {
+        /// The computation of this round.
+        computation: TimeTravelComputation,
+        /// The conditions whose child looked gone; never empty.
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    },
     /// The computation reached uploaded segments that are not loaded. Fetch them, then compute
     /// again on a new committed view.
     NeedsSegments(MissingHistorySegments),
@@ -192,30 +200,30 @@ pub fn compute_time_travel(
     request: &TimeTravelComputationRequest<'_>,
 ) -> Result<TimeTravelComputation, ApplyError> {
     compute_noting_gone_child_flows(context, sources, request)
-        .map(|(computation, _has_gone_child_flow)| computation)
+        .map(|(computation, _gone_child_flows)| computation)
 }
 
 /// Computes as [`compute_time_travel`] does.
 ///
-/// Returns the computation and whether a restored condition's child looked gone, or an error
+/// Returns the computation and the restored conditions whose child looked gone, or an error
 /// when stored state is corrupt.
 fn compute_noting_gone_child_flows(
     context: &ApplyContext,
     sources: &TimeTravelComputationSources<'_>,
     request: &TimeTravelComputationRequest<'_>,
-) -> Result<(TimeTravelComputation, bool), ApplyError> {
+) -> Result<(TimeTravelComputation, BTreeSet<GoneChildFlowCondition>), ApplyError> {
     let transaction = FlowTransaction::new(sources.state, *context);
     let rows = RunRows::new(context.flow_hash, request.run_id);
     let Some(record) = rows.run_record(&transaction)? else {
         return Ok((
             TimeTravelComputation::Rejected(flow_not_found_reply(&request.reset.flow_id)),
-            false,
+            BTreeSet::new(),
         ));
     };
     if record.is_purging {
         return Ok((
             TimeTravelComputation::Rejected(flow_not_found_reply(&record.flow_id)),
-            false,
+            BTreeSet::new(),
         ));
     }
     let computed_through_seq = record.next_run_seq.saturating_sub(1);
@@ -235,7 +243,7 @@ fn compute_noting_gone_child_flows(
         resources,
     )? {
         Ok(result) => result,
-        Err(reply) => return Ok((TimeTravelComputation::Rejected(reply), false)),
+        Err(reply) => return Ok((TimeTravelComputation::Rejected(reply), BTreeSet::new())),
     };
     let findings = child_flow_findings(
         &transaction,
@@ -248,11 +256,11 @@ fn compute_noting_gone_child_flows(
             memory_budget: &memory_budget,
         },
     )?;
-    let has_gone_child_flow = findings.has_gone_child_flow;
+    let gone_child_flows = findings.gone_child_flows;
     result.child_flows = match findings.outcome {
         Ok(findings) => Some(findings),
         Err(reply) => {
-            return Ok((TimeTravelComputation::Rejected(reply), has_gone_child_flow));
+            return Ok((TimeTravelComputation::Rejected(reply), gone_child_flows));
         }
     };
     // Staging encodes every entry once more.
@@ -263,7 +271,7 @@ fn compute_noting_gone_child_flows(
                 memory_budget.limit_bytes(),
                 "the staged result",
             )),
-            has_gone_child_flow,
+            gone_child_flows,
         ));
     }
     Ok((
@@ -273,7 +281,7 @@ fn compute_noting_gone_child_flows(
             computed_through_seq,
             result,
         })),
-        has_gone_child_flow,
+        gone_child_flows,
     ))
 }
 
@@ -334,11 +342,14 @@ pub fn compute_time_travel_from_segments(
             });
         }
     }
-    computation.map(|(computation, has_gone_child_flow)| {
-        if has_gone_child_flow {
-            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow(computation)
-        } else {
+    computation.map(|(computation, gone_child_flows)| {
+        if gone_child_flows.is_empty() {
             SegmentedTimeTravelComputation::Computed(computation)
+        } else {
+            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            }
         }
     })
 }

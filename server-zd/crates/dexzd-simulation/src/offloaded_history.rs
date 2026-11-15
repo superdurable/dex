@@ -89,7 +89,7 @@ pub(crate) fn compute_offloaded_time_travel(
         )? {
             // One state holds parent and child, so a gone child is no race.
             SegmentedTimeTravelComputation::Computed(computation)
-            | SegmentedTimeTravelComputation::ComputedWithGoneChildFlow(computation) => {
+            | SegmentedTimeTravelComputation::ComputedWithGoneChildFlow { computation, .. } => {
                 return Ok(OffloadedTimeTravel {
                     computation,
                     has_read_objects: !loaded.is_empty() || objects.has_served_values.get(),

@@ -9,16 +9,19 @@
 //! Child runs that a time travel's owner reads for SubFlow reset policies; apply never reads them.
 
 use dexzd_keyspace::row_keys::{history_record_key, history_row_metadata_key, run_singleton_key};
-use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId};
+use dexzd_keyspace::{
+    ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, flow_directory_key,
+};
 use dexzd_protocol::dex::{FlowResult, FlowStatus, Value};
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowStartMessage, HistoryRecord, HistoryRowMetadata, ParentFlowReference, RunRecord,
-    flow_command::Command, inbox_message_command,
+    ChildFlowStartMessage, FlowDirectoryRecord, HistoryRecord, HistoryRowMetadata,
+    ParentFlowReference, RunRecord, flow_command::Command, inbox_message_command,
 };
 use prost::Message;
 
 use crate::history::genesis_seq;
-use crate::state_access::{FlowTransaction, RunRows, read_flow_directory};
+use crate::history::state_rebuild::encoded_bytes;
+use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::{ValueLimits, complete_worker_value, referenced_value_size, stored_value_size};
 use crate::{ApplyContext, ApplyError, FlowStateReader};
 
@@ -70,14 +73,27 @@ pub enum ChildFlowRead {
     MemoryExceeded,
 }
 
+/// The memory budget that child run reads reserve in.
+pub trait ChildFlowReadMemory {
+    /// Reserves `bytes` before the read loads or keeps them.
+    ///
+    /// Returns false, reserving nothing, when the reservation would exceed the budget.
+    fn reserve_bytes(&self, bytes: u64) -> bool;
+
+    /// Returns `bytes` of an earlier reservation whose data the read dropped.
+    fn release_bytes(&self, bytes: u64);
+}
+
 /// Reads child runs of restored SubFlow conditions from committed state, possibly on other
 /// partitions.
 pub trait ChildFlowRuns {
     /// Reads the child run that `query` names: the latest run that its start request ID
     /// started, or else the latest run that reports to its parent reference.
     ///
-    /// Before it keeps each loaded result or value, the read calls `reserve_bytes` with its
-    /// size. It stops when `reserve_bytes` returns false.
+    /// Before it loads each stored row, result, or value, the read reserves its size in
+    /// `memory`. It releases what it drops, such as the child Flow's directory and the run
+    /// records of other runs, so `memory` stays charged only for what the returned run holds.
+    /// It stops when a reservation fails.
     ///
     /// Returns [`ChildFlowRead::Missing`] when the child Flow has no such run, and
     /// [`ChildFlowRead::MemoryExceeded`] when a reservation failed. Returns an error when stored
@@ -85,7 +101,7 @@ pub trait ChildFlowRuns {
     fn child_flow_run(
         &self,
         query: &ChildFlowRunQuery<'_>,
-        reserve_bytes: &dyn Fn(u64) -> bool,
+        memory: &dyn ChildFlowReadMemory,
     ) -> Result<ChildFlowRead, ApplyError>;
 }
 
@@ -97,7 +113,7 @@ impl ChildFlowRuns for NoChildFlowRuns {
     fn child_flow_run(
         &self,
         _query: &ChildFlowRunQuery<'_>,
-        _reserve_bytes: &dyn Fn(u64) -> bool,
+        _memory: &dyn ChildFlowReadMemory,
     ) -> Result<ChildFlowRead, ApplyError> {
         Ok(ChildFlowRead::Missing)
     }
@@ -120,7 +136,7 @@ impl ChildFlowRuns for StateChildFlowRuns<'_> {
     fn child_flow_run(
         &self,
         query: &ChildFlowRunQuery<'_>,
-        reserve_bytes: &dyn Fn(u64) -> bool,
+        memory: &dyn ChildFlowReadMemory,
     ) -> Result<ChildFlowRead, ApplyError> {
         let flow_hash = self.hasher.flow_hash(query.tenant_id, query.child_flow_id);
         let context = ApplyContext {
@@ -128,7 +144,7 @@ impl ChildFlowRuns for StateChildFlowRuns<'_> {
             flow_hash,
         };
         let transaction = FlowTransaction::new(self.state, context);
-        let (rows, record) = match find_child_run(&transaction, query, reserve_bytes)? {
+        let (rows, record) = match find_child_run(&transaction, query, memory)? {
             ChildRunLookup::Found(rows, record) => (rows, *record),
             ChildRunLookup::Missing => return Ok(ChildFlowRead::Missing),
             ChildRunLookup::MemoryExceeded => return Ok(ChildFlowRead::MemoryExceeded),
@@ -144,7 +160,7 @@ impl ChildFlowRuns for StateChildFlowRuns<'_> {
                 .filter_map(|output| output.completed_step_output.as_ref())
                 .map(stored_value_size)
                 .fold(0, u64::saturating_add);
-            if !reserve_bytes(output_bytes) {
+            if !memory.reserve_bytes(output_bytes) {
                 return Ok(ChildFlowRead::MemoryExceeded);
             }
             Some(crate::cross_flow::closed_run_flow_result(
@@ -154,7 +170,7 @@ impl ChildFlowRuns for StateChildFlowRuns<'_> {
             )?)
         };
         let start = if query.should_read_start {
-            match read_genesis_start(&transaction, rows, &record, reserve_bytes)? {
+            match read_genesis_start(&transaction, rows, &record, memory)? {
                 Some(start) => Some(start),
                 None => return Ok(ChildFlowRead::MemoryExceeded),
             }
@@ -179,12 +195,47 @@ enum ChildRunLookup {
 /// Returns the latest run that the start request ID started, or else the latest run that reports
 /// to the parent reference. A purging run counts as gone. Each run record's raw row is reserved
 /// before it decodes.
+///
+/// The directory's raw row is reserved before it decodes too, and released when the lookup
+/// ends.
 fn find_child_run(
     transaction: &FlowTransaction<'_>,
     query: &ChildFlowRunQuery<'_>,
-    reserve_bytes: &dyn Fn(u64) -> bool,
+    memory: &dyn ChildFlowReadMemory,
 ) -> Result<ChildRunLookup, ApplyError> {
-    let directory = read_flow_directory(transaction, query.tenant_id, query.child_flow_id)?;
+    let directory_key = flow_directory_key(
+        transaction.context().flow_hash,
+        query.tenant_id,
+        query.child_flow_id,
+    );
+    let Some(encoded_directory) = transaction.get(ColumnFamily::Flow, &directory_key)? else {
+        return Ok(ChildRunLookup::Missing);
+    };
+    let directory_bytes = encoded_bytes(encoded_directory.len());
+    if !memory.reserve_bytes(directory_bytes) {
+        return Ok(ChildRunLookup::MemoryExceeded);
+    }
+    let directory = FlowDirectoryRecord::decode(encoded_directory.as_slice()).map_err(|error| {
+        ApplyError::CorruptState {
+            table: "flow directory",
+            key: format!("{directory_key:02x?}"),
+            detail: error.to_string(),
+        }
+    })?;
+    let lookup = find_listed_child_run(transaction, query, &directory, memory);
+    memory.release_bytes(directory_bytes);
+    lookup
+}
+
+/// Looks up the child run among the runs `directory` lists, as [`find_child_run`] describes.
+///
+/// It releases the reservation of each run record it does not return.
+fn find_listed_child_run(
+    transaction: &FlowTransaction<'_>,
+    query: &ChildFlowRunQuery<'_>,
+    directory: &FlowDirectoryRecord,
+    memory: &dyn ChildFlowReadMemory,
+) -> Result<ChildRunLookup, ApplyError> {
     let started_run = directory
         .runs
         .iter()
@@ -207,7 +258,8 @@ fn find_child_run(
         let Some(encoded) = transaction.get(ColumnFamily::Flow, &record_key)? else {
             continue;
         };
-        if !reserve_bytes(u64::try_from(encoded.len()).unwrap_or(u64::MAX)) {
+        let record_bytes = encoded_bytes(encoded.len());
+        if !memory.reserve_bytes(record_bytes) {
             return Ok(ChildRunLookup::MemoryExceeded);
         }
         let record =
@@ -216,15 +268,14 @@ fn find_child_run(
                 key: format!("{record_key:02x?}"),
                 detail: error.to_string(),
             })?;
-        if record.is_purging {
-            continue;
-        }
-        let is_attached = started_run.is_some()
-            || record.parent.as_ref() == Some(query.parent)
-            || record.attached_parents.contains(query.parent);
+        let is_attached = !record.is_purging
+            && (started_run.is_some()
+                || record.parent.as_ref() == Some(query.parent)
+                || record.attached_parents.contains(query.parent));
         if is_attached {
             return Ok(ChildRunLookup::Found(rows, Box::new(record)));
         }
+        memory.release_bytes(record_bytes);
     }
     Ok(ChildRunLookup::Missing)
 }
@@ -233,12 +284,12 @@ fn find_child_run(
 ///
 /// Returns why a restart cannot repeat it when the run was not started by a parent, or when the
 /// start carried hard-delete Attributes, whose objects the child run owns. Returns `None` when
-/// `reserve_bytes` refused the record or a value it references.
+/// `memory` refused the record or a value it references.
 fn read_genesis_start(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
     record: &RunRecord,
-    reserve_bytes: &dyn Fn(u64) -> bool,
+    memory: &dyn ChildFlowReadMemory,
 ) -> Result<Option<ChildFlowStartRead>, ApplyError> {
     let genesis = genesis_seq(transaction, rows)?;
     let metadata: Option<HistoryRowMetadata> = transaction.get_message(
@@ -256,7 +307,7 @@ fn read_genesis_start(
     let recorded_size = metadata
         .map(|metadata| metadata.row_size_bytes)
         .filter(|size| *size > 0);
-    if recorded_size.is_some_and(|size| !reserve_bytes(size)) {
+    if recorded_size.is_some_and(|size| !memory.reserve_bytes(size)) {
         return Ok(None);
     }
     let record_key = history_record_key(rows.flow_hash, rows.run_id, genesis);
@@ -265,7 +316,7 @@ fn read_genesis_start(
             "the child run no longer holds its genesis history record".to_owned(),
         )));
     };
-    if recorded_size.is_none() && !reserve_bytes(u64::try_from(encoded.len()).unwrap_or(u64::MAX)) {
+    if recorded_size.is_none() && !memory.reserve_bytes(encoded_bytes(encoded.len())) {
         return Ok(None);
     }
     let genesis_record =
@@ -306,7 +357,7 @@ fn read_genesis_start(
         .flat_map(|options| options.attributes.iter_mut())
         .filter_map(|write| write.value.as_mut());
     for value in condition.step_input.iter_mut().chain(attribute_values) {
-        match complete_start_value(transaction, rows, limits, value, reserve_bytes)? {
+        match complete_start_value(transaction, rows, limits, value, memory)? {
             StartValueCompletion::Completed => {}
             StartValueCompletion::Unavailable(reason) => {
                 return Ok(Some(ChildFlowStartRead::Unavailable(reason)));
@@ -331,10 +382,10 @@ fn complete_start_value(
     rows: RunRows,
     limits: ValueLimits,
     value: &mut Value,
-    reserve_bytes: &dyn Fn(u64) -> bool,
+    memory: &dyn ChildFlowReadMemory,
 ) -> Result<StartValueCompletion, ApplyError> {
     if let Some(size_bytes) = referenced_value_size(transaction, rows, value)?
-        && !reserve_bytes(size_bytes)
+        && !memory.reserve_bytes(size_bytes)
     {
         return Ok(StartValueCompletion::MemoryExceeded);
     }

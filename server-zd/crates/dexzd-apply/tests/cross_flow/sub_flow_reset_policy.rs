@@ -13,14 +13,16 @@ use std::cell::{Cell, RefCell};
 use super::*;
 use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
-    ChildFlowRead, ChildFlowRunQuery, ChildFlowRuns, StateChildFlowRuns, StateHistorySource,
-    TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
-    compute_time_travel,
+    ChildFlowRead, ChildFlowReadMemory, ChildFlowRunQuery, ChildFlowRuns, StateChildFlowRuns,
+    StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
+    TimeTravelComputationSources, compute_time_travel,
 };
 use dexzd_protocol::dex::{
     ChannelCondition, ChannelMessage, PublishToChannelRequest, StepMovement, SubFlowResetPolicy,
 };
-use dexzd_protocol::dexzd::v1::{ChannelPublishCommand, CommandErrorReply};
+use dexzd_protocol::dexzd::v1::{
+    ChannelPublishCommand, CommandErrorReply, FlowDirectoryRecord, FlowDirectoryRun,
+};
 
 const SIGNAL_CHANNEL: &str = "signal";
 const CHILD_INPUT: &str = "child input";
@@ -1318,15 +1320,31 @@ fn child_reads_reserve_the_run_record_and_outputs_before_loading_them() {
         should_read_start: false,
     };
     let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
-    let read = |state: &ReadRecordingState<'_>, refuse_after: usize| {
-        let reservations = Cell::new(0);
+    let read = |state: &ReadRecordingState<'_>, memory: &RecordingReadMemory| {
         StateChildFlowRuns::new(state, &harness.hasher)
-            .child_flow_run(&query, &|_bytes| {
-                reservations.set(reservations.get() + 1);
-                reservations.get() <= refuse_after
-            })
+            .child_flow_run(&query, memory)
             .expect("the read runs")
     };
+
+    // A refused directory reservation stops before decoding: a corrupt directory does not fail.
+    let directory_key = flow_directory_key(child_hash, TenantId::DEFAULT, CHILD_ID);
+    let mut corrupt_directory = MemoryState {
+        rows: harness.state.rows.clone(),
+    };
+    corrupt_directory.rows.insert(
+        (ColumnFamily::Flow, directory_key.clone()),
+        vec![0xFF; 4096],
+    );
+    let refusing = RecordingReadMemory::granting(0, u64::MAX);
+    assert_eq!(
+        read(&ReadRecordingState::new(&corrupt_directory), &refusing),
+        ChildFlowRead::MemoryExceeded
+    );
+    assert_eq!(
+        refusing.refused_bytes.get(),
+        4096,
+        "the raw stored directory length is reserved"
+    );
 
     // A refused run record reservation stops before decoding: a corrupt record does not fail.
     let mut corrupt = MemoryState {
@@ -1340,15 +1358,22 @@ fn child_reads_reserve_the_run_record_and_outputs_before_loading_them() {
         vec![0xFF; 16],
     );
     let corrupt_reads = ReadRecordingState::new(&corrupt);
-    assert_eq!(read(&corrupt_reads, 0), ChildFlowRead::MemoryExceeded);
+    assert_eq!(
+        read(&corrupt_reads, &RecordingReadMemory::granting(1, u64::MAX)),
+        ChildFlowRead::MemoryExceeded
+    );
 
     // A refused output reservation stops before any value row loads.
     let refused_reads = ReadRecordingState::new(&harness.state);
-    assert_eq!(read(&refused_reads, 1), ChildFlowRead::MemoryExceeded);
+    assert_eq!(
+        read(&refused_reads, &RecordingReadMemory::granting(2, u64::MAX)),
+        ChildFlowRead::MemoryExceeded
+    );
     assert!(!refused_reads.has_read(ColumnFamily::Value, &[]));
 
     let granted_reads = ReadRecordingState::new(&harness.state);
-    let ChildFlowRead::Found(run) = read(&granted_reads, usize::MAX) else {
+    let granted = RecordingReadMemory::granting(usize::MAX, u64::MAX);
+    let ChildFlowRead::Found(run) = read(&granted_reads, &granted) else {
         panic!("a granted read finds the child");
     };
     assert!(run.ended_result.is_some());
@@ -1356,6 +1381,128 @@ fn child_reads_reserve_the_run_record_and_outputs_before_loading_them() {
         granted_reads.has_read(ColumnFamily::Value, &[]),
         "a granted read loads the output value"
     );
+    let directory_bytes = harness.state.rows[&(ColumnFamily::Flow, directory_key)].len();
+    assert_eq!(
+        granted.reserved_bytes.get(),
+        granted.granted_bytes.get() - directory_bytes as u64,
+        "the read releases the directory and keeps the record and output"
+    );
+}
+
+#[test]
+fn child_reads_charge_only_the_run_record_they_keep() {
+    let mut harness = Harness::new();
+    harness.prepare_child(ChildState::Running);
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let target_key = run_singleton_key(child_hash, RunId(FIRST_CHILD_RUN), RunTable::RunRecord);
+    let target_bytes = harness.state.rows[&(ColumnFamily::Flow, target_key.clone())].clone();
+    let target = RunRecord::decode(target_bytes.as_slice()).expect("the child record decodes");
+    let directory_key = flow_directory_key(child_hash, TenantId::DEFAULT, CHILD_ID);
+    let mut directory = FlowDirectoryRecord::decode(
+        harness.state.rows[&(ColumnFamily::Flow, directory_key.clone())].as_slice(),
+    )
+    .expect("the directory decodes");
+    // Later runs that report to no parent; the lookup reads each before the older target.
+    let discarded_runs = 64;
+    let mut discarded_bytes = 0;
+    for index in 0..discarded_runs {
+        let run_id = [0x80, index, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        let discarded = RunRecord {
+            run_id: run_id.to_vec(),
+            parent: None,
+            attached_parents: Vec::new(),
+            flow_type: "x".repeat(1000),
+            ..target.clone()
+        }
+        .encode_to_vec();
+        discarded_bytes += discarded.len();
+        harness.state.rows.insert(
+            (
+                ColumnFamily::Flow,
+                run_singleton_key(child_hash, RunId(run_id), RunTable::RunRecord),
+            ),
+            discarded,
+        );
+        directory.runs.push(FlowDirectoryRun {
+            run_id: run_id.to_vec(),
+            status: FlowStatus::Running as i32,
+            start_request_id: format!("another start {index}"),
+            ..FlowDirectoryRun::default()
+        });
+    }
+    let directory_bytes = directory.encoded_len();
+    harness.state.rows.insert(
+        (ColumnFamily::Flow, directory_key),
+        directory.encode_to_vec(),
+    );
+    let parent = parent_reference();
+    let query = ChildFlowRunQuery {
+        tenant_id: TenantId::DEFAULT,
+        child_flow_id: CHILD_ID,
+        start_request_id: "a start request that started no run",
+        parent: &parent,
+        should_read_start: false,
+    };
+    // Room for the directory and two run records, far less than every discarded record.
+    let limit_bytes = (directory_bytes + 2 * 1200 + target_bytes.len()) as u64;
+    assert!(limit_bytes < discarded_bytes as u64);
+    let memory = RecordingReadMemory::granting(usize::MAX, limit_bytes);
+    let ChildFlowRead::Found(run) = StateChildFlowRuns::new(&harness.state, &harness.hasher)
+        .child_flow_run(&query, &memory)
+        .expect("the read runs")
+    else {
+        panic!("the read finds the target behind the discarded runs");
+    };
+    assert_eq!(run.run_id, RunId(FIRST_CHILD_RUN));
+    assert_eq!(
+        memory.reserved_bytes.get(),
+        target_bytes.len() as u64,
+        "only the kept run record stays reserved"
+    );
+}
+
+/// A child read budget that grants the first `granted_reservations` reservations within
+/// `limit_bytes`, and records what it holds.
+struct RecordingReadMemory {
+    granted_reservations: usize,
+    limit_bytes: u64,
+    reservations: Cell<usize>,
+    reserved_bytes: Cell<u64>,
+    /// Every granted reservation, released or not.
+    granted_bytes: Cell<u64>,
+    refused_bytes: Cell<u64>,
+}
+
+impl RecordingReadMemory {
+    fn granting(granted_reservations: usize, limit_bytes: u64) -> Self {
+        Self {
+            granted_reservations,
+            limit_bytes,
+            reservations: Cell::new(0),
+            reserved_bytes: Cell::new(0),
+            granted_bytes: Cell::new(0),
+            refused_bytes: Cell::new(0),
+        }
+    }
+}
+
+impl ChildFlowReadMemory for RecordingReadMemory {
+    fn reserve_bytes(&self, bytes: u64) -> bool {
+        self.reservations.set(self.reservations.get() + 1);
+        let reserved_bytes = self.reserved_bytes.get() + bytes;
+        if self.reservations.get() > self.granted_reservations || reserved_bytes > self.limit_bytes
+        {
+            self.refused_bytes.set(bytes);
+            return false;
+        }
+        self.reserved_bytes.set(reserved_bytes);
+        self.granted_bytes.set(self.granted_bytes.get() + bytes);
+        true
+    }
+
+    fn release_bytes(&self, bytes: u64) {
+        self.reserved_bytes.set(self.reserved_bytes.get() - bytes);
+    }
 }
 
 #[test]
