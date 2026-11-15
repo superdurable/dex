@@ -82,22 +82,6 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=cli-${version}" >> "${GITHUB_OUTPUT}"
-      # Notes the release tooling wrote start with Breaking Changes; replace any other body, such as GitHub-generated notes.
-      - name: Write release notes from the cli change log
-        if: github.event_name == 'release' || inputs.publish == true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
-        shell: bash
-        run: |
-          release_notes="$(mktemp)"
-          gh release view "${RELEASE_TAG}" --json body --jq .body > "${release_notes}"
-          if grep -qx '## Breaking Changes' "${release_notes}"; then
-            exit 0
-          fi
-          python3 script/release/component_release_notes.py cli "${RELEASE_VERSION#v}" --output "${release_notes}.updated"
-          gh release edit "${RELEASE_TAG}" --notes-file "${release_notes}.updated"
       - name: Build embedded Web assets
         working-directory: web
         run: |

@@ -32,7 +32,6 @@ SCRIPT = Path(__file__).with_name("component_release_notes.py")
 REPOSITORY_ROOT = SCRIPT.parents[2]
 PUBLISHED_NOTES_DIRECTORY = Path(__file__).with_name("testdata") / "agents_release_notes"
 CHANGED_COMPONENTS_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/release-changed-components.yml"
-CLI_RELEASE_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/cli-release.yml"
 BLOB_BASE = "https://github.com/superdurable/dex/blob/agents/v1.0.0/"
 
 
@@ -280,12 +279,6 @@ class ReleaseWorkflowTest(unittest.TestCase):
         for component in ("go", "rust", "java", "python", "typescript", "web", "cli", "agents"):
             with self.subTest(component=component):
                 self.assertIn(f'"{component}:', workflow)
-
-    def test_cli_release_replaces_notes_without_breaking_section(self) -> None:
-        workflow = CLI_RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("grep -qx '## Breaking Changes'", workflow)
-        self.assertIn("script/release/component_release_notes.py cli", workflow)
-        self.assertNotIn("None.", workflow)
 
 
 def changelog_at_tag(tag: str, component: str) -> str:

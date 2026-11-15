@@ -127,9 +127,11 @@ gh release create server-zd/v0.1.33 --verify-tag --title server-zd/v0.1.33 --not
 ```
 
 The component is `go`, `java`, `python`, `rust`, `typescript`, `web`, `cli`,
-`server`, or `agents`. Never pass `--generate-notes`. **Release Dex CLI**
-replaces the notes of a `cli-v` Release that has no Breaking Changes section
-with the script's output.
+`server`, or `agents`. Never pass `--generate-notes`. When any stable
+component Release is published, the **Release notes from change logs**
+workflow runs `script/release/update_release_notes.py` and replaces the body
+when it differs from the script's output, such as GitHub-generated notes. A
+failure there never blocks a publisher.
 
 ### The compatibility file
 

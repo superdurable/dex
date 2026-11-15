@@ -22,6 +22,7 @@ from component_changelogs import PACKAGES_STYLE, TARGETS, release_key, released_
 SCRIPT = Path(__file__).with_name("changed_components.py")
 WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
+RELEASE_NOTES_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-notes.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
 COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "web", "cli", "agents")
 BASELINE_TAGS = (
@@ -343,9 +344,18 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn("--notes-file", coordinated_workflow)
 
         cli_workflow = CLI_RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("grep -qx '## Breaking Changes'", cli_workflow)
-        self.assertIn("script/release/component_release_notes.py cli", cli_workflow)
         self.assertNotIn("None.", cli_workflow)
+        self.assertNotIn("gh release edit", cli_workflow)
+
+    def test_every_published_release_gets_its_change_log_notes(self) -> None:
+        workflow = RELEASE_NOTES_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(workflow_trigger_events(workflow), ["release"])
+        self.assertIn("types: [published]", workflow)
+        self.assertNotIn("edited", workflow)
+        self.assertIn("!github.event.release.prerelease", workflow)
+        self.assertIn('script/release/update_release_notes.py "${RELEASE_TAG}"', workflow)
+        self.assertIn("contents: write", workflow)
+        self.assertIn("fetch-depth: 0", workflow)
 
 
 # The release tooling uses only the standard library, which has no YAML parser.
