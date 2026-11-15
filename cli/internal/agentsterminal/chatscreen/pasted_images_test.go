@@ -153,6 +153,23 @@ func TestPasteWhileAViewHasFocusGoesToTheInput(t *testing.T) {
 			harness.feed(connectorApproval("approval-1"))
 			require.True(t, harness.screen.isPopupOpen)
 		},
+		"tool picker": func(harness *screenHarness) {
+			startTurn(harness, "Look around.")
+			harness.feed(outputTool("call-1", "turn-1", "read_file", "output"), sessionfeed.TurnEnded{TurnID: "turn-1"})
+			harness.typeText("/tools")
+			harness.press(key(tea.KeyEnter))
+			require.True(t, harness.screen.isToolPickerOpen)
+		},
+		"setting picker": func(harness *screenHarness) {
+			harness.screen.session.Model = "gpt-5.2"
+			require.True(t, harness.screen.openSettingPicker(modelCommandName))
+		},
+		"tool output pager": func(harness *screenHarness) {
+			startTurn(harness, "Look around.")
+			harness.feed(outputTool("call-1", "turn-1", "read_file", "output"), sessionfeed.TurnEnded{TurnID: "turn-1"})
+			pressCtrlO(harness)
+			require.NotNil(t, harness.screen.pager)
+		},
 		"pending bar": func(harness *screenHarness) {
 			startTurn(harness, "Post the summary.")
 			harness.feed(connectorApproval("approval-1"))
@@ -167,6 +184,9 @@ func TestPasteWhileAViewHasFocusGoesToTheInput(t *testing.T) {
 			harness.paste("hello")
 			require.False(t, harness.screen.isHelpOpen)
 			require.False(t, harness.screen.isPopupOpen)
+			require.False(t, harness.screen.isToolPickerOpen)
+			require.Nil(t, harness.screen.settingPicker)
+			require.Nil(t, harness.screen.pager)
 			require.Equal(t, pendingFocusNone, harness.screen.pendingFocus)
 			require.Equal(t, "hello", harness.screen.input.Value())
 			require.Empty(t, approvalActions(harness), "a paste never answers an approval")
