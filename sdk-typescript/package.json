@@ -19,7 +19,9 @@
   "files": [
     "dist/src",
     "native",
-    "LICENSE"
+    "LICENSE",
+    "LEGACY_NOTICES.md",
+    "LICENSES"
   ],
   "exports": {
     ".": {

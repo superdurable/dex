@@ -316,7 +316,7 @@ publishing {
                     }
                     license {
                         name = 'Apache License, Version 2.0'
-                        url = 'https://github.com/superdurable/dex/blob/main/LICENSES/Apache-2.0.txt'
+                        url = 'https://github.com/superdurable/dex/blob/main/sdk-java/LICENSES/Apache-2.0.txt'
                         distribution = 'repo'
                     }
                 }

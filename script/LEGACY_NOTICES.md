@@ -1,0 +1,1 @@
+../docs/legal/LEGACY_NOTICES.md
