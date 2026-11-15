@@ -104,7 +104,12 @@ type Target struct {
 	// when your page draws the navigation around Dex Web, such as a Dex Server's own rail in your console: Dex Web
 	// then draws no rail, and its bar starts with the name of the page it shows.
 	//
-	// Since 1.45.4.
+	// When it is set, Dex Web in a frame also posts a message to its parent window after every route change, with
+	// the target origin of its own page. The message is {type: "dex-web:location", version: 1, path, search}:
+	// path is relative to BasePath and search is the query string with its leading "?", or empty. Your page can
+	// keep that location in its own URL and load the frame at BasePath plus path and search to open it again.
+	//
+	// Since 1.45.4. Changed in 1.45.6: Dex Web posts the location message.
 	HasHostNavigation bool
 }
 

@@ -205,6 +205,12 @@ function useDesignedFlowTypes(isGrouped: boolean): Set<string> {
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
   const navigate = useNavigate();
+  // Read through a ref, so executeSearch stays stable and the mount search runs once.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  // Only the newest search may write results or the URL; unmounting aborts it.
+  const searchControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => searchControllerRef.current?.abort(), []);
   const [mode, setMode] = useState<QueryMode>('basic');
   const modeTabs = useRef<Partial<Record<QueryMode, HTMLButtonElement | null>>>({});
   const [filters, setFilters] = useState<BasicFilter[]>([]);
@@ -240,10 +246,14 @@ export function FlowSearchPage() {
     requestedPage = 0,
     requestedPageSize = 50,
   ) => {
+    searchControllerRef.current?.abort();
+    const controller = new AbortController();
+    searchControllerRef.current = controller;
     setLoading(true);
     setError('');
     try {
       const response = await fetch(webURL('/api/flows/search'), {
+        signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -253,6 +263,7 @@ export function FlowSearchPage() {
         }),
       });
       const data = await readResponseJSON<SearchFlowsResult>(response);
+      if (controller.signal.aborted) return;
       setFlows(data.flows);
       setSearchedQuery(requestedQuery);
       setNextPageToken(data.nextPageToken);
@@ -263,7 +274,8 @@ export function FlowSearchPage() {
       url.searchParams.set('size', String(requestedPageSize));
       if (requestedPage) url.searchParams.set('page', String(requestedPage + 1));
       else url.searchParams.delete('page');
-      window.history.replaceState(null, '', url);
+      // Through the router, so route listeners such as the host location report see the new search.
+      navigateRef.current({ search: url.search, hash: url.hash }, { replace: true });
       rememberFlowsSearch(url.search);
       if (requestedQuery.trim()) {
         setRecent((current) => {
@@ -273,11 +285,12 @@ export function FlowSearchPage() {
         });
       }
     } catch (searchError) {
+      if (controller.signal.aborted) return;
       setError(searchError instanceof Error ? searchError.message : 'Search failed');
       setFlows([]);
       setNextPageToken('');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
 

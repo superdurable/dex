@@ -8,10 +8,12 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BASE_PATH_META_NAME } from '@/lib/basePath';
+import { HOST_NAVIGATION_META_NAME } from '@/lib/hostNavigation';
+import { HostLocationReporter } from '../components/frame/HostLocationReporter';
 import { PreferencesProvider } from '../providers';
 import { FlowSearchPage } from './FlowSearchPage';
 
@@ -139,6 +141,95 @@ describe('Flow search query builder and pagination', () => {
     expect(document.activeElement).toBe(filters);
     fireEvent.keyDown(filters, { key: 'End' });
     expect(document.activeElement).toBe(query);
+  });
+});
+
+describe('Flow search under host navigation', () => {
+  afterEach(() => {
+    document.head.querySelector(`meta[name="${HOST_NAVIGATION_META_NAME}"]`)?.remove();
+    vi.restoreAllMocks();
+  });
+
+  it('reports each new search, page size, and page to the host page', async () => {
+    const meta = document.createElement('meta');
+    meta.name = HOST_NAVIGATION_META_NAME;
+    meta.content = 'true';
+    document.head.appendChild(meta);
+    const parentPostMessage = vi.fn();
+    vi.spyOn(window, 'parent', 'get').mockReturnValue({ postMessage: parentPostMessage } as unknown as Window);
+    vi.stubGlobal('fetch', vi.fn(async (_input: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as SearchRequest;
+      const isSecondPage = request.nextPageToken === 'page-2-token';
+      return new Response(JSON.stringify({
+        flows: [flow(isSecondPage ? 'checkout-2' : 'checkout-1')],
+        nextPageToken: isSecondPage ? '' : 'page-2-token',
+      }));
+    }));
+    const lastReportedSearch = () => parentPostMessage.mock.calls.at(-1)?.[0]?.search;
+    render(
+      <MemoryRouter initialEntries={['/v1/flows']}>
+        <HostLocationReporter />
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(lastReportedSearch()).toBe('?size=50'));
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Page size' }), { target: { value: '20' } });
+    await waitFor(() => expect(lastReportedSearch()).toBe('?size=20'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(lastReportedSearch()).toBe('?size=20&page=2'));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Query' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search query' }), { target: { value: 'FlowType = "Checkout"' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(new URLSearchParams(lastReportedSearch()).get('q')).toBe('FlowType = "Checkout"'));
+    expect(new URLSearchParams(lastReportedSearch()).get('size')).toBe('20');
+    expect(parentPostMessage.mock.calls.every(([message]) => message.path === '/v1/flows')).toBe(true);
+  });
+
+  it('stays on the next page when a search returns after the reader left', async () => {
+    const meta = document.createElement('meta');
+    meta.name = HOST_NAVIGATION_META_NAME;
+    meta.content = 'true';
+    document.head.appendChild(meta);
+    const parentPostMessage = vi.fn();
+    vi.spyOn(window, 'parent', 'get').mockReturnValue({ postMessage: parentPostMessage } as unknown as Window);
+    // The reply ignores the abort signal, so only the page's own guard stops the late result.
+    let answerSearch: (response: Response) => void = () => {};
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { answerSearch = resolve; })));
+    function CurrentLocation() {
+      const location = useLocation();
+      return <output aria-label="Location">{`${location.pathname}${location.search}`}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/v1/flows']}>
+        <HostLocationReporter />
+        <CurrentLocation />
+        <Link to="/v1/work-queue">Open Work Queue</Link>
+        <PreferencesProvider>
+          <Routes>
+            <Route path="/v1/flows" element={<FlowSearchPage />} />
+            <Route path="/v1/work-queue" element={<p>Work Queue page</p>} />
+          </Routes>
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open Work Queue' }));
+    expect(screen.getByText('Work Queue page')).toBeTruthy();
+    const reportsBeforeReply = parentPostMessage.mock.calls.length;
+    await act(async () => {
+      answerSearch(new Response(JSON.stringify({ flows: [flow('late-1')], nextPageToken: '' })));
+    });
+
+    expect(screen.getByRole('status', { name: 'Location' }).textContent).toBe('/v1/work-queue');
+    expect(screen.getByText('Work Queue page')).toBeTruthy();
+    expect(parentPostMessage.mock.calls.slice(reportsBeforeReply)).toEqual([]);
+    expect(parentPostMessage.mock.calls.at(-1)?.[0]?.path).toBe('/v1/work-queue');
   });
 });
 

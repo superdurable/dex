@@ -125,7 +125,7 @@ unary FlowService RPCs.
 | **FlowServiceClient** | Required. The FlowService client of the Dex Server. It must already carry the credential. |
 | **BasePath** | Required. The path prefix of this Dex Server's Dex Web, such as **/dex-web/server-a**. It follows the [base path rules](/reference/web/dex-web#base-path). |
 | **FlowRenderingDirectory** | Optional. A directory of Flow Definition Graph JSON files for this Dex Server, read on every definition request, like **--flow-rendering-dir**. Since 1.45.0, Dex Web also reads the definitions uploaded to the Dex Server through **FlowServiceClient**, so uploaded definitions need no directory. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
-| **HasHostNavigation** | Optional. Since 1.45.4. Defaults false, which gives Dex Web its own left rail of pages and its home link. Set it when your page draws the navigation around Dex Web, such as a Dex Server's own rail in your console that holds Dex Web as one of its pages. Dex Web then draws no rail, and its bar starts with the name of the page it shows. Link your navigation to Dex Web's pages by path under **BasePath**: **/v1/flows** for the runs, **/v1/flows/FLOW_ID/RUN_ID** for one run, and **/v1/work-queue** for Work Queue. |
+| **HasHostNavigation** | Optional. Since 1.45.4. Defaults false, which gives Dex Web its own left rail of pages and its home link. Set it when your page draws the navigation around Dex Web, such as a Dex Server's own rail in your console that holds Dex Web as one of its pages. Dex Web then draws no rail, and its bar starts with the name of the page it shows. Link your navigation to Dex Web's pages by path under **BasePath**: **/v1/flows** for the runs, **/v1/flows/FLOW_ID/RUN_ID** for one run, and **/v1/work-queue** for Work Queue. Since 1.45.6, Dex Web also [reports its page](#host-location) to your page. |
 
 The handler serves the pages, assets, **/api** routes, **/healthz**, and
 **/readyz** under **BasePath**. **/readyz** checks only the resolved Dex Server.
@@ -155,6 +155,80 @@ with **grpc.WithPerRPCCredentials** or a client interceptor. Each RPC receives
 a context derived from the HTTP request context, so a credential that depends
 on the signed-in user can read a value that host middleware stored in that
 context. The credential never reaches the browser.
+
+## Keep the page in the host URL {#host-location}
+
+Since 1.45.6. With **HasHostNavigation**, Dex Web posts a message to its
+parent window after every route change. This includes the first page, the
+page that a redirect lands on, and the browser's back and forward buttons.
+Your page can keep Dex Web's page in its own URL, so a refresh or a shared
+link opens the same page. Without **HasHostNavigation**, Dex Web posts
+nothing.
+
+~~~json
+{"type": "dex-web:location", "version": 1, "path": "/v1/flows/FLOW_ID/RUN_ID", "search": "?view=session"}
+~~~
+
+| Field | Meaning |
+| --- | --- |
+| **type** | Always **dex-web:location**. |
+| **version** | **1**. A change that breaks this shape raises it. Ignore a message with a version you do not know. |
+| **path** | The path relative to **BasePath**, starting with **/**, such as **/v1/flows**. It never contains the origin or **BasePath**. |
+| **search** | The query string with its leading **?**, or empty. |
+
+Dex Web posts with the target origin of its own page. The handler serves Dex
+Web on your origin, so only a parent page on that origin receives the
+message. A parent page on another origin receives none, even when
+**FrameAncestors** lists it. Check **event.origin** against your origin, and **event.source**
+against the frame's **contentWindow**, before you use the message.
+
+The frame's URL is the deep link. Load the frame at **BasePath** plus
+**path** and **search**, such as
+**/dex-web/server-a/v1/flows/FLOW_ID?view=session**. Update your own URL with
+**history.replaceState**. The frame's route changes already create the
+browser's history entries, so a **pushState** would make the back button
+take two steps.
+
+To share a run, prefer **/v1/flows/FLOW_ID** without a run ID. Dex Web opens
+the current run of that Flow, so the link stays useful after the Flow
+continues as a new run. The message after that redirect names the run ID.
+
+~~~js
+const basePath = '/dex-web/server-a';
+const frame = document.querySelector('iframe#dex-web');
+
+// Restore: open the page that the host URL names, or the runs page.
+frame.src = dexWebPageURL(new URL(window.location.href).searchParams.get('dexPage'));
+
+// Mirror: keep the frame's page in the host URL.
+window.addEventListener('message', (event) => {
+  if (event.origin !== window.location.origin || event.source !== frame.contentWindow) return;
+  const message = event.data;
+  if (message?.type !== 'dex-web:location' || message.version !== 1) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('dexPage', message.path + message.search);
+  history.replaceState(history.state, '', url);
+});
+
+function dexWebPageURL(page) {
+  const fallback = `${basePath}/v1/flows`;
+  if (typeof page !== 'string' || !page.startsWith('/v1/')) return fallback;
+  // Dot segments, encoded dots, and backslashes could leave the base path.
+  if (/\.\.|%2e|\\/i.test(page)) return fallback;
+  const url = new URL(basePath + page, window.location.origin);
+  if (url.origin !== window.location.origin || !url.pathname.startsWith(`${basePath}/v1/`)) return fallback;
+  return url.pathname + url.search;
+}
+~~~
+
+**dexWebPageURL** accepts a page only when four checks pass. It starts with
+**/v1/**. It contains no **..**, no encoded dot (**%2e**), and no backslash.
+After the browser resolves it, it is still on your origin. Its path still
+starts with **BasePath/v1/**. A crafted link such as
+**?dexPage=/v1/../../logout** or **?dexPage=/v1/%2e%2e/%2e%2e/admin** opens
+the runs page instead. The prefix check alone is not enough, because the
+browser resolves dot segments, including encoded ones, before it loads the
+frame.
 
 ## Security {#security}
 

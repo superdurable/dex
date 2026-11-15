@@ -9,6 +9,7 @@
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AppFrame } from './components/frame/AppBar';
 import { AppBarSlotsProvider } from './components/frame/AppBarSlots';
+import { HostLocationReporter } from './components/frame/HostLocationReporter';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
@@ -26,6 +27,7 @@ export function App() {
       <ThemeProvider>
         <WebCatalogProvider>
           <AppBarSlotsProvider>
+            <HostLocationReporter />
             <AppFrame>
               <AppRoutes />
             </AppFrame>
