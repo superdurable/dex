@@ -24,9 +24,9 @@ import {
   type TriggerOptions,
   type TriggerTarget,
 } from "@superdurable/connectors-sdk";
+import type { LoadedProject } from "@superdurable/connectors-sdk/projectconfig";
 import {
-  newMessageTriggerRunner,
-  type Connection,
+  newProjectMessageTriggerRunner,
   type MessageEvent,
   type MessageTriggerRunner,
 } from "@superdurable/connector-slack";
@@ -81,38 +81,22 @@ export function newThreadReplyTarget(
   );
 }
 
-/** The Slack channel whose threads drive sessions, and the members who may post to them. */
-export interface ThreadSessionChannel {
-  /** Slack connection, such as one from newProjectConnection. */
-  connection: Connection;
-  /** Slack channel ID. */
-  channelId: string;
-  /** Slack user IDs whose roots and replies reach a session. Slack requires at least one for replies. */
-  memberUserIds: string[];
-}
+/** Binding of the channelThreadCreated Trigger that starts sessions. */
+export const threadSessionStartBinding = "thread-session-start";
+/** Binding of the threadReplyCreated Trigger that sends replies. */
+export const threadSessionReplyBinding = "thread-session-reply";
 
-/** Runs both Triggers of one channel on one runner, so a root is delivered before its replies. */
+/** Runs both bindings on one runner. Each binding's durable inbox records an event before Slack is acknowledged. */
 export function newThreadSessionTriggerRunner(
-  channel: ThreadSessionChannel,
+  project: LoadedProject,
+  connectionName: string,
   client: Client,
   flow: ThreadAgentFlow,
 ): MessageTriggerRunner {
-  const matcher = { posterUserIds: channel.memberUserIds };
-  return newMessageTriggerRunner({
-    connection: channel.connection,
+  return newProjectMessageTriggerRunner(project, connectionName, {
     channelThreadCreatedRoutes: [
-      {
-        bindingName: "thread-session-start",
-        configuration: { channelId: channel.channelId, threadTriggerMatcher: matcher },
-        target: newThreadSessionStartTarget(client, flow),
-      },
+      { bindingName: threadSessionStartBinding, target: newThreadSessionStartTarget(client, flow) },
     ],
-    threadReplyCreatedRoutes: [
-      {
-        bindingName: "thread-session-reply",
-        configuration: { channelId: channel.channelId, threadReplyMatcher: matcher },
-        target: newThreadReplyTarget(client, flow),
-      },
-    ],
+    threadReplyCreatedRoutes: [{ bindingName: threadSessionReplyBinding, target: newThreadReplyTarget(client, flow) }],
   });
 }

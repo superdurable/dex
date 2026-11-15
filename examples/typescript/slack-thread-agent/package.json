@@ -9,7 +9,6 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "worker": "node worker.ts",
     "test": "node --test --test-force-exit test/slack-thread-triggers.test.ts"
   },
   "dependencies": {

@@ -14,10 +14,7 @@
  * limitations under the License.
  */
 
-// Delivers Slack Trigger events to the thread session targets against a real Dex server, the way
-// a Trigger runner does, including redeliveries. No Slack workspace or model key is needed.
-//
-// Point DEX_FLOW_SERVICE_ADDRESS at the server (default 127.0.0.1:8801).
+// Delivers Slack Trigger events to the thread session targets, with redeliveries and restarts.
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -26,8 +23,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 
-import { isTriggerUndeliverable, newTriggerContext, type TriggerEvent } from "@superdurable/connectors-sdk";
-import type { MessageEvent } from "@superdurable/connector-slack";
+import {
+  isTriggerUndeliverable,
+  newTriggerContext,
+  type TriggerEvent,
+  type TriggerTarget,
+} from "@superdurable/connectors-sdk";
+import {
+  InMemoryObjectStore,
+  TriggerInbox,
+  newDurableTriggerTarget,
+  parseTriggerPayloadJSON,
+  type ObjectStore,
+  type TriggerInboxKey,
+} from "@superdurable/connectors-sdk/projectconfig";
+import {
+  ChannelThreadCreatedTriggerDefinition,
+  ConnectorID,
+  MessageEventSchema,
+  ThreadReplyCreatedTriggerDefinition,
+  type MessageEvent,
+} from "@superdurable/connector-slack";
 import { Client, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import { readAgentSnapshot, type AgentSnapshot } from "@superdurable/dex-agents";
 import { pollUntil } from "@superdurable/dex-agents/testing";
@@ -37,6 +53,8 @@ import {
   newThreadReplyTarget,
   newThreadSessionStartTarget,
   resolveThreadSessionId,
+  threadSessionReplyBinding,
+  threadSessionStartBinding,
 } from "../thread-session-triggers.ts";
 
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
@@ -110,6 +128,71 @@ test("a reply in a thread without a session is undeliverable", async () => {
 
   await assert.rejects(replyTarget.handleTrigger(newTriggerContext(), reply), (error) => isTriggerUndeliverable(error));
 });
+
+test("a restarted runner replays events that already reached Dex, and the session gets each once", async () => {
+  const objects = new InMemoryObjectStore();
+  const startKey = inboxKey(ChannelThreadCreatedTriggerDefinition.trigger.triggerName, threadSessionStartBinding);
+  const replyKey = inboxKey(ThreadReplyCreatedTriggerDefinition.trigger.triggerName, threadSessionReplyBinding);
+  const root = rootEvent("Start from the inbox");
+  const reply = replyEvent(root, "Reply from the inbox");
+  const sessionId = resolveThreadSessionId(root);
+
+  // The runner records and delivers both events, then stops before removing them from the inbox.
+  const stoppedStart = durableTarget(objects, startKey, newThreadSessionStartTarget(client, flow));
+  const stoppedReply = durableTarget(objects, replyKey, newThreadReplyTarget(client, flow));
+  await stoppedStart.prepareTrigger?.(newTriggerContext(), root);
+  await stoppedReply.prepareTrigger?.(newTriggerContext(), reply);
+  assert.equal((await new TriggerInbox(objects, inboxScope, startKey).pending()).length, 1);
+  assert.equal((await new TriggerInbox(objects, inboxScope, replyKey).pending()).length, 1);
+  await newThreadSessionStartTarget(client, flow).handleTrigger(newTriggerContext(), root);
+  await newThreadReplyTarget(client, flow).handleTrigger(newTriggerContext(), reply);
+  await waitForReplies(sessionId, 2);
+
+  const restartedStart = durableTarget(objects, startKey, newThreadSessionStartTarget(client, flow));
+  const restartedReply = durableTarget(objects, replyKey, newThreadReplyTarget(client, flow));
+  await restartedStart.replayTriggerDeliveries?.(newTriggerContext());
+  await restartedReply.replayTriggerDeliveries?.(newTriggerContext());
+
+  const snapshot = await waitForReplies(sessionId, 2);
+  assert.deepEqual(userTexts(snapshot), ["Start from the inbox", "Reply from the inbox"]);
+  assert.deepEqual(await new TriggerInbox(objects, inboxScope, startKey).pending(), []);
+  assert.deepEqual(await new TriggerInbox(objects, inboxScope, replyKey).pending(), []);
+});
+
+test("a restarted runner delivers an event that was recorded but never reached Dex", async () => {
+  const objects = new InMemoryObjectStore();
+  const startKey = inboxKey(ChannelThreadCreatedTriggerDefinition.trigger.triggerName, threadSessionStartBinding);
+  const root = rootEvent("Recorded before the stop");
+  const sessionId = resolveThreadSessionId(root);
+  await durableTarget(objects, startKey, newThreadSessionStartTarget(client, flow)).prepareTrigger?.(
+    newTriggerContext(),
+    root,
+  );
+  assert.equal((await new TriggerInbox(objects, inboxScope, startKey).pending()).length, 1);
+
+  const restartedStart = durableTarget(objects, startKey, newThreadSessionStartTarget(client, flow));
+  await restartedStart.replayTriggerDeliveries?.(newTriggerContext());
+
+  const snapshot = await waitForReplies(sessionId, 1);
+  assert.deepEqual(userTexts(snapshot), ["Recorded before the stop"]);
+  assert.deepEqual(await new TriggerInbox(objects, inboxScope, startKey).pending(), []);
+});
+
+const inboxScope = { projectId: "slack-thread-agent-test", kind: "live" } as const;
+
+function inboxKey(triggerName: string, bindingName: string): TriggerInboxKey {
+  return { connectorId: ConnectorID, connectionName: "slack-workspace", triggerName, bindingName };
+}
+
+function durableTarget(
+  objects: ObjectStore,
+  key: TriggerInboxKey,
+  target: TriggerTarget<MessageEvent>,
+): TriggerTarget<MessageEvent> {
+  return newDurableTriggerTarget(new TriggerInbox(objects, inboxScope, key), key, target, {
+    decodePayload: (_payloadJSON, payloadBytes) => MessageEventSchema.parse(parseTriggerPayloadJSON(payloadBytes)),
+  });
+}
 
 function rootEvent(text: string): TriggerEvent<MessageEvent> {
   const timestamp = uniqueSlackTimestamp();
