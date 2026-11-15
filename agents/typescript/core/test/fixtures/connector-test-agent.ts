@@ -14,7 +14,9 @@
 // `<toolName>: <output>` line per result. A `hold:<gate>` word before `calls` makes that answer wait at a
 // FileGate, so a test can read the turn's records before the turn ends. post_note_retried is postNote under a
 // manifest that claims retry: safe, so the fenced write runs in CallTool with retries. payout_checked is
-// createPayout with an approval predicate: amounts above 50 wait for approval.
+// createPayout with an approval predicate: amounts above 50 wait for approval. send_message is the limited
+// sendMessage Mutation, a bounded_write; send_message_capped is the same tool under a tool policy that raises its
+// send cap to 4, and send_message_unreviewed runs it under a manifest from before repeatOnUnknown.
 
 import type { ConnectionRef } from "@superdurable/connectors-sdk";
 
@@ -37,6 +39,8 @@ import {
   GetBalanceOperation,
   PostNoteInputSchema,
   PostNoteOperation,
+  SendMessageInputSchema,
+  SendMessageOperation,
   fakeLedgerConnection,
   fakeLedgerManifest,
 } from "./fake-ledger.js";
@@ -62,6 +66,21 @@ export function retriedNoteManifest(): ConnectorPackageManifest {
   return manifest as unknown as ConnectorPackageManifest;
 }
 
+/** The fake ledger manifest as a Connector package built before repeatOnUnknown publishes it. */
+export function unreviewedSendManifest(): ConnectorPackageManifest {
+  const manifest = structuredClone(fakeLedgerManifest) as { factories: { operationId: string; agent?: Record<string, unknown> }[] };
+  for (const factory of manifest.factories) {
+    if (factory.operationId === "sendMessage" && factory.agent !== undefined) {
+      delete factory.agent["repeatOnUnknown"];
+      delete factory.agent["maxSends"];
+    }
+  }
+  return manifest as unknown as ConnectorPackageManifest;
+}
+
+/** The tool policy that raises send_message_capped's send cap from the manifest's 3 to 4. */
+export const cappedSendToolPolicies = { send_message_capped: { effect: "bounded_write", maxSends: 4 } } as const;
+
 export function byIdManifest(): ConnectorPackageManifest {
   const manifest = structuredClone(fakeLedgerManifest) as { factories: { operationId: string }[] };
   const factory = structuredClone(manifest.factories.find((entry) => entry.operationId === "getBalance"));
@@ -80,6 +99,7 @@ export function createConnectorSource(
   const provider = new FakeLedgerProvider(stateDirectory);
   const payouts = new CreatePayoutOperation(provider);
   const notes = new PostNoteOperation(provider);
+  const messages = new SendMessageOperation(provider);
   const manifest = readFakeLedgerManifest();
   const tools = [
     connectorTool(new GetBalanceOperation(provider), ledgerConnection, {
@@ -105,6 +125,17 @@ export function createConnectorSource(
       manifest: retriedNoteManifest(),
       inputValidator: PostNoteInputSchema,
       name: "post_note_retried",
+    }),
+    connectorTool(messages, ledgerConnection, { manifest, inputValidator: SendMessageInputSchema, name: "send_message" }),
+    connectorTool(messages, ledgerConnection, {
+      manifest,
+      inputValidator: SendMessageInputSchema,
+      name: "send_message_capped",
+    }),
+    connectorTool(messages, ledgerConnection, {
+      manifest: unreviewedSendManifest(),
+      inputValidator: SendMessageInputSchema,
+      name: "send_message_unreviewed",
     }),
     connectorTool(new GetBalanceByIdOperation(provider), ledgerConnection, {
       manifest: byIdManifest(),
@@ -155,6 +186,7 @@ export function createConnectorAgentFlow(
       instructions: "You are a scripted test agent.",
       model: new ScriptedModelClient(reply),
       toolSources: [createConnectorSource(stateDirectory, maxResultBytes, droppedTools)],
+      toolPolicies: cappedSendToolPolicies,
     },
     connectorAgentFlowType,
   );

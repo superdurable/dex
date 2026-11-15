@@ -84,6 +84,31 @@
       }
     },
     {
+      "name": "new_send_message_step",
+      "kind": "mutation",
+      "operationId": "sendMessage",
+      "inputType": "SendMessageInput",
+      "description": "Send a message about one ledger account.",
+      "agent": {"exposed": true, "branches": {"providerRejected": "rejected"}, "repeatOnUnknown": "limited", "maxSends": 3},
+      "fields": {"stepType": "step_type", "annotations": "annotations", "connectionName": "connection_name", "resultAttribute": "result_attribute"},
+      "branches": [
+        {"id": "sent", "field": "sent", "optional": false},
+        {"id": "providerRejected", "field": "provider_rejected", "optional": true},
+        {"id": "uncertain", "field": "uncertain", "optional": true},
+        {"id": "defect", "field": "defect", "optional": true}
+      ],
+      "inputSchema": {
+        "type": "object",
+        "description": "SendMessageInput is one message.",
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {"type": "string", "description": "The account."},
+          "text": {"type": "string", "description": "The message text and scenario switches."}
+        },
+        "required": ["accountId", "text"]
+      }
+    },
+    {
       "name": "new_close_account_step",
       "kind": "mutation",
       "operationId": "closeAccount",

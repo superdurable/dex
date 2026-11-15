@@ -1,5 +1,5 @@
 {
-  "description": "Connector tool behavior every core must match: argument checks, branch mapping, result text, truncation, and default tool names. Hand-written; see README.md.",
+  "description": "Connector tool behavior every core must match: argument checks, branch mapping, fence observation, send caps, result text, truncation, and default tool names. Hand-written; see README.md.",
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -981,6 +981,404 @@
       "savedHeartbeats": [],
       "mayHaveDispatched": true,
       "isProvenNotSent": false
+    },
+    {
+      "name": "a bounded claim on the first send",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "attempt": 1,
+          "callId": "<callId>",
+          "state": "claimed",
+          "sendCount": 1
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a bounded claim on the first send, then canResend",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "attempt": 1,
+          "callId": "<callId>",
+          "state": "claimed",
+          "sendCount": 1
+        },
+        {
+          "attempt": 1,
+          "callId": "<callId>",
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a bounded resend's claim, then canResend, still counts the earlier send",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "attempt": 2,
+          "callId": "<callId>",
+          "state": "claimed",
+          "sendCount": 2
+        },
+        {
+          "attempt": 2,
+          "callId": "<callId>",
+          "state": "canResend",
+          "sendCount": 1
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a bounded notSent after an earlier send",
+      "attempt": 3,
+      "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "attempt": 3,
+          "callId": "<callId>",
+          "state": "notSent",
+          "sendCount": 1
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "an earlier canResend that counts an earlier send",
+      "attempt": 3,
+      "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a bounded claim with a provider ID",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "attempt": 1,
+          "callId": "<callId>",
+          "state": "claimed",
+          "sendCount": 1
+        },
+        {
+          "attempt": 1,
+          "callId": "<callId>",
+          "state": "claimed",
+          "providerId": "message-1",
+          "sendCount": 1
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    }
+  ],
+  "sendCapCases": [
+    {
+      "name": "a limited Mutation whose definition agrees",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": 3
+    },
+    {
+      "name": "the smallest manifest cap",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 2
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 2
+      },
+      "maxSends": 2
+    },
+    {
+      "name": "the largest manifest cap",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 10
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 10
+      },
+      "maxSends": 10
+    },
+    {
+      "name": "a definition without maxSends declares 3",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "definition": {
+        "repeatOnUnknown": "limited"
+      },
+      "maxSends": 3
+    },
+    {
+      "name": "a definition without maxSends against another cap",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 4
+      },
+      "definition": {
+        "repeatOnUnknown": "limited"
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a definition with another cap",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 4
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a definition from before the tiers",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "definition": {},
+      "maxSends": null
+    },
+    {
+      "name": "a definition with another tier",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "definition": {
+        "repeatOnUnknown": "unsafe"
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a manifest from before the tiers",
+      "kind": "mutation",
+      "agent": {},
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "limited without maxSends",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited"
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a manifest cap of 1",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 1
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 1
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a manifest cap above 10",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 11
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 11
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a fractional manifest cap",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 2.5
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a manifest cap as text",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": "3"
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a manifest cap as a boolean",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": true
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "an unsafe Mutation",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "unsafe"
+      },
+      "definition": {
+        "repeatOnUnknown": "unsafe"
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a safe Mutation",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "safe"
+      },
+      "definition": {
+        "repeatOnUnknown": "safe"
+      },
+      "maxSends": null
+    },
+    {
+      "name": "an unknown tier",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "bounded",
+        "maxSends": 3
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    },
+    {
+      "name": "a Query",
+      "kind": "query",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": null
+    }
+  ],
+  "boundedWriteAttemptCases": [
+    {
+      "operationAttempts": 0,
+      "manifestMaxSends": 3,
+      "callMaxSends": 3,
+      "attempts": 3
+    },
+    {
+      "operationAttempts": 0,
+      "manifestMaxSends": 5,
+      "callMaxSends": 5,
+      "attempts": 5
+    },
+    {
+      "operationAttempts": 5,
+      "manifestMaxSends": 3,
+      "callMaxSends": 3,
+      "attempts": 5
+    },
+    {
+      "operationAttempts": 2,
+      "manifestMaxSends": 3,
+      "callMaxSends": 3,
+      "attempts": 3
+    },
+    {
+      "operationAttempts": 5,
+      "manifestMaxSends": 3,
+      "callMaxSends": 4,
+      "attempts": 6
+    },
+    {
+      "operationAttempts": 5,
+      "manifestMaxSends": 3,
+      "callMaxSends": 1,
+      "attempts": 5
+    },
+    {
+      "operationAttempts": 0,
+      "manifestMaxSends": 3,
+      "callMaxSends": 10,
+      "attempts": 10
+    },
+    {
+      "operationAttempts": 1,
+      "manifestMaxSends": 2,
+      "callMaxSends": 2,
+      "attempts": 2
+    },
+    {
+      "operationAttempts": 4,
+      "manifestMaxSends": 10,
+      "callMaxSends": 10,
+      "attempts": 10
     }
   ]
 }

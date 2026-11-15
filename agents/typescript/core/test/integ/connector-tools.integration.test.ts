@@ -271,6 +271,72 @@ describe("connector tools on a Dex engine", () => {
     assert.deepEqual(harness.ledger.sends("postNote"), []);
   });
 
+  async function runHeldWrite(harness: Harness, toolName: string, text: string): Promise<[AgentToolCallRecord, string[]]> {
+    const sessionId = `connector-${randomUUID()}`;
+    const gate = `held-${randomUUID()}`;
+    await sessions.startSession(sessionId, calls([[toolName, { accountId: "a-1", text }]], gate));
+    const [record] = await heldRecords(harness, sessionId, gate, 1);
+    assert.ok(record !== undefined);
+    return [record, await answerLines(sessionId, 1)];
+  }
+
+  test("a limited write resends after a lost response, and read-back confirms an earlier send", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    let [record, lines] = await runHeldWrite(harness, "send_message", "lose-first");
+    // Read-back cannot see the first message, so attempt 2 sends again: a bounded duplicate.
+    assert.equal(record.effect, "bounded_write");
+    assert.equal(record.status, "succeeded");
+    assert.deepEqual(lines, ['send_message: {"messageId":"sendMessage-2"}']);
+    assert.equal(harness.ledger.writes("sendMessage").length, 2);
+
+    [record, lines] = await runHeldWrite(harness, "send_message", "lose-visible");
+    // Read-back finds the first message, so the call succeeds without another send.
+    assert.equal(record.status, "succeeded");
+    assert.deepEqual(lines, ['send_message: {"messageId":"sendMessage-3"}']);
+    assert.equal(harness.ledger.writes("sendMessage").length, 3);
+  });
+
+  test("a limited write is never resent after a definite failure", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const [record, lines] = await runHeldWrite(harness, "send_message", "reject-on-send");
+    assert.equal(record.status, "failed");
+    assert.equal(record.error, "fake-ledger sendMessage returned providerRejected: PROVIDER_REJECTION: message refused");
+    assert.deepEqual(lines, [`send_message: ${failed}${record.error}`]);
+    assert.equal(harness.ledger.sends("sendMessage-refused").length, 1);
+    assert.deepEqual(harness.ledger.writes("sendMessage"), []);
+  });
+
+  test("a limited write stops at its send cap, which a tool policy can raise", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    let [record, lines] = await runHeldWrite(harness, "send_message", "lose-always");
+    // Three sends, then attempt 4 reads back, finds nothing, and selects uncertain.
+    assert.equal(record.status, "outcome_unknown");
+    assert.equal(record.error, "fake-ledger sendMessage returned uncertain: PROVIDER_REJECTION: read-back found no message");
+    assert.deepEqual(lines, [`send_message: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.writes("sendMessage").length, 3);
+
+    [record, lines] = await runHeldWrite(harness, "send_message_capped", "lose-always");
+    assert.equal(JSON.parse(record.toolSourceReference ?? "{}").reference, '{"tool": "send_message_capped", "maxSends": 4}');
+    assert.equal(record.status, "outcome_unknown");
+    assert.equal(record.error, "fake-ledger sendMessage returned uncertain: PROVIDER_REJECTION: read-back found no message");
+    assert.deepEqual(lines, [`send_message_capped: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.writes("sendMessage").length, 3 + 4);
+  });
+
+  test("a manifest without repeatOnUnknown keeps the write to one attempt", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const [record, lines] = await runHeldWrite(harness, "send_message_unreviewed", "lose-first");
+    assert.equal(record.effect, "non_idempotent_write");
+    assert.equal(JSON.parse(record.toolSourceReference ?? "{}").reference, '{"tool": "send_message_unreviewed"}');
+    assert.equal(record.status, "outcome_unknown");
+    assert.deepEqual(lines, [`send_message_unreviewed: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.writes("sendMessage").length, 1);
+  });
+
   test("an explicit name keeps a previous tool name and resumes its call", async () => {
     const harness = newHarness();
     const worker = await harness.startWorker();

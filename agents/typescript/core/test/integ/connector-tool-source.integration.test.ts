@@ -31,7 +31,13 @@ import {
   type ConnectorBranchOutcome,
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
-import { isProvenNotSent, lowerCamelToSnake, mayHaveDispatched } from "../../src/connectors/connector-tool-source.js";
+import {
+  boundedWriteAttempts,
+  connectorSendCapOf,
+  isProvenNotSent,
+  lowerCamelToSnake,
+  mayHaveDispatched,
+} from "../../src/connectors/connector-tool-source.js";
 import type { DeferredToolExecution } from "../../src/agent-framework-runner.js";
 import {
   buildConnectorToolApprovalDisplay,
@@ -46,7 +52,9 @@ import {
   previousByIdToolName,
   readFakeLedgerManifest,
   retriedNoteManifest,
+  unreviewedSendManifest,
 } from "../fixtures/connector-test-agent.js";
+import { ScriptedModelClient, createBuiltinAgentSessionFlow } from "../../src/builtin-loop/index.js";
 import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
 import {
   CloseAccountInputSchema,
@@ -59,6 +67,9 @@ import {
   GetBalanceOperation,
   PostNoteInputSchema,
   PostNoteOperation,
+  SendMessageInputSchema,
+  SendMessageOperation,
+  sendMessageDefinition,
 } from "../fixtures/fake-ledger.js";
 
 interface ConformanceCases {
@@ -82,6 +93,19 @@ interface ConformanceCases {
     readonly savedHeartbeats: readonly unknown[];
     readonly mayHaveDispatched: boolean;
     readonly isProvenNotSent: boolean;
+  }[];
+  readonly sendCapCases: readonly {
+    readonly name: string;
+    readonly kind: "query" | "mutation";
+    readonly agent: Readonly<Record<string, unknown>>;
+    readonly definition: Readonly<Record<string, unknown>>;
+    readonly maxSends: number | null;
+  }[];
+  readonly boundedWriteAttemptCases: readonly {
+    readonly operationAttempts: number;
+    readonly manifestMaxSends: number;
+    readonly callMaxSends: number;
+    readonly attempts: number;
   }[];
   readonly resultCases: readonly { readonly json: string; readonly text: string }[];
   readonly truncationCases: readonly {
@@ -157,6 +181,26 @@ describe("connector tools follow the shared conformance cases", () => {
     }
   });
 
+  test("send caps are read as the conformance suite says", () => {
+    for (const testCase of conformance.sendCapCases) {
+      assert.equal(
+        connectorSendCapOf(testCase.kind, testCase.agent, testCase.definition) ?? null,
+        testCase.maxSends,
+        testCase.name,
+      );
+    }
+  });
+
+  test("a bounded write's attempts follow the conformance suite", () => {
+    for (const testCase of conformance.boundedWriteAttemptCases) {
+      assert.equal(
+        boundedWriteAttempts(testCase.operationAttempts, testCase.manifestMaxSends, testCase.callMaxSends),
+        testCase.attempts,
+        JSON.stringify(testCase),
+      );
+    }
+  });
+
   test("result text is the same in every core", () => {
     for (const testCase of conformance.resultCases) {
       assert.equal(formatConnectorResult(testCase.json), testCase.text);
@@ -198,6 +242,99 @@ describe("connector tools come from the manifest", () => {
       assert.equal(tool.retryPolicy.maximumAttempts, 3);
       assert.equal(tool.retryPolicy.totalDurationMs, 3_600_000);
     }
+  });
+
+  test("a limited Mutation is a bounded write, unless its manifest predates the tiers", () => {
+    const messages = new SendMessageOperation(provider);
+    const bounded = connectorTool(messages, ledgerConnection, { manifest, inputValidator: SendMessageInputSchema });
+    assert.equal(bounded.effect, "bounded_write");
+    assert.equal(bounded.maxSends, 3);
+    // The operation's five attempts already reach the cap of 3.
+    assert.equal(bounded.retryPolicy.maximumAttempts, 5);
+    const unreviewed = connectorTool(messages, ledgerConnection, {
+      manifest: unreviewedSendManifest(),
+      inputValidator: SendMessageInputSchema,
+    });
+    assert.equal(unreviewed.effect, "non_idempotent_write");
+    assert.equal(unreviewed.maxSends, undefined);
+    assert.equal(unreviewed.retryPolicy.maximumAttempts, 3);
+    // A Connector package built before the tiers declares no tier in its definition.
+    const { repeatOnUnknown: _tier, maxSends: _cap, ...olderDefinition } = sendMessageDefinition;
+    const older = connectorTool(new SendMessageOperation(provider, olderDefinition), ledgerConnection, {
+      manifest,
+      inputValidator: SendMessageInputSchema,
+    });
+    assert.equal(older.effect, "non_idempotent_write");
+    const retried = mutableManifest();
+    retried.factories[3]!.agent!["retry"] = "safe";
+    const safe = connectorTool(messages, ledgerConnection, {
+      manifest: retried as unknown as ConnectorPackageManifest,
+      inputValidator: SendMessageInputSchema,
+    });
+    assert.equal(safe.effect, "idempotent_write");
+  });
+
+  test("a tool policy's maxSends is pinned on the call and raises its attempts", () => {
+    const messages = new SendMessageOperation(provider);
+    const source = new ConnectorToolSource([
+      connectorTool(messages, ledgerConnection, { manifest, inputValidator: SendMessageInputSchema, name: "send" }),
+      connectorTool(new PostNoteOperation(provider), ledgerConnection, {
+        manifest,
+        inputValidator: PostNoteInputSchema,
+        name: "note",
+      }),
+    ]);
+    const defer = (toolName: string, policies?: Record<string, ToolPolicy>) =>
+      source.deferredToolCall(turn(policies), {
+        toolCallId: "call-1",
+        toolName,
+        arguments: "{}",
+        listedTool: { name: toolName, description: "", inputSchema: {} },
+      });
+    const record = (toolName: string, toolSourceReference: string): AgentToolCall => ({
+      toolCallId: "call-1",
+      turnId: "turn-1",
+      toolName,
+      arguments: "{}",
+      effect: "bounded_write",
+      requiresApproval: false,
+      status: "approved",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+      toolSourceReference,
+    });
+    const attemptsOf = (toolName: string, toolSourceReference: string) =>
+      source.toolCallStepOptions(record(toolName, toolSourceReference))?.executeRetry?.maximumAttempts;
+    const plain = defer("send");
+    assert.equal(plain.policy.effect, "bounded_write");
+    assert.equal(plain.policy.requiresApproval, false);
+    assert.equal(plain.ordered, true);
+    assert.equal(plain.toolSourceReference, '{"tool": "send"}');
+    assert.equal(attemptsOf("send", plain.toolSourceReference!), 5);
+    const raised = defer("send", { send: { effect: "read", maxSends: 6 } });
+    assert.equal(raised.policy.effect, "bounded_write");
+    assert.equal(raised.toolSourceReference, '{"tool": "send", "maxSends": 6}');
+    assert.equal(attemptsOf("send", raised.toolSourceReference!), 8);
+    const lowered = defer("send", { send: { effect: "bounded_write", maxSends: 1 } });
+    assert.equal(lowered.toolSourceReference, '{"tool": "send", "maxSends": 1}');
+    assert.equal(attemptsOf("send", lowered.toolSourceReference!), 5);
+    // Only a bounded write takes the cap.
+    assert.equal(defer("note", { note: { effect: "bounded_write", maxSends: 6 } }).toolSourceReference, '{"tool": "note"}');
+  });
+
+  test("a tool policy's maxSends must be an integer from 1 to 10", () => {
+    const model = new ScriptedModelClient(async () => ({ text: "unused" }));
+    const flowWith = (maxSends: number) =>
+      createBuiltinAgentSessionFlow(
+        { name: "policy", instructions: "", model, toolPolicies: { send: { effect: "bounded_write", maxSends } } },
+        "SendCapPolicyAgent",
+      );
+    for (const maxSends of [0, 11, 2.5]) {
+      assert.throws(() => flowWith(maxSends), { name: "RangeError", message: /tool policy send maxSends must be an integer from 1 to 10/ });
+    }
+    assert.equal(flowWith(10).options.toolPolicies["send"]?.maxSends, 10);
   });
 
   test("an explicit name keeps a previous default tool name", () => {
