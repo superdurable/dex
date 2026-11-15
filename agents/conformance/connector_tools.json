@@ -1251,6 +1251,19 @@
       "maxSends": null
     },
     {
+      "name": "an integral manifest cap written as 3.0",
+      "kind": "mutation",
+      "agent": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3.0
+      },
+      "definition": {
+        "repeatOnUnknown": "limited",
+        "maxSends": 3
+      },
+      "maxSends": 3
+    },
+    {
       "name": "a manifest cap as text",
       "kind": "mutation",
       "agent": {

@@ -969,6 +969,9 @@ def connector_send_cap(
     before the tiers fails closed to ``None``, so the call runs once as today.
     """
     manifest_cap = agent.get("maxSends")
+    # JSON 3.0 is the number 3 in TypeScript, so both cores read it as 3.
+    if isinstance(manifest_cap, float) and manifest_cap.is_integer():
+        manifest_cap = int(manifest_cap)
     if (
         kind != "mutation"
         or agent.get("repeatOnUnknown") != "limited"
