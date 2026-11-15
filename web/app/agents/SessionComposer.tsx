@@ -58,6 +58,7 @@ export function SessionComposer({
   const [senderName, setSenderName] = useState(readStoredSenderName);
   const isComposingSenderNameRef = useRef(false);
   const isComposingTextRef = useRef(false);
+  const [isEnterSending] = useState(hasKeyboardWithShift);
   const changeSenderName = (name: string) => {
     // An input method's unfinished text may pass the limit, so the name is cut once it is committed.
     const next = isComposingSenderNameRef.current ? name : limitSenderNameLength(name);
@@ -116,7 +117,10 @@ export function SessionComposer({
   );
   const steer = () => run('steer', () => invoke(schema.steerUserMessage, steerInput), SESSION_COPY.steered);
 
-  const keysHint = SESSION_COPY.composerKeysHint(!isTurnRunning ? 'send' : sendBlocked === null ? 'queue' : 'steer');
+  const enterAction = !isTurnRunning ? 'send' : sendBlocked === null ? 'queue' : 'steer';
+  const keysHint = isEnterSending
+    ? SESSION_COPY.composerKeysHint(enterAction)
+    : SESSION_COPY.composerTouchKeysHint(enterAction);
   const composerNote = !isTurnRunning
     ? `${SESSION_COPY.steerIdleNote} ${keysHint}`
     : sendBlocked === null && canSteer ? `${SESSION_COPY.runningNote} ${keysHint}` : keysHint;
@@ -177,7 +181,7 @@ export function SessionComposer({
             onCompositionStart={() => { isComposingTextRef.current = true; }}
             onCompositionEnd={() => { isComposingTextRef.current = false; }}
             onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.shiftKey) return;
+              if (!isEnterSending || event.key !== 'Enter' || event.shiftKey) return;
               // Enter that commits an input method's text must not send it.
               if (isComposingTextRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
               event.preventDefault();
@@ -238,4 +242,12 @@ export function SessionComposer({
       </form>
     </footer>
   );
+}
+
+/** False when touch is the only pointer: a phone keyboard has no Shift+Enter, so Enter adds a line. */
+function hasKeyboardWithShift(): boolean {
+  if (typeof window.matchMedia !== 'function') return true;
+  const isCoarseOnly = window.matchMedia('(pointer: coarse)').matches
+    && !window.matchMedia('(any-pointer: fine) and (any-hover: hover)').matches;
+  return !isCoarseOnly;
 }

@@ -14,6 +14,7 @@ const AT_LATEST_TOLERANCE_PX = 32;
 /** Follows new stream items while the reader is at the end, and shows a new waiting call's controls. */
 export function useSessionStreamScroll({
   sectionRef,
+  streamRef,
   latestRef,
   isLoaded,
   followSignature,
@@ -21,6 +22,8 @@ export function useSessionStreamScroll({
 }: {
   /** The session section, which holds the stream and the composer. */
   sectionRef: RefObject<HTMLElement | null>;
+  /** The transcript; its size changes when the reader opens a long message, note, or call. */
+  streamRef: RefObject<HTMLElement | null>;
   /** An empty element at the end of the stream. */
   latestRef: RefObject<HTMLElement | null>;
   /** False until the first session read; nothing scrolls by itself on that first read. */
@@ -32,6 +35,8 @@ export function useSessionStreamScroll({
 }): { isAtLatest: boolean; jumpToLatest: () => void; showWaitingCall: (toolCallId: string) => void } {
   const [isAtLatest, setAtLatest] = useState(true);
   const isAtLatestRef = useRef(true);
+  /** Whether the reader was at the end before this commit's new items arrived. */
+  const wasFollowingRef = useRef(false);
   const shownSignatureRef = useRef<string | null>(null);
   const seenWaitingCallIdsRef = useRef<Set<string> | null>(null);
 
@@ -48,16 +53,7 @@ export function useSessionStreamScroll({
     isAtLatestRef.current = isNowAtLatest;
     setAtLatest(isNowAtLatest);
   }, [sectionRef, latestRef]);
-
-  // The scroll container varies, so a capturing listener hears whichever element scrolls.
-  useEffect(() => {
-    document.addEventListener('scroll', measureAtLatest, { capture: true, passive: true });
-    window.addEventListener('resize', measureAtLatest);
-    return () => {
-      document.removeEventListener('scroll', measureAtLatest, { capture: true });
-      window.removeEventListener('resize', measureAtLatest);
-    };
-  }, [measureAtLatest]);
+  const scheduleMeasureAtLatest = useFrameCoalesced(measureAtLatest);
 
   // Scroll margins keep scrolled-to content above the sticky composer.
   const updateComposerHeight = useCallback(() => {
@@ -67,34 +63,57 @@ export function useSessionStreamScroll({
     const isSticky = getComputedStyle(controls).position === 'sticky';
     section.style.setProperty('--ses-composer-height', `${isSticky ? controls.offsetHeight : 0}px`);
   }, [sectionRef]);
+  const scheduleComposerHeight = useFrameCoalesced(updateComposerHeight);
 
+  // The scroll container varies, so a capturing listener hears whichever element scrolls.
   useEffect(() => {
+    document.addEventListener('scroll', scheduleMeasureAtLatest, { capture: true, passive: true });
+    window.addEventListener('resize', scheduleMeasureAtLatest);
+    return () => {
+      document.removeEventListener('scroll', scheduleMeasureAtLatest, { capture: true });
+      window.removeEventListener('resize', scheduleMeasureAtLatest);
+    };
+  }, [scheduleMeasureAtLatest]);
+
+  // Opening a long message, note, or call moves the end without a scroll event.
+  useEffect(() => {
+    const stream = streamRef.current;
     const controls = sectionRef.current?.querySelector<HTMLElement>('.ses-controls');
-    if (!controls || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(updateComposerHeight);
-    observer.observe(controls);
-    return () => observer.disconnect();
-  }, [sectionRef, isLoaded, updateComposerHeight]);
+    if (!stream || !controls || typeof ResizeObserver === 'undefined') return;
+    const streamObserver = new ResizeObserver(scheduleMeasureAtLatest);
+    streamObserver.observe(stream);
+    const composerObserver = new ResizeObserver(scheduleComposerHeight);
+    composerObserver.observe(controls);
+    return () => {
+      streamObserver.disconnect();
+      composerObserver.disconnect();
+    };
+  }, [sectionRef, streamRef, isLoaded, scheduleMeasureAtLatest, scheduleComposerHeight]);
 
   // The composer turns sticky or static without changing size, which the observer misses.
-  useLayoutEffect(updateComposerHeight);
+  useEffect(scheduleComposerHeight);
+
+  // Runs first on every commit, before following measures the new end.
+  useLayoutEffect(() => {
+    wasFollowingRef.current = isAtLatestRef.current;
+  });
 
   useLayoutEffect(() => {
     if (!isLoaded) return;
     const isFirstRead = shownSignatureRef.current === null;
     const hasNewItem = !isFirstRead && shownSignatureRef.current !== followSignature;
     shownSignatureRef.current = followSignature;
-    if (hasNewItem && isAtLatestRef.current) latestRef.current?.scrollIntoView?.({ block: 'end' });
+    if (hasNewItem && isAtLatestRef.current && !isEditingWaitingCall()) latestRef.current?.scrollIntoView?.({ block: 'end' });
     measureAtLatest();
   }, [isLoaded, followSignature, latestRef, measureAtLatest]);
 
-  // Runs after following, so a new waiting call's controls end up in view.
+  // Runs after following. Only a reader who follows the end is moved; others have the header chip.
   const waitingKey = waitingCallIds.join('\n');
   useLayoutEffect(() => {
     if (!isLoaded) return;
     const seen = seenWaitingCallIdsRef.current;
     seenWaitingCallIdsRef.current = new Set(waitingCallIds);
-    if (seen === null) return;
+    if (seen === null || !wasFollowingRef.current || isEditingWaitingCall()) return;
     const firstNew = waitingCallIds.find((toolCallId) => !seen.has(toolCallId));
     if (firstNew !== undefined) waitingCallControls(sectionRef.current, firstNew)?.scrollIntoView?.({ block: 'nearest' });
     // waitingKey stands for waitingCallIds, whose array identity changes on every read.
@@ -113,6 +132,28 @@ export function useSessionStreamScroll({
   }, [sectionRef]);
 
   return { isAtLatest, jumpToLatest, showWaitingCall };
+}
+
+/** Returns a stable function that runs the latest `work` at most once per animation frame. */
+function useFrameCoalesced(work: () => void): () => void {
+  const workRef = useRef(work);
+  workRef.current = work;
+  const frameRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
+  return useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      workRef.current();
+    });
+  }, []);
+}
+
+/** True while focus is inside an approval or question card; a new waiting call must not move the view. */
+function isEditingWaitingCall(): boolean {
+  return document.activeElement?.closest('.atc > .agc') != null;
 }
 
 /** The approve, reject, or answer controls of one call card, or the card when it has none. */

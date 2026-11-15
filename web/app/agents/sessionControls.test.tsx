@@ -241,6 +241,26 @@ describe('SessionComposer', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v2/agent-sessions/messages');
   });
 
+  it('keeps Enter as a new line on a touch-only device, where the button sends', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)', media: query }));
+    const { onActed } = renderComposer(sessionWith({}));
+    const box = screen.getByRole('textbox', { name: SESSION_COPY.steerLabel });
+    expect(screen.getByText(SESSION_COPY.composerTouchKeysHint('send'), { exact: false })).toBeTruthy();
+    expect(screen.queryByText(SESSION_COPY.composerKeysHint('send'), { exact: false })).toBeNull();
+
+    expect(fireEvent.keyDown(box, { key: 'Enter' })).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.send }));
+    await waitFor(() => expect(onActed).toHaveBeenCalled());
+  });
+
+  it('sends with Enter on a touch screen that also has a fine pointer, such as a tablet with a keyboard', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }));
+    const { onActed } = renderComposer(sessionWith({}));
+    expect(fireEvent.keyDown(screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }), { key: 'Enter' })).toBe(false);
+    await waitFor(() => expect(onActed).toHaveBeenCalled());
+  });
+
   it('queues with Enter while a turn runs', async () => {
     const { invoke, onActed } = renderComposer(sessionWith({ status: 'running_model', activeTurnId: 'turn-2' }));
     expect(screen.getByText(SESSION_COPY.composerKeysHint('queue'), { exact: false })).toBeTruthy();

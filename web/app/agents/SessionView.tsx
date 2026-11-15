@@ -74,11 +74,13 @@ export function SessionView({
   const [handledElsewhere, setHandledElsewhere] = useState<ReadonlySet<string>>(new Set());
   const steerRef = useRef<HTMLTextAreaElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
   const latestRef = useRef<HTMLDivElement>(null);
 
   const session = held.value;
   const { isAtLatest, jumpToLatest, showWaitingCall } = useSessionStreamScroll({
     sectionRef,
+    streamRef,
     latestRef,
     isLoaded: session !== null,
     followSignature: session ? streamFollowSignature(session) : '',
@@ -164,7 +166,7 @@ export function SessionView({
         settings={view.sessionSettings}
         onSaved={reload}
       />
-      <div className="ses-stream">
+      <div className="ses-stream" ref={streamRef}>
         {view.messageIndex && view.messageIndex.firstSequence > 1 && (
           <SessionNote icon={History}>{SESSION_COPY.deletedBefore(view.messageIndex.firstSequence)}</SessionNote>
         )}

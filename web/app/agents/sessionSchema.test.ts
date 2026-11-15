@@ -105,6 +105,25 @@ describe('decoders', () => {
     expect(decodeAgentMessage({ sequence: 4, role: 'user', text: 'typed' })?.origin).toBeNull();
   });
 
+  it('marks an assistant message that Claude Code made up by its synthetic model, not by its text', () => {
+    const item = (...models: string[]) => JSON.stringify({
+      kind: 'claude_transcript', session_id: 's1',
+      entries: models.map((model) => ({
+        type: 'assistant', message: { model, role: 'assistant', content: [{ type: 'text', text: 'No response requested.' }] },
+      })),
+    });
+    const message = (role: string, frameworkItem: unknown) => decodeAgentMessage({
+      sequence: 5, role, text: 'No response requested.', framework_item: frameworkItem,
+    });
+    expect(message('assistant', item('<synthetic>'))?.isFrameworkSynthetic).toBe(true);
+    expect(message('assistant', item('claude-sonnet-4-5'))?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', item('<synthetic>', 'claude-sonnet-4-5'))?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', null)?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', '{"kind":"other","entries":[],"note":"<synthetic>"}')?.isFrameworkSynthetic).toBe(false);
+    expect(message('assistant', 'not json <synthetic>')?.isFrameworkSynthetic).toBe(false);
+    expect(message('user', item('<synthetic>'))?.isFrameworkSynthetic).toBe(false);
+  });
+
   it('refuses a record without its identity', () => {
     expect(decodeAgentToolCall({ tool_name: 'refund', status: 'succeeded' })).toBeNull();
     expect(decodePendingInterrupts([{ kind: 'tool_approval' }])).toBeNull();

@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_COPY } from './copy';
 import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
@@ -380,47 +380,92 @@ describe('SessionView scrolling', () => {
     expect(scrolled.map((element) => element.className)).toEqual(['ses-latest']);
   });
 
-  it('brings the controls of a call that starts waiting into view, wherever the reader is', () => {
+  const running = { status: 'running_tools', turnCount: 1, activeTurnId: 'turn-1', lastTurnError: null, acceptsTurnControl: true };
+  const resolveInterrupt: FlowV2Action = {
+    rpcName: 'resolve_interrupt', label: 'resolve_interrupt', requiredPermission: 'coding.operate',
+    input: { kind: 'object', fields: [] },
+  };
+  const operableSession = (reloadKey = 0) => (
+    <SessionView
+      flowId="session-1"
+      flowType="CodingAgent"
+      reloadKey={reloadKey}
+      schema={{ ...schema, resolveInterrupt }}
+      workQueuePermissions={['coding.operate']}
+    />
+  );
+  const withWaitingCalls = (...calls: ToolCallView[]) => sessionOf({
+    state: running,
+    items: [userMessage(1, 'Refund orders.'), ...calls.map((call) => ({ kind: 'tool' as const, key: call.toolCallId, call }))],
+    waitingCalls: calls,
+  });
+
+  it('brings the controls of a call that starts waiting into view for a reader at the end', () => {
     const scrolled = stubScrollIntoView();
-    placeLatestBelowTheView();
-    loaded = sessionOf({ items: [userMessage(1, 'Refund order 7.')] });
+    loaded = sessionOf({ items: [userMessage(1, 'Refund orders.')] });
     const { rerender } = render(renderSession());
 
-    const call = waitingCall('call-1');
-    loaded = sessionOf({
-      state: { status: 'running_tools', turnCount: 1, activeTurnId: 'turn-1', lastTurnError: null, acceptsTurnControl: true },
-      items: [userMessage(1, 'Refund order 7.'), { kind: 'tool', key: 'call-1', call }],
-      waitingCalls: [call],
-    });
+    loaded = withWaitingCalls(waitingCall('call-1'));
     rerender(renderSession(1));
-    expect(scrolled).toEqual([screen.getByTestId('approval-interrupt-call-1')]);
+    expect(scrolled).toEqual([document.querySelector('.ses-latest'), screen.getByTestId('approval-interrupt-call-1')]);
 
     // A later read of the same waiting call does not scroll again.
     rerender(renderSession(2));
-    expect(scrolled).toHaveLength(1);
+    expect(scrolled).toHaveLength(2);
+  });
+
+  it('leaves a reader who scrolled up where they are when a call starts waiting', () => {
+    const scrolled = stubScrollIntoView();
+    placeLatestBelowTheView();
+    loaded = sessionOf({ items: [userMessage(1, 'Refund orders.')] });
+    const { rerender } = render(renderSession());
+
+    loaded = withWaitingCalls(waitingCall('call-1'));
+    rerender(renderSession(1));
+    expect(scrolled).toHaveLength(0);
+    expect(screen.getByRole('button', { name: SESSION_COPY.waitingForApproval(1) })).toBeTruthy();
+  });
+
+  it('does not move the view while the reader works in another waiting call', () => {
+    const scrolled = stubScrollIntoView();
+    loaded = withWaitingCalls(waitingCall('call-1'));
+    const { rerender } = render(operableSession());
+    screen.getByRole('button', { name: SESSION_COPY.approve }).focus();
+
+    loaded = withWaitingCalls(waitingCall('call-1'), waitingCall('call-2'));
+    rerender(operableSession(1));
+    expect(scrolled).toHaveLength(0);
+  });
+
+  it('stops following once the reader opens a long message that pushes the end down', () => {
+    const scrolled = stubScrollIntoView();
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { observers.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const long = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n');
+    loaded = sessionOf({ items: [userMessage(1, long)] });
+    const { rerender } = render(renderSession());
+    expect(screen.queryByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.showMore }));
+    placeLatestBelowTheView();
+    act(() => observers.forEach((callback) => callback([], {} as ResizeObserver)));
+    expect(screen.getByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeTruthy();
+
+    loaded = sessionOf({ items: [userMessage(1, long), userMessage(2, 'New message.')] });
+    rerender(renderSession(1));
+    expect(scrolled).toHaveLength(0);
+    expect(screen.getByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeTruthy();
   });
 
   it('jumps from the waiting chip to the call and focuses its first control', () => {
     const scrolled = stubScrollIntoView();
-    const call = waitingCall('call-1');
-    loaded = sessionOf({
-      state: { status: 'running_tools', turnCount: 1, activeTurnId: 'turn-1', lastTurnError: null, acceptsTurnControl: true },
-      items: [{ kind: 'tool', key: 'call-1', call }],
-      waitingCalls: [call],
-    });
-    const resolveInterrupt: FlowV2Action = {
-      rpcName: 'resolve_interrupt', label: 'resolve_interrupt', requiredPermission: 'coding.operate',
-      input: { kind: 'object', fields: [] },
-    };
-    render(
-      <SessionView
-        flowId="session-1"
-        flowType="CodingAgent"
-        reloadKey={0}
-        schema={{ ...schema, resolveInterrupt }}
-        workQueuePermissions={['coding.operate']}
-      />,
-    );
+    loaded = withWaitingCalls(waitingCall('call-1'));
+    render(operableSession());
     expect(scrolled).toHaveLength(0);
 
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.waitingForApproval(1) }));
@@ -429,4 +474,3 @@ describe('SessionView scrolling', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: SESSION_COPY.approve }));
   });
 });
-

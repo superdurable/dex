@@ -92,6 +92,10 @@ export const SESSION_COPY = {
     const verb = action === 'send' ? 'sends' : action === 'queue' ? 'queues' : 'steers';
     return `Enter ${verb}; Shift+Enter adds a line.`;
   },
+  composerTouchKeysHint(action: 'send' | 'queue' | 'steer'): string {
+    const button = action === 'send' ? 'Send' : action === 'queue' ? 'Queue' : 'Steer';
+    return `Enter adds a line; tap ${button} to send.`;
+  },
   runningNote: 'Queue keeps the message for the next turn. Steer ends this turn at its next safe point and starts a new one with it.',
   queued: 'Message queued. It starts the next turn after this one ends.',
   sendRefused: 'The session did not take the message (send_user_message returned false). Reload to see why.',

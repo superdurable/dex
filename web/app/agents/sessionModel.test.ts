@@ -81,6 +81,24 @@ describe('readSession', () => {
     expect(view.missing).toEqual([]);
   });
 
+  it('hides an assistant message that Claude Code made up, keeping the stored message', () => {
+    const synthetic = JSON.stringify({
+      kind: 'claude_transcript', session_id: 's1',
+      entries: [{ type: 'assistant', message: { model: '<synthetic>', content: [{ type: 'text', text: 'No response requested.' }] } }],
+    });
+    const view = readSession({
+      attributes: [
+        state({ active_turn_id: null, status: 'waiting_for_user_message' }),
+        message(1, 'user', { text: 'Thanks.' }),
+        message(2, 'assistant', { text: 'No response requested.', framework_item: synthetic }),
+        message(3, 'assistant', { text: 'No response requested.' }),
+      ],
+      activeSteps: [],
+      events: [],
+    });
+    expect(view.items.map((item) => item.key)).toEqual(['message:1', 'message:3']);
+  });
+
   it('says a call queued for a Worker has not run', () => {
     const [call] = callsOf([state(), requestOf(1, 'c1'), toolCall('c1', 'approved')], [
       activeToolStep('c1', { phase: 1, pendingReason: 1, attempt: 1, pendingSinceTime: '2026-11-07T22:00:00Z' }),
