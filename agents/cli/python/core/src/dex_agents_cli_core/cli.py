@@ -18,14 +18,13 @@ import importlib
 import importlib.metadata
 import logging
 import os
-import secrets
 import signal
 import socket
 import sys
 import webbrowser
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +50,8 @@ from dex_agents import (
     AGENT_SESSION_TURN_COUNT,
     SESSION_LAST_TERMINAL_ENVIRONMENT,
     AgentSessionFlow,
+    AgentSessionFork,
+    AgentSessionForkingFlow,
     AgentSessionSummary,
     AgentSessionSummaryPage,
     LocalDirectoryMediaStore,
@@ -146,6 +147,16 @@ from dex_agents_cli_core.mcp_servers import (
     McpServersToolSource,
     mcp_server_secret_texts,
     resolve_mcp_servers,
+)
+from dex_agents_cli_core.session_forks import (
+    SessionForkFailure,
+    build_fork_usage_error,
+    build_forked_line,
+    build_open_prompt,
+    build_resume_hint,
+    fork_cli_session,
+    is_yes_answer,
+    new_cli_session_id,
 )
 from dex_agents_cli_core.session_lease import (
     HeldSessionLease,
@@ -261,6 +272,8 @@ class _Arguments:
     resume_session_id: str | None
     model: str | None
     is_plain: bool = False
+    fork_session_id: str | None = None
+    fork_after_message: int | None = None
 
 
 def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> int:
@@ -328,6 +341,15 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
                 return server.run(_list_sessions(loaded, environment, harness, server))
             case "connectors":
                 return server.run(_list_connectors(loaded, environment, harness, server))
+            case "fork":
+                forked: list[str] = []
+                exit_code = server.run(
+                    _fork_session(arguments, loaded, environment, harness, server, forked)
+                )
+                if exit_code != 0 or not forked or not _ask_to_open(forked[0], harness):
+                    return exit_code
+                opened = replace(arguments, command="run", resume_session_id=forked[0])
+                return server.run(_run(opened, loaded, environment, harness, log_path, server))
             case _:
                 return server.run(_run(arguments, loaded, environment, harness, log_path, server))
     except _InitCancelled as cancelled:
@@ -767,9 +789,19 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
         "command",
         nargs="?",
         default="run",
-        choices=("run", "init", "connectors", "sessions"),
+        choices=("run", "init", "connectors", "sessions", "fork"),
         help="run (the default) chats; init writes the configuration file; connectors lists "
-        "the connector tools; sessions lists this agent's sessions",
+        "the connector tools; sessions lists this agent's sessions; fork copies a session "
+        "between turns into a new session",
+    )
+    parser.add_argument(
+        "session_id", nargs="?", metavar="SESSION_ID", help="the session that fork copies"
+    )
+    parser.add_argument(
+        "--at",
+        type=int,
+        metavar="MESSAGE_NUMBER",
+        help="fork after this message, the last of a turn; the default is the current state",
     )
     parser.add_argument("-c", "--config", type=Path, default=None, help="configuration file")
     parser.add_argument(
@@ -783,6 +815,12 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
         help="chat in plain text lines, without the dexcli terminal UI",
     )
     namespace = parser.parse_args(argv)
+    if namespace.command == "fork" and namespace.session_id is None:
+        parser.error(build_fork_usage_error(command_name(harness)))
+    if namespace.command != "fork" and (
+        namespace.session_id is not None or namespace.at is not None
+    ):
+        parser.error("a session ID and --at go only with fork")
     return _Arguments(
         command=namespace.command,
         config_path=namespace.config,
@@ -790,6 +828,8 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
         resume_session_id=namespace.resume,
         model=namespace.model,
         is_plain=namespace.plain,
+        fork_session_id=namespace.session_id,
+        fork_after_message=namespace.at,
     )
 
 
@@ -1102,31 +1142,43 @@ async def _run_plain_chat(
     )
     terminal = Terminal()
     lease = HeldSessionLease(session_worker.opener)
+    resume_session_id = arguments.resume_session_id
+    is_terminal_started = False
     try:
-        session = await session_worker.open_session(arguments.resume_session_id)
-        session_id = session.session_id
-        await _wait_for_session_lease(session, lease, environment)
-        for line in await session_worker.opener.complete_takeover(session_id):
-            print(line, file=sys.stderr)
-        # The pull permit runs from the acquire on; it may end the lease during the takeover.
-        if lease.is_ending:
-            await lease.wait_until_ended()
-            _report_ended_lease(lease)
-            return 1
-        print(f"Session {session_id}")
-        if endpoint.web_url is not None:
-            print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
-        terminal.start()
-        chat = TerminalChat(
-            session_worker.client,
-            session.sessions,
-            session_id,
-            terminal,
-            command_name(harness),
-            media_store=inputs.media_store,
-            home=environment.home,
-        )
-        is_failed = not await _chat_while_lease_held(chat, lease)
+        while True:
+            session = await session_worker.open_session(resume_session_id)
+            session_id = session.session_id
+            await _wait_for_session_lease(session, lease, environment)
+            for line in await session_worker.opener.complete_takeover(session_id):
+                print(line, file=sys.stderr)
+            # The pull permit runs from the acquire on; it may end the lease during the takeover.
+            if lease.is_ending:
+                await lease.wait_until_ended()
+                _report_ended_lease(lease)
+                return 1
+            print(f"Session {session_id}")
+            if endpoint.web_url is not None:
+                print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
+            if not is_terminal_started:
+                terminal.start()
+                is_terminal_started = True
+            chat = TerminalChat(
+                session_worker.client,
+                session.sessions,
+                session_id,
+                terminal,
+                command_name(harness),
+                media_store=inputs.media_store,
+                home=environment.home,
+                fork_session=_chat_session_forker(session_worker, session_id),
+            )
+            is_failed = not await _chat_while_lease_held(chat, lease)
+            if chat.switch_session_id is None:
+                break
+            # The fork opens like --resume; the source keeps running without this terminal.
+            await lease.release()
+            lease = HeldSessionLease(session_worker.opener)
+            resume_session_id = chat.switch_session_id
     finally:
         with contextlib.suppress(RuntimeError):
             terminal.stop()
@@ -1134,6 +1186,27 @@ async def _run_plain_chat(
         await lease.release()
         await session_worker.close()
     return 1 if is_failed else 0
+
+
+def _chat_session_forker(
+    session_worker: _SessionWorker, source_session_id: str
+) -> Callable[[int | None], Awaitable[AgentSessionFork]]:
+    """Return what ``/fork`` calls: a fork of the open session into a new CLI session ID."""
+    flows = {
+        flow.get_flow_type(): flow for flow in (session_worker.flow, session_worker.legacy_flow)
+    }
+
+    def fork(after_message: int | None) -> Awaitable[AgentSessionFork]:
+        return fork_cli_session(
+            session_worker.client,
+            flows,
+            source_session_id,
+            new_cli_session_id(session_worker.harness.name),
+            after_message=after_message,
+            command_name=command_name(session_worker.harness),
+        )
+
+    return fork
 
 
 async def _wait_for_session_lease(
@@ -1227,6 +1300,7 @@ class _SessionWorker:
         self,
         harness: AgentHarness,
         flow: AgentSessionFlow,
+        legacy_flow: AgentSessionFlow,
         identity: SessionEnvironmentIdentity,
         client: AsyncClient,
         worker: AsyncWorker,
@@ -1239,6 +1313,7 @@ class _SessionWorker:
     ) -> None:
         self.harness = harness
         self.flow = flow
+        self.legacy_flow = legacy_flow
         self.identity = identity
         self.client = client
         self.opener = opener
@@ -1389,6 +1464,7 @@ class _SessionWorker:
         session_worker = cls(
             harness,
             flow,
+            legacy_flow,
             identity,
             client,
             worker,
@@ -1427,9 +1503,7 @@ class _SessionWorker:
         """
         try:
             if resume_session_id is None:
-                session_id = (
-                    f"{self.harness.name}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
-                )
+                session_id = new_cli_session_id(self.harness.name)
                 await self.sessions.start_session(
                     session_id,
                     options=StartFlowOptions(task_queue=session_task_queue(session_id)),
@@ -1856,6 +1930,86 @@ async def _list_sessions(
         )
     print(f"Resume one with: {command_name(harness)} --resume <session-id>")
     return 0
+
+
+async def _fork_session(
+    arguments: _Arguments,
+    loaded: LoadedConfig,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    server: _CommandDexServer,
+    forked: list[str],
+) -> int:
+    """Fork ``arguments.fork_session_id`` without a Worker; append the new ID to ``forked``."""
+    source_session_id = arguments.fork_session_id
+    assert source_session_id is not None, "the parser requires a session ID for fork"
+    settings = _resolve_connection(loaded, environment)
+    endpoint = await server.resolve(loaded.config)
+    workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
+    identity = current_session_environment_identity(loaded.path, workspace)
+    flows = {
+        flow_type: AgentSessionForkingFlow(flow_type)
+        for flow_type in (
+            harness.flow_type,
+            namespace_session_flow_type(harness.flow_type, identity),
+        )
+    }
+    blob_cache = open_blob_cache(
+        BlobCacheConfig(str(environment.agents_directory / "cache" / "sessions"), _BLOB_CACHE_BYTES)
+    )
+    try:
+        connection = _open_connection(settings, environment)
+    except CommandError:
+        blob_cache.close()
+        raise
+    try:
+        client = AsyncClient(
+            Registry(list(flows.values()), allow_async_handlers=True),
+            blob_cache,
+            connection.client_options(endpoint.address),
+        )
+    except ValueError as error:
+        connection.close()
+        blob_cache.close()
+        raise CommandError(connection.describe_setup_error(error)) from error
+    session_id = new_cli_session_id(harness.name)
+    try:
+        fork = await fork_cli_session(
+            client,
+            flows,
+            source_session_id,
+            session_id,
+            after_message=arguments.fork_after_message,
+            command_name=command_name(harness),
+        )
+    except SessionForkFailure as failure:
+        raise CommandFailure(str(failure)) from failure
+    except Exception as failure:
+        described = _describe_dex_failure(
+            failure, connection, loaded.config.dex.server, endpoint.address
+        )
+        if described is None:
+            raise
+        raise DexServerError(described) from failure
+    finally:
+        await client.close()
+        connection.close()
+        blob_cache.close()
+    print(build_forked_line(source_session_id, fork.after_message, fork.session_id))
+    forked.append(fork.session_id)
+    return 0
+
+
+def _ask_to_open(session_id: str, harness: AgentHarness) -> bool:
+    """Ask whether to open a fork now; without a terminal, print how to open it later."""
+    if _is_interactive():
+        try:
+            if is_yes_answer(input(build_open_prompt(session_id))):
+                return True
+        except (KeyboardInterrupt, EOFError):
+            print()
+    print(build_resume_hint(command_name(harness), session_id))
+    return False
 
 
 class _SessionEnvironmentReadingFlow(Flow[None]):
