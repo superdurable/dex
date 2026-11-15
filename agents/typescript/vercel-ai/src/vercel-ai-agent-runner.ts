@@ -22,6 +22,7 @@ import {
   type StepResult,
   type StopCondition,
   type Tool,
+  type ToolCallPart,
   type ToolChoice,
   type ToolResultPart,
   type ToolSet,
@@ -38,6 +39,7 @@ import {
   estimateTextTokens,
   selectTurnBoundaryCutoff,
   isFinalToolCallStatus,
+  outcomeUnknownToolResult,
   toolEffectFromMcpToolAnnotations,
   type AgentEventWriter,
   type AgentFrameworkRunner,
@@ -68,10 +70,13 @@ import { runInAgentToolExecutionScope } from "./agent-tool-execution-scope.js";
 import { toGenAIProviderName } from "./gen-ai-provider-names.js";
 import { replaceImagePlaceholders } from "./vercel-ai-model-images.js";
 import {
+  addMissingToolResults,
   addToolResultImages,
   appendToolResultParts,
+  createPlainRecordedToolResultOutput,
   createRecordedToolResultPart,
   isModelMessage,
+  listUnansweredToolCalls,
   parseRecordedJson,
   parseStoredModelMessage,
   serializeJsonValue,
@@ -110,7 +115,10 @@ const toolInputCallbackNames = ["onInputStart", "onInputDelta", "onInputAvailabl
 /** The turn between two model calls, stored in `FrameworkRunState`. */
 interface VercelAiFrameworkRunState {
   readonly version: typeof frameworkRunStateVersion;
-  /** Response messages this turn produced so far, after its user message. */
+  /**
+   * Response messages of the turn that are not stored yet: a trailing tool message of invalid calls, or, from an
+   * adapter before 0.6.12, every message after the user message.
+   */
   readonly turnMessages: readonly ModelMessage[];
   /** Tool calls of the last model response that wait for recorded results, in model order. */
   readonly requestedToolCallIds: readonly string[];
@@ -260,38 +268,63 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     };
   }
 
+  /**
+   * Makes the turn's next `streamText` step.
+   *
+   * The model input is every stored message, including the turn's messages stored so far, then the turn's messages
+   * that are not stored yet, with each requested call's recorded result. A call that an earlier turn left without a
+   * result gets {@link outcomeUnknownToolResult} in the input only.
+   *
+   * @param turn - The turn context.
+   * @returns `ToolCallsRequested` with the calls of this step, and the turn's messages not stored yet in
+   * `newMessages`, except a trailing tool message of invalid calls, which waits in the run state for the other
+   * results. Otherwise `TurnCompleted` with the turn's messages not stored yet. Changed in 0.6.12:
+   * `ToolCallsRequested` stores the turn so far in `newMessages` instead of keeping it in the run state, and
+   * `TurnCompleted` holds only what the turn has not stored yet.
+   * @throws {Error} When a requested call has no final record or the record names another tool, or any error of
+   * the model call or a tool source listing; the session retries the attempt.
+   * @throws {TypeError} When the run state is not one of this adapter.
+   */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const history = turn.messages.map(parseStoredModelMessage);
+    const storedTurnMessages = readStoredTurnMessages(turn);
     if (turn.contextSummary) {
       history.unshift({ role: "user", content: buildContextSummaryNote(turn.contextSummary) });
     }
-    let turnMessages: ModelMessage[] = [];
+    // An earlier adapter kept the whole turn here; this one keeps only a trailing tool message of invalid calls.
+    let unstoredTurnMessages: ModelMessage[] = [];
     let modelSteps: RecordedModelStep[] = [];
     if (turn.frameworkRunState !== null) {
       const runState = parseFrameworkRunState(turn.frameworkRunState);
-      const requestedToolNames = readRequestedToolNames(turn, runState);
+      const requestedToolNames = readRequestedToolNames(turn, runState, [
+        ...storedTurnMessages,
+        ...runState.turnMessages,
+      ]);
       const records = runState.requestedToolCallIds.map((toolCallId) =>
         this.readFinalRecord(turn, toolCallId, requestedToolNames.get(toolCallId)),
       );
       const recordedResults = await Promise.all(records.map((record) => this.createRecordedToolResult(record)));
-      turnMessages = appendToolResultParts(runState.turnMessages, recordedResults);
+      unstoredTurnMessages = appendToolResultParts(runState.turnMessages, recordedResults, storedTurnMessages);
       modelSteps = addRecordedToolResults(runState.modelSteps, records);
       // As in the AI SDK loop, stop conditions run once the step's tool calls have results.
       if (await this.isAgentStopConditionMet(modelSteps)) {
-        return { kind: "completed", newMessages: turnMessages.map(toFrameworkMessage), usage: emptyAgentUsage() };
+        return {
+          kind: "completed",
+          newMessages: unstoredTurnMessages.map(toFrameworkMessage),
+          usage: emptyAgentUsage(),
+        };
       }
     }
     const modelCallTools = await this.createModelCallTools(turn);
-    // A copy with image bytes goes to the model; turnMessages keep the placeholders that are stored.
+    const turnInput = addMissingToolResults([...history, ...unstoredTurnMessages]);
+    // A copy with image bytes goes to the model; stored messages keep the placeholders.
     const modelInput =
-      this.mediaStore === undefined
-        ? [...history, ...turnMessages]
-        : await replaceImagePlaceholders([...history, ...turnMessages], this.mediaStore);
+      this.mediaStore === undefined ? turnInput : await replaceImagePlaceholders(turnInput, this.mediaStore);
     const modelCall = await runInAgentToolExecutionScope(
       { flowId: turn.flowId, turnId: turn.turnId, attempt: turn.attempt, idempotencyKey: null, events: turn.events },
       () => this.streamModelCall(turn, modelInput, modelCallTools, modelSteps),
     );
-    turnMessages = [...turnMessages, ...modelCall.responseMessages];
+    unstoredTurnMessages = [...unstoredTurnMessages, ...modelCall.responseMessages];
     modelSteps = [...modelSteps, ...modelCall.steps.map((step) => recordModelStep(step, modelSteps.length))];
     const modelCallMetadata = createModelCallMetadata(modelCall.steps);
     const finalStep = modelCall.steps.at(-1);
@@ -299,7 +332,7 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     if (requestedToolCalls.length === 0 || finalStep === undefined) {
       return {
         kind: "completed",
-        newMessages: turnMessages.map(toFrameworkMessage),
+        newMessages: unstoredTurnMessages.map(toFrameworkMessage),
         usage: modelCall.usage,
         ...modelCallMetadata,
       };
@@ -308,17 +341,19 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
       const notRunResults = requestedToolCalls.map((toolCall) =>
         createNotRunToolResult(toolCall, finalStep.finishReason),
       );
-      turnMessages = appendToolResultParts(turnMessages, notRunResults);
+      unstoredTurnMessages = appendToolResultParts(unstoredTurnMessages, notRunResults, storedTurnMessages);
       return {
         kind: "completed",
-        newMessages: turnMessages.map(toFrameworkMessage),
+        newMessages: unstoredTurnMessages.map(toFrameworkMessage),
         usage: modelCall.usage,
         ...modelCallMetadata,
       };
     }
+    // The recorded results join the invalid calls' results in one tool message, as in one AI SDK step.
+    const trailingToolMessages = unstoredTurnMessages.at(-1)?.role === "tool" ? unstoredTurnMessages.slice(-1) : [];
     const runState: VercelAiFrameworkRunState = {
       version: frameworkRunStateVersion,
-      turnMessages,
+      turnMessages: trailingToolMessages,
       requestedToolCallIds: requestedToolCalls.map((toolCall) => toolCall.toolCallId),
       modelSteps,
     };
@@ -327,8 +362,57 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
       frameworkRunState: serializeJsonValue(runState),
       toolCalls: requestedToolCalls.map((toolCall) => this.createDeferredToolCall(turn, toolCall, modelCallTools)),
       usage: modelCall.usage,
+      newMessages: unstoredTurnMessages
+        .slice(0, unstoredTurnMessages.length - trailingToolMessages.length)
+        .map(toFrameworkMessage),
       ...modelCallMetadata,
     };
+  }
+
+  /**
+   * Returns the messages that a turn ending without a final answer still needs.
+   *
+   * The session calls it when the user steers or cancels a turn, and when a turn fails. Each `RunModel` that requests
+   * tool calls stores the turn so far, so this method adds a result for every call of the turn that has none, which
+   * is usually each call of the last response. The result comes from the call's final record, as the next model call
+   * would have received it: the output, the failure, or the rejection, such as the steering or cancellation result.
+   * A call without a final record gets {@link outcomeUnknownToolResult}. The next turn then sends every call with its
+   * result, and no note.
+   *
+   * The output of a succeeded call passes through the tool's `toModelOutput` only when that returns at once; a tool
+   * whose `toModelOutput` returns a Promise or throws gets the output as text or JSON. Images are stored as
+   * references, as in every stored message.
+   *
+   * The method reads only the turn's stored messages, its run state, and its records, so it returns the same
+   * messages for the same committed state. Applications call it only in tests.
+   *
+   * @example
+   * ```ts
+   * const flow = createVercelAiAgentSessionFlow(agent, "SupportAgent");
+   * const messages = flow.runner.buildUnfinishedTurnMessages?.(endedTurn) ?? [];
+   * assert.equal(messages.at(-1)?.role, "tool");
+   * ```
+   * @param turn - The ended turn, with its stored messages, its run state, and its final records.
+   * @returns The turn's messages that are not stored yet, the last one a tool message holding a result for each
+   * call without one; none when the turn made no model call that requested tools.
+   * @throws {TypeError} When a stored message or the run state is malformed. The session then stores its note
+   * instead.
+   * @since 0.6.12
+   */
+  public buildUnfinishedTurnMessages(turn: AgentTurnContext): FrameworkMessage[] {
+    if (turn.frameworkRunState === null) {
+      return [];
+    }
+    const unstoredTurnMessages = parseFrameworkRunState(turn.frameworkRunState).turnMessages;
+    const storedTurnMessages = readStoredTurnMessages(turn);
+    const unfinishedResults = listUnansweredToolCalls([...storedTurnMessages, ...unstoredTurnMessages]).map(
+      (toolCall) => this.createUnfinishedToolResult(toolCall, turn.recordedToolCall(toolCall.toolCallId)),
+    );
+    const messages =
+      unfinishedResults.length === 0
+        ? [...unstoredTurnMessages]
+        : appendToolResultParts(unstoredTurnMessages, unfinishedResults, storedTurnMessages);
+    return messages.map(toFrameworkMessage);
   }
 
   /**
@@ -422,6 +506,51 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
       };
     }
     return createRecordedToolResultPart(record, this.findTool(record.toolName));
+  }
+
+  private createUnfinishedToolResult(toolCall: ToolCallPart, record: AgentToolCall | undefined): ToolResultPart {
+    const toolResult = (output: ToolResultPart["output"]): ToolResultPart => ({
+      type: "tool-result",
+      toolCallId: toolCall.toolCallId,
+      toolName: toolCall.toolName,
+      output,
+    });
+    if (record === undefined || !isFinalToolCallStatus(record.status)) {
+      return toolResult({ type: "error-text", value: outcomeUnknownToolResult });
+    }
+    const part = toolResult(this.createUnfinishedToolResultOutput(record));
+    return this.mediaStore === undefined ? part : addToolResultImages(part, record.images ?? []);
+  }
+
+  private createUnfinishedToolResultOutput(record: AgentToolCall): ToolResultPart["output"] {
+    if (record.status !== "succeeded") {
+      return createPlainRecordedToolResultOutput(record);
+    }
+    // A source's output is text, such as a truncated connector result, so the model reads it unchanged.
+    if (this.agent.toolSources.isSourceToolCall(record)) {
+      return { type: "text", value: record.output ?? "" };
+    }
+    const toModelOutput = this.findTool(record.toolName)?.toModelOutput;
+    if (toModelOutput === undefined) {
+      return createPlainRecordedToolResultOutput(record);
+    }
+    let modelOutput: ReturnType<typeof toModelOutput>;
+    try {
+      modelOutput = toModelOutput({
+        toolCallId: record.toolCallId,
+        input: parseRecordedJson(record.arguments),
+        output: parseRecordedJson(record.output ?? "null"),
+      });
+    } catch {
+      // The turn ends now, so the recorded output is the result; a throw here must not drop the turn's messages.
+      return createPlainRecordedToolResultOutput(record);
+    }
+    if (isPromiseLike(modelOutput)) {
+      // This method is synchronous; a later rejection has nothing left to change.
+      modelOutput.then(undefined, () => undefined);
+      return createPlainRecordedToolResultOutput(record);
+    }
+    return modelOutput;
   }
 
   private findTool(toolName: string): Tool | undefined {
@@ -696,16 +825,22 @@ async function isAnyStopConditionMet(
   return results.some((isMet) => isMet);
 }
 
-/** Each requested call's tool name from the run state's tool-call parts; refuses a call requested twice. */
+/** The AI SDK messages that this turn stored so far, its user message first. */
+function readStoredTurnMessages(turn: AgentTurnContext): ModelMessage[] {
+  return turn.messages.filter((message) => message.turnId === turn.turnId).map(parseStoredModelMessage);
+}
+
+/** Each requested call's tool name from the turn's tool-call parts; refuses a call requested twice. */
 function readRequestedToolNames(
   turn: AgentTurnContext,
   runState: VercelAiFrameworkRunState,
+  turnMessages: readonly ModelMessage[],
 ): ReadonlyMap<string, string> {
   if (new Set(runState.requestedToolCallIds).size !== runState.requestedToolCallIds.length) {
     throw new Error(`turn ${turn.turnId} resumed with a tool call requested more than once`);
   }
   const toolNames = new Map<string, string>();
-  for (const message of runState.turnMessages) {
+  for (const message of turnMessages) {
     if (message.role !== "assistant" || typeof message.content === "string") {
       continue;
     }
@@ -742,6 +877,14 @@ async function readFinalToolOutput(result: unknown): Promise<unknown> {
     return lastOutput;
   }
   return await result;
+}
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly then?: unknown }).then === "function"
+  );
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {

@@ -24,6 +24,7 @@ import {
   estimateTextTokens,
   isFinalToolCallStatus,
   loadImages,
+  outcomeUnknownToolResult,
   selectTurnBoundaryCutoff,
   type AgentEventWriter,
   type AgentFrameworkRunner,
@@ -49,6 +50,7 @@ import {
 import { toGenAIProviderName } from "./gen-ai-provider-names.js";
 import { executeMastraDeferredToolCall } from "./mastra-deferred-tool-execution.js";
 import {
+  answerPendingMastraToolInvocations,
   assignIncreasingCreatedAt,
   buildMastraToolResultMessage,
   buildMastraUserFrameworkMessage,
@@ -441,6 +443,50 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       usage,
       ...modelCallMetadata,
     };
+  }
+
+  /**
+   * Returns the Mastra messages that a turn ending without a final answer still needs.
+   *
+   * The session calls it when the user steers or cancels a turn, and when a turn fails. The turn's messages so far
+   * live in the run state until the turn ends, so this method returns them, with a result for every tool invocation
+   * that waits for one. The result comes from the call's final record, as the next model call would have received
+   * it: the output, the failure, or the rejection, such as the steering or cancellation result, and the record's
+   * images when the runner has a media store. A call without a final record gets {@link outcomeUnknownToolResult}.
+   * Each invocation then has state `result`, as Mastra stores a call after its result, so the next turn replays a
+   * complete conversation and the session stores no note.
+   *
+   * The method reads only the turn's run state and its records, so it returns the same messages for the same
+   * committed state. Applications call it only in tests.
+   *
+   * @example
+   * ```ts
+   * const runner = new MastraAgentRunner(supportAgent, { toolPolicies });
+   * const messages = runner.buildUnfinishedTurnMessages(endedTurn);
+   * assert.equal(messages.at(-1)?.toolOutput, endedTurn.toolCalls.at(-1)?.output);
+   * ```
+   * @param turn - The ended turn, with its run state and its final records.
+   * @returns Every Mastra message of the turn after its user message; none when the turn made no model call that
+   * requested tools.
+   * @throws {TypeError} When the run state is malformed. The session then stores its note instead.
+   * @since 0.6.12
+   */
+  public buildUnfinishedTurnMessages(turn: AgentTurnContext): FrameworkMessage[] {
+    if (turn.frameworkRunState === null) {
+      return [];
+    }
+    const shouldShowImages = this.mediaStore !== undefined;
+    return decodeMastraTurnRunState(turn.frameworkRunState)
+      .turnMessages.map((message) =>
+        answerPendingMastraToolInvocations(message, (toolCall) => {
+          const record = turn.recordedToolCall(toolCall.toolCallId);
+          if (record === undefined || !isFinalToolCallStatus(record.status)) {
+            return { outputText: outcomeUnknownToolResult, images: [] };
+          }
+          return { outputText: describeToolCallOutcome(record), images: shouldShowImages ? (record.images ?? []) : [] };
+        }),
+      )
+      .map(projectMastraMessage);
   }
 
   /**

@@ -528,7 +528,7 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
     assert.deepEqual(await executedStepTypes(sessionId), ["StartAgentSession", "RunModel"]);
   });
 
-  test("a resumed turn that fails after a write stores the failure note, and the next turn's model sees it", async () => {
+  test("a resumed turn that fails after a write stores the write's result and the failure note, and the next turn's model sees both", async () => {
     const sessionId = newSessionId("failed-resume");
     await sessions.startSession(sessionId, "call send_email then fail");
     const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
@@ -544,14 +544,14 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
       '- send_email {"requested_by":"call send_email then fail"} -> succeeded: ' +
       `{"delivered":true,"idempotency_key":"${sessionId}/turn-1/call-1-send_email"}\n` +
       "Do not repeat these tool calls unless the user asks again.";
-    assert.deepEqual(
-      failedSnapshot.messages.map((message) => [message.sequence, message.turnId, message.role, message.text]),
-      [
-        [1, "turn-1", "user", "call send_email then fail"],
-        [2, "turn-1", "user", expectedNote],
-      ],
-    );
-    assert.deepEqual(JSON.parse(failedSnapshot.messages[1]?.frameworkItem ?? "null"), {
+    const sendEmailOutput = `{"delivered":true,"idempotency_key":"${sessionId}/turn-1/call-1-send_email"}`;
+    assert.deepEqual(failedSnapshot.messages.map(describeMessage), [
+      "1 turn-1 user call send_email then fail",
+      "2 turn-1 assistant tool-call call-1-send_email send_email",
+      `3 turn-1 tool tool-result call-1-send_email send_email ${sendEmailOutput}`,
+      `4 turn-1 user ${expectedNote}`,
+    ]);
+    assert.deepEqual(JSON.parse(failedSnapshot.messages[3]?.frameworkItem ?? "null"), {
       role: "user",
       content: expectedNote,
     });
