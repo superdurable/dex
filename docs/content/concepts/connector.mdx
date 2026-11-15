@@ -100,11 +100,15 @@ Your application supplies the final filter, resolves the Flow ID, and maps the
 provider event to a typed input. It chooses whether the event starts a Flow or
 calls a typed [RPC](/concepts/primitives/rpc) on an existing Flow. A Flow start
 uses the provider event ID as its request ID, so a repeated event does not
-start a second Flow. An RPC target must handle duplicates itself, in its own
-bounded state.
+start a second Flow. Repeated deliveries to an RPC target need a clear
+deduplication boundary. Where the Connector SDK sends a stable request ID for
+an RPC target, a transactional RPC applies each event's Flow changes at most
+once while Dex Server keeps that request ID. Otherwise the RPC target handles
+duplicates in its own bounded state.
 
-Local Trigger runners save a matched event before they acknowledge it to the
-provider. After a restart, they deliver the events that were still pending.
+A durable inbox records a matched event before the provider is acknowledged.
+After a restart, it delivers the events that were still pending. Use the
+Trigger runner path that provides it.
 
 ## Connections {#connections-and-configuration}
 

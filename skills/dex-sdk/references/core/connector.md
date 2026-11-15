@@ -36,8 +36,9 @@ A Trigger is a long-running event source outside the Flow. It delivers each even
 - The application supplies the final filter, resolves the Flow ID, and maps the event to typed input.
 - It chooses to start a Flow or invoke a typed RPC on an existing Flow. A Trigger binding does not store an RPC name; the application registers the RPC definition the Trigger runner uses.
 - A root start uses the provider event ID as its start Request ID and a deterministic Flow ID.
-- An RPC target needs its own bounded duplicate handling in application state, plus its own locks.
-- Local Trigger runners persist a matched event before acknowledging it and replay pending deliveries after a restart.
+- Duplicate deliveries need a clear dedup boundary. Where the connector SDK sends a stable request ID for an RPC target, a transactional RPC applies each event's Flow changes at most once while Dex Server keeps that request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids) and [Connector Triggers](https://docs.superdurable.io/reference/agents/connector-triggers).
+- Otherwise the RPC target handles duplicates in its own bounded application state, plus its own locks.
+- A durable inbox records a matched event before the provider is acknowledged and replays pending deliveries after a restart. Use the Trigger runner path that provides it.
 - A connection's credentials and each Trigger binding's matchers are separate. One connection can serve several Flows, each with its own binding filters.
 
 ## Credentials and connections
