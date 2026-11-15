@@ -566,7 +566,7 @@ What a setting does is up to the agent. A Worker reads the settings of each turn
 
 ### Start a session {#agent-new-session}
 
-Dex Web does not start Dex Agents sessions. Start one with an Agents CLI command, such as **dex-agents-builtin**, or with the application's Client, such as **AgentSessionClient.start_session** in Python or **startAgentSession** in TypeScript. The session then appears in Dex Web, where the **Conversation** tab reads it and sends it messages. See [Commands](/reference/agents/cli#commands).
+Dex Web does not start Dex Agents sessions. Start one with an Agents CLI command, such as **dex-agents-builtin**, or with the application's Client, such as **AgentSessionClient.start_session** in Python or **startAgentSession** in TypeScript. The application's own Workers run a session that its Client starts. The session then appears in Dex Web, where the **Conversation** tab reads it and sends it messages. See [Commands](/reference/agents/cli#commands).
 
 A session Flow graph declares no **Start Flow** input, so **Start Flow** does not start sessions.
 
@@ -600,7 +600,7 @@ When **resolve_interrupt** or **answer_question** returns false, another operato
 
 Dex Web shows the **Conversation** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps, and the others must not be. Changed in 1.43.0: the graph's Start Step must also be **StartAgentSession**, the same rule that the session routes apply. The [session graph](/reference/agents/dex-web) that Dex Agents renders declares them.
 
-Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**. Since 1.43.0, it also reads the **SessionSettings** Attribute, calls the RPCs **send_user_message** and **update_session_settings**, and starts sessions at the Step type **StartAgentSession**.
+Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**. Since 1.43.0, it also reads the **SessionSettings** Attribute, calls the RPCs **send_user_message** and **update_session_settings**, and recognizes a session graph by its Start Step **StartAgentSession**.
 
 The rule for the schema is additive. Dex Agents may add fields, enum values, Steps, and Actions, and Dex Web ignores what it does not know. An unknown status shows as its raw value. Renaming or removing a name above, or changing what a field means, breaks the tab. Such a change needs a matching Dex Web release.
 

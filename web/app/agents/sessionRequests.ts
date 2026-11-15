@@ -112,7 +112,7 @@ export function parseSessionSettings(text: string, blankAllowed: boolean): Sessi
 }
 
 /** Checks the compact JSON size of settings against MAX_SESSION_SETTINGS_BYTES. */
-export function checkSessionSettingsSize(value: Record<string, unknown>): SessionSettingsParse {
+function checkSessionSettingsSize(value: Record<string, unknown>): SessionSettingsParse {
   const size = new TextEncoder().encode(JSON.stringify(value)).length;
   if (size > MAX_SESSION_SETTINGS_BYTES) {
     return { ok: false, message: SESSION_COPY.settingsTooLarge(size, MAX_SESSION_SETTINGS_BYTES) };
