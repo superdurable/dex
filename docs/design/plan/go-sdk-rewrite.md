@@ -2663,6 +2663,8 @@ const (
 	FlowErrorWorkerMethod
 	FlowErrorInvalidUserCode
 	FlowErrorInternal
+	FlowErrorTimeout
+	FlowErrorSubFlowAbandoned
 )
 
 type StepCompletion struct {

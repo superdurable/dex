@@ -32,5 +32,28 @@ public enum FlowErrorType {
     INTERNAL,
 
     /** A Dex soft Flow timeout expired under {@link FlowTimeoutPolicy#FAIL}. */
-    FLOW_TIMEOUT
+    FLOW_TIMEOUT,
+
+    /**
+     * The parent Flow stopped waiting for this SubFlow child.
+     *
+     * <p>A Time Travel restored a parent Step that waited on a SubFlow condition, and its SubFlow
+     * reset policy chose to fail that condition. Dex terminates the child run if it still runs.
+     * The condition then completes with a {@link FlowStatus#FAILED} result that carries this error
+     * type. Only a SubFlow result read in Execute carries it; the child run itself never closes
+     * with it.
+     *
+     * <p>Handle it like any other failed child: retry, compensate, or fail the parent. The child's
+     * output is not available.
+     *
+     * <pre>{@code
+     * FlowResult result = SubFlow.getConditionResults(context);
+     * if (result.getErrorType() == FlowErrorType.SUB_FLOW_ABANDONED) {
+     *     throw new IllegalStateException("child abandoned by a Time Travel");
+     * }
+     * }</pre>
+     *
+     * @since 1.45.2
+     */
+    SUB_FLOW_ABANDONED
 }

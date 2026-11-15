@@ -38,7 +38,14 @@ export interface StepCompletion {
 export interface FlowResult {
   /** Observed lifecycle state. A running SubFlow value is a durable snapshot. */
   readonly status: FlowStatus;
-  /** Dex failure category when available. */
+  /**
+   * Dex failure category when available.
+   *
+   * It is `undefined` when Dex reported no category, or a category this SDK version does not
+   * recognize.
+   *
+   * Changed in 1.45.5: an unrecognized category no longer fails reading the result.
+   */
   readonly errorType: FlowErrorTypeValue | undefined;
   /** Server failure detail when available. */
   readonly errorMessage: string | undefined;
@@ -146,6 +153,9 @@ function mapErrorType(type: ProtoFlowErrorType): FlowErrorTypeValue | undefined 
       return FlowErrorType.INVALID_USER_FLOW_CODE;
     case ProtoFlowErrorType.FLOW_ERROR_TYPE_INTERNAL: return FlowErrorType.INTERNAL;
     case ProtoFlowErrorType.FLOW_ERROR_TYPE_FLOW_TIMEOUT: return FlowErrorType.FLOW_TIMEOUT;
-    default: throw new TypeError(`unsupported Flow error type ${type}`);
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED:
+      return FlowErrorType.SUB_FLOW_ABANDONED;
+    // A newer server may report a category this SDK predates; reading must still succeed.
+    default: return undefined;
   }
 }

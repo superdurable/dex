@@ -1625,8 +1625,11 @@ func mapFlowErrorType(errorType dexpb.FlowErrorType) (FlowErrorType, error) {
 		return FlowErrorInternal, nil
 	case dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT:
 		return FlowErrorTimeout, nil
+	case dexpb.FlowErrorType_FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED:
+		return FlowErrorSubFlowAbandoned, nil
 	default:
-		return 0, fmt.Errorf("dex: unsupported flow error type %d", errorType)
+		// A newer server may report a category this SDK predates; reading the result must still succeed.
+		return 0, nil
 	}
 }
 

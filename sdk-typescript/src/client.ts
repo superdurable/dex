@@ -2058,6 +2058,8 @@ function mapFlowErrorType(type: ProtoFlowErrorType): FlowErrorTypeValue | undefi
       return FlowErrorType.INTERNAL;
     case ProtoFlowErrorType.FLOW_ERROR_TYPE_FLOW_TIMEOUT:
       return FlowErrorType.FLOW_TIMEOUT;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED:
+      return FlowErrorType.SUB_FLOW_ABANDONED;
     default:
       return undefined;
   }

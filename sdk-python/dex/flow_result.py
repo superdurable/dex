@@ -129,7 +129,11 @@ class FlowResult:
         """Return the Dex failure category, if one was reported.
 
         Returns:
-            The failure category, or ``None`` when Dex reported none.
+            The failure category, or ``None`` when Dex reported none or reported a
+            category that this SDK version does not recognize.
+
+        .. versionchanged:: 1.45.3
+            An unrecognized category returns ``None`` instead of failing the read.
         """
         return self._error_type
 
@@ -200,12 +204,14 @@ def flow_result_from_proto(result: pb.FlowResult, decoder: _Decoder) -> FlowResu
         pb.FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: FlowErrorType.INVALID_USER_FLOW_CODE,
         pb.FLOW_ERROR_TYPE_INTERNAL: FlowErrorType.INTERNAL,
         pb.FLOW_ERROR_TYPE_FLOW_TIMEOUT: FlowErrorType.FLOW_TIMEOUT,
+        pb.FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED: FlowErrorType.SUB_FLOW_ABANDONED,
     }
     try:
         status = statuses[result.flow_status]
-        error_type = errors[result.error_type]
     except KeyError as error:
         raise ValueError("unsupported Flow result enum") from error
+    # A newer server may report a category this SDK predates; reading must still succeed.
+    error_type = errors.get(result.error_type)
     return FlowResult(
         status,
         [StepCompletion(completion, decoder) for completion in result.results],

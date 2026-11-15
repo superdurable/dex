@@ -1743,6 +1743,9 @@ class AsyncClient:
             ),
             int(pb.FLOW_ERROR_TYPE_INTERNAL): FlowErrorType.INTERNAL,
             int(pb.FLOW_ERROR_TYPE_FLOW_TIMEOUT): FlowErrorType.FLOW_TIMEOUT,
+            int(pb.FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED): (
+                FlowErrorType.SUB_FLOW_ABANDONED
+            ),
         }
         return error_types.get(error_type)
 

@@ -69,7 +69,10 @@ public final class FlowResult {
     /**
      * Returns the Dex Flow failure category.
      *
+     * <p>A category that this SDK version does not recognize also returns {@code null}.
+     *
      * @return the category, or {@code null} when the Flow did not expose a Dex application error
+     *     or exposed a category this SDK version does not recognize
      */
     public FlowErrorType getErrorType() {
         return errorType;
