@@ -436,7 +436,7 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     ]);
   });
 
-  test("a resumed segment that fails after a write leaves a note that the next turn sends", async () => {
+  test("a resumed segment that fails after a write stores the write's result and a note that the next turn sends", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("failed-after-write");
     const firstPrompt = 'call publish {"message":"draft"} ;; fail';
@@ -451,13 +451,17 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
       turnFailureNoteFooter,
     ].join("\n");
     assert.match(failed.state?.lastTurnError ?? "", /scripted failure after tool calls/);
+    // The deferral stored the turn so far; the failed segment's result of the write comes from its record.
     assert.deepEqual(
-      failed.messages.map((message) => [message.role, message.turnId, message.text]),
+      failed.messages.map((message) => [message.role, message.turnId, message.toolName, message.text ?? message.toolOutput]),
       [
-        ["user", "turn-1", firstPrompt],
-        ["user", "turn-1", note],
+        ["user", "turn-1", null, firstPrompt],
+        ["assistant", "turn-1", "publish", null],
+        ["tool", "turn-1", "publish", "published draft"],
+        ["user", "turn-1", null, note],
       ],
     );
+    assert.equal(failed.messages[2]?.toolCallId, interrupt.toolCallId);
     assert.equal(agent.invocations.count("cli:resume"), 3);
     assert.equal(agent.invocations.count("publish"), 1);
 
@@ -473,7 +477,8 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
       .map((entry) => (entry["message"] as { content?: unknown } | undefined)?.content)
       .filter((content): content is { text: string }[] => isTextBlockList(content))
       .map((content) => content.map((block) => block.text));
-    assert.deepEqual(cliPrompts, [[firstPrompt, note, "say next"]]);
+    // The CLI already has the failed prompt in the stored transcript; only the note never reached it.
+    assert.deepEqual(cliPrompts, [[note, "say next"]]);
     assert.equal(agent.invocations.count("publish"), 1);
   });
 });

@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { createHash } from "node:crypto";
+
 import type { AgentImageReference, AgentMessage, AgentMessageRole, FrameworkMessage } from "@superdurable/dex-agents";
 
 import {
@@ -37,7 +39,9 @@ export const userPromptItemKind = "user_prompt";
  */
 export const claudeTranscriptItemKind = "claude_transcript";
 
+// turn_entries holds the turn's entries the session has not stored, none once it stores each segment.
 const runStateFormatVersion = 1;
+const unfinishedToolResultUuidNamespace = Buffer.from("6f0d3c1e8a2b4f57a9d4c3e2b1a09876", "hex");
 // Claude Code's entry that names the leaf a resume continues from.
 export const leafPointerEntryType = "last-prompt";
 
@@ -161,10 +165,12 @@ export function withoutLeafPointers(entries: readonly ClaudeTranscriptEntry[]): 
 }
 
 // One message per assistant API message or tool result; other entries ride along with the next.
+// storedTurnEntries name the tools of results whose tool use the session already stored.
 export function projectTurnEntries(
   sessionId: string,
   turnEntries: readonly ClaudeTranscriptEntry[],
   policyToolName: (cliToolName: string) => string,
+  storedTurnEntries: readonly ClaudeTranscriptEntry[] = [],
 ): FrameworkMessage[] {
   const groups: TranscriptEntryGroup[] = [];
   let leadingEntries: ClaudeTranscriptEntry[] = [];
@@ -198,7 +204,106 @@ export function projectTurnEntries(
     }
   }
   const toolNamesById = new Map<string, string>();
+  for (const toolUse of mainToolUsesOf(storedTurnEntries)) {
+    toolNamesById.set(toolUse.toolUseId, policyToolName(toolUse.cliToolName));
+  }
   return groups.map((group) => toFrameworkMessage(sessionId, group, toolNamesById, policyToolName));
+}
+
+/** Content of a tool result that the adapter records for a tool use the CLI left without one. */
+export interface UnfinishedToolResult {
+  readonly text: string;
+  readonly isError: boolean;
+  readonly images: readonly AgentImageReference[];
+}
+
+/** A main-conversation tool use of a turn transcript. */
+export interface TranscriptToolUse {
+  readonly toolUseId: string;
+  readonly cliToolName: string;
+}
+
+// Entries shaped like the CLI's own results; uuid and timestamp derive from the inputs, so rebuilding is exact.
+export function buildUnfinishedToolResultEntries(
+  sessionId: string,
+  turnEntries: readonly ClaudeTranscriptEntry[],
+  describeResult: (toolUse: TranscriptToolUse) => UnfinishedToolResult,
+): ClaudeTranscriptEntry[] {
+  const answeredIds = answeredToolUseIds(turnEntries);
+  const unansweredToolUses = mainToolUsesOf(turnEntries).filter((toolUse) => !answeredIds.has(toolUse.toolUseId));
+  if (unansweredToolUses.length === 0) {
+    return [];
+  }
+  const conversationEntries = turnEntries.filter(
+    (entry) => (entry["type"] === "user" || entry["type"] === "assistant") && typeof entry["uuid"] === "string",
+  );
+  const timestamps = turnEntries.map((entry) => entry["timestamp"]).filter((value) => typeof value === "string");
+  const timestamp = timestamps.length === 0 ? undefined : [...timestamps].sort().at(-1);
+  // The CLI chains a deferred call's result to the last conversation entry, skipping attachments.
+  let parentUuid = conversationEntries.at(-1)?.["uuid"] ?? null;
+  const resultEntries: ClaudeTranscriptEntry[] = [];
+  for (const toolUse of unansweredToolUses) {
+    const result = describeResult(toolUse);
+    const uuid = nameBasedUuid(`${sessionId}/${toolUse.toolUseId}`);
+    resultEntries.push({
+      parentUuid,
+      isSidechain: false,
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            tool_use_id: toolUse.toolUseId,
+            type: "tool_result",
+            content:
+              result.images.length === 0
+                ? result.text
+                : [{ type: "text", text: result.text }, ...result.images.map(imageBlock)],
+            ...(result.isError ? { is_error: true } : {}),
+          },
+        ],
+      },
+      uuid,
+      ...(timestamp === undefined ? {} : { timestamp }),
+      toolUseResult: result.isError ? `Error: ${result.text}` : result.text,
+      sourceToolAssistantUUID: toolUse.assistantUuid,
+      ...toolUse.envelope,
+    });
+    parentUuid = uuid;
+  }
+  return resultEntries;
+}
+
+interface MainToolUse extends TranscriptToolUse {
+  readonly assistantUuid: string | null;
+  // The session fields of the tool use's assistant entry, which the CLI writes on every entry.
+  readonly envelope: Readonly<Record<string, unknown>>;
+}
+
+const envelopeFieldNames = ["userType", "entrypoint", "cwd", "sessionId", "version", "gitBranch"] as const;
+
+function mainToolUsesOf(entries: readonly ClaudeTranscriptEntry[]): MainToolUse[] {
+  return entries
+    .filter((entry) => principalRoleOf(entry) === "assistant")
+    .flatMap((entry) => {
+      const envelope = Object.fromEntries(
+        envelopeFieldNames.filter((fieldName) => entry[fieldName] !== undefined).map((fieldName) => [fieldName, entry[fieldName]]),
+      );
+      const assistantUuid = typeof entry["uuid"] === "string" ? entry["uuid"] : null;
+      return contentBlocksOf(entry)
+        .filter((block) => block["type"] === "tool_use" && typeof block["id"] === "string")
+        .map((block) => ({ toolUseId: String(block["id"]), cliToolName: String(block["name"]), assistantUuid, envelope }));
+    });
+}
+
+// A name-based (version 5) UUID in a namespace of this adapter, so a rebuilt entry keeps its uuid.
+function nameBasedUuid(name: string): string {
+  const digest = createHash("sha1").update(unfinishedToolResultUuidNamespace).update(name, "utf8").digest();
+  const bytes = digest.subarray(0, 16);
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 /** Returns the IDs of the tool uses that have a `tool_result` in `entries`. */
