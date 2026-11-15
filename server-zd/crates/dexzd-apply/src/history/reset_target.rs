@@ -97,6 +97,14 @@ fn resolve_target_from(
     // Only BEGINNING may target the preserved genesis point outside the window (D12).
     let is_genesis_included =
         reset_type == FlowResetType::Beginning && candidates.genesis < candidates.window_start;
+    // Metadata cannot bound the first window record's events without max_pruned_event_id.
+    let is_pruned_bound_unknown =
+        record.max_pruned_event_id == 0 && candidates.genesis < candidates.window_start;
+    let source = if reset_type == FlowResetType::EventId && is_pruned_bound_unknown {
+        CandidateSource::Records
+    } else {
+        source
+    };
     let selection = match matcher {
         Some(matcher) => {
             select_first_match(candidates.stream(source, is_genesis_included), matcher)?

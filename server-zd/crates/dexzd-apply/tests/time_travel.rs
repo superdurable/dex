@@ -14,7 +14,8 @@ mod prune_cursors;
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{
-    current_semantic_point_hash, time_travel_target_close, time_travel_target_hash,
+    TargetResolutionForTest, current_semantic_point_hash, resolve_time_travel_target_for_test,
+    time_travel_target_close, time_travel_target_hash,
 };
 use dexzd_apply::read_model::{
     get_flow_state, get_history_events, get_search_document, load_blobs,
@@ -1438,6 +1439,77 @@ fn history_event_ids_resolve_only_within_the_selected_lineage() {
         (1, abandoned_seq)
     );
     assert_eq!(harness.attribute_keys(), vec!["a".to_owned()]);
+}
+
+#[test]
+fn event_ids_resolve_in_runs_pruned_before_the_pruned_event_id_was_recorded() {
+    let mut harness = Harness::with_settings(RunSettings {
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
+        checkpoint_command_threshold: 3,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    for index in 0..5 {
+        harness.set_attribute("status", &format!("v{index}"), "");
+    }
+    let mut record = harness.run_record();
+    assert_eq!(record.window_start_seq, 4, "the window moved past genesis");
+    let first_kept_event_id = max_event_id(&harness.history_record(4).unwrap());
+    let later_event_id = max_event_id(&harness.history_record(6).unwrap());
+    assert_eq!(record.max_pruned_event_id, first_kept_event_id - 1);
+    // Runs pruned before the field existed recorded no pruned event ID.
+    record.max_pruned_event_id = 0;
+    let key = run_singleton_key(
+        harness.context.flow_hash,
+        harness.run(),
+        RunTable::RunRecord,
+    );
+    harness
+        .state
+        .rows
+        .insert((ColumnFamily::Flow, key), record.encode_to_vec());
+
+    let cases = [
+        (first_kept_event_id, Some(4)),
+        (first_kept_event_id - 1, None),
+        (later_event_id, Some(6)),
+    ];
+    for resolution in [
+        TargetResolutionForTest::Apply,
+        TargetResolutionForTest::Metadata,
+        TargetResolutionForTest::Records,
+        TargetResolutionForTest::RecordOracle,
+    ] {
+        for (event_id, expected_seq) in cases {
+            let resolved = resolve_time_travel_target_for_test(
+                &harness.context,
+                &harness.state,
+                harness.run(),
+                harness.now_micros,
+                &reset_to_event(event_id),
+                resolution,
+            )
+            .expect("the target resolves");
+            match (resolved, expected_seq) {
+                (Ok(target), Some(seq)) => {
+                    assert_eq!(target.run_seq, seq, "{resolution:?} event {event_id}");
+                }
+                (Err(reply), None) => assert_eq!(
+                    error_code(&reply),
+                    Some(FAILED_PRECONDITION),
+                    "{resolution:?} event {event_id}"
+                ),
+                (resolved, _) => {
+                    panic!("{resolution:?} resolved event {event_id} to {resolved:?}")
+                }
+            }
+        }
+    }
+    let (attempt, _) = harness.travel_to(reset_to_event(first_kept_event_id));
+    assert_eq!(harness.attempt_record(attempt).parent_seq, 4);
 }
 
 #[test]
