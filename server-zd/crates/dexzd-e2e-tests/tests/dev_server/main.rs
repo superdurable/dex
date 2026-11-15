@@ -11,6 +11,7 @@
 mod active_state_limit;
 mod attribute_sync;
 mod channel_message_delete;
+mod clone_fork;
 mod close_barrier;
 mod failure_policies;
 mod flow_controls;
