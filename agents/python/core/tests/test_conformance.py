@@ -31,6 +31,7 @@ from dex_agents import (
     ListAgentMessagesRequest,
     ToolCallStatus,
     build_plan_execution_message,
+    build_turn_failure_note,
 )
 from dex_agents.builtin_loop import DEFAULT_MAX_MODEL_CALLS_PER_TURN
 from dex_agents.builtin_loop.runner import _read_tool_source_envelope, _write_tool_source_envelope
@@ -130,6 +131,18 @@ def test_the_text_table_matches_the_python_core() -> None:
     assert texts == json.loads(generate.render_json(generate.build_texts()))
     [case, *_] = texts["templates"]["plan_execution_message"]
     assert build_plan_execution_message(case["input"]["revision"]) == case["text"]
+
+
+def test_a_tool_call_note_combines_a_native_surrogate_pair_before_cutting() -> None:
+    def note(output: str) -> str:
+        record = generate.final_record(ToolCallStatus.SUCCEEDED, 0, output=output)
+        return build_turn_failure_note([record])
+
+    prefix = "a" * (TOOL_CALL_NOTE_MAX_OUTPUT_BYTES - 3)
+    # Python keeps "\ud83d\ude00" as two code points; the note treats it as one 4-byte emoji.
+    assert note(prefix + "\ud83d\ude00x") == note(prefix + "\U0001f600x")
+    assert "\ud83d" not in note(prefix + "\ud83d\ude00x")
+    assert "[output truncated: 5 of 2002 bytes omitted]" in note(prefix + "\ud83d\ude00x")
 
 
 def test_the_python_core_reads_every_core_s_tool_source_envelope() -> None:

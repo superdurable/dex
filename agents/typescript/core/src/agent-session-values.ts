@@ -1380,6 +1380,8 @@ export const turnFailureNoteFooter = "Do not repeat these tool calls unless the 
  * {@link buildToolCallNote} and {@link buildTurnFailureNote} cut a longer outcome at the last whole
  * code point within this budget and append {@link toolCallNoteTruncationMarker}. The stored tool call
  * record keeps the full output. Every later turn resends the note, so the budget bounds that cost.
+ * The note uses a copy of each outcome with each lone surrogate replaced by U+FFFD, and counts bytes
+ * on that copy.
  * The same value as the Python core's `TOOL_CALL_NOTE_MAX_OUTPUT_BYTES`.
  * @since 0.6.12
  */
@@ -1463,8 +1465,9 @@ export const toolCallSkippedAfterWriteDetail = "an earlier write of this turn di
  * ```
  *
  * An outcome longer than {@link toolCallNoteMaxOutputBytes} UTF-8 bytes keeps its longest prefix of
- * whole code points within that budget, followed by {@link toolCallNoteTruncationMarker}. The records
- * themselves are unchanged.
+ * whole code points within that budget, followed by {@link toolCallNoteTruncationMarker}. The note
+ * shows each outcome with lone surrogates replaced by U+FFFD, and counts bytes on that text. The
+ * records themselves are unchanged.
  *
  * Changed in 0.6.12: long outcomes are cut to {@link toolCallNoteMaxOutputBytes}.
  *
@@ -1497,29 +1500,33 @@ export function buildToolCallNote(
   return lines.join("\n");
 }
 
-/** The outcome, or its longest whole-code-point prefix within the note budget plus the marker. */
+/** The well-formed outcome, cut to the note budget with the marker when longer. */
 function truncateNoteOutcome(outcome: string): string {
-  const totalBytes = new TextEncoder().encode(outcome).length;
-  if (totalBytes <= toolCallNoteMaxOutputBytes) {
-    return outcome;
-  }
+  // Every core cuts the same text: lone surrogates become U+FFFD.
+  let text = "";
+  let totalBytes = 0;
   let keptBytes = 0;
   let keptUnits = 0;
   for (const character of outcome) {
-    const size = utf8CodePointSize(character.codePointAt(0) ?? 0);
-    if (keptBytes + size > toolCallNoteMaxOutputBytes) {
-      break;
+    const codePoint = character.codePointAt(0) ?? 0;
+    const isLoneSurrogate = codePoint >= 0xd800 && codePoint <= 0xdfff;
+    const wellFormed = isLoneSurrogate ? "\ufffd" : character;
+    text += wellFormed;
+    totalBytes += isLoneSurrogate ? 3 : utf8CodePointSize(codePoint);
+    if (totalBytes <= toolCallNoteMaxOutputBytes) {
+      keptBytes = totalBytes;
+      keptUnits = text.length;
     }
-    keptBytes += size;
-    keptUnits += character.length;
+  }
+  if (totalBytes <= toolCallNoteMaxOutputBytes) {
+    return text;
   }
   const marker = toolCallNoteTruncationMarker
     .replace("{omitted_bytes}", String(totalBytes - keptBytes))
     .replace("{total_bytes}", String(totalBytes));
-  return outcome.slice(0, keptUnits) + marker;
+  return text.slice(0, keptUnits) + marker;
 }
 
-// A lone surrogate counts 3 bytes, as TextEncoder writes U+FFFD for it.
 function utf8CodePointSize(codePoint: number): number {
   if (codePoint < 0x80) {
     return 1;

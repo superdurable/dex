@@ -40,6 +40,8 @@ const TurnFailureNoteFooter = "Do not repeat these tool calls unless the user as
 // BuildToolCallNote and BuildTurnFailureNote cut a longer outcome at the last whole rune within
 // this budget and append ToolCallNoteTruncationMarker. The stored tool call record keeps the full
 // output. Every later turn resends the note, so the budget bounds that cost.
+// The note uses a copy of each outcome with each invalid UTF-8 sequence replaced by U+FFFD, and
+// counts bytes on that copy.
 //
 // Since 0.6.12.
 const ToolCallNoteMaxOutputBytes = 2000
@@ -193,26 +195,24 @@ func BuildToolCallNote(header string, toolCalls []AgentToolCall) (string, error)
 	return strings.Join(lines, "\n"), nil
 }
 
-// truncateNoteOutcome returns outcome, or its longest whole-rune prefix within the note budget
-// followed by the marker.
+// truncateNoteOutcome returns the valid UTF-8 outcome, cut to the note budget with the marker when
+// longer.
 func truncateNoteOutcome(outcome string) string {
-	totalBytes := len(outcome)
+	// Every core cuts the same text; JSON decoding already turned lone surrogates into U+FFFD.
+	text := strings.ToValidUTF8(outcome, string(utf8.RuneError))
+	totalBytes := len(text)
 	if totalBytes <= ToolCallNoteMaxOutputBytes {
-		return outcome
+		return text
 	}
-	keptBytes := 0
-	for keptBytes < totalBytes {
-		_, size := utf8.DecodeRuneInString(outcome[keptBytes:])
-		if keptBytes+size > ToolCallNoteMaxOutputBytes {
-			break
-		}
-		keptBytes += size
+	keptBytes := ToolCallNoteMaxOutputBytes
+	for !utf8.RuneStart(text[keptBytes]) {
+		keptBytes--
 	}
 	marker := strings.NewReplacer(
 		"{omitted_bytes}", strconv.Itoa(totalBytes-keptBytes),
 		"{total_bytes}", strconv.Itoa(totalBytes),
 	).Replace(ToolCallNoteTruncationMarker)
-	return outcome[:keptBytes] + marker
+	return text[:keptBytes] + marker
 }
 
 // FrameworkMessage describes one framework item that the session should store.

@@ -70,6 +70,8 @@ TURN_FAILURE_NOTE_FOOTER = "Do not repeat these tool calls unless the user asks 
 #: at the last whole character within this budget and append
 #: ``TOOL_CALL_NOTE_TRUNCATION_MARKER``. The stored tool call record keeps the
 #: full output. Every later turn resends the note, so the budget bounds that cost.
+#: The note uses a copy of each outcome with surrogate pairs combined and each
+#: lone surrogate replaced by U+FFFD, and counts bytes on that copy.
 #:
 #: .. versionadded:: 0.6.12
 TOOL_CALL_NOTE_MAX_OUTPUT_BYTES = 2000
@@ -228,7 +230,9 @@ def build_turn_failure_note(tool_calls: Sequence[AgentToolCall]) -> str:
 
     An outcome longer than ``TOOL_CALL_NOTE_MAX_OUTPUT_BYTES`` UTF-8 bytes keeps
     its longest whole-character prefix within that budget, followed by
-    ``TOOL_CALL_NOTE_TRUNCATION_MARKER``. The records themselves are unchanged.
+    ``TOOL_CALL_NOTE_TRUNCATION_MARKER``. The note shows each outcome with
+    surrogate pairs combined and lone surrogates replaced by U+FFFD, and counts
+    bytes on that text. The records themselves are unchanged.
 
     .. versionchanged:: 0.6.12
        Long outcomes are cut to ``TOOL_CALL_NOTE_MAX_OUTPUT_BYTES``.
@@ -281,34 +285,21 @@ def build_tool_call_note(header: str, tool_calls: Sequence[AgentToolCall]) -> st
 
 
 def _truncate_note_outcome(outcome: str) -> str:
-    """Return ``outcome``, or its longest whole-character prefix within budget plus the marker."""
-    total_bytes = len(outcome.encode("utf-8", "surrogatepass"))
+    """Return the well-formed ``outcome``, cut to the note budget with the marker when longer."""
+    # Every core cuts the same text: surrogate pairs combined, lone surrogates as U+FFFD.
+    text = outcome.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+    encoded = text.encode("utf-8")
+    total_bytes = len(encoded)
     if total_bytes <= TOOL_CALL_NOTE_MAX_OUTPUT_BYTES:
-        return outcome
-    kept_bytes = 0
-    kept_characters = 0
-    for character in outcome:
-        size = _utf8_character_size(character)
-        if kept_bytes + size > TOOL_CALL_NOTE_MAX_OUTPUT_BYTES:
-            break
-        kept_bytes += size
-        kept_characters += 1
+        return text
+    kept_bytes = TOOL_CALL_NOTE_MAX_OUTPUT_BYTES
+    # Back up over UTF-8 continuation bytes to the start of the cut character.
+    while encoded[kept_bytes] & 0xC0 == 0x80:
+        kept_bytes -= 1
     marker = TOOL_CALL_NOTE_TRUNCATION_MARKER.format(
         omitted_bytes=total_bytes - kept_bytes, total_bytes=total_bytes
     )
-    return outcome[:kept_characters] + marker
-
-
-def _utf8_character_size(character: str) -> int:
-    # A lone surrogate counts 3 bytes, as surrogatepass and the TypeScript core's U+FFFD do.
-    code_point = ord(character)
-    if code_point < 0x80:
-        return 1
-    if code_point < 0x800:
-        return 2
-    if code_point < 0x10000:
-        return 3
-    return 4
+    return encoded[:kept_bytes].decode("utf-8") + marker
 
 
 @dataclass(frozen=True, kw_only=True)

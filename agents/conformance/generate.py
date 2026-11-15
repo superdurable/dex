@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
@@ -1988,6 +1989,13 @@ def long_outcome_note_records() -> list[list[AgentToolCall]]:
         ],
         # A long error: the cut counts the "The tool call failed: " prefix too.
         [final_record(ToolCallStatus.FAILED, 1, error="x" + "\u00e9" * 1000)],
+        # A 3-byte character ending exactly at the budget is kept.
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="a" * (budget - 3) + "\u65e5" + "b" * 9)],
+        # Lone surrogates become U+FFFD, 3 bytes each: short, kept, at the cut, and dropped.
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="ok \ud800 \udc00")],
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="\ud800" + "a" * budget)],
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="a" * (budget - 2) + "\udc00" + "b")],
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="a" * budget + "\ud800" + "b")],
     ]
 
 
@@ -2335,8 +2343,13 @@ def build_texts() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
 def render_json(document: Any) -> str:
-    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    text = json.dumps(document, indent=2, ensure_ascii=False)
+    # A lone surrogate cannot be written as UTF-8, so it keeps its JSON escape.
+    return LONE_SURROGATE.sub(lambda match: f"\\u{ord(match.group()):04x}", text) + "\n"
 
 
 def build_files() -> dict[Path, str]:
