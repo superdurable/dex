@@ -8,7 +8,7 @@
   <a href="https://github.com/superdurable/dex/stargazers"><img src="https://img.shields.io/github/stars/superdurable/dex?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars" /></a>
   <a href="https://docs.superdurable.io"><img src="https://img.shields.io/badge/docs-docs.superdurable.io-008650" alt="Dex documentation" /></a>
   <a href="https://discord.gg/V9cMHXts98"><img src="https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white" alt="Join the Super Durable Discord" /></a>
-  <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-Sustainable%20Use%201.0-blue" alt="License: Sustainable Use License 1.0" /></a>
+  <a href="docs/legal/LICENSING.md"><img src="https://img.shields.io/badge/license-Sustainable%20Use%201.0-blue" alt="License: Sustainable Use License 1.0" /></a>
 </p>
 
 **Dex** is a lightweight durable execution platform for AI agents and workflows. Write normal code as a Flow of Steps, and Dex keeps it running through crashes, deploys, and long waits: every finished Step is saved, so an agent or a workflow picks up exactly where it left off.
@@ -79,7 +79,7 @@ Java: `io.superdurable:dex-sdk` on [Maven Central](https://central.sonatype.com/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the [CLA](CLA.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the [CLA](.github/CLA.md).
 
 <details>
 <summary>Repository layout</summary>
@@ -88,13 +88,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the 
 | --- | --- |
 | [server-zd/](server-zd/) | Rust Dex Server |
 | [server-zd/integ/](server-zd/integ/) | Go integration suite for the server-zd binary |
-| [web/](web/) | Standalone Dex Web console and `dex-web` binary |
+| [web/](web/) | Dex Web console, shared Flow renderer, and `dex-web` binary |
 | [cli/](cli/) | `dexcli` local development environment |
 | [protos/](protos/) | Protobuf IDL and codec server |
 | [s3local/](s3local/) | Local S3-compatible object store for testing |
 | [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
 | [benchmark/](benchmark/) | Performance benchmarks |
-| [packages/](packages/) | Shared Web packages |
 | [agents/](agents/) | Adapters for agent frameworks |
 | [sdk-go/](sdk-go/), [sdk-java/](sdk-java/), [sdk-python/](sdk-python/), [sdk-typescript/](sdk-typescript/), [sdk-rust/](sdk-rust/) | Application SDKs |
 | [examples/](examples/), [docs/](docs/), [skills/](skills/) | Runnable examples, product docs, and AI skills |
@@ -103,4 +102,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the 
 
 ## License
 
-Dex is source-available under the Sustainable Use License 1.0. See the [licensing guide](LICENSING.md) and [legacy notices](LEGACY_NOTICES.md).
+Dex is source-available under the Sustainable Use License 1.0. See the [licensing guide](docs/legal/LICENSING.md) and [legacy notices](docs/legal/LEGACY_NOTICES.md).

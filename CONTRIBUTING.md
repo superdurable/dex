@@ -152,7 +152,7 @@ Managed source files use the classifications recorded in
 - `new` uses `LicenseRef-Sustainable-Use-1.0`.
 
 `docs/` is not relicensed. Go examples retain MIT; Java and Python examples
-retain Apache-2.0. See [LICENSING.md](LICENSING.md) for the repository policy.
+retain Apache-2.0. See [LICENSING.md](docs/legal/LICENSING.md) for the repository policy.
 
 From the repo root:
 
@@ -176,7 +176,7 @@ use the mixed header. Preserve applicable notices when copying smaller excerpts.
 
 ## Contributor License Agreement
 
-All contributors must sign an [individual or corporate CLA](CLA.md). Email the
+All contributors must sign an [individual or corporate CLA](.github/CLA.md). Email the
 signed agreement and GitHub handle to licensing@superdurable.io. Pull
 requests from handles absent from `.github/cla-signatures.json` fail the CLA
 check until the record is updated.
@@ -235,8 +235,8 @@ The dependency-aware paths are:
 | Java SDK | `sdk-java/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-jni/**` |
 | Python SDK | `sdk-python/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-python/**` |
 | TypeScript SDK | `sdk-typescript/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-node/**` |
-| Dex Web | `web/**`, `packages/flow-definition-renderer/**`, `sdk-go/**`, `protos/**`, `.dockerignore`, Web release workflow |
-| CLI | `cli/**`, `web/**`, `packages/flow-definition-renderer/**`, `sdk-go/**`, `protos/**`, `go.work` |
+| Dex Web | `web/**`, `sdk-go/**`, `protos/**`, `.dockerignore`, Web release workflow |
+| CLI | `cli/**`, `web/**`, `sdk-go/**`, `protos/**`, `go.work` |
 | Agents packages | `agents/**` and the two agents publish workflows (released only when **agents_version** is set) |
 
 | Component | Tag format | Example | What it publishes |

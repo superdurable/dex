@@ -73,7 +73,6 @@ COMPONENTS = (
         ("web/v*",),
         (
             "web",
-            "packages/flow-definition-renderer",
             "sdk-go",
             "protos",
             ".dockerignore",
@@ -85,7 +84,7 @@ COMPONENTS = (
         "CLI",
         "cli-v",
         ("cli-v*",),
-        ("cli", "web", "packages/flow-definition-renderer", "sdk-go", "protos", "go.work"),
+        ("cli", "web", "sdk-go", "protos", "go.work"),
     ),
     Component(
         "agents",

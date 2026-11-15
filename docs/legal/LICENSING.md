@@ -9,7 +9,7 @@ The Sustainable Use License applies to material owned or licensable by Super
 Durable, Inc. Legacy and third-party materials remain under their original
 licenses. The `docs/` and `examples/` directories retain their existing
 licensing status. The `skills/` directory is licensed under the MIT License;
-see [skills/LICENSE](skills/LICENSE). See [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+see [skills/LICENSE](../../skills/LICENSE). See [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 Previously released versions remain available under the terms that accompanied
 those releases.

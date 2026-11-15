@@ -1,10 +1,9 @@
 FROM node:22-bookworm AS web-assets
 WORKDIR /src
 COPY web/package.json web/package-lock.json web/
-COPY packages/flow-definition-renderer/package.json packages/flow-definition-renderer/
+COPY web/flow-definition-renderer/package.json web/flow-definition-renderer/
 RUN cd web && npm ci
 COPY web/ web/
-COPY packages/flow-definition-renderer/ packages/flow-definition-renderer/
 RUN cd web && npm run build
 
 FROM golang:1.26 AS web-binary
