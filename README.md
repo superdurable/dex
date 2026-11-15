@@ -1,8 +1,6 @@
 <p align="center">
-  <a href="https://docs.superdurable.io"><img src="docs/static/img/brand/dex-mark.svg" alt="Dex logo" width="72" /></a>
+  <a href="https://docs.superdurable.io"><img src=".github/images/dex-readme-wordmark.svg" alt="Dex" width="150" /></a>
 </p>
-
-<h1 align="center">Dex</h1>
 
 <h3 align="center">Durable Execution (D-Ex). No Replay, Zero Dependencies.</h3>
 
@@ -41,11 +39,12 @@ Dex runs *any* long-running agent or workflow to completion:
 
 - **[No replay](https://docs.superdurable.io/intro/what-is-dex#how-this-differs-from-replay-based-durable-execution)**: Most durable execution engines recover a process by running your code again from the top, so your code must behave the same on every run. Dex saves each Step's result and continues from the next Step. Its structured model keeps the API small: fewer primitives, less code, and fewer bugs. Without replay, Dex:
   - eliminates non-determinism errors completely: a Step can read the clock, use random values, and call any library
-  - supports long-running Flows without manual history rollover: Dex prunes old history itself
-  - needs no "sticky cache": Workers keep no Flow state in memory
-- **[Zero dependencies](https://docs.superdurable.io/components/server)**: Dex runs on object storage alone: Amazon S3 or an S3-compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS. There is no database, message queue, or coordination service to run: just one binary and one bucket, or neither on [Dex Cloud](https://docs.superdurable.io/components/dex-cloud). It is fast too: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K SYNC Steps/s (the default, committed before the Flow moves on), 10.1K ASYNC Steps/s (committed just after), and 67K read RPCs/s.
-- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: No real process runs without data, so Dex has explicit primitives for it: Attributes and Streams. An agent keeps its whole LLM context, or thousands of messages, in Attributes, the Flow's key-value store, with no separate database, and streams model output live.
-- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Call products such as Stripe and Gmail through a growing library of more than 200 connectors, as ready-made Steps, Triggers, or agent tools.
+  - supports long-running Flows without "continueAsNew". Dex can keep any history size and length as you want.
+  - needs no "sticky cache" in worker memory: No need to worry memory pressure in production. 
+- **[Zero dependencies](https://docs.superdurable.io/components/server)**: Dex runs on object storage alone: Amazon S3 or an S3-compatible service, Azure Blob Storage, Google Cloud Storage, or Aliyun OSS. There is no database, message queue, or coordination service to run: just one binary and one bucket, or neither on [Dex Cloud](https://docs.superdurable.io/components/dex-cloud).
+  - It is fast: in our [benchmark](benchmark/), one 16-vCPU node peaked at about 8.4K SYNC Steps/s (the default, committed before the Flow moves on), 10.1K ASYNC Steps/s (committed just after), and 67K read RPCs/s.
+- **[Data native](https://docs.superdurable.io/concepts/primitives/attribute)**: No real process runs without data, so Dex has explicit primitives for it: Attributes and Streams. An agent can keep its whole LLM context, or thousands of messages, in Attributes as a key-value store. And use streams to deliver live output for long running steps. 
+- **[Connectors](https://github.com/superdurable/dex-connectors-library)**: Call products such as Stripe and Gmail through a growing library of more than 400 connectors, as ready-made Steps, Triggers, or agent tools.
 - **[Visualizable](https://docs.superdurable.io/reference/web/flow-visualization)**: See any Go, Python, or TypeScript Flow written with [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) as a graph: a JSON file describing it is uploaded to the server, and Dex Web draws it.
 
 Dex is created by [Quanzheng Long](https://superdurable.io/about/), core contributor to Uber Cadence (forked as Temporal), and the original creator of [iWF](https://github.com/indeedeng/iwf).
