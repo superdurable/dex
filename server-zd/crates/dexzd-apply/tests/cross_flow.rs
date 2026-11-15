@@ -59,6 +59,8 @@ const CHILD_ID: &str = "SubFlow:parent-StartStep-1-0";
 mod child_close_results;
 #[path = "cross_flow/child_result_limit.rs"]
 mod child_result_limit;
+#[path = "cross_flow/clone_fork_staging.rs"]
+mod clone_fork_staging;
 #[path = "cross_flow/sub_flow_reset_policy.rs"]
 mod sub_flow_reset_policy;
 

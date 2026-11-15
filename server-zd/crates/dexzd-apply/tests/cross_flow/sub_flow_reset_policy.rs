@@ -1860,3 +1860,245 @@ fn a_child_whose_start_wrote_hard_delete_attributes_cannot_restart() {
     );
     assert_eq!(harness.state.rows, rows_before);
 }
+
+const CLONE_FLOW: &str = "clone";
+const CLONE_RUN: [u8; 16] = [9; 16];
+const CLONE_CHILD_ID: &str = "SubFlow:clone-StartStep-1-0";
+
+/// What a clone fork does with the copied SubFlow condition. The children report only to the
+/// source run, so the new run never waits for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloneForkOutcome {
+    /// The clone fork is rejected and writes nothing.
+    Rejected,
+    /// The condition completes with the child's own result.
+    UsesChildResult,
+    /// A new child, whose Flow ID derives from the new Flow ID, starts.
+    Restarted,
+    /// The condition fails with SUB_FLOW_ABANDONED and nothing is terminated.
+    Failed,
+}
+
+fn expected_clone_fork_outcome(policy: SubFlowResetPolicy, state: ChildState) -> CloneForkOutcome {
+    use ChildState::{
+        EndedUnreceived, Gone, ReceivedAfterTarget, ReceivedBeforeTarget, Running, StartPending,
+    };
+    use SubFlowResetPolicy as Policy;
+    match (policy, state) {
+        (Policy::AlwaysReject, _) | (Policy::AlwaysRestart, Gone | StartPending) => {
+            CloneForkOutcome::Rejected
+        }
+        (Policy::AlwaysRestart, _) => CloneForkOutcome::Restarted,
+        // The source's pending start never reaches the new run, so failing is safe.
+        (Policy::AlwaysFail, _) => CloneForkOutcome::Failed,
+        (_, ReceivedBeforeTarget | ReceivedAfterTarget | EndedUnreceived) => {
+            CloneForkOutcome::UsesChildResult
+        }
+        (Policy::AttachElseFail, Running | Gone | StartPending) => CloneForkOutcome::Failed,
+        (Policy::AttachElseReject, Running | Gone) | (_, Gone | StartPending) => {
+            CloneForkOutcome::Rejected
+        }
+        (_, Running) => CloneForkOutcome::Restarted,
+    }
+}
+
+impl Harness {
+    /// Clone-forks the parent at `target_micros` into [`CLONE_FLOW`] as an owner does: computes
+    /// the copy, stages it, then applies FlowCloneFork. Returns the computation's rejection or
+    /// the FlowCloneFork outcome.
+    fn clone_fork_with_policy(&mut self, target_micros: i64, policy: i32) -> ApplyOutcome {
+        let request = dexzd_protocol::dex::CloneForkFlowRequest {
+            source_flow_id: "parent".to_owned(),
+            flow_id: CLONE_FLOW.to_owned(),
+            request_id: "clone-request".to_owned(),
+            point_type: dexzd_protocol::dex::FlowCloneForkPointType::HistoryEventTime as i32,
+            history_event_time: (i128::from(target_micros) * 1000).to_string(),
+            run_attempt: 1,
+            sub_flow_reset_policy: policy,
+            ..dexzd_protocol::dex::CloneForkFlowRequest::default()
+        };
+        let parent_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
+        let parent_context = ApplyContext {
+            partition: self.hasher.partition_of(parent_hash),
+            flow_hash: parent_hash,
+        };
+        let history =
+            dexzd_apply::StateHistorySource::new(&self.state, parent_context, RunId(PARENT_RUN));
+        let child_flow_runs = dexzd_apply::StateChildFlowRuns::new(&self.state, &self.hasher);
+        let computation = dexzd_apply::compute_clone_fork(
+            &parent_context,
+            &dexzd_apply::TimeTravelComputationSources {
+                state: &self.state,
+                history: &history,
+                offloaded_values: &dexzd_apply::values::NoOffloadedValues,
+                child_flow_runs: &child_flow_runs,
+            },
+            &dexzd_apply::CloneForkComputationRequest {
+                source_run_id: RunId(PARENT_RUN),
+                clone_fork: &request,
+                now_micros: self.now_micros,
+                memory_budget_bytes: u64::MAX,
+            },
+        )
+        .expect("the clone fork computes");
+        let computed = match computation {
+            dexzd_apply::CloneForkComputation::Computed(computed) => computed,
+            dexzd_apply::CloneForkComputation::Rejected(reply) => {
+                return ApplyOutcome::rejected(reply);
+            }
+        };
+        let staging_id = vec![5; 16];
+        for stage in computed
+            .stage_commands(&staging_id)
+            .expect("the copy fits in Stage commands")
+        {
+            assert_ok(&self.apply(CLONE_FLOW, &[], Command::FlowCloneForkStage(stage)));
+        }
+        let flow_config = self.record("parent", PARENT_RUN).flow_config;
+        self.apply(
+            CLONE_FLOW,
+            &[],
+            Command::FlowCloneFork(dexzd_protocol::dexzd::v1::FlowCloneForkCommand {
+                staging_id,
+                new_run_id: CLONE_RUN.to_vec(),
+                request: Some(request),
+                settings: Some(settings()),
+                effective_flow_config: flow_config,
+                flow_timeout_duration_micros: computed.flow_timeout_duration_micros(),
+                resolved_timeout_policy: computed.timeout_policy(),
+                ..dexzd_protocol::dexzd::v1::FlowCloneForkCommand::default()
+            }),
+        )
+    }
+
+    /// Rows of the Flow `flow_id`, which a clone fork of another Flow must not change.
+    fn flow_rows(&self, flow_id: &str) -> BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>> {
+        let flow_hash = self
+            .hasher
+            .flow_hash(TenantId::DEFAULT, flow_id)
+            .to_be_bytes();
+        self.state
+            .rows
+            .iter()
+            .filter(|((_, key), _)| key.starts_with(&flow_hash))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    fn publish_clone_signal(&mut self) {
+        assert_ok(&self.apply(
+            CLONE_FLOW,
+            &CLONE_RUN,
+            Command::ChannelPublish(ChannelPublishCommand {
+                request: Some(PublishToChannelRequest {
+                    messages: vec![ChannelMessage {
+                        channel_name: SIGNAL_CHANNEL.to_owned(),
+                        value: Some(string_value("go")),
+                        message_id: "clone-signal-1".to_owned(),
+                    }],
+                    ..PublishToChannelRequest::default()
+                }),
+            }),
+        ));
+    }
+}
+
+#[test]
+fn clone_fork_applies_every_policy_to_every_child_state_without_touching_the_source() {
+    for policy in POLICIES {
+        for state in CHILD_STATES {
+            let case = format!("clone fork with {policy:?} and a child that is {state:?}");
+            let mut harness = Harness::new();
+            let target = harness.prepare_child(state);
+            let parent_rows = harness.flow_rows("parent");
+            let child_rows = harness.flow_rows(CHILD_ID);
+            let outcome = harness.clone_fork_with_policy(target, policy as i32);
+            assert_eq!(harness.flow_rows("parent"), parent_rows, "{case}");
+            assert_eq!(harness.flow_rows(CHILD_ID), child_rows, "{case}");
+            let expected = expected_clone_fork_outcome(policy, state);
+            if expected == CloneForkOutcome::Rejected {
+                let error = error_of(&outcome)
+                    .unwrap_or_else(|| panic!("{case}: the clone fork is rejected"));
+                assert_eq!(error.grpc_code, 9, "{case}: FAILED_PRECONDITION");
+                assert!(
+                    error.message.contains("StartStep-1") && error.message.contains(CHILD_ID),
+                    "{case}: the rejection names the Step and the child: {}",
+                    error.message
+                );
+                assert!(harness.flow_rows(CLONE_FLOW).is_empty(), "{case}");
+                continue;
+            }
+            assert!(
+                matches!(
+                    outcome.reply.reply,
+                    Some(command_reply::Reply::StartFlow(_))
+                ),
+                "{case}: {:?}",
+                outcome.reply
+            );
+            let clone = harness.record(CLONE_FLOW, CLONE_RUN);
+            assert_eq!(clone.current_attempt, 1, "{case}");
+            let messages = harness.outbox(CLONE_FLOW, CLONE_RUN);
+            let wait = harness
+                .step(CLONE_FLOW, CLONE_RUN, "StartStep-1")
+                .wait
+                .unwrap_or_else(|| panic!("{case}: the copied Step waits for its signal"));
+            assert_eq!(wait.sub_flow_registration_attempts, vec![1], "{case}");
+            match expected {
+                CloneForkOutcome::Restarted => {
+                    assert_eq!(messages.len(), 1, "{case}: one child start");
+                    let Some(outbox_record::Payload::ChildStart(start)) =
+                        messages[0].payload.clone()
+                    else {
+                        panic!("{case}: the restart writes a child start");
+                    };
+                    assert_eq!(start.child_flow_id, CLONE_CHILD_ID, "{case}");
+                    assert_eq!(
+                        start.request_id,
+                        format!("{}:1:StartStep-1:0", RunId(CLONE_RUN))
+                    );
+                    let parent = start.parent.expect("the start names its parent");
+                    let endpoint = parent.parent.expect("parent endpoint");
+                    assert_eq!(endpoint.flow_id, CLONE_FLOW);
+                    assert_eq!(endpoint.run_attempt, 1);
+                    assert_eq!(
+                        start.condition.expect("the condition").step_input,
+                        Some(string_value(CHILD_INPUT))
+                    );
+                    assert_eq!(wait.sub_flow_child_ids, vec![CLONE_CHILD_ID.to_owned()]);
+                }
+                CloneForkOutcome::UsesChildResult | CloneForkOutcome::Failed => {
+                    assert!(
+                        messages.is_empty(),
+                        "{case}: no child message: {messages:?}"
+                    );
+                    assert_eq!(wait.sub_flow_child_ids, vec![CHILD_ID.to_owned()]);
+                }
+                CloneForkOutcome::Rejected => unreachable!("handled above"),
+            }
+            harness.publish_clone_signal();
+            let step = harness.step(CLONE_FLOW, CLONE_RUN, "StartStep-1");
+            match expected {
+                CloneForkOutcome::UsesChildResult => {
+                    assert_eq!(step.phase, StepExecutionPhase::Execute as i32, "{case}");
+                    let result = &step.condition_results.expect("results").sub_flow_results[0];
+                    assert_eq!(result.flow_status, FlowStatus::Terminated as i32, "{case}");
+                }
+                CloneForkOutcome::Failed => {
+                    assert_eq!(step.phase, StepExecutionPhase::Execute as i32, "{case}");
+                    let result = &step.condition_results.expect("results").sub_flow_results[0];
+                    assert_eq!(result.flow_status, FlowStatus::Failed as i32, "{case}");
+                    assert_eq!(
+                        result.error_type,
+                        FlowErrorType::SubFlowAbandoned as i32,
+                        "{case}"
+                    );
+                }
+                CloneForkOutcome::Restarted => {
+                    assert_eq!(step.phase, StepExecutionPhase::Waiting as i32, "{case}");
+                }
+                CloneForkOutcome::Rejected => unreachable!("handled above"),
+            }
+        }
+    }
+}

@@ -41,7 +41,9 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use crate::harness::TestCluster;
-use crate::time_travel::{TravelNode, segmented_opener, string_value};
+use crate::time_travel::{
+    ScriptedHistory, TravelNode, segmented_opener, string_value, table_value_id,
+};
 
 const SOURCE_FLOW: &str = "clone-source";
 const START_STEP: &str = "ChargeStep";
@@ -1050,5 +1052,133 @@ async fn invalid_requests_are_rejected() {
         .await
         .expect_err("a request ID is required");
     assert_eq!(no_request_id.grpc_code(), grpc_code::INVALID_ARGUMENT);
+    node.shutdown().await;
+}
+
+/// A value the point holds that offload already deleted locally is read from its source and
+/// stored in the new run, which keeps it whatever happens to the source.
+#[tokio::test(start_paused = true)]
+async fn an_offloaded_value_of_the_point_is_copied_into_the_new_run() {
+    // The scripted history serves the value, as object storage would; offloading helpers name
+    // the time travel tests' Flow.
+    const OFFLOADED_SOURCE: &str = "travel-flow";
+    let history = std::sync::Arc::new(ScriptedHistory::default());
+    let cluster = TestCluster::new();
+    let node = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        history.clone(),
+        FlowCoordinationConfig::default(),
+    )
+    .await;
+    let source_run = node
+        .start_flow_with(StartFlowRequest {
+            flow_id: OFFLOADED_SOURCE.to_owned(),
+            ..source_start("start-offloaded")
+        })
+        .await;
+    node.set_flow_attribute(OFFLOADED_SOURCE, "report", large_text('a', 400))
+        .await;
+    let point_event_id = node.record_of(OFFLOADED_SOURCE, source_run).next_event_id - 1;
+    let first_value_id = table_value_id(
+        &node
+            .attribute(source_run, "report")
+            .expect("the report is set"),
+    );
+    node.set_flow_attribute(OFFLOADED_SOURCE, "report", large_text('b', 400))
+        .await;
+    let removed = node.offload_superseded_value(source_run, first_value_id);
+    history
+        .removed_values
+        .lock()
+        .expect("value lock")
+        .insert(first_value_id, removed);
+    let response = node
+        .clone_fork(CloneForkFlowRequest {
+            source_flow_id: OFFLOADED_SOURCE.to_owned(),
+            point_type: FlowCloneForkPointType::EventId as i32,
+            event_id: point_event_id,
+            ..clone_request("clone-offloaded", "request-offloaded")
+        })
+        .await
+        .expect("the clone fork applies");
+    let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+    history.removed_values.lock().expect("value lock").clear();
+    assert_eq!(
+        node.attributes_of("clone-offloaded", clone_run)["report"],
+        large_text('a', 400),
+        "the new run stores the value the source no longer stores locally"
+    );
+    node.shutdown().await;
+}
+
+/// The new run's synced Attributes are marked for its Attribute Stores, so the stores receive
+/// rows of the new Flow.
+#[tokio::test(start_paused = true)]
+async fn synced_attributes_are_marked_for_the_new_flow() {
+    let defaults = FlowCoordinationConfig::default();
+    let mut validation = defaults.validation.clone();
+    validation
+        .attribute_store_names
+        .insert("customer-store".to_owned());
+    let (_cluster, node) = start_node(FlowCoordinationConfig {
+        validation,
+        ..defaults
+    })
+    .await;
+    node.start_source(StartFlowRequest {
+        flow_start_options: Some(FlowStartOptions {
+            flow_config_override: Some(FlowConfig {
+                attribute_store_names: Some(dexzd_protocol::dex::AttributeStoreNames {
+                    names: vec!["customer-store".to_owned()],
+                }),
+                ..pull_config("source-queue")
+            }),
+            ..FlowStartOptions::default()
+        }),
+        ..source_start("start-source")
+    })
+    .await;
+    node.registry
+        .set_attributes(
+            TenantId::DEFAULT,
+            SetAttributesRequest {
+                flow_id: SOURCE_FLOW.to_owned(),
+                attributes: vec![AttributeWrite {
+                    key: "customer".to_owned(),
+                    value: Some(string_value("ada")),
+                    sync_config: Some(dexzd_protocol::dex::AttributeSyncConfig { enabled: true }),
+                    ..AttributeWrite::default()
+                }],
+                request_id: "set-synced".to_owned(),
+                ..SetAttributesRequest::default()
+            },
+        )
+        .await
+        .expect("the synced Attribute is set");
+    let response = node
+        .clone_fork(clone_request("clone-synced", "request-synced"))
+        .await
+        .expect("the clone fork applies");
+    let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+    let prefix = run_table_prefix(
+        node.context_of("clone-synced").flow_hash,
+        clone_run,
+        RunTable::AttributeSyncOutbox,
+    );
+    let (start, end) = prefix_range(&prefix);
+    let entries: Vec<_> = node
+        .view()
+        .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
+        .expect("the outbox scans")
+        .into_iter()
+        .map(|(_, bytes)| {
+            dexzd_protocol::dexzd::v1::AttributeSyncOutboxRecord::decode(bytes.as_slice())
+                .expect("the entry decodes")
+        })
+        .collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(entries[0].attribute_key, "customer");
+    assert_eq!(entries[0].store_name, "customer-store");
     node.shutdown().await;
 }

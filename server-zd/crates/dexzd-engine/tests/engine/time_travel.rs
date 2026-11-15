@@ -340,7 +340,7 @@ impl TravelNode {
         .expect("the history record decodes")
     }
 
-    fn attribute(&self, run_id: RunId, key: &str) -> Option<AttributeRecord> {
+    pub(crate) fn attribute(&self, run_id: RunId, key: &str) -> Option<AttributeRecord> {
         let row_key = dexzd_keyspace::row_keys::run_named_key(
             self.context().flow_hash,
             run_id,
@@ -482,7 +482,7 @@ impl TravelNode {
 
     /// Removes a superseded value's value row, as offloading does, keeping its birth and
     /// garbage rows; returns the value.
-    fn offload_superseded_value(&self, run_id: RunId, value_id: ValueId) -> Value {
+    pub(crate) fn offload_superseded_value(&self, run_id: RunId, value_id: ValueId) -> Value {
         let flow_hash = self.context().flow_hash;
         let view = self.view();
         let birth_key = value_row_key(flow_hash, run_id, RunTable::ValueBirth, value_id);
@@ -626,12 +626,12 @@ impl HardDeleteValueUploader for UnusedPorts {
 /// committed state, and every open serves the values the test removed from the local store
 /// besides local rows and fetched segments, as an object storage source does.
 #[derive(Default)]
-struct ScriptedHistory {
+pub(crate) struct ScriptedHistory {
     gate: Mutex<Option<(Arc<Notify>, Arc<Notify>)>>,
     opens: AtomicUsize,
     /// Current run attempt each open saw.
     seen_attempts: Mutex<Vec<u32>>,
-    removed_values: Arc<Mutex<BTreeMap<ValueId, Value>>>,
+    pub(crate) removed_values: Arc<Mutex<BTreeMap<ValueId, Value>>>,
 }
 
 impl ScriptedHistory {
@@ -786,7 +786,7 @@ fn is_stage(command: &Command) -> bool {
     matches!(command, Command::TimeTravelStage(_))
 }
 
-fn table_value_id(record: &AttributeRecord) -> ValueId {
+pub(crate) fn table_value_id(record: &AttributeRecord) -> ValueId {
     let Some(stored_value::Kind::TableValue(reference)) = record
         .value
         .as_ref()
