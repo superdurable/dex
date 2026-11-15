@@ -24,7 +24,8 @@ package io.superdurable.gen;
  * starting Step, input, and options. The child keeps its Flow ID. A still-running run of the
  * child is terminated first. The restored wait then accepts only the restarted run's result.
  * The original start is read from the child run, so a child whose run no longer exists cannot
- * be restarted, and the operation is rejected.
+ * be restarted, and the operation is rejected. Under ResetFlow, a child that cannot be attached
+ * always has no run left, so ATTACH_ELSE_RESTART rejects it too.
  *
  * Failing a condition terminates the child run when it still runs. The condition then completes
  * with a FAILED child result whose error type is FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED. The Step's
@@ -41,7 +42,7 @@ public enum SubFlowResetPolicy
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
    * <pre>
-   * The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
    * </pre>
    *
    * <code>SUB_FLOW_RESET_POLICY_UNSPECIFIED = 0;</code>
@@ -110,7 +111,7 @@ public enum SubFlowResetPolicy
   }
   /**
    * <pre>
-   * The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
    * </pre>
    *
    * <code>SUB_FLOW_RESET_POLICY_UNSPECIFIED = 0;</code>

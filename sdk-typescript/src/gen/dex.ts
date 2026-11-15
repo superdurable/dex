@@ -306,7 +306,8 @@ export enum FlowResetStepMethod {
  * starting Step, input, and options. The child keeps its Flow ID. A still-running run of the
  * child is terminated first. The restored wait then accepts only the restarted run's result.
  * The original start is read from the child run, so a child whose run no longer exists cannot
- * be restarted, and the operation is rejected.
+ * be restarted, and the operation is rejected. Under ResetFlow, a child that cannot be attached
+ * always has no run left, so ATTACH_ELSE_RESTART rejects it too.
  *
  * Failing a condition terminates the child run when it still runs. The condition then completes
  * with a FAILED child result whose error type is FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED. The Step's
@@ -316,7 +317,7 @@ export enum FlowResetStepMethod {
  * Step execution and child Flow ID that caused it.
  */
 export enum SubFlowResetPolicy {
-  /** SUB_FLOW_RESET_POLICY_UNSPECIFIED - The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT. */
+  /** SUB_FLOW_RESET_POLICY_UNSPECIFIED - The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART. */
   SUB_FLOW_RESET_POLICY_UNSPECIFIED = 0,
   /** SUB_FLOW_RESET_POLICY_ALWAYS_RESTART - Restarts every child, whether it ended or still runs. */
   SUB_FLOW_RESET_POLICY_ALWAYS_RESTART = 1,
@@ -1629,7 +1630,7 @@ export interface ResetFlowRequest {
   runAttempt: number;
   /**
    * Decides what happens to the SubFlow conditions that restored Steps wait on.
-   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
    */
   subFlowResetPolicy: SubFlowResetPolicy;
   /**

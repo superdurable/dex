@@ -128,7 +128,7 @@ public interface ResetFlowRequestOrBuilder extends
   /**
    * <pre>
    * Decides what happens to the SubFlow conditions that restored Steps wait on.
-   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
    * </pre>
    *
    * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>
@@ -138,7 +138,7 @@ public interface ResetFlowRequestOrBuilder extends
   /**
    * <pre>
    * Decides what happens to the SubFlow conditions that restored Steps wait on.
-   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+   * UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
    * </pre>
    *
    * <code>.dex.SubFlowResetPolicy sub_flow_reset_policy = 11;</code>

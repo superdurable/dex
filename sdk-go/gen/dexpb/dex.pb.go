@@ -1219,7 +1219,8 @@ func (FlowResetStepMethod) EnumDescriptor() ([]byte, []int) {
 // starting Step, input, and options. The child keeps its Flow ID. A still-running run of the
 // child is terminated first. The restored wait then accepts only the restarted run's result.
 // The original start is read from the child run, so a child whose run no longer exists cannot
-// be restarted, and the operation is rejected.
+// be restarted, and the operation is rejected. Under ResetFlow, a child that cannot be attached
+// always has no run left, so ATTACH_ELSE_RESTART rejects it too.
 //
 // Failing a condition terminates the child run when it still runs. The condition then completes
 // with a FAILED child result whose error type is FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED. The Step's
@@ -1230,7 +1231,7 @@ func (FlowResetStepMethod) EnumDescriptor() ([]byte, []int) {
 type SubFlowResetPolicy int32
 
 const (
-	// The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+	// The operation's default. For ResetFlow it is SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
 	SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_UNSPECIFIED SubFlowResetPolicy = 0
 	// Restarts every child, whether it ended or still runs.
 	SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_RESTART SubFlowResetPolicy = 1
@@ -8982,7 +8983,7 @@ type ResetFlowRequest struct {
 	// Zero selects the current run attempt.
 	RunAttempt int32 `protobuf:"varint,10,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
 	// Decides what happens to the SubFlow conditions that restored Steps wait on.
-	// UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT.
+	// UNSPECIFIED means SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART.
 	SubFlowResetPolicy SubFlowResetPolicy `protobuf:"varint,11,opt,name=sub_flow_reset_policy,json=subFlowResetPolicy,proto3,enum=dex.SubFlowResetPolicy" json:"sub_flow_reset_policy,omitempty"`
 	// FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
 	// The event must belong to the history of the selected run_attempt, including the attempts it
