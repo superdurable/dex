@@ -6,15 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_keyspace::{ColumnFamily, FLOW_DIRECTORY_KEY_TAG, RunTable, parse_run_key};
+use dexzd_keyspace::{
+    ColumnFamily, FLOW_CLONE_FORK_STAGING_KEY_TAG, FLOW_DIRECTORY_KEY_TAG, RunTable, parse_run_key,
+};
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
-    ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, FlowDirectoryRecord,
-    HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata, HistorySegmentRecord,
-    HistorySegmentValueRecord, InboxDedupRecord, LockRecord, OutboxRecord, PermissionSetRecord,
-    RequestDedupRecord, RunRecord, SearchDocumentRecord, StepCounterRecord, StepExecutionRecord,
-    SubFlowResultRecord, TimeTravelStagedChunk, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
-    ValueRecord,
+    ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, FlowCloneForkStagedChunk,
+    FlowCloneForkStagingRecord, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord,
+    HistoryRowMetadata, HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord,
+    LockRecord, OutboxRecord, PermissionSetRecord, RequestDedupRecord, RunRecord,
+    SearchDocumentRecord, StepCounterRecord, StepExecutionRecord, SubFlowResultRecord,
+    TimeTravelStagedChunk, TimerRecord, ValueBirthRecord, ValueGarbageRecord, ValueRecord,
 };
 use prost::Message;
 
@@ -51,6 +53,13 @@ pub fn reencode_row(
     }
     if column_family == ColumnFamily::Flow && key.get(8) == Some(&FLOW_DIRECTORY_KEY_TAG) {
         return reencode::<FlowDirectoryRecord>(value).map_err(|detail| error("directory", detail));
+    }
+    if key.get(8) == Some(&FLOW_CLONE_FORK_STAGING_KEY_TAG) {
+        return match column_family {
+            ColumnFamily::Value => reencode::<FlowCloneForkStagedChunk>(value),
+            _ => reencode::<FlowCloneForkStagingRecord>(value),
+        }
+        .map_err(|detail| error("clone fork staging", detail));
     }
     let parsed =
         parse_run_key(key).map_err(|parse_error| error("run key", parse_error.to_string()))?;

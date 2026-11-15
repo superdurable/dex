@@ -140,7 +140,7 @@ impl FlowCoordinatorRegistry {
                 ErrorSubStatus::Uncategorized,
                 format!(
                     "the copied state of {} bytes exceeds the maximum active run state of {} \
-                     bytes (limits.maxRunStateBytes)",
+                     bytes (limits.maxFlowStateBytes)",
                     computed.state_bytes(),
                     settings.max_run_state_bytes
                 ),
