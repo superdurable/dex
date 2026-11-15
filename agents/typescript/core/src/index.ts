@@ -226,6 +226,20 @@ export {
 export { buildSenderNamedText, isValidSenderName, maxSenderNameLength } from "./agent-sender-names.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
 export {
+  AgentSessionForkError,
+  createAgentSessionForkingFlow,
+  forkAgentSession,
+  planAgentSessionForkPoint,
+  readAgentSessionTurnStarts,
+  sessionForkTurnStartStepType,
+  type AgentSessionFork,
+  type AgentSessionForkErrorCode,
+  type AgentSessionForkOptions,
+  type AgentSessionForkPoint,
+  type AgentSessionForkSource,
+  type AgentSessionTurnStart,
+} from "./agent-session-fork.js";
+export {
   buildSessionTitle,
   defaultSessionListPageSize,
   listAgentSessions,
