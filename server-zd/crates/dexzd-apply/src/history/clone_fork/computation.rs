@@ -316,8 +316,9 @@ fn compute_noting_gone_child_flows(
 /// Computes `request` as [`compute_clone_fork`] does, with history from local rows and `segments`.
 ///
 /// Returns [`SegmentedCloneForkComputation::NeedsSegments`] when the computation reached
-/// uploaded segments that `segments` lacks; its result is discarded then. Returns an error when
-/// stored state is corrupt.
+/// uploaded segments that `segments` lacks; its result is discarded then. Returns
+/// [`SegmentedCloneForkComputation::ComputedWithGoneChildFlow`] when a copied condition's child
+/// looked gone. Returns an error when stored state is corrupt.
 pub fn compute_clone_fork_from_segments(
     context: &ApplyContext,
     state: &dyn FlowStateReader,

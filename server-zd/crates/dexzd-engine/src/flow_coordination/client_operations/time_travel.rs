@@ -57,7 +57,7 @@ pub(super) const MAX_HISTORY_READ_ROUNDS: usize = 16;
 const STABLE_GONE_CHILD_FLOW_ROUNDS: usize = 3;
 
 /// Rounds that may find children gone before ResetFlow aborts; the caller may retry.
-const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
+pub(super) const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 8;
 
 /// How one committed view round of a computation ended.
 enum ComputationRound {
@@ -697,14 +697,14 @@ impl TimeTravelSegmentReads {
 /// For each condition whose child the last round found gone, the rounds in a row that found it
 /// gone.
 #[derive(Default)]
-struct GoneChildFlowStreaks {
+pub(super) struct GoneChildFlowStreaks {
     /// Rounds so far that found a child gone.
-    rounds: usize,
+    pub(super) rounds: usize,
     streaks: BTreeMap<GoneChildFlowCondition, usize>,
 }
 
 /// What a computation does after a round that found children gone.
-enum GoneChildFlowVerdict {
+pub(super) enum GoneChildFlowVerdict {
     /// Every gone child was gone in each of the last rounds; the round's result stands.
     Accept,
     ComputeAgain,
@@ -719,7 +719,7 @@ impl GoneChildFlowStreaks {
     /// [`STABLE_GONE_CHILD_FLOW_ROUNDS`] rounds, [`GoneChildFlowVerdict::Unstable`] when
     /// [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds passed without that, and
     /// [`GoneChildFlowVerdict::ComputeAgain`] otherwise.
-    fn record_round(
+    pub(super) fn record_round(
         &mut self,
         gone_child_flows: BTreeSet<GoneChildFlowCondition>,
     ) -> GoneChildFlowVerdict {

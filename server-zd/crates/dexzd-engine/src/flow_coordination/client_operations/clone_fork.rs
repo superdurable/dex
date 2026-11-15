@@ -12,11 +12,13 @@
 //!
 //! Apply rejects a replaced or expired staging with ABORTED, and the owner stages again.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use dexzd_apply::{
     ApplyContext, CloneForkComputation, CloneForkComputationRequest, ComputedCloneFork,
-    MissingHistorySegments, SegmentedCloneForkComputation, StateChildFlowRuns,
+    GoneChildFlowCondition, MissingHistorySegments, SegmentedCloneForkComputation,
+    StateChildFlowRuns,
 };
 use dexzd_keyspace::{RunId, TenantId, ValueId};
 use dexzd_protocol::dex::{
@@ -34,7 +36,8 @@ use xxhash_rust::xxh3::xxh3_128;
 use super::FLOW_TIMEOUT_POLICY_FAIL;
 use super::hard_delete_uploads::hard_delete_references;
 use super::time_travel::{
-    FIRST_RECOMPUTATION_BACKOFF, MAX_HISTORY_READ_ROUNDS, MAX_TIME_TRAVEL_COMPUTATIONS,
+    FIRST_RECOMPUTATION_BACKOFF, GoneChildFlowStreaks, GoneChildFlowVerdict,
+    MAX_GONE_CHILD_FLOW_ROUNDS, MAX_HISTORY_READ_ROUNDS, MAX_TIME_TRAVEL_COMPUTATIONS,
     TimeTravelSegmentReads,
 };
 use super::{unexpected_reply, unstamped_flow_command};
@@ -54,6 +57,11 @@ enum CloneForkOutcome {
 /// How one committed view round of a clone fork computation ended.
 enum CloneForkRound {
     Computed(CloneForkComputation),
+    /// A copied condition's child looked gone, which views of different times can cause.
+    ComputedWithGoneChildFlow {
+        computation: CloneForkComputation,
+        gone_child_flows: BTreeSet<GoneChildFlowCondition>,
+    },
     /// The round reached uploaded segments it lacks.
     NeedsSegments(MissingHistorySegments),
     /// The round read values that offload deleted locally, which it lacks.
@@ -336,11 +344,15 @@ impl FlowCoordinatorRegistry {
         Ok(writes)
     }
 
-    /// Computes the copy on blocking threads in committed view rounds, the first on `view`.
+    /// Computes the copy on blocking threads in committed view rounds, the first reading child
+    /// runs on `view`.
     ///
     /// Between rounds, holding no view, it fetches the segments and values the last one reached.
     ///
-    /// Returns the computation's rejection, or a failure to read history, as an error.
+    /// A round that finds children gone counts only once they stay gone, as in ResetFlow.
+    ///
+    /// Returns the computation's rejection, or a failure to read history, as an error. Returns
+    /// ABORTED when the gone children did not settle in [`MAX_GONE_CHILD_FLOW_ROUNDS`] rounds.
     async fn compute_clone_fork(
         &self,
         source: &FlowAddress,
@@ -354,30 +366,52 @@ impl FlowCoordinatorRegistry {
             TimeTravelSegmentReads::new(self.inner.config.time_travel_replay_memory_bytes);
         let mut first_view = Some(view);
         let mut segment_rounds = 0;
+        let mut gone_child_flow_streaks = GoneChildFlowStreaks::default();
         loop {
-            let view = match first_view.take() {
+            // The source view opens after the child view, as in ResetFlow.
+            let child_view = match first_view.take() {
                 Some(view) => view,
                 None => self.inner.dependencies.committer.committed_view()?,
             };
+            let view = self.inner.dependencies.committer.committed_view()?;
             match self
-                .clone_fork_round(view, context, source_run_id, request, now_micros, &reads)
+                .clone_fork_round(
+                    view,
+                    child_view,
+                    context,
+                    source_run_id,
+                    request,
+                    now_micros,
+                    &reads,
+                )
                 .await?
             {
-                CloneForkRound::Computed(CloneForkComputation::Computed(computed)) => {
-                    return Ok(*computed);
-                }
-                CloneForkRound::Computed(CloneForkComputation::Rejected(reply)) => {
-                    return Err(match reply.reply {
-                        Some(command_reply::Reply::Error(error)) => {
-                            FlowCoordinationError::from_reply(&error)
-                        }
-                        other => FlowCoordinationError::Internal {
-                            detail: format!(
-                                "a clone fork computation rejected with reply {other:?}"
+                CloneForkRound::Computed(computation) => return computed_or_rejected(computation),
+                CloneForkRound::ComputedWithGoneChildFlow {
+                    computation,
+                    gone_child_flows,
+                } => match gone_child_flow_streaks.record_round(gone_child_flows) {
+                    GoneChildFlowVerdict::Accept => return computed_or_rejected(computation),
+                    GoneChildFlowVerdict::ComputeAgain => {
+                        tracing::debug!(
+                            flow_id = %source.flow_id,
+                            gone_child_flow_rounds = gone_child_flow_streaks.rounds,
+                            "a clone fork found a child Flow gone; computing again on new views"
+                        );
+                    }
+                    GoneChildFlowVerdict::Unstable => {
+                        return Err(FlowCoordinationError::rejected(
+                            grpc_code::ABORTED,
+                            ErrorSubStatus::Uncategorized,
+                            format!(
+                                "the clone fork of flow {} found different child Flows gone in \
+                                 {MAX_GONE_CHILD_FLOW_ROUNDS} rounds while its child Flows \
+                                 changed; retry",
+                                source.flow_id
                             ),
-                        },
-                    });
-                }
+                        ));
+                    }
+                },
                 CloneForkRound::NeedsSegments(needed) => {
                     segment_rounds += 1;
                     if segment_rounds == MAX_HISTORY_READ_ROUNDS {
@@ -412,9 +446,15 @@ impl FlowCoordinatorRegistry {
     }
 
     /// Computes the copy over `view` and `reads` on a blocking thread, which releases the view.
+    /// It reads child runs on `child_view`, which is no newer than `view`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Each input is a distinct part of one computation round."
+    )]
     async fn clone_fork_round(
         &self,
         view: Box<dyn dexzd_apply::FlowStateReader + Send>,
+        child_view: Box<dyn dexzd_apply::FlowStateReader + Send>,
         context: ApplyContext,
         source_run_id: RunId,
         request: &CloneForkFlowRequest,
@@ -439,7 +479,6 @@ impl FlowCoordinatorRegistry {
         let clone_fork = request.clone();
         let memory_budget_bytes = self.inner.config.time_travel_replay_memory_bytes;
         // Child Flows may live on other partitions; this node's store holds them all for now.
-        let child_view = self.inner.dependencies.committer.committed_view()?;
         let hasher = self.inner.dependencies.hasher.clone();
         let (computation, missing_values) = self
             .inner
@@ -470,10 +509,32 @@ impl FlowCoordinatorRegistry {
             SegmentedCloneForkComputation::Computed(computation) => {
                 CloneForkRound::Computed(computation)
             }
+            SegmentedCloneForkComputation::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            } => CloneForkRound::ComputedWithGoneChildFlow {
+                computation,
+                gone_child_flows,
+            },
             SegmentedCloneForkComputation::NeedsSegments(needed) => {
                 CloneForkRound::NeedsSegments(needed)
             }
         })
+    }
+}
+
+/// Returns the computed copy, or the computation's rejection as an error.
+fn computed_or_rejected(
+    computation: CloneForkComputation,
+) -> Result<ComputedCloneFork, FlowCoordinationError> {
+    match computation {
+        CloneForkComputation::Computed(computed) => Ok(*computed),
+        CloneForkComputation::Rejected(reply) => Err(match reply.reply {
+            Some(command_reply::Reply::Error(error)) => FlowCoordinationError::from_reply(&error),
+            other => FlowCoordinationError::Internal {
+                detail: format!("a clone fork computation rejected with reply {other:?}"),
+            },
+        }),
     }
 }
 
