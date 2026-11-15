@@ -27,6 +27,10 @@ mod basic_proceed_on_wait_failure_workflow;
 mod basic_test;
 #[path = "integ/basic_workflow.rs"]
 mod basic_workflow;
+#[path = "integ/clone_fork_flow_test.rs"]
+mod clone_fork_flow_test;
+#[path = "integ/clone_fork_flow_workflow.rs"]
+mod clone_fork_flow_workflow;
 #[path = "integ/conditional_complete_test.rs"]
 mod conditional_complete_test;
 #[path = "integ/conditional_complete_workflow.rs"]

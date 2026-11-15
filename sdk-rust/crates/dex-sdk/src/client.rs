@@ -14,8 +14,8 @@ use std::time::{Duration, SystemTime};
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
     ActiveStepSearchMode as ProtoSearchMode, AttributeStoreNames, FlowAlreadyStartedOptions,
-    FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType, FlowRetryPolicy,
-    FlowStartOptions, FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+    FlowConfig as ProtoFlowConfig, FlowResetType, FlowRetryPolicy, FlowStartOptions,
+    FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
     GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest,
     ListStreamMessagesRequest, ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest,
     SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
@@ -28,6 +28,7 @@ use tonic::{Code, Request};
 use uuid::Uuid;
 
 mod attribute_reads;
+mod clone_fork_flow;
 mod flow_definitions;
 pub(crate) mod flow_service_tls;
 pub(crate) mod task_queue_name;
@@ -36,12 +37,13 @@ pub use flow_service_tls::FlowServiceTlsOptions;
 use flow_service_tls::flow_service_endpoint;
 
 pub use attribute_reads::{AttributeRead, AttributeReads};
+pub use clone_fork_flow::{CloneForkFlowOptions, CloneForkFlowResult};
 
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
 use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
 use crate::stop_flow_options::StopType;
-use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
+use crate::time_travel_options::{SubFlowResetPolicy, TimeTravelPoint};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::wait_options::ClientRequestBudget;
@@ -61,7 +63,7 @@ use crate::{
 /// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
 /// Attribute, and Channel arguments are checked against the [`Registry`].
 /// Construction performs no network I/O. Before its first service request, every Client negotiates
-/// protocol version 4 or 5. Successful negotiation and incompatibility errors are cached for its lifetime;
+/// protocol version 4, 5, or 6. Successful negotiation and incompatibility errors are cached for its lifetime;
 /// transient negotiation failures are retried on the next call. Incompatibility errors name the
 /// Server version and required server-zd release. Concurrent first calls share one negotiation.
 /// An unreachable Server during negotiation returns the usual service error with its gRPC code.
@@ -684,36 +686,13 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns InvalidArgument for an unrepresentable time, FlowNotFound for an unknown ID, or
-    /// another service error.
+    /// Returns InvalidArgument for an unrepresentable time or a non-positive event ID,
+    /// FlowNotFound for an unknown ID, or another service error.
+    ///
+    /// Changed in 1.45.2: accepts [`TimeTravelOptions::from_event_id`] and sends
+    /// [`TimeTravelOptions::sub_flow_reset_policy`].
     pub fn time_travel(&self, flow_id: &str, options: TimeTravelOptions) -> SdkResult<String> {
-        let mut request = ResetFlowRequest {
-            flow_id: flow_id.to_string(),
-            reset_type: FlowResetType::Unspecified as i32,
-            reason: options.reason.unwrap_or_default(),
-            skip_writes_reapply: options.skip_writes_reapply,
-            ..Default::default()
-        };
-        match options.point {
-            TimeTravelPoint::Beginning => request.reset_type = FlowResetType::Beginning as i32,
-            TimeTravelPoint::HistoryEventTime(time) => {
-                request.reset_type = FlowResetType::HistoryEventTime as i32;
-                request.history_event_time = rfc3339(time)?;
-            }
-            TimeTravelPoint::StepType(step_type) => {
-                request.reset_type = FlowResetType::StepType as i32;
-                request.step_type = step_type.to_string();
-            }
-            TimeTravelPoint::StepExecution(execution, method) => {
-                request.reset_type = FlowResetType::StepExecutionId as i32;
-                request.step_execution_id =
-                    format!("{}-{}", execution.step_type, execution.execution_number);
-                request.step_method = match method {
-                    TimeTravelStepMethod::WaitFor => FlowResetStepMethod::WaitFor as i32,
-                    TimeTravelStepMethod::Execute => FlowResetStepMethod::Execute as i32,
-                };
-            }
-        }
+        let request = map_reset_flow_request(flow_id, options)?;
         self.require_server_protocol("time_travel")?;
         let mut service = self.service.clone();
         self.runtime.block_on(async {
@@ -1226,15 +1205,7 @@ impl Client {
             reason = "The test preserves forward-compatible construction of SDK options."
         )]
         let flow_start_options = FlowStartOptions {
-            id_reuse_policy: match options.id_reuse_policy {
-                IdReusePolicy::Default => ProtoIdReusePolicy::Unspecified,
-                IdReusePolicy::AllowIfPreviousFailed => {
-                    ProtoIdReusePolicy::AllowIfPreviousExistsAbnormally
-                }
-                IdReusePolicy::AllowIfNotRunning => ProtoIdReusePolicy::AllowIfNoRunning,
-                IdReusePolicy::Disallow => ProtoIdReusePolicy::DisallowReuse,
-                IdReusePolicy::TerminateIfRunning => ProtoIdReusePolicy::AllowTerminateIfRunning,
-            } as i32,
+            id_reuse_policy: map_id_reuse_policy(options.id_reuse_policy),
             flow_start_delay_seconds: optional_seconds(options.start_delay)?,
             retry_policy: options
                 .retry_policy
@@ -1344,6 +1315,44 @@ impl Client {
             .map(|_| ())
             .map_err(|status| SdkError::from_status(status, operation, flow_id, requirement))
     }
+}
+
+fn map_id_reuse_policy(policy: IdReusePolicy) -> i32 {
+    (match policy {
+        IdReusePolicy::Default => ProtoIdReusePolicy::Unspecified,
+        IdReusePolicy::AllowIfPreviousFailed => ProtoIdReusePolicy::AllowIfPreviousExistsAbnormally,
+        IdReusePolicy::AllowIfNotRunning => ProtoIdReusePolicy::AllowIfNoRunning,
+        IdReusePolicy::Disallow => ProtoIdReusePolicy::DisallowReuse,
+        IdReusePolicy::TerminateIfRunning => ProtoIdReusePolicy::AllowTerminateIfRunning,
+    }) as i32
+}
+
+/// Returns the ResetFlow request for `options`, or InvalidArgument for an unrepresentable point.
+pub(crate) fn map_reset_flow_request(
+    flow_id: &str,
+    options: TimeTravelOptions,
+) -> SdkResult<ResetFlowRequest> {
+    let fields = options.point.fields(rfc3339)?;
+    let reset_type = match options.point {
+        TimeTravelPoint::Beginning => FlowResetType::Beginning,
+        TimeTravelPoint::HistoryEventTime(_) => FlowResetType::HistoryEventTime,
+        TimeTravelPoint::StepType(_) => FlowResetType::StepType,
+        TimeTravelPoint::StepExecution(..) => FlowResetType::StepExecutionId,
+        TimeTravelPoint::EventId(_) => FlowResetType::EventId,
+    };
+    Ok(ResetFlowRequest {
+        flow_id: flow_id.to_string(),
+        reset_type: reset_type as i32,
+        reason: options.reason.unwrap_or_default(),
+        skip_writes_reapply: options.skip_writes_reapply,
+        history_event_time: fields.history_event_time,
+        step_type: fields.step_type,
+        step_execution_id: fields.step_execution_id,
+        step_method: fields.step_method,
+        event_id: fields.event_id,
+        sub_flow_reset_policy: SubFlowResetPolicy::wire_value(options.sub_flow_reset_policy),
+        ..Default::default()
+    })
 }
 
 /// Returns the Flow configuration with a pull Worker target on `task_queue`; empty selects the

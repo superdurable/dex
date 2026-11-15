@@ -12,9 +12,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use dex_protocol::dex::ServerInfo;
 
 pub(crate) const MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 4;
-pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 5;
+pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 6;
 pub(crate) const HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION: u32 = 3;
 pub(crate) const NAMED_TASK_QUEUE_PROTOCOL_VERSION: u32 = 5;
+pub(crate) const CLONE_FORK_FLOW_PROTOCOL_VERSION: u32 = 6;
+const CLONE_FORK_FLOW_SERVER_ZD_RELEASE: &str = "server-zd 0.1.33";
 pub(crate) const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Shares one negotiated Server protocol version; zero means negotiation has not succeeded.
@@ -70,6 +72,25 @@ impl NegotiatedServerProtocolVersion {
             "{operation} with task queue {task_queue:?} requires Server protocol version \
              {NAMED_TASK_QUEUE_PROTOCOL_VERSION} or later, but {negotiated}. Upgrade the Server, \
              or omit the task queue to use the default task queue"
+        ))
+    }
+
+    /// Returns `Ok(())` when the negotiated Server has CloneForkFlow, and an error naming the
+    /// required protocol and server-zd release when negotiation is missing or below protocol 6.
+    pub(crate) fn require_clone_fork_flow_support(&self) -> Result<(), String> {
+        let version = self.version();
+        if version >= CLONE_FORK_FLOW_PROTOCOL_VERSION {
+            return Ok(());
+        }
+        let negotiated = if version == 0 {
+            "no protocol version was negotiated".to_string()
+        } else {
+            format!("the negotiated protocol version is {version}")
+        };
+        Err(format!(
+            "clone_fork_flow requires Server protocol version {CLONE_FORK_FLOW_PROTOCOL_VERSION} \
+             or later ({CLONE_FORK_FLOW_SERVER_ZD_RELEASE} or later), but {negotiated}. \
+             Upgrade the Server"
         ))
     }
 
@@ -143,7 +164,7 @@ mod tests {
 
     #[test]
     fn negotiates_highest_common_protocol() {
-        for (server_current, expected) in [(4, 4), (5, 5), (6, 5)] {
+        for (server_current, expected) in [(4, 4), (5, 5), (6, 6), (7, 6)] {
             let negotiated = negotiate_server_protocol(&ServerInfo {
                 server_version: "newer".to_string(),
                 minimum_supported_protocol_version: 1,
@@ -213,6 +234,32 @@ mod tests {
     }
 
     #[test]
+    fn clone_fork_flow_requires_protocol_version_six() {
+        let negotiated = NegotiatedServerProtocolVersion::default();
+        let error = negotiated
+            .require_clone_fork_flow_support()
+            .expect_err("missing negotiation fails closed");
+        assert!(
+            error.contains("no protocol version was negotiated"),
+            "{error}"
+        );
+        negotiated.store(5);
+        let error = negotiated
+            .require_clone_fork_flow_support()
+            .expect_err("protocol 5 has no CloneForkFlow");
+        assert!(error.contains("protocol version 6 or later"), "{error}");
+        assert!(error.contains("server-zd 0.1.33 or later"), "{error}");
+        assert!(
+            error.contains("negotiated protocol version is 5"),
+            "{error}"
+        );
+        negotiated.store(6);
+        negotiated
+            .require_clone_fork_flow_support()
+            .expect("protocol 6 has CloneForkFlow");
+    }
+
+    #[test]
     fn rejects_invalid_and_disjoint_server_intervals() {
         let server_info = |server_version: &str, minimum: u32, current: u32| ServerInfo {
             server_version: server_version.to_string(),
@@ -236,9 +283,9 @@ mod tests {
         )));
         assert!(old_server.contains("protocol versions 1-3 (server version old)"));
         assert!(old_server.contains("Upgrade the Server"));
-        let future_server = negotiate_server_protocol(&server_info("future", 6, 6))
+        let future_server = negotiate_server_protocol(&server_info("future", 7, 7))
             .expect_err("Server newer than the SDK maximum");
-        assert!(future_server.contains("requires protocol version 6 or later"));
+        assert!(future_server.contains("requires protocol version 7 or later"));
         assert!(future_server.contains("(server version future)"));
         assert!(future_server.contains("Upgrade the SDK"));
         assert!(!future_server.contains("Upgrade the Server"));

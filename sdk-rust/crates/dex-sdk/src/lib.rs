@@ -63,7 +63,9 @@ pub use attribute::{
 pub use attribute_match::AttributeMatch;
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
 pub use client::FlowServiceTlsOptions;
-pub use client::{AttributeRead, AttributeReads, Client};
+pub use client::{
+    AttributeRead, AttributeReads, Client, CloneForkFlowOptions, CloneForkFlowResult,
+};
 pub use client_options::ClientOptions;
 pub use context::{Context, RecoveryErrorInfo, StepAttemptProgress};
 #[cfg(feature = "api-key-credential")]
@@ -98,7 +100,7 @@ pub use stream::{
     BufferedTextStream, BufferedTextStreamOptions, Stream, StreamMessage, StreamMessagesPage,
 };
 pub use sub_flow::{SubFlow, SubFlowOptions, SubFlowReusePolicy};
-pub use time_travel_options::{TimeTravelOptions, TimeTravelStepMethod};
+pub use time_travel_options::{SubFlowResetPolicy, TimeTravelOptions, TimeTravelStepMethod};
 pub use timer::{Timer, TimerId};
 pub use tonic::Code as GrpcCode;
 pub use value::Value;
