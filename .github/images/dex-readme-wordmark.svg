@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 170 64" role="img" aria-label="Dex">
+  <style>
+    .mark-dark { stroke: #00321b }
+    .mark-green { stroke: #008650 }
+    .name { fill: #1f2328 }
+    @media (prefers-color-scheme: dark) {
+      .mark-dark { stroke: #f6f8f4 }
+      .mark-green { stroke: #70eea9 }
+      .name { fill: #f6f8f4 }
+    }
+  </style>
+  <path d="M 13.5 12 V 52" fill="none" class="mark-dark" stroke-width="12" stroke-linecap="round" />
+  <path d="M 30.5 12 L 50.5 32 L 30.5 52" fill="none" class="mark-green" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="86" y="45" class="name" font-family="Arial, Helvetica, sans-serif" font-size="39" font-weight="700">Dex</text>
+</svg>

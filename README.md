@@ -1,8 +1,6 @@
 <p align="center">
-  <a href="https://docs.superdurable.io"><img src="docs/static/img/brand/dex-mark.svg" alt="Dex logo" width="72" /></a>
+  <a href="https://docs.superdurable.io"><img src=".github/images/dex-readme-wordmark.svg" alt="Dex" width="150" /></a>
 </p>
-
-<h1 align="center">Dex</h1>
 
 <h3 align="center">Durable Execution (D-Ex). No Replay, Zero Dependencies.</h3>
 
