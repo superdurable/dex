@@ -231,42 +231,6 @@ func newImageHarness(t *testing.T) (*screenHarness, string) {
 	return harness, imagePath
 }
 
-func TestPastedImagePathAsksToAttach(t *testing.T) {
-	harness, imagePath := newImageHarness(t)
-	harness.screen.Update(tea.PasteMsg{Content: "'" + imagePath + "'"})
-	frame := harness.plainFrame()
-	require.Contains(t, frame, "? Attach diagram.png?")
-	require.Contains(t, frame, "Enter attach · Esc keep text")
-	harness.press(key(tea.KeyEnter))
-	require.Equal(t, sessionfeed.RunSlashCommand{Name: "image", Argument: imagePath}, harness.lastAction())
-	require.True(t, harness.screen.input.IsEmpty())
-
-	harness.screen.Update(tea.PasteMsg{Content: imagePath})
-	harness.press(key(tea.KeyEscape))
-	require.Equal(t, imagePath, harness.screen.input.Value(), "Esc keeps the pasted text")
-	harness.screen.input.Clear()
-
-	harness.screen.Update(tea.PasteMsg{Content: imagePath})
-	harness.press(textKey('!'))
-	require.Equal(t, imagePath+"!", harness.screen.input.Value(), "typing keeps the text and types on")
-	harness.screen.input.Clear()
-
-	harness.screen.Update(tea.PasteMsg{Content: filepath.Join(filepath.Dir(imagePath), "notes.txt")})
-	require.Nil(t, harness.screen.pendingPastedImage, "only image files ask")
-}
-
-func TestPastedImagePathNeedsTheImageCommand(t *testing.T) {
-	harness := newScreenHarness(t, harnessOptions{})
-	directory := t.TempDir()
-	imagePath := filepath.Join(directory, "diagram.png")
-	require.NoError(t, os.WriteFile(imagePath, []byte("png"), 0o600))
-	resolver := typedpaths.NewPathResolver(directory, directory)
-	harness.screen.pathResolver = &resolver
-	harness.screen.Update(tea.PasteMsg{Content: imagePath})
-	require.Nil(t, harness.screen.pendingPastedImage)
-	require.Equal(t, imagePath, harness.screen.input.Value())
-}
-
 func TestTabCompletesImagePaths(t *testing.T) {
 	harness, _ := newImageHarness(t)
 	harness.typeText("/image dia")
@@ -343,16 +307,6 @@ func TestPagerSearchHighlightsAfterLettersThatChangeLength(t *testing.T) {
 	require.Contains(t, harness.plainFrame(), row)
 }
 
-// A path pasted after "/image " is the command's argument, not a new
-// attachment.
-func TestPastedImagePathAfterImageCommandIsText(t *testing.T) {
-	harness, imagePath := newImageHarness(t)
-	harness.typeText("/image ")
-	harness.screen.Update(tea.PasteMsg{Content: imagePath})
-	require.Nil(t, harness.screen.pendingPastedImage)
-	require.Equal(t, "/image "+imagePath, harness.screen.input.Value())
-}
-
 // An answer for a pager closed and opened again never fills the new one.
 func TestHistoryAnswerForAClosedPagerIsDropped(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{height: 30})
@@ -373,7 +327,7 @@ func TestHistoryAnswerForAClosedPagerIsDropped(t *testing.T) {
 
 // Any switch closes the readers and prompts of the session it leaves.
 func TestSessionSwitchClosesEveryPagerAndPrompt(t *testing.T) {
-	harness, imagePath := newImageHarness(t)
+	harness, _ := newImageHarness(t)
 	startTurn(harness, "Run the tests.")
 	harness.feed(outputTool("call-1", "turn-1", "run_shell_command", "old session secret output"))
 	pressCtrlO(harness)
@@ -381,13 +335,6 @@ func TestSessionSwitchClosesEveryPagerAndPrompt(t *testing.T) {
 	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-20261111-150000-ffffff", IsNewSession: true})
 	require.Nil(t, harness.screen.pager, "the tool pager closes")
 	require.NotContains(t, harness.plainFrame(), "old session secret output")
-
-	harness.feed(sessionfeed.SessionLoaded{})
-	harness.screen.Update(tea.PasteMsg{Content: imagePath})
-	require.NotNil(t, harness.screen.pendingPastedImage)
-	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-20261111-160000-eeeeee", IsNewSession: true})
-	require.Nil(t, harness.screen.pendingPastedImage, "the attach prompt closes")
-	require.Equal(t, imagePath, harness.screen.input.Value(), "the pasted text stays")
 }
 
 func switchSession(harness *screenHarness, sessionID string) {

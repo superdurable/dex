@@ -75,6 +75,9 @@ func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed
 			feed.detachImage()
 		}
 		return nil
+	case sessionfeed.AttachImage:
+		feed.runImageAttach(ctx, typed.RequestID, typedpaths.QuoteTypedPath(typed.Path))
+		return nil
 	}
 	sessionID, endAction, isCurrent := feed.beginSessionAction(ctx)
 	defer endAction()
@@ -396,16 +399,7 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 		}
 		return feed.changeReasoningEffort(ctx, sessionID, command.Argument)
 	case imageCommandName:
-		feed.actionMutex.Lock()
-		defer feed.actionMutex.Unlock()
-		// The chip belongs to the session shown now, so a switch waits for it.
-		_, endAction, isCurrent := feed.beginSessionAction(ctx)
-		defer endAction()
-		if !isCurrent {
-			feed.notice(sessionfeed.NoticeSeverityWarning, "Image not attached: "+switchedSessionReason)
-			return nil
-		}
-		feed.attachImage(ctx, command.Argument)
+		feed.runImageAttach(ctx, 0, command.Argument)
 		return nil
 	case newCommandName:
 		return feed.startSession(ctx)
@@ -552,21 +546,42 @@ func (feed *RemoteSessionFeed) writeSessionSetting(ctx context.Context, sessionI
 	return isStored, nil
 }
 
-// attachImage checks the file locally, then stores it through put_image.
-func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string) {
+// runImageAttach attaches the image that argument names, for /image or a
+// pasted path. For an AttachImage requestID, it answers with ImageAttached
+// or, after the notice that says why, ImageAttachFailed.
+func (feed *RemoteSessionFeed) runImageAttach(ctx context.Context, requestID int64, argument string) {
+	feed.actionMutex.Lock()
+	defer feed.actionMutex.Unlock()
+	// The chip belongs to the session shown now, so a switch waits for it.
+	_, endAction, isCurrent := feed.beginSessionAction(ctx)
+	defer endAction()
+	isAttached := false
+	if isCurrent {
+		isAttached = feed.attachImage(ctx, requestID, argument)
+	} else {
+		feed.notice(sessionfeed.NoticeSeverityWarning, "Image not attached: "+switchedSessionReason)
+	}
+	if !isAttached && requestID != 0 {
+		feed.emit(sessionfeed.ImageAttachFailed{RequestID: requestID})
+	}
+}
+
+// attachImage checks the file locally, then stores it through put_image. It
+// reports whether it emitted ImageAttached; otherwise a notice says why.
+func (feed *RemoteSessionFeed) attachImage(ctx context.Context, requestID int64, argument string) bool {
 	limits := feed.launch.Capabilities.Images
 	if limits == nil {
 		feed.notice(sessionfeed.NoticeSeverityError, "This agent takes no images.")
-		return
+		return false
 	}
 	if !feed.requests.HasMethod(launchcontract.MethodPutImage) {
 		feed.notice(sessionfeed.NoticeSeverityWarning, "/image is not available with this command version.")
-		return
+		return false
 	}
 	path, err := feed.imagePath(argument)
 	if err != nil {
 		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
-		return
+		return false
 	}
 	name := filepath.Base(path)
 	feed.stateMutex.Lock()
@@ -574,43 +589,44 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 	feed.stateMutex.Unlock()
 	if int64(attached) >= limits.MaxPerMessage {
 		feed.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: a message carries at most %d images.", limits.MaxPerMessage))
-		return
+		return false
 	}
 	info, err := os.Stat(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" does not exist.")
-		return
+		return false
 	case err != nil:
 		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
-		return
+		return false
 	case !info.Mode().IsRegular():
 		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" is not a regular file.")
-		return
+		return false
 	case info.Size() > limits.MaxBytes:
-		feed.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %s is %s; the limit is %s.", name, formatSize(info.Size()), formatSize(limits.MaxBytes)))
-		return
+		feed.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %s has %s bytes; an image may have at most %s.", name, formatThousands(info.Size()), formatThousands(limits.MaxBytes)))
+		return false
 	}
 	key, err := launchcontract.NewIdempotencyKey()
 	if err != nil {
 		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
-		return
+		return false
 	}
 	requestContext, stopRequest := feed.imageRequestContext(ctx)
 	defer stopRequest()
 	outcome := feed.requests.CallWithRecoveryKey(requestContext, launchcontract.MethodPutImage, key, map[string]any{"path": path}, nil)
 	if requestContext.Err() != nil && ctx.Err() == nil {
 		feed.notice(sessionfeed.NoticeSeverityInfo, "Image not attached: the chat switched sessions.")
-		return
+		return false
 	}
 	attachment, isAttached := feed.imageAttachment(outcome, name)
 	if !isAttached {
-		return
+		return false
 	}
 	feed.stateMutex.Lock()
 	feed.attachedImages++
 	feed.stateMutex.Unlock()
-	feed.emit(sessionfeed.ImageAttached{Attachment: attachment})
+	feed.emit(sessionfeed.ImageAttached{Attachment: attachment, RequestID: requestID})
+	return true
 }
 
 // imageRequestContext ends with ctx or when the chat switches sessions.

@@ -45,39 +45,6 @@ func TestShortenHomePaths(t *testing.T) {
 	require.Equal(t, "/home/user/a.png", NewPathResolver("", "/work").ShortenHomePaths("/home/user/a.png"))
 }
 
-func TestPastedImagePath(t *testing.T) {
-	directory := t.TempDir()
-	imagePath := filepath.Join(directory, "my diagram.png")
-	require.NoError(t, os.WriteFile(imagePath, []byte("png"), 0o600))
-	textPath := filepath.Join(directory, "notes.txt")
-	require.NoError(t, os.WriteFile(textPath, []byte("text"), 0o600))
-	require.NoError(t, os.Mkdir(filepath.Join(directory, "folder.png"), 0o700))
-	resolver := NewPathResolver(directory, directory)
-	for _, pasted := range []string{
-		imagePath,
-		"'" + imagePath + "' ",
-		filepath.Join(directory, `my\ diagram.png`),
-		"file://" + filepath.ToSlash(filepath.Join(directory, "my%20diagram.png")),
-		"~/my diagram.png",
-		"my diagram.png",
-	} {
-		path, isImage := resolver.PastedImagePath(pasted)
-		require.True(t, isImage, pasted)
-		require.Equal(t, imagePath, path, pasted)
-	}
-	for _, pasted := range []string{
-		textPath,
-		filepath.Join(directory, "missing.png"),
-		filepath.Join(directory, "folder.png"),
-		imagePath + "\n" + imagePath,
-		"file://example.com" + imagePath,
-		"look at this.png please",
-	} {
-		_, isImage := resolver.PastedImagePath(pasted)
-		require.False(t, isImage, pasted)
-	}
-}
-
 func TestCompletePath(t *testing.T) {
 	home := t.TempDir()
 	for _, name := range []string{"diagram.png", "diagrams", "data.csv", ".hidden.png"} {

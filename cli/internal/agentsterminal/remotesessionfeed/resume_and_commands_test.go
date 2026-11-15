@@ -12,6 +12,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -160,6 +162,44 @@ func TestImageNoticesWriteTheHomeDirectoryAsTilde(t *testing.T) {
 	feed := newCommandFeed(t, failingLocalRequests{}, home)
 	notices := commandNotices(t, feed, sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: "~/missing.png"})
 	require.Equal(t, []string{"Image not attached: ~/missing.png does not exist."}, noticeTexts(notices))
+}
+
+// The size notice states the limit in exact bytes, as the docs do.
+func TestOversizedImageNoticeStatesTheExactLimit(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "big.png"), make([]byte, 1<<20+1), 0o600))
+	feed := newCommandFeed(t, failingLocalRequests{}, home)
+	notices := commandNotices(t, feed, sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: "~/big.png"})
+	require.Equal(t, []string{"Image not attached: big.png has 1,048,577 bytes; an image may have at most 1,048,576."}, noticeTexts(notices))
+}
+
+// A launcher that cannot store the image says why, and the chat shows it.
+func TestImageStoreFailureShowsTheLauncherReason(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "dot.png"), []byte("png"), 0o600))
+	feed := newCommandFeed(t, failingLocalRequests{code: "store_failed", message: "dot.png could not be stored in the media store: disk full"}, home)
+	notices := commandNotices(t, feed, sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: "'~/dot.png'"})
+	require.Equal(t, []string{"Image not attached: dot.png could not be stored in the media store: disk full"}, noticeTexts(notices))
+}
+
+// A failed pasted-image attach answers its request after the notice, so the
+// screen keeps the draft unsent.
+func TestFailedAttachImageAnswersItsRequest(t *testing.T) {
+	home := t.TempDir()
+	imagePath := filepath.Join(home, "Bob's dot.png")
+	require.NoError(t, os.WriteFile(imagePath, []byte("png"), 0o600))
+	feed := newCommandFeed(t, failingLocalRequests{code: "store_failed", message: "Bob's dot.png could not be stored in the media store: disk full"}, home)
+	require.NoError(t, feed.SubmitUserAction(context.Background(), sessionfeed.AttachImage{RequestID: 7, Path: imagePath}))
+	updates := drainFeed(feed)
+	require.Equal(t, []string{"Image not attached: Bob's dot.png could not be stored in the media store: disk full"}, noticeTexts(updatesOfType[sessionfeed.NoticeRaised](updates)))
+	require.Equal(t, []sessionfeed.ImageAttachFailed{{RequestID: 7}}, updatesOfType[sessionfeed.ImageAttachFailed](updates))
+	require.Empty(t, updatesOfType[sessionfeed.ImageAttached](updates))
+}
+
+func TestFormatThousands(t *testing.T) {
+	for count, expected := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 3_750_000: "3,750,000", 1_048_577: "1,048,577"} {
+		require.Equal(t, expected, formatThousands(count))
+	}
 }
 
 // /model alone shows the model; an ID with spaces changes nothing.

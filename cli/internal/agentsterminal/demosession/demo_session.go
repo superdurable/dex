@@ -166,6 +166,11 @@ func (script *demoScript) play() error {
 			if err := script.playTurns(typed.Text, false); err != nil {
 				return err
 			}
+		case sessionfeed.AttachImage:
+			attachment := sessionfeed.ImageAttachment{Name: filepath.Base(typed.Path), MimeType: "image/png", SizeBytes: 245760}
+			if err := script.send(sessionfeed.ImageAttached{Attachment: attachment, RequestID: typed.RequestID}); err != nil {
+				return err
+			}
 		case sessionfeed.RunSlashCommand:
 			if typed.Name == "image" && typed.Argument != "" {
 				attachment := sessionfeed.ImageAttachment{Name: filepath.Base(typed.Argument), MimeType: "image/png", SizeBytes: 245760}

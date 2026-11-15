@@ -21,6 +21,9 @@ import (
 type inputEditor struct {
 	text   []rune
 	cursor int
+	// revision counts text changes, so a caller can tell an untouched draft
+	// from one edited back to the same text.
+	revision int64
 }
 
 // renderedInput is an editor drawn at one width. cursorRow and cursorColumn
@@ -39,12 +42,19 @@ func (editor *inputEditor) IsEmpty() bool {
 	return len(editor.text) == 0
 }
 
+// Revision returns a number that changes with every change to the text.
+func (editor *inputEditor) Revision() int64 {
+	return editor.revision
+}
+
 func (editor *inputEditor) SetValue(value string) {
+	editor.revision++
 	editor.text = []rune(value)
 	editor.cursor = len(editor.text)
 }
 
 func (editor *inputEditor) Clear() {
+	editor.revision++
 	editor.text = nil
 	editor.cursor = 0
 }
@@ -91,6 +101,7 @@ func (editor *inputEditor) InsertText(text string) {
 	text = strings.ReplaceAll(text, "\r", "\n")
 	text = strings.ReplaceAll(text, "\t", "    ")
 	inserted := []rune(text)
+	editor.revision++
 	updated := make([]rune, 0, len(editor.text)+len(inserted))
 	updated = append(updated, editor.text[:editor.cursor]...)
 	updated = append(updated, inserted...)
@@ -203,6 +214,7 @@ func (editor *inputEditor) deleteRange(start int, end int) {
 	if start >= end {
 		return
 	}
+	editor.revision++
 	editor.text = append(editor.text[:start], editor.text[end:]...)
 	editor.cursor = start
 }

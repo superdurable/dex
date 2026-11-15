@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -322,12 +323,16 @@ func planItemStatus(status dexagents.PlanTaskStatus) sessionfeed.PlanItemStatus 
 	}
 }
 
-func formatSize(bytes int64) string {
-	switch {
-	case bytes >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/(1<<20))
-	case bytes >= 1<<10:
-		return fmt.Sprintf("%d KB", bytes>>10)
+// formatThousands writes a non-negative count with comma separators, such
+// as "3,750,000", so a byte limit reads exactly as the docs state it.
+func formatThousands(count int64) string {
+	digits := strconv.FormatInt(count, 10)
+	var builder strings.Builder
+	for index, digit := range digits {
+		if index > 0 && (len(digits)-index)%3 == 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteRune(digit)
 	}
-	return fmt.Sprintf("%d B", bytes)
+	return builder.String()
 }

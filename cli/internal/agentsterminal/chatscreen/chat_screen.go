@@ -14,6 +14,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +43,7 @@ type ChatScreenConfig struct {
 	// terminal or larger. Default false.
 	ShowsStartupLogo bool
 	// PathResolver resolves typed and pasted /image paths. Default nil, which
-	// turns off path completion and the pasted image prompt.
+	// turns off path completion and attaching pasted image paths.
 	PathResolver *typedpaths.PathResolver
 }
 
@@ -128,10 +131,16 @@ type ChatScreen struct {
 	isPathCompletionPartial bool
 	pathCompletionRequestID int64
 	historyReadRequestID    int64
-	pendingPastedImage      *pastedImagePrompt
-	pager                   *pagerView
-	isToolPickerOpen        bool
-	toolPickerIndex         int
+	imageAttachRequestID    int64
+	// pendingImageAttachIDs are the pasted images of the draft still being
+	// stored; Enter waits for them.
+	pendingImageAttachIDs []int64
+	// waitingSendRevision is the input revision Enter left waiting for its
+	// pasted images; 0 when none. Any later change to the input cancels it.
+	waitingSendRevision int64
+	pager               *pagerView
+	isToolPickerOpen    bool
+	toolPickerIndex     int
 	// settingPicker is the open /model or /effort picker, or nil.
 	settingPicker *settingPicker
 	// turnTools are the calls of the newest turn that ran tools, with their
@@ -177,12 +186,6 @@ const (
 	// interrupt opens.
 	deferredPopupDelay = time.Second
 )
-
-// pastedImagePrompt asks whether a pasted image path becomes an attachment.
-type pastedImagePrompt struct {
-	path string
-	text string
-}
 
 // activeTurn is the running turn shown in the context line.
 type activeTurn struct {
@@ -342,8 +345,7 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		commands = append(commands, screen.handleKey(typed), screen.scheduleDeferredPopup())
 	case tea.PasteMsg:
-		screen.handlePaste(typed.Content)
-		commands = append(commands, screen.scheduleDeferredPopup())
+		commands = append(commands, screen.handlePaste(typed.Content), screen.scheduleDeferredPopup())
 	case idleExitExpiredMsg:
 	case deferredPopupDueMsg:
 		screen.openDeferredPopup(typed.generation)
@@ -480,9 +482,6 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 	if screen.settingPicker != nil {
 		return screen.handleSettingPickerKey(keyName)
 	}
-	if screen.pendingPastedImage != nil {
-		return screen.handlePastedImageKey(key)
-	}
 	if screen.pendingSwitchSessionID != "" && screen.input.IsEmpty() && !screen.isPopupOpen {
 		if command, isHandled := screen.handleSwitchKey(keyName); isHandled {
 			return command
@@ -555,56 +554,183 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func (screen *ChatScreen) handlePaste(content string) {
+// handlePaste puts pasted text where the person types. Text typed into a
+// pager search or a popup answer stays there; any other view closes, and
+// the text goes to the input, where pasted image paths attach.
+func (screen *ChatScreen) handlePaste(content string) tea.Cmd {
 	switch {
-	case screen.pager != nil:
-		if screen.pager.isTypingSearch {
-			screen.pager.searchInput.InsertText(strings.ReplaceAll(content, "\n", " "))
-		}
+	case screen.pager != nil && screen.pager.isTypingSearch:
+		screen.pager.searchInput.InsertText(strings.ReplaceAll(content, "\n", " "))
+		return nil
 	case screen.isPopupOpen && screen.popup.isEnteringText:
 		screen.popup.textInput.InsertText(content)
-	case screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen || screen.settingPicker != nil || screen.pendingFocus != pendingFocusNone:
-	case screen.pendingPastedImage != nil:
-		screen.keepPastedText()
-		screen.input.InsertText(content)
-	default:
-		screen.pathCompletions = nil
-		if path, isImage := screen.pastedImagePath(content); isImage && screen.input.IsEmpty() {
-			screen.pendingPastedImage = &pastedImagePrompt{path: path, text: content}
-			return
-		}
-		screen.input.InsertText(content)
-	}
-}
-
-// pastedImagePath reports a paste that names one image file, when this
-// session takes images.
-func (screen *ChatScreen) pastedImagePath(content string) (string, bool) {
-	if screen.pathResolver == nil || !screen.commands.Has(imageCommandName) || screen.isInputDisabled {
-		return "", false
-	}
-	return screen.pathResolver.PastedImagePath(content)
-}
-
-// handlePastedImageKey answers "Attach NAME?": Enter attaches, Esc keeps the
-// text, and any other key keeps the text and then types.
-func (screen *ChatScreen) handlePastedImageKey(key tea.KeyPressMsg) tea.Cmd {
-	switch key.String() {
-	case "enter":
-		path := screen.pendingPastedImage.path
-		screen.pendingPastedImage = nil
-		return screen.submitAction(sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: path})
-	case "esc":
-		screen.keepPastedText()
 		return nil
 	}
-	screen.keepPastedText()
-	return screen.handleKey(key)
+	screen.closeViewsForPaste()
+	screen.pathCompletions = nil
+	screen.waitingSendRevision = 0
+	if command, isAttaching := screen.attachPastedImages(content); isAttaching {
+		return command
+	}
+	screen.input.InsertText(content)
+	return nil
 }
 
-func (screen *ChatScreen) keepPastedText() {
-	screen.input.InsertText(screen.pendingPastedImage.text)
-	screen.pendingPastedImage = nil
+// closeViewsForPaste returns focus to the input, as Esc would. Waiting
+// approvals and questions stay on the pending bar.
+func (screen *ChatScreen) closeViewsForPaste() {
+	screen.pager = nil
+	screen.isHelpOpen = false
+	screen.isToolPickerOpen = false
+	screen.settingPicker = nil
+	if screen.isPopupOpen {
+		screen.closePopup()
+		screen.isPopupDeferredByTyping = false
+	}
+	screen.pendingDelete, screen.pendingFocus = nil, pendingFocusNone
+}
+
+// attachPastedImages attaches the image files of a pasted file drop, in
+// order, and keeps the other paths as text with a notice that says why. It
+// reports false when the session takes no images, a slash command is being
+// typed, or the paste is not a file drop.
+func (screen *ChatScreen) attachPastedImages(content string) (tea.Cmd, bool) {
+	if screen.pathResolver == nil || !screen.commands.Has(imageCommandName) || screen.isInputDisabled {
+		return nil, false
+	}
+	if strings.HasPrefix(strings.TrimLeft(screen.input.Value(), " "), "/") {
+		return nil, false
+	}
+	pastedPaths, isDrop := screen.pathResolver.PastedFilePaths(content)
+	if !isDrop {
+		return nil, false
+	}
+	isImageDrop := slices.ContainsFunc(pastedPaths, func(pasted typedpaths.PastedPath) bool {
+		return typedpaths.HasImageExtension(pasted.Path)
+	})
+	var actions []sessionfeed.UserAction
+	var keptTexts []string
+	for _, pasted := range pastedPaths {
+		if pasted.Kind == typedpaths.PastedPathImage {
+			screen.imageAttachRequestID++
+			screen.pendingImageAttachIDs = append(screen.pendingImageAttachIDs, screen.imageAttachRequestID)
+			actions = append(actions, sessionfeed.AttachImage{RequestID: screen.imageAttachRequestID, Path: pasted.Path})
+			continue
+		}
+		keptTexts = append(keptTexts, pasted.Text)
+		// A pasted source path is ordinary text; only a drop with images explains it.
+		if !isImageDrop {
+			continue
+		}
+		severity := sessionfeed.NoticeSeverityWarning
+		if pasted.Kind == typedpaths.PastedPathUnsupportedType {
+			severity = sessionfeed.NoticeSeverityInfo
+		}
+		screen.printNotice(severity, screen.pastedPathNotAttachedText(pasted))
+	}
+	if len(actions) == 0 {
+		screen.input.InsertText(content)
+		return nil, true
+	}
+	screen.input.InsertText(strings.Join(keptTexts, " "))
+	return screen.submitActionsInOrder(actions), true
+}
+
+// applyImageAttached adds a chip for the draft. A pasted image whose draft
+// is gone, after a session switch, is dropped.
+func (screen *ChatScreen) applyImageAttached(attached sessionfeed.ImageAttached) tea.Cmd {
+	if attached.RequestID != 0 && !screen.settlePendingImageAttach(attached.RequestID) {
+		return nil
+	}
+	screen.attachments = append(screen.attachments, attached.Attachment)
+	return screen.sendDraftWhenImagesSettled()
+}
+
+// applyImageAttachFailed keeps a draft waiting on the image unsent; the
+// notice before it says why.
+func (screen *ChatScreen) applyImageAttachFailed(requestID int64) {
+	if !screen.settlePendingImageAttach(requestID) || !screen.isDraftWaitingToSend() {
+		return
+	}
+	screen.waitingSendRevision = 0
+	screen.printNotice(sessionfeed.NoticeSeverityWarning, "Message not sent: an image did not attach. Paste it again, or press Enter to send without it.")
+}
+
+// settlePendingImageAttach forgets a pending attach and reports whether it
+// belonged to the draft.
+func (screen *ChatScreen) settlePendingImageAttach(requestID int64) bool {
+	index := slices.Index(screen.pendingImageAttachIDs, requestID)
+	if index < 0 {
+		return false
+	}
+	screen.pendingImageAttachIDs = slices.Delete(screen.pendingImageAttachIDs, index, index+1)
+	return true
+}
+
+// sendDraftWhenImagesSettled sends a draft that Enter left waiting once its
+// last pasted image attached. Any change to the input since Enter, such as a
+// recalled message or a new line, cancels the send, even if the text later
+// reads the same again.
+func (screen *ChatScreen) sendDraftWhenImagesSettled() tea.Cmd {
+	if len(screen.pendingImageAttachIDs) > 0 {
+		return nil
+	}
+	isWaiting := screen.isDraftWaitingToSend()
+	screen.waitingSendRevision = 0
+	if !isWaiting {
+		return nil
+	}
+	if _, isCommand := parseSlashCommand(strings.TrimRight(screen.input.Value(), " \n")); isCommand {
+		return nil
+	}
+	return screen.submitInput()
+}
+
+// isDraftWaitingToSend reports a draft that Enter left waiting and that has
+// not changed since.
+func (screen *ChatScreen) isDraftWaitingToSend() bool {
+	return screen.waitingSendRevision != 0 && screen.waitingSendRevision == screen.input.Revision()
+}
+
+// pastedPathNotAttachedText says why a pasted path stays as text.
+func (screen *ChatScreen) pastedPathNotAttachedText(pasted typedpaths.PastedPath) string {
+	name := filepath.Base(pasted.Path)
+	shownPath := screen.pathResolver.ShortenHomePaths(pasted.Path)
+	switch pasted.Kind {
+	case typedpaths.PastedPathUnsupportedType:
+		return "Not attached: " + name + " is not a PNG, JPEG, GIF, or WebP image."
+	case typedpaths.PastedPathMissing:
+		return "Not attached: " + shownPath + " does not exist."
+	case typedpaths.PastedPathNotRegularFile:
+		return "Not attached: " + shownPath + " is not a regular file."
+	default:
+		reason := pasted.Err
+		var pathError *fs.PathError
+		if errors.As(reason, &pathError) {
+			reason = pathError.Err
+		}
+		return "Not attached: " + name + " cannot be read: " + screen.pathResolver.ShortenHomePaths(fmt.Sprint(reason)) + "."
+	}
+}
+
+// submitActionsInOrder submits actions one after another, so the images of
+// one drop attach in the order they were dropped. It reports the first
+// failure after trying every action.
+func (screen *ChatScreen) submitActionsInOrder(actions []sessionfeed.UserAction) tea.Cmd {
+	source := screen.source
+	contexts := make([]context.Context, len(actions))
+	for index, action := range actions {
+		contexts[index] = screen.actionContext(action)
+	}
+	return func() tea.Msg {
+		var failure tea.Msg
+		for index, action := range actions {
+			if err := source.SubmitUserAction(contexts[index], action); err != nil && failure == nil {
+				failure = userActionFailedMsg{action: action, err: err}
+			}
+		}
+		return failure
+	}
 }
 
 // completeImagePath starts completing the PATH of "/image PATH" on Tab. The
@@ -661,6 +787,7 @@ func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
 	screen.replies = newReplyStream()
 	// Images and queued messages of the old session never reach the new one.
 	screen.attachments, screen.pendingImageDrop = nil, nil
+	screen.pendingImageAttachIDs, screen.waitingSendRevision = nil, 0
 	screen.dropQueuedMessagesOfOtherSessions(nextSessionID)
 	screen.closePopup()
 	screen.interrupts = nil
@@ -670,15 +797,17 @@ func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
 	screen.pager, screen.isToolPickerOpen, screen.settingPicker = nil, false, nil
 	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
 	screen.pathCompletionRequestID++
-	if screen.pendingPastedImage != nil {
-		screen.keepPastedText()
-	}
 }
 
 // submitInput sends the input as a message or runs it as a slash command.
 func (screen *ChatScreen) submitInput() tea.Cmd {
 	text := strings.TrimRight(screen.input.Value(), " \n")
 	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	if _, isCommand := parseSlashCommand(text); !isCommand && len(screen.pendingImageAttachIDs) > 0 {
+		// The draft's pasted images must reach this message, not a later one.
+		screen.waitingSendRevision = screen.input.Revision()
 		return nil
 	}
 	screen.input.Clear()
@@ -1075,8 +1204,6 @@ func (screen *ChatScreen) closeViewForIdleInterrupt() bool {
 		screen.isPopupDeferredByTyping = false
 	case screen.isHelpOpen:
 		screen.isHelpOpen = false
-	case screen.pendingPastedImage != nil:
-		screen.keepPastedText()
 	case screen.pendingImageDrop != nil:
 		screen.handleImageDropKey("n")
 	case screen.pendingDelete != nil || screen.pendingFocus != pendingFocusNone:
@@ -1352,7 +1479,9 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.pager.applyEarlierPage(typed, screen.pagerSize(), screen.theme)
 		}
 	case sessionfeed.ImageAttached:
-		screen.attachments = append(screen.attachments, typed.Attachment)
+		command = screen.applyImageAttached(typed)
+	case sessionfeed.ImageAttachFailed:
+		screen.applyImageAttachFailed(typed.RequestID)
 	case sessionfeed.SessionStartChanged:
 		screen.isSessionStartWaiting = typed.IsWaiting
 	case sessionfeed.SessionSwitchHandedOff:
@@ -1610,11 +1739,13 @@ func (screen *ChatScreen) disableInput(exitCode int) {
 	screen.pager = nil
 	screen.isToolPickerOpen = false
 	screen.settingPicker = nil
-	screen.pendingPastedImage = nil
 }
 
 func (screen *ChatScreen) handleActionFailure(failure userActionFailedMsg) {
 	switch action := failure.action.(type) {
+	case sessionfeed.AttachImage:
+		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %v.", failure.err))
+		screen.applyImageAttachFailed(action.RequestID)
 	case sessionfeed.ResolveApproval:
 		screen.restoreInterrupt(action.InterruptID)
 		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Approval not sent: %v. Press Tab to try again.", failure.err))
@@ -1693,7 +1824,7 @@ func (screen *ChatScreen) addInterrupt(interrupt pendingInterrupt) {
 
 // isOtherViewOpen reports a view that an arriving interrupt must not cover.
 func (screen *ChatScreen) isOtherViewOpen() bool {
-	return screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.settingPicker != nil || screen.pendingPastedImage != nil
+	return screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.settingPicker != nil
 }
 
 func (screen *ChatScreen) resolveInterrupt(resolved sessionfeed.InterruptResolved) {

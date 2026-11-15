@@ -103,6 +103,15 @@ type SlashCommand struct {
 // the user deleted its chip.
 type DetachImage struct{}
 
+// AttachImage stores one pasted image file for the message being typed. The
+// answer is ImageAttached or ImageAttachFailed with the same RequestID.
+type AttachImage struct {
+	// RequestID identifies this attach; it is never 0.
+	RequestID int64
+	// Path is the absolute path of the image file.
+	Path string
+}
+
 // ReadEarlierMessages asks for the stored messages before a sequence, for
 // /history. The answer arrives as EarlierMessagesRead.
 type ReadEarlierMessages struct {
@@ -125,4 +134,5 @@ func (DeleteQueuedMessage) isUserAction() {}
 func (RunSlashCommand) isUserAction()     {}
 func (ExecutePlan) isUserAction()         {}
 func (DetachImage) isUserAction()         {}
+func (AttachImage) isUserAction()         {}
 func (ReadEarlierMessages) isUserAction() {}
