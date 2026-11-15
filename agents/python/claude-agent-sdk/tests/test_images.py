@@ -42,11 +42,17 @@ async def test_user_and_tool_result_images_reach_the_model_and_replay_after_rest
     )
     interrupt = await harness.wait_for_pending_interrupt(session_id)
     assert interrupt.tool_name == "screenshot"
-    # The suspended turn keeps its transcript, user image included, in the run state.
+    # The suspended turn stores its transcript so far, user image included, as references only.
+    suspended = await harness.sessions.get_agent_snapshot(session_id)
+    stored_transcript = "\n".join(
+        message.framework_item
+        for message in suspended.messages
+        if message.role is not MessageRole.USER
+    )
+    assert user_image.uri in stored_transcript
+    assert USER_IMAGE_BASE64 not in stored_transcript
     values = await harness.stack.client.get_attributes(session_id, FRAMEWORK_RUN_STATE)
-    run_state = values[FRAMEWORK_RUN_STATE]
-    assert user_image.uri in run_state
-    assert USER_IMAGE_BASE64 not in run_state
+    assert user_image.uri not in values[FRAMEWORK_RUN_STATE]
 
     worker.kill()
     worker = await harness.stack.start_worker(MEDIA_STORE_ENVIRONMENT)

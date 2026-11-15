@@ -1,0 +1,1958 @@
+{
+  "description": "Inputs of the Claude transcript functions and the entries the TypeScript adapter builds from them, as JSON.stringify text. expected_* come from buildUnfinishedToolResultEntries and buildResumeTranscript of agents/typescript/claude-agent-sdk at commit dfec7f9d1 (#1897).",
+  "unfinished": [
+    {
+      "name": "rejected deferred write after an inline read",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "lookup then publish"
+          },
+          "uuid": "e1-u1",
+          "timestamp": "2026-11-14T10:00:00.000Z"
+        },
+        {
+          "parentUuid": "e1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "Working on it."
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a1",
+          "timestamp": "2026-11-14T10:00:01.000Z"
+        },
+        {
+          "parentUuid": "e1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_lookup",
+                "name": "mcp__tools__lookup",
+                "input": {
+                  "query": "a"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a2",
+          "timestamp": "2026-11-14T10:00:02.000Z"
+        },
+        {
+          "parentUuid": "e1-a2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_publish",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "b"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a3",
+          "timestamp": "2026-11-14T10:00:03.000Z"
+        },
+        {
+          "parentUuid": "e1-a3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_lookup",
+                "type": "tool_result",
+                "content": "found a"
+              }
+            ]
+          },
+          "uuid": "e1-r1",
+          "timestamp": "2026-11-14T10:00:04.000Z",
+          "toolUseResult": "found a",
+          "sourceToolAssistantUUID": "e1-a2"
+        },
+        {
+          "parentUuid": "e1-r1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_publish",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "b"
+            }
+          },
+          "uuid": "e1-d1",
+          "timestamp": "2026-11-14T10:00:05.000Z"
+        }
+      ],
+      "results": {
+        "toolu_publish": {
+          "text": "not now",
+          "is_error": true
+        }
+      },
+      "expected_entries": "[{\"parentUuid\":\"e1-r1\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_publish\",\"type\":\"tool_result\",\"content\":\"not now\",\"is_error\":true}]},\"uuid\":\"e94a5488-b4b4-5f12-8314-eb82875c71a6\",\"timestamp\":\"2026-11-14T10:00:05.000Z\",\"toolUseResult\":\"Error: not now\",\"sourceToolAssistantUUID\":\"e1-a3\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null}]"
+    },
+    {
+      "name": "succeeded source call with images and non-ASCII output",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "take a screenshot"
+          },
+          "uuid": "e2-u1",
+          "timestamp": "2026-11-14T10:00:10.000Z"
+        },
+        {
+          "parentUuid": "e2-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_02",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_shot",
+                "name": "mcp__tools__screenshot",
+                "input": {}
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e2-a1",
+          "timestamp": "2026-11-14T10:00:11.000Z"
+        },
+        {
+          "parentUuid": "e2-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_shot",
+            "toolName": "mcp__tools__screenshot",
+            "toolInput": {}
+          },
+          "uuid": "e2-d1",
+          "timestamp": "2026-11-14T10:00:12.000Z"
+        }
+      ],
+      "results": {
+        "toolu_shot": {
+          "text": "took a screenshot — café 😀",
+          "is_error": false,
+          "images": [
+            {
+              "uri": "file:///media/0a.gif",
+              "mime_type": "image/gif",
+              "sha256": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+              "size_bytes": 43
+            },
+            {
+              "uri": "file:///media/0b.png",
+              "mime_type": "image/png",
+              "sha256": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+              "size_bytes": 68
+            }
+          ]
+        }
+      },
+      "expected_entries": "[{\"parentUuid\":\"e2-a1\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_shot\",\"type\":\"tool_result\",\"content\":[{\"type\":\"text\",\"text\":\"took a screenshot — café 😀\"},{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/gif\",\"data\":{\"dex_image_reference\":{\"uri\":\"file:///media/0a.gif\",\"mime_type\":\"image/gif\",\"sha256\":\"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a\",\"size_bytes\":43,\"type\":\"image\"}}}},{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":{\"dex_image_reference\":{\"uri\":\"file:///media/0b.png\",\"mime_type\":\"image/png\",\"sha256\":\"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b\",\"size_bytes\":68,\"type\":\"image\"}}}}]}]},\"uuid\":\"04743c06-f9ce-5de0-b52a-c24af2154cbd\",\"timestamp\":\"2026-11-14T10:00:12.000Z\",\"toolUseResult\":\"took a screenshot — café 😀\",\"sourceToolAssistantUUID\":\"e2-a1\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null}]"
+    },
+    {
+      "name": "two unanswered calls in two replies, one without some envelope fields",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "two writes"
+          },
+          "uuid": "e3-u1",
+          "timestamp": "2026-11-14T10:00:20.000Z"
+        },
+        {
+          "parentUuid": "e3-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_03",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_bash",
+                "name": "Bash",
+                "input": {
+                  "command": "ls"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e3-a1",
+          "timestamp": "2026-11-14T10:00:21.000Z"
+        },
+        {
+          "parentUuid": "e3-a1",
+          "isSidechain": false,
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "message": {
+            "id": "msg_04",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "and"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_charge",
+                "name": "mcp__tools__charge",
+                "input": {
+                  "amount": 5
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e3-a2",
+          "timestamp": "2026-11-14T10:00:23.000Z"
+        },
+        {
+          "parentUuid": "e3-a2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "Continue from where you left off."
+          },
+          "isMeta": true,
+          "uuid": "e3-m1",
+          "timestamp": "2026-11-14T10:00:22.000Z"
+        }
+      ],
+      "results": {
+        "toolu_bash": {
+          "text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+          "is_error": true
+        },
+        "toolu_charge": {
+          "text": "The tool call failed: card declined",
+          "is_error": true
+        }
+      },
+      "expected_entries": "[{\"parentUuid\":\"e3-m1\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_bash\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"6b4d0e7c-726f-559c-9ef1-f557899e044d\",\"timestamp\":\"2026-11-14T10:00:23.000Z\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":\"e3-a1\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null},{\"parentUuid\":\"6b4d0e7c-726f-559c-9ef1-f557899e044d\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_charge\",\"type\":\"tool_result\",\"content\":\"The tool call failed: card declined\",\"is_error\":true}]},\"uuid\":\"252ef58c-82d2-5fe9-8b86-ecec2e4810f7\",\"timestamp\":\"2026-11-14T10:00:23.000Z\",\"toolUseResult\":\"Error: The tool call failed: card declined\",\"sourceToolAssistantUUID\":\"e3-a2\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\"}]"
+    },
+    {
+      "name": "no timestamps and no conversation entry with a uuid",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "turn_entries": [
+        {
+          "type": "assistant",
+          "message": {
+            "id": "msg_05",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_x",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "x"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "results": {
+        "toolu_x": {
+          "text": "published x",
+          "is_error": false
+        }
+      },
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_x\",\"type\":\"tool_result\",\"content\":\"published x\"}]},\"uuid\":\"091830b9-a231-5924-8b32-c5f9827065b4\",\"toolUseResult\":\"published x\",\"sourceToolAssistantUUID\":null}]"
+    },
+    {
+      "name": "every tool use answered",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "lookup then publish"
+          },
+          "uuid": "e1-u1",
+          "timestamp": "2026-11-14T10:00:00.000Z"
+        },
+        {
+          "parentUuid": "e1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "Working on it."
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a1",
+          "timestamp": "2026-11-14T10:00:01.000Z"
+        },
+        {
+          "parentUuid": "e1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_lookup",
+                "name": "mcp__tools__lookup",
+                "input": {
+                  "query": "a"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a2",
+          "timestamp": "2026-11-14T10:00:02.000Z"
+        },
+        {
+          "parentUuid": "e1-a3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_lookup",
+                "type": "tool_result",
+                "content": "found a"
+              }
+            ]
+          },
+          "uuid": "e1-r1",
+          "timestamp": "2026-11-14T10:00:04.000Z",
+          "toolUseResult": "found a",
+          "sourceToolAssistantUUID": "e1-a2"
+        }
+      ],
+      "results": {},
+      "expected_entries": "[]"
+    }
+  ],
+  "resume": [
+    {
+      "name": "a call left open behind a turn an older Worker completed",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "call publish"
+          },
+          "uuid": "t1-u1",
+          "timestamp": "2026-11-14T10:00:30.000Z"
+        },
+        {
+          "parentUuid": "t1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_10",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_open",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "draft"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t1-a1",
+          "timestamp": "2026-11-14T10:00:31.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t1-d1",
+          "timestamp": "2026-11-14T10:00:32.000Z"
+        },
+        {
+          "parentUuid": "t1-d1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t2-d2",
+          "timestamp": "2026-11-14T10:00:40.000Z"
+        },
+        {
+          "parentUuid": "t2-d2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say second"
+          },
+          "uuid": "t2-u2",
+          "timestamp": "2026-11-14T10:00:41.000Z"
+        },
+        {
+          "parentUuid": "t2-u2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_11",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "said: second"
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t2-a2",
+          "timestamp": "2026-11-14T10:00:42.000Z"
+        }
+      ],
+      "ended_turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "call publish"
+          },
+          "uuid": "t1-u1",
+          "timestamp": "2026-11-14T10:00:30.000Z"
+        },
+        {
+          "parentUuid": "t1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_10",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_open",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "draft"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t1-a1",
+          "timestamp": "2026-11-14T10:00:31.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t1-d1",
+          "timestamp": "2026-11-14T10:00:32.000Z"
+        },
+        {
+          "parentUuid": "t1-d1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t2-d2",
+          "timestamp": "2026-11-14T10:00:40.000Z"
+        },
+        {
+          "parentUuid": "t2-d2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say second"
+          },
+          "uuid": "t2-u2",
+          "timestamp": "2026-11-14T10:00:41.000Z"
+        },
+        {
+          "parentUuid": "t2-u2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_11",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "said: second"
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t2-a2",
+          "timestamp": "2026-11-14T10:00:42.000Z"
+        }
+      ],
+      "answer_text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"call publish\"},\"uuid\":\"t1-u1\",\"timestamp\":\"2026-11-14T10:00:30.000Z\"},{\"parentUuid\":\"t1-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_10\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_open\",\"name\":\"mcp__tools__publish\",\"input\":{\"message\":\"draft\"}}]},\"type\":\"assistant\",\"uuid\":\"t1-a1\",\"timestamp\":\"2026-11-14T10:00:31.000Z\"},{\"parentUuid\":\"t1-a1\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_open\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"639ade43-84c2-5b16-8f3d-11cb81d42c5c\",\"timestamp\":\"2026-11-14T10:00:31.000Z\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":\"t1-a1\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null},{\"parentUuid\":\"639ade43-84c2-5b16-8f3d-11cb81d42c5c\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"say second\"},\"uuid\":\"t2-u2\",\"timestamp\":\"2026-11-14T10:00:41.000Z\"},{\"parentUuid\":\"t2-u2\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_11\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"text\",\"text\":\"said: second\"}]},\"type\":\"assistant\",\"uuid\":\"t2-a2\",\"timestamp\":\"2026-11-14T10:00:42.000Z\"}]",
+      "expected_new_answer_entries": "[{\"parentUuid\":\"t1-a1\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_open\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"639ade43-84c2-5b16-8f3d-11cb81d42c5c\",\"timestamp\":\"2026-11-14T10:00:31.000Z\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":\"t1-a1\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null}]"
+    },
+    {
+      "name": "an open call of a parallel reply, with a running turn's stored entries",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "lookup then publish"
+          },
+          "uuid": "e1-u1",
+          "timestamp": "2026-11-14T10:00:00.000Z"
+        },
+        {
+          "parentUuid": "e1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "Working on it."
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a1",
+          "timestamp": "2026-11-14T10:00:01.000Z"
+        },
+        {
+          "parentUuid": "e1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_lookup",
+                "name": "mcp__tools__lookup",
+                "input": {
+                  "query": "a"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a2",
+          "timestamp": "2026-11-14T10:00:02.000Z"
+        },
+        {
+          "parentUuid": "e1-a2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_publish",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "b"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a3",
+          "timestamp": "2026-11-14T10:00:03.000Z"
+        },
+        {
+          "parentUuid": "e1-a3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_lookup",
+                "type": "tool_result",
+                "content": "found a"
+              }
+            ]
+          },
+          "uuid": "e1-r1",
+          "timestamp": "2026-11-14T10:00:04.000Z",
+          "toolUseResult": "found a",
+          "sourceToolAssistantUUID": "e1-a2"
+        },
+        {
+          "parentUuid": "e1-r1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_publish",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "b"
+            }
+          },
+          "uuid": "e1-d1",
+          "timestamp": "2026-11-14T10:00:05.000Z"
+        },
+        {
+          "parentUuid": "e1-d1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say next"
+          },
+          "uuid": "e1-u2",
+          "timestamp": "2026-11-14T10:00:06.000Z"
+        }
+      ],
+      "ended_turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "lookup then publish"
+          },
+          "uuid": "e1-u1",
+          "timestamp": "2026-11-14T10:00:00.000Z"
+        },
+        {
+          "parentUuid": "e1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "Working on it."
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a1",
+          "timestamp": "2026-11-14T10:00:01.000Z"
+        },
+        {
+          "parentUuid": "e1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_lookup",
+                "name": "mcp__tools__lookup",
+                "input": {
+                  "query": "a"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a2",
+          "timestamp": "2026-11-14T10:00:02.000Z"
+        },
+        {
+          "parentUuid": "e1-a2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_publish",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "b"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a3",
+          "timestamp": "2026-11-14T10:00:03.000Z"
+        },
+        {
+          "parentUuid": "e1-a3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_lookup",
+                "type": "tool_result",
+                "content": "found a"
+              }
+            ]
+          },
+          "uuid": "e1-r1",
+          "timestamp": "2026-11-14T10:00:04.000Z",
+          "toolUseResult": "found a",
+          "sourceToolAssistantUUID": "e1-a2"
+        },
+        {
+          "parentUuid": "e1-r1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_publish",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "b"
+            }
+          },
+          "uuid": "e1-d1",
+          "timestamp": "2026-11-14T10:00:05.000Z"
+        }
+      ],
+      "answer_text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"lookup then publish\"},\"uuid\":\"e1-u1\",\"timestamp\":\"2026-11-14T10:00:00.000Z\"},{\"parentUuid\":\"e1-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"text\",\"text\":\"Working on it.\"}]},\"type\":\"assistant\",\"uuid\":\"e1-a1\",\"timestamp\":\"2026-11-14T10:00:01.000Z\"},{\"parentUuid\":\"e1-a1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_lookup\",\"name\":\"mcp__tools__lookup\",\"input\":{\"query\":\"a\"}}]},\"type\":\"assistant\",\"uuid\":\"e1-a2\",\"timestamp\":\"2026-11-14T10:00:02.000Z\"},{\"parentUuid\":\"e1-a2\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_publish\",\"name\":\"mcp__tools__publish\",\"input\":{\"message\":\"b\"}}]},\"type\":\"assistant\",\"uuid\":\"e1-a3\",\"timestamp\":\"2026-11-14T10:00:03.000Z\"},{\"parentUuid\":\"e1-a3\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_publish\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"4ed72828-eb26-5792-aa3a-4d1bb640137a\",\"timestamp\":\"2026-11-14T10:00:03.000Z\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":\"e1-a3\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null},{\"parentUuid\":\"e1-a3\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_lookup\",\"type\":\"tool_result\",\"content\":\"found a\"}]},\"uuid\":\"e1-r1\",\"timestamp\":\"2026-11-14T10:00:04.000Z\",\"toolUseResult\":\"found a\",\"sourceToolAssistantUUID\":\"e1-a2\"},{\"parentUuid\":\"e1-r1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"say next\"},\"uuid\":\"e1-u2\",\"timestamp\":\"2026-11-14T10:00:06.000Z\"}]",
+      "expected_new_answer_entries": "[{\"parentUuid\":\"e1-a3\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_publish\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"4ed72828-eb26-5792-aa3a-4d1bb640137a\",\"timestamp\":\"2026-11-14T10:00:03.000Z\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":\"e1-a3\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null}]"
+    },
+    {
+      "name": "a tool use whose assistant entry has no uuid or timestamp",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "go"
+          },
+          "uuid": "e4-u1",
+          "timestamp": "2026-11-14T10:00:50.000Z"
+        },
+        {
+          "parentUuid": "e4-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_12",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_anon",
+                "name": "Bash",
+                "input": {
+                  "command": "pwd"
+                }
+              }
+            ]
+          },
+          "type": "assistant"
+        },
+        {
+          "parentUuid": "e4-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "next"
+          },
+          "uuid": "e4-u2",
+          "timestamp": "2026-11-14T10:00:52.000Z"
+        }
+      ],
+      "ended_turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "go"
+          },
+          "uuid": "e4-u1",
+          "timestamp": "2026-11-14T10:00:50.000Z"
+        },
+        {
+          "parentUuid": "e4-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_12",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_anon",
+                "name": "Bash",
+                "input": {
+                  "command": "pwd"
+                }
+              }
+            ]
+          },
+          "type": "assistant"
+        }
+      ],
+      "answer_text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"go\"},\"uuid\":\"e4-u1\",\"timestamp\":\"2026-11-14T10:00:50.000Z\"},{\"parentUuid\":\"e4-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_12\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_anon\",\"name\":\"Bash\",\"input\":{\"command\":\"pwd\"}}]},\"type\":\"assistant\"},{\"parentUuid\":\"e4-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"next\"},\"uuid\":\"e4-u2\",\"timestamp\":\"2026-11-14T10:00:52.000Z\"}]",
+      "expected_new_answer_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_anon\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"afbc95d3-a707-5fd5-92c9-2ad71a951058\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":null,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null}]"
+    },
+    {
+      "name": "no Claude session",
+      "session_id": null,
+      "entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "call publish"
+          },
+          "uuid": "t1-u1",
+          "timestamp": "2026-11-14T10:00:30.000Z"
+        },
+        {
+          "parentUuid": "t1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_10",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_open",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "draft"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t1-a1",
+          "timestamp": "2026-11-14T10:00:31.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t1-d1",
+          "timestamp": "2026-11-14T10:00:32.000Z"
+        }
+      ],
+      "ended_turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "call publish"
+          },
+          "uuid": "t1-u1",
+          "timestamp": "2026-11-14T10:00:30.000Z"
+        },
+        {
+          "parentUuid": "t1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_10",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_open",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "draft"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t1-a1",
+          "timestamp": "2026-11-14T10:00:31.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t1-d1",
+          "timestamp": "2026-11-14T10:00:32.000Z"
+        }
+      ],
+      "answer_text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"call publish\"},\"uuid\":\"t1-u1\",\"timestamp\":\"2026-11-14T10:00:30.000Z\"},{\"parentUuid\":\"t1-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_10\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_open\",\"name\":\"mcp__tools__publish\",\"input\":{\"message\":\"draft\"}}]},\"type\":\"assistant\",\"uuid\":\"t1-a1\",\"timestamp\":\"2026-11-14T10:00:31.000Z\"},{\"parentUuid\":\"t1-a1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_deferred_tool\",\"toolUseID\":\"toolu_open\",\"toolName\":\"mcp__tools__publish\",\"toolInput\":{\"message\":\"draft\"}},\"uuid\":\"t1-d1\",\"timestamp\":\"2026-11-14T10:00:32.000Z\"}]",
+      "expected_new_answer_entries": "[]"
+    },
+    {
+      "name": "every ended tool use answered",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "lookup then publish"
+          },
+          "uuid": "e1-u1",
+          "timestamp": "2026-11-14T10:00:00.000Z"
+        },
+        {
+          "parentUuid": "e1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "Working on it."
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a1",
+          "timestamp": "2026-11-14T10:00:01.000Z"
+        },
+        {
+          "parentUuid": "e1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_lookup",
+                "name": "mcp__tools__lookup",
+                "input": {
+                  "query": "a"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a2",
+          "timestamp": "2026-11-14T10:00:02.000Z"
+        },
+        {
+          "parentUuid": "e1-a3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_lookup",
+                "type": "tool_result",
+                "content": "found a"
+              }
+            ]
+          },
+          "uuid": "e1-r1",
+          "timestamp": "2026-11-14T10:00:04.000Z",
+          "toolUseResult": "found a",
+          "sourceToolAssistantUUID": "e1-a2"
+        }
+      ],
+      "ended_turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "lookup then publish"
+          },
+          "uuid": "e1-u1",
+          "timestamp": "2026-11-14T10:00:00.000Z"
+        },
+        {
+          "parentUuid": "e1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "Working on it."
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a1",
+          "timestamp": "2026-11-14T10:00:01.000Z"
+        },
+        {
+          "parentUuid": "e1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_lookup",
+                "name": "mcp__tools__lookup",
+                "input": {
+                  "query": "a"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "e1-a2",
+          "timestamp": "2026-11-14T10:00:02.000Z"
+        },
+        {
+          "parentUuid": "e1-a3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_lookup",
+                "type": "tool_result",
+                "content": "found a"
+              }
+            ]
+          },
+          "uuid": "e1-r1",
+          "timestamp": "2026-11-14T10:00:04.000Z",
+          "toolUseResult": "found a",
+          "sourceToolAssistantUUID": "e1-a2"
+        }
+      ],
+      "answer_text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"lookup then publish\"},\"uuid\":\"e1-u1\",\"timestamp\":\"2026-11-14T10:00:00.000Z\"},{\"parentUuid\":\"e1-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"text\",\"text\":\"Working on it.\"}]},\"type\":\"assistant\",\"uuid\":\"e1-a1\",\"timestamp\":\"2026-11-14T10:00:01.000Z\"},{\"parentUuid\":\"e1-a1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_lookup\",\"name\":\"mcp__tools__lookup\",\"input\":{\"query\":\"a\"}}]},\"type\":\"assistant\",\"uuid\":\"e1-a2\",\"timestamp\":\"2026-11-14T10:00:02.000Z\"},{\"parentUuid\":\"e1-a3\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_lookup\",\"type\":\"tool_result\",\"content\":\"found a\"}]},\"uuid\":\"e1-r1\",\"timestamp\":\"2026-11-14T10:00:04.000Z\",\"toolUseResult\":\"found a\",\"sourceToolAssistantUUID\":\"e1-a2\"}]",
+      "expected_new_answer_entries": "[]"
+    },
+    {
+      "name": "an answer a later turn stored is placed after its tool use again",
+      "session_id": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+      "entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "call publish"
+          },
+          "uuid": "t1-u1",
+          "timestamp": "2026-11-14T10:00:30.000Z"
+        },
+        {
+          "parentUuid": "t1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_10",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_open",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "draft"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t1-a1",
+          "timestamp": "2026-11-14T10:00:31.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t1-d1",
+          "timestamp": "2026-11-14T10:00:32.000Z"
+        },
+        {
+          "parentUuid": "t1-d1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t2-d2",
+          "timestamp": "2026-11-14T10:00:40.000Z"
+        },
+        {
+          "parentUuid": "t2-d2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say second"
+          },
+          "uuid": "t2-u2",
+          "timestamp": "2026-11-14T10:00:41.000Z"
+        },
+        {
+          "parentUuid": "t2-u2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_11",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "said: second"
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t2-a2",
+          "timestamp": "2026-11-14T10:00:42.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_open",
+                "type": "tool_result",
+                "content": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+                "is_error": true
+              }
+            ]
+          },
+          "uuid": "639ade43-84c2-5b16-8f3d-11cb81d42c5c",
+          "timestamp": "2026-11-14T10:00:31.000Z",
+          "toolUseResult": "Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+          "sourceToolAssistantUUID": "t1-a1",
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null
+        },
+        {
+          "parentUuid": "t2-a2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say third"
+          },
+          "uuid": "t3-u3",
+          "timestamp": "2026-11-14T10:00:51.000Z"
+        },
+        {
+          "parentUuid": "t3-u3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_13",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "said: third"
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t3-a3",
+          "timestamp": "2026-11-14T10:00:52.000Z"
+        }
+      ],
+      "ended_turn_entries": [
+        {
+          "parentUuid": null,
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "call publish"
+          },
+          "uuid": "t1-u1",
+          "timestamp": "2026-11-14T10:00:30.000Z"
+        },
+        {
+          "parentUuid": "t1-u1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_10",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_open",
+                "name": "mcp__tools__publish",
+                "input": {
+                  "message": "draft"
+                }
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t1-a1",
+          "timestamp": "2026-11-14T10:00:31.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t1-d1",
+          "timestamp": "2026-11-14T10:00:32.000Z"
+        },
+        {
+          "parentUuid": "t1-d1",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "attachment",
+          "attachment": {
+            "type": "hook_deferred_tool",
+            "toolUseID": "toolu_open",
+            "toolName": "mcp__tools__publish",
+            "toolInput": {
+              "message": "draft"
+            }
+          },
+          "uuid": "t2-d2",
+          "timestamp": "2026-11-14T10:00:40.000Z"
+        },
+        {
+          "parentUuid": "t2-d2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say second"
+          },
+          "uuid": "t2-u2",
+          "timestamp": "2026-11-14T10:00:41.000Z"
+        },
+        {
+          "parentUuid": "t2-u2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_11",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-scripted-20261101",
+            "content": [
+              {
+                "type": "text",
+                "text": "said: second"
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t2-a2",
+          "timestamp": "2026-11-14T10:00:42.000Z"
+        },
+        {
+          "parentUuid": "t1-a1",
+          "isSidechain": false,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_open",
+                "type": "tool_result",
+                "content": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+                "is_error": true
+              }
+            ]
+          },
+          "uuid": "639ade43-84c2-5b16-8f3d-11cb81d42c5c",
+          "timestamp": "2026-11-14T10:00:31.000Z",
+          "toolUseResult": "Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+          "sourceToolAssistantUUID": "t1-a1",
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null
+        },
+        {
+          "parentUuid": "t2-a2",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": "say third"
+          },
+          "uuid": "t3-u3",
+          "timestamp": "2026-11-14T10:00:51.000Z"
+        },
+        {
+          "parentUuid": "t3-u3",
+          "isSidechain": false,
+          "userType": "external",
+          "entrypoint": "sdk-py",
+          "cwd": "/srv/agents/session-42",
+          "sessionId": "5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40",
+          "version": "2.1.316",
+          "gitBranch": null,
+          "message": {
+            "id": "msg_13",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "said: third"
+              }
+            ]
+          },
+          "type": "assistant",
+          "uuid": "t3-a3",
+          "timestamp": "2026-11-14T10:00:52.000Z"
+        }
+      ],
+      "answer_text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.",
+      "expected_entries": "[{\"parentUuid\":null,\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"call publish\"},\"uuid\":\"t1-u1\",\"timestamp\":\"2026-11-14T10:00:30.000Z\"},{\"parentUuid\":\"t1-u1\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_10\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_open\",\"name\":\"mcp__tools__publish\",\"input\":{\"message\":\"draft\"}}]},\"type\":\"assistant\",\"uuid\":\"t1-a1\",\"timestamp\":\"2026-11-14T10:00:31.000Z\"},{\"parentUuid\":\"t1-a1\",\"isSidechain\":false,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_open\",\"type\":\"tool_result\",\"content\":\"The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"is_error\":true}]},\"uuid\":\"639ade43-84c2-5b16-8f3d-11cb81d42c5c\",\"timestamp\":\"2026-11-14T10:00:31.000Z\",\"toolUseResult\":\"Error: The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.\",\"sourceToolAssistantUUID\":\"t1-a1\",\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null},{\"parentUuid\":\"639ade43-84c2-5b16-8f3d-11cb81d42c5c\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"say second\"},\"uuid\":\"t2-u2\",\"timestamp\":\"2026-11-14T10:00:41.000Z\"},{\"parentUuid\":\"t2-u2\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_11\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-scripted-20261101\",\"content\":[{\"type\":\"text\",\"text\":\"said: second\"}]},\"type\":\"assistant\",\"uuid\":\"t2-a2\",\"timestamp\":\"2026-11-14T10:00:42.000Z\"},{\"parentUuid\":\"t2-a2\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"say third\"},\"uuid\":\"t3-u3\",\"timestamp\":\"2026-11-14T10:00:51.000Z\"},{\"parentUuid\":\"t3-u3\",\"isSidechain\":false,\"userType\":\"external\",\"entrypoint\":\"sdk-py\",\"cwd\":\"/srv/agents/session-42\",\"sessionId\":\"5b1f3c2e-0d4a-4e8b-9c7f-2a6d8e1b3c40\",\"version\":\"2.1.316\",\"gitBranch\":null,\"message\":{\"id\":\"msg_13\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"said: third\"}]},\"type\":\"assistant\",\"uuid\":\"t3-a3\",\"timestamp\":\"2026-11-14T10:00:52.000Z\"}]",
+      "expected_new_answer_entries": "[]"
+    }
+  ]
+}

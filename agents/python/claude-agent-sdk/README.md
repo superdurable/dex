@@ -370,8 +370,10 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
      call that needs approval: `defer`. The CLI ends the segment with
      `stop_reason: "tool_deferred"` and the call in
      `ResultMessage.deferred_tool_use`. The runner returns
-     `ToolCallsRequested` with that one call, the session ID, and the turn's
-     entries so far as `FrameworkRunState`. The call's arguments are the
+     `ToolCallsRequested` with that one call, the session ID as
+     `FrameworkRunState`, and the segment's transcript entries as
+     `new_messages`, so the session stores the turn so far in the same commit
+     and a UI shows it while the call waits. The call's arguments are the
      CLI's recorded input, after every PreToolUse hook's `updatedInput`.
    - Every later deferrable call of the same segment: `deny` with
      "<tool> did not run. Only one tool call per reply can run outside this
@@ -399,7 +401,8 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
    under `dontAsk` the CLI does not ask, so `--await-initialize` must prevent
    the skip. The CLI then adds a hidden "Continue from where you left off."
    message and makes the next model call.
-6. When the CLI produces the final answer, the runner returns `TurnCompleted`.
+6. When the CLI produces the final answer, the runner returns `TurnCompleted`
+   with the segment's entries; earlier segments of the turn are already stored.
    Each assistant API message and each tool result becomes one stored message.
    Its `framework_item` is
    `{"kind": "claude_transcript", "session_id": ..., "entries": [...]}`, and
@@ -527,16 +530,71 @@ the session stores a turn-failure note built with `build_user_message`:
 Do not repeat these tool calls unless the user asks again.
 ```
 
-The failed turn's transcript is not stored, so the next turn starts from the
-last completed turn's Claude session and sends the failed turn's prompt, the
-note, and its own prompt as three text blocks. The CLI records them, and the
-model sees what already ran.
+A turn that ends without a final answer keeps the transcript that its
+deferrals stored. When the user steers or cancels it, or it fails,
+`build_unfinished_turn_messages` adds a tool result for each tool use that has
+none, usually the last deferred call, with the call's final record: a custom
+or source tool's output, failure, or rejection, such as the steering or
+cancellation result. An approved tool that runs inside the CLI, such as
+`Bash`, and a call without a final record get `OUTCOME_UNKNOWN_TOOL_RESULT`,
+since a failed segment may have run it. A steered or cancelled turn then needs
+no note. The next turn resumes the same Claude session, which has no
+unanswered tool use, so the CLI never resumes the abandoned call. Claude Code
+adds its own assistant message "No response requested." after such a tail,
+before the next prompt; the model sees it, and the session stores it with the
+next turn. A failed turn also gets the turn-failure note; the next turn sends
+the note and its own prompt as two text blocks. A turn that ends before its
+first deferral stored nothing, so a failed one sends the failed prompt, the
+note, and its own prompt as three text blocks.
+
+Each result entry is shaped like the CLI's own: its `uuid` is a version 5 UUID
+of `"<Claude session ID>/<tool use ID>"`, and its `timestamp` is the turn's
+latest one, so the same committed state always builds the same entry. The
+TypeScript adapter builds the same entries byte for byte.
+
+Changed in 0.6.12: each deferral stores the turn so far, and a steered,
+cancelled, or failed turn stores the tool result of its abandoned call instead
+of relying on the core's note alone. A run state of an earlier adapter still
+holds the turn's unstored entries, which the runner stores when the turn
+continues or ends. `RunModel` answers the open calls of ended turns, as below.
+
+### Ended turns
+
+A Worker of the same Flow type without `build_unfinished_turn_messages`, such
+as adapter 0.6.11 during a rolling upgrade, can end a turn after another
+Worker stored its deferral. It stores only the core's note, so the stored tool
+use keeps no result. The CLI would then resume that call as a pending deferral
+on every later turn, and this adapter would ask for its approval again. So
+every `RunModel` builds the transcript the CLI resumes from this way:
+
+- An ended turn is any turn other than the running one. Each main-conversation
+  tool use of an ended turn that has no tool result anywhere in the stored
+  transcript gets an answer: an error tool result with
+  `OUTCOME_UNKNOWN_TOOL_RESULT`. That turn's records are gone; the note still
+  tells the model what ran. The answer's `uuid` is a version 5 UUID of
+  `"<Claude session ID>/ended-turn/<tool use ID>"`, and its timestamp is the
+  tool use's, so every attempt builds the same answer.
+- The segment stores each new answer once, in the running turn, before its own
+  messages, so a UI shows it there and later turns find the call answered.
+- The CLI gets every answer, stored or new, right after the entry of its tool
+  use, chained to it. Entries that continued the conversation from that entry
+  continue from the answer instead, and the call's deferral attachments are
+  left out, with their children chained to their parents. So the model sees
+  the call paired with its answer, and the CLI resumes no deferral of an ended
+  turn. The stored entries never change; only the transcript given to the CLI
+  does.
+- The scan reads only the transcript entries that every `RunModel` already
+  loads to resume the session, so it adds no Flow state reads.
+
+The TypeScript adapter builds the same answers and places them the same way,
+so Workers of both languages converge on one stored transcript.
 
 ## What is and is not recorded
 
 Recorded in Dex state, never repeated after a crash:
 
-- The transcript of every completed turn, and the entries of a suspended turn.
+- The transcript of every turn: each segment that defers a call or answers
+  stores its entries.
 - Every deferred custom tool call and source tool call, and its outcome:
   output text, failure, rejection, or unknown outcome.
 - Approvals and rejections of every deferred call, including CLI tools.
@@ -650,7 +708,22 @@ hook-rewritten input on resume, with and without the hook, later calls that
 reuse a recorded call's ID in the same segment, under another tool, or after an
 earlier segment answered it, custom tools named like Claude Code tools, a resumed call that skips the hook, SIGKILL during a resumed
 segment, a CLI error result, and a resumed turn that fails after a write and
-leaves a note for the next prompt. `tests/test_tracing.py` runs an in-process
+leaves the write's result and a note for the next prompt.
+`tests/test_unfinished_turns.py` covers the transcript a deferral stores, a
+turn steered at an approval, turns cancelled while the resumed CLI runs a
+custom tool or `Bash`, a run state of an earlier adapter, and the next turn
+after a Worker without `build_unfinished_turn_messages` cancelled a turn at a
+stored deferral, also behind a later turn's stored transcript, with a retried
+attempt. Such a Worker runs with
+`CLAUDE_TEST_AGENT_WITHOUT_UNFINISHED_TURN_MESSAGES` set.
+`tests/test_released_worker.py` installs the released adapter 0.6.11 from PyPI
+and moves one session between it and this version: a turn it deferred, with
+its entries in the run state, completes here once, and after it cancels a turn
+at a deferral this version stored, the next turn answers the call instead of
+asking for its approval again.
+`tests/test_transcript_parity.py` checks the unfinished-turn and ended-turn
+entries byte for byte against the TypeScript adapter's output in
+`tests/fixtures/claude_transcript_parity.json`. `tests/test_tracing.py` runs an in-process
 Worker with an in-memory span exporter and checks the `chat` span metadata of
 a one-call answer, a two-call read tool turn, a deferred write and its resumed
 answer, and a segment with a subagent call, plus the provider name mapping and
@@ -660,7 +733,11 @@ real-CLI tests cover a resume across a
 Worker restart, four resumes in one session including a plain-text rejection,
 two writes in one reply under `dontAsk`, custom and connector, and an approved
 `Bash` call whose command an application hook rewrote: the resumed CLI runs
-the rewritten command.
+the rewritten command. `tests/test_real_claude_cli_unfinished_turns.py` covers
+a turn steered at an approval whose next turn resumes a complete session, and
+the next turn after a Worker without `build_unfinished_turn_messages`
+cancelled a turn at a stored deferral, also behind a later turn's stored
+transcript.
 
 `tests/test_replayed_tool_call_ids.py` drives the gate directly for requests
 no CLI run sends: a record asked for under another tool or kind, repeated and
@@ -692,6 +769,14 @@ written in different languages:
   with the CLI's transcript entries unchanged, except that `last-prompt`
   entries are left out.
 - `FrameworkRunState`: `{"version": 1, "session_id": "<uuid>", "turn_entries": [...]}`.
+  Since 0.6.12 `turn_entries` holds only entries the session has not stored,
+  which is none; a run state of an earlier adapter holds the turn's entries so
+  far, and the next segment stores them.
+- Unfinished-turn and ended-turn tool results: see "When a turn fails". Both
+  adapters build them with the same keys in the same order, the same UUID v5
+  namespace `6f0d3c1e-8a2b-4f57-a9d4-c3e2b1a09876`, and the same timestamps.
+  `tests/fixtures/claude_transcript_parity.json` holds the TypeScript adapter's
+  output for shared inputs.
 - Records name custom tools by their own name and CLI tools by their CLI name.
   Custom tool names must not be Claude Code tool names.
 - An approved CLI tool's record output is `APPROVED_CLI_TOOL_OUTPUT`.
