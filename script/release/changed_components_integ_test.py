@@ -23,6 +23,7 @@ from component_changelogs import PACKAGES_STYLE, TARGETS, release_key, released_
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
 WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
+WEB_EMBEDDED_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/web-embedded-module-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
 RELEASE_NOTES_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-notes.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
@@ -338,6 +339,70 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('image_tag="${RELEASE_TAG#web/}"', workflow)
         self.assertNotIn("server/v", workflow)
 
+    def test_embedded_web_module_publishes_for_each_stable_web_release(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(workflow_trigger_events(workflow), ["release", "workflow_call", "workflow_dispatch"])
+        # released also fires when a prerelease becomes stable; published would miss that.
+        self.assertIn("types: [released]", workflow)
+        self.assertNotIn("published]", workflow)
+        self.assertNotIn("prerelease)", workflow)
+        publish_if = workflow_job_if(workflow, "publish")
+        self.assertIn("github.event_name != 'release'", publish_if)
+        self.assertIn("startsWith(github.event.release.tag_name, 'web/v')", publish_if)
+        self.assertIn("RELEASE_TAG: ${{ github.event.release.tag_name }}", workflow)
+        self.assertIn('web_version="${RELEASE_TAG#web/v}"', workflow)
+        self.assertIn("ref: refs/tags/web/v${{ steps.version.outputs.web_version }}", workflow)
+        self.assertIn("\npermissions:\n  contents: read\n", workflow)
+        self.assertIn('git push origin "refs/tags/web/embedded/v${WEB_VERSION}"', workflow)
+
+    def test_embedded_web_module_runs_never_interpolate_untrusted_values(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        run_blocks = workflow_run_blocks(workflow)
+        self.assertGreater(len(run_blocks), 0)
+        for block in run_blocks:
+            self.assertNotIn("${{ github.event.release", block)
+            self.assertNotIn("${{ inputs.", block)
+
+    def test_workflow_run_blocks_reads_single_and_multi_line_runs(self) -> None:
+        text = "steps:\n  - run: echo ${{ inputs.a }}\n  - name: b\n    run: |\n      echo one\n      echo two\n    env: {}\n"
+        self.assertEqual(workflow_run_blocks(text), ["echo ${{ inputs.a }}", "|\n      echo one\n      echo two"])
+
+    def test_embedded_web_module_serializes_runs_of_one_version(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        publish_job = workflow.split("\n  publish:\n", 1)[1]
+        self.assertIn("concurrency:", publish_job)
+        self.assertIn("web-embedded-module-${{ inputs.version && format('web/v{0}', inputs.version)", publish_job)
+        self.assertIn("|| github.event.release.tag_name }}", publish_job)
+        self.assertIn("cancel-in-progress: false", publish_job)
+
+    def test_embedded_web_module_skips_an_existing_tag(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('git ls-remote --exit-code --tags origin "refs/tags/${module_tag}"', workflow)
+        self.assertIn("is_published=true", workflow)
+        self.assertIn('if [[ "${status}" -ne 2 ]]; then', workflow)
+        for step in ("Build Dex Web assets", "Check a host module builds", "Create the module release commit"):
+            step_text = workflow.split(f"- name: {step}", 1)[1].split("\n      - ", 1)[0]
+            self.assertIn("if: steps.existing.outputs.is_published == 'false'", step_text, step)
+        self.assertIn("if: steps.existing.outputs.is_published == 'false' && !inputs.dry_run", workflow)
+
+    def test_embedded_web_module_fails_loudly_while_sdk_go_is_unreleased(self) -> None:
+        workflow = WEB_EMBEDDED_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        check_step = workflow.split("- name: Check a host module builds against the package", 1)[1]
+        check_step = check_step.split("\n      - ", 1)[0]
+        self.assertIn("python3 script/release/check_embedded_web_module.py", check_step)
+        self.assertNotIn("--skip-if-sdk-go-unreleased", check_step)
+        self.assertIn("::error title=Embedded Dex Web module not published::", check_step)
+        self.assertIn("exit 1", check_step)
+
+    def test_coordinated_release_publishes_the_embedded_web_module_once(self) -> None:
+        # Releases created with GITHUB_TOKEN start no release-event runs, so only the call publishes.
+        coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/workflows/web-embedded-module-release.yml", coordinated_workflow)
+        create_releases = coordinated_workflow.split("\n  create-releases:\n", 1)[1].split("\n  snapshot-references:\n", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", create_releases)
+        self.assertIn('gh release create "${tag}"', create_releases)
+        self.assertNotIn("secrets.", create_releases)
+
     def test_release_workflows_build_notes_from_component_changelogs(self) -> None:
         coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("generate-notes", coordinated_workflow)
@@ -379,6 +444,37 @@ class FragmentSourcePathsTest(unittest.TestCase):
     def test_embedded_component_paths_are_not_fragment_sources(self) -> None:
         for prefix in FRAGMENT_SOURCE_PATHS["cli"]:
             self.assertFalse(prefix.startswith(("web/", "server-zd/", "sdk-go/")), prefix)
+
+
+def workflow_job_if(workflow_text: str, job: str) -> str:
+    """Returns the job's if: expression, joining a folded block scalar's lines."""
+    job_text = workflow_text.split(f"\n  {job}:\n", 1)[1]
+    lines = job_text.splitlines()
+    start = next(index for index, line in enumerate(lines) if line.startswith("    if:"))
+    expression = [lines[start].removeprefix("    if:").strip()]
+    for line in lines[start + 1 :]:
+        if not line.startswith("      "):
+            break
+        expression.append(line.strip())
+    return " ".join(expression)
+
+
+def workflow_run_blocks(workflow_text: str) -> list[str]:
+    """Returns each run: value, with a block scalar's more-indented lines."""
+    blocks: list[str] = []
+    lines = workflow_text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(\s*)(?:- )?run:\s*(.*)$", line)
+        if not match:
+            continue
+        key_indent = len(match.group(1)) + (2 if line.lstrip().startswith("- ") else 0)
+        block = [match.group(2)]
+        for following in lines[index + 1 :]:
+            if following.strip() and len(following) - len(following.lstrip()) <= key_indent:
+                break
+            block.append(following)
+        blocks.append("\n".join(block).rstrip())
+    return blocks
 
 
 # The release tooling uses only the standard library, which has no YAML parser.

@@ -102,6 +102,28 @@ component before it creates any tag. The server binary and image releases
 run it on the tagged commit and fail before they build, upload, or push
 anything.
 
+### The embedded Dex Web Go module
+
+Each stable `web/vX.Y.Z` release also publishes the Go module
+`github.com/superdurable/dex/web/embedded` as the tag `web/embedded/vX.Y.Z`.
+The **Publish embedded Dex Web Go module** workflow builds it from the release
+tag's commit:
+
+- **Release changed components** calls it after it creates the releases.
+  Releases created with `GITHUB_TOKEN` start no release-event runs, so the
+  module publishes once.
+- A stable `web/v*` Release published by hand starts it through the
+  `released` event. A prerelease starts it when it is marked stable.
+- Runs for the same version wait for each other.
+- When `web/embedded/vX.Y.Z` already exists, it publishes nothing and
+  succeeds. Dispatch it by hand to retry a failed run.
+
+The module requires a released sdk-go. When web uses sdk-go code that no
+`sdk-go/v*` tag contains, the workflow fails with "release sdk-go first".
+Release sdk-go before such a web release, or in the same **Release changed
+components** run. After such a failure, release sdk-go, then dispatch the
+module workflow with the web version.
+
 ### Release notes
 
 Each GitHub Release lists only its own component's changes. Its notes come
