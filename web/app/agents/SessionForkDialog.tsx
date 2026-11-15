@@ -23,6 +23,7 @@ export function SessionForkDialog({
   sourceRunId,
   sourceTaskQueue,
   point,
+  isFromMessage,
   onClose,
   onForked,
 }: {
@@ -31,12 +32,14 @@ export function SessionForkDialog({
   /** The source run's task queue; '' for the default task queue. */
   sourceTaskQueue: string;
   point: SessionForkPoint;
+  /** True for "Fork from this message"; false for "Fork session". */
+  isFromMessage: boolean;
   onClose: () => void;
   onForked: (sessionId: string, runId: string) => void;
 }) {
   const [sessionId, setSessionId] = useState(() => suggestedForkSessionId(sourceSessionId, new Date(), randomSessionIdSuffix()));
-  const [reason, setReason] = useState(() => (point.kind === 'current'
-    ? `Fork session ${sourceSessionId}`
+  const [reason, setReason] = useState(() => (point.kind === 'beginning'
+    ? `Fork session ${sourceSessionId} at its beginning`
     : `Fork session ${sourceSessionId} after event ${point.eventId}`));
   const [requestId] = useState(newCloneForkRequestId);
   /** Undefined while it is computed; null when the fork inherits the source's task queue. */
@@ -92,13 +95,13 @@ export function SessionForkDialog({
         tabIndex={-1}
       >
         <div className="modal-header">
-          <h2 id="session-fork-title">{point.kind === 'current' ? 'Fork session' : 'Fork from this message'}</h2>
+          <h2 id="session-fork-title">{isFromMessage ? 'Fork from this message' : 'Fork session'}</h2>
           <button aria-label="Close Fork session" className="icon-button" onClick={onClose}>×</button>
         </div>
         <p>
-          {point.kind === 'current'
-            ? 'Starts a new session with a copy of this conversation as it is now.'
-            : 'Starts a new session with a copy of this conversation up to the end of this message\'s turn.'}
+          {isFromMessage
+            ? 'Starts a new session with a copy of this conversation up to the end of this message\'s turn.'
+            : 'Starts a new session with a copy of this conversation up to the end of its latest turn.'}
           {' '}This session does not change. No terminal has the new session open.
         </p>
         <label>

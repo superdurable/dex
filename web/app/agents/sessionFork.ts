@@ -27,8 +27,12 @@ export const SESSION_FORK_DELETED_ATTRIBUTES: readonly string[] = [
   'SessionLastTerminalEnvironment',
 ];
 
-/** Where a fork copies the source session: its current state, or right after one turn ended. */
-export type SessionForkPoint = { kind: 'current' } | { kind: 'event'; eventId: number };
+/**
+ * Where a fork copies the source session: right after a turn-ending history event, given as
+ * its decimal int64 text, or the session's beginning. Never the current state, which a turn
+ * that starts meanwhile could change.
+ */
+export type SessionForkPoint = { kind: 'beginning' } | { kind: 'event'; eventId: string };
 
 /**
  * Returns a session's task queue: "s-" and the first 20 lowercase hex characters of the
@@ -60,17 +64,26 @@ export function randomSessionIdSuffix(): string {
   return hexOf(bytes);
 }
 
-/** A session can fork its current state only while it is open and between turns. */
-export function canForkCurrentSession(session: LoadedAgentSession): boolean {
-  const { state, waitingCalls } = session.view;
-  return isOpenFlowStatusCode(session.summary.flowStatusCode)
+/**
+ * The point "Fork session" copies, pinned when it is read: right after the latest turn end in
+ * the loaded history, or the beginning of a session with no turn yet. Null while the session is
+ * not open and between turns, or when its latest turn end is outside the loaded history.
+ * A pinned point keeps a turn that starts after the read out of the copy.
+ */
+export function latestSessionForkPoint(session: LoadedAgentSession): SessionForkPoint | null {
+  const { state, waitingCalls, pendingInterrupts, latestTurnEndEventId } = session.view;
+  const isBetweenTurns = isOpenFlowStatusCode(session.summary.flowStatusCode)
     && state?.status === 'waiting_for_user_message'
     && !state.activeTurnId
-    && waitingCalls.length === 0;
+    && waitingCalls.length === 0
+    && pendingInterrupts.length === 0;
+  if (!isBetweenTurns) return null;
+  if (latestTurnEndEventId !== null) return { kind: 'event', eventId: latestTurnEndEventId };
+  return state.turnCount === 0 ? { kind: 'beginning' } : null;
 }
 
 /** The event to fork right after, for the message that ended a turn; null for any other item. */
-export function forkEventIdOf(item: ConversationItem, activeTurnId: string | null | undefined): number | null {
+export function forkEventIdOf(item: ConversationItem, activeTurnId: string | null | undefined): string | null {
   if (item.kind !== 'message' || item.turnEndEventId === undefined) return null;
   return item.message.turnId === activeTurnId ? null : item.turnEndEventId;
 }
@@ -109,9 +122,9 @@ export async function sessionForkPayload(request: SessionForkRequest): Promise<R
     sourceRunId: request.sourceRunId,
     flowId: request.sessionId,
     requestId: request.requestId,
-    ...(request.point.kind === 'current'
-      ? { pointType: CLONE_FORK_POINT_TYPE.CURRENT }
-      : { pointType: CLONE_FORK_POINT_TYPE.EVENT_ID, eventId: String(request.point.eventId) }),
+    ...(request.point.kind === 'beginning'
+      ? { pointType: CLONE_FORK_POINT_TYPE.BEGINNING }
+      : { pointType: CLONE_FORK_POINT_TYPE.EVENT_ID, eventId: request.point.eventId }),
     ...(taskQueue === null ? {} : { taskQueue }),
     deleteAttributeKeys: SESSION_FORK_DELETED_ATTRIBUTES,
     idReusePolicy: ID_REUSE_POLICY.DISALLOW_REUSE,

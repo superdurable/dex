@@ -195,7 +195,26 @@ describe('readSession', () => {
       events: [written(10, [2], 'CallTool'), written(14, [3], 'AwaitUserMessage')],
     });
     const turnEnds = view.items.map((item) => (item.kind === 'message' ? item.turnEndEventId : 'not a message'));
-    expect(turnEnds).toEqual([undefined, undefined, 14]);
+    expect(turnEnds).toEqual([undefined, undefined, '14']);
+    expect(view.latestTurnEndEventId).toBe('14');
+  });
+
+  it('keeps an int64 turn-end event ID read as text, and finds the latest turn end without a message', () => {
+    const turnEnd = (eventId: number | string, upsertAttributes: unknown[]): FlowHistoryEvent => ({
+      eventId: eventId as number, eventTime: null, type: 'StepExecuteCompleted',
+      payload: { output: { upsertAttributes, stepDecision: { nextSteps: [{ stepType: 'AwaitUserMessage' }] } } },
+    });
+    const view = readSession({
+      attributes: [state({ status: 'waiting_for_user_message', active_turn_id: null }), message(1, 'assistant', { text: 'done' })],
+      activeSteps: [],
+      events: [
+        turnEnd('9007199254740993', [{ key: 'AgentMessages/000000000001', value: {} }]),
+        turnEnd('9007199254740995', [{ key: 'AgentState', value: {} }]),
+      ],
+    });
+    const [item] = view.items;
+    expect(item.kind === 'message' && item.turnEndEventId).toBe('9007199254740993');
+    expect(view.latestTurnEndEventId).toBe('9007199254740995');
   });
 
   it('falls back to message text for a call outside the history window and says so', () => {

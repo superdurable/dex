@@ -59,6 +59,7 @@ function sessionOf(view: Partial<SessionReadView>): LoadedAgentSession {
       missing: [],
       hasCallsFromMessagesOnly: false,
       chunkKeys: [],
+      latestTurnEndEventId: null,
       ...view,
     },
     activeSteps: [],
@@ -621,7 +622,7 @@ describe('SessionView scrolling', () => {
 });
 
 describe('SessionView fork', () => {
-  const agentMessage = (sequence: number, turnId: string, turnEndEventId?: number) => ({
+  const agentMessage = (sequence: number, turnId: string, turnEndEventId?: string) => ({
     kind: 'message' as const, key: `m${sequence}`, turnEndEventId, message: {
       sequence, turnId, role: 'assistant', text: `Answer ${sequence}.`, toolCallId: null, toolName: null,
       toolArguments: null, toolOutput: null, createdAt: null,
@@ -643,8 +644,17 @@ describe('SessionView fork', () => {
     return onSessionForked;
   }
 
+  const fetchFork = () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ flowId: 'x', runId: 'run-9' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    return () => JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body)) as Record<string, unknown>;
+  };
+
   it('offers both forks between turns, only on a turn-ending message', () => {
-    loaded = sessionOf({ items: [userMessage(1, 'Hi.'), agentMessage(2, 'turn-1'), agentMessage(3, 'turn-1', 14)] });
+    loaded = sessionOf({
+      latestTurnEndEventId: '14',
+      items: [userMessage(1, 'Hi.'), agentMessage(2, 'turn-1'), agentMessage(3, 'turn-1', '14')],
+    });
     renderForkable();
     expect(screen.getByRole('button', { name: SESSION_COPY.forkSession })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: SESSION_COPY.forkFromMessage })).toHaveLength(1);
@@ -653,15 +663,74 @@ describe('SessionView fork', () => {
   it('hides the current fork and the running turn message fork while a turn runs', () => {
     loaded = sessionOf({
       state: runningTurn,
-      items: [agentMessage(3, 'turn-1', 14), userMessage(4, 'More.'), agentMessage(5, 'turn-2', 20)],
+      latestTurnEndEventId: '14',
+      items: [agentMessage(3, 'turn-1', '14'), userMessage(4, 'More.'), agentMessage(5, 'turn-2', '20')],
     });
     renderForkable();
     expect(screen.queryByRole('button', { name: SESSION_COPY.forkSession })).toBeNull();
     expect(screen.getAllByRole('button', { name: SESSION_COPY.forkFromMessage })).toHaveLength(1);
   });
 
+  it('hides Fork session while an interrupt waits, even one without a matching tool call', () => {
+    const interrupt = { interruptId: 'i1', toolCallId: 'gone', kind: 'approval' } as unknown as SessionReadView['pendingInterrupts'][number];
+    loaded = sessionOf({ latestTurnEndEventId: '14', pendingInterrupts: [interrupt], items: [agentMessage(3, 'turn-1', '14')] });
+    renderForkable();
+    expect(screen.queryByRole('button', { name: SESSION_COPY.forkSession })).toBeNull();
+  });
+
+  it('hides Fork session when the latest turn end is outside the loaded history', () => {
+    loaded = sessionOf({ items: [agentMessage(3, 'turn-1')] });
+    renderForkable();
+    expect(screen.queryByRole('button', { name: SESSION_COPY.forkSession })).toBeNull();
+  });
+
+  it('forks a session with no turn yet from its beginning', async () => {
+    const requestBody = fetchFork();
+    loaded = sessionOf({
+      state: { status: 'waiting_for_user_message', turnCount: 0, activeTurnId: null, lastTurnError: null, acceptsTurnControl: false },
+    });
+    const onSessionForked = renderForkable();
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
+    await waitFor(() => expect(screen.getByText(/inherits the default task queue/)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Fork' }));
+    await waitFor(() => expect(onSessionForked).toHaveBeenCalled());
+    expect(requestBody()).toMatchObject({ pointType: 2 });
+    expect(requestBody()).not.toHaveProperty('eventId');
+  });
+
+  it('keeps the pinned turn end when a turn starts after the dialog opens', async () => {
+    const requestBody = fetchFork();
+    loaded = sessionOf({ latestTurnEndEventId: '9007199254740993', items: [agentMessage(3, 'turn-1', '9007199254740993')] });
+    const onSessionForked = vi.fn();
+    const view = (reloadKey: number) => (
+      <SessionView
+        flowId="builtin-20261113-203123-3efeb4"
+        flowType="CodingAgent"
+        reloadKey={reloadKey}
+        schema={schema}
+        workQueuePermissions={[]}
+        onSessionForked={onSessionForked}
+      />
+    );
+    const { rerender } = render(view(0));
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
+
+    loaded = sessionOf({
+      state: runningTurn,
+      latestTurnEndEventId: '9007199254740999',
+      items: [agentMessage(3, 'turn-1', '9007199254740993'), userMessage(4, 'More.')],
+    });
+    rerender(view(1));
+    expect(screen.queryByRole('button', { name: SESSION_COPY.forkSession })).toBeNull();
+    await waitFor(() => expect(screen.getByText(/inherits the default task queue/)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Fork' }));
+
+    await waitFor(() => expect(onSessionForked).toHaveBeenCalled());
+    expect(requestBody()).toMatchObject({ pointType: 6, eventId: '9007199254740993' });
+  });
+
   it('offers no fork without a place to open the new session', () => {
-    loaded = sessionOf({ items: [agentMessage(3, 'turn-1', 14)] });
+    loaded = sessionOf({ latestTurnEndEventId: '14', items: [agentMessage(3, 'turn-1', '14')] });
     render(renderSession());
     expect(screen.queryByRole('button', { name: SESSION_COPY.forkSession })).toBeNull();
     expect(screen.queryByRole('button', { name: SESSION_COPY.forkFromMessage })).toBeNull();
@@ -671,7 +740,7 @@ describe('SessionView fork', () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ flowId: 'x', runId: 'run-9' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     // The source runs on its own session task queue, as the Agents CLI starts it.
-    loaded = { ...sessionOf({ items: [agentMessage(3, 'turn-1', 14)] }), taskQueue: 's-d62aab3ae1bd8c5cf84f' };
+    loaded = { ...sessionOf({ items: [agentMessage(3, 'turn-1', '14')] }), taskQueue: 's-d62aab3ae1bd8c5cf84f' };
     const onSessionForked = renderForkable();
 
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkFromMessage }));
@@ -700,7 +769,7 @@ describe('SessionView fork', () => {
   it('lets the fork of a session on the default task queue inherit it', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ flowId: 'x', runId: 'run-9' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    loaded = sessionOf({ items: [agentMessage(3, 'turn-1', 14)] });
+    loaded = sessionOf({ latestTurnEndEventId: '14', items: [agentMessage(3, 'turn-1', '14')] });
     const onSessionForked = renderForkable();
 
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
@@ -711,7 +780,8 @@ describe('SessionView fork', () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
-      pointType: 1,
+      pointType: 6,
+      eventId: '14',
       deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
     });
     expect(body).not.toHaveProperty('taskQueue');

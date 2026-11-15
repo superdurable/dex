@@ -35,7 +35,7 @@ import { InterruptControls, useSessionActionInvoker } from './InterruptControls'
 import type { SessionControlContext } from './sessionActions';
 import { SessionComposer } from './SessionComposer';
 import { SessionForkDialog } from './SessionForkDialog';
-import { canForkCurrentSession, forkEventIdOf, type SessionForkPoint } from './sessionFork';
+import { forkEventIdOf, latestSessionForkPoint, type SessionForkPoint } from './sessionFork';
 import type { ConversationItem, ToolCallView } from './sessionModel';
 import { sessionActionPermission, sessionRouteBlockedReason, type SessionRouteContext } from './sessionRequests';
 import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
@@ -73,7 +73,8 @@ export function SessionView({
   onSessionForked?: (sessionId: string, runId: string) => void;
 }) {
   const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
-  const [forkPoint, setForkPoint] = useState<SessionForkPoint | null>(null);
+  /** The point is pinned when a fork action is clicked; later reads never move it. */
+  const [fork, setFork] = useState<PinnedSessionFork | null>(null);
   const { revisionFor } = useWebCatalog();
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);
   const [steerText, setSteerText] = useState('');
@@ -144,6 +145,7 @@ export function SessionView({
 
   const { view } = session;
   const settingsBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.updateSessionSettings, controlContext);
+  const sessionForkPoint = latestSessionForkPoint(session);
   // Sending checks this permission, which can differ from the first one Working as lacks.
   const sendPermission = sessionActionPermission(schema);
   // Working as is set where it blocks a control; the tab has no banner or selector of its own.
@@ -155,19 +157,22 @@ export function SessionView({
     <section className="ses" aria-label={SESSION_COPY.tabSession} ref={sectionRef}>
       <SessionHeader
         session={session}
-        onForkCurrent={onSessionForked && canForkCurrentSession(session) ? () => setForkPoint({ kind: 'current' }) : undefined}
+        onForkCurrent={onSessionForked && sessionForkPoint
+          ? () => setFork({ point: sessionForkPoint, isFromMessage: false, runId: session.summary.runId, taskQueue: session.taskQueue })
+          : undefined}
         onReload={reload}
         onShowWaitingCall={showWaitingCall}
       />
-      {forkPoint && onSessionForked && (
+      {fork && onSessionForked && (
         <SessionForkDialog
-          point={forkPoint}
-          sourceRunId={session.summary.runId}
-          sourceTaskQueue={session.taskQueue}
+          isFromMessage={fork.isFromMessage}
+          point={fork.point}
+          sourceRunId={fork.runId}
+          sourceTaskQueue={fork.taskQueue}
           sourceSessionId={flowId}
-          onClose={() => setForkPoint(null)}
+          onClose={() => setFork(null)}
           onForked={(sessionId, runId) => {
-            setForkPoint(null);
+            setFork(null);
             onSessionForked(sessionId, runId);
           }}
         />
@@ -214,7 +219,11 @@ export function SessionView({
             previousTurnId={turnOf(view.items[index - 1])}
             renderControls={renderControls}
             onTellAgent={sessionActionPermission(schema) !== null ? tellAgent : undefined}
-            onForkAfter={onSessionForked ? (eventId) => setForkPoint({ kind: 'event', eventId }) : undefined}
+            onForkAfter={onSessionForked
+              ? (eventId) => setFork({
+                point: { kind: 'event', eventId }, isFromMessage: true, runId: session.summary.runId, taskQueue: session.taskQueue,
+              })
+              : undefined}
             activeTurnId={view.state?.activeTurnId}
           />
         ))}
@@ -252,6 +261,14 @@ export function SessionView({
     </section>
     </WorkingAsChoiceProvider>
   );
+}
+
+/** A fork's source run, task queue, and point, as they were read when its action was clicked. */
+interface PinnedSessionFork {
+  point: SessionForkPoint;
+  isFromMessage: boolean;
+  runId: string;
+  taskQueue: string;
 }
 
 /** The Flow type's permissions, with every permission the session's controls check. */
@@ -294,7 +311,7 @@ function SessionHeader({
   onShowWaitingCall,
 }: {
   session: LoadedAgentSession;
-  /** Absent while a turn runs, since a fork copies the session only between turns. */
+  /** Absent unless the session is between turns with a known turn boundary to copy. */
   onForkCurrent?: () => void;
   onReload: () => void;
   onShowWaitingCall: (toolCallId: string) => void;
@@ -380,7 +397,7 @@ function StreamItem({
   now: number;
   renderControls: (call: ToolCallView) => ReactNode;
   onTellAgent?: (call: ToolCallView) => void;
-  onForkAfter?: (eventId: number) => void;
+  onForkAfter?: (eventId: string) => void;
   activeTurnId?: string | null;
 }) {
   if (item.kind === 'missing') {

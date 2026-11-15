@@ -606,7 +606,7 @@ When **resolve_interrupt** or **answer_question** returns false, another operato
 
 Since 1.45.8. The **Conversation** tab forks a session into a new session. The new session starts from a copy of the conversation and goes on by itself. The source session does not change. Dex Web forks only between turns, so the copy never holds a turn in progress.
 
-- **Fork session**, beside **Reload**, copies the session as it is now. It appears while the session is open, waits for a message, and has no turn running or waiting for an approval or answer.
+- **Fork session**, beside **Reload**, copies the session right after its latest turn ended, or from its beginning when it has had no turn yet. It appears while the session is open, waits for a message, and has no turn running and no pending interrupt. Its latest turn end must also be in the loaded Flow history. Dex Web pins that point when you click, so a turn that starts while the dialog is open is not in the copy.
 - **Fork from this message**, under an agent message, copies the session right after the turn that this message ended. It appears on the last message of each ended turn whose history event is in the loaded Flow history. A message in the middle of a turn, such as one followed by tool calls, offers no fork.
 
 The dialog has two fields:
@@ -614,11 +614,11 @@ The dialog has two fields:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | **New session ID** | The source's harness name, the UTC time, and 6 random hex characters, such as **builtin-20261115-090807-a1b2c3**, the format the Agents CLI uses. A source ID in another format is the prefix instead of the harness name. | Required. It must differ from the source session ID. |
-| **Reason** | **Fork session SOURCE_ID**, plus **after event N** for a message fork | Required. Recorded with the new session's start. |
+| **Reason** | **Fork session SOURCE_ID after event N**, or **at its beginning** | Required. Recorded with the new session's start. |
 
 **Fork** calls **POST /api/flows/clone-fork** with:
 
-- the point: **Current state**, or **Event ID** set to the history event that ended the turn;
+- the point: **Event ID** set to the history event that ended the turn, or **Beginning**. A session fork never copies **Current state**;
 - **taskQueue** only when the source runs on its own session task queue: **s-** and the first 20 lowercase hex characters of the SHA-256 of the session ID in UTF-8, the rule in [Sessions in other environments](/reference/agents/cli#other-environments). An Agents CLI command starts its sessions that way. The fork then gets the same kind of task queue, derived from the new session ID. Any other source, such as a session on the default task queue or one that an application's Client started, sends no **taskQueue**, so the fork inherits the source's task queue and its Workers. The dialog shows the result under the ID;
 - **deleteAttributeKeys** with **SessionTerminalLease** and **SessionLastTerminalEnvironment**, so no terminal has the new session open and it was never open anywhere, as for a new session;
 - **idReusePolicy** 3, so a session ID that already has a run is refused.

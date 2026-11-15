@@ -71,7 +71,7 @@ describe('sessionForkPayload', () => {
       sourceRunId: 'run-1',
       sourceTaskQueue: source.task_queue,
       sessionId: vector.session_id,
-      point: { kind: 'event', eventId: 14 },
+      point: { kind: 'event', eventId: '14' },
       reason: 'try another answer',
       requestId: 'request-1',
     })).toEqual({
@@ -88,16 +88,24 @@ describe('sessionForkPayload', () => {
     });
   });
 
+  it('sends an int64 event ID above 2^53 with every digit', async () => {
+    const payload = await sessionForkPayload({
+      sourceSessionId: 'a', sourceRunId: 'run-1', sourceTaskQueue: '',
+      sessionId: 'x', point: { kind: 'event', eventId: '9007199254740993' }, reason: 'r', requestId: 'q',
+    });
+    expect(JSON.stringify(payload)).toContain('"eventId":"9007199254740993"');
+  });
+
   it('lets a fork of a session on another task queue inherit it, and still deletes the lease', async () => {
     const [source, other] = taskQueueCases();
     // The default task queue, a shared queue, and another session's own queue are not the source's own.
     for (const sourceTaskQueue of ['', 'agents', other.task_queue]) {
       const payload = await sessionForkPayload({
         sourceSessionId: source.session_id, sourceRunId: 'run-1', sourceTaskQueue,
-        sessionId: 'x', point: { kind: 'current' }, reason: 'r', requestId: 'q',
+        sessionId: 'x', point: { kind: 'beginning' }, reason: 'r', requestId: 'q',
       });
       expect(payload, sourceTaskQueue).toMatchObject({
-        pointType: 1, deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
+        pointType: 2, deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
       });
       expect(payload, sourceTaskQueue).not.toHaveProperty('taskQueue');
       expect(payload, sourceTaskQueue).not.toHaveProperty('eventId');
