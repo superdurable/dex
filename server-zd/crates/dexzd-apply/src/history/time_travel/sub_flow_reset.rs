@@ -198,7 +198,7 @@ pub(super) fn is_result_received(
 
 /// Decides, for each restored SubFlow condition, what the fork does beyond keeping its wait.
 ///
-/// Unstaged TimeTravel commands come from older binaries, which kept every restored wait.
+/// A result without findings comes from an older binary, which kept every restored wait.
 ///
 /// Returns ABORTED when the owner's findings no longer fit apply's reads, so the owner computes
 /// again, and INVALID_ARGUMENT for a malformed finding or an unknown policy.
@@ -206,12 +206,11 @@ pub(super) fn plan_restored_sub_flow_actions(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
     request: &ResetFlowRequest,
-    is_staged: bool,
     result: &TimeTravelResult,
 ) -> Result<Result<Vec<RestoredSubFlowAction>, CommandReply>, ApplyError> {
-    if !is_staged {
+    let Some(child_flows) = result.child_flows.as_ref() else {
         return Ok(Ok(Vec::new()));
-    }
+    };
     let policy = match reset_policy(request) {
         Ok(policy) => policy,
         Err(reply) => return Ok(Err(reply)),
@@ -219,8 +218,7 @@ pub(super) fn plan_restored_sub_flow_actions(
     let mut actions = Vec::new();
     for condition in restored_sub_flow_conditions(&result.rows)? {
         let is_received = is_result_received(transaction, cursor.rows, &condition)?;
-        let finding = result
-            .child_flows
+        let finding = child_flows
             .iter()
             .find(|staged| condition.is_staged_for(staged))
             .and_then(|staged| staged.finding.as_ref());

@@ -224,7 +224,7 @@ pub fn compute_time_travel(
         &result,
         sources.child_flow_runs,
     )? {
-        Ok(findings) => findings,
+        Ok(findings) => Some(findings),
         Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
     };
     // Staging encodes every entry once more.
@@ -398,7 +398,7 @@ pub(super) fn compute_result(
         rows: rebuilt.rows,
         unstored_values,
         reapplied_inputs,
-        child_flows: Vec::new(),
+        child_flows: None,
     }))
 }
 

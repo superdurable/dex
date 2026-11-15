@@ -777,6 +777,9 @@ message TimeTravelStagedTarget {
   uint32 expected_run_attempt = 8;
   // Last run seq the result covers; the TimeTravel command names the same seq.
   uint64 computed_through_seq = 9;
+  // True when the owner staged child Flow findings for the SubFlow reset policy. Older owners
+  // leave it false, and apply then keeps every restored SubFlow wait.
+  bool has_child_flow_findings = 10;
 }
 
 // A value that a staged TimeTravel result needs and the run's local store no longer held.

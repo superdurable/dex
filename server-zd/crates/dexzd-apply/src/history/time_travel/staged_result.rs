@@ -120,11 +120,11 @@ pub(super) fn read_staged_result(
     Ok(Ok(TimeTravelResult {
         selected_attempt,
         target: travel_target(&target, point),
+        child_flows: target.has_child_flow_findings.then_some(child_flows),
         run_status: target.run_status.unwrap_or_default(),
         rows,
         unstored_values,
         reapplied_inputs,
-        child_flows,
     }))
 }
 

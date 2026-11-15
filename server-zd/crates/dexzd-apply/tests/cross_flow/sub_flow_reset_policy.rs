@@ -827,6 +827,83 @@ fn apply_aborts_when_the_owner_found_a_result_that_apply_does_not_see() {
 }
 
 #[test]
+fn a_staged_result_without_child_flow_findings_keeps_every_restored_wait() {
+    // Apply never reads child Flows, so a running child stands in for a gone one here.
+    for state in [ChildState::Running, ChildState::EndedUnreceived] {
+        let mut harness = Harness::new();
+        let target = harness.prepare_child(state);
+        harness.now_micros += 1000;
+        let command = FlowCommand {
+            flow_id: "parent".to_owned(),
+            run_id: PARENT_RUN.to_vec(),
+            epoch: 1,
+            behavior_version: 1,
+            proposed_at_micros: harness.now_micros,
+            command_id: [6; 16].to_vec(),
+            command: Some(Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    flow_id: "parent".to_owned(),
+                    reset_type: FlowResetType::HistoryEventTime as i32,
+                    history_event_time: (i128::from(target) * 1000).to_string(),
+                    run_attempt: 1,
+                    ..ResetFlowRequest::default()
+                }),
+                ..TimeTravelCommand::default()
+            })),
+            ..FlowCommand::default()
+        };
+        let context = harness.parent_context();
+        let staged = stage_time_travel_reading_child_flows_for_test(
+            &context,
+            &harness.state,
+            &harness.hasher,
+            &command,
+        )
+        .expect("the owner computes")
+        .expect("the owner stages the result");
+        // An older owner staged the same rows without findings or the marker.
+        let mut commands = staged.commands;
+        for staged_command in &mut commands {
+            if let Some(Command::TimeTravelStage(stage)) = staged_command.command.as_mut() {
+                let mut chunk = dexzd_protocol::dexzd::v1::TimeTravelStagedChunk::decode(
+                    stage.chunk.as_slice(),
+                )
+                .expect("the chunk decodes");
+                chunk.child_flows.clear();
+                if let Some(target) = chunk.target.as_mut() {
+                    target.has_child_flow_findings = false;
+                }
+                stage.chunk = chunk.encode_to_vec();
+            }
+        }
+        let mut last = None;
+        for staged_command in commands {
+            last = Some(harness.apply_command(context, staged_command));
+        }
+        let travel = last.expect("the owner proposes the TimeTravel");
+        assert!(
+            matches!(
+                travel.reply.reply,
+                Some(command_reply::Reply::TimeTravel(_))
+            ),
+            "{state:?}: {:?}",
+            travel.reply
+        );
+        let wait = harness
+            .step("parent", PARENT_RUN, "StartStep-1")
+            .wait
+            .expect("the restored Step waits");
+        assert!(wait.sub_flow_registration_attempts.is_empty());
+        assert!(harness.parent_sub_flow_result_of(CHILD_ID, 1).is_none());
+        assert!(
+            harness
+                .parent_outbox_written_at(harness.last_parent_seq())
+                .is_empty()
+        );
+    }
+}
+
+#[test]
 fn an_unknown_policy_is_rejected() {
     let mut harness = Harness::new();
     let target = harness.prepare_child(ChildState::Running);

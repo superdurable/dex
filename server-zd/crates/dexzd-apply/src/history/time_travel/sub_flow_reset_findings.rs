@@ -139,6 +139,13 @@ impl ChildFlowReads<'_> {
             SubFlowResetPolicy::AlwaysFail => Ok(OwnerDecision::Nothing),
             SubFlowResetPolicy::AlwaysRestart => {
                 let run = self.child_run(condition, true)?;
+                if run.is_none() && self.is_child_start_pending(condition)? {
+                    return Ok(OwnerDecision::Reject(
+                        "its child start has not reached the child yet, so it cannot be \
+                         restarted; retry the time travel"
+                            .to_owned(),
+                    ));
+                }
                 Ok(restart_decision(condition, run))
             }
             SubFlowResetPolicy::Unspecified

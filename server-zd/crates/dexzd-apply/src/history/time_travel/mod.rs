@@ -58,8 +58,9 @@ pub(crate) struct TimeTravelResult {
     pub(crate) unstored_values: Vec<TimeTravelStagedValue>,
     /// External input after the target point, in (run seq, index in record) order.
     pub(crate) reapplied_inputs: Vec<TimeTravelStagedInput>,
-    /// What the owner found in the child Flows of restored SubFlow conditions.
-    pub(crate) child_flows: Vec<TimeTravelStagedChildFlow>,
+    /// What the owner found in the child Flows of restored SubFlow conditions; `None` for a
+    /// result that older binaries computed, which keeps every restored SubFlow wait.
+    pub(crate) child_flows: Option<Vec<TimeTravelStagedChildFlow>>,
 }
 
 pub(crate) fn apply_time_travel(
@@ -69,8 +70,7 @@ pub(crate) fn apply_time_travel(
     command: &TimeTravelCommand,
 ) -> Result<HandlerResult, ApplyError> {
     let request = command.request.clone().unwrap_or_default();
-    let is_staged = !command.staging_id.is_empty();
-    let result = if !is_staged {
+    let result = if command.staging_id.is_empty() {
         // Binaries before staging logged TimeTravel without a result; their history is local.
         let history = LocalHistorySource::new(transaction, cursor.rows);
         let memory_budget = ReplayMemoryBudget::unlimited();
@@ -98,7 +98,6 @@ pub(crate) fn apply_time_travel(
         transaction,
         &cursor,
         &request,
-        is_staged,
         &result,
     )? {
         Ok(actions) => actions,

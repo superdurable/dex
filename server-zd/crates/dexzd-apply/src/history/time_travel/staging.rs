@@ -487,6 +487,7 @@ pub(super) fn staged_result_bytes(result: &TimeTravelResult) -> u64 {
     let child_flows = result
         .child_flows
         .iter()
+        .flatten()
         .map(|child_flow| entry_bytes(child_flow.encoded_len()));
     rows.chain(values)
         .chain(inputs)
@@ -517,6 +518,7 @@ pub(super) fn staged_chunks(
         request: Some(request.clone()),
         expected_run_attempt,
         computed_through_seq,
+        has_child_flow_findings: result.child_flows.is_some(),
     };
     let mut builder = ChunkBuilder {
         encoded_chunks: Vec::new(),
@@ -538,7 +540,7 @@ pub(super) fn staged_chunks(
             chunk.reapplied_inputs.push(input.clone());
         })?;
     }
-    for child_flow in &result.child_flows {
+    for child_flow in result.child_flows.iter().flatten() {
         builder.add("child Flow finding", child_flow.encoded_len(), |chunk| {
             chunk.child_flows.push(child_flow.clone());
         })?;
