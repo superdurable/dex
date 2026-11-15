@@ -37,8 +37,8 @@ use dexzd_history_segment::{
     HistorySegmentContent, encode_history_segment, history_segment_object_key,
 };
 use dexzd_keyspace::row_keys::{
-    attempt_record_key, checkpoint_key, history_record_key, prefix_range, run_singleton_key,
-    value_row_key,
+    attempt_record_key, checkpoint_key, decode_timer_index_key, history_record_key, prefix_range,
+    run_singleton_key, value_row_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, ValueId, ValueReference,
@@ -56,9 +56,9 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, HistoryLocalCleanupCommand, HistoryRecord,
     HistorySegmentObjectsDeletedCommand, HistorySegmentRecord, HistorySegmentState,
     HistorySegmentUploadedCommand, LogPosition, RunRecord, RunSettings,
-    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod, TimerId,
     ValueBirthRecord, ValueRecord, flow_command::Command, step_attempt_heartbeat_command,
-    stored_value,
+    stored_value, timer_id,
 };
 use dexzd_storage::{LocalStore, RestoredLocalStore, WriteBatch};
 use futures::future::BoxFuture;
@@ -225,29 +225,17 @@ impl TravelNode {
     }
 
     async fn start_flow(&self, step_options: Option<StepOptions>) -> RunId {
+        self.start_flow_with(StartFlowRequest {
+            step_options,
+            ..start_flow_request()
+        })
+        .await
+    }
+
+    async fn start_flow_with(&self, request: StartFlowRequest) -> RunId {
         let response = self
             .registry
-            .start_flow(
-                TenantId::DEFAULT,
-                StartFlowRequest {
-                    flow_id: FLOW_ID.to_owned(),
-                    flow_type: "TravelFlow".to_owned(),
-                    start_step_type: START_STEP.to_owned(),
-                    step_options,
-                    request_id: "start".to_owned(),
-                    flow_start_options: Some(FlowStartOptions {
-                        flow_config_override: Some(FlowConfig {
-                            worker_target: Some(WorkerTarget {
-                                is_pull_mode: true,
-                                ..WorkerTarget::default()
-                            }),
-                            ..FlowConfig::default()
-                        }),
-                        ..FlowStartOptions::default()
-                    }),
-                    ..StartFlowRequest::default()
-                },
-            )
+            .start_flow(TenantId::DEFAULT, request)
             .await
             .expect("the Flow starts");
         response.run_id.parse().expect("the run ID parses")
@@ -313,6 +301,31 @@ impl TravelNode {
                 .as_slice(),
         )
         .expect("the run record decodes")
+    }
+
+    /// Returns the run's Flow timeout deadline and duration, and the run attempt and fire time
+    /// of each Flow timeout in the timer index.
+    fn flow_timeout_state(&self, run_id: RunId) -> (i64, i64, Vec<(u32, i64)>) {
+        let record = self.run_record(run_id);
+        let timers = self
+            .view()
+            .scan(ColumnFamily::PartitionIndex, &[], &[0xff; 64], usize::MAX)
+            .expect("the partition index scans")
+            .into_iter()
+            .filter_map(|(key, _)| decode_timer_index_key(&key))
+            .filter(|entry| entry.run_id == run_id)
+            .filter_map(|entry| {
+                let timer =
+                    TimerId::decode(entry.encoded_timer_id.as_slice()).expect("timer decodes");
+                matches!(timer.kind, Some(timer_id::Kind::FlowTimeout(_)))
+                    .then_some((timer.run_attempt, entry.fire_at_micros))
+            })
+            .collect();
+        (
+            record.timeout_deadline_micros,
+            record.timeout_duration_micros,
+            timers,
+        )
     }
 
     fn history_record(&self, run_id: RunId, seq: u64) -> HistoryRecord {
@@ -704,6 +717,26 @@ impl OffloadedValues for RemovedValues {
     }
 }
 
+fn start_flow_request() -> StartFlowRequest {
+    StartFlowRequest {
+        flow_id: FLOW_ID.to_owned(),
+        flow_type: "TravelFlow".to_owned(),
+        start_step_type: START_STEP.to_owned(),
+        request_id: "start".to_owned(),
+        flow_start_options: Some(FlowStartOptions {
+            flow_config_override: Some(FlowConfig {
+                worker_target: Some(WorkerTarget {
+                    is_pull_mode: true,
+                    ..WorkerTarget::default()
+                }),
+                ..FlowConfig::default()
+            }),
+            ..FlowStartOptions::default()
+        }),
+        ..StartFlowRequest::default()
+    }
+}
+
 fn string_value(text: &str) -> Value {
     Value {
         kind: Some(value::Kind::StringValue(text.to_owned())),
@@ -817,6 +850,63 @@ async fn every_target_type_restores_the_point_its_first_apply_recorded() {
     );
     assert!(travel.run_record(run_id).time_travel_staging.is_none());
     travel.shutdown().await;
+}
+
+/// A restarted Flow timeout is reproduced by a snapshot restore and by the replay of the log
+/// after the snapshot, which applies the second TimeTravel at its command time.
+#[tokio::test(start_paused = true)]
+async fn a_restarted_flow_timeout_survives_snapshot_restore_and_log_replay() {
+    const SECOND: i64 = 1_000_000;
+    let cluster = TestCluster::new();
+    let first = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        FlowCoordinationConfig::default(),
+    )
+    .await;
+    let run_id = first
+        .start_flow_with(StartFlowRequest {
+            flow_timeout_seconds: 30,
+            ..start_flow_request()
+        })
+        .await;
+    cluster.clock.shift(20 * SECOND);
+    first
+        .reset(reset(FlowResetType::Beginning, false))
+        .await
+        .expect("the first reset applies");
+    first.node.take_snapshot().await.expect("snapshot succeeds");
+    cluster.clock.shift(20 * SECOND);
+    let attempt = first
+        .reset(reset(FlowResetType::Beginning, false))
+        .await
+        .expect("the second reset applies");
+    first.assert_every_travel_verified(2);
+    let travel_seq = first.run_record(run_id).next_run_seq - 1;
+    let traveled_at = first.history_record(run_id, travel_seq).timestamp_micros;
+    let live = first.flow_timeout_state(run_id);
+    assert_eq!(
+        live,
+        (
+            traveled_at + 30 * SECOND,
+            30 * SECOND,
+            vec![(attempt, traveled_at + 30 * SECOND)]
+        )
+    );
+    first.shutdown().await;
+
+    // The restart replays the second reset later, still at that reset's command time.
+    cluster.clock.shift(60 * SECOND);
+    let second = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        FlowCoordinationConfig::default(),
+    )
+    .await;
+    assert_eq!(second.flow_timeout_state(run_id), live);
+    second.shutdown().await;
 }
 
 /// With history offload enabled, history is still local in this release, so the same path

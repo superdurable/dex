@@ -41,7 +41,7 @@ use dexzd_protocol::dexzd::v1::{
     PendingCloseCheckCommand, PendingFlowClose, RetentionTimerId, RpcCommittedCommand, RunRecord,
     RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase,
     StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
-    TimeTravelCommand, TimerId, TimerSkipCommand, TimersFiredCommand, command_reply,
+    TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
     flow_command::Command, step_method_completed_command, timer_id,
 };
 use prost::Message;
@@ -516,6 +516,16 @@ impl Harness {
             &timer.encode_to_vec(),
         );
         self.state.rows.contains_key(&(ColumnFamily::Flow, key))
+    }
+
+    fn timer_fire_at(&self, timer: &TimerId) -> Option<i64> {
+        let key = dexzd_keyspace::row_keys::timer_key(
+            self.context.flow_hash,
+            self.run(),
+            &timer.encode_to_vec(),
+        );
+        self.get::<TimerRecord>(ColumnFamily::Flow, &key)
+            .map(|record| record.fire_at_micros)
     }
 
     fn outbox_entry_count(&self) -> usize {
@@ -1153,6 +1163,40 @@ fn time_travel_clears_the_pending_close_and_the_run_continues() {
     );
     harness.ack(PRIMARY, harness.last_seq());
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+#[test]
+fn time_travel_to_a_pending_close_arms_no_flow_timeout_until_a_travel_reopens_the_run() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    let original_deadline = harness.run_record().timeout_deadline_micros;
+    harness.force_complete(Vec::new());
+    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    assert!(harness.run_record().pending_close.is_some());
+    assert!(
+        !harness.has_timer(&flow_timeout_timer(1)),
+        "entering the pending close disarmed the Flow timeout"
+    );
+
+    harness.now_micros += 90 * SECOND;
+    harness.travel_to(reset_to_time(close_time));
+    let restored = harness.run_record();
+    assert!(restored.pending_close.is_some(), "the restored close waits");
+    assert!(!harness.has_timer(&flow_timeout_timer(2)));
+    assert_eq!(restored.timeout_deadline_micros, original_deadline);
+    assert_eq!(restored.timeout_duration_micros, 0);
+
+    harness.now_micros += 90 * SECOND;
+    harness.travel_to(reset(FlowResetType::Beginning));
+    let traveled_at = harness.now_micros;
+    assert_eq!(
+        harness.timer_fire_at(&flow_timeout_timer(3)),
+        Some(traveled_at + 60 * SECOND)
+    );
+    assert_eq!(
+        harness.run_record().timeout_deadline_micros,
+        traveled_at + 60 * SECOND
+    );
 }
 
 #[test]
