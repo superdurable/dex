@@ -118,6 +118,12 @@ from it.
   becomes the release date only when an answer changes. `prepare` reads the
   pins of older agents releases from their tags, so fetch the tags first:
   `git fetch --tags origin`.
+- The docs site publishes the file from main, so between the release-prep
+  merge and the tag it can name the release being cut. Tag right after the
+  merge. If a release is abandoned, revert its change-log entry, run
+  `python3 script/release/server_zd_compatibility.py update`, and open the
+  pull request with a `changelog: correction: <reason>` line in its
+  description.
 - The rules file is the only hand-maintained input: the oldest supported
   server-zd release (`oldestSupportedServerZd`), the protocol range of each
   server-zd and client release line, any minimum server-zd a client line

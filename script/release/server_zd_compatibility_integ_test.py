@@ -250,7 +250,38 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
             "https://pypi.org/pypi/dex-agents-cli-core/0.6.8/json",
         )
 
-    def write_changelogs(self, go: list[list[str]], cli: list[list[str]], agents: list[str]) -> None:
+    def test_agents_follow_the_minimum_server_of_the_sdk_they_pin(self) -> None:
+        rules = json.loads(json.dumps(RULES))
+        rules["clients"]["python"][0]["minimumServerZd"] = "0.1.3"
+        self.write_rules(rules)
+        self.run_script("update", "--date", "2026-11-14")
+        newest, older = json.loads(self.read(COMPATIBILITY_FILE))["servers"]
+
+        self.assertIsNone(older["sdks"]["python"])
+        # The PyPI packages pin Python SDK 1.0.0, which needs server-zd 0.1.3; npm pins the TypeScript SDK.
+        self.assertIsNone(older["agents"]["pypi"])
+        self.assertEqual(older["agents"]["npm"]["newest"]["version"], "0.2.0")
+        self.assertEqual(newest["agents"]["pypi"]["newest"]["version"], "0.3.0")
+
+    def test_a_server_released_before_any_client_of_its_protocol_lists_none(self) -> None:
+        rules = json.loads(json.dumps(RULES))
+        rules["serverZd"].append({"since": "0.1.4", "protocol": {"min": 6, "max": 6}})
+        # A pull request prepares the Go line for protocol 6; no Go release has it yet.
+        rules["clients"]["go"].append({"since": "1.2.0", "protocol": {"min": 6, "max": 6}})
+        self.write_rules(rules)
+        self.write_changelogs(go=[["1.1.0"], ["1.0.0", "1.0.2"]], cli=[["1.1.0"], ["1.0.0"]],
+                              agents=["0.1.0", "0.2.0", "0.3.0"], servers=["0.1.4", "0.1.3", "0.1.2", "0.1.1"])
+        self.run_script("update", "--date", "2026-11-14")
+        newest = json.loads(self.read(COMPATIBILITY_FILE))["servers"][0]
+
+        self.assertEqual(newest["serverZd"], "0.1.4")
+        self.assertIsNone(newest["sdks"]["go"])
+        self.assertIsNone(newest["dexcli"])
+        self.assertEqual(newest["agents"], {"npm": None, "pypi": None})
+
+    def write_changelogs(
+        self, go: list[list[str]], cli: list[list[str]], agents: list[str], servers: list[str] | None = None
+    ) -> None:
         def entries(prefix: str, groups: list[list[str]]) -> str:
             return "".join(released_entry(".".join(group[0].split(".")[:2]), prefix, group) for group in groups)
 
@@ -258,9 +289,8 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
         self.write("docs/reference/cli/changelog.mdx", DOCS_INTRO + entries("cli-v", cli))
         for name in ("python", "typescript", "java", "rust"):
             self.write(f"docs/reference/{name}/changelog.mdx", DOCS_INTRO + entries(TAG_PREFIXES[name], [["1.0.0"]]))
-        servers = [["0.1.3"], ["0.1.2"], ["0.1.1"]]
         self.write("docs/reference/server/changelog.mdx", DOCS_INTRO + "".join(
-            released_entry(group[0], "server-zd/v", group) for group in servers))
+            released_entry(version, "server-zd/v", [version]) for version in servers or ["0.1.3", "0.1.2", "0.1.1"]))
         self.write("docs/reference/agents/changelog.mdx", DOCS_INTRO + "".join(
             released_entry(".".join(version.split(".")[:2]), "agents/v", [version]) for version in reversed(agents)))
 

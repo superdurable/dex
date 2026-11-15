@@ -531,6 +531,7 @@ jobs:
       - publish-web-embedded
       - publish-cli
       - publish-agents
+      - verify-compatibility-registries
     runs-on: ubuntu-latest
     steps:
       - name: Report results
@@ -554,6 +555,7 @@ jobs:
           CLI_RESULT: ${{ needs.publish-cli.result }}
           AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
           AGENTS_RESULT: ${{ needs.publish-agents.result }}
+          COMPATIBILITY_RESULT: ${{ needs.verify-compatibility-registries.result }}
         run: |
           {
             echo "### Publication results"
@@ -569,7 +571,8 @@ jobs:
               "Dex Web:${WEB_SELECTED}:${WEB_RESULT}" \
               "Embedded Dex Web Go module:${WEB_SELECTED}:${WEB_EMBEDDED_RESULT}" \
               "CLI:${CLI_SELECTED}:${CLI_RESULT}" \
-              "Agents packages:${AGENTS_SELECTED}:${AGENTS_RESULT}"; do
+              "Agents packages:${AGENTS_SELECTED}:${AGENTS_RESULT}" \
+              "Compatibility file versions:true:${COMPATIBILITY_RESULT}"; do
               name="${result%%:*}"
               remainder="${result#*:}"
               selected="${remainder%%:*}"
@@ -590,7 +593,8 @@ jobs:
             "${WEB_SELECTED}:${WEB_RESULT}" \
             "${WEB_SELECTED}:${WEB_EMBEDDED_RESULT}" \
             "${CLI_SELECTED}:${CLI_RESULT}" \
-            "${AGENTS_SELECTED}:${AGENTS_RESULT}"; do
+            "${AGENTS_SELECTED}:${AGENTS_RESULT}" \
+            "true:${COMPATIBILITY_RESULT}"; do
             if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then
               exit 1
             fi

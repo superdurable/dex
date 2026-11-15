@@ -348,9 +348,17 @@ def client_range(rules: Rules, client: SdkClient, releases: Sequence[str], conte
 
     The oldest is the first version of the earliest compatible rule line, since change logs miss early releases.
     The newest is the newest compatible release that the change log records.
+    A line that starts after the newest release, such as one a pull request prepares, has no release yet.
     """
     lines = rules.client_lines[client.name]
-    compatible_lines = [line for line in lines if is_line_compatible(line, line.protocol, context)]
+    newest_release = max(releases, key=version_key) if releases else None
+    compatible_lines = [
+        line
+        for line in lines
+        if newest_release is not None
+        and version_key(line.since) <= version_key(newest_release)
+        and is_line_compatible(line, line.protocol, context)
+    ]
     if not compatible_lines:
         return None
     oldest = compatible_lines[0].since
@@ -390,7 +398,12 @@ def agents_range(
             continue
         pinned_sdk = pins.pinned_sdk(component, registry, version)
         sdk_line = line_for(sdk_lines, pinned_sdk)
-        if sdk_line is not None and is_line_compatible(line, sdk_line.protocol, context):
+        # Both the agents line and the pinned SDK's line may name a minimum server-zd.
+        if (
+            sdk_line is not None
+            and is_line_compatible(sdk_line, sdk_line.protocol, context)
+            and is_line_compatible(line, sdk_line.protocol, context)
+        ):
             compatible.append((version, pinned_sdk))
     if not compatible:
         return None
