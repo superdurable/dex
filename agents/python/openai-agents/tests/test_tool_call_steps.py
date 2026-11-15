@@ -458,15 +458,18 @@ async def test_failed_turn_after_a_write_leaves_a_note_for_the_next_turn(
     )
     assert failed.state is not None
     assert SCRIPTED_MODEL_FAILURE in (failed.state.last_turn_error or "")
-    assert [(message.role, message.text) for message in failed.messages] == [
+    # The turn's items come first, so the next model sees the call with its result, then the note.
+    assert [(message.role, message.text or message.tool_output) for message in failed.messages] == [
         (MessageRole.USER, command),
+        (MessageRole.ASSISTANT, None),
+        (MessageRole.TOOL, "published launch"),
         (MessageRole.USER, note),
     ]
-    assert json.loads(failed.messages[1].framework_item) == {"role": "user", "content": note}
+    assert json.loads(failed.messages[3].framework_item) == {"role": "user", "content": note}
     assert harness.invocations.count("publish") == 1
     assert harness.model_calls() == ["model:1:1"] + ["model:1:2"] * 3
 
     assert await harness.sessions.send_user_message(session_id, "recall")
     recalled = await harness.wait_for_turns(session_id, 2)
-    assert recalled.messages[-1].text == f"history: {command} | {note}; tools: "
+    assert recalled.messages[-1].text == f"history: {command} | {note}; tools: published launch"
     assert harness.invocations.count("publish") == 1

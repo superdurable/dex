@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentFrameworkRunner,
     AgentImageReference,
     AgentToolCall,
@@ -84,6 +85,7 @@ from dex_agents_langgraph._checkpoints import (
     TurnCheckpointSaver,
     decode_suspended_graph_run_state,
     encode_suspended_graph_run_state,
+    read_root_checkpoint,
     restore_suspended_graph_checkpoints,
 )
 from dex_agents_langgraph._delta_channels import checkpointed_delta_channels
@@ -95,6 +97,7 @@ from dex_agents_langgraph._images import (
 from dex_agents_langgraph._tool_state import (
     StateWrite,
     build_graph_state_reader,
+    decode_runner_tool_state,
     decode_tool_state_reference,
     encode_runner_tool_state,
     encode_tool_state_reference,
@@ -182,7 +185,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     restores the checkpoint and resumes the graph with ``Command(resume=...)``
     carrying every recorded result, and the graph makes its next model call.
     When the graph finishes, every message it added to the message state is
-    returned in ``TurnCompleted``.
+    returned in ``TurnCompleted``. When steering, ``cancel_turn``, or a failure
+    ends the turn first, ``build_unfinished_turn_messages`` returns the
+    messages from the checkpoint, with a ``ToolMessage`` for every pending
+    call, instead of the core's note.
 
     During ``RunModel`` the runner streams visible model text and provider
     reasoning summaries to ``AgentEvents``, and counts usage from each model
@@ -506,12 +512,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         source_tools = await self._tool_sources.list_source_tools(
             turn, reserved_tool_names=loaded_graph.tools_by_name.keys()
         )
-        history = framework_messages_to_langchain_messages(turn.messages)
-        if turn.context_summary is not None:
-            # A fixed ID keeps the summary out of the turn's new messages, resumed calls too.
-            summary_message_id = f"dex-context-summary-{turn.context_summary.generation}"
-            note = build_context_summary_note(turn.context_summary)
-            history.insert(0, HumanMessage(content=note, id=summary_message_id))
+        history = _turn_history(turn)
         saver = TurnCheckpointSaver(serde=self._checkpoint_serializer)
         graph_update: dict[str, Any] = {"checkpointer": saver}
         if loaded_graph.turn_channels is not None:
@@ -599,6 +600,70 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
+        """Return the messages of a steered, cancelled, or failed turn from its checkpoint.
+
+        The runner keeps a turn's messages in the checkpoint of the last
+        ``ToolCallsRequested`` until the graph finishes. When steering,
+        ``cancel_turn``, or a failure ends the turn first, the session calls
+        this method. It returns the messages the turn added to the root
+        graph's message state, as a completed turn stores them. It adds a
+        ``ToolMessage`` for every tool call of the last ``AIMessage`` that has
+        none. That message is what the resumed graph would give the model from
+        the call's final record: its output, failure, or rejection text, such
+        as the core's steering result. A call without a final record gets
+        ``OUTCOME_UNKNOWN_TOOL_RESULT``. The next turn's model input then holds
+        every call with its result, and no note. Other state keys, such as
+        Deep Agents' ``files``, are not messages and are not kept.
+
+        .. versionadded:: 0.6.12
+
+        Args:
+            turn: The ending turn, with every record final.
+
+        Returns:
+            The turn's messages not stored yet, in order; none when the turn
+            has no run state.
+
+        Raises:
+            ValueError: If the checkpoint cannot be read, a call cannot be
+                answered, or a record's call is not in the root message state,
+                such as a call inside a subgraph. The session logs it and
+                stores its note instead.
+        """
+        if turn.framework_run_state is None:
+            if turn.tool_calls:
+                raise ValueError(f"turn {turn.turn_id} has tool call records but no run state")
+            return []
+        run_state = decode_suspended_graph_run_state(turn.framework_run_state)
+        channel_values, pending_writes = read_root_checkpoint(run_state, self._state_serializer)
+        messages = channel_values.get(self._messages_key)
+        if not isinstance(messages, list) or not all(
+            isinstance(message, BaseMessage) for message in messages
+        ):
+            raise ValueError(
+                f"the root checkpoint has no message list under {self._messages_key!r}"
+            )
+        if any(channel == self._messages_key for channel, _ in pending_writes):
+            # A finished task's messages wait for the superstep to end; they are not merged here.
+            raise ValueError("the root checkpoint has pending writes to the message state")
+        new_messages = _messages_after_history(messages, _turn_history(turn))
+        pending = _pending_tool_messages(turn, new_messages, self._records_message_writes)
+        return [
+            langchain_message_to_framework_message(message) for message in [*new_messages, *pending]
+        ]
+
+    def _records_message_writes(self, record: AgentToolCall) -> bool:
+        # As _resume_values: only a graph tool's successful result replays its state writes.
+        if (
+            record.runner_tool_state is None
+            or record.status is not ToolCallStatus.SUCCEEDED
+            or self._tool_sources.is_source_tool_call(record)
+        ):
+            return False
+        state_writes = decode_runner_tool_state(record.runner_tool_state, self._state_serializer)
+        return any(channel == self._messages_key for channel, _ in state_writes)
 
     @property
     def summary_model(self) -> BaseChatModel | None:
@@ -1085,11 +1150,9 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         final_messages = _state_messages(snapshot, self._messages_key)
         if final_messages is None:
             raise RuntimeError(f"the graph state has no message list under {self._messages_key!r}")
-        stored_message_ids = {message.id for message in history}
         return [
             langchain_message_to_framework_message(message)
-            for message in final_messages
-            if message.id not in stored_message_ids
+            for message in _messages_after_history(final_messages, history)
         ]
 
 
@@ -1358,6 +1421,113 @@ def _reads_graph_state(injected: Any) -> bool:
 def _discard_stream_write(chunk: Any) -> None:
     # A tool Step has no graph stream to write custom chunks to.
     return None
+
+
+def _messages_after_history(
+    messages: Sequence[BaseMessage], history: Sequence[BaseMessage]
+) -> list[BaseMessage]:
+    stored_message_ids = {message.id for message in history}
+    return [message for message in messages if message.id not in stored_message_ids]
+
+
+def _turn_history(turn: AgentTurnContext) -> list[BaseMessage]:
+    history = framework_messages_to_langchain_messages(turn.messages)
+    if turn.context_summary is not None:
+        # A fixed ID keeps the summary out of the turn's new messages, resumed calls too.
+        summary_message_id = f"dex-context-summary-{turn.context_summary.generation}"
+        note = build_context_summary_note(turn.context_summary)
+        history.insert(0, HumanMessage(content=note, id=summary_message_id))
+    return history
+
+
+def _pending_tool_messages(
+    turn: AgentTurnContext,
+    new_messages: Sequence[BaseMessage],
+    has_message_writes: Callable[[AgentToolCall], bool],
+) -> list[ToolMessage]:
+    """Return the recorded result of every tool call of the last model response without one.
+
+    Raises:
+        ValueError: If a result does not follow its call or comes twice, a call
+            would be left without a result before a later message, a record
+            names another tool or has no call among the messages, or a pending
+            call's recorded state writes add messages.
+    """
+    tool_calls_by_id: dict[str, ToolCall] = {}
+    open_calls: dict[str, ToolCall] = {}
+    for message in new_messages:
+        if isinstance(message, ToolMessage):
+            # Each result follows its own response and comes once.
+            if open_calls.pop(message.tool_call_id, None) is None:
+                raise ValueError(
+                    f"the result of tool call {message.tool_call_id} of turn {turn.turn_id} "
+                    "does not follow one open call"
+                )
+            continue
+        if open_calls:
+            # Every model accepts results only right after their response.
+            raise ValueError(
+                f"tool calls {list(open_calls)} of turn {turn.turn_id} have no results before "
+                "a later message"
+            )
+        if not isinstance(message, AIMessage):
+            continue
+        for tool_call in message.tool_calls:
+            tool_call_id = tool_call["id"] or ""
+            if not tool_call_id or tool_call_id in tool_calls_by_id:
+                raise ValueError(
+                    f"the turn has a missing or repeated tool call ID {tool_call_id!r}"
+                )
+            tool_calls_by_id[tool_call_id] = tool_call
+            open_calls[tool_call_id] = tool_call
+    for tool_call_id, record in turn.tool_calls.items():
+        recorded_call = tool_calls_by_id.get(tool_call_id)
+        # A call inside a subgraph, such as a Deep Agents subagent's, is not in the root messages.
+        if recorded_call is None:
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} is not in the run state"
+            )
+        if record.tool_name != recorded_call["name"]:
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} is recorded for tool "
+                f"{record.tool_name}"
+            )
+    stored_call_ids = {
+        message.tool_call_id for message in turn.messages if message.turn_id == turn.turn_id
+    }
+    if stored := sorted(tool_calls_by_id.keys() & stored_call_ids):
+        raise ValueError(f"tool calls {stored} of turn {turn.turn_id} are already stored")
+    for tool_call_id in open_calls:
+        pending_record = turn.recorded_tool_call(tool_call_id)
+        if pending_record is not None and has_message_writes(pending_record):
+            # The resumed graph would add those messages too; they are not reproduced here.
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} recorded state writes that add "
+                "messages"
+            )
+    return [_recorded_tool_message(turn, tool_call) for tool_call in open_calls.values()]
+
+
+def _recorded_tool_message(turn: AgentTurnContext, tool_call: ToolCall) -> ToolMessage:
+    """Return the ``ToolMessage`` the resumed graph would make from the call's final record."""
+    tool_call_id = tool_call["id"] or ""
+    record = turn.recorded_tool_call(tool_call_id)
+    if record is None or not record.status.is_final:
+        outcome = _RecordedToolCallOutcome(
+            tool_call_id=tool_call_id,
+            tool_name=tool_call["name"],
+            status=ToolCallStatus.OUTCOME_UNKNOWN,
+            output=OUTCOME_UNKNOWN_TOOL_RESULT,
+        )
+    else:
+        outcome = _RecordedToolCallOutcome(
+            tool_call_id=tool_call_id,
+            tool_name=record.tool_name,
+            status=record.status,
+            output=describe_tool_call_outcome(record),
+            images=record.images,
+        )
+    return outcome.to_tool_message(tool_call["name"], turn.turn_id)
 
 
 def _state_messages(snapshot: StateSnapshot, messages_key: str) -> list[BaseMessage] | None:

@@ -53,6 +53,23 @@ export function buildToolImageOutputs(
 }
 
 /**
+ * Builds the `function_call_result` output the SDK makes from {@link buildToolImageOutputs}.
+ *
+ * @param text - The recorded output text.
+ * @param images - The record's images, in order.
+ * @returns An `input_text` part followed by one `input_image` part per image.
+ */
+export function buildToolImageResultOutput(
+  text: string,
+  images: readonly AgentImageReference[],
+): protocol.FunctionCallResultItem["output"] {
+  return [
+    { type: "input_text", text },
+    ...images.map((image) => ({ type: "input_image" as const, image: image.uri, detail: imageDetail })),
+  ];
+}
+
+/**
  * Reports whether a tool result output lists any `input_image` part.
  *
  * @param output - A `function_call_result` output.

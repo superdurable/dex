@@ -19,6 +19,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import ChannelVersions, Checkpoint, CheckpointMetadata
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.base import SerializerProtocol
 
 # Bump when the JSON shape changes; restore must keep reading every earlier version.
 RUN_STATE_FORMAT = "dex-agents-langgraph.checkpoint.v1"
@@ -154,6 +155,25 @@ async def restore_suspended_graph_checkpoints(
             )
         for task_id, writes in writes_by_task_id.items():
             await saver.aput_writes(saved_config, writes, task_id)
+
+
+def read_root_checkpoint(
+    run_state: SuspendedGraphRunState, serde: SerializerProtocol
+) -> tuple[dict[str, Any], list[tuple[str, Any]]]:
+    """Return the root graph's channel values and its pending writes as ``(channel, value)``."""
+    roots = [stored for stored in run_state.checkpoints if stored["checkpoint_ns"] == ""]
+    if len(roots) != 1:
+        raise ValueError(f"the run state has {len(roots)} root checkpoints, not one")
+    root = roots[0]
+    checkpoint = serde.loads_typed(_decode_typed(root["checkpoint"]))
+    channel_values = checkpoint.get("channel_values") if isinstance(checkpoint, dict) else None
+    if not isinstance(channel_values, dict):
+        raise ValueError("the root checkpoint has no channel values")
+    pending_writes = [
+        (str(write["channel"]), serde.loads_typed(_decode_typed(write["value"])))
+        for write in root["pending_writes"]
+    ]
+    return channel_values, pending_writes
 
 
 def _encode_typed(typed: tuple[str, bytes]) -> dict[str, str]:

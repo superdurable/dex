@@ -174,6 +174,35 @@ async def test_a_worker_killed_in_a_resumed_model_call_rebuilds_the_same_model_i
     assert image_harness.invocations.count("take_screenshot") == 1
 
 
+async def test_a_cancelled_turn_stores_a_tool_result_with_its_images(
+    image_harness: ImageAgentHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(session_id)
+
+    assert await image_harness.sessions.send_user_message(
+        session_id, "call take_screenshot {} then stall model-gate"
+    )
+    await image_harness.gate("model-gate").wait_until_reached()
+    assert await image_harness.sessions.cancel_turn(session_id)
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    screenshot = await build_media_store(image_harness.state_dir).put_image(SCREENSHOT_JPEG)
+    assert [message.role for message in snapshot.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+    ]
+    tool_message = snapshot.messages[2]
+    assert tool_message.tool_output == "took a screenshot"
+    assert tool_message.images == [screenshot]
+    assert json.loads(tool_message.framework_item)["output"] == [
+        {"type": "input_text", "text": "took a screenshot"},
+        {"type": "input_image", "image_url": screenshot.uri, "detail": "auto"},
+    ]
+
+
 async def test_a_runner_without_a_media_store_refuses_images(
     harness: SupportAgentHarness,
 ) -> None:
