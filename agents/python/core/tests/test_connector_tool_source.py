@@ -274,6 +274,32 @@ async def _run_send_attempt(
     return "succeeded"
 
 
+@pytest.mark.parametrize(
+    "case", CONFORMANCE["argumentRefusalCases"]["cases"], ids=lambda case: case["name"]
+)
+async def test_refused_arguments_stay_unknown_after_an_earlier_send(
+    case: dict[str, Any], tmp_path: Path
+) -> None:
+    operation = OperationRef("fake-ledger", "sendMessage")
+    call_id = str(derive_call_id("session-1", "CallSingleAttemptTool-5", operation))
+    other_call_id = str(derive_call_id("session-1", "CallSingleAttemptTool-6", operation))
+    ledger = FakeLedgerProvider(tmp_path)
+    heartbeats = _ToolStepHeartbeats()
+    previous = case["previousCheckpoint"]
+    if previous is not None:
+        heartbeats.checkpoint = previous.replace("<callId>", call_id).replace(
+            "<otherCallId>", other_call_id
+        )
+    deferred = SimpleNamespace(
+        arguments=case["arguments"], tool_source_reference='{"tool": "send", "maxSends": 3}'
+    )
+    outcome = await _run_send_attempt(
+        _bounded_resend_source(ledger, "cap3"), deferred, case["attempt"], heartbeats
+    )
+    assert outcome == case["outcome"]
+    assert ledger.sends() == []
+
+
 @pytest.mark.parametrize("case", CONFORMANCE["resultCases"])
 def test_result_text_is_the_same_in_every_core(case: dict[str, Any]) -> None:
     assert format_connector_result(case["json"]) == case["text"]

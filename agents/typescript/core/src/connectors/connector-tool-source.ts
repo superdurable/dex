@@ -11,6 +11,7 @@ import {
   RetryError,
   createCall,
   defaultConnectorStepExecuteRetryPolicy,
+  deriveCallID,
   runMutation,
   runQuery,
   throwDexRetry,
@@ -668,7 +669,8 @@ export class ConnectorToolSource implements ToolSource {
    * @throws {ToolExecutionError} When the arguments break the schema or do not decode, the operation selected a
    * `rejected` or failed branch, or a single-attempt write asked to retry after its fence recorded `notSent` or
    * `canResend` in this attempt, which proves the provider did not process it ({@link connectorNotSentRetryLater}).
-   * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch.
+   * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch, or this Worker refuses the
+   * arguments while an earlier attempt's checkpoint records a possible send of this call.
    * @throws {RangeError} When this source no longer has the tool, so the effect decides the outcome.
    * @throws Any other error, such as a connector retry for the tool Step's retry policy.
    */
@@ -678,10 +680,18 @@ export class ConnectorToolSource implements ToolSource {
     if (tool === undefined) {
       throw new RangeError(`connector tool ${record.toolName} is not configured on this Worker`);
     }
-    const toolArguments = parseToolArguments(tool.name, record.arguments);
+    // An argument this Worker refuses fails the call only when no earlier attempt may have sent it.
+    const refuseArguments = (detail: string): Error =>
+      hasEarlierSendCheckpoint(call, tool) ? new ToolOutcomeUnknownError(detail) : new ToolExecutionError(detail);
+    let toolArguments: Readonly<Record<string, unknown>>;
+    try {
+      toolArguments = parseToolArguments(tool.name, record.arguments);
+    } catch (error: unknown) {
+      throw error instanceof ToolExecutionError ? refuseArguments(error.message) : error;
+    }
     const problem = findConnectorInputViolation(toolArguments, tool.inputSchema);
     if (problem !== undefined) {
-      throw new ToolExecutionError(`invalid arguments for ${tool.name}: ${problem}`);
+      throw refuseArguments(`invalid arguments for ${tool.name}: ${problem}`);
     }
     if (call.context === undefined) {
       throw new Error("a connector tool call needs the tool Step's context");
@@ -714,7 +724,8 @@ export class ConnectorToolSource implements ToolSource {
         }
         throwDexRetry(error);
       }
-      throw error;
+      // The input validator refused the arguments before the operation ran.
+      throw error instanceof ToolExecutionError ? refuseArguments(error.message) : error;
     }
     const outcome = classifyConnectorBranch({
       kind: tool.kind,
@@ -868,6 +879,33 @@ function observeFence(call: Call, context: ConnectorStepContext): FenceObservati
     : hasPriorSendMarker(call, context);
   const isDispatchPossible = isClaimed || hasPriorSend || isPriorDispatchPossible;
   return { mayHaveDispatched: isDispatchPossible, isProvenNotSent: hasNotSentProof && !isDispatchPossible };
+}
+
+/**
+ * Reports whether the checkpoint an earlier attempt saved is this call's fence marker for a possible send: a claim,
+ * or a send count above zero. It needs no ConnectorStepContext, so a check that fails before the operation runs can
+ * still see it.
+ */
+function hasEarlierSendCheckpoint(call: DeferredToolExecution, tool: ConnectorTool): boolean {
+  const checkpoint = call.heartbeatCheckpoint;
+  if (call.context === undefined || checkpoint === undefined) {
+    return false;
+  }
+  let previous: unknown;
+  try {
+    previous = JSON.parse(checkpoint);
+  } catch {
+    return false;
+  }
+  const callId = deriveCallID(call.context.flowId, call.context.stepExecutionId, {
+    connectorId: tool.connectorId,
+    operationId: tool.operationId,
+  });
+  return (
+    isFenceMarker(previous) &&
+    previous["callId"] === callId &&
+    (previous["state"] === "claimed" || priorSendCountOf(previous) > 0)
+  );
 }
 
 /**

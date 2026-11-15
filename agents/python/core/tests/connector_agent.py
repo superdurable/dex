@@ -24,7 +24,9 @@ tool policy that raises its send cap to 4, and ``send_message_unreviewed`` runs
 it under a manifest from before ``repeatOnUnknown``.
 ``CONNECTOR_AGENT_MAX_RESULT_BYTES`` bounds results, and
 ``CONNECTOR_AGENT_DROPPED_TOOLS``, a comma-separated list, leaves tools out, as
-a later deploy that removed them would.
+a later deploy that removed them would. ``CONNECTOR_AGENT_STRICT_SEND_SCHEMA``
+makes ``send_message`` require a ``channel`` argument, as a later deploy that
+tightened the schema would.
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ from tests.fake_ledger import (
 CONNECTOR_AGENT_FLOW_TYPE = "ConnectorAgent"
 MAX_RESULT_BYTES_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_MAX_RESULT_BYTES"
 DROPPED_TOOLS_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_DROPPED_TOOLS"
+STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_STRICT_SEND_SCHEMA"
 CONNECTION = ConnectionRef("fake-ledger", "test-ledger")
 #: The tool policy that raises ``send_message_capped``'s send cap from the manifest's 3 to 4.
 CAPPED_SEND_TOOL_POLICIES = {
@@ -94,6 +97,16 @@ def unreviewed_send_manifest() -> dict[str, Any]:
     return manifest
 
 
+def strict_send_manifest() -> dict[str, Any]:
+    """Return the manifest with a ``sendMessage`` schema that also requires ``channel``."""
+    manifest = copy.deepcopy(read_fake_ledger_manifest())
+    for factory in manifest["factories"]:
+        if factory["operationId"] == "sendMessage":
+            factory["inputSchema"]["properties"]["channel"] = {"type": "string"}
+            factory["inputSchema"]["required"].append("channel")
+    return manifest
+
+
 def by_id_manifest() -> dict[str, Any]:
     manifest = copy.deepcopy(read_fake_ledger_manifest())
     factory = copy.deepcopy(
@@ -108,6 +121,7 @@ def build_connector_source(
     state_dir: Path,
     max_result_bytes: int | None = None,
     dropped_tools: frozenset[str] = frozenset(),
+    is_send_schema_strict: bool = False,
 ) -> ConnectorToolSource:
     provider = FakeLedgerProvider(state_dir)
     payouts = CreatePayoutOperation(provider)
@@ -127,7 +141,12 @@ def build_connector_source(
         connector_tool(
             notes, CONNECTION, name="post_note_retried", manifest=retried_note_manifest()
         ),
-        connector_tool(messages, CONNECTION, name="send_message"),
+        connector_tool(
+            messages,
+            CONNECTION,
+            name="send_message",
+            manifest=strict_send_manifest() if is_send_schema_strict else None,
+        ),
         connector_tool(messages, CONNECTION, name="send_message_capped"),
         connector_tool(
             messages,
@@ -153,6 +172,7 @@ def build_connector_agent_flow(
     state_dir: Path,
     max_result_bytes: int | None = None,
     dropped_tools: frozenset[str] = frozenset(),
+    is_send_schema_strict: bool = False,
 ) -> AgentSessionFlow:
     async def reply(request: ModelRequest) -> ScriptedModelReply:
         command = ScriptedModelClient.user_texts(request)[-1]
@@ -186,7 +206,11 @@ def build_connector_agent_flow(
         name="connector-agent",
         instructions="You are a scripted test agent.",
         model=ScriptedModelClient(reply),
-        tool_sources=[build_connector_source(state_dir, max_result_bytes, dropped_tools)],
+        tool_sources=[
+            build_connector_source(
+                state_dir, max_result_bytes, dropped_tools, is_send_schema_strict
+            )
+        ],
         tool_policies=CAPPED_SEND_TOOL_POLICIES,
     )
     return builtin_agent_session_flow(definition, flow_type=CONNECTOR_AGENT_FLOW_TYPE)
@@ -199,4 +223,5 @@ def build_connector_agent_flow_from_environment() -> AgentSessionFlow:
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         int(limit) if limit else None,
         frozenset(name for name in dropped.split(",") if name),
+        bool(os.environ.get(STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE)),
     )

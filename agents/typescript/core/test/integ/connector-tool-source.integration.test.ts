@@ -130,6 +130,15 @@ interface ConformanceCases {
       readonly writes: number;
     }[];
   };
+  readonly argumentRefusalCases: {
+    readonly cases: readonly {
+      readonly name: string;
+      readonly attempt: number;
+      readonly previousCheckpoint: string | null;
+      readonly arguments: string;
+      readonly outcome: string;
+    }[];
+  };
   readonly resultCases: readonly { readonly json: string; readonly text: string }[];
   readonly truncationCases: readonly {
     readonly output: string;
@@ -251,6 +260,29 @@ describe("connector tools follow the shared conformance cases", () => {
       assert.deepEqual(outcomes, scenario.outcomes, scenario.name);
       assert.equal(ledger.writes("sendMessage").length, scenario.writes, scenario.name);
     }
+  });
+
+  test("refused arguments stay unknown after an earlier send, as the conformance suite says", async () => {
+    const operation = { connectorId: "fake-ledger", operationId: "sendMessage" };
+    const callId = deriveCallID("session-1", "CallSingleAttemptTool-5", operation);
+    const otherCallId = deriveCallID("session-1", "CallSingleAttemptTool-6", operation);
+    const ledger = new FakeLedgerProvider(mkdtempSync(join(tmpdir(), "fake-ledger-arguments-")));
+    for (const testCase of conformance.argumentRefusalCases.cases) {
+      const checkpoints = new SessionCheckpoints();
+      checkpoints.checkpoint =
+        testCase.previousCheckpoint === null
+          ? undefined
+          : testCase.previousCheckpoint.replaceAll("<callId>", callId).replaceAll("<otherCallId>", otherCallId);
+      const outcome = await runSendAttempt(
+        boundedResendSource(ledger, "cap3"),
+        testCase.arguments,
+        '{"tool": "send", "maxSends": 3}',
+        testCase.attempt,
+        checkpoints,
+      );
+      assert.equal(outcome, testCase.outcome, testCase.name);
+    }
+    assert.equal(ledger.sends().length, 0);
   });
 
   test("result text is the same in every core", () => {

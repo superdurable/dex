@@ -141,15 +141,25 @@ release, the Connector never resends.
 
 ### Upgrade every Worker first {#bounded-write-upgrade}
 
+Enable a `limited` Connector tool only after no Worker before 0.6.12 can run
+the session Flow type. Upgrade every Worker of the Flow type first. Keep it
+that way while any call with bounded resends is still open: do not roll a
+Worker of that Flow type back to a release before 0.6.12 until those calls
+end.
+
 A call with bounded resends records the same effect class as before, so
 Workers before 0.6.12, Dex Web, and **dexcli agents-tui** read its session.
-Its later attempts are a different matter. Any Worker of the session Flow type
-may run them, and a Worker before 0.6.12 does not pass the stored cap to the
-Connector. A TypeScript Connector then uses its definition's cap, which can be
-above a lower tool policy cap. A Python Connector never resends there. A cap of
-1 is safe on any Worker, because the call has only one attempt. Upgrade every
-Worker of a session Flow type to 0.6.12 before a Worker offers a `limited`
-Connector tool, and before a tool policy lowers its cap.
+Its later attempts are a different matter. Once a call has more than one
+attempt, any Worker of the session Flow type may run the next one, and a
+Worker before 0.6.12 does not pass the stored cap to the Connector. A
+TypeScript Connector then uses its definition's cap, which can be above the
+call's cap, so the write can be sent more often than the call allows. A Python
+Connector never resends there.
+
+A cap of 1 is safe on any Worker. Such a call has only one attempt, so no
+Worker runs a second one. Set **max_sends** (**maxSends**) to 1 for a tool
+that must stay at one send while Workers before 0.6.12 may still run the Flow
+type.
 
 ## Result size {#connector-tools-result-size}
 
@@ -200,9 +210,9 @@ The operation ends in one of its branches, and the branch decides the tool call'
 | A branch marked **unknown**, or a Mutation branch that is not listed | `outcome_unknown` | That the outcome is unknown |
 | A Query branch that is not listed, including **defect** | **failed** | The branch and the message |
 
-A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection. The fence also counts the sends of earlier attempts. When an earlier attempt may have sent the write, a later branch marked **rejected** still records `outcome_unknown`, also when that attempt returned before its fence read the earlier record.
+A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection. The fence also counts the sends of earlier attempts. When an earlier attempt may have sent the write, a later branch marked **rejected** still records `outcome_unknown`, also when that attempt returned before its fence read the earlier record. The same holds when a later Worker refuses the call's arguments, such as after a deploy that changed the input schema: a call whose earlier attempt may have sent the write records `outcome_unknown`, and only a call without such an attempt records **failed**.
 
-Changed in 0.6.12: a send that an earlier attempt's fence record counts, or a claim the current attempt never read, keeps a later branch `outcome_unknown`. The TypeScript core also reads the send count that a fence with a send cap writes; with a Connector SDK newer than its declared range, the TypeScript core in 0.6.11 did not treat such a claim as a possible send.
+Changed in 0.6.12: a send that an earlier attempt's fence record counts, or a claim the current attempt never read, keeps a later branch `outcome_unknown`, and so do arguments a later Worker refuses after such a send. The TypeScript core also reads the send count that a fence with a send cap writes; with a Connector SDK newer than its declared range, the TypeScript core in 0.6.11 did not treat such a claim as a possible send.
 
 Reconcile `outcome_unknown` as for any tool; see [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown).
 

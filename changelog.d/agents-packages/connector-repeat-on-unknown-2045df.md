@@ -31,7 +31,9 @@ section: Added
   `dex-connectors-sdk` 0.10.0; an earlier SDK never resends. The TypeScript
   peer range adds `^0.11.0`, and the Python `connectors` extra allows
   `dex-connectors-sdk` from 0.9.0 to 0.10.x.
-- Upgrade every Worker of a session Flow type before a Worker offers a
-  `limited` Connector tool: a Worker before 0.6.12 that runs a later attempt
-  does not pass the pinned cap, so a TypeScript Connector uses its
-  definition's cap there. A cap of 1 has only one attempt on any Worker.
+- Enable a `limited` Connector tool only after no Worker before 0.6.12 can run
+  the session Flow type, and do not roll back to such a Worker while a bounded
+  call is open: a Worker before 0.6.12 that runs a later attempt does not pass
+  the pinned cap, so a TypeScript Connector uses its definition's cap there and
+  can send more often than the call allows. A cap of 1 is safe on any Worker,
+  because the call has only one attempt.

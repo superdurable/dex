@@ -28,7 +28,9 @@ before sending), ``reject-on-send`` (the provider refuses the sent message,
 cannot see it, and its response is lost), ``lose-visible`` (the same, but
 read-back finds it), ``lose-always`` (every send is lost and hidden), and
 ``reject-before-fence-later`` (attempt 2 and later refuse before the fence
-decides, a wrong order the agent core must still treat as unknown).
+decides, a wrong order the agent core must still treat as unknown), and
+``gate-after-send:<gate>`` (attempt 1 waits at a ``FileGate`` after the
+provider accepted the message).
 """
 
 from __future__ import annotations
@@ -537,12 +539,14 @@ class SendMessageOperation:
             if "reject-on-send" in words:
                 self._provider.record_refused("sendMessage", key)
                 return None
-            return self._provider.accept(
+            message_id = self._provider.accept(
                 "sendMessage",
                 key,
                 deduplicate=False,
                 hidden=is_lost and "lose-visible" not in words,
             )
+            await _wait_at(self._provider, words, "gate-after-send", attempt)
+            return message_id
 
         message_id = await fence.dispatch(send)
         if message_id is None:

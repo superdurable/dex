@@ -1571,5 +1571,66 @@
         "writes": 1
       }
     ]
+  },
+  "argumentRefusalCases": {
+    "description": "One attempt of a sendMessage call (tool send, Step execution CallSingleAttemptTool-5) whose arguments this Worker refuses before the operation runs. previousCheckpoint is the checkpoint an earlier attempt saved; <callId> stands for the call's Call ID. outcome is failed, or outcome_unknown when the checkpoint records a possible send of this call.",
+    "cases": [
+      {
+        "name": "a first attempt",
+        "attempt": 1,
+        "previousCheckpoint": null,
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "failed"
+      },
+      {
+        "name": "after an earlier bounded claim",
+        "attempt": 2,
+        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "outcome_unknown"
+      },
+      {
+        "name": "after an earlier claim without a send count",
+        "attempt": 2,
+        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "outcome_unknown"
+      },
+      {
+        "name": "after an earlier canResend that counts a send",
+        "attempt": 3,
+        "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "outcome_unknown"
+      },
+      {
+        "name": "after an earlier notSent",
+        "attempt": 2,
+        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "failed"
+      },
+      {
+        "name": "after another call's claim",
+        "attempt": 2,
+        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "failed"
+      },
+      {
+        "name": "after an earlier checkpoint that is not a fence marker",
+        "attempt": 2,
+        "previousCheckpoint": "{\"stage\": \"before the fence\"}",
+        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
+        "outcome": "failed"
+      },
+      {
+        "name": "arguments that are not JSON, after an earlier claim",
+        "attempt": 2,
+        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "arguments": "not json",
+        "outcome": "outcome_unknown"
+      }
+    ]
   }
 }

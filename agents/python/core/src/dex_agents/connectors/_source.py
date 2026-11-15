@@ -693,7 +693,9 @@ class ConnectorToolSource:
                 recorded ``notSent`` or ``canResend`` in this attempt, which
                 proves the provider did not process it
                 (``CONNECTOR_NOT_SENT_RETRY_LATER``).
-            ToolOutcomeUnknownError: The operation selected an unknown branch.
+            ToolOutcomeUnknownError: The operation selected an unknown branch,
+                or this Worker refuses the arguments while an earlier attempt's
+                checkpoint records a possible send of this call.
             LookupError: This source no longer has the tool, so the effect class decides.
             RuntimeError: The call has no Step context.
             Exception: A connector retry, raised for the tool Step's retry policy.
@@ -702,19 +704,25 @@ class ConnectorToolSource:
         tool = self._tools.get(_reference_tool_name(record))
         if tool is None:
             raise LookupError(f"connector tool {record.tool_name} is not configured on this Worker")
-        values = _parse_arguments(tool.name, record.arguments)
-        problem = find_input_violation(values, tool.input_schema)
-        if problem is not None:
-            raise ToolExecutionError(f"invalid arguments for {tool.name}: {problem}")
         try:
-            operation_input = _CODECS.resolve(tool.input_type).decode(
-                Value(WireKind.JSON, json.dumps(values))
-            )
-        except Exception:
-            # A fixed text: codec messages differ between languages and versions.
-            raise ToolExecutionError(
-                f"invalid arguments for {tool.name}: arguments do not decode"
-            ) from None
+            values = _parse_arguments(tool.name, record.arguments)
+            problem = find_input_violation(values, tool.input_schema)
+            if problem is not None:
+                raise ToolExecutionError(f"invalid arguments for {tool.name}: {problem}")
+            try:
+                operation_input = _CODECS.resolve(tool.input_type).decode(
+                    Value(WireKind.JSON, json.dumps(values))
+                )
+            except Exception:
+                # A fixed text: codec messages differ between languages and versions.
+                raise ToolExecutionError(
+                    f"invalid arguments for {tool.name}: arguments do not decode"
+                ) from None
+        except ToolExecutionError as error:
+            # Refused arguments fail the call only when no earlier attempt may have sent it.
+            if _has_earlier_send_checkpoint(call, tool):
+                raise ToolOutcomeUnknownError(str(error)) from None
+            raise
         if call.context is None:
             raise RuntimeError("a connector tool call needs the tool Step's context")
         connector_call = _connector_call(tool, call.context, call)
@@ -925,6 +933,28 @@ def _observe_fence(call: Call) -> _FenceObservation:
     return _FenceObservation(
         may_have_dispatched=may_have_dispatched,
         is_proven_not_sent=has_not_sent_proof and not may_have_dispatched,
+    )
+
+
+def _has_earlier_send_checkpoint(call: DeferredToolExecution, tool: ConnectorTool) -> bool:
+    """Report whether an earlier attempt's checkpoint is this call's marker for a possible send.
+
+    It needs no ``ConnectorStepContext``, so a check that fails before the
+    operation runs can still see it.
+    """
+    if call.context is None or call.heartbeat_checkpoint is None:
+        return False
+    try:
+        marker = Marker.from_wire(json.loads(call.heartbeat_checkpoint))
+    except (ValueError, TypeError):
+        return False
+    call_id = derive_call_id(
+        call.context.flow_id,
+        call.context.step_execution_id,
+        OperationRef(tool.connector_id, tool.operation_id),
+    )
+    return marker.call_id == call_id and (
+        marker.state is State.CLAIMED or prior_send_count(marker) > 0
     )
 
 

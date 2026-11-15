@@ -35,6 +35,7 @@ import {
 import {
   connectorAgentDroppedToolsVariable,
   connectorAgentMaxResultBytesVariable,
+  connectorAgentStrictSendSchemaVariable,
   createConnectorAgentFlow,
   previousByIdToolName,
 } from "../fixtures/connector-test-agent.js";
@@ -660,6 +661,26 @@ describe("connector tools on a Dex engine", () => {
         assert.equal(harness.ledger.sends("createPayout").length, point === "gate-after-accept" ? 2 : 1);
       });
     }
+
+    test("a bounded write sent before a kill stays unknown when the next Worker refuses its arguments", async () => {
+      const harness = newHarness();
+      const worker = await harness.startWorker();
+      const sessionId = `connector-kill-${randomUUID()}`;
+      await sessions.startSession(
+        sessionId,
+        calls([["send_message", { accountId: "a-1", text: "gate-after-send:kill" }]], "held"),
+      );
+      await harness.gate("kill").waitUntilReached();
+      await worker.kill();
+      // A later deploy requires channel, so this Worker refuses the stored arguments.
+      await harness.startWorker({ [connectorAgentStrictSendSchemaVariable]: "1" });
+      const [record] = await heldRecords(harness, sessionId, "held", 1);
+      // The first attempt's claim stands, so the refusal cannot prove that nothing was sent.
+      assert.equal(record?.status, "outcome_unknown");
+      assert.match(record?.error ?? "", /^invalid arguments for send_message: /);
+      assert.deepEqual(await answerLines(sessionId, 1), [`send_message: ${outcomeUnknownToolResult}`]);
+      assert.equal(harness.ledger.writes("sendMessage").length, 1);
+    });
 
     test("a proven unsent keyed write is retried and sent", async () => {
       const harness = newHarness();

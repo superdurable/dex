@@ -356,8 +356,9 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
  * lets a later attempt read back and resend while the call's sends stay below the cap. Words steer it: reject
  * (refused before sending), reject-on-send (the provider refuses the sent message, canResend), lose-first (attempt
  * 1's message is accepted where read-back cannot see it and its response is lost), lose-visible (the same, but
- * read-back finds it), lose-always (every send is lost and hidden), and reject-before-fence-later (attempt 2 and
- * later refuse before the fence decides, a wrong order the agent core must still treat as unknown).
+ * read-back finds it), lose-always (every send is lost and hidden), reject-before-fence-later (attempt 2 and
+ * later refuse before the fence decides, a wrong order the agent core must still treat as unknown), and
+ * gate-after-send:<gate> (attempt 1 waits at a FileGate after the provider accepted the message).
  */
 export class SendMessageOperation implements Mutation<SendMessageInput, Message> {
   public constructor(
@@ -409,7 +410,9 @@ export class SendMessageOperation implements Mutation<SendMessageInput, Message>
         this.provider.recordRefused("sendMessage", key);
         return undefined;
       }
-      return this.provider.accept("sendMessage", key, { deduplicate: false, hidden: isLost && !words.includes("lose-visible") });
+      const id = this.provider.accept("sendMessage", key, { deduplicate: false, hidden: isLost && !words.includes("lose-visible") });
+      await this.provider.waitAt(words, "gate-after-send", attempt);
+      return id;
     });
     if (messageId === undefined) {
       await fence.recordCanResend();
