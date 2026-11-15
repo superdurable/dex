@@ -27,5 +27,29 @@ public enum TimeTravelType {
     STEP_TYPE,
 
     /** Resumes at a specific Step execution ID. */
-    STEP_EXECUTION_ID
+    STEP_EXECUTION_ID,
+
+    /**
+     * Resumes right after the change that recorded a history event.
+     *
+     * <p>Set the event ID with {@link TimeTravelOptions.Builder#eventId(long)} or
+     * {@link CloneForkFlowOptions.Builder#eventId(long)}, as the Server's history events report it.
+     * Events recorded together, such as a Step completion and the Steps it starts, share one
+     * point, so the restored state includes them all. An event inside a Step attempt resolves to
+     * the next point where the Flow can stop. The event must still be in the run's history window.
+     *
+     * @since 1.45.2
+     */
+    EVENT_ID,
+
+    /**
+     * Selects the latest committed state of the source run's current run attempt.
+     *
+     * <p>Only {@link Client#cloneForkFlow(String, String, CloneForkFlowOptions)} accepts it, and it
+     * is the default point of {@link CloneForkFlowOptions}. {@link Client#timeTravel} rejects it,
+     * because a Flow cannot return to the state it is in.
+     *
+     * @since 1.45.2
+     */
+    CURRENT
 }

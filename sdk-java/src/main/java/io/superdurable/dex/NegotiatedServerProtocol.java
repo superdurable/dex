@@ -57,6 +57,23 @@ final class NegotiatedServerProtocol {
                         + "; upgrade the Dex Server before writing this Attribute");
     }
 
+    // An older Server answers CloneForkFlow with UNIMPLEMENTED; fail before sending instead.
+    void requireCloneForkFlowSupport() {
+        final int version = negotiatedVersion;
+        if (version >= ServerProtocolCompatibility.CLONE_FORK_FLOW_PROTOCOL_VERSION) {
+            return;
+        }
+        final String negotiated = version == NOT_NEGOTIATED
+                ? "has not been negotiated"
+                : "is " + version;
+        throw new IllegalStateException(
+                "cloneForkFlow requires Server protocol version "
+                        + ServerProtocolCompatibility.CLONE_FORK_FLOW_PROTOCOL_VERSION + " or later ("
+                        + ServerProtocolCompatibility.CLONE_FORK_FLOW_SERVER_RELEASE
+                        + " or later), but the negotiated Server protocol version " + negotiated
+                        + "; upgrade the Dex Server");
+    }
+
     // An older Server ignores task_queue and would silently use the default task queue.
     void requireNamedTaskQueueSupport(final String taskQueue, final String operation) {
         if (taskQueue.isEmpty()) {

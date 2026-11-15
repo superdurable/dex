@@ -35,6 +35,8 @@ public final class TimeTravelOptions {
     private final TimeTravelStepMethod stepMethod;
     private final String reason;
     private final boolean skipWritesReapply;
+    private final long eventId;
+    private final SubFlowResetPolicy subFlowResetPolicy;
 
     private TimeTravelOptions(final Builder builder) {
         this.type = builder.type;
@@ -44,6 +46,8 @@ public final class TimeTravelOptions {
         this.stepMethod = builder.stepMethod;
         this.reason = builder.reason;
         this.skipWritesReapply = builder.skipWritesReapply;
+        this.eventId = builder.eventId;
+        this.subFlowResetPolicy = builder.subFlowResetPolicy;
     }
 
     /**
@@ -84,6 +88,14 @@ public final class TimeTravelOptions {
         return skipWritesReapply;
     }
 
+    long getEventId() {
+        return eventId;
+    }
+
+    SubFlowResetPolicy getSubFlowResetPolicy() {
+        return subFlowResetPolicy;
+    }
+
     /** Builds immutable {@link TimeTravelOptions} values. */
     public static final class Builder {
         private final TimeTravelType type;
@@ -93,6 +105,8 @@ public final class TimeTravelOptions {
         private TimeTravelStepMethod stepMethod;
         private String reason;
         private boolean skipWritesReapply;
+        private long eventId;
+        private SubFlowResetPolicy subFlowResetPolicy = SubFlowResetPolicy.DEFAULT;
 
         private Builder(final TimeTravelType type) {
             this.type = type;
@@ -163,6 +177,42 @@ public final class TimeTravelOptions {
          */
         public Builder skipWritesReapply(final boolean value) {
             skipWritesReapply = value;
+            return this;
+        }
+
+        /**
+         * Selects a time travel point by history event ID for {@link TimeTravelType#EVENT_ID}.
+         *
+         * <p>The ID must be positive for that type and unset for the others.
+         *
+         * <pre>{@code
+         * client.timeTravel("order-123", TimeTravelOptions.newBuilder(TimeTravelType.EVENT_ID)
+         *         .eventId(42)
+         *         .build());
+         * }</pre>
+         *
+         * @param value the history event ID
+         * @return this builder
+         * @since 1.45.2
+         */
+        public Builder eventId(final long value) {
+            eventId = value;
+            return this;
+        }
+
+        /**
+         * Decides what happens to the SubFlow conditions that restored Steps wait on.
+         *
+         * <p>{@link SubFlowResetPolicy#DEFAULT}, the default, uses
+         * {@link SubFlowResetPolicy#ATTACH_ELSE_RESTART}.
+         *
+         * @param value the nonnull policy
+         * @return this builder
+         * @throws NullPointerException if value is null
+         * @since 1.45.2
+         */
+        public Builder subFlowResetPolicy(final SubFlowResetPolicy value) {
+            subFlowResetPolicy = java.util.Objects.requireNonNull(value, "subFlowResetPolicy");
             return this;
         }
 
