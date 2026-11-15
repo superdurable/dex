@@ -2,7 +2,7 @@
 title: Operate and Debug
 sidebar_label: Operate and Debug
 slug: /components/operate-and-debug
-description: Find and read a Flow in Dex Web or with dexcli, fix a Flow that does not advance or that failed, recover it with Time Travel, and know what runs again after a crash.
+description: Find and read a Flow in Dex Web or with dexcli, fix a Flow that does not advance or that failed, recover it with Time Travel, branch it with Clone Fork, and know what runs again after a crash.
 ---
 
 # Operate and Debug
@@ -54,6 +54,28 @@ On a long run with large values, write reapply can exceed the replay budget; the
 The target point must be inside the run's recent history window. Time Travel to the beginning of the run is always available.
 
 Start Time Travel from Dex Web, a Client, or `dexcli flow time-travel`; the [CLI reference](/reference/cli) lists its flags. [Time travel](/reference/server/runtime-client#time-travel) in the server reference covers the request, the history window, and the limits.
+
+## Branch a Flow with Clone Fork {#clone-fork}
+
+Clone Fork creates a new Flow from another run's state at one point. The point can be the current state or an earlier one. The new Flow has its own Flow ID. Time Travel moves the same Flow back. Clone Fork leaves the original alone.
+
+Use Clone Fork to branch an agent session while the original session continues. Use it to try another path from a past point without losing the original run. Use Time Travel when the same Flow should go back.
+
+| Question | Time Travel | Clone Fork |
+| --- | --- | --- |
+| Which Flow continues? | The same Flow, with the same Flow ID and Run ID. | A new Flow with a new Flow ID. |
+| What happens to the original? | It goes back to the point. | It is only read and keeps running. |
+| What does the run keep? | Its history, with a new attempt. | Nothing of the source's history. The new run starts a history of its own. |
+
+Clone Fork copies state. The new run gets the Attributes, pending Channel messages, Steps, and waits that the source had at the point. It starts a new history, so it does not copy the source's history, its Stream messages, or its parent. Input that reached the source after the point is not applied. Hard-delete Attributes take their current values.
+
+Steps that were running at the point run again in the new Flow, with their external calls, so each call needs an [idempotency key](/concepts/step#idempotency-keys). Give the new Flow its own task queue when Workers pick Flows by task queue, as they do for an agent session. Otherwise the source's Workers also run the new Flow.
+
+The ID reuse policy decides the new Flow ID in the same change that creates the Flow. A conflict fails the call and creates nothing.
+
+A copied Step can wait on a SubFlow. The SubFlow reset policy decides what each such wait does, for Clone Fork and for Time Travel. A wait can attach to the original child and take its result. It can restart the child. It can fail, or the whole call can be rejected. By default, a wait attaches when it can and restarts otherwise. The source's children never change.
+
+Start Clone Fork from a Client or with `dexcli flow clone-fork`; the [CLI reference](/reference/cli) lists its flags. [Clone fork](/reference/server/runtime-client#clone-fork) in the server reference covers the request, the point types, the SubFlow policies, and the limits.
 
 ## What runs again after a crash {#what-runs-again}
 
