@@ -361,6 +361,12 @@ regenerated. Resolve them with the revert-and-confirm procedure in
   Link the example (and the examples playground when the sample has HTTP and
   is catalogued). Do not invent APIs; add the example first.
   See `.cursor/rules/docs-examples.mdc`.
+
+Whenever runnable code for a documented design pattern or product example is
+added or changed, run `cd docs && npm run generate:flow-definitions`. Review and
+commit the affected JSON under `docs/src/data/flow-definitions/` in the same
+change, even when the MDX import is unchanged.
+
 - Product docs should read naturally: plain English, short sentences, no
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
 - In product-doc prose, write API names, methods, types, and identifiers in

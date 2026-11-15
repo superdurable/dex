@@ -1,7 +1,6 @@
 ---
 description: Go integration test execution and async test conventions
-globs: server-zd/integ/**/*
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Go Integration Testing
