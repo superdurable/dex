@@ -29,7 +29,16 @@ from dex._flow_definition_upload import (
     upload_requests,
     upload_results_from_response,
 )
-from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
+from dex._grpc_errors import (
+    FlowTargetRequirement,
+    translate_clone_fork_flow_error,
+    translate_rpc_error,
+)
+from dex._history_point_mapping import (
+    clone_fork_flow_result_from_proto,
+    map_clone_fork_flow_request,
+    map_time_travel_request,
+)
 from dex._server_protocol import (
     NegotiatedServerProtocol,
     ServerProtocolNegotiationTimeoutError,
@@ -67,14 +76,15 @@ from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
 from dex.flow_state import FlowState, flow_state_from_proto
 from dex.flow_options import (
+    CloneForkFlowOptions,
+    CloneForkFlowResult,
     FlowTimeoutPolicy,
     IdReusePolicy,
     StartFlowOptions,
     StopFlowOptions,
     StopType,
     TimeTravelOptions,
-    TimeTravelStepMethod,
-    TimeTravelType,
+    _AttributeInitialization,
     _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
@@ -998,29 +1008,12 @@ class Client:
             ValueError: If time travel selector fields are invalid.
             DexServiceError: If FlowService cannot perform the time travel.
             RuntimeError: If the Server reports a protocol range without protocol 4.
+
+        .. versionchanged:: 1.45.3
+           Accepts ``TimeTravelType.EVENT_ID`` with ``options.event_id`` and
+           sends ``options.sub_flow_reset_policy``.
         """
-        request = pb.ResetFlowRequest(
-            flow_id=require_name(flow_id),
-            reset_type={
-                TimeTravelType.BEGINNING: pb.FLOW_RESET_TYPE_BEGINNING,
-                TimeTravelType.HISTORY_EVENT_TIME: pb.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
-                TimeTravelType.STEP_TYPE: pb.FLOW_RESET_TYPE_STEP_TYPE,
-                TimeTravelType.STEP_EXECUTION_ID: pb.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
-            }[options.type],
-            reason=options.reason or "",
-            skip_writes_reapply=options.skip_writes_reapply,
-        )
-        if options.history_event_time is not None:
-            request.history_event_time = options.history_event_time.isoformat()
-        if options.step_type is not None:
-            request.step_type = options.step_type
-        if options.step_execution_id is not None:
-            request.step_execution_id = options.step_execution_id
-        if options.step_method is not None:
-            request.step_method = {
-                TimeTravelStepMethod.WAIT_FOR: pb.FLOW_RESET_STEP_METHOD_WAIT_FOR,
-                TimeTravelStepMethod.EXECUTE: pb.FLOW_RESET_STEP_METHOD_EXECUTE,
-            }[options.step_method]
+        request = map_time_travel_request(require_name(flow_id), options)
         response = cast(
             pb.ResetFlowResponse,
             self._call(
@@ -1032,6 +1025,109 @@ class Client:
             ),
         )
         return response.run_id
+
+    def clone_fork_flow(
+        self,
+        flow: Flow[Any],
+        source_flow_id: str,
+        flow_id: str,
+        options: CloneForkFlowOptions = CloneForkFlowOptions(),
+    ) -> CloneForkFlowResult:
+        """Create a new Flow whose first run starts from a copy of another run.
+
+        The source run is the run of ``source_flow_id`` that
+        ``options.source_run_id`` selects; the empty default selects the latest
+        run. ``options`` selects the copied point, as for ``time_travel``; the
+        default copies the latest committed state. Dex copies the source run's
+        Attributes, pending Channel messages, Step executions, waits, and
+        timers at that point. The new Flow gets the Flow ID ``flow_id``, a new
+        run ID, and run attempt 1, and continues on its own from the copied
+        state. The source run keeps running and never changes. A typical use is
+        a session that branches into a new session while the old one continues.
+
+        Steps that were running at the point start again in the new Flow. Steps
+        that waited keep waiting, and their timers keep their fire times. The
+        new Flow copies no history, Stream messages, request IDs of RPCs and
+        Channel publications, parent Flow, or sticky Worker. Input that the
+        source run received after the point, such as RPCs and Channel
+        publications, is not applied. ``options.sub_flow_reset_policy`` decides
+        what happens to SubFlow conditions of copied Steps.
+
+        Args:
+            flow: The registered Flow instance of the source run's Flow type.
+                The new Flow keeps that type. The Client uses it to encode the
+                Attribute writes of ``options``.
+            source_flow_id: The non-empty Flow ID of the source run.
+            flow_id: The non-empty Flow ID of the new Flow. It must differ from
+                ``source_flow_id``; to return a Flow to an earlier point, use
+                ``time_travel``.
+            options: The copied point and the new Flow's start settings.
+
+        Returns:
+            The new run ID and the source run, run attempt, and last history
+            event ID that the copied point includes.
+
+        Raises:
+            CloneForkFlowUnsupportedError: If the Server negotiated a protocol
+                older than version 6; server-zd 0.1.33 and later support it.
+                The request is not sent.
+            FlowAlreadyStartedError: If the ID reuse policy rejects a run of
+                ``flow_id``.
+            FlowNotFoundError: If the source run does not exist. Its
+                ``flow_id`` is ``source_flow_id``.
+            FlowDefinitionError: If ``flow`` is not registered.
+            ValueError: If a Flow ID is empty or both Flow IDs are equal.
+            ValueMappingError: If an Attribute write cannot be encoded.
+            DexServiceError: If FlowService rejects the call, for example with
+                ``FAILED_PRECONDITION`` when the point is outside the source
+                run's history window or its state is not running.
+
+        Examples:
+            >>> result = client.clone_fork_flow(
+            ...     session_flow,
+            ...     "session-1",
+            ...     "session-1-branch",
+            ...     CloneForkFlowOptions(
+            ...         type=TimeTravelType.STEP_TYPE,
+            ...         step_type="AnswerQuestion",
+            ...         reason="explore another answer",
+            ...     ),
+            ... )
+            >>> print(result.run_id, result.source_event_id)
+
+        .. versionadded:: 1.45.3
+        """
+        registered = self.registry._flow_for_instance(flow)
+        require_name(source_flow_id)
+        require_name(flow_id)
+        if source_flow_id == flow_id:
+            raise ValueError(
+                "clone_fork_flow flow_id must differ from source_flow_id; "
+                "use time_travel to return a Flow to an earlier point"
+            )
+        request = map_clone_fork_flow_request(
+            source_flow_id,
+            flow_id,
+            options,
+            self._map_clone_fork_flow_config_override(options),
+            self._map_attribute_initializations(
+                registered, options._attribute_initializations
+            ),
+            0 if options.timeout is None else self._seconds32(options.timeout),
+        )
+        self._negotiate_server_protocol_for_operation(
+            "clone_fork_flow", flow_id, "none"
+        )
+        self._server_protocol.require_clone_fork_flow_support()
+        try:
+            response = cast(
+                pb.CloneForkFlowResponse, self._service.CloneForkFlow(request)
+            )
+        except grpc.RpcError as error:
+            raise translate_clone_fork_flow_error(
+                error, source_flow_id, flow_id
+            ) from error
+        return clone_fork_flow_result_from_proto(response)
 
     def skip_timer(
         self,
@@ -1563,7 +1659,29 @@ class Client:
             mapped.flow_start_delay_seconds = self._seconds32(options.start_delay)
         if options.retry_policy is not None:
             mapped.retry_policy.CopyFrom(self._map_flow_retry(options.retry_policy))
-        for initialization in options._attribute_initializations:
+        mapped.attributes.extend(
+            self._map_attribute_initializations(
+                registered, options._attribute_initializations
+            )
+        )
+        mapped.attributes.extend(
+            registered.initial_work_queue_permissions_writes(mapped.attributes)
+        )
+        mapped.flow_config_override.CopyFrom(
+            self._map_flow_config(options.config_override)
+        )
+        mapped.flow_config_override.worker_target.CopyFrom(
+            pb.WorkerTarget(is_pull_mode=True, task_queue=options.task_queue)
+        )
+        return mapped
+
+    def _map_attribute_initializations(
+        self,
+        registered: _RegisteredFlow,
+        initializations: tuple[_AttributeInitialization, ...],
+    ) -> list[pb.AttributeWrite]:
+        writes: list[pb.AttributeWrite] = []
+        for initialization in initializations:
             definition = initialization.definition
             _require_matching_hard_delete_on_null(
                 registered.name, registered.persistence.get(definition.name), definition
@@ -1578,16 +1696,20 @@ class Client:
             )
             _apply_attribute_store_sync(write, definition)
             _apply_hard_delete_on_null(write, definition)
-            mapped.attributes.append(write)
-        mapped.attributes.extend(
-            registered.initial_work_queue_permissions_writes(mapped.attributes)
-        )
-        mapped.flow_config_override.CopyFrom(
-            self._map_flow_config(options.config_override)
-        )
-        mapped.flow_config_override.worker_target.CopyFrom(
-            pb.WorkerTarget(is_pull_mode=True, task_queue=options.task_queue)
-        )
+            writes.append(write)
+        return writes
+
+    def _map_clone_fork_flow_config_override(
+        self, options: CloneForkFlowOptions
+    ) -> pb.FlowConfig | None:
+        # No override keeps every FlowConfig value of the source run.
+        if options.config_override is None and not options.task_queue:
+            return None
+        mapped = self._map_flow_config(options.config_override)
+        if options.task_queue:
+            mapped.worker_target.CopyFrom(
+                pb.WorkerTarget(is_pull_mode=True, task_queue=options.task_queue)
+            )
         return mapped
 
     def _map_flow_config(self, config: FlowConfig | None) -> pb.FlowConfig:

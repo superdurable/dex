@@ -201,12 +201,12 @@ def test_worker_sync_failure_prevents_polling() -> None:
         (
             pb.ServerInfo(
                 server_version="future",
-                minimum_supported_protocol_version=6,
-                current_protocol_version=6,
+                minimum_supported_protocol_version=7,
+                current_protocol_version=7,
             ),
             None,
-            r"supports Dex Server protocol versions 4-5.*"
-            r"protocol versions 6-6.*Upgrade the SDK",
+            r"supports Dex Server protocol versions 4-6.*"
+            r"protocol versions 7-7.*Upgrade the SDK",
         ),
         (pb.ServerInfo(server_version="invalid"), None, "interval is invalid"),
         (

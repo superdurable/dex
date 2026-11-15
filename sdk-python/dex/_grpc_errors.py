@@ -152,6 +152,16 @@ def translate_rpc_error(
     return DexServiceError(*parameters)
 
 
+def translate_clone_fork_flow_error(
+    error: grpc.RpcError, source_flow_id: str, flow_id: str
+) -> DexServiceError:
+    """Attribute not-found to the source Flow and every other error to the new Flow."""
+    translated = translate_rpc_error(error, "clone_fork_flow", flow_id, "none")
+    if translated.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
+        return translate_rpc_error(error, "clone_fork_flow", source_flow_id, "existing")
+    return translated
+
+
 def _worker_code(details: pb.ServiceErrorResponse | None) -> grpc.StatusCode | None:
     if details is None or details.original_worker_error_status == 0:
         return None
