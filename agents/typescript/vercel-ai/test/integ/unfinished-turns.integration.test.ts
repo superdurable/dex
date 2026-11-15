@@ -22,6 +22,7 @@ import {
   turnCancelledNoteHeader,
   turnSteeredNoteHeader,
   type AgentEventWriter,
+  type AgentFrameworkRunner,
   type AgentMessage,
   type AgentSnapshot,
   type AgentToolCall,
@@ -40,7 +41,9 @@ import {
 import { createScriptedLanguageModel, readRecordedModelPrompts } from "../fixtures/scripted-language-model.js";
 import { createScriptedVercelAiAgentFlow, scriptedPrivateFieldValue } from "../fixtures/scripted-vercel-ai-agent.js";
 import { createVercelAiAgentSessionFlow, toolCallOutputOmittedResult, type AgentSessionFlow } from "../../src/index.js";
-import type { VercelAiAgentRunner } from "../../src/vercel-ai-agent-runner.js";
+
+// The built-package smoke test imports only the package entry, which does not export the runner class.
+type VercelAiAgentRunner = Required<Pick<AgentFrameworkRunner, "runModelStep" | "buildUnfinishedTurnMessages">>;
 
 describe("Vercel AI SDK agent turns store their messages as they run and when they end early", () => {
   let engine: PrivateDexEngine;
