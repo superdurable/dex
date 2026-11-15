@@ -59,8 +59,6 @@ type V2Definition struct {
 
 // V2AgentSession describes the Dex Agents session parts of a Flow Definition Graph.
 type V2AgentSession struct {
-	// StartStepSkipWaitFor is true when the StartAgentSession Start Step has no wait phase.
-	StartStepSkipWaitFor bool
 	// Language is the graph's source language.
 	Language string
 	// HasQuestions is true when the graph declares the AwaitQuestionAnswer Step.

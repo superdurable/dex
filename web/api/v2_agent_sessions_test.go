@@ -22,80 +22,13 @@ import (
 
 const testAgentSessionRevision = "sha256:agent"
 
-func TestAgentSessionStartUsesTheSessionStartInputAndSearchMode(t *testing.T) {
-	client := &v2TestClient{}
-	mux := newAgentSessionTestMux(client)
-	response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/start", testAgentSessionRevision, `{
-		"flowType":"SupportAgent","flowId":"session-1","initialMessage":"Hello",
-		"sessionSettings":{ "model": "mock/dex", "system_prompt": "Be brief", "max_turns": 9007199254740993 }
-	}`)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
-	}
-	if len(client.startRequests) != 1 {
-		t.Fatalf("StartFlow requests = %d", len(client.startRequests))
-	}
-	started := client.startRequests[0]
-	if started.GetFlowId() != "session-1" || started.GetFlowType() != "SupportAgent" ||
-		started.GetStartStepType() != "StartAgentSession" || !started.GetStepOptions().GetSkipWaitFor() ||
-		started.GetRequestId() == "" {
-		t.Fatalf("StartFlow request = %+v", started)
-	}
-	config := started.GetFlowStartOptions().GetFlowConfigOverride()
-	if config.GetActiveStepSearchMode() != dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR ||
-		!config.GetWorkerTarget().GetIsPullMode() {
-		t.Fatalf("Flow config override = %+v", config)
-	}
-	want := `{"initial_message":"Hello","session_settings":{"model":"mock/dex","system_prompt":"Be brief","max_turns":9007199254740993}}`
-	if payload := string(started.GetStepInput().GetObjValue().GetPayload()); payload != want {
-		t.Fatalf("start input = %s", payload)
-	}
-}
-
-func TestAgentSessionStartWithoutMessageOrSettingsSendsNulls(t *testing.T) {
+func TestAgentSessionStartRouteIsRemoved(t *testing.T) {
 	client := &v2TestClient{}
 	mux := newAgentSessionTestMux(client)
 	response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/start", testAgentSessionRevision,
-		`{"flowType":"SupportAgent","flowId":"session-2","initialMessage":"  ","sessionSettings":null}`)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
-	}
-	if payload := string(client.startRequests[0].GetStepInput().GetObjValue().GetPayload()); payload !=
-		`{"initial_message":null,"session_settings":null}` {
-		t.Fatalf("start input = %s", payload)
-	}
-}
-
-func TestAgentSessionStartRejectsInvalidRequestsWithoutStarting(t *testing.T) {
-	client := &v2TestClient{}
-	mux := newAgentSessionTestMux(client)
-	for _, testCase := range []struct {
-		name     string
-		revision string
-		body     string
-		status   int
-	}{
-		{"stale revision", "sha256:stale", `{"flowType":"SupportAgent","flowId":"s"}`, http.StatusConflict},
-		{"not a session Flow type", testAgentSessionRevision, `{"flowType":"RefundFlow","flowId":"s"}`, http.StatusBadRequest},
-		{"unknown Flow type", testAgentSessionRevision, `{"flowType":"Missing","flowId":"s"}`, http.StatusBadRequest},
-		{"blank Flow ID", testAgentSessionRevision, `{"flowType":"SupportAgent","flowId":" "}`, http.StatusBadRequest},
-		{"reserved Flow ID character", testAgentSessionRevision, `{"flowType":"SupportAgent","flowId":"a/b"}`, http.StatusBadRequest},
-		{"array settings", testAgentSessionRevision, `{"flowType":"SupportAgent","flowId":"s","sessionSettings":[1]}`, http.StatusBadRequest},
-		{"string settings", testAgentSessionRevision, `{"flowType":"SupportAgent","flowId":"s","sessionSettings":"x"}`, http.StatusBadRequest},
-		{"oversized settings", testAgentSessionRevision,
-			`{"flowType":"SupportAgent","flowId":"s","sessionSettings":{"p":"` + strings.Repeat("x", 16*1024) + `"}}`,
-			http.StatusBadRequest},
-		{"unknown field", testAgentSessionRevision, `{"flowType":"SupportAgent","flowId":"s","workerTargetAddress":"w:1"}`, http.StatusBadRequest},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			response := performAgentSessionRequest(mux, "/api/v2/agent-sessions/start", testCase.revision, testCase.body)
-			if response.Code != testCase.status {
-				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
-			}
-		})
-	}
-	if len(client.startRequests) != 0 {
-		t.Fatalf("StartFlow requests = %+v", client.startRequests)
+		`{"flowType":"SupportAgent","flowId":"s"}`)
+	if response.Code != http.StatusNotFound || len(client.startRequests) != 0 {
+		t.Fatalf("status = %d body=%q StartFlow=%d", response.Code, response.Body.String(), len(client.startRequests))
 	}
 }
 
@@ -251,7 +184,6 @@ func TestAgentSessionRoutesRefuseAFlowThatOnlyReusesSessionActionNames(t *testin
 	mux := http.NewServeMux()
 	RegisterV2Handlers(mux, client, map[string]V2Definition{"ImpostorFlow": impostor})
 	for path, body := range map[string]string{
-		"/api/v2/agent-sessions/start": `{"flowType":"ImpostorFlow","flowId":"s"}`,
 		"/api/v2/agent-sessions/messages": `{"flowType":"ImpostorFlow","flowId":"s",` +
 			`"workQueuePermissions":["agent.operate"],"text":"hi"}`,
 		"/api/v2/agent-sessions/settings": `{"flowType":"ImpostorFlow","flowId":"s",` +
@@ -308,8 +240,7 @@ func testAgentSessionDefinition() V2Definition {
 			Input: V2ActionInput{Kind: "object"},
 		}},
 		AgentSession: &V2AgentSession{
-			StartStepSkipWaitFor: true,
-			RPCNames:             map[string]bool{"send_user_message": true, "update_session_settings": true},
+			RPCNames: map[string]bool{"send_user_message": true, "update_session_settings": true},
 		},
 	}
 }

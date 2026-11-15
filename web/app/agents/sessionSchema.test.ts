@@ -10,7 +10,6 @@ import { readFileSync } from 'node:fs';
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
 import { describe, expect, it } from 'vitest';
 import type { V2Catalog, V2CatalogEntry } from '@/lib/types';
-import { agentSessionFlowTypes } from './NewSessionDialog';
 import {
   agentSessionSchema,
   decodeAgentToolCall,
@@ -51,14 +50,6 @@ describe('agentSessionSchema', () => {
     expect(schema?.cancelTurn?.rpcName).toBe(SESSION_RPC.cancelTurn);
     expect(schema?.hasQuestions).toBe(true);
     expect(schema?.rpcNames).toEqual(expect.arrayContaining([SESSION_RPC.sendUserMessage, SESSION_RPC.updateSessionSettings]));
-  });
-
-  it('offers New session only for entries the server marks as sessions', () => {
-    const catalog: V2Catalog = {
-      enabled: true, definitionRevision: 'r',
-      flows: [sessionEntry('SupportAgent'), sessionEntry('ImpostorAgent', { agentSession: undefined })],
-    };
-    expect(agentSessionFlowTypes(catalog)).toEqual(['SupportAgent']);
   });
 
   it('declares every Attribute the view requires', () => {

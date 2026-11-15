@@ -63,9 +63,6 @@ export interface AgentSessionSchema {
   rpcNames: readonly string[];
 }
 
-/** The session Start Step type, which Dex Web's start route uses. */
-export const SESSION_START_STEP_TYPE = 'StartAgentSession';
-
 /**
  * The session schema of a v2 catalog entry, or null when the Flow is not a Dex Agents session.
  *

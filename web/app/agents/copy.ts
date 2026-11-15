@@ -102,31 +102,6 @@ export const SESSION_COPY = {
     return `Settings are ${size.toLocaleString()} bytes of compact JSON. The limit is ${limit.toLocaleString()} bytes.`;
   },
 
-  // New session.
-  newSession: 'New session',
-  newSessionTitle(flowType: string): string {
-    return `New ${flowType} session`;
-  },
-  newSessionClose: 'Close New session',
-  agentFlowType: 'Agent',
-  sessionId: 'Session ID',
-  sessionIdHint: 'The Flow ID of the session. A new random ID is filled in.',
-  sessionIdRequired: 'Session ID is required.',
-  sessionIdReserved: 'A session ID cannot contain /, $, or :.',
-  firstMessage: 'First message',
-  firstMessageHint: 'Optional. Without one, the session waits for a message.',
-  modelSetting: 'model',
-  modelHint: 'Optional. The model name the Worker maps to a model client.',
-  systemPromptSetting: 'system_prompt',
-  systemPromptHint: 'Optional. Takes effect only when the agent reads system_prompt from its settings.',
-  otherSettings: 'Other settings (JSON object)',
-  otherSettingsHint: 'Optional. model and system_prompt above replace the same keys here.',
-  startSession: 'Start session',
-  startingSession: 'Starting…',
-  startFailed: 'The session did not start.',
-  started(sessionId: string): string {
-    return `Started session ${sessionId}.`;
-  },
   stop: 'Stop turn',
   stopping: 'Stopping…',
   sending: 'Sending…',

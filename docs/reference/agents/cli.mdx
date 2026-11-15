@@ -718,8 +718,8 @@ the session's model calls and tool calls run there.
 - **--resume** of another command's session, such as a **dex-agents-pi**
   session in **dex-agents-builtin**, exits with code 2.
 - **--resume** of a session of the harness's Flow type that another client
-  started without its own task queue, such as from the Dex Web **Start**
-  dialog, exits with code 2 at once. No command pulls the task queue it runs
+  started without its own task queue, such as an application's Client,
+  exits with code 2 at once. No command pulls the task queue it runs
   on. Start sessions with the command instead.
 - A session that no command has open does not run. A message, an approval, or
   another session Action sent to it from Dex Web or another client waits for a

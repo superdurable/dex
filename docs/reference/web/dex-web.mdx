@@ -539,7 +539,7 @@ Since 1.45.2, **Your name** above the box names the person who sends. It suits a
 
 The name is self-declared. Dex Web does not check who typed it, and anyone who can message the session can enter any name. Treat it as a label, not as an identity.
 
-The tab also has **Session settings** and **New session**. See [Session settings](#agent-session-settings) and [New session](#agent-new-session).
+The tab also has **Session settings**. See [Session settings](#agent-session-settings). Dex Web does not start sessions; see [Start a session](#agent-new-session).
 
 ### Read path {#agent-session-read-path}
 
@@ -564,22 +564,13 @@ Settings are stored in the session, and everyone who can read the session sees t
 
 What a setting does is up to the agent. A Worker reads the settings of each turn. For example, an agent that maps **model** to a model client uses the new model from the next turn on.
 
-### New session {#agent-new-session}
+### Start a session {#agent-new-session}
 
-Since 1.43. **New session** starts a Dex Agents session. It is on the **Conversation** tab, and in **Work Queue** on a session Flow type, in place of **Start Flow**. The dialog asks for:
-
-| Field | Meaning |
-| --- | --- |
-| **Agent** | The session Flow type. It appears when the catalog has more than one. |
-| **Session ID** | The Flow ID of the session. A random ID is filled in. It cannot contain **/**, **$**, or **:**. |
-| **First message** | Optional. Without one, the session waits in **AwaitUserMessage**. |
-| **model** | Optional. Sets the **model** setting. |
-| **system_prompt** | Optional. Sets the **system_prompt** setting. It takes effect only when the agent reads it. |
-| **Other settings** | Optional. A JSON object with more settings. **model** and **system_prompt** above replace the same keys. |
-
-**Start session** sends **POST /api/v2/agent-sessions/start**. The route starts the Flow at **StartAgentSession** with the session start input, **initial_message** and **session_settings**, the input that **AgentSessionClient.start_session** sends. Like that Client, it makes the session searchable by its waiting Steps, so the [agent inbox](#agent-inbox) finds it. Then the run page opens on the **Conversation** tab.
+Dex Web does not start Dex Agents sessions. Start one with an Agents CLI command, such as **dex-agents-builtin**, or with the application's Client, such as **AgentSessionClient.start_session** in Python or **startAgentSession** in TypeScript. The session then appears in Dex Web, where the **Conversation** tab reads it and sends it messages. See [Commands](/reference/agents/cli#commands).
 
 A session Flow graph declares no **Start Flow** input, so **Start Flow** does not start sessions.
+
+Changed in 1.45.6: Dex Web no longer has **New session** or **POST /api/v2/agent-sessions/start**. A session that route started ran on the default task queue, where an Agents CLI command does not run it.
 
 ### Session controls {#agent-session-controls}
 
@@ -587,9 +578,9 @@ Approvals, questions, **Steer**, and **Stop turn** are Actions. Each goes throug
 
 Since 1.43.0, sending a message and saving settings go through **POST /api/v2/agent-sessions/messages** and **POST /api/v2/agent-sessions/settings**. The session graph declares no Action for **send_user_message** or **update_session_settings**. So these routes apply the checks of **POST /api/v2/actions** themselves: the Flow Definition revision, an open session of that Flow type, and **Working as** the permission that the session's Actions declare. All session Actions declare one permission.
 
-The three routes accept only a Flow type whose graph is a Dex Agents session: it declares the Attributes the tab requires, and its Start Step is **StartAgentSession**. The messages and settings routes also need the graph to declare the RPC they call. Action names alone do not make a Flow type a session.
+The two routes accept only a Flow type whose graph is a Dex Agents session: it declares the Attributes the tab requires, and its Start Step is **StartAgentSession**. They also need the graph to declare the RPC they call. Action names alone do not make a Flow type a session.
 
-As with **POST /api/v2/actions**, **Working as** comes from the request and grants nothing. **POST /api/v2/agent-sessions/start**, like **POST /api/v2/start**, checks no permission. Authenticate and authorize callers at the trusted boundary in front of Dex Web. Like every **/api** request that changes state, the three routes accept only same-origin JSON requests. See [The /api requests](#api-requests). Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, with a **Work as** button for it. Changed in 1.45.5: the tab has no Working as banner or selector at its top. Each control that only Working as blocks offers **Work as** where it is blocked: the message box in place of **Send**, session settings, approvals, and questions. Once Working as is set, a muted line by the message box reads **Acting as** and the permission, and **Change** offers every choice, including **Anyone**. Work Queue keeps its own **Working as** control.
+As with **POST /api/v2/actions**, **Working as** comes from the request and grants nothing. Authenticate and authorize callers at the trusted boundary in front of Dex Web. Like every **/api** request that changes state, the two routes accept only same-origin JSON requests. See [The /api requests](#api-requests). Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, with a **Work as** button for it. Changed in 1.45.5: the tab has no Working as banner or selector at its top. Each control that only Working as blocks offers **Work as** where it is blocked: the message box in place of **Send**, session settings, approvals, and questions. Once Working as is set, a muted line by the message box reads **Acting as** and the permission, and **Change** offers every choice, including **Anyone**. Work Queue keeps its own **Working as** control.
 
 Changed in 1.45.1: while **Working as** is the only thing that blocks the message box, the box offers the same button in place of **Send**. Its placeholder names the permission. After you choose it, the box takes your message.
 

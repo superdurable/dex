@@ -1050,42 +1050,6 @@ html .ses-settings-json {
   gap: 8px;
 }
 
-/* ---------- New session: the Start Flow dialog's frame, with settings fields ---------- */
-.nsd .nsd-fields {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.nsd textarea {
-  min-width: 0;
-  padding: 7px 9px;
-  border: 1px solid var(--p-line);
-  border-radius: 6px;
-  background: var(--p-surface-2);
-  color: var(--p-ink-0);
-  font: inherit;
-  resize: vertical;
-}
-
-.nsd .nsd-hint {
-  color: var(--p-ink-2);
-  font-size: 11.5px;
-}
-
-.nsd .ses-settings-warning {
-  color: var(--p-external, #9a5b00);
-}
-
-html .nsd .ses-settings-json {
-  background: var(--p-surface-2);
-  color: var(--p-ink-0);
-  font-family: var(--p-mono, ui-monospace, monospace);
-}
-
 /* Where Working as blocks a control, a small Work as button stands in for the reason. */
 .ses-workas-line {
   display: inline-flex;

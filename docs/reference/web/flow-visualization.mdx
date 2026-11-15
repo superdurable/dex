@@ -62,7 +62,7 @@ Dex Web loads definitions only where they are used:
 | The header and **/readyz** | The Flow types that have a definition, without their content. |
 | A run page, its **Actions** and **Conversation**, and the v2 routes for one Flow type | The definitions of that one Flow type, through **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. The Flow type is a query parameter, so Flow types such as **.** work. The browser keeps the answer and asks again with its revision, so an unchanged definition is not sent again. The route answers 304 to an **If-None-Match** that names the revision, weak or strong, or **\***. |
 | **Designs** | Every definition without its graph, through **GET /api/flow-definitions**, then the graph of the selected one. |
-| **Work Queue** and **New session** | Every Version 2.0 contract, through **GET /api/v2/catalog**, and the graphs of the Flow types being searched. |
+| **Work Queue** | Every Version 2.0 contract, through **GET /api/v2/catalog**, and the graphs of the Flow types being searched. |
 | **Connectors** | Every definition, to find the connections that Flows use. The app asks for the Connectors listing once when it loads, not on every page. |
 
 Dex Web rejects a definition that exceeds one of these limits. The canvas also refuses to draw a larger graph and says that it is too large.
