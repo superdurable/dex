@@ -79,7 +79,7 @@ Java: `io.superdurable:dex-sdk` on [Maven Central](https://central.sonatype.com/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the [CLA](.github/CLA.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build and test. Contributors sign the [CLA](CLA.md).
 
 <details>
 <summary>Repository layout</summary>

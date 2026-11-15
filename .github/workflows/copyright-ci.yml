@@ -22,7 +22,7 @@ on:
       - "LICENSE"
       - "LEGACY_NOTICES.md"
       - "LICENSING.md"
-      - ".github/CLA.md"
+      - "CLA.md"
       - ".github/CLA-INDIVIDUAL.md"
       - ".github/CLA-CORPORATE.md"
       - "Makefile"

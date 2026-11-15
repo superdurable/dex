@@ -176,7 +176,7 @@ use the mixed header. Preserve applicable notices when copying smaller excerpts.
 
 ## Contributor License Agreement
 
-All contributors must sign an [individual or corporate CLA](.github/CLA.md). Email the
+All contributors must sign an [individual or corporate CLA](CLA.md). Email the
 signed agreement and GitHub handle to licensing@superdurable.io. Pull
 requests from handles absent from `.github/cla-signatures.json` fail the CLA
 check until the record is updated.
