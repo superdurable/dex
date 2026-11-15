@@ -10,7 +10,7 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0); 1.45.2 released 2026-11-14 as [sdk-go/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-go/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.3).
+Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0); 1.45.2 released 2026-11-14 as [sdk-go/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-go/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.3); 1.45.4 released 2026-11-15 as [sdk-go/v1.45.4](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.4).
 
 ### Added
 
@@ -22,6 +22,10 @@ Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/rele
 ### Breaking
 
 - A Step whose Step type contains "-" can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash made it ambiguous. When such a Step returns a **SubFlow** Condition from **WaitFor**, Dex Server rejects the result and fails the attempt without retry. The Worker logs a warning. Default Step types are Go type names and are not affected; only a **GetStepType** override can contain "-". To migrate, change the **GetStepType** override to return a name without "-". [Reference](/reference/go/subflow#step-type-rule).
+
+### Changed
+
+- A pull Worker ignores the Server's busy-stream keepalive, a response with no frame, without a debug log line. Since 1.45.4.
 
 ### Fixed
 
