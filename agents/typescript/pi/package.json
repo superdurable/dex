@@ -36,7 +36,7 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.5.1",
     "@superdurable/dex": "1.45.4",
-    "@superdurable/dex-agents": "^0.1.0"
+    "@superdurable/dex-agents": "0.1.0"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.5.1",

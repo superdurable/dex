@@ -119,11 +119,11 @@ for (const packageDirectoryName of packages) {
   if (packageDirectoryName !== "core") {
     const requiredPeers = command === undefined ? [corePackageName] : [corePackageName, cliCorePackageName];
     for (const peer of requiredPeers) {
-      if (manifest.peerDependencies?.[peer] === undefined) problems.push(`${label} must peer-depend on ${peer}@^${releaseVersion}`);
+      if (manifest.peerDependencies?.[peer] === undefined) problems.push(`${label} must peer-depend on ${peer}@${releaseVersion}`);
     }
     for (const [peer, range] of Object.entries(manifest.peerDependencies ?? {})) {
-      if (isAgentsPackageName(peer) && range !== `^${releaseVersion}`) {
-        problems.push(`${label} must peer-depend on ${peer}@^${releaseVersion}, not ${range}`);
+      if (isAgentsPackageName(peer) && range !== releaseVersion) {
+        problems.push(`${label} must peer-depend on ${peer}@${releaseVersion}, not ${range}`);
       }
     }
     for (const field of ["dependencies", "optionalDependencies"]) {
