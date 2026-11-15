@@ -63,9 +63,9 @@ Mutation 的结果无法确认时，Connector 会选择 uncertainty 分支。把
 
 Connector Trigger 是 Flow 之外长期运行的事件源。它保留服务商的事件 ID 和发生时间，并把每个事件至少一次地交给你的应用指定的目标。
 
-你的应用提供最终的过滤条件，确定 Flow ID，并把服务商事件映射成带类型的输入。应用决定这个事件是启动一个 Flow，还是调用已有 Flow 上带类型的 [RPC](/concepts/primitives/rpc)。启动 Flow 时，服务商的事件 ID 用作请求 ID，所以重复的事件不会再启动第二个 Flow。RPC 目标要自己处理重复事件，所用的状态要有大小上限。
+你的应用提供最终的过滤条件，确定 Flow ID，并把服务商事件映射成带类型的输入。应用决定这个事件是启动一个 Flow，还是调用已有 Flow 上带类型的 [RPC](/concepts/primitives/rpc)。启动 Flow 时，服务商的事件 ID 用作请求 ID，所以重复的事件不会再启动第二个 Flow。重复投递到 RPC 目标时，需要明确的去重边界。Connector SDK 为 RPC 目标发送稳定的 request ID 时，只要 Dex Server 仍保留这个 request ID，事务型 RPC 对每个事件的 Flow 修改最多应用一次。否则 RPC 目标要用自己的状态处理重复事件，这些状态要有大小上限。
 
-本地 Trigger runner 先保存匹配的事件，再向服务商确认收到。重启后，它会重新投递尚未完成的事件。
+持久 inbox 先记录匹配的事件，再向服务商确认收到。重启后，它会重新投递尚未完成的事件。请使用提供持久 inbox 的 Trigger runner 方式。
 
 ## 连接 {#connection-与-configuration}
 

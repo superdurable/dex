@@ -1,0 +1,28 @@
+{
+  "name": "@superdurable/dex-example-slack-thread-agent",
+  "private": true,
+  "version": "0.0.0",
+  "description": "An agent session that Slack Connector Triggers start and feed: one session per thread",
+  "type": "module",
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-force-exit test/slack-thread-triggers.test.ts"
+  },
+  "dependencies": {
+    "@superdurable/connector-slack": "0.6.0",
+    "@superdurable/connectors-sdk": "0.10.1",
+    "@superdurable/dex": "1.45.4",
+    "@superdurable/dex-agents": "0.6.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "@superdurable/connectors-sdk": "$@superdurable/connectors-sdk",
+    "@superdurable/dex": "$@superdurable/dex"
+  }
+}

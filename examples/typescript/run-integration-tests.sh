@@ -144,6 +144,12 @@ DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
   DEX_FLOW_SERVICE_ADDRESS="$dex_address" npm test
 )
 
+# The Slack thread agent is another separate npm package.
+(
+  cd "$script_dir/slack-thread-agent"
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" npm test
+)
+
 if $keep_running; then
   echo ""
   echo "Dex Web:  http://127.0.0.1:${web_port}"

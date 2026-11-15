@@ -229,6 +229,85 @@ function countCopies(snapshot: AgentSnapshot, text: string): number {
 </SdkSnippet>
 </SdkTabs>
 
+## 用 Connector Trigger 启动和驱动 Session {#connector-triggers}
+
+[Connector Trigger](/concepts/connector) 可以驱动 Session。在示例中，Slack 里新开的 thread 启动一个 Session。这个 thread 里的每条回复都成为 Session 的下一条用户消息。只要 Dex Server 仍为这个 Session run 保留事件的 request ID，Trigger 重复投递的事件就只送达 Session 一次。英文的 [Connector Triggers](/reference/agents/connector-triggers#reply-target) 参考页说明一个 run 保留多少个 request ID。
+
+应用为每种事件接一个 Trigger 目标：
+
+| 事件 | 目标 | 重复投递为什么安全 |
+| --- | --- | --- |
+| 新的 thread | Flow 启动目标。它用 thread 的第一条消息启动 Session。 | 事件 ID 就是启动请求的 request ID。重复的启动返回已经在运行的 Session。 |
+| thread 里的回复 | RPC 目标。它在这个 thread 的 Session 上调用 `send_user_message`。 | 同一个事件的每次投递都发送同一个 request ID。`send_user_message` 是事务型 RPC，所以 Dex 用记录下来的回复回答重复请求。在 Dex 保留这个 request ID 期间，消息只排队一次。 |
+
+两个目标都从事件计算 Session ID：团队、频道，以及 thread 第一条消息的时间戳。第一条消息和它的回复得到同一个 ID，所以每条回复都能找到自己 thread 的 Session。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/slack-thread-agent',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+// The wire name of the session's user-message RPC. It keys each reply's request ID.
+const sendUserMessageRPCName = "send_user_message";
+
+/** The session ID of a thread. A root message and its replies resolve to the same ID. */
+export function resolveThreadSessionId(event: TriggerEvent<MessageEvent>): string {
+  const { teamId, channelId, threadTimestamp } = event.payload;
+  return `slack-thread-${teamId}-${channelId}-${threadTimestamp}`;
+}
+
+/** A session refuses blank text, so the targets skip messages without any. */
+function hasText(event: TriggerEvent<MessageEvent>): boolean {
+  return event.payload.text.trim() !== "";
+}
+
+/** Starts one session per new thread. The event ID is the start's request ID. */
+export function newThreadSessionStartTarget(
+  client: Client,
+  flow: ThreadAgentFlow,
+  options?: TriggerOptions,
+): TriggerTarget<MessageEvent> {
+  return newDexFlowTriggerTarget(
+    client,
+    flow,
+    hasText,
+    resolveThreadSessionId,
+    (event): AgentSessionStartInput => ({ initialMessage: event.payload.text }),
+    options,
+  );
+}
+
+/** Sends each thread reply to the session once. Every redelivery keeps one request ID. */
+export function newThreadReplyTarget(
+  client: Client,
+  flow: ThreadAgentFlow,
+  options?: TriggerOptions,
+): TriggerTarget<MessageEvent> {
+  return newDexRPCTriggerTarget(
+    client,
+    flow.sendUserMessage,
+    hasText,
+    resolveThreadSessionId,
+    (event): AgentUserMessage => ({ text: event.payload.text }),
+    { ...options, rpcName: sendUserMessageRPCName },
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+接这两个目标时遵守下面的规则：
+
+- **写明 RPC 名。** 把 RPC 名 `send_user_message` 传给 RPC 目标。request ID 由这个名字和事件 ID 计算，所以构建工具改了方法名，它也保持不变。
+- **先投递 thread 的第一条消息，再投递它的回复。** 一个连接的两个 Trigger 在同一个 runner 上运行。Session 从未启动或已经停止时，回复无法投递：Trigger 记录日志后丢弃它。
+- **先记录事件，再向服务商确认收到。** 使用目标带持久 inbox 的 runner。崩溃后它重放已记录的事件，request ID 保证重放不会让同一条消息排队两次。
+- **映射保持确定。** 同一个事件的每次投递都必须映射成同一条消息。请求内容不同的重复请求会被 Dex 拒绝，Trigger 随后丢弃这个事件。
+
+示例的测试只用一个 Dex 服务器和一个脚本模型运行，无需 Slack workspace 或模型密钥。它像 runner 一样把第一条消息和回复投递给两个目标，包括重复投递，以及重启后从持久 inbox 重放，并检查每条消息只排队一次。见 [Slack thread agent 示例](https://github.com/superdurable/dex/tree/main/examples/typescript/slack-thread-agent)。英文的 [Connector Triggers](/reference/agents/connector-triggers) 参考页列出所需的包版本、Dex 保留 request ID 的时长，以及这样启动的 Session 和 `startAgentSession` 启动的 Session 有什么不同。
+
 <a id="how-each-framework-runs-a-turn"></a>
 <a id="features-by-harness"></a>
 <a id="limits"></a>

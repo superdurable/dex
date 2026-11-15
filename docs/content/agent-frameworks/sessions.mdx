@@ -229,6 +229,85 @@ function countCopies(snapshot: AgentSnapshot, text: string): number {
 </SdkSnippet>
 </SdkTabs>
 
+## Start and feed sessions from Connector Triggers {#connector-triggers}
+
+A [Connector Trigger](/concepts/connector#triggers-start-or-update-flows) can drive a session. In the example, a new Slack thread starts a session. Each reply in that thread becomes the session's next user message. An event that the Trigger delivers again reaches the session once, while Dex Server still keeps the event's request ID for the session run. [Connector Triggers](/reference/agents/connector-triggers#reply-target) says how many request IDs a run keeps.
+
+The application wires one Trigger target for each kind of event:
+
+| Event | Target | Why a redelivery is safe |
+| --- | --- | --- |
+| A new thread | A Flow start target. It starts the session with the thread's first message. | The event ID is the start's request ID. A repeated start returns the session that already runs. |
+| A reply in the thread | An RPC target. It calls `send_user_message` on the thread's session. | Every delivery of one event sends the same request ID. `send_user_message` is a transactional RPC, so Dex answers a repeat from the recorded reply. The message is queued once while Dex keeps that request ID. |
+
+Both targets compute the session ID from the event: the team, the channel, and the timestamp of the thread's first message. A first message and its replies give the same ID, so each reply finds its thread's session.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/slack-thread-agent',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+// The wire name of the session's user-message RPC. It keys each reply's request ID.
+const sendUserMessageRPCName = "send_user_message";
+
+/** The session ID of a thread. A root message and its replies resolve to the same ID. */
+export function resolveThreadSessionId(event: TriggerEvent<MessageEvent>): string {
+  const { teamId, channelId, threadTimestamp } = event.payload;
+  return `slack-thread-${teamId}-${channelId}-${threadTimestamp}`;
+}
+
+/** A session refuses blank text, so the targets skip messages without any. */
+function hasText(event: TriggerEvent<MessageEvent>): boolean {
+  return event.payload.text.trim() !== "";
+}
+
+/** Starts one session per new thread. The event ID is the start's request ID. */
+export function newThreadSessionStartTarget(
+  client: Client,
+  flow: ThreadAgentFlow,
+  options?: TriggerOptions,
+): TriggerTarget<MessageEvent> {
+  return newDexFlowTriggerTarget(
+    client,
+    flow,
+    hasText,
+    resolveThreadSessionId,
+    (event): AgentSessionStartInput => ({ initialMessage: event.payload.text }),
+    options,
+  );
+}
+
+/** Sends each thread reply to the session once. Every redelivery keeps one request ID. */
+export function newThreadReplyTarget(
+  client: Client,
+  flow: ThreadAgentFlow,
+  options?: TriggerOptions,
+): TriggerTarget<MessageEvent> {
+  return newDexRPCTriggerTarget(
+    client,
+    flow.sendUserMessage,
+    hasText,
+    resolveThreadSessionId,
+    (event): AgentUserMessage => ({ text: event.payload.text }),
+    { ...options, rpcName: sendUserMessageRPCName },
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Follow these rules when you wire the targets:
+
+- **Name the RPC.** Pass the RPC name `send_user_message` to the RPC target. The request ID is computed from that name and the event ID, so it stays the same when a build renames the method.
+- **Deliver a thread's first message before its replies.** Run both Triggers of a connection on one runner. A reply whose session never started, or has stopped, cannot be delivered: the Trigger logs it and drops it.
+- **Record each event before the provider is acknowledged.** Use a runner whose targets have a durable inbox. After a crash, it replays the recorded events, and the request IDs keep a replay from queuing a message twice.
+- **Keep the mapping deterministic.** Every delivery of an event must map to the same message. Dex rejects a repeat whose request differs, and the Trigger drops that event.
+
+The example's test runs with only a Dex server and a scripted model, without a Slack workspace or a model key. It delivers first messages and replies to the targets the way a runner does, with redeliveries and with restarts that replay a durable inbox, and checks that each message is queued once. See the [Slack thread agent example](https://github.com/superdurable/dex/tree/main/examples/typescript/slack-thread-agent). [Connector Triggers](/reference/agents/connector-triggers) lists the package versions, how long Dex keeps request IDs, and how a session started this way differs from one that `startAgentSession` starts.
+
 <a id="how-each-framework-runs-a-turn"></a>
 <a id="features-by-harness"></a>
 <a id="limits"></a>
