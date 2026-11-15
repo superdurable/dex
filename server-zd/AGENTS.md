@@ -1,0 +1,114 @@
+# server-zd Rules
+
+Read `.cursor/rules/rust.mdc` (Rust Code Conventions, R1–R19) before changing
+Rust code here. The repository root `AGENTS.md` rules also apply.
+
+## server-zd Engine Rules (`server-zd/**`)
+
+- `dexzd-apply` is a deterministic state machine. It never reads clocks,
+  random numbers, configuration, the environment, files, or the network, and
+  it never iterates a hash map. Values that change an apply result come from
+  the command or from persisted state. Its `clippy.toml` bans the common
+  offenders; keep that file's frozen test settings identical to the workspace.
+- A change to the result of applying an already committed command needs a new
+  behavior version with a named predicate. Never change the behavior of an
+  existing version. This rule starts with server-zd 1.0.0, the first
+  `server-zd/v1.*` release tag. Until then, server-zd stays at behavior
+  version 1, an apply-result change needs no new version, and no work goes
+  into version barriers or raising them.
+- Persistent formats (`server-zd/proto/dexzd/`, the RocksDB key layout, the
+  object storage layout, and snapshots) follow the protobuf compatibility
+  rules: additive only; never renumber or reuse field numbers or names.
+- Generated protobuf maps use `BTreeMap`.
+- Local tests use the in-process s3local or the in-memory object store, never
+  MinIO.
+
+### server-zd metrics
+
+- Add a metric only for an operator question, alert, or dashboard that
+  existing metrics, a histogram's `_count` or `_sum`, or a log line cannot
+  answer. Name that question in the pull request.
+- Prefer a new label value on an existing family over a new family.
+- Do not add constant configuration or info metrics. The startup
+  "effective configuration" log line reports configuration.
+  `dexzd_build_info` is the only info metric.
+- Give every family exactly one level in the `FAMILY_LEVELS` table of
+  `dexzd-metrics`, and register it through `LeveledRegistry`. Levels are
+  cumulative, and `metrics.level` defaults to `advanced`:
+  - `basic`: golden signals that an SLO or a page-worthy alert uses:
+    serving, errors, latency, saturation, and commit and object storage
+    health.
+  - `advanced`: capacity, cost, and the lag and failure signal of each
+    optional Component.
+  - `verbose`: internal mechanisms, invariant detectors that also log, and
+    throughput detail read only during an investigation.
+- Put a family in `basic` only when an SLO or a page-worthy alert needs it.
+  Otherwise choose the highest level that its consumers still enable.
+- Labels take values from a closed Rust enum. Never label by partition,
+  Flow, Flow type, Step type, run, tenant, key, Worker ID, or any request
+  value. Aggregate per-partition state before encoding.
+- A family has the same labels and buckets at every level that exports it.
+- Use the `dexzd_` prefix and base units (`_seconds`, `_bytes`). The encoder
+  adds `_total` to counters; do not write it.
+- In the same pull request, update `docs/reference/server/metrics.mdx`
+  (type, labels, buckets, level, and a "Since" marker) and the per-level
+  series caps of the `serve_process` metrics test, and add a server
+  change-log fragment.
+- Removing or renaming a released family, or moving it to a higher level,
+  is a breaking change. List it in a `Breaking` fragment with its
+  replacement.
+
+### server-zd Rust conventions ported from the Go rules
+
+These rules restate the applicable Server Go rules for `server-zd/**`. The
+Rust table (R1–R19) still applies.
+
+- File ordering: a callee appears below its caller. Order a file as type,
+  constructor, entry method, handlers in dispatch order, sub-handlers,
+  state-changing helpers, converters, then tiny accessors.
+- One primary file per type: keep a type's inherent methods in one file. Do
+  not split them across feature-specific files.
+- Required dependencies: take each one as a non-`Option` constructor
+  parameter. Never wire a dependency after construction with a setter.
+- Bootstrap order: fix construction order instead of post-construction wiring.
+- Config injection: a component that needs tunables receives its config
+  section struct, not individual tunables or the whole server configuration.
+  See R7. `dexzd-apply` stays configuration-free.
+- Optional values: use `Option` only when `None` is a valid state. Never
+  silently return on an impossible `None`.
+- Config field docs: every config field has a doc comment stating its default
+  and meaning. Address fields state the protocol, the connecting party, and
+  bind versus advertise. These docs and return-value docs are exempt from R18's
+  word limit and its non-obvious-reasons rule.
+- API errors: map every request failure to a gRPC status plus a Dex
+  `ErrorSubStatus`. Server startup or shutdown may return a bare `UNAVAILABLE`. Bad client or Worker input is a client error, such as
+  `INVALID_ARGUMENT`, `NOT_FOUND`, or `FAILED_PRECONDITION`. Infrastructure
+  failures are `INTERNAL` or `UNAVAILABLE`.
+- Never ignore errors: see R10.
+- Trusted versus untrusted values: store rows, server-minted IDs, and
+  controlled invariants are trusted and may use `expect` with a reason. Request
+  fields and Worker payloads are untrusted. Validate them with an
+  error-returning helper; they never reach `expect`, `unwrap`, or `panic!`.
+- No defensive clones: never `clone()` "just in case". Move ownership or
+  borrow. Clone only when an algorithm needs a distinct value or a task needs
+  shared ownership, such as an `Arc` handle.
+- Crate names: use each crate's declared name. Alias with `as` only for a
+  collision or a misleading name.
+- Descriptive names: use descriptive variable names. Only `i j k n err ctx ok
+  t id r w tx rx` and closure parameters in short iterator chains may be one or
+  two letters.
+- Boolean names: boolean variables, fields, constants, and functions returning
+  `bool` use predicates such as `is_`, `has_`, `can_`, `should_`, or
+  `supports_`.
+- Existing terms: reuse the repository or public API term for a concept. Do
+  not invent a synonym.
+- Stateful closures: lift a closure into a method when it captures three or
+  more values, mutates outer state, has several call sites, or outlives one
+  statement.
+- No casual test skips: never `#[ignore]`, gate, or early-return around a
+  failing test without the user's agreement. Find the root cause and fix the
+  code or the expectation.
+- Test isolation: give each test unique Flow IDs, namespaces, and temporary
+  directories so tests run in parallel.
+- Async tests: wait with polling or paused tokio time. Use a real sleep only
+  inside the behavior under test.

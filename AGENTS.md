@@ -40,59 +40,9 @@ only when a section genuinely doesn't apply.
   English only. See `.cursor/rules/docs-i18n.mdc`.
 - Place each new fact by Docs Information Placement: SDK doc comments, the
   Developer reference, or the stable layer (docs and skills together).
-- Treat every published docs URL as permanent. Before moving, renaming, or
-  deleting a page, add direct entries to `docs/redirects.json` for every
-  affected locale. Redirect to the closest successor, never an unrelated page
-  or the home page. Do not create redirect chains or loops. Update internal
-  links to use the destination directly.
-- Docs pages never link to a README in the repository. User-facing content,
-  including reference, lives in the docs; a README keeps developer notes and
-  links to the docs. Link an example's folder, not its README. Clicking a sidebar
-  group header opens that group's overview page, which is not listed again
-  under it, and that page's title is the group's name; items keep their own
-  titles, never "Overview". A group overview is a wayfinder: it links to
-  child pages and sections and does not repeat their caveats, limits, API
-  names, or term definitions; terms go in the Glossary. Headings are
-  statements, not questions. Section openings keep only essential links;
-  pointers elsewhere and caveats go at the end of the section or in Next.
-  Charts use short labels, not sentences; green is Dex, blue a third-party
-  service or framework, grey your own code. Every page in the reading sequence (not a group
-  overview, the home page, or the Glossary) ends with one last
-  section named Next (下一步 in Chinese); following its first link gives a
-  linear reading order. The home page links straight to the one page that
-  does each job, with no ordered reading lists. The Quick Start group is the
-  one exception to the wayfinder rule: its header opens the Quick Start
-  tutorial, which owns the install. `npm run lint:structure` enforces these rules.
-- Each paragraph, list item, and callout opens with what is true. A negation
-  comes second, as a clarification. Cut a negation that only restates what the
-  positive already implies, such as "dexcli does not run on Windows" after a
-  macOS or Linux prerequisite. A real warning whose point is the negation keeps it:
-  list its opening words under `positive_first_allow:` in the page's front
-  matter, with a YAML comment that says why.
-  `npm run lint:structure` (tests/docs-positive-first.mjs) enforces this.
-- Every docs change must preserve all four search-index integrity gates:
-  routes and internal links resolve without accidental 404s; only declared
-  legacy URLs redirect; each indexable page has one unique, self-referencing
-  canonical URL; and robots directives, noindex/nofollow metadata, internal
-  links, and the sitemap keep canonical pages crawlable.
-- After any change under `docs/`, run `cd docs && npm run check`. This command
-  must typecheck, build both locales, reject broken links, anchors, and duplicate
-  routes, and pass the generated-site route, redirect, canonical, robots, and
-  sitemap audit. Do not merge docs changes when it fails.
-- Application snippets in product docs must be copied from runnable files under
-  `examples/`. Link the example (and the examples playground when the sample has
-  HTTP and is catalogued). Do not invent APIs; add the example first.
-  See `.cursor/rules/docs-examples.mdc`.
-- Whenever runnable code for a documented design pattern or product example is
-  added or changed, run `cd docs && npm run generate:flow-definitions`. Review
-  and commit the affected JSON under `docs/src/data/flow-definitions/` in the
-  same change, even when the MDX import is unchanged.
-- Draw every Flow design diagram in docs with `DocsFlowDefinitionGraph`. It
-  renders Flow Definition Graph 2.0 JSON the way Dex Web's Design tab does.
-  Generate that JSON from a runnable file under `examples/` by adding the source
-  to `docs/scripts/generate-flow-definitions.sh`. Do not add Step graph images
-  or hand-written definitions. Every Step in such a source declares one
-  `dex:group` and one `dex:explanation` directive.
+- The docs-only rules (redirects, page linking, positive-first, search-index
+  gates, `npm run check`, example snippets, flow definitions) live in
+  `docs/AGENTS.md`.
 
 ### UI/UX
 
@@ -323,76 +273,8 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
   reference. Those pages stay in English and Simplified Chinese until they
   move into the `reference-*` instances.
 
-#### Developer Reference Versions
-
-This is the target layout. Phases P2 and P4 of the docs and skills cleanup
-build it.
-
-- Each component has its own versioned reference: the Go, Python, Java,
-  TypeScript, and Rust SDKs, the server, cli, web, and the agents packages.
-- The left sidebar of each reference has a version selector. It defaults to
-  the latest version.
-- Only the current version is edited by hand. Each minor release snapshots it
-  automatically. Older versions change only to fix a factual error or a
-  broken link.
-- The site keeps the last 5 versions of each reference.
-- When a version leaves the site, redirect each of its URLs to the same page
-  in the latest version. If that page no longer exists, redirect to the
-  component's reference index. Docs URLs stay permanent.
-- Each SDK, cli, web, and agents minor version has one reference version.
-  Patch releases update that minor's reference. Before agents 1.0, each
-  `0.N` agents minor is one version. Until server-zd 1.0, each
-  `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
-  versioned by minor release.
-
-#### Docs Writing, Languages, and Markdown Export
-
-These rules add to `.cursor/rules/docs-writing.mdc`,
-`.cursor/rules/docs-i18n.mdc`, and `.cursor/rules/docs.mdc`.
-
-- Page structure, voice, and the page rewrite steps follow the "Page structure
-  and voice" section of `.cursor/rules/docs-writing.mdc`. The reasons are in
-  `docs/design/plan/docs-revisit.md`. The Components pages sit in the
-  sidebar's Run Dex group.
-- Concept pages are the Concepts, Components, and Design pattern pages. Use
-  short sentences there. Put one idea in each sentence.
-- Concept pages contain no version numbers and no compatibility notes for
-  older servers or SDKs.
-- Say each thing once. Link to its single home instead of repeating it.
-- Version differences appear only in the Developer reference. Mark each one
-  "Since <component version>" or "Changed in <component version>". Use the
-  version of the component the page documents, such as "Since 1.35" for an
-  SDK, cli, or web, and "Since 0.1.17" for server-zd.
-- Every changed page outside the Developer reference must be read in a
-  browser before merge. This includes Intro, Quick start, Concepts,
-  Components, Design patterns, and Use cases. Run `cd docs && npm start`,
-  which builds and serves both locales. Read every such page from top to
-  bottom as a reader, once in English and once in Simplified Chinese. Fix what
-  you find. List the pages you read in the pull request's Testing section.
-- Every docs change must work on a phone as well as a desktop. This covers
-  content, components, styles, diagrams, and the sidebar. Check each changed
-  page, or each page type a style or component change affects, at a 390px wide
-  viewport. The page must not scroll sideways. Text stays readable without
-  zooming. Wide tables and code scroll inside their own box. Diagrams fit or
-  scroll inside their own box. The docs menu opens and reaches every page.
-  List the phone checks in the pull request's Testing section.
-- Every docs page outside the Developer reference ships in English and
-  Simplified Chinese (`zh-Hans`). This includes Intro, Quick start,
-  Concepts, Components, Design patterns, and Use cases. Keep both locales in
-  sync.
-- Chinese pages translate their title, sidebar label, and headings. Each
-  Chinese heading keeps the English anchor as an explicit `{#anchor}`. Sidebar
-  group labels are translated in the zh-Hans `current.json`, and each group's
-  Chinese overview page uses that label as its title. `npm run lint:structure`
-  checks the group labels.
-- The Developer reference is English only. It means the versioned
-  `reference-*` docs instances and the generated API references. When a page
-  moves into the Developer reference, it drops its Chinese copy. Redirect the
-  old `zh-Hans` URL like any other moved page.
-- Every docs page has a Markdown twin, built by the local docs exporter. Each
-  new MDX component needs an export rule in that exporter. The build fails on
-  a component without one. Phase P1 of the docs and skills cleanup adds the
-  exporter; this rule applies from then on.
+The Developer Reference Versions and Docs Writing, Languages, and Markdown
+Export rules live in `docs/AGENTS.md`.
 
 ### No Downstream Product Information
 
@@ -502,33 +384,29 @@ compatibility tests. General permission to refactor or fix a bug does not
 authorize a breaking change. Protobuf field numbers and names must still never
 be reused.
 
-### Rust Workflow Schema Definitions
+### Area Rules
 
-In Rust examples and SDK tests under `sdk-rust/crates/dex-sdk/tests/integ/`,
-define every Attribute, Channel, and Stream as a module-level `static
-LazyLock<T>`. Do not use a function to construct or return one of these
-definitions. Reuse the static directly, or clone its initialized value only
-when an owned field is required.
+Area-specific rules live in nested rule files. Read the file for each area
+before changing files there. Each nested file has a `CLAUDE.md` and an
+`AGENTS.md` copy with the same rules.
 
-### FDG 2.0 Step Explanations
+| Area | Nested file | Rules inside |
+| --- | --- | --- |
+| `docs/` | `docs/AGENTS.md` | Developer Reference Versions, Docs Writing, Languages, and Markdown Export, and the docs-only Plan Mode rules |
+| `examples/` | `examples/AGENTS.md` | FDG 2.0 Step Explanations, Python Examples, RPC Names Start With Verbs |
+| `examples/rust/` | `examples/rust/AGENTS.md` | Rust Workflow Schema Definitions; Rust Code Conventions pointer |
+| `sdk-rust/` | `sdk-rust/AGENTS.md` | Rust Workflow Schema Definitions; Rust Code Conventions pointer |
+| `s3local/` | `s3local/AGENTS.md` | Rust Code Conventions pointer |
+| `sdk-go/` | `sdk-go/AGENTS.md` | Go SDK Conventions |
+| `server-zd/` | `server-zd/AGENTS.md` | server-zd Engine Rules, server-zd metrics, server-zd Rust conventions ported from the Go rules; Rust Code Conventions pointer |
+| `server-zd/integ/` | `server-zd/integ/AGENTS.md` | Run Tests After Every Change, Do Not Casually Skip Failing Tests, Test Isolation Rules |
 
-Every Step type in a Flow Definition Graph 2.0 Go source must declare exactly
-one `// dex:explanation text:"..."` directive next to its `dex:group`. The text
-is one sentence that states what the Step does. The analyzer stores it on the
-Step node as `metadata.explanation` for Dex Web v2 Definition.
+### Rust Code Conventions
 
-### Python Examples
-
-Do not use `del` in Python examples merely to mark parameters or local values
-as unused. Keep required callback parameters unused instead.
-
-### RPC Names Start With Verbs
-
-Every application-example RPC handler and explicit RPC name must begin with a
-concrete action verb. Use verbs such as `get`, `list`, or `describe` for reads
-and domain actions such as `send`, `update`, `delete`, or `move` for writes. Do
-not use noun-only names such as `queuedMessages`, `history`, or `snapshot`, and
-do not use placeholders such as `exampleRPC`.
+Rust Code Conventions (R1–R19, the lint tables, and the checker baseline) apply
+to every hand-written Rust workspace: `server-zd`, `sdk-rust`, `s3local`, and
+`examples/rust`. They live once in `.cursor/rules/rust.mdc`. Read it before
+changing Rust code.
 
 ### Prefer Complete, Precise Names
 
@@ -696,29 +574,6 @@ Before running `go build -o <path>` or adding a new `main` package, add the
 output path to both `.gitignore` **and** `.dockerignore`. Use exact paths, not
 overly broad globs. Delete stray uncommitted binaries.
 
-### Run Tests After Every Change
-
-After code changes, run tests via the Makefile — not bare `go test` for full
-suites:
-
-- `make -C server-zd/integ compile`
-- `make -C server-zd/integ zdIntegTests`
-- `make -C server-zd/integ zdAttributeSyncIntegTests` for PostgreSQL integration.
-
-Always tee output: `make -C server-zd/integ compile 2>&1 | tee /tmp/test-<scope>.log`
-
-Fix all failures before moving on. If stuck after multiple attempts, pause and
-ask the user with: (1) the failure, (2) what you tried, (3) where you're blocked.
-
-### Do Not Casually Skip Failing Tests
-
-Never skip/gate/early-return around a failing assertion just to green the suite
-(e.g. `t.Skip` for a known flake) unless
-the user explicitly asks. On failure: add targeted logs, inspect server-zd
-logs (plus relevant API output), find the root cause, then fix
-product code or the expectation. Backend-specific skips need a proven platform
-limit and user agreement.
-
 ## Go-Specific Rules
 
 ### Config Field Comments
@@ -789,233 +644,3 @@ When a concept already has a repository or public API term, reuse that exact
 term in identifiers. Do not invent a synonym for an existing term such as
 instance, name, message, or definition.
 
-## Go SDK Conventions (`sdk-go/`)
-
-Prefer explicit domain naming, thin public APIs, apply-style options, and
-Def/Impl layering. Keep design docs and examples in sync with API changes.
-
-### Naming
-
-- Factory/constructor names include the domain noun: `InitialAttribute`,
-  `InitialAttributeMapValue` — not bare `Initial` / `InitialMapValue`.
-- Schema erasure interfaces use `*Def` (`AttributeDef`, `ChannelDef`,
-  `InitialAttributeDef`, `StepDef`).
-- Unexported concrete implementations use `*Impl` (e.g. `conditionImpl`), not
-  `*Value`, unless the type is a true value object.
-- Identity types use `*ID` (`StepExecutionID`, `TimerID`), not `*Ref`.
-- Optional fields that may be omitted use pointers (`ExecutionNumber *int32`).
-- Names describe real semantics, not a misleading action. Prefer
-  `SkipWaitImmediately` over `ExecuteImmediately` when the value means “skip
-  waiting,” not “run Execute.”
-- When an entry method needs a recursive or stateful helper (extra args such as
-  a cycle-tracking set), name the helper `doXxx` for the same verb phrase:
-  `validateStepOptions` → `doValidateStepOptions`. Keep the entry thin;
-  put the real work in `doXxx`.
-
-### API shape
-
-- Omit parameters the SDK can default (e.g. client methods target the current
-  run; do not take `runID` unless an operation truly needs a specific run).
-- Do not wrap a few flat inputs in an Options struct. Prefer direct parameters
-  (`SearchFlows(ctx, query, pageSize, nextPageToken)`).
-- Prefer batch APIs alongside or instead of thin single-item variants when that
-  matches product shape; drop unused singles (e.g. public Delete helpers) rather
-  than keeping dead surface area.
-- Optional overrides are pointer fields on options (`RequestID *string`), with
-  SDK-generated defaults when nil.
-
-### Functional options
-
-Use apply methods on the option interface — never an empty marker plus
-`switch option.(type)`:
-
-```go
-type ConditionOption interface {
-	applyCondition(*conditionImpl)
-}
-
-func applyConditionOptions(condition *conditionImpl, options []ConditionOption) {
-	for _, option := range options {
-		option.applyCondition(condition)
-	}
-}
-```
-
-Same pattern as `AttributeOption.applyAttribute` and
-`StepMoveOption.applyStepMovement`.
-
-### Sealed Def interfaces
-
-Def interfaces exist for SDK-internal schema erasure. Seal them with
-unexported methods only. Application-facing names stay on concrete typed values
-(e.g. `Attribute[T].AttributeName()`), not on the Def interface.
-
-### Documentation
-
-When changing public SDK types or Client signatures, update in the same change:
-[`docs/design/plan/go-sdk-rewrite.md`](docs/design/plan/go-sdk-rewrite.md),
-[`sdk-go/README.md`](sdk-go/README.md), examples, and compile-contract tests.
-
-## Test Isolation Rules
-
-### No `time.Sleep` for Async Convergence
-
-Use `require.Eventually` or a polling loop. `time.Sleep` is only acceptable
-inside the system under test itself.
-
-### Unique IDs Per Test
-
-Generate unique workflow IDs (and namespaces when applicable) per test when
-sharing a server-zd instance. Never rely on leftover state from another test.
-
-## Rust Code Conventions
-
-These rules apply to all hand-written Rust workspaces and standalone packages.
-Run `make rust-rules-check` and each package's formatting, Clippy, and test targets.
-The checker discovers Cargo manifests automatically through Cargo metadata.
-
-| Rule | Convention | Enforcement |
-| --- | --- | --- |
-| R1 | Non-test Rust files contain at most 1000 lines, excluding the license header. | Rust rules checker; existing oversized files use a shrink-only baseline. |
-| R2 | A module directory contains at most 10 non-test Rust files and 10 submodules. Split by responsibility. | Rust rules checker; existing oversized directories use the same baseline. |
-| R3 | Every crate has a README with an opening Purpose sentence of at most 30 words. Start its lib.rs and main.rs crate documentation with the same sentence. | Rust rules checker. |
-| R4 | Use pub(crate) for internal items and pub only for public APIs, including in the SDK. | rustc unreachable_pub. |
-| R5 | Test-only public items end in _for_test and require cfg(test) or the test-util feature. | Rust rules checker verifies the configuration of suffixed items; review verifies naming. |
-| R6 | Register every crate in script/rust-crate-layers.json. Depend only on crates in the same or a lower layer. | Rust rules checker using Cargo metadata. |
-| R7 | Each executable has one typed configuration. Read environment settings only in configuration modules or tests. Configuration modules are config, *_config, and *_options. | Rust rules checker verifies std::env::var and std::env::var_os locations; review verifies typed ownership. |
-| R8 | Use complete domain names. Avoid utils, helpers, common, and misc modules and generic Manager, Handler, Data, Info, or Runtime types. | Rust rules checker rejects generic module filenames; review checks type names. |
-| R9 | Represent closed sets with enums rather than repeated strings. Across crates, use non-exhaustive enums or newtypes. | Clippy match_wildcard_for_single_variants and review. |
-| R10 | Handle every error. Do not discard fallible results with let _ or .ok(); explain intentional ignores. | rustc unused_must_use and Clippy let_underscore_must_use, let_underscore_future, and unused_result_ok; review. |
-| R11 | Libraries use typed errors, such as thiserror. Generic errors such as anyhow belong only at binary boundaries. Include the operation and object in errors. | Rust rules checker rejects non-development anyhow dependencies in library crates; review checks error context. |
-| R12 | Panic on programming errors with expect explaining why failure is impossible. Production code must not use bare unwrap. Never use todo!, unimplemented!, or dbg!. | Clippy unwrap_used, todo, unimplemented, and dbg_macro; Rust rules checker rejects empty expect explanations. Tests may unwrap. |
-| R13 | Libraries log with tracing. Keep messages constant and values in fields. Examples, CLI crates, and build scripts may print through registered crate lint overrides. | Clippy print_stdout and print_stderr; review checks structured messages. |
-| R14 | Every background task, connection, and child process has an owner and cancellation path. Bind tokio::spawn JoinHandles; never use let _ to discard them. Explain deliberate detachment. | Rust rules checker verifies binding; review checks lifecycle and cancellation. |
-| R15 | Forbid unsafe outside registered FFI crates. FFI crates use unsafe_code = "deny" and an expect with a safety reason at each unsafe operation. | rustc unsafe_code; Rust rules checker verifies registered FFI lint tables. |
-| R16 | Suppress lints with #[expect(lint, reason = "...")], never #[allow]. Remove expectations when the lint no longer applies. | Clippy allow_attributes and allow_attributes_without_reason; rustc unfulfilled_lint_expectations. |
-| R17 | Never hand-edit generated code. | make generated-code-check. |
-| R18 | Preserve existing comments. New comments explain non-obvious reasons and contain fewer than 20 words per block. Public SDK API documentation follows the detailed SDK documentation rules. | SDK missing_docs and review. |
-| R19 | Format Rust with rustfmt. | cargo fmt --all --check. |
-
-Use the frozen workspace Rust and Clippy lint tables in every workspace. Members
-inherit with `[lints] workspace = true`. Registered FFI and printing crates copy
-the entire table, changing only unsafe_code to deny for FFI and print_stdout /
-print_stderr to allow for printing crates. The checker rejects other differences.
-Keep clippy.toml test settings identical across workspaces. CI runs Clippy with
-`--all-targets -- -D warnings`.
-
-The checker uses one generated-code predicate: opening Code generated or
-@generated markers, or a gen/ or OUT_DIR path. Generated and test source files
-are excluded from structural counts. Inline test modules still count toward a
-production file's size. The baseline may only shrink against origin/main:
-never add an entry or increase its ceiling. Remove an entry as soon as the
-file or directory meets its limit; stale entries fail the check.
-
-## server-zd Engine Rules (`server-zd/**`)
-
-- `dexzd-apply` is a deterministic state machine. It never reads clocks,
-  random numbers, configuration, the environment, files, or the network, and
-  it never iterates a hash map. Values that change an apply result come from
-  the command or from persisted state. Its `clippy.toml` bans the common
-  offenders; keep that file's frozen test settings identical to the workspace.
-- A change to the result of applying an already committed command needs a new
-  behavior version with a named predicate. Never change the behavior of an
-  existing version. This rule starts with server-zd 1.0.0, the first
-  `server-zd/v1.*` release tag. Until then, server-zd stays at behavior
-  version 1, an apply-result change needs no new version, and no work goes
-  into version barriers or raising them.
-- Persistent formats (`server-zd/proto/dexzd/`, the RocksDB key layout, the
-  object storage layout, and snapshots) follow the protobuf compatibility
-  rules: additive only; never renumber or reuse field numbers or names.
-- Generated protobuf maps use `BTreeMap`.
-- Local tests use the in-process s3local or the in-memory object store, never
-  MinIO.
-
-### server-zd metrics
-
-- Add a metric only for an operator question, alert, or dashboard that
-  existing metrics, a histogram's `_count` or `_sum`, or a log line cannot
-  answer. Name that question in the pull request.
-- Prefer a new label value on an existing family over a new family.
-- Do not add constant configuration or info metrics. The startup
-  "effective configuration" log line reports configuration.
-  `dexzd_build_info` is the only info metric.
-- Give every family exactly one level in the `FAMILY_LEVELS` table of
-  `dexzd-metrics`, and register it through `LeveledRegistry`. Levels are
-  cumulative, and `metrics.level` defaults to `advanced`:
-  - `basic`: golden signals that an SLO or a page-worthy alert uses:
-    serving, errors, latency, saturation, and commit and object storage
-    health.
-  - `advanced`: capacity, cost, and the lag and failure signal of each
-    optional Component.
-  - `verbose`: internal mechanisms, invariant detectors that also log, and
-    throughput detail read only during an investigation.
-- Put a family in `basic` only when an SLO or a page-worthy alert needs it.
-  Otherwise choose the highest level that its consumers still enable.
-- Labels take values from a closed Rust enum. Never label by partition,
-  Flow, Flow type, Step type, run, tenant, key, Worker ID, or any request
-  value. Aggregate per-partition state before encoding.
-- A family has the same labels and buckets at every level that exports it.
-- Use the `dexzd_` prefix and base units (`_seconds`, `_bytes`). The encoder
-  adds `_total` to counters; do not write it.
-- In the same pull request, update `docs/reference/server/metrics.mdx`
-  (type, labels, buckets, level, and a "Since" marker) and the per-level
-  series caps of the `serve_process` metrics test, and add a server
-  change-log fragment.
-- Removing or renaming a released family, or moving it to a higher level,
-  is a breaking change. List it in a `Breaking` fragment with its
-  replacement.
-
-### server-zd Rust conventions ported from the Go rules
-
-These rules restate the applicable Server Go rules for `server-zd/**`. The
-Rust table (R1–R19) still applies.
-
-- File ordering: a callee appears below its caller. Order a file as type,
-  constructor, entry method, handlers in dispatch order, sub-handlers,
-  state-changing helpers, converters, then tiny accessors.
-- One primary file per type: keep a type's inherent methods in one file. Do
-  not split them across feature-specific files.
-- Required dependencies: take each one as a non-`Option` constructor
-  parameter. Never wire a dependency after construction with a setter.
-- Bootstrap order: fix construction order instead of post-construction wiring.
-- Config injection: a component that needs tunables receives its config
-  section struct, not individual tunables or the whole server configuration.
-  See R7. `dexzd-apply` stays configuration-free.
-- Optional values: use `Option` only when `None` is a valid state. Never
-  silently return on an impossible `None`.
-- Config field docs: every config field has a doc comment stating its default
-  and meaning. Address fields state the protocol, the connecting party, and
-  bind versus advertise. These docs and return-value docs are exempt from R18's
-  word limit and its non-obvious-reasons rule.
-- API errors: map every request failure to a gRPC status plus a Dex
-  `ErrorSubStatus`. Server startup or shutdown may return a bare `UNAVAILABLE`. Bad client or Worker input is a client error, such as
-  `INVALID_ARGUMENT`, `NOT_FOUND`, or `FAILED_PRECONDITION`. Infrastructure
-  failures are `INTERNAL` or `UNAVAILABLE`.
-- Never ignore errors: see R10.
-- Trusted versus untrusted values: store rows, server-minted IDs, and
-  controlled invariants are trusted and may use `expect` with a reason. Request
-  fields and Worker payloads are untrusted. Validate them with an
-  error-returning helper; they never reach `expect`, `unwrap`, or `panic!`.
-- No defensive clones: never `clone()` "just in case". Move ownership or
-  borrow. Clone only when an algorithm needs a distinct value or a task needs
-  shared ownership, such as an `Arc` handle.
-- Crate names: use each crate's declared name. Alias with `as` only for a
-  collision or a misleading name.
-- Descriptive names: use descriptive variable names. Only `i j k n err ctx ok
-  t id r w tx rx` and closure parameters in short iterator chains may be one or
-  two letters.
-- Boolean names: boolean variables, fields, constants, and functions returning
-  `bool` use predicates such as `is_`, `has_`, `can_`, `should_`, or
-  `supports_`.
-- Existing terms: reuse the repository or public API term for a concept. Do
-  not invent a synonym.
-- Stateful closures: lift a closure into a method when it captures three or
-  more values, mutates outer state, has several call sites, or outlives one
-  statement.
-- No casual test skips: never `#[ignore]`, gate, or early-return around a
-  failing test without the user's agreement. Find the root cause and fix the
-  code or the expectation.
-- Test isolation: give each test unique Flow IDs, namespaces, and temporary
-  directories so tests run in parallel.
-- Async tests: wait with polling or paused tokio time. Use a real sleep only
-  inside the behavior under test.
