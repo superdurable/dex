@@ -798,7 +798,7 @@ struct Coverage {
     genesis_targets_outside_window: usize,
     targets_with_close_message: usize,
     targets_in_ancestor_attempts: usize,
-    targets_after_two_forks: usize,
+    targets_after_two_time_travels: usize,
     pruned_window_resolutions: usize,
     older_metadata_runs: usize,
     stripped_metadata_differences: usize,
@@ -854,7 +854,7 @@ impl Coverage {
             self.targets_in_ancestor_attempts += 1;
         }
         if lineage_length(run, attempt) >= 3 {
-            self.targets_after_two_forks += 1;
+            self.targets_after_two_time_travels += 1;
         }
     }
 
@@ -899,7 +899,7 @@ impl Coverage {
                 "target in an ancestor attempt",
             ),
             (
-                self.targets_after_two_forks,
+                self.targets_after_two_time_travels,
                 "target in a lineage of three attempts",
             ),
             (

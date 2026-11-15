@@ -689,7 +689,7 @@ that attempt's history. For an earlier attempt, live history stops. Live state a
 current attempt. Time travel from that view searches the selected attempt. A **TimeTravelFork** event links to the previous run attempt.
 
 When the run attempt changes, the page reloads the whole history. Events after
-the fork point no longer belong to the current attempt.
+the point the new attempt started from no longer belong to the current attempt.
 
 **GET /api/flows/history** accepts an optional **runAttempt**. Zero or absent
 selects the current attempt. Each event and **GET /api/flows/summary** report

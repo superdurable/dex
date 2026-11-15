@@ -6,12 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! TimeTravel (plan section 8.4): forks attempt n+1 from a point and reapplies later input.
+//! TimeTravel (plan section 8.4): starts attempt n+1 from a point and reapplies later input.
 //!
 //! The owner computes and stages the result (plan section 6.3); apply checks it, adds later
-//! input, and forks.
+//! input, and starts the new attempt.
 
-mod attempt_fork;
+mod attempt_start;
 mod child_flow_runs;
 mod reapplied_input_values;
 mod result_computation;
@@ -107,7 +107,7 @@ pub(crate) fn apply_time_travel(
         return Ok(HandlerResult::Rejected(reply));
     }
     staging::delete_staging(transaction, &mut cursor);
-    attempt_fork::fork_attempt(
+    attempt_start::start_time_travel_attempt(
         transaction,
         cursor,
         scope,

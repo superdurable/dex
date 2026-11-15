@@ -658,15 +658,20 @@ fn input_recorded_after_the_computation_is_reapplied_from_the_local_tail() {
         harness.attribute("late").is_some(),
         "the later input is reapplied"
     );
-    let fork_seq = harness.run_record().next_run_seq - 1;
+    let start_point_seq = harness.run_record().next_run_seq - 1;
     let key = history_record_key(
         harness.context.flow_hash,
         harness.harness_run_id(),
-        fork_seq,
+        start_point_seq,
     );
-    let fork = HistoryRecord::decode(harness.state.rows[&(ColumnFamily::History, key)].as_slice())
-        .expect("the fork record decodes");
-    assert_eq!(fork.reapplied_inputs.len(), 2, "both inputs are recorded");
+    let start_record =
+        HistoryRecord::decode(harness.state.rows[&(ColumnFamily::History, key)].as_slice())
+            .expect("the attempt start record decodes");
+    assert_eq!(
+        start_record.reapplied_inputs.len(),
+        2,
+        "both inputs are recorded"
+    );
 
     let mut offloaded = Harness::new("order-1");
     offloaded.start(start_request("start"));

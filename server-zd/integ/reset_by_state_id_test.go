@@ -116,15 +116,15 @@ func doTestResetByStatIdWorkflow(
 		EstimatePageSize: 1000,
 	})
 	require.NoError(t, err)
-	var timeTravelFork *dexpb.TimeTravelForkHistoryEvent
+	var timeTravelEvent *dexpb.TimeTravelForkHistoryEvent
 	for _, event := range timeTravelHistory.GetEvents() {
 		if event.GetTimeTravelFork() != nil {
-			timeTravelFork = event.GetTimeTravelFork()
+			timeTravelEvent = event.GetTimeTravelFork()
 			break
 		}
 	}
-	require.NotNil(t, timeTravelFork)
-	assertions.Equal(startResponse.GetRunId(), timeTravelFork.GetPreviousRunId())
+	require.NotNil(t, timeTravelEvent)
+	assertions.Equal(startResponse.GetRunId(), timeTravelEvent.GetPreviousRunId())
 
 	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		RunId:           startResponse.GetRunId(),

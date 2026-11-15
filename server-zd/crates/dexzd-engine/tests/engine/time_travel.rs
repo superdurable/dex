@@ -1055,8 +1055,8 @@ async fn input_committed_during_the_computation_is_reapplied() {
         travel.attribute(run_id, "late").is_some(),
         "the late input is reapplied"
     );
-    let fork = travel.history_record(run_id, travel.run_record(run_id).next_run_seq - 1);
-    assert_eq!(fork.reapplied_inputs.len(), 2);
+    let start_record = travel.history_record(run_id, travel.run_record(run_id).next_run_seq - 1);
+    assert_eq!(start_record.reapplied_inputs.len(), 2);
 
     let (opened, release) = history.gate_next_open();
     let resetting = travel.reset(reset(FlowResetType::Beginning, true));

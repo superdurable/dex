@@ -887,11 +887,12 @@ fn beginning_reopens_a_completed_flow_with_the_start_state() {
         attempt_record.checkpoint_seqs,
         vec![attempt_record.start_seq]
     );
-    let fork = harness.history_record(attempt_record.start_seq).unwrap();
-    assert_eq!(fork.attempt, 2);
-    assert!(fork.is_semantic);
-    let Some(flow_history_event::Payload::TimeTravelFork(event)) = &fork.events[0].payload else {
-        panic!("the fork records a time travel event");
+    let start_record = harness.history_record(attempt_record.start_seq).unwrap();
+    assert_eq!(start_record.attempt, 2);
+    assert!(start_record.is_semantic);
+    let Some(flow_history_event::Payload::TimeTravelFork(event)) = &start_record.events[0].payload
+    else {
+        panic!("the attempt start records a time travel event");
     };
     assert_eq!(event.previous_run_attempt, 1);
     assert_eq!(event.target_run_attempt, 1);
@@ -1052,12 +1053,13 @@ fn a_closed_point_closes_each_new_attempt_with_retention_and_history() {
                 ..
             }
         )));
-        let fork = harness.history_record(harness.last_seq()).unwrap();
+        let start_record = harness.history_record(harness.last_seq()).unwrap();
         assert!(matches!(
-            fork.events[0].payload,
+            start_record.events[0].payload,
             Some(flow_history_event::Payload::TimeTravelFork(_))
         ));
-        let Some(flow_history_event::Payload::FlowClosed(closed)) = &fork.events[1].payload else {
+        let Some(flow_history_event::Payload::FlowClosed(closed)) = &start_record.events[1].payload
+        else {
             panic!("the new attempt records FlowClosed after TimeTravelFork");
         };
         assert_eq!(closed.flow_status, FlowStatus::Completed as i32);
@@ -1119,8 +1121,9 @@ fn a_stopped_point_closes_immediately_after_a_reset() {
         });
         assert_eq!(harness.run_record().status, expected_status as i32);
         assert!(harness.run_record().pending_close.is_none());
-        let fork = harness.history_record(harness.last_seq()).unwrap();
-        let Some(flow_history_event::Payload::FlowClosed(closed)) = &fork.events[1].payload else {
+        let start_record = harness.history_record(harness.last_seq()).unwrap();
+        let Some(flow_history_event::Payload::FlowClosed(closed)) = &start_record.events[1].payload
+        else {
             panic!("the stopped point closes the new attempt");
         };
         assert_eq!(closed.flow_status, expected_status as i32);
@@ -1188,8 +1191,9 @@ fn pruned_termination_history_keeps_its_message_after_reset() {
         skip_writes_reapply: true,
         ..reset_to_time(closed_point_time)
     });
-    let fork = harness.history_record(harness.last_seq()).unwrap();
-    let Some(flow_history_event::Payload::FlowClosed(closed)) = &fork.events[1].payload else {
+    let start_record = harness.history_record(harness.last_seq()).unwrap();
+    let Some(flow_history_event::Payload::FlowClosed(closed)) = &start_record.events[1].payload
+    else {
         panic!("the stopped point closes the restored attempt");
     };
     assert_eq!(closed.error_message, "stopped at this point");
@@ -1404,11 +1408,11 @@ fn history_event_ids_resolve_only_within_the_selected_lineage() {
     let abandoned_seq = harness.last_seq();
     let abandoned_event_id = max_event_id(&harness.history_record(abandoned_seq).unwrap());
     let (second, _) = harness.travel_to(reset(FlowResetType::Beginning));
-    let fork_event_id = max_event_id(&harness.history_record(harness.last_seq()).unwrap());
+    let time_travel_event_id = max_event_id(&harness.history_record(harness.last_seq()).unwrap());
     harness.set_attribute("b", "2", "");
     let current_seq = harness.last_seq();
     let current_event_id = max_event_id(&harness.history_record(current_seq).unwrap());
-    assert!(abandoned_event_id < fork_event_id && fork_event_id < current_event_id);
+    assert!(abandoned_event_id < time_travel_event_id && time_travel_event_id < current_event_id);
 
     // Zero selects the current attempt, whose lineage holds its own events.
     let (third, _) = harness.travel_to(reset_to_event(current_event_id));
@@ -1417,7 +1421,7 @@ fn history_event_ids_resolve_only_within_the_selected_lineage() {
         (record.parent_attempt, record.parent_seq),
         (second, current_seq)
     );
-    // Attempt 1's write after the fork point is not in attempt 2's lineage.
+    // Attempt 1's write after the start point is not in attempt 2's lineage.
     let rejected = harness.time_travel(ResetFlowRequest {
         run_attempt: i32::try_from(second).unwrap(),
         ..reset_to_event(abandoned_event_id)
@@ -2336,20 +2340,27 @@ fn reapply_restores_later_external_input_unless_skipped() {
     );
     assert_eq!(reapplied.channel_message_count(), 1);
     // Reapply is part of the TimeTravel command, and its start checkpoint holds the result.
-    let fork_seq = before_travel + 1;
-    assert_eq!(reapplied.last_seq(), fork_seq);
-    let fork = reapplied.history_record(fork_seq).unwrap();
-    assert!(fork.attempt == attempt && fork.is_semantic && fork.is_external_input);
-    assert_eq!(fork.reapplied_inputs.len(), 5);
+    let start_point_seq = before_travel + 1;
+    assert_eq!(reapplied.last_seq(), start_point_seq);
+    let start_record = reapplied.history_record(start_point_seq).unwrap();
+    assert!(
+        start_record.attempt == attempt
+            && start_record.is_semantic
+            && start_record.is_external_input
+    );
+    assert_eq!(start_record.reapplied_inputs.len(), 5);
     assert!(matches!(
-        fork.events.first().and_then(|event| event.payload.as_ref()),
+        start_record
+            .events
+            .first()
+            .and_then(|event| event.payload.as_ref()),
         Some(flow_history_event::Payload::TimeTravelFork(_))
     ));
     assert_eq!(
         reapplied.attempt_record(attempt).checkpoint_seqs,
-        vec![fork_seq]
+        vec![start_point_seq]
     );
-    let start_checkpoint = reapplied.checkpoint(attempt, fork_seq).unwrap();
+    let start_checkpoint = reapplied.checkpoint(attempt, start_point_seq).unwrap();
     assert!(start_checkpoint.rows.iter().any(|row| {
         row.table == u32::from(RunTable::Attribute as u8) && row.key_suffix == b"b"
     }));
@@ -2395,7 +2406,7 @@ fn reapply_skips_stop_and_input_of_abandoned_branches() {
         },
     ));
     assert_eq!(harness.run_record().status, FlowStatus::Canceled as i32);
-    // Attempt 2 forks after "a" without reapply; its own input is "b".
+    // Attempt 2 starts after "a" without reapply; its own input is "b".
     harness.travel_to(reset_to_time(point_time));
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
     harness.set_attribute("b", "2", "");
@@ -2949,20 +2960,23 @@ fn value_row(harness: &Harness, run_seq: u64) -> Option<ValueRecord> {
 }
 
 #[test]
-fn the_fork_point_includes_reapplied_input() {
+fn the_start_point_includes_reapplied_input() {
     let mut harness = Harness::new();
     harness.start(start_request());
     harness.set_attribute("a", "1", "set-a");
     let (first, _) = harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
     assert_eq!(harness.attribute_keys(), vec!["a".to_owned()]);
     let after_first = harness.attempt_rows();
-    let fork_seq = harness.last_seq();
-    let fork_time = harness.history_record(fork_seq).unwrap().timestamp_micros;
+    let start_point_seq = harness.last_seq();
+    let start_point_time = harness
+        .history_record(start_point_seq)
+        .unwrap()
+        .timestamp_micros;
     let (second, _) = harness.travel_to(ResetFlowRequest {
         run_attempt: first as i32,
-        ..reset_to_time(fork_time)
+        ..reset_to_time(start_point_time)
     });
-    assert_eq!(harness.attempt_record(second).parent_seq, fork_seq);
+    assert_eq!(harness.attempt_record(second).parent_seq, start_point_seq);
     assert_eq!(harness.attempt_rows(), after_first);
 }
 
@@ -3053,8 +3067,8 @@ fn reapplied_skip_timer_completes_the_restored_wait_or_is_skipped() {
             attempt
         )]
     );
-    // The reapplied skip made Execute pending, so the fork point is its target.
-    let fork_seq = harness.last_seq();
+    // The reapplied skip made Execute pending, so the start point is its target.
+    let start_point_seq = harness.last_seq();
     harness.travel_to(ResetFlowRequest {
         run_attempt: attempt as i32,
         step_execution_id: "ChargeStep-1".to_owned(),
@@ -3062,11 +3076,14 @@ fn reapplied_skip_timer_completes_the_restored_wait_or_is_skipped() {
         ..reset(FlowResetType::StepExecutionId)
     });
     let current_attempt = harness.run_record().current_attempt;
-    assert_eq!(harness.attempt_record(current_attempt).parent_seq, fork_seq);
+    assert_eq!(
+        harness.attempt_record(current_attempt).parent_seq,
+        start_point_seq
+    );
     // At the beginning no timer is pending, so the recorded skip is skipped.
     let (beginning, outcome) = harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
-    let fork = harness.history_record(harness.last_seq()).unwrap();
-    assert_eq!(fork.reapplied_inputs.len(), 1);
+    let start_record = harness.history_record(harness.last_seq()).unwrap();
+    assert_eq!(start_record.reapplied_inputs.len(), 1);
     assert_eq!(
         pending_effects(&outcome),
         vec![(
@@ -3218,11 +3235,11 @@ fn a_restored_large_value_survives_window_pruning() {
     harness.set_attribute("report", &"b".repeat(300), "");
     let overwritten_seq = harness.last_seq();
     harness.travel_to(reset_to_time(restored_time));
-    let fork_seq = harness.last_seq();
+    let start_point_seq = harness.last_seq();
     for index in 0..8 {
         harness.set_attribute("status", &format!("v{index}"), "");
     }
-    assert!(harness.run_record().window_start_seq > fork_seq);
+    assert!(harness.run_record().window_start_seq > start_point_seq);
     let report = attribute(&harness, "report");
     let Some(stored_value::Kind::TableValue(reference)) = report.value.and_then(|value| value.kind)
     else {
@@ -3455,13 +3472,13 @@ fn reapplied_publications_to_one_channel_stay_distinct() {
     assert_eq!(pending_count(&harness, "orders"), 2);
     assert_eq!(value_holder_count(&harness), genesis_holders + 2);
     let after_reapply = harness.attempt_rows();
-    let fork_time = harness
+    let start_point_time = harness
         .history_record(harness.last_seq())
         .unwrap()
         .timestamp_micros;
     harness.travel_to(ResetFlowRequest {
         run_attempt: attempt as i32,
-        ..reset_to_time(fork_time)
+        ..reset_to_time(start_point_time)
     });
     assert_eq!(harness.attempt_rows(), after_reapply);
     assert_eq!(value_holder_count(&harness), genesis_holders + 2);
@@ -3586,8 +3603,8 @@ fn reapply_restores_committed_rpc_effects() {
     let dedup_rows = request_dedup_rows(&harness);
     harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
     assert_eq!(harness.attribute_keys(), vec!["from-rpc".to_owned()]);
-    let fork = harness.history_record(harness.last_seq()).unwrap();
-    assert_eq!(fork.reapplied_inputs.len(), 1);
+    let start_record = harness.history_record(harness.last_seq()).unwrap();
+    assert_eq!(start_record.reapplied_inputs.len(), 1);
     // The reapplied input carries its original request ID, so a later travel reapplies it again.
     harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
     assert_eq!(harness.attribute_keys(), vec!["from-rpc".to_owned()]);
@@ -3676,8 +3693,8 @@ fn reapply_skips_a_transactional_rpc_whose_deletions_no_longer_hold() {
         harness.attribute_keys().is_empty(),
         "the RPC is skipped as a whole"
     );
-    let fork = harness.history_record(harness.last_seq()).unwrap();
-    assert_eq!(fork.reapplied_inputs.len(), 1);
+    let start_record = harness.history_record(harness.last_seq()).unwrap();
+    assert_eq!(start_record.reapplied_inputs.len(), 1);
 }
 
 fn set_indexed_attribute(harness: &mut Harness, attribute_key: &str, text: &str) {
@@ -4539,8 +4556,8 @@ fn a_reapplied_rpc_links_its_steps_to_the_reapplied_event() {
     );
     assert_eq!(harness.step("ShipStep-1").from_event_id, 2);
     harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
-    let fork = harness.history_record(harness.last_seq()).unwrap();
-    let reapplied_rpc = fork
+    let start_record = harness.history_record(harness.last_seq()).unwrap();
+    let reapplied_rpc = start_record
         .events
         .iter()
         .find(|event| {
@@ -4549,7 +4566,7 @@ fn a_reapplied_rpc_links_its_steps_to_the_reapplied_event() {
                 Some(flow_history_event::Payload::RpcExecutionCompleted(_))
             )
         })
-        .expect("the fork records the reapplied RPC");
+        .expect("the attempt start records the reapplied RPC");
     assert!(reapplied_rpc.event_id > 2);
     assert_eq!(
         harness.step("ShipStep-1").from_event_id,
@@ -4628,7 +4645,7 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     assert_eq!(first_attempt.pruned_event_id_range, pruned);
     assert_eq!(event_ids(&first_attempt.events), [1, 8, 9, 10, 11]);
 
-    // Pruning continues past the fork, through events that only run attempt 1 recorded.
+    // Pruning continues past the attempt start, through events that only run attempt 1 recorded.
     for index in 9..17 {
         harness.set_attribute("status", &format!("v{index}"), "");
     }
@@ -4969,7 +4986,7 @@ fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
         .history_record(harness.last_seq())
         .unwrap()
         .timestamp_micros;
-    // Attempt 2 forks from attempt 1, so later requests search a two-attempt lineage.
+    // Attempt 2 starts from attempt 1, so later requests search a two-attempt lineage.
     harness.travel_to(ResetFlowRequest {
         step_execution_id: "ChargeStep-1".to_owned(),
         step_method: FlowResetStepMethod::Execute as i32,
@@ -4998,7 +5015,7 @@ fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
             ..reset(FlowResetType::StepExecutionId)
         },
         reset_to_time(execute_pending_time),
-        // The stopped point carries a FlowClosed message into the fork.
+        // The stopped point carries a FlowClosed message into the new attempt.
         ResetFlowRequest {
             run_attempt: 1,
             ..reset_to_time(stop_time)

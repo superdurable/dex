@@ -693,7 +693,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
                 vec![unsynced("source", string_value(&"x".repeat(300)))],
                 "source",
             );
-            // The fork checkpoint holds a reference that replay cannot recreate after collection.
+            // The attempt start checkpoint holds a reference that replay cannot recreate after collection.
             harness.apply(Command::TimeTravel(TimeTravelCommand {
                 staging_id: Vec::new(),
                 computed_through_seq: 0,
