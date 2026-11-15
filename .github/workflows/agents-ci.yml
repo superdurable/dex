@@ -210,6 +210,8 @@ jobs:
           tar -xzf "$DEXCLI_ARCHIVE"
           ./dexcli --version
           echo "DEXCLI=$DEXCLI_DIR/dexcli" >> "$GITHUB_ENV"
+      - name: Test release stamping and packed sibling peers
+        run: uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version_integ_test.py
       - name: Check that every package carries one version
         run: |
           version="$(uv run --no-project --python 3.11 python -c 'import tomllib; print(tomllib.load(open("agents/python/core/pyproject.toml", "rb"))["project"]["version"])')"

@@ -65,6 +65,24 @@ pip install dex-agents-claude-sdk-cli
 npm install -g @superdurable/dex-agents-claude-sdk-cli
 ```
 
+Changed in 0.6.11: npm packages pin sibling Dex Agents packages to the same
+exact release. A pinned command keeps using its matching siblings when a newer
+release is published.
+
+For releases before 0.6.11, pin every sibling package and the matching Dex SDK
+exactly to avoid npm dependency resolution errors. For example, release 0.6.9
+uses Dex SDK 1.45.3:
+
+```bash
+npm install @superdurable/dex@1.45.3 @superdurable/dex-agents@0.6.9 @superdurable/dex-agents-cli-core@0.6.9 @superdurable/dex-agents-claude-agent-sdk@0.6.9 @superdurable/dex-agents-claude-sdk-cli@0.6.9
+```
+
+With `npx`, give each package its own `-p` option:
+
+```bash
+npx -p @superdurable/dex@1.45.3 -p @superdurable/dex-agents@0.6.9 -p @superdurable/dex-agents-cli-core@0.6.9 -p @superdurable/dex-agents-claude-agent-sdk@0.6.9 -p @superdurable/dex-agents-claude-sdk-cli@0.6.9 dex-agents-claude-sdk
+```
+
 Other commands work the same way: package **dex-agents-NAME-cli** or
 **@superdurable/dex-agents-NAME-cli** installs command **dex-agents-NAME**.
 

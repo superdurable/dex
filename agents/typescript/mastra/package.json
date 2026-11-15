@@ -36,7 +36,7 @@
   "peerDependencies": {
     "@mastra/core": "^1.81.0",
     "@superdurable/dex": "1.45.4",
-    "@superdurable/dex-agents": "^0.1.0"
+    "@superdurable/dex-agents": "0.1.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.19",

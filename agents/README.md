@@ -267,13 +267,13 @@ published ones and `dex-agents-cli-testing`) and thirteen `package.json`
 files, their lockfiles, and every constraint between agents packages: the
 adapters' on their core, and the CLI packages' on the core, their adapter,
 and the CLI core. Python pins `==<version>`; npm peer-depends on
-`^<version>`. Run it locally to bump the committed version, and pass
+`<version>` exactly. Run it locally to bump the committed version, and pass
 `--check` to verify it.
 
 [`script/smoke-test-built-packages.sh`](script/smoke-test-built-packages.sh)
-builds every package with `uv build` and `npm pack`, checks the artifacts,
-and installs them into fresh projects without path dependencies: the core
-first, then each adapter. It imports every TypeScript core subpath with and
+builds every package with `uv build` and `npm pack`, checks the artifacts
+including exact npm sibling peer versions, and installs them into fresh projects
+without path dependencies: the core first, then each adapter. It imports every TypeScript core subpath with and
 without the optional peer `ai`. It then runs one Pydantic AI session and one Vercel
 AI SDK session against `dexcli dev --engine zd` with a scripted model, using
 the adapters' own test fixtures. Last, it installs the CLI core and each
@@ -337,7 +337,7 @@ steps above instead.
    LICENSE, and tests. Python packages use uv 0.12.2, require
    `dex-agents==<version>`, and resolve it locally with
    `dex-agents = { path = "../core", editable = true }` in `[tool.uv.sources]`.
-   npm packages list `@superdurable/dex-agents` as a `^<version>` peer
+   npm packages list `@superdurable/dex-agents` as an exact `<version>` peer
    dependency and as a `file:../core` devDependency, with `install-links=true`
    in their `.npmrc` so the local core is copied, not linked.
 2. Implement the runner contract in the

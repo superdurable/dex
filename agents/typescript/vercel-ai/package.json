@@ -35,7 +35,7 @@
   },
   "peerDependencies": {
     "@superdurable/dex": "1.45.4",
-    "@superdurable/dex-agents": "^0.1.0",
+    "@superdurable/dex-agents": "0.1.0",
     "ai": "^7.0.159"
   },
   "devDependencies": {

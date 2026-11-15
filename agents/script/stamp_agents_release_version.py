@@ -112,7 +112,7 @@ def stamp_package_lock(path: Path, version: str, is_core: bool, check_only: bool
 def stamp_internal_peers(peers: dict[str, str], version: str) -> None:
     for name in peers:
         if name == TYPESCRIPT_CORE_PACKAGE or name.startswith(f"{TYPESCRIPT_CORE_PACKAGE}-"):
-            peers[name] = f"^{version}"
+            peers[name] = version
 
 
 def write_or_compare(path: Path, original: str, updated: str, check_only: bool) -> None:

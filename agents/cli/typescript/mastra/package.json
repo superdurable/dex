@@ -42,9 +42,9 @@
   },
   "peerDependencies": {
     "@superdurable/dex": "1.45.4",
-    "@superdurable/dex-agents": "^0.1.0",
-    "@superdurable/dex-agents-cli-core": "^0.1.0",
-    "@superdurable/dex-agents-mastra": "^0.1.0"
+    "@superdurable/dex-agents": "0.1.0",
+    "@superdurable/dex-agents-cli-core": "0.1.0",
+    "@superdurable/dex-agents-mastra": "0.1.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

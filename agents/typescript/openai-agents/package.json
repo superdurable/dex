@@ -36,7 +36,7 @@
   "peerDependencies": {
     "@openai/agents": "^0.21.0",
     "@superdurable/dex": "1.45.4",
-    "@superdurable/dex-agents": "^0.1.0"
+    "@superdurable/dex-agents": "0.1.0"
   },
   "devDependencies": {
     "@openai/agents": "0.21.0",
