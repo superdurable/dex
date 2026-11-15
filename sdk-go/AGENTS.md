@@ -66,5 +66,5 @@ unexported methods only. Application-facing names stay on concrete typed values
 ### Documentation
 
 When changing public SDK types or Client signatures, update in the same change:
-[`docs/design/plan/go-sdk-rewrite.md`](docs/design/plan/go-sdk-rewrite.md),
-[`sdk-go/README.md`](sdk-go/README.md), examples, and compile-contract tests.
+[`docs/design/plan/go-sdk-rewrite.md`](../docs/design/plan/go-sdk-rewrite.md),
+[`sdk-go/README.md`](README.md), examples, and compile-contract tests.

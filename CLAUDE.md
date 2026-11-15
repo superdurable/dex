@@ -364,8 +364,12 @@ regenerated. Resolve them with the revert-and-confirm procedure in
   immediately and include a language-native example when the solution is not
   obvious.
 - The docs-only Maintainability rules (SdkTabs, redirects, page linking,
-  positive-first, search-index gates, `npm run check`, flow definitions) live in
+  positive-first, search-index gates, `npm run check`) live in
   `docs/CLAUDE.md`.
+- Whenever runnable code for a documented design pattern or product example is
+  added or changed, run `cd docs && npm run generate:flow-definitions`. Review
+  and commit the affected JSON under `docs/src/data/flow-definitions/` in the
+  same change, even when the MDX import is unchanged.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 
@@ -390,13 +394,51 @@ before changing files there. Each nested file has a `CLAUDE.md` and an
 | Area | Nested file | Rules inside |
 | --- | --- | --- |
 | `docs/` | `docs/CLAUDE.md` | Developer Reference Versions, Docs Writing, Languages, and Markdown Export, and the docs-only Maintainability rules |
-| `examples/` | `examples/CLAUDE.md` | FDG 2.0 Step Explanations, Python Examples, RPC Names Start With Verbs |
+| `examples/` | `examples/CLAUDE.md` | Python Examples, RPC Names Start With Verbs |
 | `examples/rust/` | `examples/rust/CLAUDE.md` | Rust Workflow Schema Definitions; Rust Code Conventions pointer |
 | `sdk-rust/` | `sdk-rust/CLAUDE.md` | Rust Workflow Schema Definitions; Rust Code Conventions pointer |
 | `s3local/` | `s3local/CLAUDE.md` | Rust Code Conventions pointer |
 | `sdk-go/` | `sdk-go/CLAUDE.md` | Go SDK Conventions |
 | `server-zd/` | `server-zd/CLAUDE.md` | server-zd Engine Rules, server-zd metrics, server-zd Rust conventions ported from the Go rules; Rust Code Conventions pointer |
-| `server-zd/integ/` | `server-zd/integ/CLAUDE.md` | Go Integration Test Conventions, Go Integration Testing |
+| `server-zd/integ/` | `server-zd/integ/CLAUDE.md` | Go Integration Test Conventions |
+
+# FDG 2.0 Step Explanations
+
+Every Step type in a Flow Definition Graph 2.0 Go source must declare exactly
+one `// dex:explanation text:"..."` directive next to its `dex:group`. The text
+is one sentence that states what the Step does. The analyzer stores it on the
+Step node as `metadata.explanation` for Dex Web v2 Definition.
+
+# Go Integration Testing (`server-zd/integ/**/*`)
+
+## Execution
+
+- After every code change, run tests through the Makefile, never bare `go test`
+  for full suites.
+- Always tee output:
+  `make -C server-zd/integ <target> 2>&1 | tee /tmp/test-<scope>.log`.
+- Targets: `compile`; `zdIntegTests`; `zdAttributeSyncIntegTests` for PostgreSQL integration.
+- Fix all failures. After multiple unsuccessful attempts, report the failure,
+  attempted fixes, and exact blocker.
+
+## Do Not Casually Skip Failing Tests
+
+- Never skip, gate, or early-return around a failing assertion just to make the
+  suite green (e.g. `t.Skip` for a known
+  flake) unless the user explicitly asks to skip.
+- When a test fails: add targeted logs, inspect server-zd logs
+  (and relevant API output), identify the root cause, then fix
+  product code or the test expectation.
+- Backend-specific skips need a proven platform limitation plus user agreement;
+  prefer fixing Reset/query/retry behavior over hiding the path.
+
+## Isolation and Async
+
+- Prefer package-level isolation so tests can run in parallel across packages.
+- Use unique workflow IDs / namespaces per test when sharing a server-zd
+  instance.
+- Use `require.Eventually` or polling for convergence. Do not use `time.Sleep`
+  except inside the behavior under test.
 
 # Rust Code Conventions
 

@@ -41,8 +41,12 @@ only when a section genuinely doesn't apply.
 - Place each new fact by Docs Information Placement: SDK doc comments, the
   Developer reference, or the stable layer (docs and skills together).
 - The docs-only rules (redirects, page linking, positive-first, search-index
-  gates, `npm run check`, example snippets, flow definitions) live in
+  gates, `npm run check`, example snippets) live in
   `docs/AGENTS.md`.
+- Whenever runnable code for a documented design pattern or product example is
+  added or changed, run `cd docs && npm run generate:flow-definitions`. Review
+  and commit the affected JSON under `docs/src/data/flow-definitions/` in the
+  same change, even when the MDX import is unchanged.
 
 ### UI/UX
 
@@ -393,13 +397,20 @@ before changing files there. Each nested file has a `CLAUDE.md` and an
 | Area | Nested file | Rules inside |
 | --- | --- | --- |
 | `docs/` | `docs/AGENTS.md` | Developer Reference Versions, Docs Writing, Languages, and Markdown Export, and the docs-only Plan Mode rules |
-| `examples/` | `examples/AGENTS.md` | FDG 2.0 Step Explanations, Python Examples, RPC Names Start With Verbs |
+| `examples/` | `examples/AGENTS.md` | Python Examples, RPC Names Start With Verbs |
 | `examples/rust/` | `examples/rust/AGENTS.md` | Rust Workflow Schema Definitions; Rust Code Conventions pointer |
 | `sdk-rust/` | `sdk-rust/AGENTS.md` | Rust Workflow Schema Definitions; Rust Code Conventions pointer |
 | `s3local/` | `s3local/AGENTS.md` | Rust Code Conventions pointer |
 | `sdk-go/` | `sdk-go/AGENTS.md` | Go SDK Conventions |
 | `server-zd/` | `server-zd/AGENTS.md` | server-zd Engine Rules, server-zd metrics, server-zd Rust conventions ported from the Go rules; Rust Code Conventions pointer |
-| `server-zd/integ/` | `server-zd/integ/AGENTS.md` | Run Tests After Every Change, Do Not Casually Skip Failing Tests, Test Isolation Rules |
+| `server-zd/integ/` | `server-zd/integ/AGENTS.md` | Go Integration Test Conventions |
+
+### FDG 2.0 Step Explanations
+
+Every Step type in a Flow Definition Graph 2.0 Go source must declare exactly
+one `// dex:explanation text:"..."` directive next to its `dex:group`. The text
+is one sentence that states what the Step does. The analyzer stores it on the
+Step node as `metadata.explanation` for Dex Web v2 Definition.
 
 ### Rust Code Conventions
 
@@ -573,6 +584,43 @@ Copy only when an algorithm must mutate a distinct shared value in place.
 Before running `go build -o <path>` or adding a new `main` package, add the
 output path to both `.gitignore` **and** `.dockerignore`. Use exact paths, not
 overly broad globs. Delete stray uncommitted binaries.
+
+### Run Tests After Every Change
+
+After code changes, run tests via the Makefile — not bare `go test` for full
+suites:
+
+- `make -C server-zd/integ compile`
+- `make -C server-zd/integ zdIntegTests`
+- `make -C server-zd/integ zdAttributeSyncIntegTests` for PostgreSQL integration.
+
+Always tee output: `make -C server-zd/integ compile 2>&1 | tee /tmp/test-<scope>.log`
+
+Fix all failures before moving on. If stuck after multiple attempts, pause and
+ask the user with: (1) the failure, (2) what you tried, (3) where you're blocked.
+
+### Do Not Casually Skip Failing Tests
+
+Never skip/gate/early-return around a failing assertion just to green the suite
+(e.g. `t.Skip` for a known flake) unless
+the user explicitly asks. On failure: add targeted logs, inspect server-zd
+logs (plus relevant API output), find the root cause, then fix
+product code or the expectation. Backend-specific skips need a proven platform
+limit and user agreement.
+
+## Test Isolation Rules
+
+### No `time.Sleep` for Async Convergence
+
+Use `require.Eventually` or a polling loop. `time.Sleep` is only acceptable
+inside the system under test itself.
+
+### Unique IDs Per Test
+
+Generate unique workflow IDs (and namespaces when applicable) per test when
+sharing a server-zd instance. Never rely on leftover state from another test.
+
+- Prefer package-level isolation so tests can run in parallel across packages.
 
 ## Go-Specific Rules
 

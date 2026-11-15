@@ -39,11 +39,6 @@ The page must link to that example. If the example has HTTP, also link the
 examples playground when the sample is catalogued there. Add the example first
 when the API does not exist yet. See `.cursor/rules/docs-examples.mdc`.
 
-Whenever runnable code for a documented design pattern or product example is
-added or changed, run `cd docs && npm run generate:flow-definitions`. Review and
-commit the affected JSON under `docs/src/data/flow-definitions/` in the same
-change, even when the MDX import is unchanged.
-
 Draw every Flow design diagram in docs with `DocsFlowDefinitionGraph`. It
 renders Flow Definition Graph 2.0 JSON the way Dex Web's Design tab does.
 Generate that JSON from a runnable file under `examples/` by adding the source

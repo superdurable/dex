@@ -2,13 +2,6 @@
 
 The repository root `AGENTS.md` rules also apply.
 
-### FDG 2.0 Step Explanations
-
-Every Step type in a Flow Definition Graph 2.0 Go source must declare exactly
-one `// dex:explanation text:"..."` directive next to its `dex:group`. The text
-is one sentence that states what the Step does. The analyzer stores it on the
-Step node as `metadata.explanation` for Dex Web v2 Definition.
-
 ### Python Examples
 
 Do not use `del` in Python examples merely to mark parameters or local values

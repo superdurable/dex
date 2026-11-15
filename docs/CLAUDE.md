@@ -1,8 +1,6 @@
 # Docs Rules
 
-The repository root `CLAUDE.md` rules also apply. Read
-`examples/CLAUDE.md` (FDG 2.0 Step Explanations) before changing the Flow
-Definition Graph sources that docs diagrams use.
+The repository root `CLAUDE.md` rules also apply.
 
 ### Developer Reference Versions
 
@@ -125,10 +123,6 @@ These rules add to `.cursor/rules/docs-writing.mdc`,
   Link the example (and the examples playground when the sample has HTTP and
   is catalogued). Do not invent APIs; add the example first.
   See `.cursor/rules/docs-examples.mdc`.
-- Whenever runnable code for a documented design pattern or product example is
-  added or changed, run `cd docs && npm run generate:flow-definitions`. Review
-  and commit the affected JSON under `docs/src/data/flow-definitions/` in the
-  same change, even when the MDX import is unchanged.
 - Draw every Flow design diagram in docs with `DocsFlowDefinitionGraph`. It
   renders Flow Definition Graph 2.0 JSON the way Dex Web's Design tab does.
   Generate that JSON from a runnable file under `examples/` by adding the source

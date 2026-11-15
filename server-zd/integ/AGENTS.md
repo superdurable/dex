@@ -2,37 +2,77 @@
 
 The repository root `AGENTS.md` and `server-zd/AGENTS.md` rules also apply.
 
-### Run Tests After Every Change
+# Go Integration Test Conventions (`server-zd/integ/**/*.go`)
 
-After code changes, run tests via the Makefile — not bare `go test` for full
-suites:
+## File Ordering
 
-- `make -C server-zd/integ compile`
-- `make -C server-zd/integ zdIntegTests`
-- `make -C server-zd/integ zdAttributeSyncIntegTests` for PostgreSQL integration.
+A callee appears below its caller. Prefer:
 
-Always tee output: `make -C server-zd/integ compile 2>&1 | tee /tmp/test-<scope>.log`
+1. Type declaration
+2. Constructor and its helpers
+3. Main entry method
+4. Event or step handlers in dispatch order
+5. Sub-handlers
+6. State-changing helpers
+7. Encoders, converters, and pure transforms
+8. Tiny accessors
 
-Fix all failures before moving on. If stuck after multiple attempts, pause and
-ask the user with: (1) the failure, (2) what you tried, (3) where you're blocked.
+Leave generated code unchanged and keep tightly coupled subsystem clusters intact.
 
-### Do Not Casually Skip Failing Tests
+Keep a struct's methods in one primary file. Do not split its method set across feature-specific files.
 
-Never skip/gate/early-return around a failing assertion just to green the suite
-(e.g. `t.Skip` for a known flake) unless
-the user explicitly asks. On failure: add targeted logs, inspect server-zd
-logs (plus relevant API output), find the root cause, then fix
-product code or the expectation. Backend-specific skips need a proven platform
-limit and user agreement.
+## Pointers and Naming
 
-## Test Isolation Rules
+- Use `ptr.Any(value)` for pointer literals. Import
+  `github.com/superdurable/dex/sdk-go/dex/ptr`.
+- Give numeric literals explicit types, such as `ptr.Any(int64(0))`.
+- Do not use `ptr.Any` when the pointer must alias a named variable used elsewhere.
+- Do not call `proto.Clone` (or other defensive deep copies) "just in case".
+  Passing a message transfers ownership unless the API says otherwise. Workflow
+  inputs, signals, and activity payloads are freshly deserialized and
+  single-threaded. Prefer capturing a small id/string or building a new tiny
+  value over cloning. Copy only when an algorithm must mutate a distinct shared
+  value in place.
+- Use each package's declared name. Alias only for collisions, misleading names,
+  or established conventions such as `dexpb`. Do not invent aliases such as
+  `servermetrics` or `mongostore`.
+- Use descriptive variable names. Receivers and `i j k n err ctx ok t mu wg id r
+  w ch` are the only accepted one- or two-letter names.
+- Boolean variables and constants, and methods returning booleans, must use
+  predicate names such as `isXxx`, `hasXxx`, `canXxx`, `shouldXxx`, or
+  `supportsXxx`, following the language's capitalization conventions.
+- Do not introduce `NormalizeXyz` identifiers. Name the concrete operations,
+  such as `ValidateAndSortSelections`, `TrimWhitespace`, or `CanonicalizeURL`.
+- When a concept already has a repository or public API term, reuse that exact
+  term in identifiers. Do not invent a synonym for an existing term such as
+  instance, name, message, or definition.
 
-### No `time.Sleep` for Async Convergence
+## Nil and Config Fields
 
-Use `require.Eventually` or a polling loop. `time.Sleep` is only acceptable
-inside the system under test itself.
+- Required dependencies must panic or `log.Fatal` when nil. Do not silently
+  return for impossible nil values.
+- Check nil only when it is a valid state, such as an optional field, cache miss,
+  or user-supplied callback.
+- Every config struct field needs a Go doc comment stating its default and
+  meaning. Include immutability, relationships, ranges, or an example as needed.
+- Address fields must document the protocol, connecting party, and
+  bind-versus-advertise relationship.
 
-### Unique IDs Per Test
+## Never Ignore Errors
 
-Generate unique workflow IDs (and namespaces when applicable) per test when
-sharing a server-zd instance. Never rely on leftover state from another test.
+- Every returned error must be returned, logged, or explicitly acted on.
+- Never use `_ = f()`, `value, _ := f()`, or an `err == nil` branch without an
+  error path.
+- If an error genuinely must be ignored, explain why in a short comment and call
+  it out in review.
+
+## Trusted and Untrusted Values
+
+- Values from store rows, server-minted IDs, and controlled invariants are
+  trusted. Violations are bugs: fail fast with a `Must*` helper, or preserve the
+  typed value end-to-end.
+- Values from HTTP requests, SDK/worker payloads, and any client-settable field
+  are untrusted, even if marked internal.
+- Validate untrusted values with an error-returning helper and return an
+  input error. Never allow untrusted input to reach a `Must*`
+  helper or panic path.
