@@ -12,6 +12,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BASE_PATH_META_NAME } from '@/lib/basePath';
+import { HOST_NAVIGATION_META_NAME } from '@/lib/hostNavigation';
+import { HostLocationReporter } from '../components/frame/HostLocationReporter';
 import { PreferencesProvider } from '../providers';
 import { FlowSearchPage } from './FlowSearchPage';
 
@@ -139,6 +141,53 @@ describe('Flow search query builder and pagination', () => {
     expect(document.activeElement).toBe(filters);
     fireEvent.keyDown(filters, { key: 'End' });
     expect(document.activeElement).toBe(query);
+  });
+});
+
+describe('Flow search under host navigation', () => {
+  afterEach(() => {
+    document.head.querySelector(`meta[name="${HOST_NAVIGATION_META_NAME}"]`)?.remove();
+    vi.restoreAllMocks();
+  });
+
+  it('reports each new search, page size, and page to the host page', async () => {
+    const meta = document.createElement('meta');
+    meta.name = HOST_NAVIGATION_META_NAME;
+    meta.content = 'true';
+    document.head.appendChild(meta);
+    const parentPostMessage = vi.fn();
+    vi.spyOn(window, 'parent', 'get').mockReturnValue({ postMessage: parentPostMessage } as unknown as Window);
+    vi.stubGlobal('fetch', vi.fn(async (_input: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as SearchRequest;
+      const isSecondPage = request.nextPageToken === 'page-2-token';
+      return new Response(JSON.stringify({
+        flows: [flow(isSecondPage ? 'checkout-2' : 'checkout-1')],
+        nextPageToken: isSecondPage ? '' : 'page-2-token',
+      }));
+    }));
+    const lastReportedSearch = () => parentPostMessage.mock.calls.at(-1)?.[0]?.search;
+    render(
+      <MemoryRouter initialEntries={['/v1/flows']}>
+        <HostLocationReporter />
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(lastReportedSearch()).toBe('?size=50'));
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Page size' }), { target: { value: '20' } });
+    await waitFor(() => expect(lastReportedSearch()).toBe('?size=20'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(lastReportedSearch()).toBe('?size=20&page=2'));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Query' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search query' }), { target: { value: 'FlowType = "Checkout"' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(new URLSearchParams(lastReportedSearch()).get('q')).toBe('FlowType = "Checkout"'));
+    expect(new URLSearchParams(lastReportedSearch()).get('size')).toBe('20');
+    expect(parentPostMessage.mock.calls.every(([message]) => message.path === '/v1/flows')).toBe(true);
   });
 });
 

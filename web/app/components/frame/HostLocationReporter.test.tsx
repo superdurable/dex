@@ -9,7 +9,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Link, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { StrictMode } from 'react';
+import { Link, MemoryRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HOST_NAVIGATION_META_NAME } from '@/lib/hostNavigation';
 import { HostLocationReporter } from './HostLocationReporter';
@@ -84,6 +85,42 @@ describe('HostLocationReporter', () => {
       { type: 'dex-web:location', version: 1, path: '/v1/flows/flow-1/run-2', search: '?view=session' },
       window.location.origin,
     );
+  });
+
+  it('posts each location once under StrictMode and re-renders, and again after back and forward', () => {
+    setHostNavigationMeta('true');
+    function HistoryButtons() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <Link to="/v1/work-queue">Open Work Queue</Link>
+          <button onClick={() => navigate(-1)}>Back</button>
+          <button onClick={() => navigate(1)}>Forward</button>
+        </>
+      );
+    }
+    const tree = (
+      <StrictMode>
+        <MemoryRouter initialEntries={['/v1/flows']}>
+          <HostLocationReporter />
+          <HistoryButtons />
+        </MemoryRouter>
+      </StrictMode>
+    );
+    const { rerender } = render(tree);
+    rerender(tree);
+    rerender(tree);
+    expect(parentPostMessage).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open Work Queue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Forward' }));
+    expect(parentPostMessage.mock.calls.map(([message]) => message.path)).toEqual([
+      '/v1/flows',
+      '/v1/work-queue',
+      '/v1/flows',
+      '/v1/work-queue',
+    ]);
   });
 
   it('posts nothing without host navigation', () => {

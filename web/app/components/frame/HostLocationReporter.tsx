@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { postHostLocation, readHasHostNavigation } from '@/lib/hostNavigation';
 
@@ -14,8 +14,14 @@ import { postHostLocation, readHasHostNavigation } from '@/lib/hostNavigation';
 export function HostLocationReporter() {
   const hasHostNavigation = useMemo(readHasHostNavigation, []);
   const { pathname, search } = useLocation();
+  // StrictMode runs effects twice; the host needs each location once.
+  const lastPostedLocation = useRef<string | null>(null);
   useEffect(() => {
-    if (hasHostNavigation) postHostLocation(pathname, search);
+    if (!hasHostNavigation) return;
+    const location = `${pathname}${search}`;
+    if (lastPostedLocation.current === location) return;
+    lastPostedLocation.current = location;
+    postHostLocation(pathname, search);
   }, [hasHostNavigation, pathname, search]);
   return null;
 }

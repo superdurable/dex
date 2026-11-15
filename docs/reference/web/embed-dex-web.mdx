@@ -194,7 +194,13 @@ the current run of that Flow, so the link stays useful after the Flow
 continues as a new run. The message after that redirect names the run ID.
 
 ~~~js
+const basePath = '/dex-web/server-a';
 const frame = document.querySelector('iframe#dex-web');
+
+// Restore: open the page that the host URL names, or the runs page.
+frame.src = dexWebPageURL(new URL(window.location.href).searchParams.get('dexPage'));
+
+// Mirror: keep the frame's page in the host URL.
 window.addEventListener('message', (event) => {
   if (event.origin !== window.location.origin || event.source !== frame.contentWindow) return;
   const message = event.data;
@@ -203,11 +209,26 @@ window.addEventListener('message', (event) => {
   url.searchParams.set('dexPage', message.path + message.search);
   history.replaceState(history.state, '', url);
 });
+
+function dexWebPageURL(page) {
+  const fallback = `${basePath}/v1/flows`;
+  if (typeof page !== 'string' || !page.startsWith('/v1/')) return fallback;
+  // Dot segments, encoded dots, and backslashes could leave the base path.
+  if (/\.\.|%2e|\\/i.test(page)) return fallback;
+  const url = new URL(basePath + page, window.location.origin);
+  if (url.origin !== window.location.origin || !url.pathname.startsWith(`${basePath}/v1/`)) return fallback;
+  return url.pathname + url.search;
+}
 ~~~
 
-At page load, this host reads **dexPage** from its URL and sets the frame's
-**src** to **BasePath** plus that value. Accept only a value that starts with
-**/v1/**, so a crafted link cannot point the frame elsewhere.
+**dexWebPageURL** accepts a page only when four checks pass. It starts with
+**/v1/**. It contains no **..**, no encoded dot (**%2e**), and no backslash.
+After the browser resolves it, it is still on your origin. Its path still
+starts with **BasePath/v1/**. A crafted link such as
+**?dexPage=/v1/../../logout** or **?dexPage=/v1/%2e%2e/%2e%2e/admin** opens
+the runs page instead. The prefix check alone is not enough, because the
+browser resolves dot segments, including encoded ones, before it loads the
+frame.
 
 ## Security {#security}
 

@@ -205,6 +205,9 @@ function useDesignedFlowTypes(isGrouped: boolean): Set<string> {
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
   const navigate = useNavigate();
+  // Read through a ref, so executeSearch stays stable and the mount search runs once.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const [mode, setMode] = useState<QueryMode>('basic');
   const modeTabs = useRef<Partial<Record<QueryMode, HTMLButtonElement | null>>>({});
   const [filters, setFilters] = useState<BasicFilter[]>([]);
@@ -263,7 +266,8 @@ export function FlowSearchPage() {
       url.searchParams.set('size', String(requestedPageSize));
       if (requestedPage) url.searchParams.set('page', String(requestedPage + 1));
       else url.searchParams.delete('page');
-      window.history.replaceState(null, '', url);
+      // Through the router, so route listeners such as the host location report see the new search.
+      navigateRef.current({ search: url.search, hash: url.hash }, { replace: true });
       rememberFlowsSearch(url.search);
       if (requestedQuery.trim()) {
         setRecent((current) => {
