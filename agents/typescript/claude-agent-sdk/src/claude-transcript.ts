@@ -229,8 +229,7 @@ export function buildUnfinishedToolResultEntries(
   turnEntries: readonly ClaudeTranscriptEntry[],
   describeResult: (toolUse: TranscriptToolUse) => UnfinishedToolResult,
 ): ClaudeTranscriptEntry[] {
-  const answeredIds = answeredToolUseIds(turnEntries);
-  const unansweredToolUses = mainToolUsesOf(turnEntries).filter((toolUse) => !answeredIds.has(toolUse.toolUseId));
+  const unansweredToolUses = toolUseInstancesOf(turnEntries).filter((toolUse) => !toolUse.isAnswered);
   if (unansweredToolUses.length === 0) {
     return [];
   }
@@ -243,7 +242,8 @@ export function buildUnfinishedToolResultEntries(
   let parentUuid = conversationEntries.at(-1)?.["uuid"] ?? null;
   const resultEntries: ClaudeTranscriptEntry[] = [];
   for (const toolUse of unansweredToolUses) {
-    const uuid = nameBasedUuid(`${sessionId}/${toolUse.toolUseId}`);
+    // The assistant entry names the call, so a reused tool use ID gets a new uuid.
+    const uuid = nameBasedUuid(`${sessionId}/${toolUse.assistantUuid ?? ""}/${toolUse.toolUseId}`);
     resultEntries.push(buildToolResultEntry(toolUse, describeResult(toolUse), uuid, parentUuid, timestamp));
     parentUuid = uuid;
   }
@@ -266,14 +266,14 @@ export function buildResumeTranscript(
   if (sessionId === null) {
     return { entries: [...entries], newAnswerEntries: [] };
   }
-  const answeredIds = answeredToolUseIds(entries);
-  const newAnswerEntries = mainToolUsesOf(endedTurnEntries)
-    .filter((toolUse) => !answeredIds.has(toolUse.toolUseId))
+  const endedToolUseKeys = new Set(mainToolUsesOf(endedTurnEntries).map(toolUseInstanceKey));
+  const newAnswerEntries = toolUseInstancesOf(entries)
+    .filter((toolUse) => !toolUse.isAnswered && endedToolUseKeys.has(toolUseInstanceKey(toolUse)))
     .map((toolUse) =>
       buildToolResultEntry(
         toolUse,
         { text: answerText, isError: true, images: [] },
-        endedTurnAnswerUuid(sessionId, toolUse.toolUseId),
+        endedTurnAnswerUuid(sessionId, toolUse.assistantUuid, toolUse.toolUseId),
         toolUse.assistantUuid,
         toolUse.timestamp,
       ),
@@ -294,16 +294,28 @@ function placeEndedTurnAnswers(
   answerEntries: readonly ClaudeTranscriptEntry[],
 ): ClaudeTranscriptEntry[] {
   const answerUuids = new Set(answerEntries.map((entry) => entry["uuid"]));
-  const answeredIds = answeredToolUseIds(answerEntries);
+  const answeredKeys = new Set(answerEntries.flatMap(answeredToolUseKeysOf));
   const answersByAssistantUuid = new Map<unknown, ClaudeTranscriptEntry[]>();
   for (const answer of answerEntries) {
     const answers = answersByAssistantUuid.get(answer["sourceToolAssistantUUID"]) ?? [];
     answers.push(answer);
     answersByAssistantUuid.set(answer["sourceToolAssistantUUID"], answers);
   }
+  // A deferral attachment belongs to the latest earlier tool use with its ID.
   const parentOfDroppedUuid = new Map<unknown, unknown>();
+  const latestAssistantUuidByToolUseId = new Map<string, string | null>();
   for (const entry of entries) {
-    if (isDeferralAttachmentOf(entry, answeredIds)) {
+    for (const toolUse of mainToolUsesOf([entry])) {
+      latestAssistantUuidByToolUseId.set(toolUse.toolUseId, toolUse.assistantUuid);
+    }
+    const deferredToolUseId = deferredToolUseIdOf(entry);
+    const ownerAssistantUuid =
+      deferredToolUseId === undefined ? undefined : latestAssistantUuidByToolUseId.get(deferredToolUseId);
+    if (
+      deferredToolUseId !== undefined &&
+      ownerAssistantUuid !== undefined &&
+      answeredKeys.has(toolUseInstanceKey({ assistantUuid: ownerAssistantUuid, toolUseId: deferredToolUseId }))
+    ) {
       parentOfDroppedUuid.set(entry["uuid"], entry["parentUuid"]);
     }
   }
@@ -337,14 +349,12 @@ function placeEndedTurnAnswers(
   return placedEntries;
 }
 
-function isDeferralAttachmentOf(entry: ClaudeTranscriptEntry, toolUseIds: ReadonlySet<string>): boolean {
+function deferredToolUseIdOf(entry: ClaudeTranscriptEntry): string | undefined {
   const attachment = entry["attachment"];
-  return (
-    entry["type"] === "attachment" &&
-    isRecord(attachment) &&
-    attachment["type"] === "hook_deferred_tool" &&
-    toolUseIds.has(String(attachment["toolUseID"]))
-  );
+  if (entry["type"] !== "attachment" || !isRecord(attachment) || attachment["type"] !== "hook_deferred_tool") {
+    return undefined;
+  }
+  return String(attachment["toolUseID"]);
 }
 
 // An answer's uuid names its tool use, so the answer is recognized among the stored entries.
@@ -357,12 +367,76 @@ function isEndedTurnAnswer(sessionId: string, entry: ClaudeTranscriptEntry): boo
     result !== undefined &&
     otherBlocks.length === 0 &&
     result["type"] === "tool_result" &&
-    entry["uuid"] === endedTurnAnswerUuid(sessionId, String(result["tool_use_id"]))
+    (entry["uuid"] === legacyEndedTurnAnswerUuid(sessionId, String(result["tool_use_id"])) ||
+      entry["uuid"] ===
+        endedTurnAnswerUuid(sessionId, sourceToolAssistantUuidOf(entry), String(result["tool_use_id"])))
   );
 }
 
-function endedTurnAnswerUuid(sessionId: string, toolUseId: string): string {
+// The uuid names the call by its assistant entry too, so a reused tool use ID gets a new uuid.
+function endedTurnAnswerUuid(sessionId: string, assistantUuid: string | null, toolUseId: string): string {
+  return nameBasedUuid(`${sessionId}/ended-turn/${assistantUuid ?? ""}/${toolUseId}`);
+}
+
+// Answers stored before call-instance uuids still count as ended-turn answers.
+function legacyEndedTurnAnswerUuid(sessionId: string, toolUseId: string): string {
   return nameBasedUuid(`${sessionId}/ended-turn/${toolUseId}`);
+}
+
+/** Returns the tool use IDs that the running turn's entries answer, leaving out ended-turn answers. */
+export function answeredRunningTurnToolUseIds(
+  sessionId: string | null,
+  runningTurnEntries: readonly ClaudeTranscriptEntry[],
+): ReadonlySet<string> {
+  return answeredToolUseIds(
+    runningTurnEntries.filter((entry) => sessionId === null || !isEndedTurnAnswer(sessionId, entry)),
+  );
+}
+
+interface ToolUseInstance extends MainToolUse {
+  readonly isAnswered: boolean;
+}
+
+// A result answers the call its sourceToolAssistantUUID names, else the latest earlier open call with its ID.
+function toolUseInstancesOf(entries: readonly ClaudeTranscriptEntry[]): ToolUseInstance[] {
+  const instances: { toolUse: MainToolUse; isAnswered: boolean }[] = [];
+  for (const entry of entries) {
+    for (const toolUse of mainToolUsesOf([entry])) {
+      instances.push({ toolUse, isAnswered: false });
+    }
+    const sourceAssistantUuid = entry["sourceToolAssistantUUID"];
+    for (const block of contentBlocksOf(entry)) {
+      if (block["type"] !== "tool_result" || typeof block["tool_use_id"] !== "string") {
+        continue;
+      }
+      const toolUseId = block["tool_use_id"];
+      const sameIdInstances = instances.filter((instance) => instance.toolUse.toolUseId === toolUseId).reverse();
+      const answered =
+        (typeof sourceAssistantUuid === "string"
+          ? sameIdInstances.find((instance) => instance.toolUse.assistantUuid === sourceAssistantUuid)
+          : undefined) ?? sameIdInstances.find((instance) => !instance.isAnswered);
+      if (answered !== undefined) {
+        answered.isAnswered = true;
+      }
+    }
+  }
+  return instances.map((instance) => ({ ...instance.toolUse, isAnswered: instance.isAnswered }));
+}
+
+function answeredToolUseKeysOf(answer: ClaudeTranscriptEntry): string[] {
+  return contentBlocksOf(answer)
+    .filter((block) => block["type"] === "tool_result" && typeof block["tool_use_id"] === "string")
+    .map((block) =>
+      toolUseInstanceKey({ assistantUuid: sourceToolAssistantUuidOf(answer), toolUseId: String(block["tool_use_id"]) }),
+    );
+}
+
+function sourceToolAssistantUuidOf(entry: ClaudeTranscriptEntry): string | null {
+  return typeof entry["sourceToolAssistantUUID"] === "string" ? entry["sourceToolAssistantUUID"] : null;
+}
+
+function toolUseInstanceKey(toolUse: { readonly assistantUuid: string | null; readonly toolUseId: string }): string {
+  return JSON.stringify([toolUse.assistantUuid, toolUse.toolUseId]);
 }
 
 function buildToolResultEntry(

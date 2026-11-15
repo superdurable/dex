@@ -76,7 +76,7 @@ from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from dex_agents_claude_agent_sdk.transcript import (
     TranscriptEntry,
     UnfinishedToolResult,
-    answered_tool_use_ids,
+    answered_running_turn_tool_use_ids,
     build_resume_transcript,
     build_turn_prompt_content,
     build_unfinished_tool_result_entries,
@@ -511,7 +511,16 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         tool_call_gate = ToolCallGate(
             turn,
             tool_catalog,
-            answered_tool_use_ids(stored_entries),
+            # Records belong to the running turn; an earlier turn's result answers none of them.
+            answered_running_turn_tool_use_ids(
+                committed_transcript.session_id,
+                [
+                    *load_session_transcript(
+                        message for message in turn.messages if message.turn_id == turn.turn_id
+                    ).entries,
+                    *earlier_turn_entries,
+                ],
+            ),
             self._claude_code_tool_permission,
             await self._load_recorded_tool_images(turn),
         )
@@ -586,9 +595,10 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         The method reads only the turn's stored messages, its run state, and its
         records, so it returns the same messages for the same committed state.
-        Each entry's ``uuid`` derives from the Claude session ID and the tool
-        use ID, so the TypeScript adapter builds the same entries. Applications
-        call it only in tests.
+        Each entry's ``uuid`` derives from the Claude session ID, the uuid of
+        the tool use's assistant entry, and the tool use ID, so the TypeScript
+        adapter builds the same entries, and a tool use ID that a later turn
+        reuses gets a different entry. Applications call it only in tests.
 
         .. versionadded:: 0.6.12
 

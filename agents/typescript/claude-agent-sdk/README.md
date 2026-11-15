@@ -510,8 +510,16 @@ from this way:
 - An ended turn is any turn other than the running one. Each main-conversation tool use of an ended
   turn that has no tool result anywhere in the stored transcript gets an answer: an error tool result
   with the unknown-outcome text. That turn's records are gone; the note still tells the model what
-  ran. The answer's uuid derives from the Claude session ID and the tool use ID, and its timestamp is
-  the tool use's, so every attempt builds the same answer.
+  ran. The answer's uuid derives from the Claude session ID, the uuid of the tool use's assistant
+  entry, and the tool use ID, and its timestamp is the tool use's, so every attempt builds the same
+  answer.
+- A tool use is one call: its assistant entry and its ID. A model can reuse a tool use ID in a later
+  turn, so a result answers the call its `sourceToolAssistantUUID` names, or, without one, the latest
+  earlier open call with that ID. Every result the adapter builds, for an ended or an unfinished turn,
+  names its call the same way, so two calls with one ID get results with distinct uuids. An answer
+  stored by 0.6.12 before this fix, whose uuid derives from the session and tool use IDs only, still
+  counts as an answer and is not built again. The tool call gate counts only the running turn's own
+  results, so an earlier turn's result never answers a new call that reuses its ID.
 - The segment stores each new answer once, in the running turn, before its own messages, so a UI
   shows it there and later turns find the call answered.
 - The CLI gets every answer, stored or new, right after the entry of its tool use, chained to it.
@@ -633,14 +641,24 @@ write's result and a note for the next prompt. `test/integ/unfinished-turns.inte
 covers the transcript a deferral stores, a turn steered at an approval, turns cancelled while the
 resumed CLI runs a custom tool or `Bash`, and the next turn after a Worker without
 `buildUnfinishedTurnMessages` cancelled a turn at a stored deferral, also behind a turn such a Worker
-completed, with a retried attempt. `test/integ/tracing.integration.test.ts` runs an in-process Worker with an
+completed, with a retried attempt. `test/integ/tool-use-ids-reused-across-turns.integration.test.ts`
+covers a later turn that reuses a tool use ID: an approved call runs and resumes, two cancelled calls
+get results with distinct uuids, a later call left open by a Worker without
+`buildUnfinishedTurnMessages` is answered, and a waiting call that reuses a healed call's ID still
+resumes. The fake CLI reuses IDs while `fixed-tool-use-id-suffix` exists in its state directory.
+`test/integ/transcript-parity.integration.test.ts` checks the unfinished-turn results, the ended-turn
+answers, and the transcript given to the CLI against the shared
+`agents/conformance/claude_transcript_parity.json`, which the Python adapter's tests also read; run
+it with `UPDATE_CLAUDE_TRANSCRIPT_PARITY=1` after changing the fixture's inputs or this algorithm.
+`test/integ/tracing.integration.test.ts` runs an in-process Worker with an
 in-memory span exporter and checks the `chat` span metadata of a one-call answer, a two-call `read`
 tool turn, a deferred write and its resumed answer, and a segment with a subagent call, plus the
 provider name mapping. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
 write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, a
 turn steered at an approval whose next turn resumes a complete session, the next turn after a Worker
 without `buildUnfinishedTurnMessages` cancelled a turn at a stored deferral, also behind a turn such
-a Worker completed, two writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
+a Worker completed, and, with the mock reusing tool use IDs across turns, two cancelled calls with
+one ID and a later call with an answered call's ID left open by such a Worker, two writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
 approved `Bash`, also with a command that an application hook rewrote. The fake-CLI suites also cover an application hook that denies a resumed call, and a
 `Bash` command that an application hook rewrote and that resumes with the approved input.
 

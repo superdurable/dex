@@ -32,7 +32,9 @@ from dex_agents_claude_agent_sdk.transcript import (
 )
 
 FIXTURE = json.loads(
-    (Path(__file__).resolve().parent / "fixtures" / "claude_transcript_parity.json").read_text()
+    (
+        Path(__file__).resolve().parents[3] / "conformance" / "claude_transcript_parity.json"
+    ).read_text()
 )
 
 

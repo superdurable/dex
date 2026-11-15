@@ -18,6 +18,7 @@ import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
 import {
   fakeClaudeEnvironmentLogName,
+  fakeClaudeFixedToolUseIdSuffixFileName,
   fakeClaudeInvocationLogName,
   fakeClaudeRecordedVariables,
   fakeClaudeRequestModel,
@@ -537,6 +538,12 @@ class FakeClaudeCli {
     return exitCode;
   }
 
+  // Later turns reuse tool use IDs while the fixed suffix file exists.
+  private toolUseIdSuffix(): string {
+    const suffixPath = join(this.stateDirectory, fakeClaudeFixedToolUseIdSuffixFileName);
+    return existsSync(suffixPath) ? readFileSync(suffixPath, "utf8").trim() : randomUUID().replaceAll("-", "").slice(0, 12);
+  }
+
   private recordEnvironment(kind: string): void {
     const record: Record<string, string | null> = { kind };
     for (const name of fakeClaudeRecordedVariables) {
@@ -590,7 +597,7 @@ class FakeClaudeCli {
       }
       const toolUses: ToolUse[] = action.requests.map((request) => ({
         toolUseId:
-          request.reusedToolUseId ?? `toolu_${request.requestIndex}_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+          request.reusedToolUseId ?? `toolu_${request.requestIndex}_${this.toolUseIdSuffix()}`,
         cliToolName: this.mcpClient.cliToolName(request.toolName),
         toolInput: request.toolInput,
       }));

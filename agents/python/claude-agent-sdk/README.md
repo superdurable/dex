@@ -548,7 +548,8 @@ first deferral stored nothing, so a failed one sends the failed prompt, the
 note, and its own prompt as three text blocks.
 
 Each result entry is shaped like the CLI's own: its `uuid` is a version 5 UUID
-of `"<Claude session ID>/<tool use ID>"`, and its `timestamp` is the turn's
+of `"<Claude session ID>/<assistant entry uuid>/<tool use ID>"`, where the
+assistant entry is the one that holds the tool use, and its `timestamp` is the turn's
 latest one, so the same committed state always builds the same entry. The
 TypeScript adapter builds the same entries byte for byte.
 
@@ -572,8 +573,18 @@ every `RunModel` builds the transcript the CLI resumes from this way:
   transcript gets an answer: an error tool result with
   `OUTCOME_UNKNOWN_TOOL_RESULT`. That turn's records are gone; the note still
   tells the model what ran. The answer's `uuid` is a version 5 UUID of
-  `"<Claude session ID>/ended-turn/<tool use ID>"`, and its timestamp is the
-  tool use's, so every attempt builds the same answer.
+  `"<Claude session ID>/ended-turn/<assistant entry uuid>/<tool use ID>"`, and
+  its timestamp is the tool use's, so every attempt builds the same answer.
+- A tool use is one call: its assistant entry and its ID. A model can reuse a
+  tool use ID in a later turn, so a result answers the call its
+  `sourceToolAssistantUUID` names, or, without one, the latest earlier open
+  call with that ID. Every result the adapter builds, for an ended or an
+  unfinished turn, names its call the same way, so two calls with one ID get
+  results with distinct uuids. An answer stored before this fix, whose uuid
+  derives from the session and tool use IDs only, still counts as an answer and
+  is not built again. The tool call gate counts only the running turn's own
+  results, so an earlier turn's result never answers a new call that reuses
+  its ID.
 - The segment stores each new answer once, in the running turn, before its own
   messages, so a UI shows it there and later turns find the call answered.
 - The CLI gets every answer, stored or new, right after the entry of its tool
@@ -722,8 +733,15 @@ its entries in the run state, completes here once, and after it cancels a turn
 at a deferral this version stored, the next turn answers the call instead of
 asking for its approval again.
 `tests/test_transcript_parity.py` checks the unfinished-turn and ended-turn
-entries byte for byte against the TypeScript adapter's output in
-`tests/fixtures/claude_transcript_parity.json`. `tests/test_tracing.py` runs an in-process
+entries byte for byte against the TypeScript adapter's output in the shared
+`agents/conformance/claude_transcript_parity.json`, including tool use IDs
+reused within a turn and across turns and an answer stored under the earlier
+uuid scheme. `tests/test_tool_use_ids_reused_across_turns.py` covers a later
+turn that reuses a tool use ID: an approved call runs and resumes, two
+cancelled calls get results with distinct uuids, a later call left open by a
+Worker without `build_unfinished_turn_messages` is answered, and a waiting call
+that reuses a healed call's ID still resumes. The fake CLI reuses IDs while
+`fixed-tool-use-id-suffix` exists in its state directory. `tests/test_tracing.py` runs an in-process
 Worker with an in-memory span exporter and checks the `chat` span metadata of
 a one-call answer, a two-call read tool turn, a deferred write and its resumed
 answer, and a segment with a subagent call, plus the provider name mapping and
@@ -737,7 +755,9 @@ the rewritten command. `tests/test_real_claude_cli_unfinished_turns.py` covers
 a turn steered at an approval whose next turn resumes a complete session, and
 the next turn after a Worker without `build_unfinished_turn_messages`
 cancelled a turn at a stored deferral, also behind a later turn's stored
-transcript.
+transcript, and, with the mock reusing tool use IDs across turns, two cancelled
+calls with one ID and a later call with an answered call's ID left open by
+such a Worker.
 
 `tests/test_replayed_tool_call_ids.py` drives the gate directly for requests
 no CLI run sends: a record asked for under another tool or kind, repeated and
@@ -775,8 +795,8 @@ written in different languages:
 - Unfinished-turn and ended-turn tool results: see "When a turn fails". Both
   adapters build them with the same keys in the same order, the same UUID v5
   namespace `6f0d3c1e-8a2b-4f57-a9d4-c3e2b1a09876`, and the same timestamps.
-  `tests/fixtures/claude_transcript_parity.json` holds the TypeScript adapter's
-  output for shared inputs.
+  `agents/conformance/claude_transcript_parity.json` holds the TypeScript
+  adapter's output for shared inputs, and both adapters' tests read it.
 - Records name custom tools by their own name and CLI tools by their CLI name.
   Custom tool names must not be Claude Code tool names.
 - An approved CLI tool's record output is `APPROVED_CLI_TOOL_OUTPUT`.

@@ -13,7 +13,11 @@ import { dirname, join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { outcomeUnknownToolResult, toolCallCancelledBySteeringResult } from "@superdurable/dex-agents";
+import {
+  outcomeUnknownToolResult,
+  toolCallCancelledBySteeringResult,
+  toolCallCancelledByTurnCancellationResult,
+} from "@superdurable/dex-agents";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
@@ -66,6 +70,7 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
   afterEach(async () => {
     await harness?.close();
     harness = undefined;
+    api.fixedToolUseIdSuffix = undefined;
   });
 
   after(async () => {
@@ -400,6 +405,71 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     }
   });
 
+  test("two cancelled calls with one tool use ID store results with distinct uuids", async () => {
+    const agent = await startHarness();
+    api.fixedToolUseIdSuffix = "reusedacrossturns";
+    const sessionId = agent.newSessionId("real-reused-cancelled");
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}call publish {"message":"one"}`);
+    const first = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(await agent.sessions.cancelTurn(sessionId), true);
+    await agent.waitForTurns(sessionId, 1);
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}call publish {"message":"two"}`), true);
+    const second = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(second.toolCallId, first.toolCallId);
+    assert.equal(await agent.sessions.cancelTurn(sessionId), true);
+    const cancelled = await agent.waitForTurns(sessionId, 2);
+    assert.equal(resultsOf(cancelled.messages, first.toolCallId), 2);
+    assertUniqueTranscriptEntries(cancelled.messages);
+    const firstNewRequest = api.requests.length;
+
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+    const snapshot = await agent.waitForTurns(sessionId, 3);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assertUniqueTranscriptEntries(snapshot.messages);
+    const [recallRequest] = api.requests.slice(firstNewRequest).filter((request) => request.command === "recall");
+    assert.ok(recallRequest !== undefined);
+    assert.equal(JSON.stringify(recallRequest.messages).includes("Tool result missing"), false);
+    assert.deepEqual(resultsAfterToolUsesOf(recallRequest, first.toolCallId), [toolCallCancelledByTurnCancellationResult]);
+    // Claude Code 2.1.316 keeps one tool use per ID and shows a later one as interrupted text.
+    assert.equal(textsOf(recallRequest).includes("[Tool use interrupted]"), true);
+  });
+
+  test("a later call reusing an answered ID is answered after a Worker without buildUnfinishedTurnMessages ends it", async () => {
+    const agent = await startHarness();
+    api.fixedToolUseIdSuffix = "reusedacrossturns";
+    const sessionId = agent.newSessionId("real-reused-older-worker");
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}call publish {"message":"one"}`);
+    const first = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, first.interruptId, true), true);
+    await agent.waitForTurns(sessionId, 1);
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}call publish {"message":"two"}`), true);
+    await agent.waitForNewInterrupt(sessionId, "publish");
+    const ended = await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 2);
+    assert.equal(resultsOf(ended.messages, first.toolCallId), 1);
+    const firstNewRequest = api.requests.length;
+
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+    const snapshot = await agent.waitForTurns(sessionId, 3);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.deepEqual(snapshot.pendingInterrupts, []);
+    const answer = snapshot.messages[ended.messages.length + 1];
+    assert.deepEqual(
+      [answer?.turnId, answer?.toolCallId, answer?.toolOutput],
+      ["turn-3", first.toolCallId, outcomeUnknownToolResult],
+    );
+    assert.equal(resultsOf(snapshot.messages, first.toolCallId), 2);
+    assertUniqueTranscriptEntries(snapshot.messages);
+    assert.equal(agent.invocations.count("publish"), 1);
+    const [recallRequest] = api.requests.slice(firstNewRequest).filter((request) => request.command === "recall");
+    assert.ok(recallRequest !== undefined);
+    assert.equal(JSON.stringify(recallRequest.messages).includes("Tool result missing"), false);
+    // The CLI resumed no deferral: the first call keeps its result, and the reused one shows as interrupted.
+    assert.deepEqual(resultsAfterToolUsesOf(recallRequest, first.toolCallId), ["published one"]);
+    assert.equal(textsOf(recallRequest).includes("[Tool use interrupted]"), true);
+  });
+
   test("two connector writes of one reply run one at a time in the model's order", async () => {
     const agent = await startHarness("dontAsk");
     const ledger = new FakeLedgerProvider(agent.stateDirectory);
@@ -618,6 +688,31 @@ function withoutSystemReminders(content: unknown): unknown {
   return typeof content === "string"
     ? content.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim()
     : content;
+}
+
+// Each tool use's results in the message after it, as text.
+function resultsAfterToolUsesOf(request: MockApiRequest, toolUseId: string): unknown[] {
+  return request.messages.flatMap((message, index) =>
+    contentOf(message).some((block) => block["type"] === "tool_use" && block["id"] === toolUseId)
+      ? contentOf(request.messages[index + 1])
+          .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === toolUseId)
+          .map((block) => toolResultText(block["content"]))
+      : [],
+  );
+}
+
+function toolResultText(content: unknown): unknown {
+  const stripped = withoutSystemReminders(content);
+  return Array.isArray(stripped)
+    ? (stripped as JsonBlock[]).map((block) => String(block["text"] ?? "")).join("\n")
+    : stripped;
+}
+
+function textsOf(request: MockApiRequest): string[] {
+  return request.messages
+    .flatMap(contentOf)
+    .filter((block) => block["type"] === "text")
+    .map((block) => String(block["text"]));
 }
 
 function userTextsIn(message: unknown): string[] {

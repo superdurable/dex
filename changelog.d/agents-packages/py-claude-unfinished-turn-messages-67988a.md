@@ -9,6 +9,7 @@ section: Fixed
   Claude session with every tool use answered. A run state from an earlier release still resumes.
   When a Worker without that method, such as 0.6.11, ends a turn at a stored deferral, the next
   `RunModel` stores an unknown-outcome result for the call and gives it to the Claude Code CLI
-  right after the call, so the CLI does not resume it and ask for its approval again. The stored
-  entries match the TypeScript adapter's byte for byte, so Workers of both languages can share a
-  session.
+  right after the call, so the CLI does not resume it and ask for its approval again. Each such
+  result names its call by its assistant entry and tool use ID, so a tool use ID that a later turn
+  reuses gets its own result. The stored entries match the TypeScript adapter's byte for byte, so
+  Workers of both languages can share a session.

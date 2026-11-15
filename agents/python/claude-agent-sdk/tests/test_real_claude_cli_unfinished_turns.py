@@ -14,7 +14,11 @@ import json
 import re
 from typing import Any
 
-from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, TOOL_CALL_CANCELLED_BY_STEERING_RESULT
+from dex_agents import (
+    OUTCOME_UNKNOWN_TOOL_RESULT,
+    TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
+    TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+)
 from tests.claude_test_agent import (
     FAIL_FIRST_ATTEMPT_FILE_PREFIX,
     RUN_MODEL_OUTCOMES_LOG_NAME,
@@ -35,6 +39,7 @@ from tests.transcript_assertions import (
 )
 
 CLI_MISSING_RESULT_TEXT = "Tool result missing"
+INTERRUPTED_TOOL_USE_TEXT = "[Tool use interrupted]"
 
 
 async def test_real_cli_resumes_a_complete_session_after_a_turn_steered_at_an_approval(
@@ -182,6 +187,96 @@ async def test_real_cli_call_left_open_behind_a_later_turn_is_answered_after_its
         assert _result_after_tool_use(request, interrupt.tool_call_id) == [
             (OUTCOME_UNKNOWN_TOOL_RESULT, True)
         ]
+
+
+async def test_real_cli_two_cancelled_calls_with_one_id_store_results_with_distinct_uuids(
+    real_cli_harness: RealClaudeCliHarness,
+) -> None:
+    harness = real_cli_harness
+    harness.messages_api.fixed_tool_use_id_suffix = "reusedacrossturns"
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "one"}')
+    first = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.cancel_turn(session_id)
+    await harness.wait_for_turns(session_id, 1)
+    assert await harness.sessions.send_user_message(session_id, 'call publish {"message": "two"}')
+    second = await harness.wait_for_pending_interrupt(session_id)
+    assert second.tool_call_id == first.tool_call_id
+    assert await harness.sessions.cancel_turn(session_id)
+    cancelled = await harness.wait_for_turns(session_id, 2)
+    assert results_of(cancelled.messages, first.tool_call_id) == 2
+    assert_unique_transcript_entries(cancelled.messages)
+    first_new_request = len(harness.messages_api.requests)
+
+    assert await harness.sessions.send_user_message(session_id, "recall")
+    snapshot = await harness.wait_for_turns(session_id, 3)
+
+    assert snapshot.state is not None
+    assert snapshot.state.last_turn_error is None
+    assert_unique_transcript_entries(snapshot.messages)
+    [recall_request] = _requests_mentioning(
+        harness, first.tool_call_id, "recall", first_new_request
+    )
+    assert CLI_MISSING_RESULT_TEXT not in json.dumps(recall_request["messages"])
+    assert _result_after_tool_use(recall_request, first.tool_call_id) == [
+        (TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT, True)
+    ]
+    # Claude Code 2.1.316 keeps one tool use per ID and shows a later one as interrupted text.
+    assert INTERRUPTED_TOOL_USE_TEXT in _texts(recall_request)
+
+
+async def test_real_cli_later_call_reusing_an_answered_id_is_answered_after_an_older_worker(
+    real_cli_harness: RealClaudeCliHarness,
+) -> None:
+    harness = real_cli_harness
+    harness.messages_api.fixed_tool_use_id_suffix = "reusedacrossturns"
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "one"}')
+    first = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(session_id, first.interrupt_id, approved=True)
+    await harness.wait_for_turns(session_id, 1)
+    assert await harness.sessions.send_user_message(session_id, 'call publish {"message": "two"}')
+    await harness.wait_for_pending_interrupt(session_id)
+    ended = await end_turn_on_an_older_worker(harness, worker, session_id, 2)
+    assert results_of(ended.messages, first.tool_call_id) == 1
+    first_new_request = len(harness.messages_api.requests)
+
+    await harness.stack.start_worker()
+    assert await harness.sessions.send_user_message(session_id, "recall")
+    snapshot = await harness.wait_for_turns(session_id, 3)
+
+    assert snapshot.state is not None
+    assert snapshot.state.last_turn_error is None
+    assert not snapshot.pending_interrupts
+    answer = snapshot.messages[len(ended.messages) + 1]
+    assert (answer.turn_id, answer.tool_call_id, answer.tool_output) == (
+        "turn-3",
+        first.tool_call_id,
+        OUTCOME_UNKNOWN_TOOL_RESULT,
+    )
+    assert results_of(snapshot.messages, first.tool_call_id) == 2
+    assert_unique_transcript_entries(snapshot.messages)
+    assert harness.invocations.count("publish") == 1
+    [recall_request] = _requests_mentioning(
+        harness, first.tool_call_id, "recall", first_new_request
+    )
+    assert CLI_MISSING_RESULT_TEXT not in json.dumps(recall_request["messages"])
+    # The CLI resumed no deferral; the reused call shows as interrupted.
+    assert [
+        content for content, _ in _result_after_tool_use(recall_request, first.tool_call_id)
+    ] == ["published one"]
+    assert INTERRUPTED_TOOL_USE_TEXT in _texts(recall_request)
+
+
+def _texts(request: dict[str, Any]) -> list[str]:
+    return [
+        str(block.get("text", ""))
+        for message in request["messages"]
+        for block in _content(message)
+        if block.get("type") == "text"
+    ]
 
 
 def _requests_mentioning(
