@@ -8,6 +8,8 @@
 
 //! SubFlow reset policies at the owner: reads child Flows, then stages findings or rejects.
 
+use std::cell::Cell;
+
 use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, SubFlowResetPolicy};
 use dexzd_protocol::dexzd::v1::{
@@ -71,6 +73,15 @@ impl OwnerDecision {
     }
 }
 
+/// What the owner found for the restored SubFlow conditions of one computation.
+pub(super) struct ChildFlowFindings {
+    /// The findings to stage, or the reply that rejects the request.
+    pub(super) outcome: Result<Vec<TimeTravelStagedChildFlow>, CommandReply>,
+    /// Whether a condition's child run was missing while the parent had neither its result nor
+    /// its pending start.
+    pub(super) has_gone_child_flow: bool,
+}
+
 /// Reads what the restored SubFlow conditions of `result` need from their child Flows. Each read
 /// reserves what it loads in `memory_budget`.
 ///
@@ -84,14 +95,14 @@ pub(super) fn child_flow_findings(
     request: &ResetFlowRequest,
     result: &TimeTravelResult,
     sources: ChildFlowSources<'_>,
-) -> Result<Result<Vec<TimeTravelStagedChildFlow>, CommandReply>, ApplyError> {
+) -> Result<ChildFlowFindings, ApplyError> {
     let policy = match reset_policy(request) {
         Ok(policy) => policy,
-        Err(reply) => return Ok(Err(reply)),
+        Err(reply) => return Ok(ChildFlowFindings::settled(Err(reply))),
     };
     let conditions = restored_sub_flow_conditions(&result.rows)?;
     if conditions.is_empty() {
-        return Ok(Ok(Vec::new()));
+        return Ok(ChildFlowFindings::settled(Ok(Vec::new())));
     }
     let reads = ChildFlowReads {
         transaction,
@@ -99,44 +110,73 @@ pub(super) fn child_flow_findings(
         record,
         sources,
         pending_parents: pending_child_start_parents(transaction, rows)?,
+        has_gone_child_flow: Cell::new(false),
     };
-    let mut findings = Vec::new();
-    let mut rejections = Vec::new();
-    for condition in conditions {
-        match reads.decide(policy, &condition)? {
-            OwnerDecision::Nothing => {}
-            OwnerDecision::Stage(finding) => findings.push(TimeTravelStagedChildFlow {
-                step_execution_id: condition.step_execution_id.clone(),
-                sub_flow_index: condition.sub_flow_index,
-                child_flow_id: condition.child_flow_id.clone(),
-                finding: Some(*finding),
-            }),
-            OwnerDecision::Reject(reason) => rejections.push(format!(
-                "Step execution {} waits on child Flow {}: {reason}",
-                condition.step_execution_id, condition.child_flow_id
-            )),
-            OwnerDecision::MemoryExceeded => {
-                return Ok(Err(replay_memory_exceeded_reply(
-                    result.target.point,
-                    sources.memory_budget.limit_bytes(),
-                    "the child Flow results and starts its SubFlow reset policy reads",
-                )));
-            }
+    let outcome = reads.findings(policy, conditions, result)?;
+    Ok(ChildFlowFindings {
+        outcome,
+        has_gone_child_flow: reads.has_gone_child_flow.get(),
+    })
+}
+
+impl ChildFlowFindings {
+    fn settled(outcome: Result<Vec<TimeTravelStagedChildFlow>, CommandReply>) -> Self {
+        Self {
+            outcome,
+            has_gone_child_flow: false,
         }
     }
-    if !rejections.is_empty() {
-        return Ok(Err(error_reply(
-            grpc_code::FAILED_PRECONDITION,
-            ErrorSubStatus::Uncategorized,
-            format!(
-                "time travel of Flow {} with SubFlow reset policy {} is rejected; {}",
-                record.flow_id,
-                policy.as_str_name(),
-                rejections.join("; ")
-            ),
-        )));
+}
+
+impl ChildFlowReads<'_> {
+    /// Decides every condition; see [`child_flow_findings`].
+    fn findings(
+        &self,
+        policy: SubFlowResetPolicy,
+        conditions: Vec<RestoredSubFlowCondition>,
+        result: &TimeTravelResult,
+    ) -> Result<Result<Vec<TimeTravelStagedChildFlow>, CommandReply>, ApplyError> {
+        let reads = self;
+        let record = self.record;
+        let sources = self.sources;
+        let mut findings = Vec::new();
+        let mut rejections = Vec::new();
+        for condition in conditions {
+            match reads.decide(policy, &condition)? {
+                OwnerDecision::Nothing => {}
+                OwnerDecision::Stage(finding) => findings.push(TimeTravelStagedChildFlow {
+                    step_execution_id: condition.step_execution_id.clone(),
+                    sub_flow_index: condition.sub_flow_index,
+                    child_flow_id: condition.child_flow_id.clone(),
+                    finding: Some(*finding),
+                }),
+                OwnerDecision::Reject(reason) => rejections.push(format!(
+                    "Step execution {} waits on child Flow {}: {reason}",
+                    condition.step_execution_id, condition.child_flow_id
+                )),
+                OwnerDecision::MemoryExceeded => {
+                    return Ok(Err(replay_memory_exceeded_reply(
+                        result.target.point,
+                        sources.memory_budget.limit_bytes(),
+                        "the child Flow results and starts its SubFlow reset policy reads",
+                    )));
+                }
+            }
+        }
+        if !rejections.is_empty() {
+            return Ok(Err(error_reply(
+                grpc_code::FAILED_PRECONDITION,
+                ErrorSubStatus::Uncategorized,
+                format!(
+                    "time travel of Flow {} with SubFlow reset policy {} is rejected; {}",
+                    record.flow_id,
+                    policy.as_str_name(),
+                    rejections.join("; ")
+                ),
+            )));
+        }
+        Ok(Ok(findings))
     }
-    Ok(Ok(findings))
 }
 
 /// Where the owner reads child Flows, and the memory budget the reads reserve in.
@@ -154,6 +194,8 @@ struct ChildFlowReads<'reads> {
     sources: ChildFlowSources<'reads>,
     /// Parent references of the parent's unacknowledged child starts.
     pending_parents: Vec<ParentFlowReference>,
+    /// Set when a decision found a condition's child gone.
+    has_gone_child_flow: Cell<bool>,
 }
 
 impl ChildFlowReads<'_> {
@@ -178,7 +220,10 @@ impl ChildFlowReads<'_> {
                 }
                 Ok(match self.child_run(condition, true)? {
                     ChildFlowRead::Found(run) => restart_decision(condition, Some(*run)),
-                    ChildFlowRead::Missing => restart_decision(condition, None),
+                    ChildFlowRead::Missing => {
+                        self.has_gone_child_flow.set(true);
+                        restart_decision(condition, None)
+                    }
                     ChildFlowRead::MemoryExceeded => OwnerDecision::MemoryExceeded,
                 })
             }
@@ -214,7 +259,10 @@ impl ChildFlowReads<'_> {
             ChildFlowRead::Missing if self.is_child_start_pending(condition) => {
                 ChildAttachment::StartPending
             }
-            ChildFlowRead::Missing => ChildAttachment::Gone,
+            ChildFlowRead::Missing => {
+                self.has_gone_child_flow.set(true);
+                ChildAttachment::Gone
+            }
         };
         Ok(Some(attachment))
     }

@@ -50,8 +50,8 @@ pub struct TimeTravelComputationSources<'sources> {
     pub offloaded_values: &'sources dyn OffloadedValues,
     /// Child runs of the restored SubFlow conditions, for the request's SubFlow reset policy.
     ///
-    /// Its reads must be no newer than `state`. A child run is purged only after its parent
-    /// acknowledged its report, so `state` then holds the result of a child the reads find gone.
+    /// Its reads should be no newer than `state`. A child that looks gone across views of
+    /// different times may be a race; [`compute_time_travel_from_segments`] reports it.
     pub child_flow_runs: &'sources dyn ChildFlowRuns,
 }
 
@@ -73,6 +73,9 @@ pub struct TimeTravelComputationRequest<'request> {
 pub enum SegmentedTimeTravelComputation {
     /// The computation read every history record and checkpoint it needed.
     Computed(TimeTravelComputation),
+    /// Like `Computed`, but a condition's child looked gone; views of different times may need
+    /// a new round.
+    ComputedWithGoneChildFlow(TimeTravelComputation),
     /// The computation reached uploaded segments that are not loaded. Fetch them, then compute
     /// again on a new committed view.
     NeedsSegments(MissingHistorySegments),
@@ -188,17 +191,32 @@ pub fn compute_time_travel(
     sources: &TimeTravelComputationSources<'_>,
     request: &TimeTravelComputationRequest<'_>,
 ) -> Result<TimeTravelComputation, ApplyError> {
+    compute_noting_gone_child_flows(context, sources, request)
+        .map(|(computation, _has_gone_child_flow)| computation)
+}
+
+/// Computes as [`compute_time_travel`] does.
+///
+/// Returns the computation and whether a restored condition's child looked gone, or an error
+/// when stored state is corrupt.
+fn compute_noting_gone_child_flows(
+    context: &ApplyContext,
+    sources: &TimeTravelComputationSources<'_>,
+    request: &TimeTravelComputationRequest<'_>,
+) -> Result<(TimeTravelComputation, bool), ApplyError> {
     let transaction = FlowTransaction::new(sources.state, *context);
     let rows = RunRows::new(context.flow_hash, request.run_id);
     let Some(record) = rows.run_record(&transaction)? else {
-        return Ok(TimeTravelComputation::Rejected(flow_not_found_reply(
-            &request.reset.flow_id,
-        )));
+        return Ok((
+            TimeTravelComputation::Rejected(flow_not_found_reply(&request.reset.flow_id)),
+            false,
+        ));
     };
     if record.is_purging {
-        return Ok(TimeTravelComputation::Rejected(flow_not_found_reply(
-            &record.flow_id,
-        )));
+        return Ok((
+            TimeTravelComputation::Rejected(flow_not_found_reply(&record.flow_id)),
+            false,
+        ));
     }
     let computed_through_seq = record.next_run_seq.saturating_sub(1);
     let memory_budget = ReplayMemoryBudget::new(request.replay_memory_budget_bytes);
@@ -217,9 +235,9 @@ pub fn compute_time_travel(
         resources,
     )? {
         Ok(result) => result,
-        Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
+        Err(reply) => return Ok((TimeTravelComputation::Rejected(reply), false)),
     };
-    result.child_flows = match child_flow_findings(
+    let findings = child_flow_findings(
         &transaction,
         rows,
         &record,
@@ -229,28 +247,34 @@ pub fn compute_time_travel(
             child_flow_runs: sources.child_flow_runs,
             memory_budget: &memory_budget,
         },
-    )? {
+    )?;
+    let has_gone_child_flow = findings.has_gone_child_flow;
+    result.child_flows = match findings.outcome {
         Ok(findings) => Some(findings),
-        Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
+        Err(reply) => {
+            return Ok((TimeTravelComputation::Rejected(reply), has_gone_child_flow));
+        }
     };
     // Staging encodes every entry once more.
     if !memory_budget.reserve(staged_result_bytes(&result)) {
-        return Ok(TimeTravelComputation::Rejected(
-            replay_memory_exceeded_reply(
+        return Ok((
+            TimeTravelComputation::Rejected(replay_memory_exceeded_reply(
                 result.target.point,
                 memory_budget.limit_bytes(),
                 "the staged result",
-            ),
+            )),
+            has_gone_child_flow,
         ));
     }
-    Ok(TimeTravelComputation::Computed(Box::new(
-        ComputedTimeTravel {
+    Ok((
+        TimeTravelComputation::Computed(Box::new(ComputedTimeTravel {
             request: request.reset.clone(),
             run_attempt: record.current_attempt,
             computed_through_seq,
             result,
-        },
-    )))
+        })),
+        has_gone_child_flow,
+    ))
 }
 
 /// Computes `request` as [`compute_time_travel`] does, reading the run's history from local
@@ -286,7 +310,7 @@ pub fn compute_time_travel_from_segments(
         Some(segmented) => segmented,
         None => &local,
     };
-    let computation = compute_time_travel(
+    let computation = compute_noting_gone_child_flows(
         context,
         &TimeTravelComputationSources {
             state,
@@ -310,7 +334,13 @@ pub fn compute_time_travel_from_segments(
             });
         }
     }
-    computation.map(SegmentedTimeTravelComputation::Computed)
+    computation.map(|(computation, has_gone_child_flow)| {
+        if has_gone_child_flow {
+            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow(computation)
+        } else {
+            SegmentedTimeTravelComputation::Computed(computation)
+        }
+    })
 }
 
 /// Computes the result of `request` through `computed_through_seq` on the state `transaction`

@@ -51,9 +51,16 @@ const FIRST_RECOMPUTATION_BACKOFF: Duration = Duration::from_millis(100);
 /// fetches every segment its reads go on to need, so a computation takes about three.
 const MAX_HISTORY_READ_ROUNDS: usize = 16;
 
+/// Rounds that may find a child gone before the computation accepts it. A child is purged only
+/// after its parent acknowledged its report, so a gone child usually means the round's two views
+/// straddled a child start or report.
+const MAX_GONE_CHILD_FLOW_ROUNDS: usize = 3;
+
 /// How one committed view round of a computation ended.
 enum ComputationRound {
     Computed(TimeTravelComputation),
+    /// A condition's child looked gone, which views of different times can cause.
+    ComputedWithGoneChildFlow(TimeTravelComputation),
     /// The round reached uploaded segments it lacks.
     NeedsSegments(MissingHistorySegments),
     /// The round read values that offload deleted locally, which it lacks; the UPLOADED
@@ -238,6 +245,7 @@ impl FlowCoordinatorRegistry {
             TimeTravelSegmentReads::new(self.inner.config.time_travel_replay_memory_bytes);
         let mut first_view = Some(view);
         let mut segment_rounds = 0;
+        let mut gone_child_flow_rounds = 0;
         loop {
             // The parent view opens after the child view, so a child purged after its report
             // shows its result in the parent.
@@ -254,6 +262,17 @@ impl FlowCoordinatorRegistry {
             {
                 ComputationRound::Computed(computation) => {
                     return computed_or_rejected(computation);
+                }
+                ComputationRound::ComputedWithGoneChildFlow(computation) => {
+                    gone_child_flow_rounds += 1;
+                    if gone_child_flow_rounds == MAX_GONE_CHILD_FLOW_ROUNDS {
+                        return computed_or_rejected(computation);
+                    }
+                    tracing::debug!(
+                        flow_id = %flow.flow_id,
+                        gone_child_flow_rounds,
+                        "a time travel found a child Flow gone; computing again on new views"
+                    );
                 }
                 ComputationRound::NeedsSegments(needed) => {
                     segment_rounds += 1;
@@ -355,6 +374,9 @@ impl FlowCoordinatorRegistry {
         Ok(match computation? {
             SegmentedTimeTravelComputation::Computed(computation) => {
                 ComputationRound::Computed(computation)
+            }
+            SegmentedTimeTravelComputation::ComputedWithGoneChildFlow(computation) => {
+                ComputationRound::ComputedWithGoneChildFlow(computation)
             }
             SegmentedTimeTravelComputation::NeedsSegments(needed) => {
                 ComputationRound::NeedsSegments(needed)

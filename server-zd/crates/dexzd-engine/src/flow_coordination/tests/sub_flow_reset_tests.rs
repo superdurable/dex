@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! ResetFlow reads child runs no later than the parent state it computes on.
+//! ResetFlow computes again when a round's two views make a child look gone.
 
 use std::sync::atomic::Ordering;
 
@@ -96,23 +96,186 @@ fn run_record(store: &MemoryStore, context: ApplyContext, run_id: RunId) -> RunR
     RunRecord::decode(bytes.as_slice()).expect("the run record decodes")
 }
 
-/// A child purged after its report reached the parent stays attached, because ResetFlow reads
-/// the child no later than the parent.
-#[tokio::test(start_paused = true)]
-async fn a_child_purged_after_its_report_reached_the_parent_stays_attached() {
-    let harness = FlowCoordinationHarness::new();
-    harness
-        .applier
-        .uses_real_apply
-        .store(true, Ordering::SeqCst);
-    let parent_run = start_flow(&harness, PARENT_FLOW).await.unwrap();
-    let parent = harness.registry.flow_context(&flow(PARENT_FLOW));
-    let child = harness.registry.flow_context(&flow(CHILD_FLOW));
-    let mut direct = DirectCommands {
-        store: harness.store.clone(),
-        next_micros: 1_100_000,
-        next_command_id: 0xA0,
+/// A parent whose InitStep-1 waits on one child and a signal, before the child start is delivered.
+struct WaitingParent {
+    harness: FlowCoordinationHarness,
+    parent_run: RunId,
+    parent: ApplyContext,
+    child: ApplyContext,
+    /// Time of the wait's history record, the time travel target.
+    wait_time: i64,
+    /// The undelivered child start in the parent's outbox.
+    start: OutboxRecord,
+    direct: DirectCommands,
+}
+
+impl WaitingParent {
+    async fn new() -> Self {
+        let harness = FlowCoordinationHarness::new();
+        harness
+            .applier
+            .uses_real_apply
+            .store(true, Ordering::SeqCst);
+        let parent_run = start_flow(&harness, PARENT_FLOW).await.unwrap();
+        let parent = harness.registry.flow_context(&flow(PARENT_FLOW));
+        let child = harness.registry.flow_context(&flow(CHILD_FLOW));
+        let mut direct = DirectCommands {
+            store: harness.store.clone(),
+            next_micros: 1_100_000,
+            next_command_id: 0xA0,
+        };
+        let wait_time = register_wait(&mut direct, &harness.store, parent, parent_run);
+        let start = outbox_records(&harness.store, parent, parent_run)
+            .pop()
+            .expect("the wait starts its child");
+        Self {
+            harness,
+            parent_run,
+            parent,
+            child,
+            wait_time,
+            start,
+            direct,
+        }
+    }
+
+    async fn reset(&self) -> Result<u32, crate::flow_coordination::FlowCoordinationError> {
+        self.harness
+            .drive(self.harness.registry.reset_flow(
+                TENANT,
+                ResetFlowRequest {
+                    flow_id: PARENT_FLOW.to_owned(),
+                    reset_type: dexzd_protocol::dex::FlowResetType::HistoryEventTime as i32,
+                    history_event_time: (i128::from(self.wait_time) * 1000).to_string(),
+                    run_attempt: 1,
+                    ..ResetFlowRequest::default()
+                },
+            ))
+            .await
+            .map(|response| u32::try_from(response.run_attempt).expect("a positive attempt"))
+    }
+
+    fn restored_wait_attempts(&self) -> Vec<u32> {
+        let step_bytes = self
+            .harness
+            .store
+            .view()
+            .get(
+                ColumnFamily::Flow,
+                &dexzd_keyspace::row_keys::run_named_key(
+                    self.parent.flow_hash,
+                    self.parent_run,
+                    RunTable::StepExecution,
+                    "InitStep-1",
+                ),
+            )
+            .unwrap()
+            .expect("the restored Step exists");
+        StepExecutionRecord::decode(step_bytes.as_slice())
+            .unwrap()
+            .wait
+            .expect("the signal keeps the restored Step waiting")
+            .sub_flow_registration_attempts
+    }
+}
+
+/// The inbox command that delivers the parent's child start.
+fn child_start_delivery(start: &OutboxRecord) -> flow_command::Command {
+    let Some(outbox_record::Payload::ChildStart(child_start)) = start.payload.clone() else {
+        panic!("expected a child start");
     };
+    flow_command::Command::InboxMessage(InboxMessageCommand {
+        message_id: start.message_id.clone(),
+        source: child_start
+            .parent
+            .as_ref()
+            .and_then(|reference| reference.parent.clone()),
+        payload: Some(inbox_message_command::Payload::ChildStart(child_start)),
+        new_run_id: CHILD_RUN.to_vec(),
+        settings: Some(FlowCoordinationConfig::default().run_settings),
+    })
+}
+
+/// Marks the child run purging, as its purge begins.
+fn begin_child_purge(store: &MemoryStore, child: ApplyContext) {
+    let mut purging = run_record(store, child, RunId(CHILD_RUN));
+    purging.is_purging = true;
+    store.put(
+        ColumnFamily::Flow,
+        run_singleton_key(child.flow_hash, RunId(CHILD_RUN), RunTable::RunRecord),
+        purging.encode_to_vec(),
+    );
+}
+
+/// Codex's interleaving: the child start reaches the child and the parent acknowledges it right
+/// after the first round's child view. That round finds the child gone; a new round attaches.
+#[tokio::test(start_paused = true)]
+async fn a_child_started_between_the_views_of_a_round_stays_attached() {
+    let scenario = WaitingParent::new().await;
+    let mut hook_commands = DirectCommands {
+        store: scenario.harness.store.clone(),
+        next_micros: 1_800_000,
+        next_command_id: 0xD0,
+    };
+    let (parent, child, parent_run) = (scenario.parent, scenario.child, scenario.parent_run);
+    let start = scenario.start.clone();
+    *scenario.harness.committer.view_hook.lock().unwrap() = Some(Box::new(move || {
+        hook_commands.apply(child, CHILD_FLOW, &[], child_start_delivery(&start));
+        hook_commands.apply(
+            parent,
+            PARENT_FLOW,
+            parent_run.as_bytes(),
+            flow_command::Command::OutboxAck(OutboxAckCommand {
+                message_ids: vec![start.message_id.clone()],
+            }),
+        );
+    }));
+    let run_attempt = scenario
+        .reset()
+        .await
+        .expect("the default policy attaches the started child");
+    assert_eq!(run_attempt, 2);
+    assert!(scenario.restored_wait_attempts().is_empty());
+}
+
+/// A child that stays gone in every round is rejected.
+#[tokio::test(start_paused = true)]
+async fn a_child_gone_in_every_round_is_rejected() {
+    let mut scenario = WaitingParent::new().await;
+    let (parent, child, parent_run) = (scenario.parent, scenario.child, scenario.parent_run);
+    scenario.direct.apply(
+        child,
+        CHILD_FLOW,
+        &[],
+        child_start_delivery(&scenario.start),
+    );
+    scenario.direct.apply(
+        parent,
+        PARENT_FLOW,
+        parent_run.as_bytes(),
+        flow_command::Command::OutboxAck(OutboxAckCommand {
+            message_ids: vec![scenario.start.message_id.clone()],
+        }),
+    );
+    begin_child_purge(&scenario.harness.store, child);
+    let rejected = scenario.reset().await.expect_err("a gone child rejects");
+    assert_eq!(
+        rejected.grpc_code(),
+        crate::flow_coordination::grpc_code::FAILED_PRECONDITION
+    );
+    assert!(
+        rejected.to_string().contains("no longer exists"),
+        "{rejected}"
+    );
+}
+
+/// Registers InitStep-1's wait on one child and a signal. Returns the time of the wait.
+fn register_wait(
+    direct: &mut DirectCommands,
+    store: &MemoryStore,
+    parent: ApplyContext,
+    parent_run: RunId,
+) -> i64 {
     let wait_for = StepInvocationKey {
         step_execution_id: "InitStep-1".to_owned(),
         method: StepMethod::WaitFor as i32,
@@ -163,10 +326,9 @@ async fn a_child_purged_after_its_report_reached_the_parent_stays_attached() {
             ..StepMethodCompletedCommand::default()
         }),
     );
-    let wait_seq = run_record(&harness.store, parent, parent_run).next_run_seq - 1;
-    let wait_time = HistoryRecord::decode(
-        harness
-            .store
+    let wait_seq = run_record(store, parent, parent_run).next_run_seq - 1;
+    HistoryRecord::decode(
+        store
             .view()
             .get(
                 ColumnFamily::History,
@@ -177,37 +339,29 @@ async fn a_child_purged_after_its_report_reached_the_parent_stays_attached() {
             .as_slice(),
     )
     .unwrap()
-    .timestamp_micros;
-    let start = outbox_records(&harness.store, parent, parent_run)
-        .pop()
-        .expect("the wait starts its child");
-    let Some(outbox_record::Payload::ChildStart(child_start)) = start.payload.clone() else {
-        panic!("expected a child start");
-    };
-    direct.apply(
+    .timestamp_micros
+}
+
+/// A child purged after its report reached the parent between a round's views stays attached.
+#[tokio::test(start_paused = true)]
+async fn a_child_purged_after_its_report_reached_the_parent_stays_attached() {
+    let mut scenario = WaitingParent::new().await;
+    let (parent, child, parent_run) = (scenario.parent, scenario.child, scenario.parent_run);
+    scenario.direct.apply(
         child,
         CHILD_FLOW,
         &[],
-        flow_command::Command::InboxMessage(InboxMessageCommand {
-            message_id: start.message_id.clone(),
-            source: child_start
-                .parent
-                .as_ref()
-                .and_then(|reference| reference.parent.clone()),
-            payload: Some(inbox_message_command::Payload::ChildStart(child_start)),
-            new_run_id: CHILD_RUN.to_vec(),
-            settings: Some(FlowCoordinationConfig::default().run_settings),
-        }),
+        child_start_delivery(&scenario.start),
     );
-    direct.apply(
+    scenario.direct.apply(
         parent,
         PARENT_FLOW,
         parent_run.as_bytes(),
         flow_command::Command::OutboxAck(OutboxAckCommand {
-            message_ids: vec![start.message_id],
+            message_ids: vec![scenario.start.message_id.clone()],
         }),
     );
-    direct.apply(
+    scenario.direct.apply(
         child,
         CHILD_FLOW,
         &CHILD_RUN,
@@ -218,27 +372,22 @@ async fn a_child_purged_after_its_report_reached_the_parent_stays_attached() {
             }),
         }),
     );
-    let report = outbox_records(&harness.store, child, RunId(CHILD_RUN))
+    let report = outbox_records(&scenario.harness.store, child, RunId(CHILD_RUN))
         .pop()
         .expect("the child reports its result");
     let Some(outbox_record::Payload::ChildCompleted(completed)) = report.payload.clone() else {
         panic!("expected a child report");
     };
-
-    // Right after the ResetFlow's first view, the report reaches the parent, the child's outbox
-    // is acknowledged, and the child's purge begins. A parent view older than the child view
-    // would then find the child gone without a result and reject the travel.
     let mut hook_commands = DirectCommands {
-        store: harness.store.clone(),
+        store: scenario.harness.store.clone(),
         next_micros: 1_800_000,
         next_command_id: 0xD0,
     };
-    let parent_run_bytes = parent_run.as_bytes().to_vec();
-    *harness.committer.view_hook.lock().unwrap() = Some(Box::new(move || {
+    *scenario.harness.committer.view_hook.lock().unwrap() = Some(Box::new(move || {
         hook_commands.apply(
             parent,
             PARENT_FLOW,
-            &parent_run_bytes,
+            parent_run.as_bytes(),
             flow_command::Command::InboxMessage(InboxMessageCommand {
                 message_id: report.message_id.clone(),
                 source: Some(CrossFlowEndpoint {
@@ -259,49 +408,15 @@ async fn a_child_purged_after_its_report_reached_the_parent_stays_attached() {
                 message_ids: vec![report.message_id],
             }),
         );
-        let mut purging = run_record(&hook_commands.store, child, RunId(CHILD_RUN));
-        purging.is_purging = true;
-        hook_commands.store.put(
-            ColumnFamily::Flow,
-            run_singleton_key(child.flow_hash, RunId(CHILD_RUN), RunTable::RunRecord),
-            purging.encode_to_vec(),
-        );
+        begin_child_purge(&hook_commands.store, child);
     }));
-
-    let response = harness
-        .drive(harness.registry.reset_flow(
-            TENANT,
-            ResetFlowRequest {
-                flow_id: PARENT_FLOW.to_owned(),
-                reset_type: dexzd_protocol::dex::FlowResetType::HistoryEventTime as i32,
-                history_event_time: (i128::from(wait_time) * 1000).to_string(),
-                run_attempt: 1,
-                ..ResetFlowRequest::default()
-            },
-        ))
+    let run_attempt = scenario
+        .reset()
         .await
         .expect("the purged child's result attaches its condition");
-    assert_eq!(response.run_attempt, 2);
-    let step_bytes = harness
-        .store
-        .view()
-        .get(
-            ColumnFamily::Flow,
-            &dexzd_keyspace::row_keys::run_named_key(
-                parent.flow_hash,
-                parent_run,
-                RunTable::StepExecution,
-                "InitStep-1",
-            ),
-        )
-        .unwrap()
-        .expect("the restored Step exists");
-    let wait = StepExecutionRecord::decode(step_bytes.as_slice())
-        .unwrap()
-        .wait
-        .expect("the signal keeps the restored Step waiting");
+    assert_eq!(run_attempt, 2);
     assert!(
-        wait.sub_flow_registration_attempts.is_empty(),
+        scenario.restored_wait_attempts().is_empty(),
         "the condition stays on the child's received result"
     );
 }
