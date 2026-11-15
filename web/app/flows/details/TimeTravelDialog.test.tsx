@@ -120,7 +120,7 @@ describe('time travel requests', () => {
       />,
     );
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '2' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Time travel point' }), { target: { value: '2' } });
     fireEvent.change(screen.getByLabelText('Target (UTC)'), { target: { value: '2026-10-24T17:30:05' } });
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'replay the fix' } });
     fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
@@ -134,7 +134,48 @@ describe('time travel requests', () => {
       timeTravelType: 2,
       reason: 'replay the fix',
       historyEventTime: '2026-10-24T17:30:05.000Z',
+      subFlowResetPolicy: 4,
       runAttempt: 1,
+    });
+  });
+
+  it('sends an event ID point and the chosen SubFlow reset policy', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      JSON.stringify({ runId: 'run-1', runAttempt: 2 }),
+      { status: 200 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const onTimeTraveled = vi.fn();
+    render(
+      <TimeTravelDialog
+        open
+        summary={{ ...summary, runAttempt: 1 }}
+        events={[event]}
+        initialEvent={null}
+        runAttempt={0}
+        timezone="UTC"
+        onClose={() => {}}
+        onTimeTraveled={onTimeTraveled}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Time travel point' }), { target: { value: '6' } });
+    const button = screen.getByRole('button', { name: 'Time travel' });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'replay' } });
+    fireEvent.change(screen.getByLabelText('Target'), { target: { value: '0' } });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Target'), { target: { value: '42' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /^SubFlow reset policy/ }), { target: { value: '3' } });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(onTimeTraveled).toHaveBeenCalled());
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({
+      flowId: 'order-1',
+      runId: 'run-1',
+      timeTravelType: 6,
+      reason: 'replay',
+      eventId: '42',
+      subFlowResetPolicy: 3,
     });
   });
 

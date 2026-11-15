@@ -7,11 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useId } from 'react';
-import { ChevronDown, History, Square, type LucideIcon } from 'lucide-react';
+import { ChevronDown, History, Split, Square, type LucideIcon } from 'lucide-react';
 import { usePopover } from '../../components/frame/usePopover';
 
 interface OperateAction {
-  id: 'stop' | 'time-travel';
+  id: 'stop' | 'time-travel' | 'clone-fork';
   /** The short name on the main button; its description is the button's tooltip. */
   label: string;
   /** A shorter name for laptop widths, when it differs. */
@@ -29,10 +29,13 @@ export function OperateMenu({
   onTimeTravel,
   onTimeTravelFromFailure,
   failedEventId,
+  onCloneFork,
 }: {
   isRunning: boolean;
   onStop: () => void;
   onTimeTravel: () => void;
+  /** Set when the run offers Clone fork; it always sits in the menu. */
+  onCloneFork?: () => void;
   /** Set on a failed run: time travel prefilled at the failed event. */
   onTimeTravelFromFailure?: () => void;
   /** The failed event's ID, named on the main button. */
@@ -51,7 +54,13 @@ export function OperateMenu({
     id: 'time-travel', label: failedEventId === undefined ? 'Time travel' : `Time travel from #${failedEventId}`, narrowLabel: failedEventId === undefined ? 'Time travel' : `Time travel #${failedEventId}`, menuLabel: 'Time travel from failure…', description: 'Run again from the failed event',
     Icon: History, onSelect: onTimeTravelFromFailure,
   } : null;
-  const [primary, ...others] = isRunning ? [stop, timeTravel] : fromFailure ? [fromFailure, timeTravel] : [timeTravel];
+  const cloneFork: OperateAction | null = onCloneFork ? {
+    id: 'clone-fork', label: 'Clone fork', menuLabel: 'Clone fork…',
+    description: isRunning ? 'Start a new Flow from a copy of this run\'s current state' : 'Start a new Flow from a copy of an earlier point',
+    Icon: Split, onSelect: onCloneFork,
+  } : null;
+  const runActions = isRunning ? [stop, timeTravel] : fromFailure ? [fromFailure, timeTravel] : [timeTravel];
+  const [primary, ...others] = cloneFork ? [...runActions, cloneFork] : runActions;
   return (
     <div className="operate-menu" ref={rootRef}>
       <div aria-label="Operate" className="operate-split" role="group">

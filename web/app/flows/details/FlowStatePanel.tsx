@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useRef, useState } from 'react';
-import { Braces, History } from 'lucide-react';
+import { Braces, History, Split } from 'lucide-react';
 import { formatDate } from '@/lib/format';
 import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import {
@@ -62,10 +62,13 @@ export function FlowStatePanel({
   isJumpDisabled = false,
   runStartTime,
   onTimeTravelFromEvent,
+  onCloneForkFromEvent,
 }: {
   selectedEvent: FlowHistoryEvent | null;
   /** Opens time travel prefilled at the selected event; shown only for events time travel can target. */
   onTimeTravelFromEvent?: (event: FlowHistoryEvent) => void;
+  /** Opens Clone fork at the selected event's point; shown for the same events as time travel. */
+  onCloneForkFromEvent?: (event: FlowHistoryEvent) => void;
   /** The run's start time, for each event's offset from it. */
   runStartTime?: string | null;
   history: FlowHistoryEvent[];
@@ -117,6 +120,16 @@ export function FlowStatePanel({
                 >
                   <History aria-hidden="true" size={13} strokeWidth={2.25} />
                   Time travel from here…
+                </button>
+              )}
+              {onCloneForkFromEvent && eventTimeTravelTarget(selectedEvent) && (
+                <button
+                  className="button ghost selected-event-clone-fork"
+                  onClick={() => onCloneForkFromEvent(selectedEvent)}
+                  type="button"
+                >
+                  <Split aria-hidden="true" size={13} strokeWidth={2.25} />
+                  Clone fork from here…
                 </button>
               )}
             </span>

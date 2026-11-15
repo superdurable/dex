@@ -58,6 +58,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("GET /api/flows/stream", handler.readStream)
 	mux.HandleFunc("POST /api/flows/time-travel", handler.timeTravelFlow)
+	mux.HandleFunc("POST /api/flows/clone-fork", handler.cloneForkFlow)
 	mux.HandleFunc("POST /api/flows/stop", handler.stopFlow)
 	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
@@ -470,17 +471,11 @@ func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Req
 		WriteError(response, http.StatusBadRequest, "runAttempt must be a non-negative integer", nil)
 		return
 	}
-	result, err := h.client.ResetFlow(request.Context(), &dexpb.ResetFlowRequest{
-		FlowId:           body.FlowID,
-		RunId:            body.RunID,
-		ResetType:        dexpb.FlowResetType(body.TimeTravelType),
-		Reason:           body.Reason,
-		StepType:         body.StepType,
-		StepExecutionId:  body.StepExecutionID,
-		HistoryEventTime: body.HistoryEventTime,
-		StepMethod:       dexpb.FlowResetStepMethod(body.StepMethod),
-		RunAttempt:       body.RunAttempt,
-	})
+	if body.TimeTravelType == int32(dexpb.FlowResetType_FLOW_RESET_TYPE_EVENT_ID) && body.EventID <= 0 {
+		WriteError(response, http.StatusBadRequest, "eventId must be a positive integer", nil)
+		return
+	}
+	result, err := h.client.ResetFlow(request.Context(), resetFlowRequestOf(body))
 	if err != nil {
 		writeGRPCError(response, err, "TimeTravel")
 		return
@@ -488,6 +483,48 @@ func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Req
 	writeJSON(response, http.StatusOK, timeTravelFlowResponse{
 		RunID:      result.GetRunId(),
 		RunAttempt: result.GetRunAttempt(),
+	})
+}
+
+func (h *handler) cloneForkFlow(response http.ResponseWriter, request *http.Request) {
+	var body cloneForkFlowRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	body.FlowID = strings.TrimSpace(body.FlowID)
+	body.TaskQueue = strings.TrimSpace(body.TaskQueue)
+	if body.SourceFlowID == "" || body.FlowID == "" || strings.TrimSpace(body.Reason) == "" {
+		WriteError(response, http.StatusBadRequest, "sourceFlowId, flowId, and reason are required", nil)
+		return
+	}
+	if body.FlowID == body.SourceFlowID {
+		WriteError(response, http.StatusBadRequest, "flowId must differ from sourceFlowId; use time travel to return a Flow to an earlier point", nil)
+		return
+	}
+	if body.RunAttempt < 0 {
+		WriteError(response, http.StatusBadRequest, "runAttempt must be a non-negative integer", nil)
+		return
+	}
+	if body.PointType == int32(dexpb.FlowCloneForkPointType_FLOW_CLONE_FORK_POINT_TYPE_EVENT_ID) && body.EventID <= 0 {
+		WriteError(response, http.StatusBadRequest, "eventId must be a positive integer", nil)
+		return
+	}
+	requestID := body.RequestID
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	result, err := h.client.CloneForkFlow(request.Context(), cloneForkFlowRequestOf(body, requestID))
+	if err != nil {
+		writeGRPCError(response, err, "CloneForkFlow")
+		return
+	}
+	writeJSON(response, http.StatusOK, cloneForkFlowResponse{
+		FlowID:           body.FlowID,
+		RunID:            result.GetRunId(),
+		SourceRunID:      result.GetSourceRunId(),
+		SourceRunAttempt: result.GetSourceRunAttempt(),
+		SourceEventID:    result.GetSourceEventId(),
 	})
 }
 

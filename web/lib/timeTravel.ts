@@ -14,12 +14,32 @@ export const TIME_TRAVEL_TYPE = {
   HISTORY_EVENT_TIME: 2,
   STEP_TYPE: 3,
   STEP_EXECUTION_ID: 4,
+  EVENT_ID: 6,
 } as const;
 
 export const TIME_TRAVEL_STEP_METHOD = {
   WAIT_FOR: 1,
   EXECUTE: 2,
 } as const;
+
+/** SubFlowResetPolicy numbers; Dex Web always sends one, so the default is explicit. */
+export const SUB_FLOW_RESET_POLICY = {
+  ALWAYS_RESTART: 1,
+  ALWAYS_FAIL: 2,
+  ALWAYS_REJECT: 3,
+  ATTACH_ELSE_RESTART: 4,
+  ATTACH_ELSE_FAIL: 5,
+  ATTACH_ELSE_REJECT: 6,
+} as const;
+
+export const subFlowResetPolicyOptions = [
+  { value: SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART, label: 'Attach, else restart (default)' },
+  { value: SUB_FLOW_RESET_POLICY.ATTACH_ELSE_FAIL, label: 'Attach, else fail' },
+  { value: SUB_FLOW_RESET_POLICY.ATTACH_ELSE_REJECT, label: 'Attach, else reject' },
+  { value: SUB_FLOW_RESET_POLICY.ALWAYS_RESTART, label: 'Always restart' },
+  { value: SUB_FLOW_RESET_POLICY.ALWAYS_FAIL, label: 'Always fail' },
+  { value: SUB_FLOW_RESET_POLICY.ALWAYS_REJECT, label: 'Always reject' },
+];
 
 /** The URL search parameter that selects an earlier run attempt's history. */
 export const RUN_ATTEMPT_SEARCH_PARAM = 'runAttempt';

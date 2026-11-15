@@ -423,6 +423,30 @@ describe('Run page experimental tabs', () => {
     expect(document.querySelector('.run-tabs .experimental-tag')).toBeNull();
   });
 
+  it.each([
+    { name: 'session', session: true, operator: true, visible: false },
+    { name: 'non-session', session: false, operator: true, visible: true },
+    { name: 'unavailable operator API', session: false, operator: false, visible: false },
+  ])('shows Clone fork only for a loaded $name schema', async ({ session, operator, visible }) => {
+    const graph = session ? sessionGraph() : plainGraph;
+    const flowType = graph.flow.name;
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('schema', flowType, graph)],
+      operatorFlows: operator ? [{ flowType, definition: { actions: [], display: { fields: [] } } as unknown as FlowV2Definition }] : undefined,
+    });
+    renderRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    await waitFor(() => expect(Boolean(screen.queryByRole('menuitem', { name: /^Clone fork/ }))).toBe(visible));
+  });
+
+  it('hides Clone fork when the schema load fails', async () => {
+    stubDexWeb({ flowType: 'MissingFlow', definitions: [], operatorFlows: [] });
+    renderRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
+  });
+
   it('opens an agent session on its Conversation when no tab is remembered', async () => {
     window.localStorage.removeItem('dex.run.selected-tab');
     const graph = sessionGraph();
