@@ -66,6 +66,56 @@ TARGET_OUTPUTS: dict[str, tuple[str, ...]] = {
     SKILLS_TARGET: SKILLS_OUTPUTS,
     **{name: (target.output,) for name, target in COMPONENT_CHANGELOGS.items()},
 }
+# A fragment describes a change of its own target, so the pull request must change one of these paths.
+# They follow changed_components.py without the components a target embeds, such as Dex Web in dexcli.
+SHARED_BLOB_CACHE_PATHS = ("sdk-rust/Cargo.toml", "sdk-rust/Cargo.lock", "sdk-rust/crates/dex-blob-cache/")
+FRAGMENT_SOURCE_PATHS: dict[str, tuple[str, ...]] = {
+    "go": ("sdk-go/",),
+    "java": (
+        "sdk-java/",
+        *SHARED_BLOB_CACHE_PATHS,
+        "sdk-rust/crates/dex-blob-cache-jni/",
+        ".github/workflows/sdk-java-publish.yml",
+    ),
+    "python": (
+        "sdk-python/",
+        *SHARED_BLOB_CACHE_PATHS,
+        "sdk-rust/crates/dex-blob-cache-python/",
+        ".github/workflows/sdk-python-publish.yml",
+    ),
+    "rust": ("sdk-rust/", ".github/workflows/sdk-rust-publish.yml"),
+    "typescript": (
+        "sdk-typescript/",
+        *SHARED_BLOB_CACHE_PATHS,
+        "sdk-rust/crates/dex-blob-cache-node/",
+        ".github/workflows/sdk-typescript-publish.yml",
+    ),
+    "web": (
+        "web/",
+        "packages/flow-definition-renderer/",
+        ".github/workflows/docker-image-web-release.yml",
+        ".github/workflows/web-embedded-module-release.yml",
+    ),
+    "cli": ("cli/", ".github/workflows/cli-release.yml"),
+    "server": (
+        "server-zd/",
+        ".github/workflows/server-zd-binary-release.yml",
+        ".github/workflows/server-zd-image-release.yml",
+    ),
+    "agents": (
+        "agents/",
+        "docs/reference/agents/",
+        ".github/workflows/agents-python-publish.yml",
+        ".github/workflows/agents-typescript-publish.yml",
+    ),
+    "agents-packages": (
+        "agents/",
+        ".github/workflows/agents-python-publish.yml",
+        ".github/workflows/agents-typescript-publish.yml",
+    ),
+    SKILLS_TARGET: ("skills/",),
+}
+RELEASE_OUTPUT_PATHS = frozenset(path for outputs in TARGET_OUTPUTS.values() for path in outputs)
 # A release component is what prepare and check-ready name; agents writes two change logs.
 RELEASE_COMPONENTS: dict[str, tuple[str, ...]] = {
     **{name: (name,) for name in COMPONENT_CHANGELOGS if name != "agents-packages"},
@@ -89,6 +139,7 @@ LEGACY_CHANGELOG_PR_MAX = 1608
 # Component change logs moved to fragments later, with #1612.
 LEGACY_COMPONENT_CHANGELOG_PR_MAX = 1615
 CORRECTION_LINE = re.compile(r"^\s*(?:[-*]\s+)?changelog:\s*correction:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
+CROSS_COMPONENT_LINE = re.compile(r"^\s*(?:[-*]\s+)?changelog:\s*cross-component:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 SKILLS_NO_BUMP_LINE = re.compile(
     r"^\s*(?:[-*]\s+)?skills-release:\s*no bump needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE
 )
@@ -368,6 +419,8 @@ def check_pull_request(
 
     is_correction = CORRECTION_LINE.search(pull_request.body) is not None
     is_legacy = pull_request.number is not None and pull_request.number <= LEGACY_CHANGELOG_PR_MAX
+    if not is_correction and CROSS_COMPONENT_LINE.search(pull_request.body) is None:
+        errors.extend(fragment_source_errors(changes))
     changed_paths = {change.path for change in changes}
     changed_skills_outputs = sorted(changed_paths & set(SKILLS_OUTPUTS))
     if changed_skills_outputs and not is_correction:
@@ -395,6 +448,31 @@ def check_pull_request(
             + ". Add a line 'changelog: correction: <reason>' to the pull request description to fix one"
         )
     errors.extend(check_skills_release_note(pull_request, base, head, changes, is_legacy))
+    return errors
+
+
+def fragment_source_errors(changes: Sequence[FileChange]) -> list[str]:
+    """Returns why an added fragment's target has no changed source file in the pull request, or no reasons."""
+    source_paths = [
+        change.path
+        for change in changes
+        if not change.path.startswith(f"{FRAGMENT_ROOT}/") and change.path not in RELEASE_OUTPUT_PATHS
+    ]
+    errors = []
+    for change in changes:
+        if change.status != "A" or not is_fragment_path(change.path):
+            continue
+        target = change.path.split("/")[1]
+        prefixes = FRAGMENT_SOURCE_PATHS[target]
+        if any(path.startswith(prefixes) for path in source_paths):
+            continue
+        errors.append(
+            f"{change.path}: a {target} fragment lists only {target} changes, but the pull request changes nothing under "
+            + ", ".join(prefixes)
+            + ". Move the item to the fragment of the component that changed. A component that embeds another names "
+            "the new embedded version without repeating its changes. Otherwise add a line "
+            "'changelog: cross-component: <reason>' to the pull request description"
+        )
     return errors
 
 

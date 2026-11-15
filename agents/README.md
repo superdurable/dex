@@ -225,7 +225,7 @@ moved on.
    ```
 
 5. Create the GitHub Release by hand, after the day's publisher runs succeed. Its notes
-   come from [`script/release/agents_release_notes.py`](../script/release/agents_release_notes.py).
+   come from [`script/release/component_release_notes.py`](../script/release/component_release_notes.py).
    Pass the previous `agents/v*` tag. Attach the wheels of CLI commands that
    are not on PyPI yet, so users can install them before a later day's upload.
    Take them from the `agents-python-distributions` artifact of a Python
@@ -234,7 +234,7 @@ moved on.
    Write the notes:
 
    ```bash
-   python3 script/release/agents_release_notes.py <version> \
+   python3 script/release/component_release_notes.py agents <version> \
      --previous-tag agents/v<previous version> --output agents-release-notes.md
    ```
 

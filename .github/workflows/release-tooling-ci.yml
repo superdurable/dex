@@ -12,6 +12,7 @@ on:
       - "agents/CHANGELOG.md"
       - ".github/workflows/release-changed-components.yml"
       - ".github/workflows/cli-release.yml"
+      - ".github/workflows/release-notes.yml"
       - ".github/workflows/docker-image-web-release.yml"
       - ".github/workflows/release-tooling-ci.yml"
       - "CONTRIBUTING.md"

@@ -16,12 +16,15 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from changed_components import COMPONENTS  # noqa: E402
+from changelog_fragments import FRAGMENT_SOURCE_PATHS  # noqa: E402
 from component_changelogs import PACKAGES_STYLE, TARGETS, release_key, released_line  # noqa: E402
 
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
 WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
+RELEASE_NOTES_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-notes.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
 COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "web", "cli", "agents")
 BASELINE_TAGS = (
@@ -335,17 +338,47 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('image_tag="${RELEASE_TAG#web/}"', workflow)
         self.assertNotIn("server/v", workflow)
 
-    def test_release_workflows_maintain_breaking_changes_section(self) -> None:
+    def test_release_workflows_build_notes_from_component_changelogs(self) -> None:
         coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("releases/generate-notes", coordinated_workflow)
-        self.assertIn("previous_tag_name=${baseline}", coordinated_workflow)
-        self.assertIn("## Breaking Changes\\n\\nNone.", coordinated_workflow)
+        self.assertNotIn("generate-notes", coordinated_workflow)
+        self.assertNotIn("None.", coordinated_workflow)
+        self.assertIn('script/release/component_release_notes.py "${component}" "${version}"', coordinated_workflow)
         self.assertIn("--notes-file", coordinated_workflow)
 
         cli_workflow = CLI_RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("Maintain Breaking Changes section", cli_workflow)
-        self.assertIn("grep -qx '## Breaking Changes'", cli_workflow)
-        self.assertIn("## Breaking Changes\\n\\nNone.", cli_workflow)
+        self.assertNotIn("None.", cli_workflow)
+        self.assertNotIn("gh release edit", cli_workflow)
+
+    def test_every_published_release_gets_its_change_log_notes(self) -> None:
+        workflow = RELEASE_NOTES_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(workflow_trigger_events(workflow), ["release"])
+        self.assertIn("types: [published]", workflow)
+        self.assertNotIn("edited", workflow)
+        self.assertIn("!github.event.release.prerelease", workflow)
+        self.assertIn('script/release/update_release_notes.py "${RELEASE_TAG}"', workflow)
+        self.assertIn("contents: write", workflow)
+        self.assertIn("fetch-depth: 0", workflow)
+
+
+class FragmentSourcePathsTest(unittest.TestCase):
+    # Paths of another component that a release embeds or builds against; its own fragment lists those changes.
+    EMBEDDED_PATHS = {
+        "web": {"sdk-go", "protos", ".dockerignore"},
+        "cli": {"web", "packages/flow-definition-renderer", "sdk-go", "protos", "go.work"},
+    }
+
+    def test_fragment_sources_cover_each_component_release_path(self) -> None:
+        for component in COMPONENTS:
+            prefixes = FRAGMENT_SOURCE_PATHS[component.key]
+            for path in component.paths:
+                if path in self.EMBEDDED_PATHS.get(component.key, set()):
+                    continue
+                with self.subTest(component=component.key, path=path):
+                    self.assertTrue(any(f"{path}/".startswith(prefix) or path == prefix for prefix in prefixes))
+
+    def test_embedded_component_paths_are_not_fragment_sources(self) -> None:
+        for prefix in FRAGMENT_SOURCE_PATHS["cli"]:
+            self.assertFalse(prefix.startswith(("web/", "server-zd/", "sdk-go/")), prefix)
 
 
 # The release tooling uses only the standard library, which has no YAML parser.

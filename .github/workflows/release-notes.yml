@@ -1,0 +1,28 @@
+name: Release notes from change logs
+
+# A hand-created Release may carry GitHub-generated notes, which list every pull request in the repository.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  release-notes:
+    name: Write release notes from the change log
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Agents notes link the previous agents/v tag, so the job needs every tag.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # A failure here never blocks a publisher; check-ready guards a missing change-log entry.
+      - name: Replace the body unless it already is the change log's notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 script/release/update_release_notes.py "${RELEASE_TAG}" --repository "${GITHUB_REPOSITORY}"
