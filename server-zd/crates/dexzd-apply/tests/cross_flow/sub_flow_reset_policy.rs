@@ -8,13 +8,14 @@
 
 //! SubFlow reset policies of a time travel, for each state of a restored wait's child.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::*;
 use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
-    StateChildFlowRuns, StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
-    TimeTravelComputationSources, compute_time_travel,
+    ChildFlowRead, ChildFlowRunQuery, ChildFlowRuns, StateChildFlowRuns, StateHistorySource,
+    TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
+    compute_time_travel,
 };
 use dexzd_protocol::dex::{
     ChannelCondition, ChannelMessage, PublishToChannelRequest, StepMovement, SubFlowResetPolicy,
@@ -1158,10 +1159,7 @@ fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
             .clone()
             .expect("the travel has a request");
         let history = StateHistorySource::new(&harness.state, context, RunId(PARENT_RUN));
-        let child_state = HistoryReadRecordingState {
-            state: &harness.state,
-            history_reads: RefCell::new(Vec::new()),
-        };
+        let child_state = ReadRecordingState::new(&harness.state);
         let child_flow_runs = StateChildFlowRuns::new(&child_state, &harness.hasher);
         let computation = compute_time_travel(
             &context,
@@ -1179,11 +1177,8 @@ fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
             },
         )
         .expect("the computation runs");
-        let has_read_child_history = child_state
-            .history_reads
-            .borrow()
-            .iter()
-            .any(|key| key.starts_with(&child_history_prefix));
+        let has_read_child_history =
+            child_state.has_read(ColumnFamily::History, &child_history_prefix);
         (computation, has_read_child_history)
     };
     let budget_bytes = 300_000;
@@ -1217,21 +1212,35 @@ fn child_reads_that_exceed_the_memory_budget_reject_the_time_travel() {
     );
 }
 
-/// Records the keys of history rows that a reader of `state` reads.
-struct HistoryReadRecordingState<'state> {
+/// Records the column family and key of every read of `state`; a scan records its start.
+struct ReadRecordingState<'state> {
     state: &'state MemoryState,
-    history_reads: RefCell<Vec<Vec<u8>>>,
+    reads: RefCell<Vec<(ColumnFamily, Vec<u8>)>>,
 }
 
-impl FlowStateReader for HistoryReadRecordingState<'_> {
+impl<'state> ReadRecordingState<'state> {
+    fn new(state: &'state MemoryState) -> Self {
+        Self {
+            state,
+            reads: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn has_read(&self, column_family: ColumnFamily, prefix: &[u8]) -> bool {
+        self.reads
+            .borrow()
+            .iter()
+            .any(|(read_family, key)| *read_family == column_family && key.starts_with(prefix))
+    }
+}
+
+impl FlowStateReader for ReadRecordingState<'_> {
     fn get(
         &self,
         column_family: ColumnFamily,
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
-        if column_family == ColumnFamily::History {
-            self.history_reads.borrow_mut().push(key.to_vec());
-        }
+        self.reads.borrow_mut().push((column_family, key.to_vec()));
         self.state.get(column_family, key)
     }
 
@@ -1242,11 +1251,111 @@ impl FlowStateReader for HistoryReadRecordingState<'_> {
         end: &[u8],
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError> {
-        if column_family == ColumnFamily::History {
-            self.history_reads.borrow_mut().push(start.to_vec());
-        }
+        self.reads
+            .borrow_mut()
+            .push((column_family, start.to_vec()));
         self.state.scan(column_family, start, end, limit)
     }
+}
+
+/// A child that ended with an output larger than the inline threshold, as a table value.
+fn harness_with_a_child_that_ended_with_a_large_output() -> Harness {
+    let mut harness = Harness::new();
+    harness.prepare_child(ChildState::Running);
+    let execute = StepInvocationKey {
+        step_execution_id: "ChildStep-1".to_owned(),
+        method: StepMethod::Execute as i32,
+    };
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(execute.clone()),
+            attempt: 1,
+            task_id: vec![8; 16],
+            pull_routing: None,
+        }),
+    ));
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(execute),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    step_decision: Some(StepDecision {
+                        close_decision: Some(CloseDecision {
+                            close_decision_type: CloseDecisionType::ForceComplete as i32,
+                            close_input: Some(string_value(&"o".repeat(2000))),
+                            ..CloseDecision::default()
+                        }),
+                        ..StepDecision::default()
+                    }),
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }),
+    ));
+    assert_ne!(
+        harness.record(CHILD_ID, FIRST_CHILD_RUN).status,
+        FlowStatus::Running as i32
+    );
+    harness
+}
+
+#[test]
+fn child_reads_reserve_the_run_record_and_outputs_before_loading_them() {
+    let harness = harness_with_a_child_that_ended_with_a_large_output();
+    let parent = parent_reference();
+    let start_request_id = format!("{}:1:StartStep-1:0", RunId(PARENT_RUN));
+    let query = ChildFlowRunQuery {
+        tenant_id: TenantId::DEFAULT,
+        child_flow_id: CHILD_ID,
+        start_request_id: &start_request_id,
+        parent: &parent,
+        should_read_start: false,
+    };
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let read = |state: &ReadRecordingState<'_>, refuse_after: usize| {
+        let reservations = Cell::new(0);
+        StateChildFlowRuns::new(state, &harness.hasher)
+            .child_flow_run(&query, &|_bytes| {
+                reservations.set(reservations.get() + 1);
+                reservations.get() <= refuse_after
+            })
+            .expect("the read runs")
+    };
+
+    // A refused run record reservation stops before decoding: a corrupt record does not fail.
+    let mut corrupt = MemoryState {
+        rows: harness.state.rows.clone(),
+    };
+    corrupt.rows.insert(
+        (
+            ColumnFamily::Flow,
+            run_singleton_key(child_hash, RunId(FIRST_CHILD_RUN), RunTable::RunRecord),
+        ),
+        vec![0xFF; 16],
+    );
+    let corrupt_reads = ReadRecordingState::new(&corrupt);
+    assert_eq!(read(&corrupt_reads, 0), ChildFlowRead::MemoryExceeded);
+
+    // A refused output reservation stops before any value row loads.
+    let refused_reads = ReadRecordingState::new(&harness.state);
+    assert_eq!(read(&refused_reads, 1), ChildFlowRead::MemoryExceeded);
+    assert!(!refused_reads.has_read(ColumnFamily::Value, &[]));
+
+    let granted_reads = ReadRecordingState::new(&harness.state);
+    let ChildFlowRead::Found(run) = read(&granted_reads, usize::MAX) else {
+        panic!("a granted read finds the child");
+    };
+    assert!(run.ended_result.is_some());
+    assert!(
+        granted_reads.has_read(ColumnFamily::Value, &[]),
+        "a granted read loads the output value"
+    );
 }
 
 #[test]

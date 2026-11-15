@@ -393,9 +393,10 @@ pub(crate) fn complete_worker_value(
     Ok(Ok(complete))
 }
 
-/// Returns the recorded size of the run value that `value` references, without loading it.
+/// Returns the recorded size of the run value that `value` references. It reads only the
+/// value's birth record, never the value row.
 ///
-/// Returns `None` for an inline value, and for a reference [`complete_worker_value`] rejects.
+/// Returns `None` for an inline value, and for a reference without a birth record.
 pub(crate) fn referenced_value_size(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
@@ -405,7 +406,17 @@ pub(crate) fn referenced_value_size(
     else {
         return Ok(None);
     };
-    Ok(value_birth(transaction, rows, reference.value_id)?.map(|birth| birth.size_bytes))
+    let birth: Option<ValueBirthRecord> = transaction.get_message(
+        ColumnFamily::Flow,
+        &value_row_key(
+            rows.flow_hash,
+            rows.run_id,
+            RunTable::ValueBirth,
+            reference.value_id,
+        ),
+        "value birth",
+    )?;
+    Ok(birth.map(|birth| birth.size_bytes))
 }
 
 /// Size accounted for a stored value.

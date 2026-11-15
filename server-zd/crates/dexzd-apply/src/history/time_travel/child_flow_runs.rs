@@ -8,7 +8,7 @@
 
 //! Child runs that a time travel's owner reads for SubFlow reset policies; apply never reads them.
 
-use dexzd_keyspace::row_keys::{history_record_key, history_row_metadata_key};
+use dexzd_keyspace::row_keys::{history_record_key, history_row_metadata_key, run_singleton_key};
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId};
 use dexzd_protocol::dex::{FlowResult, FlowStatus, Value};
 use dexzd_protocol::dexzd::v1::{
@@ -128,8 +128,10 @@ impl ChildFlowRuns for StateChildFlowRuns<'_> {
             flow_hash,
         };
         let transaction = FlowTransaction::new(self.state, context);
-        let Some((rows, record)) = find_child_run(&transaction, query)? else {
-            return Ok(ChildFlowRead::Missing);
+        let (rows, record) = match find_child_run(&transaction, query, reserve_bytes)? {
+            ChildRunLookup::Found(rows, record) => (rows, *record),
+            ChildRunLookup::Missing => return Ok(ChildFlowRead::Missing),
+            ChildRunLookup::MemoryExceeded => return Ok(ChildFlowRead::MemoryExceeded),
         };
         let ended_result = if record.status == FlowStatus::Running as i32 {
             None
@@ -168,12 +170,20 @@ impl ChildFlowRuns for StateChildFlowRuns<'_> {
     }
 }
 
+enum ChildRunLookup {
+    Found(RunRows, Box<RunRecord>),
+    Missing,
+    MemoryExceeded,
+}
+
 /// Returns the latest run that the start request ID started, or else the latest run that reports
-/// to the parent reference. A purging run counts as gone.
+/// to the parent reference. A purging run counts as gone. Each run record's raw row is reserved
+/// before it decodes.
 fn find_child_run(
     transaction: &FlowTransaction<'_>,
     query: &ChildFlowRunQuery<'_>,
-) -> Result<Option<(RunRows, RunRecord)>, ApplyError> {
+    reserve_bytes: &dyn Fn(u64) -> bool,
+) -> Result<ChildRunLookup, ApplyError> {
     let directory = read_flow_directory(transaction, query.tenant_id, query.child_flow_id)?;
     let started_run = directory
         .runs
@@ -193,9 +203,19 @@ fn find_child_run(
                 ),
             })?;
         let rows = RunRows::new(transaction.context().flow_hash, run_id);
-        let Some(record) = rows.run_record(transaction)? else {
+        let record_key = run_singleton_key(rows.flow_hash, run_id, RunTable::RunRecord);
+        let Some(encoded) = transaction.get(ColumnFamily::Flow, &record_key)? else {
             continue;
         };
+        if !reserve_bytes(u64::try_from(encoded.len()).unwrap_or(u64::MAX)) {
+            return Ok(ChildRunLookup::MemoryExceeded);
+        }
+        let record =
+            RunRecord::decode(encoded.as_slice()).map_err(|error| ApplyError::CorruptState {
+                table: "run record",
+                key: format!("{record_key:02x?}"),
+                detail: error.to_string(),
+            })?;
         if record.is_purging {
             continue;
         }
@@ -203,10 +223,10 @@ fn find_child_run(
             || record.parent.as_ref() == Some(query.parent)
             || record.attached_parents.contains(query.parent);
         if is_attached {
-            return Ok(Some((rows, record)));
+            return Ok(ChildRunLookup::Found(rows, Box::new(record)));
         }
     }
-    Ok(None)
+    Ok(ChildRunLookup::Missing)
 }
 
 /// Reads the child start that the run's genesis history record holds, which is never pruned.
