@@ -26,7 +26,7 @@ from dex_agents import (
     AgentMessage,
     MessageRole,
 )
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from dex_agents_langgraph import LangGraphAgentRunner, framework_message_to_langchain_message
 from dex_agents_langgraph._checkpoints import RUN_STATE_FORMAT, TurnCheckpointSaver
@@ -68,6 +68,19 @@ async def test_steering_while_a_write_waits_stores_the_messages_with_the_steerin
     }
     _assert_every_call_answered_once(snapshot.messages)
     assert harness.invocations.count("publish") == 0
+    # A completed turn whose user rejects with the same text stores the same result.
+    rejected_session_id = harness.new_session_id()
+    await harness.sessions.start_session(rejected_session_id, LOOKUP_THEN_PUBLISH)
+    [interrupt] = await harness.wait_for_pending_interrupts(rejected_session_id)
+    assert await harness.sessions.resolve_interrupt(
+        rejected_session_id,
+        interrupt.interrupt_id,
+        approved=False,
+        rejection_message=TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
+    )
+    rejected = await harness.wait_for_turns(rejected_session_id, 1)
+    for index in (2, 4):
+        assert snapshot.messages[index].framework_item == rejected.messages[index].framework_item
     steered = [
         json.loads(event.payload)
         for event in await harness.list_agent_events(session_id)
@@ -155,11 +168,37 @@ def test_a_run_state_that_is_not_a_checkpoint_raises(
         runner.build_unfinished_turn_messages(_turn(framework_run_state, {}))
 
 
-def test_a_record_whose_call_is_not_in_the_checkpoint_raises(tmp_path: Path) -> None:
+def test_a_record_whose_call_is_not_in_the_checkpoint_or_names_another_tool_raises(
+    tmp_path: Path,
+) -> None:
     runner = LangGraphAgentRunner(build_create_agent(tmp_path))
-    turn = _turn(_checkpoint_run_state(), {"call-b": SimpleNamespace(tool_call_id="call-b")})
-    with pytest.raises(ValueError, match="call-b"):
-        runner.build_unfinished_turn_messages(turn)
+    missing = SimpleNamespace(tool_call_id="call-b", tool_name="lookup")
+    with pytest.raises(ValueError, match="not in the run state"):
+        runner.build_unfinished_turn_messages(_turn(_checkpoint_run_state(), {"call-b": missing}))
+    other_tool = SimpleNamespace(tool_call_id="call-a", tool_name="charge")
+    with pytest.raises(ValueError, match="recorded for tool charge"):
+        runner.build_unfinished_turn_messages(
+            _turn(_checkpoint_run_state(), {"call-a": other_tool})
+        )
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        [ToolMessage("found", tool_call_id="call-a", id="r-1"), "call"],
+        [
+            "call",
+            ToolMessage("a", tool_call_id="call-a", id="r-1"),
+            ToolMessage("b", tool_call_id="call-a", id="r-2"),
+        ],
+        ["call", ToolMessage("found", tool_call_id="call-b", id="r-1")],
+        ["call", AIMessage("later", id="ai-2")],
+    ],
+)
+def test_results_out_of_order_or_repeated_raise(tmp_path: Path, messages: list[Any]) -> None:
+    runner = LangGraphAgentRunner(build_create_agent(tmp_path))
+    with pytest.raises(ValueError, match="does not follow one open call|before a later message"):
+        runner.build_unfinished_turn_messages(_turn(_checkpoint_run_state(messages), {}))
 
 
 def test_a_pending_call_without_a_record_gets_the_unknown_outcome(tmp_path: Path) -> None:
@@ -171,12 +210,13 @@ def test_a_pending_call_without_a_record_gets_the_unknown_outcome(tmp_path: Path
     ]
 
 
-def _checkpoint_run_state() -> str:
-    pending = AIMessage(
+def _checkpoint_run_state(messages: list[Any] | None = None) -> str:
+    call = AIMessage(
         content="", id="ai-1", tool_calls=[{"id": "call-a", "name": "lookup", "args": {}}]
     )
+    state_messages = [call if message == "call" else message for message in messages or ["call"]]
     data_type, data = TurnCheckpointSaver().serde.dumps_typed(
-        {"channel_values": {"messages": [pending]}}
+        {"channel_values": {"messages": state_messages}}
     )
     stored = {
         "checkpoint_ns": "",

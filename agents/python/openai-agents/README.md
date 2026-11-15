@@ -374,8 +374,9 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
 - Realtime and voice agents are not supported.
 - The gate and the error-output path use SDK internals pinned to
   `openai-agents` 0.24: `evaluate_function_tool_approval`, `get_public_agent`,
-  the handoff target reference, the handled-failure flag on `ToolContext`, and
-  the nested agent tool result store.
+  the handoff target reference, the handled-failure flag on `ToolContext`, the
+  nested agent tool result store, and the `RunState` item deserializer that
+  `build_unfinished_turn_messages` uses.
 - The core's limits apply: every call adds a Step round trip. See
   [Compaction](#compaction) for long sessions.
 - `steer_user_message` and `cancel_turn` work as the
@@ -385,8 +386,11 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   `function_call_output` from the final record of every call that has none,
   such as the core's steering result. A failed turn stores them before the
   turn-failure note. The next model call sees every call with its result, and
-  a steered or cancelled turn stores no note. When the `RunState` cannot be
-  read, the session logs a warning and stores its note instead.
+  a steered or cancelled turn stores no note. It accepts only `RunState`
+  schema 1.21 and the item kinds it can reproduce exactly. A pending call of a
+  tool with an output schema, a programmatic tool call, an unknown item, a
+  result out of order, or a record of another tool makes the session log a
+  warning and store its note instead.
 
 ## Testing
 

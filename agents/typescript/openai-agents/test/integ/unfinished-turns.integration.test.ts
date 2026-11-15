@@ -74,6 +74,20 @@ describe("OpenAI Agents SDK turns that end before their final answer", () => {
       output: { type: "text", text: toolCallCancelledBySteeringResult },
     });
     assert.deepEqual(toolLog("send_email", sessionId), []);
+    // A completed turn whose user rejects with the same text stores the same items.
+    const rejectedSessionId = `rejected-${randomUUID()}`;
+    await sessions.startSession(rejectedSessionId, "call get_weather then call send_email");
+    const interrupt = await sessions.waitForPendingInterrupt(rejectedSessionId, "send_email");
+    assert.equal(
+      await sessions.resolveInterrupt(rejectedSessionId, interrupt.interruptId, false, toolCallCancelledBySteeringResult),
+      true,
+    );
+    await sessions.waitForCompletedTurns(rejectedSessionId, 1);
+    const rejectedMessages = (await sessions.getAgentSnapshot(rejectedSessionId)).messages;
+    assert.deepEqual(
+      snapshot.messages.slice(1, 5).map((message) => message.frameworkItem),
+      rejectedMessages.slice(1, 5).map((message) => message.frameworkItem),
+    );
     const turnEvents = (await sessions.listAgentEvents(sessionId))
       .filter((event) => event.type === "turn_steered")
       .map((event) => JSON.parse(event.payload));
@@ -114,6 +128,28 @@ describe("OpenAI Agents SDK turns that end before their final answer", () => {
     assert.equal(nextSnapshot.state?.lastTurnError, null);
     assert.equal(nextSnapshot.messages.at(-1)?.text, "history | user: call get_weather then pause");
     assertEveryCallAnsweredOnce(nextSnapshot.messages);
+  });
+
+  test("a failed call of a cancelled turn stores the failure as a completed turn does", async () => {
+    const completedSessionId = `failed-completed-${randomUUID()}`;
+    await sessions.startSession(completedSessionId, "call delete_account");
+    const completedInterrupt = await sessions.waitForPendingInterrupt(completedSessionId, "delete_account");
+    assert.equal(await sessions.resolveInterrupt(completedSessionId, completedInterrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(completedSessionId, 1);
+    const completedMessages = (await sessions.getAgentSnapshot(completedSessionId)).messages;
+
+    const sessionId = `failed-cancel-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call delete_account then call send_email");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "delete_account");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(await sessions.cancelTurn(sessionId), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const messages = (await sessions.getAgentSnapshot(sessionId)).messages;
+    assert.equal(messages[2]?.toolOutput, "The tool call failed: account deletion is disabled");
+    assert.equal(messages[2]?.frameworkItem, completedMessages[2]?.frameworkItem);
+    assertEveryCallAnsweredOnce(messages);
   });
 
   function toolLog(toolName: string, sessionId: string): string[] {

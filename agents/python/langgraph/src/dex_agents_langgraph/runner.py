@@ -97,6 +97,7 @@ from dex_agents_langgraph._images import (
 from dex_agents_langgraph._tool_state import (
     StateWrite,
     build_graph_state_reader,
+    decode_runner_tool_state,
     decode_tool_state_reference,
     encode_runner_tool_state,
     encode_tool_state_reference,
@@ -648,10 +649,21 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             # A finished task's messages wait for the superstep to end; they are not merged here.
             raise ValueError("the root checkpoint has pending writes to the message state")
         new_messages = _messages_after_history(messages, _turn_history(turn))
+        pending = _pending_tool_messages(turn, new_messages, self._records_message_writes)
         return [
-            langchain_message_to_framework_message(message)
-            for message in [*new_messages, *_pending_tool_messages(turn, new_messages)]
+            langchain_message_to_framework_message(message) for message in [*new_messages, *pending]
         ]
+
+    def _records_message_writes(self, record: AgentToolCall) -> bool:
+        # As _resume_values: only a graph tool's successful result replays its state writes.
+        if (
+            record.runner_tool_state is None
+            or record.status is not ToolCallStatus.SUCCEEDED
+            or self._tool_sources.is_source_tool_call(record)
+        ):
+            return False
+        state_writes = decode_runner_tool_state(record.runner_tool_state, self._state_serializer)
+        return any(channel == self._messages_key for channel, _ in state_writes)
 
     @property
     def summary_model(self) -> BaseChatModel | None:
@@ -1429,49 +1441,71 @@ def _turn_history(turn: AgentTurnContext) -> list[BaseMessage]:
 
 
 def _pending_tool_messages(
-    turn: AgentTurnContext, new_messages: Sequence[BaseMessage]
+    turn: AgentTurnContext,
+    new_messages: Sequence[BaseMessage],
+    has_message_writes: Callable[[AgentToolCall], bool],
 ) -> list[ToolMessage]:
     """Return the recorded result of every tool call of the last model response without one.
 
     Raises:
-        ValueError: If a call would be left without a result, a result has no
-            call, or a record of the turn has no call among the messages.
+        ValueError: If a result does not follow its call or comes twice, a call
+            would be left without a result before a later message, a record
+            names another tool or has no call among the messages, or a pending
+            call's recorded state writes add messages.
     """
-    call_ids: set[str] = set()
-    result_ids = {
-        message.tool_call_id for message in new_messages if isinstance(message, ToolMessage)
-    }
-    pending: list[ToolCall] = []
-    for index, message in enumerate(new_messages):
+    tool_calls_by_id: dict[str, ToolCall] = {}
+    open_calls: dict[str, ToolCall] = {}
+    for message in new_messages:
+        if isinstance(message, ToolMessage):
+            # Each result follows its own response and comes once.
+            if open_calls.pop(message.tool_call_id, None) is None:
+                raise ValueError(
+                    f"the result of tool call {message.tool_call_id} of turn {turn.turn_id} "
+                    "does not follow one open call"
+                )
+            continue
+        if open_calls:
+            # Every model accepts results only right after their response.
+            raise ValueError(
+                f"tool calls {list(open_calls)} of turn {turn.turn_id} have no results before "
+                "a later message"
+            )
         if not isinstance(message, AIMessage):
             continue
         for tool_call in message.tool_calls:
             tool_call_id = tool_call["id"] or ""
-            if not tool_call_id or tool_call_id in call_ids:
+            if not tool_call_id or tool_call_id in tool_calls_by_id:
                 raise ValueError(
                     f"the turn has a missing or repeated tool call ID {tool_call_id!r}"
                 )
-            call_ids.add(tool_call_id)
-            if tool_call_id in result_ids:
-                continue
-            # Every model accepts results only right after their response.
-            if any(not isinstance(later, ToolMessage) for later in new_messages[index + 1 :]):
-                raise ValueError(
-                    f"tool call {tool_call_id} of turn {turn.turn_id} has no result before a "
-                    "later message"
-                )
-            pending.append(tool_call)
-    if orphans := sorted(result_ids - call_ids):
-        raise ValueError(f"turn {turn.turn_id} has results of tool calls {orphans} without calls")
-    # A call inside a subgraph, such as a Deep Agents subagent's, is not in the root messages.
-    if missing := sorted(set(turn.tool_calls) - call_ids):
-        raise ValueError(f"tool calls {missing} of turn {turn.turn_id} are not in the run state")
+            tool_calls_by_id[tool_call_id] = tool_call
+            open_calls[tool_call_id] = tool_call
+    for tool_call_id, record in turn.tool_calls.items():
+        recorded_call = tool_calls_by_id.get(tool_call_id)
+        # A call inside a subgraph, such as a Deep Agents subagent's, is not in the root messages.
+        if recorded_call is None:
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} is not in the run state"
+            )
+        if record.tool_name != recorded_call["name"]:
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} is recorded for tool "
+                f"{record.tool_name}"
+            )
     stored_call_ids = {
         message.tool_call_id for message in turn.messages if message.turn_id == turn.turn_id
     }
-    if stored := sorted(call_ids & stored_call_ids):
+    if stored := sorted(tool_calls_by_id.keys() & stored_call_ids):
         raise ValueError(f"tool calls {stored} of turn {turn.turn_id} are already stored")
-    return [_recorded_tool_message(turn, tool_call) for tool_call in pending]
+    for tool_call_id in open_calls:
+        pending_record = turn.recorded_tool_call(tool_call_id)
+        if pending_record is not None and has_message_writes(pending_record):
+            # The resumed graph would add those messages too; they are not reproduced here.
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} recorded state writes that add "
+                "messages"
+            )
+    return [_recorded_tool_message(turn, tool_call) for tool_call in open_calls.values()]
 
 
 def _recorded_tool_message(turn: AgentTurnContext, tool_call: ToolCall) -> ToolMessage:

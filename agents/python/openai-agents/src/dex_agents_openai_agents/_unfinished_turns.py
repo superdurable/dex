@@ -14,38 +14,56 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from agents import ItemHelpers
+from agents import Agent, ItemHelpers
+from agents._run_state_agent_identity import _build_agent_identity_map, _build_agent_map
+from agents.run_internal.items import run_item_to_input_item
+from agents.run_state import _deserialize_items
 from openai.types.responses import ResponseFunctionToolCall
 
 from dex_agents import AgentToolCall, AgentTurnContext
 
-# Local tool calls that the SDK pairs with one output item; only function calls can be pending here.
-_PAIRED_LOCAL_CALL_OUTPUT_TYPES = {
-    "computer_call": "computer_call_output",
-    "local_shell_call": "local_shell_call_output",
-    "shell_call": "shell_call_output",
-    "apply_patch_call": "apply_patch_call_output",
-    "custom_tool_call": "custom_tool_call_output",
+# The RunState schema versions whose items this reader mirrors; the tests pin the SDK's current one.
+_SUPPORTED_SCHEMA_VERSIONS = frozenset({"1.21"})
+# The run item types this reader mirrors, with the raw item types each may hold.
+_RAW_ITEM_TYPES_BY_RUN_ITEM_TYPE = {
+    "message_output_item": frozenset({"message"}),
+    "tool_call_item": frozenset({"function_call", "web_search_call", "file_search_call"}),
+    "tool_call_output_item": frozenset({"function_call_output"}),
+    "reasoning_item": frozenset({"reasoning"}),
+    "handoff_call_item": frozenset({"function_call"}),
+    "handoff_output_item": frozenset({"function_call_output"}),
+    "compaction_item": frozenset({"compaction"}),
+    "tool_approval_item": frozenset({"function_call"}),
 }
-# Items a model response may hold after its first function call.
-_TRAILING_RESPONSE_ITEM_TYPES = frozenset({"function_call", "function_call_output", "reasoning"})
 
+#: Returns the output the resumed run would give the model for a pending call's record.
 PendingToolOutput = Callable[[ResponseFunctionToolCall, AgentToolCall | None], Any]
 
 
+def qualified_tool_name(function_call: Mapping[str, Any]) -> str:
+    """Return the name a record holds for a function call: ``<namespace>.<name>`` or the name."""
+    name = str(function_call.get("name") or "")
+    namespace = function_call.get("namespace")
+    return f"{namespace}.{name}" if namespace and namespace != name else name
+
+
 def read_unfinished_turn_items(
-    turn: AgentTurnContext, pending_tool_output: PendingToolOutput
+    turn: AgentTurnContext,
+    starting_agent: Agent[Any],
+    pending_tool_output: PendingToolOutput,
 ) -> list[dict[str, Any]]:
     """Return the turn's input items from the ``RunState`` and answer every pending function call.
 
-    It mirrors ``RunResult.to_input_list()`` on the serialized session items,
-    without dropping pending calls. Each pending call gets the
-    ``function_call_output`` that the SDK makes from ``pending_tool_output``.
+    It restores the session items with the SDK's own deserializer, as
+    ``RunState.from_json`` does, and converts them as ``to_input_list()``
+    does, without dropping pending calls. It accepts only run items it can
+    mirror exactly. Each pending call gets the ``function_call_output`` that
+    the SDK makes from ``pending_tool_output``.
 
     Raises:
-        ValueError: If the run state cannot be read, a call would be left
-            without a result, or a record has no call in the run state. The
-            session then stores its note instead.
+        ValueError: If the run state has an unknown schema or item, its calls
+            and results are not in order, or a record names another tool or
+            has no call. The session then stores its note instead.
     """
     if turn.framework_run_state is None:
         if turn.tool_calls:
@@ -54,115 +72,119 @@ def read_unfinished_turn_items(
     document = json.loads(turn.framework_run_state)
     if not isinstance(document, dict) or not isinstance(document.get("$schemaVersion"), str):
         raise ValueError("the framework run state is not a serialized OpenAI Agents SDK RunState")
+    schema_version = document["$schemaVersion"]
+    if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
+        raise ValueError(f"RunState schema {schema_version} is not one this runner reads")
     if document.get("nested_history_owned_session_item_refs"):
         # to_input_list leaves out items that nested handoff history owns; that is not mirrored.
         raise ValueError("the RunState holds nested handoff history")
-    run_items = document.get("session_items", document.get("generated_items"))
-    if not isinstance(run_items, list):
-        raise ValueError(f"RunState schema {document['$schemaVersion']} has no session items")
+    session_items = document.get("session_items")
+    if not isinstance(session_items, list):
+        raise ValueError(f"RunState schema {schema_version} has no session items")
+    for index, session_item in enumerate(session_items):
+        _require_mirrored_run_item(index, session_item)
+    run_items = _deserialize_items(
+        session_items,
+        _build_agent_map(starting_agent),
+        agent_identity_map=_build_agent_identity_map(starting_agent),
+    )
+    if len(run_items) != len(session_items):
+        # The deserializer skips an item whose agent is not in the graph.
+        raise ValueError("the RunState holds items of agents outside the agent graph")
     reasoning_item_id_policy = document.get("reasoning_item_id_policy")
-    items = [
-        item
-        for index, run_item in enumerate(run_items)
-        if (item := _to_input_item(index, run_item, reasoning_item_id_policy)) is not None
-    ]
-    function_call_ids = _unique_call_ids(items, "function_call")
-    output_call_ids = _unique_call_ids(items, "function_call_output")
-    _require_local_call_outputs(items)
-    pending_indexes = [
-        index
-        for index, item in enumerate(items)
-        if item.get("type") == "function_call" and item["call_id"] not in output_call_ids
-    ]
-    if pending_indexes and any(
-        item.get("type") not in _TRAILING_RESPONSE_ITEM_TYPES
-        for item in items[pending_indexes[0] :]
-    ):
-        raise ValueError(
-            f"turn {turn.turn_id} has a pending function call before the last model response"
-        )
-    if missing := sorted(output_call_ids - function_call_ids):
-        raise ValueError(f"turn {turn.turn_id} has results of tool calls {missing} without calls")
-    if missing := sorted(set(turn.tool_calls) - function_call_ids):
-        raise ValueError(f"tool calls {missing} of turn {turn.turn_id} are not in the run state")
+    items: list[dict[str, Any]] = []
+    for run_item in run_items:
+        input_item = run_item_to_input_item(run_item, reasoning_item_id_policy)
+        if input_item is not None:
+            items.append(dict(input_item))
+    function_calls, pending_calls = _pair_calls_with_results(turn, items)
+    for tool_call_id, record in turn.tool_calls.items():
+        function_call = function_calls.get(tool_call_id)
+        if function_call is None:
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} is not in the run state"
+            )
+        if record.tool_name != qualified_tool_name(function_call):
+            raise ValueError(
+                f"tool call {tool_call_id} of turn {turn.turn_id} is recorded for tool "
+                f"{record.tool_name}"
+            )
     stored_call_ids = {
         message.tool_call_id for message in turn.messages if message.turn_id == turn.turn_id
     }
-    if stored := sorted(function_call_ids & stored_call_ids):
+    if stored := sorted(function_calls.keys() & stored_call_ids):
         raise ValueError(f"tool calls {stored} of turn {turn.turn_id} are already stored")
     pending_outputs: list[dict[str, Any]] = []
-    for index in pending_indexes:
-        function_call = ResponseFunctionToolCall.model_validate(items[index])
+    for item in pending_calls:
+        pending_call = ResponseFunctionToolCall.model_validate(item)
         output_item = ItemHelpers.tool_call_output_item(
-            function_call,
-            pending_tool_output(function_call, turn.recorded_tool_call(function_call.call_id)),
+            pending_call,
+            pending_tool_output(pending_call, turn.recorded_tool_call(pending_call.call_id)),
         )
         pending_outputs.append(dict(output_item))
     return [*items, *pending_outputs]
 
 
-def _to_input_item(
-    index: int, run_item: Any, reasoning_item_id_policy: Any
-) -> dict[str, Any] | None:
-    """Mirror the SDK's ``run_item_to_input_item`` on one serialized run item."""
+def _require_mirrored_run_item(index: int, run_item: Any) -> None:
     if not isinstance(run_item, Mapping) or not isinstance(run_item.get("type"), str):
         raise ValueError(f"session item {index} of the RunState has no type")
     item_type = run_item["type"]
-    if item_type == "tool_approval_item":
-        return None
-    if item_type == "input_item":
-        raise ValueError("the RunState holds input admitted while resuming")
     raw_item = run_item.get("raw_item")
     if not isinstance(raw_item, Mapping):
         raise ValueError(f"session item {index} of the RunState has no raw_item")
-    item = dict(raw_item)
-    if item_type != "compaction_item":
-        item.pop("created_by", None)
-    if item.get("type") == "shell_call_output":
-        for key in ("status", "shell_output", "provider_data"):
-            item.pop(key, None)
-        if isinstance(item.get("output"), list):
-            item["output"] = [
-                {key: value for key, value in chunk.items() if key != "created_by"}
-                if isinstance(chunk, dict)
-                else chunk
-                for chunk in item["output"]
-            ]
-    if "status" in item and item["status"] is None:
-        del item["status"]
-    if item_type == "reasoning_item" and reasoning_item_id_policy == "omit":
-        item.pop("id", None)
-    return item
-
-
-def _unique_call_ids(items: list[dict[str, Any]], item_type: str) -> set[str]:
-    call_ids: set[str] = set()
-    for item in items:
-        if item.get("type") != item_type:
-            continue
-        call_id = item.get("call_id")
-        if not isinstance(call_id, str) or not call_id:
-            raise ValueError(f"a {item_type} item of the RunState has no call_id")
-        if call_id in call_ids:
-            raise ValueError(f"the RunState has more than one {item_type} with call ID {call_id}")
-        call_ids.add(call_id)
-    return call_ids
-
-
-def _require_local_call_outputs(items: list[dict[str, Any]]) -> None:
-    output_keys = {(item.get("type"), item.get("call_id")) for item in items}
-    for item in items:
-        output_type = _PAIRED_LOCAL_CALL_OUTPUT_TYPES.get(str(item.get("type")))
-        # The provider runs a hosted shell call; it has no local output until it completes.
-        is_pending_hosted_shell_call = item.get("type") == "shell_call" and item.get("status") in (
-            None,
-            "in_progress",
+    raw_item_types = _RAW_ITEM_TYPES_BY_RUN_ITEM_TYPE.get(item_type)
+    if raw_item_types is None or raw_item.get("type") not in raw_item_types:
+        raise ValueError(
+            f"session item {index} of the RunState is a {item_type} of {raw_item.get('type')}"
         )
-        if (
-            output_type is not None
-            and not is_pending_hosted_shell_call
-            and (output_type, item.get("call_id")) not in output_keys
-        ):
+    if "caller" in raw_item:
+        # A programmatic tool call belongs to its program, whose pairing rules are not mirrored.
+        raise ValueError(f"session item {index} of the RunState belongs to a program")
+
+
+def _pair_calls_with_results(
+    turn: AgentTurnContext, items: list[dict[str, Any]]
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Check that each call's result follows its model response and comes once, in item order.
+
+    Returns:
+        Every function call by call ID, and the calls of the last model
+        response without a result, in order.
+    """
+    function_calls: dict[str, dict[str, Any]] = {}
+    open_calls: dict[str, dict[str, Any]] = {}
+    has_result_since_last_call = False
+    for item in items:
+        item_type = item.get("type")
+        if item_type == "function_call":
+            call_id = _call_id(item)
+            if call_id in function_calls:
+                raise ValueError(f"the RunState of turn {turn.turn_id} repeats tool call {call_id}")
+            if open_calls and has_result_since_last_call:
+                raise ValueError(
+                    f"tool call {call_id} of turn {turn.turn_id} starts before earlier calls "
+                    "have results"
+                )
+            function_calls[call_id] = item
+            open_calls[call_id] = item
+            has_result_since_last_call = False
+        elif item_type == "function_call_output":
+            call_id = _call_id(item)
+            if open_calls.pop(call_id, None) is None:
+                raise ValueError(
+                    f"the result of tool call {call_id} of turn {turn.turn_id} does not follow "
+                    "one open call"
+                )
+            has_result_since_last_call = True
+        elif open_calls:
             raise ValueError(
-                f"{item.get('type')} {item.get('call_id')} has no output in the RunState"
+                f"a {item_type} item of turn {turn.turn_id} comes before earlier calls have results"
             )
+    return function_calls, list(open_calls.values())
+
+
+def _call_id(item: Mapping[str, Any]) -> str:
+    call_id = item.get("call_id")
+    if not isinstance(call_id, str) or not call_id:
+        raise ValueError(f"a {item.get('type')} item of the RunState has no call_id")
+    return call_id

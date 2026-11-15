@@ -17,44 +17,54 @@ import {
 
 import { buildToolImageResultOutput } from "./openai-agents-images.js";
 
-/** How the resumed run would show one recorded result, which the runner's agent graph decides. */
-export interface UnfinishedTurnResultShape {
-  /** Whether the call's function tool has an output schema, so the SDK sends its output as JSON text. */
+/** What the runner's agent graph says about one function call of the run state. */
+export interface UnfinishedTurnFunctionCall {
+  /** Whether the record may be this call's record: the record names the call's tool. */
+  readonly isRecordOfCall: (record: AgentToolCall) => boolean;
+  /** Whether the call's function tool has an output schema, whose recorded result only the SDK can encode. */
   readonly hasOutputSchema: boolean;
+}
+
+/** Settings of {@link readUnfinishedTurnItems}. */
+export interface UnfinishedTurnItemOptions {
   /** Whether the runner has a media store, so a record's images reach the model. */
   readonly showsToolImages: boolean;
+  /** Describes a function call of the run state. */
+  readonly inspectFunctionCall: (functionCall: protocol.FunctionCallItem) => UnfinishedTurnFunctionCall;
 }
 
 type RawItem = Record<string, unknown>;
 
+// The RunState schema versions whose items this reader mirrors; the SDK's tests pin the current one.
+const supportedSchemaVersions = new Set(["1.23"]);
 // The SDK's getRunOutput leaves out approval placeholders and input admitted while resuming.
 const skippedRunItemTypes = new Set(["tool_approval_item", "input_item"]);
-// Local tool calls that the SDK pairs with one output item; only function calls can be pending here.
-const pairedLocalCallResultTypes: ReadonlyMap<string, string> = new Map([
-  ["computer_call", "computer_call_result"],
-  ["shell_call", "shell_call_output"],
-  ["apply_patch_call", "apply_patch_call_output"],
+// The run item types this reader mirrors, with the raw item types each may hold.
+const rawItemTypesByRunItemType: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["message_output_item", new Set(["message"])],
+  ["tool_call_item", new Set(["function_call", "hosted_tool_call"])],
+  ["tool_call_output_item", new Set(["function_call_result"])],
+  ["reasoning_item", new Set(["reasoning"])],
+  ["handoff_call_item", new Set(["function_call"])],
+  ["handoff_output_item", new Set(["function_call_result"])],
+  ["compaction_item", new Set(["compaction"])],
 ]);
-// Items a model response may hold after its first function call.
-const trailingResponseItemTypes = new Set(["function_call", "function_call_result", "reasoning"]);
 
 /**
  * Reads the turn's items from the serialized `RunState` and answers every pending function call.
  *
  * It mirrors the SDK's `getRunOutput` on the serialized generated items, without dropping pending calls. Each
  * pending call gets the `function_call_result` the resumed run would make from its final record, or the
- * unknown-outcome text when the call has no final record.
+ * unknown-outcome text when the call has no final record. It accepts only what it can mirror exactly.
  *
  * @param turn - The ended turn; its `frameworkRunState` is the `RunState` of the last `ToolCallsRequested`.
- * @param readResultShape - Returns how a function call's recorded result is shown.
+ * @param options - How the runner shows a recorded result and identifies a call's tool.
  * @returns The turn's items not stored yet, in order.
- * @throws {Error} When the run state cannot be read, a call would be left without a result, or a record has no
- * call in the run state; the session then stores its note instead.
+ * @throws {Error} When the run state has an unknown schema or item, its calls and results are not in order, a
+ * record names another tool or has no call, or a pending call's tool has an output schema; the session then
+ * stores its note instead.
  */
-export function readUnfinishedTurnItems(
-  turn: AgentTurnContext,
-  readResultShape: (functionCall: protocol.FunctionCallItem) => UnfinishedTurnResultShape,
-): AgentInputItem[] {
+export function readUnfinishedTurnItems(turn: AgentTurnContext, options: UnfinishedTurnItemOptions): AgentInputItem[] {
   if (turn.frameworkRunState === null) {
     if (turn.toolCalls.length > 0) {
       throw new Error(`turn ${turn.turnId} has tool call records but no run state`);
@@ -67,46 +77,27 @@ export function readUnfinishedTurnItems(
       .filter((runItem) => !skippedRunItemTypes.has(runItem.type))
       .map((runItem) => toOutputItem(runItem, runState.reasoningItemIdPolicy)),
   );
-  const resultCallIds = new Set<string>();
-  const functionCallIds = new Set<string>();
-  for (const item of items) {
-    if (item["type"] === "function_call_result") {
-      addUniqueCallId(resultCallIds, readCallId(item), "result");
-    } else if (item["type"] === "function_call") {
-      addUniqueCallId(functionCallIds, readCallId(item), "function call");
-    }
-  }
-  requireLocalCallResults(items);
-  const pendingIndexes = items.flatMap((item, index) =>
-    item["type"] === "function_call" && !resultCallIds.has(readCallId(item)) ? [index] : [],
-  );
-  const firstPendingIndex = pendingIndexes[0];
-  if (
-    firstPendingIndex !== undefined &&
-    items.slice(firstPendingIndex).some((item) => !trailingResponseItemTypes.has(String(item["type"])))
-  ) {
-    throw new Error(`turn ${turn.turnId} has a pending function call before the last model response`);
-  }
-  for (const resultCallId of resultCallIds) {
-    if (!functionCallIds.has(resultCallId)) {
-      throw new Error(`turn ${turn.turnId} has a result of tool call ${resultCallId} without its call`);
-    }
-  }
+  const { functionCalls, pendingCalls } = pairCallsWithResults(turn, items);
+  const recordsById = new Map(turn.toolCalls.map((record) => [record.toolCallId, record]));
   for (const record of turn.toolCalls) {
-    if (!functionCallIds.has(record.toolCallId)) {
+    const functionCall = functionCalls.get(record.toolCallId);
+    if (functionCall === undefined) {
       throw new Error(`tool call ${record.toolCallId} of turn ${turn.turnId} is not in the run state`);
+    }
+    if (!options.inspectFunctionCall(functionCall).isRecordOfCall(record)) {
+      throw new Error(`tool call ${record.toolCallId} of turn ${turn.turnId} is recorded for tool ${record.toolName}`);
     }
   }
   const storedCallIds = new Set(
     turn.messages.filter((message) => message.turnId === turn.turnId).map((message) => message.toolCallId),
   );
-  for (const callId of functionCallIds) {
+  for (const callId of functionCalls.keys()) {
     if (storedCallIds.has(callId)) {
       throw new Error(`tool call ${callId} of turn ${turn.turnId} is already stored`);
     }
   }
-  const pendingResults = pendingIndexes.map((index) =>
-    buildPendingResult(turn, items[index] as unknown as protocol.FunctionCallItem, readResultShape),
+  const pendingResults = pendingCalls.map((functionCall) =>
+    buildPendingResult(turn, functionCall, recordsById.get(functionCall.callId), options),
   );
   return [...items, ...pendingResults] as unknown as AgentInputItem[];
 }
@@ -121,33 +112,43 @@ function parseRunState(frameworkRunState: string): SerializedRunState {
   if (!isRecord(document) || typeof document["$schemaVersion"] !== "string") {
     throw new Error("the framework run state is not a serialized OpenAI Agents SDK RunState");
   }
+  const schemaVersion = document["$schemaVersion"];
+  if (!supportedSchemaVersions.has(schemaVersion)) {
+    throw new Error(`RunState schema ${schemaVersion} is not one this runner reads without the SDK`);
+  }
   const generatedItems = document["generatedItems"];
   if (!Array.isArray(generatedItems)) {
-    throw new Error(`RunState schema ${document["$schemaVersion"]} has no generatedItems list`);
+    throw new Error(`RunState schema ${schemaVersion} has no generatedItems list`);
   }
   return {
-    generatedItems: generatedItems.map((runItem: unknown, index) => {
-      if (!isRecord(runItem) || typeof runItem["type"] !== "string" || !isRecord(runItem["rawItem"])) {
-        throw new Error(`generated item ${index} of the RunState has no type or rawItem`);
-      }
-      return { type: runItem["type"], rawItem: runItem["rawItem"] };
-    }),
+    generatedItems: generatedItems.map((runItem: unknown, index) => readRunItem(runItem, index)),
     reasoningItemIdPolicy: document["reasoningItemIdPolicy"],
   };
+}
+
+function readRunItem(runItem: unknown, index: number): { readonly type: string; readonly rawItem: RawItem } {
+  if (!isRecord(runItem) || typeof runItem["type"] !== "string" || !isRecord(runItem["rawItem"])) {
+    throw new Error(`generated item ${index} of the RunState has no type or rawItem`);
+  }
+  const type = runItem["type"];
+  const rawItem = runItem["rawItem"];
+  if (skippedRunItemTypes.has(type)) {
+    return { type, rawItem };
+  }
+  const rawItemTypes = rawItemTypesByRunItemType.get(type);
+  if (rawItemTypes === undefined || !rawItemTypes.has(String(rawItem["type"]))) {
+    throw new Error(`generated item ${index} of the RunState is a ${type} of ${String(rawItem["type"])}`);
+  }
+  // A programmatic tool call belongs to its program, whose pairing rules are not mirrored.
+  if ("caller" in rawItem) {
+    throw new Error(`generated item ${index} of the RunState belongs to a program`);
+  }
+  return { type, rawItem };
 }
 
 /** The SDK's extractOutputItemsFromRunItems for one serialized run item. */
 function toOutputItem(runItem: { readonly type: string; readonly rawItem: RawItem }, reasoningItemIdPolicy: unknown): RawItem {
   const { created_by: _createdBy, ...item } = runItem.rawItem;
-  if (item["type"] === "shell_call_output" && Array.isArray(item["output"])) {
-    item["output"] = item["output"].map((entry: unknown) => {
-      if (!isRecord(entry)) {
-        return entry;
-      }
-      const { created_by: _entryCreatedBy, ...withoutCreatedBy } = entry;
-      return withoutCreatedBy;
-    });
-  }
   if ("status" in item && item["status"] === null) {
     delete item["status"];
   }
@@ -166,64 +167,69 @@ function trimToLatestCompaction(items: RawItem[]): RawItem[] {
   return items;
 }
 
-function requireLocalCallResults(items: readonly RawItem[]): void {
-  const resultCallIds = new Set(
-    items.map((item) => `${String(item["type"])}/${String(item["callId"])}`),
-  );
+/**
+ * Checks that each call's result follows its model response and comes once, in item order.
+ * @returns Every function call by call ID, and the calls of the last model response without a result.
+ */
+function pairCallsWithResults(
+  turn: AgentTurnContext,
+  items: readonly RawItem[],
+): { functionCalls: Map<string, protocol.FunctionCallItem>; pendingCalls: protocol.FunctionCallItem[] } {
+  const functionCalls = new Map<string, protocol.FunctionCallItem>();
+  const openCalls = new Map<string, protocol.FunctionCallItem>();
+  let hasResultSinceLastCall = false;
   for (const item of items) {
-    const resultType = pairedLocalCallResultTypes.get(String(item["type"]));
-    // The provider runs a hosted shell call; it has no local output until it completes.
-    const isPendingHostedShellCall =
-      item["type"] === "shell_call" && (item["status"] === undefined || item["status"] === "in_progress");
-    if (
-      resultType !== undefined &&
-      !isPendingHostedShellCall &&
-      !resultCallIds.has(`${resultType}/${String(item["callId"])}`)
-    ) {
-      throw new Error(`${String(item["type"])} ${String(item["callId"])} has no output in the RunState`);
+    const itemType = item["type"];
+    if (itemType === "function_call") {
+      const callId = readCallId(item);
+      if (functionCalls.has(callId)) {
+        throw new Error(`the RunState of turn ${turn.turnId} repeats tool call ${callId}`);
+      }
+      if (openCalls.size > 0 && hasResultSinceLastCall) {
+        throw new Error(`tool call ${callId} of turn ${turn.turnId} starts before earlier calls have results`);
+      }
+      const functionCall = item as unknown as protocol.FunctionCallItem;
+      functionCalls.set(callId, functionCall);
+      openCalls.set(callId, functionCall);
+      hasResultSinceLastCall = false;
+    } else if (itemType === "function_call_result") {
+      const callId = readCallId(item);
+      if (!openCalls.delete(callId)) {
+        throw new Error(`the result of tool call ${callId} of turn ${turn.turnId} does not follow one open call`);
+      }
+      hasResultSinceLastCall = true;
+    } else if (openCalls.size > 0) {
+      throw new Error(`a ${String(itemType)} item of turn ${turn.turnId} comes before earlier calls have results`);
     }
   }
+  return { functionCalls, pendingCalls: [...openCalls.values()] };
 }
 
 function buildPendingResult(
   turn: AgentTurnContext,
   functionCall: protocol.FunctionCallItem,
-  readResultShape: (functionCall: protocol.FunctionCallItem) => UnfinishedTurnResultShape,
+  record: AgentToolCall | undefined,
+  options: UnfinishedTurnItemOptions,
 ): protocol.FunctionCallResultItem {
-  const record = turn.recordedToolCall(functionCall.callId);
-  const isFinal = record !== undefined && isFinalToolCallStatus(record.status);
-  const text = isFinal ? describeToolCallOutcome(record) : outcomeUnknownToolResult;
+  if (options.inspectFunctionCall(functionCall).hasOutputSchema) {
+    throw new Error(
+      `tool call ${functionCall.callId} of turn ${turn.turnId} has an output schema, whose result the SDK encodes`,
+    );
+  }
+  const finalRecord = record !== undefined && isFinalToolCallStatus(record.status) ? record : undefined;
+  const text = finalRecord === undefined ? outcomeUnknownToolResult : describeToolCallOutcome(finalRecord);
+  const images = finalRecord?.images ?? [];
   return {
     type: "function_call_result",
     name: functionCall.name,
     ...(typeof functionCall.namespace === "string" ? { namespace: functionCall.namespace } : {}),
     callId: functionCall.callId,
     status: "completed",
-    output: buildResultOutput(text, isFinal ? record : undefined, readResultShape(functionCall)),
+    output:
+      options.showsToolImages && images.length > 0
+        ? buildToolImageResultOutput(text, images)
+        : { type: "text", text },
   };
-}
-
-/** The output the gated tool's recorded result becomes in the SDK's getToolCallOutputItem. */
-function buildResultOutput(
-  text: string,
-  record: AgentToolCall | undefined,
-  shape: UnfinishedTurnResultShape,
-): protocol.FunctionCallResultItem["output"] {
-  if (shape.hasOutputSchema) {
-    return { type: "text", text: JSON.stringify(text) };
-  }
-  const images = record?.images ?? [];
-  if (shape.showsToolImages && images.length > 0) {
-    return buildToolImageResultOutput(text, images);
-  }
-  return { type: "text", text };
-}
-
-function addUniqueCallId(callIds: Set<string>, callId: string, description: string): void {
-  if (callIds.has(callId)) {
-    throw new Error(`the RunState has more than one ${description} with call ID ${callId}`);
-  }
-  callIds.add(callId);
 }
 
 function readCallId(item: RawItem): string {

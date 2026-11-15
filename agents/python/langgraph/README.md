@@ -494,9 +494,11 @@ message the resumed graph would make from the call's final record, such as
 the core's steering result, or `OUTCOME_UNKNOWN_TOOL_RESULT` for a call
 without one. A failed turn stores them before its note; a steered or
 cancelled turn stores no note. Other state keys, such as Deep Agents'
-`files`, are not kept. When the checkpoint cannot be read, or a call ran
-inside a subgraph whose messages the root state does not hold yet, the
-session logs a warning and stores its note instead.
+`files`, are not kept. The session logs a warning and stores its note instead
+when the checkpoint cannot be read, a call ran inside a subgraph whose
+messages the root state does not hold yet, a result does not follow its call
+or comes twice, a record names another tool, or a pending call's recorded
+`Command` adds messages besides its `ToolMessage`.
 
 ## Middleware order
 

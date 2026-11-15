@@ -13,13 +13,22 @@ import { describe, test } from "node:test";
 
 import { outcomeUnknownToolResult, type AgentToolCall, type AgentTurnContext } from "@superdurable/dex-agents";
 
-import { readUnfinishedTurnItems } from "../../src/openai-agents-unfinished-turns.js";
+import {
+  readUnfinishedTurnItems,
+  type UnfinishedTurnItemOptions,
+} from "../../src/openai-agents-unfinished-turns.js";
 
-const textShape = () => ({ hasOutputSchema: false, showsToolImages: false });
+const options: UnfinishedTurnItemOptions = {
+  showsToolImages: false,
+  inspectFunctionCall: (functionCall) => ({
+    isRecordOfCall: (record) => record.toolName === functionCall.name,
+    hasOutputSchema: false,
+  }),
+};
 
 describe("readUnfinishedTurnItems", () => {
   test("answers a pending call without a final record with the unknown-outcome text", () => {
-    const items = readUnfinishedTurnItems(createTurn(serializeRunState([functionCall("call_a")]), []), textShape);
+    const items = readUnfinishedTurnItems(createTurn(serializeRunState([functionCall("call_a")]), []), options);
     assert.deepEqual(items.at(-1), {
       type: "function_call_result",
       name: "lookup",
@@ -29,21 +38,71 @@ describe("readUnfinishedTurnItems", () => {
     });
   });
 
-  test("throws for a run state that is not a serialized RunState", () => {
-    for (const frameworkRunState of ["not json", '{"format":"dex-agents-langgraph.checkpoint.v1"}', '{"$schemaVersion":"1.23"}']) {
-      assert.throws(() => readUnfinishedTurnItems(createTurn(frameworkRunState, []), textShape), Error);
+  test("throws for a run state that is not a serialized RunState of a known schema", () => {
+    for (const frameworkRunState of [
+      "not json",
+      '{"format":"dex-agents-langgraph.checkpoint.v1"}',
+      '{"$schemaVersion":"1.23"}',
+      '{"$schemaVersion":"999","generatedItems":[]}',
+    ]) {
+      assert.throws(() => readUnfinishedTurnItems(createTurn(frameworkRunState, []), options), Error);
     }
   });
 
-  test("throws when a record's call is not in the run state", () => {
-    const turn = createTurn(serializeRunState([functionCall("call_a")]), [record("call_b")]);
-    assert.throws(() => readUnfinishedTurnItems(turn, textShape), /call_b .* is not in the run state/);
+  test("throws for an unknown run item or a run item of another raw item type", () => {
+    for (const runItem of [
+      { type: "future_run_item", rawItem: { type: "future_call", opaque: "x" } },
+      { type: "tool_call_item", rawItem: { type: "future_call", callId: "call_a" } },
+      { type: "tool_call_item", rawItem: { type: "program", callId: "program_a" } },
+    ]) {
+      assert.throws(() => readUnfinishedTurnItems(createTurn(serializeRunState([runItem]), []), options), Error);
+    }
   });
 
-  test("throws when a pending call comes before the last model response", () => {
+  test("throws for a programmatic call, whose program pairing is not mirrored", () => {
+    const programCall = functionCall("call_a", { caller: { type: "program", callerId: "program_a" } });
+    assert.throws(
+      () => readUnfinishedTurnItems(createTurn(serializeRunState([programCall]), []), options),
+      /belongs to a program/,
+    );
+  });
+
+  test("throws when a result comes before its call or twice", () => {
+    for (const generatedItems of [
+      [functionResult("call_a"), functionCall("call_a")],
+      [functionCall("call_a"), functionResult("call_a"), functionResult("call_a")],
+      [functionCall("call_a"), functionResult("call_b")],
+      [functionCall("call_a"), functionCall("call_b"), functionResult("call_a"), functionCall("call_c")],
+    ]) {
+      assert.throws(
+        () => readUnfinishedTurnItems(createTurn(serializeRunState(generatedItems), []), options),
+        /does not follow one open call|starts before earlier calls/,
+      );
+    }
+  });
+
+  test("throws when a pending call comes before a later message", () => {
     const message = { type: "message_output_item", rawItem: { type: "message", role: "assistant", content: [] } };
     const turn = createTurn(serializeRunState([functionCall("call_a"), message]), []);
-    assert.throws(() => readUnfinishedTurnItems(turn, textShape), /before the last model response/);
+    assert.throws(() => readUnfinishedTurnItems(turn, options), /before earlier calls have results/);
+  });
+
+  test("throws when a record's call is not in the run state or names another tool", () => {
+    const runState = serializeRunState([functionCall("call_a")]);
+    assert.throws(() => readUnfinishedTurnItems(createTurn(runState, [record("call_b", "lookup")]), options), /not in the run state/);
+    assert.throws(
+      () => readUnfinishedTurnItems(createTurn(runState, [record("call_a", "charge")]), options),
+      /recorded for tool charge/,
+    );
+  });
+
+  test("throws for a pending call of a tool with an output schema", () => {
+    const schemaOptions: UnfinishedTurnItemOptions = {
+      ...options,
+      inspectFunctionCall: (functionCall) => ({ ...options.inspectFunctionCall(functionCall), hasOutputSchema: true }),
+    };
+    const turn = createTurn(serializeRunState([functionCall("call_a")]), [record("call_a", "lookup")]);
+    assert.throws(() => readUnfinishedTurnItems(turn, schemaOptions), /output schema/);
   });
 });
 
@@ -51,15 +110,22 @@ function serializeRunState(generatedItems: readonly unknown[]): string {
   return JSON.stringify({ $schemaVersion: "1.23", generatedItems });
 }
 
-function functionCall(callId: string): unknown {
+function functionCall(callId: string, extra: Record<string, unknown> = {}): unknown {
   return {
     type: "tool_call_item",
-    rawItem: { type: "function_call", callId, name: "lookup", status: "completed", arguments: "{}" },
+    rawItem: { type: "function_call", callId, name: "lookup", status: "completed", arguments: "{}", ...extra },
   };
 }
 
-function record(toolCallId: string): AgentToolCall {
-  return { toolCallId, toolName: "lookup", status: "succeeded", output: "found" } as unknown as AgentToolCall;
+function functionResult(callId: string): unknown {
+  return {
+    type: "tool_call_output_item",
+    rawItem: { type: "function_call_result", callId, name: "lookup", status: "completed", output: "found" },
+  };
+}
+
+function record(toolCallId: string, toolName: string): AgentToolCall {
+  return { toolCallId, toolName, status: "succeeded", output: "found" } as unknown as AgentToolCall;
 }
 
 function createTurn(frameworkRunState: string, toolCalls: readonly AgentToolCall[]): AgentTurnContext {

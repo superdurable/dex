@@ -172,8 +172,11 @@ session Flow with an OpenAI Agents SDK runner. A turn with one read tool runs
   none: the result the resumed run would give the model from the call's final
   record, such as the core's steering result, or `outcomeUnknownToolResult`
   for a call without one. The next turn sees every call with its result, and
-  a steered or cancelled turn stores no note. When the `RunState` cannot be
-  read, the session logs a warning and stores its note instead.
+  a steered or cancelled turn stores no note. It accepts only `RunState`
+  schema 1.23 and the item kinds it can reproduce exactly. A pending call of a
+  tool with an output schema, a programmatic tool call, an unknown item, a
+  result out of order, or a record of another tool makes the session log a
+  warning and store its note instead.
 - **Tool names.** Policies, records, and events name a function tool by its
   qualified name: `<namespace>.<name>` for a tool inside `toolNamespace`, and
   the tool name otherwise. A tool call is accepted only from an agent that owns

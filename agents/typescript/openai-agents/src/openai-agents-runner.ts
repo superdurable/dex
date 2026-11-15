@@ -249,11 +249,19 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
    * @since 0.6.12
    */
   public buildUnfinishedTurnMessages(turn: AgentTurnContext): readonly FrameworkMessage[] {
-    const showsToolImages = this.settings.mediaStore !== undefined;
-    const items = readUnfinishedTurnItems(turn, (functionCall) => {
-      const toolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
-      const hasOutputSchema = this.agentGraph.functionTools.get(toolName)?.originalTool.outputSchema !== undefined;
-      return { hasOutputSchema, showsToolImages };
+    const items = readUnfinishedTurnItems(turn, {
+      showsToolImages: this.settings.mediaStore !== undefined,
+      inspectFunctionCall: (functionCall) => {
+        const functionToolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
+        return {
+          // As on resume: a source tool's record names the source's tool, which the model sees renamed.
+          isRecordOfCall: (record) =>
+            this.toolSources.isSourceToolCall(record)
+              ? readFunctionToolName(record.toolName) === functionToolName
+              : record.toolName === functionToolName,
+          hasOutputSchema: this.agentGraph.functionTools.get(functionToolName)?.originalTool.outputSchema !== undefined,
+        };
+      },
     });
     return items.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
   }

@@ -101,7 +101,10 @@ from dex_agents_openai_agents._items import (
     read_input_items,
 )
 from dex_agents_openai_agents._streaming import forward_stream_events
-from dex_agents_openai_agents._unfinished_turns import read_unfinished_turn_items
+from dex_agents_openai_agents._unfinished_turns import (
+    qualified_tool_name,
+    read_unfinished_turn_items,
+)
 
 _OPAQUE_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
@@ -473,21 +476,26 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 cannot be answered, such as one before the last model response.
                 The session logs it and stores its note instead.
         """
-        items = read_unfinished_turn_items(turn, self._pending_tool_output)
+        items = read_unfinished_turn_items(
+            turn, self._graph.starting_agent, self._pending_tool_output
+        )
         return project_input_items(turn.messages, items, turn.recorded_tool_call)
 
     def _pending_tool_output(
         self, function_call: ResponseFunctionToolCall, record: AgentToolCall | None
     ) -> Any:
+        tool = self._graph.tools_by_qualified_name.get(
+            qualified_tool_name(function_call.model_dump())
+        )
+        if tool is not None and tool.has_output_schema:
+            raise ValueError(
+                f"tool call {function_call.call_id} has an output schema, whose result the SDK "
+                "encodes"
+            )
         if record is None or not record.status.is_final:
             return OUTCOME_UNKNOWN_TOOL_RESULT
         output = describe_tool_call_outcome(record)
-        name = function_call.name
-        namespace = function_call.namespace
-        qualified_name = f"{namespace}.{name}" if namespace and namespace != name else name
-        tool = self._graph.tools_by_qualified_name.get(qualified_name)
-        # As the gated tool's recorded result: an output schema keeps it text.
-        if self._media_store is None or not record.images or (tool and tool.has_output_schema):
+        if self._media_store is None or not record.images:
             return output
         return build_tool_image_outputs(output, record.images)
 
