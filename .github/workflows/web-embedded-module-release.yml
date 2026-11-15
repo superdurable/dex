@@ -4,12 +4,13 @@ name: Publish embedded Dex Web Go module
 # web/embedded/vX.Y.Z points to a release commit off main that adds the built SPA and a go.mod
 # without replace directives; main never contains that commit.
 #
-# It runs once for each published stable web/v* release. Release changed components calls it
-# instead: releases created with GITHUB_TOKEN start no release-event runs, so nothing publishes twice.
+# It runs once for each stable web/v* release, including a promoted prerelease. Release changed
+# components calls it instead: releases created with GITHUB_TOKEN start no release-event runs.
 
 on:
+  # released fires when a stable release is published and when a prerelease becomes stable.
   release:
-    types: [published]
+    types: [released]
   workflow_call:
     inputs:
       version:
@@ -52,14 +53,19 @@ jobs:
 
   publish:
     needs: tests
-    # A release event publishes only for a stable web/v* release; other components' releases skip.
+    # A release event publishes only for a web/v* release; other components' releases skip.
     if: >-
       !cancelled() && (needs.tests.result == 'success' || needs.tests.result == 'skipped') && (
-      github.event_name != 'release' || (
-      startsWith(github.event.release.tag_name, 'web/v') && !github.event.release.prerelease))
+      github.event_name != 'release' || startsWith(github.event.release.tag_name, 'web/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # Both spellings become web/vX.Y.Z, so a release run and a dispatch of one version queue.
+    concurrency:
+      group: >-
+        web-embedded-module-${{ inputs.version && format('web/v{0}', inputs.version)
+        || github.event.release.tag_name }}
+      cancel-in-progress: false
     steps:
       - name: Resolve version
         id: version
@@ -79,7 +85,7 @@ jobs:
           echo "web_version=${web_version}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@v7
         with:
-          ref: web/v${{ steps.version.outputs.web_version }}
+          ref: refs/tags/web/v${{ steps.version.outputs.web_version }}
           fetch-depth: 0
       # A rerun, or a manual dispatch after an automatic run, finds the tag and publishes nothing.
       - name: Skip when the module tag exists
@@ -92,6 +98,12 @@ jobs:
             echo "${module_tag} already exists; nothing to publish" | tee -a "${GITHUB_STEP_SUMMARY}"
             echo "is_published=true" >> "${GITHUB_OUTPUT}"
           else
+            status=$?
+            # Exit code 2 means no matching ref; anything else is a failed lookup.
+            if [[ "${status}" -ne 2 ]]; then
+              echo "git ls-remote failed with exit code ${status}" >&2
+              exit 1
+            fi
             echo "is_published=false" >> "${GITHUB_OUTPUT}"
           fi
       - uses: actions/setup-node@v6

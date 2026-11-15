@@ -112,8 +112,9 @@ tag's commit:
 - **Release changed components** calls it after it creates the releases.
   Releases created with `GITHUB_TOKEN` start no release-event runs, so the
   module publishes once.
-- A `web/v*` Release published by hand starts it through the release event.
-  A prerelease does not.
+- A stable `web/v*` Release published by hand starts it through the
+  `released` event. A prerelease starts it when it is marked stable.
+- Runs for the same version wait for each other.
 - When `web/embedded/vX.Y.Z` already exists, it publishes nothing and
   succeeds. Dispatch it by hand to retry a failed run.
 
