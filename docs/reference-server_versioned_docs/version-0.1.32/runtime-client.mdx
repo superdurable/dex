@@ -32,6 +32,8 @@ immediately, or fail it with a reason.
 **InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and
 returns its result. A query-only RPC can also read a closed Flow run that the
 server still retains. An RPC that commits effects needs an active Flow run.
+To retry an RPC without applying it twice, reuse its request ID, as described
+in [RPC request IDs](/reference/server/0.1.32/runtime-data#rpc-request-ids).
 
 ## Requests during Flow close {#requests-during-flow-close}
 
@@ -66,7 +68,7 @@ a singleton Attribute, or one AttributeMap instance. To read one value, pass one
 read.
 
 See
-[Read Attributes from outside a Flow](/reference/server/0.1.27/runtime-data#read-attributes-from-outside-a-flow)
+[Read Attributes from outside a Flow](/reference/server/0.1.32/runtime-data#read-attributes-from-outside-a-flow)
 for the read semantics: one commit, the current or latest Flow run, no Worker,
 committed state only, no locks, and large and hard-delete values.
 
@@ -311,7 +313,7 @@ Stream long-polls.
   call waits again from the current state.
 - Each Flow allows 1,000 concurrent waits by default. The server setting is
   **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a
-  resource-exhausted error. See [Limits](/reference/server/0.1.27/configuration#limits).
+  resource-exhausted error. See [Limits](/reference/server/0.1.32/configuration#limits).
 - A waiting call holds one slot until it returns, times out, is cancelled, or
   the caller disconnects.
 - The server caps how long each transport attempt waits. When an attempt hits
@@ -328,6 +330,29 @@ DescribeFlow does not wait for the Flow to finish. Use it for a one-off status c
 after a read-only RPC returns a non-terminal business state. A missing ID, or an
 ID that does not belong to a Flow, returns a typed Flow-not-found error.
 
+## Read open Step executions {#read-open-step-executions}
+
+**GetFlowState** reads the open Step executions of the current or latest Flow
+run. It reads committed state once and does not wait.
+
+- Each open Step execution reports its Step type, Step execution ID, and
+  whether a WaitFor or Execute call is open or the Step waits for its
+  conditions.
+- An open call reports its attempt and whether it is pending, running, or
+  waiting for its retry backoff.
+- While a Step method retries, the open call reports its latest failed
+  attempt: the attempt number, the Worker error type, the message, and the
+  stack trace when the Worker sent one. A Step that has not failed reports no
+  failure.
+- A closed run reports no open Step executions.
+- A missing Flow returns a typed Flow-not-found error.
+
+Use it to tell a Flow that is still running from one whose active Step keeps
+failing and retrying, for example in a test harness.
+
+The TypeScript Client exposes it as **getFlowState** since 1.45.1. Other SDKs
+reach it through their generated FlowService client.
+
 <a id="搜索-flow"></a>
 
 ## Search Flows {#search-flows}
@@ -335,7 +360,7 @@ ID that does not belong to a Flow, returns a typed Flow-not-found error.
 **SearchFlows** returns one page of Flow runs that match a search query. It
 excludes the server's internal Flow runs. To get the next page, pass the
 returned page token with the same query. See
-[Search backends](/reference/server/0.1.27/search) for the query backends.
+[Search backends](/reference/server/0.1.32/search) for the query backends.
 
 ## Skip a Timer {#skip-a-timer}
 
@@ -355,7 +380,7 @@ for the merge rules and the fields.
 <a id="trigger-continue-as-new"></a>
 
 **TriggerContinueAsNew** was removed in server-zd 0.1.26. See the
-[change log](/reference/server/0.1.27/changelog#v0-1-26).
+[change log](/reference/server/0.1.32/changelog#v0-1-26).
 
 ## Flow definitions {#flow-definitions}
 
@@ -402,7 +427,7 @@ and the **FLOW_DEFINITION_INVALID** sub-status before anything is stored:
   longer than 1024 bytes. The check is conservative: a non-empty prefix counts
   as its length plus one byte with every object store, so a key of exactly
   1024 bytes may be rejected;
-- content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/0.1.27/configuration#flow-definitions);
+- content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/0.1.32/configuration#flow-definitions);
 - content that is not a JSON object, nests objects and arrays more than 128
   levels deep, lacks a **schemaVersion** that starts with **2.**, or has a
   **flow.name** different from the Flow type;
@@ -432,23 +457,30 @@ would not fit, the call fails with **RESOURCE_EXHAUSTED** and the
 The server keeps each document in its own object under
 **PREFIX/registry/flow-definitions/**, so the documents use no server memory
 between calls. See
-[Object storage layout](/reference/server/0.1.27/object-storage#flow-definitions).
+[Object storage layout](/reference/server/0.1.32/object-storage#flow-definitions).
 There is no delete operation yet. A failure to read or write object storage
 returns **UNAVAILABLE**. A stored object that does not decode, names another
 Flow type, or has a digest that does not match its content fails Upload and
 Get for that Flow type with **INTERNAL**. A stored object larger than
 **api.grpcMaxMessageBytes** fails Upload with **INTERNAL**, and fails Get with
 **RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
-sub-status. In [request metrics](/reference/server/0.1.27/metrics),
+sub-status. In [request metrics](/reference/server/0.1.32/metrics),
 uploads count as **flow_write**, and lists and gets as **flow_read**.
 
 ## Time travel {#time-travel}
 
 Time travel creates a new attempt of a Flow run from a point in its history.
-The FlowService call is **ResetFlow**. The Flow run keeps its Run ID. The point must be inside the
-[recent history window](/reference/server/0.1.27/configuration#history-window);
+The FlowService call is **ResetFlow**; the docs call it Time Travel. The Flow
+run keeps its Run ID. It restores the run's state at the target point: its
+Attributes, its Channel messages, and the Steps that were waiting or ready. The point must be inside the
+[recent history window](/reference/server/0.1.32/configuration#history-window);
 otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
+
+By default, the window keeps about the newest 50,000 history events of each
+run on **serve**, and 5,000 on **dev**. The server key is
+**history.windowEvents**, and a Flow can set its own size in its Flow
+configuration.
 
 Write reapply is on by default. It applies again the RPC calls, Channel
 publications, and Attribute writes that reached the run after the target point.
@@ -456,6 +488,6 @@ While it is on, **ResetFlow** keeps those writes in memory, to apply them again.
 those writes. A long Flow run with large values can exceed the replay budget
 even when the target state is small. The request then fails with
 **RESOURCE_EXHAUSTED** and changes nothing. Set **skip_writes_reapply** to
-**true** if those writes should not be applied again. Or raise
-[**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.27/configuration#history-checkpoints)
+**true** (`dexcli flow time-travel -skip-writes-reapply`) if those writes should not be applied again. Or raise
+[**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.32/configuration#history-checkpoints)
 and restart the node before you retry.

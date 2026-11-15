@@ -14,6 +14,17 @@ what each primitive is and when to use it:
 [Timer](/concepts/primitives/timer), and [SubFlow](/concepts/primitives/subflow).
 The SDK doc comments describe each API in its own language.
 
+## Flow runs {#flow-runs}
+
+### Flow close by a new start {#flow-close-by-new-start}
+
+A new start with the same Flow ID terminates the running Flow only when the new
+start uses an ID reuse policy that terminates the running Flow
+(**IDReuseTerminateIfRunning**). A SubFlow restart can terminate an earlier
+child too; see [SubFlowReusePolicy](#subflow-reuse-policy).
+[StartFlowOptions](/reference/python/start-flow-options#flow-id-request-id-and-already-started)
+lists every ID reuse policy.
+
 ## Attributes {#attributes}
 
 ### Initial values and later writes {#initial-attribute-values}
@@ -27,7 +38,7 @@ After a Flow starts, applications write Attributes through Flow RPCs. A Client
 can also use **WaitForAttributeMatch** to wait until a singleton Attribute or
 one AttributeMap instance satisfies a scalar comparison. The call returns the
 matched current value. See
-[Wait for an Attribute match](/reference/server/0.1.27/runtime-client#wait-for-an-attribute-match).
+[Wait for an Attribute match](/reference/server/0.1.32/runtime-client#wait-for-an-attribute-match).
 
 ### Read Attributes from outside a Flow {#read-attributes-from-outside-a-flow}
 
@@ -57,7 +68,7 @@ The read has these semantics:
 
 An RPC remains the right choice when the read needs Flow-side validation,
 authorization, a derived view, or Attribute locks. See
-[Client requests: Read Attributes](/reference/server/0.1.27/runtime-client#read-attributes)
+[Client requests: Read Attributes](/reference/server/0.1.32/runtime-client#read-attributes)
 for the example, the unset value in each SDK, and the errors.
 
 ### Indexes {#attribute-indexes}
@@ -83,7 +94,9 @@ numbered key. Keep business names on Attributes, and share one pool of typed
 slots across every Flow type in the namespace. Two indexed fields in the same
 Flow need different slots. Reuse a slot across Flow types only with the same
 index type; its business meaning can differ. Dex system indexes keep their
-reserved names.
+reserved names. Slots are limited and cannot be freed, so keep a list of
+which slot each Flow type uses; see
+[PostgreSQL search](/reference/server/0.1.32/search#postgresql-search) for the limits.
 
 | Index type | Application index keys |
 | --- | --- |
@@ -426,7 +439,7 @@ Plan for these consequences:
 
 A value remains stored until it is deleted, or until Dex removes the Flow after
 its retention period. Object storage backups and bucket versioning outside Dex
-can keep copies. See [Object storage](/reference/server/0.1.27/object-storage).
+can keep copies. See [Object storage](/reference/server/0.1.32/object-storage).
 
 #### Erase after the Flow run closes {#hard-delete-after-close}
 
@@ -437,6 +450,32 @@ run is purged. The SDK Clients do not expose this API, so send it with
 Attribute in the request to null. Each Attribute must still have a stored
 hard-delete value. The erase leaves the Flow run closed and permanently deletes
 its stored objects. Other writes to a closed Flow run return NOT_FOUND.
+
+### AttributeMap partitioning examples {#attributemap-partitioning-examples}
+
+The [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+examples fix these layout rules in every SDK. They are part of the stored
+layout, so changing them requires a migration.
+
+#### Hash partition algorithm {#hash-partition-algorithm}
+
+The [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+example selects a partition in the same way in every SDK:
+
+1. Require a non-empty ASCII email address.
+2. Remove leading and trailing ASCII whitespace.
+3. Lowercase ASCII letters from A through Z.
+4. Calculate 32-bit FNV-1a over the canonical email bytes with wrapping overflow.
+5. Select **hash modulo 1000** and format the instance from **partition-000**
+   through **partition-999**.
+
+#### Chunk page tokens {#chunk-page-tokens}
+
+In the [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+example, the **current** token is always valid after the Flow starts. An empty
+**current** returns an empty page. Archive tokens must contain exactly 20
+decimal digits and identify a chunk boundary. A malformed token or a
+valid-looking token without a stored chunk returns an explicit error.
 
 ### Locks {#attribute-locks}
 
@@ -633,6 +672,28 @@ Keep per-instance locks for updates that touch only one instance. Use the
 shared singleton lock when all affected writers must preserve an invariant over
 the whole collection.
 
+#### Lock holding {#lock-holding}
+
+A method that declares several locks takes them all at once. It starts only
+when every lock is free and it is first in line for each one. It never holds
+one lock while it waits for another, so two locked methods cannot block each
+other in a cycle.
+
+A Step holds its lock for the whole method, including the external calls it
+makes. A retry keeps the lock while it waits in the queue, and an attempt that
+no Worker can run holds it until the Flow times out or stops. To release such a
+lock, start a Worker that has that Step type, or stop the Flow. Dex has no
+command that releases a single lock. The method timeout and the retry policy
+bound how long a running Step holds a lock.
+
+This adds up when a locked Step keeps failing. Its retries keep the lock, and
+the default retry policy keeps retrying for up to 4 hours. For that whole time,
+every other Step and RPC that declares the same lock waits or fails. Set a
+short total duration, such as a few minutes, in the locked method's
+**StepOptions** retry policy, or keep external calls out of it. The
+[StepOptions defaults](/reference/python/step-options#defaults) list the retry
+window.
+
 #### RPC lock conflicts {#rpc-lock-conflicts}
 
 An RPC does not wait for a lock. When another Step execution or RPC holds a
@@ -645,6 +706,13 @@ TypeScript, **RpcLockConflictException** in Java, and
 Retry after that error, with a backoff that suits the application. Make the RPC
 idempotent so that a retry is safe. Successful calls run one at a time under the
 same locks, so concurrent requests do not lose or duplicate updates.
+
+#### Lock order {#lock-order}
+
+Steps that wait for an Attribute lock get it in the order they started waiting.
+An RPC does not join that queue. When the lock is free, the RPC takes it ahead of
+the queued Steps. A steady stream of locked RPCs can therefore delay queued
+Steps for as long as the stream lasts. Keep locked RPCs short.
 
 ## RPCs {#rpcs}
 
@@ -1351,6 +1419,66 @@ RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trig
 </SdkSnippet>
 </SdkTabs>
 
+### RPC request IDs {#rpc-request-ids}
+
+Every RPC invocation carries a request ID. Dex Server records the reply of a
+successful RPC that it commits under that request ID. A repeat that Dex Server
+checks against a recorded request ID returns the recorded output. It applies
+the RPC's Flow changes, such as Attribute writes, Channel publications, and
+next Steps, no second time. Whether Dex Server checks a repeat depends on the
+RPC and on what the repeated attempt returns.
+
+By default, SDKs send a new request ID on each call, so calling an RPC again
+from your code runs it again. To make a retried call idempotent, pass the same
+request ID on every attempt, where the SDK accepts one. The TypeScript SDK
+takes it as **requestId** of **RPCInvokeOptions**. Use an ID that names the
+logical call, such as the ID of an event that is delivered at least once.
+
+How Dex Server answers a repeat depends on the RPC:
+
+| RPC | Repeat with a recorded request ID |
+| --- | --- |
+| Transactional or locking | Answered from the recorded reply before a Worker runs the handler. Concurrent calls with the same request ID share one handler execution and its result. |
+| Any other RPC | The handler runs again on a Worker, and its calls to external systems repeat. When this attempt changes Flow state or records an event, Dex Server discards those changes and returns the recorded reply. When this attempt changes no Flow state and records no event, Dex Server returns its new output without checking the request ID, and records nothing. |
+
+An RPC that is neither transactional nor locking can therefore return a new
+output to a repeat. For example, a handler that marks an event processed
+returns a different output once the mark exists. Use a transactional RPC when
+callers need the exact recorded reply.
+
+These rules also apply:
+
+- Dex Server compares the whole request: Flow ID, run ID, RPC name, input,
+  timeout, locks, and loads. A different request under a kept request ID fails
+  with INVALID_ARGUMENT and the detail "request ID ... was already used for a
+  different request". The RPC applies none of its changes. An attempt of an
+  RPC that is neither transactional nor locking skips this check when it
+  changes no Flow state and records no event.
+- Each run keeps its newest request IDs, as many as
+  [**limits.maxRequestIdsPerRun**](/reference/server/0.1.32/configuration#limits).
+  RPC request IDs share this window with the run's other request IDs, such as
+  those of Client Attribute writes. A repeat with an older request ID runs as
+  a new request. A new run of the same Flow ID starts with no request IDs.
+- A failed RPC records nothing. A retry after a Worker error or an
+  [RPC timeout](#rpc-timeout) of the Worker handler runs the handler again.
+- A client-side deadline or cancellation leaves the outcome unknown. The server
+  may still commit the RPC. A retry with the same request ID applies the Flow
+  changes at most once. For a transactional or locking RPC, the retry joins
+  the invocation still in flight, or returns the recorded reply after it
+  commits. Any other RPC runs its handler again.
+- UNAVAILABLE after the server's commit budget also leaves the outcome
+  unknown. A retry with the same request ID can run the handler again, and
+  still applies the Flow changes at most once.
+- After the Flow run closes, a transactional or locking RPC with a recorded
+  request ID returns its recorded reply while the server retains the run. With
+  a new request ID it fails with NOT_FOUND and FLOW_NOT_EXISTS, as described in
+  [Retention](/reference/server/0.1.32/configuration#retention).
+- On a run over its [Flow state budget](/reference/server/0.1.32/configuration#flow-state-budget),
+  an RPC that changes no Flow state keeps no request ID.
+- A request ID must be non-empty. Dex Server sets no other length or character
+  limit. Each kept request ID counts toward the run's Flow state budget, so
+  keep request IDs short.
+
 ## Channels {#channels}
 
 ### Wait conditions {#channel-conditions}
@@ -1383,6 +1511,61 @@ messages as pending, so the Channel is not empty.
 
 Changed in 0.1.26: Dex dropped the consumed messages of every canceled Step.
 
+### Waiter order {#channel-waiter-order}
+
+When several Steps wait on one Channel, Dex offers each new message to them in
+the order they started waiting. A Step whose wait needs more messages than are
+pending is skipped, and a later Step can take them. A Step that starts waiting
+while enough messages are pending takes them at once, even ahead of earlier
+waiters that need more.
+
+A wait for several messages (**ForN**, **AtLeast**) can therefore wait forever
+while waits for one message (**ForOne**) on the same Channel keep taking the
+messages one at a time. Give each Channel one kind of consumer, or use one
+ChannelMap instance for each consumer when they need different counts.
+
+### Join {#join}
+
+A **Join** is a named ChannelMap that counts the results of the parallel
+branches one Step forks. Each fork starts one round and gives the branches and
+the join Step one round token: the round key and the branch count. See
+[Join parallel branches](/reference/go/waits#join) for the API of each language.
+
+- A fork takes its round key from the forking Step execution. A Step method can
+  fork one Join once. For a second independent join, define a second Join or use
+  an explicit round key. A fork with an explicit round key can run several times in
+  one method. Give each round a key that no other round of that Join in the Flow
+  run uses. An RPC has no Step execution, so an RPC forks with an explicit
+  round key.
+- A report commits with the method's result, so a retried branch reports once.
+  A result reported before the join Step waits still counts.
+- Results of one round never satisfy the join of another round.
+- A fork over an empty branch list is a round with no branches. A
+  **ForAllBranches** wait on it is satisfied at once. **ForFirstBranch** and
+  **ForBranches** on it fail the wait.
+- The join Step consumes results like any Channel wait. When a decision cancels
+  it after its wait matched, the results follow
+  [the canceled Step rule](#canceled-step-messages).
+- A canceled branch never reports and its failure route does not run. A branch
+  that reported before the cancel committed is complete, and its result stays
+  pending in the round. Dex picks the Steps to cancel at commit time, so no
+  canceller can report on behalf of a branch.
+- A decision that cancels sibling Steps selects the Steps that one decision
+  started together. Fork starts the branches and the join Step together, so the
+  siblings are exactly the branches of that round. They do not include the later
+  Steps of a multi-Step branch.
+- When an RPC forks a round with an explicit round key, the branches are siblings
+  of every Step that this RPC name ever started. Cancel them by Step type
+  instead.
+- **ForRemainingBranches** resets a round whose other branches keep running. Its
+  count equals the count the join consumed: n, or 1 after **ForFirstBranch**.
+  The next round's branches start only after the reset completes, so enablement
+  messages for the next round stay queued until then.
+  Without a reset, late results stay pending until the Flow closes.
+- A cancelling join's round is never reset, because its canceled branches never
+  report and the reset would wait forever. The next round forks a new round
+  directly. Its round key keeps it apart from the old one.
+
 ### Pending messages {#manage-pending-messages}
 
 Dex assigns a UUIDv7 message ID when it accepts each publication. A Step or RPC
@@ -1401,7 +1584,7 @@ Deleting a message that is no longer pending depends on the caller:
 Pending messages are queue state, not Flow history. After a Step consumes a
 message, the message disappears from the Channel, even though the publication
 and consumption stay visible in recent
-[Flow history](/reference/server/0.1.27/configuration#history-window). The message
+[Flow history](/reference/server/0.1.32/configuration#history-window). The message
 comes back only when the Step is canceled before its **Execute** commits. See
 [Canceled Steps return consumed messages](#canceled-step-messages).
 
@@ -1450,7 +1633,7 @@ because Dex uses that character between the map name and instance key.
 ## Streams {#streams}
 
 Server settings for Streams, with their defaults, are in
-[Streams](/reference/server/0.1.27/configuration#streams).
+[Streams](/reference/server/0.1.32/configuration#streams).
 
 ### Write semantics {#stream-write-semantics}
 
@@ -1630,7 +1813,7 @@ Stream, and the memory of all Streams on a server. A Client write past the
 server-wide total fails with **RESOURCE_EXHAUSTED**, and background trimming
 then removes the oldest messages of the largest Streams until the message fits.
 Retry the write after a short delay. See
-[Streams](/reference/server/0.1.27/configuration#streams) for each limit and its
+[Streams](/reference/server/0.1.32/configuration#streams) for each limit and its
 default.
 
 ### Best-effort storage {#stream-storage}
@@ -1709,3 +1892,20 @@ running child or returns its final result, whatever the **ReusePolicy**. This
 makes a retry safe when Dex Server accepted the original start but the parent
 did not receive the response. With a different Request ID, Dex Server applies
 the selected **ReusePolicy** from the table.
+
+### Later parent runs and parent close {#subflow-parent-lifecycle}
+
+A later run of the same parent Flow ID generates the same SubFlow ID when it
+creates the same Step execution ID, which is the same Step type and counter, and
+uses the same condition index. Step execution counters start again in each run,
+so this is common. Dex treats that start as a repeated start under the
+**SubFlowReusePolicy**. With the default policy, the later run reuses the earlier
+run's running or completed child until Dex deletes that child.
+**ALWAYS_RESTART** starts a fresh child, but it terminates an old child that is
+still running. When both children must keep running, use a different parent Flow
+ID.
+
+A child keeps running when its parent Step is canceled or its parent Flow
+closes. Dex does not stop it. Stop it explicitly, or give it a Flow timeout. A
+child without a Flow timeout can wait forever when no Worker takes its Steps.
+
