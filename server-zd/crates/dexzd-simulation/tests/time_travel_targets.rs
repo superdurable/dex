@@ -595,7 +595,47 @@ fn target_requests(run: &RunView, attempt: u32) -> Vec<ResetFlowRequest> {
             requests.push(of_step_execution(step_execution_id, method));
         }
     }
+    let event_ids: BTreeSet<i64> = target_event_ids(run, attempt).into_iter().collect();
+    requests.extend(event_ids.into_iter().map(|event_id| ResetFlowRequest {
+        event_id,
+        ..of_type(FlowResetType::EventId)
+    }));
     requests
+}
+
+/// Event IDs of every kind of record: any, bookkeeping, other attempts', and pruned, plus misses.
+fn target_event_ids(run: &RunView, attempt: u32) -> Vec<i64> {
+    let window_start_seq = run
+        .record
+        .as_ref()
+        .map_or(0, |record| record.window_start_seq);
+    let event_ids_of = |is_selected: &dyn Fn(&HistoryRecord) -> bool| -> BTreeSet<i64> {
+        run.history
+            .iter()
+            .map(|(_, record)| record)
+            .filter(|record| is_selected(record))
+            .flat_map(|record| record.events.iter().map(|event| event.event_id))
+            .collect()
+    };
+    let groups = [
+        event_ids_of(&|_| true),
+        event_ids_of(&|record| !record.is_semantic),
+        event_ids_of(&|record| record.attempt != attempt),
+        event_ids_of(&|record| record.seq < window_start_seq),
+    ];
+    let mut event_ids: Vec<i64> = groups
+        .iter()
+        .flat_map(|group| spread(group).into_iter().copied())
+        .collect();
+    event_ids.extend([0, -1]);
+    if let Some(record) = &run.record {
+        event_ids.extend([
+            record.max_pruned_event_id,
+            record.max_pruned_event_id + 1,
+            record.next_event_id,
+        ]);
+    }
+    event_ids
 }
 
 /// Up to [`MAX_VALUES_PER_KIND`] values spread evenly over the ordered set, including its ends.
@@ -766,6 +806,8 @@ struct Coverage {
     compared_history_pages: usize,
     compared_history_page_errors: usize,
     pages_ended_by_response_bytes: usize,
+    /// Rejected event IDs that some record of the run holds: pruned, or in another lineage.
+    recorded_event_id_rejections: usize,
 }
 
 impl Coverage {
@@ -791,6 +833,15 @@ impl Coverage {
             self.pruned_window_resolutions += 1;
         }
         let Ok(target) = result else {
+            let is_recorded_event = run.history.iter().any(|(_, history)| {
+                history
+                    .events
+                    .iter()
+                    .any(|event| event.event_id == request.event_id)
+            });
+            if reset_type == FlowResetType::EventId && is_recorded_event {
+                self.recorded_event_id_rejections += 1;
+            }
             return;
         };
         if reset_type == FlowResetType::Beginning && genesis < record.window_start_seq {
@@ -814,6 +865,7 @@ impl Coverage {
             (FlowResetType::HistoryEventTime, &["target", "rejected"][..]),
             (FlowResetType::StepType, &["target", "rejected"][..]),
             (FlowResetType::StepExecutionId, &["target", "rejected"][..]),
+            (FlowResetType::EventId, &["target", "rejected"][..]),
         ];
         for (reset_type, outcomes) in required_outcomes {
             for outcome in outcomes.iter().copied() {
@@ -871,6 +923,10 @@ impl Coverage {
             (
                 self.compared_history_page_errors,
                 "oversized history event rejected through a source",
+            ),
+            (
+                self.recorded_event_id_rejections,
+                "rejected event ID that a record holds",
             ),
         ] {
             assert!(count > 0, "no {what} was exercised: {self:#?}");

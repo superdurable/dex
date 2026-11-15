@@ -621,6 +621,22 @@ fn reset_to_time(timestamp_micros: i64) -> ResetFlowRequest {
     }
 }
 
+fn reset_to_event(event_id: i64) -> ResetFlowRequest {
+    ResetFlowRequest {
+        event_id,
+        ..reset(FlowResetType::EventId)
+    }
+}
+
+fn max_event_id(record: &HistoryRecord) -> i64 {
+    record
+        .events
+        .iter()
+        .map(|event| event.event_id)
+        .max()
+        .expect("the record has events")
+}
+
 fn is_ok(reply: &CommandReply) -> bool {
     matches!(reply.reply, Some(command_reply::Reply::Ok(_)))
 }
@@ -1291,6 +1307,174 @@ fn invalid_targets_are_rejected_without_writes() {
         assert!(outcome.writes.is_empty());
     }
     assert_eq!(harness.run_record().current_attempt, 1);
+}
+
+#[test]
+fn history_event_ids_select_the_first_point_at_or_after_their_record() {
+    let mut harness = Harness::new();
+    let (execute_pending_seq, ship_created_seq) = run_charge_then_ship(&mut harness);
+    let records: Vec<HistoryRecord> = (1..=harness.last_seq())
+        .filter_map(|seq| harness.history_record(seq))
+        .collect();
+    assert!(
+        records
+            .iter()
+            .any(|record| !record.is_semantic && record.events.is_empty()),
+        "a started Step attempt records no event"
+    );
+    let mut cases = Vec::new();
+    for record in &records {
+        let Some(point) = records
+            .iter()
+            .find(|later| later.seq >= record.seq && later.is_semantic)
+        else {
+            continue;
+        };
+        cases.extend(
+            record
+                .events
+                .iter()
+                .map(|event| (event.event_id, point.seq)),
+        );
+    }
+    for (event_id, expected_seq) in cases {
+        // Every case searches attempt 1, which earlier cases abandoned.
+        let (attempt, _) = harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_event(event_id)
+        });
+        let record = harness.attempt_record(attempt);
+        assert_eq!(
+            (record.parent_attempt, record.parent_seq),
+            (1, expected_seq),
+            "event {event_id}"
+        );
+    }
+
+    // An event ID selects the point the equivalent time and Step execution resets select.
+    let execute_pending = harness.history_record(execute_pending_seq).unwrap();
+    let ship_created = harness.history_record(ship_created_seq).unwrap();
+    let equivalents = [
+        (
+            max_event_id(&execute_pending),
+            reset_to_time(execute_pending.timestamp_micros),
+        ),
+        (
+            max_event_id(&execute_pending),
+            ResetFlowRequest {
+                step_execution_id: "ChargeStep-1".to_owned(),
+                step_method: FlowResetStepMethod::Execute as i32,
+                ..reset(FlowResetType::StepExecutionId)
+            },
+        ),
+        (
+            max_event_id(&ship_created),
+            ResetFlowRequest {
+                step_execution_id: "ShipStep-2".to_owned(),
+                step_method: FlowResetStepMethod::Execute as i32,
+                ..reset(FlowResetType::StepExecutionId)
+            },
+        ),
+    ];
+    for (event_id, equivalent) in equivalents {
+        let (by_event, _) = harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_event(event_id)
+        });
+        let event_rows = harness.attempt_rows();
+        let (by_equivalent, _) = harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..equivalent.clone()
+        });
+        let parent = |attempt: u32| {
+            let record = harness.attempt_record(attempt);
+            (record.parent_attempt, record.parent_seq)
+        };
+        assert_eq!(parent(by_event), parent(by_equivalent), "{equivalent:?}");
+        assert_eq!(harness.attempt_rows(), event_rows, "{equivalent:?}");
+    }
+}
+
+#[test]
+fn history_event_ids_resolve_only_within_the_selected_lineage() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    harness.set_attribute("a", "1", "");
+    let abandoned_seq = harness.last_seq();
+    let abandoned_event_id = max_event_id(&harness.history_record(abandoned_seq).unwrap());
+    let (second, _) = harness.travel_to(reset(FlowResetType::Beginning));
+    let fork_event_id = max_event_id(&harness.history_record(harness.last_seq()).unwrap());
+    harness.set_attribute("b", "2", "");
+    let current_seq = harness.last_seq();
+    let current_event_id = max_event_id(&harness.history_record(current_seq).unwrap());
+    assert!(abandoned_event_id < fork_event_id && fork_event_id < current_event_id);
+
+    // Zero selects the current attempt, whose lineage holds its own events.
+    let (third, _) = harness.travel_to(reset_to_event(current_event_id));
+    let record = harness.attempt_record(third);
+    assert_eq!(
+        (record.parent_attempt, record.parent_seq),
+        (second, current_seq)
+    );
+    // Attempt 1's write after the fork point is not in attempt 2's lineage.
+    let rejected = harness.time_travel(ResetFlowRequest {
+        run_attempt: i32::try_from(second).unwrap(),
+        ..reset_to_event(abandoned_event_id)
+    });
+    assert_eq!(error_code(&rejected.reply), Some(FAILED_PRECONDITION));
+    assert!(
+        error_message(&rejected.reply).contains("no event ID point"),
+        "{rejected:?}"
+    );
+    assert!(rejected.writes.is_empty());
+    // Attempt 1's lineage still holds it.
+    let (fourth, _) = harness.travel_to(ResetFlowRequest {
+        run_attempt: 1,
+        ..reset_to_event(abandoned_event_id)
+    });
+    let record = harness.attempt_record(fourth);
+    assert_eq!(
+        (record.parent_attempt, record.parent_seq),
+        (1, abandoned_seq)
+    );
+    assert_eq!(harness.attribute_keys(), vec!["a".to_owned()]);
+}
+
+#[test]
+fn unreachable_history_event_ids_are_rejected_without_writes() {
+    let mut harness = Harness::with_settings(RunSettings {
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
+        checkpoint_command_threshold: 3,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    let last_pruned_event_id = max_event_id(&harness.history_record(3).unwrap());
+    for index in 0..5 {
+        harness.set_attribute("status", &format!("v{index}"), "");
+    }
+    let window_start_seq = harness.run_record().window_start_seq;
+    assert_eq!(window_start_seq, 4);
+    let window_start_event_id = max_event_id(&harness.history_record(4).unwrap());
+    let next_event_id = harness.run_record().next_event_id;
+    let rejections = [
+        (1, FAILED_PRECONDITION),
+        (last_pruned_event_id, FAILED_PRECONDITION),
+        (next_event_id, FAILED_PRECONDITION),
+        (i64::MAX, FAILED_PRECONDITION),
+        (0, INVALID_ARGUMENT),
+        (-1, INVALID_ARGUMENT),
+    ];
+    for (event_id, code) in rejections {
+        let outcome = harness.time_travel(reset_to_event(event_id));
+        assert_eq!(error_code(&outcome.reply), Some(code), "event {event_id}");
+        assert!(outcome.writes.is_empty());
+    }
+    assert_eq!(harness.run_record().current_attempt, 1);
+    let (attempt, _) = harness.travel_to(reset_to_event(window_start_event_id));
+    assert_eq!(harness.attempt_record(attempt).parent_seq, window_start_seq);
 }
 
 #[test]

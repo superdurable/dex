@@ -124,4 +124,19 @@ public interface ResetFlowRequestOrBuilder extends
    * @return The runAttempt.
    */
   int getRunAttempt();
+
+  /**
+   * <pre>
+   * FlowHistoryEvent.event_id of FLOW_RESET_TYPE_EVENT_ID; must be positive for that type.
+   * The event must belong to the history of the selected run_attempt, including the attempts it
+   * started from, and must still be in the time travel window. An event of another attempt's
+   * abandoned history, an event pruned from the window, the FlowStart event once the window moved
+   * past it, or an event with no point after it is rejected with FAILED_PRECONDITION, as the
+   * other reset types reject a point that cannot be reached.
+   * </pre>
+   *
+   * <code>int64 event_id = 12;</code>
+   * @return The eventId.
+   */
+  long getEventId();
 }

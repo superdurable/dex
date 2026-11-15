@@ -320,6 +320,17 @@ fn validate_reset_flow(request: &ResetFlowRequest) -> Result<(), ValidationError
                 ));
             }
         }
+        Ok(FlowResetType::EventId) => {
+            if request.event_id <= 0 {
+                return Err(invalid("event_id", "event ID must be positive"));
+            }
+            if request.step_method != FlowResetStepMethod::Unspecified as i32 {
+                return Err(invalid(
+                    "step_method",
+                    "step method is only valid for a Step execution ID",
+                ));
+            }
+        }
         _ => return Err(invalid("reset_type", "time travel type is required")),
     }
     Ok(())
