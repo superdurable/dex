@@ -6,19 +6,26 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TimezonePreference } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import {
   eventTimeTravelTarget,
-  historyEventTimeFromLocalInput,
   positiveRunAttempt,
-  TIME_TRAVEL_STEP_METHOD,
+  SUB_FLOW_RESET_POLICY,
   TIME_TRAVEL_TYPE,
 } from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
 import { useModalFocus } from '../../components/useModalFocus';
+import {
+  HistoryPointFields,
+  historyPointRequestFields,
+  isHistoryPointComplete,
+  SubFlowResetPolicyField,
+  useStepTypesOf,
+  type HistoryPointKind,
+} from './HistoryPointFields';
 
 /** The run a time travel created. Servers with run attempts keep the run ID and return a new attempt. */
 export interface TimeTravelResult {
@@ -26,12 +33,17 @@ export interface TimeTravelResult {
   runAttempt: number;
 }
 
-const timeTravelTypes = [
-  { value: TIME_TRAVEL_TYPE.BEGINNING, label: 'Beginning' },
-  { value: TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME, label: 'History event time' },
-  { value: TIME_TRAVEL_TYPE.STEP_TYPE, label: 'Step type' },
-  { value: TIME_TRAVEL_TYPE.STEP_EXECUTION_ID, label: 'Step execution ID' },
+const timeTravelTypes: { value: number; label: string; kind: HistoryPointKind }[] = [
+  { value: TIME_TRAVEL_TYPE.BEGINNING, label: 'Beginning', kind: 'beginning' },
+  { value: TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME, label: 'History event time', kind: 'history-event-time' },
+  { value: TIME_TRAVEL_TYPE.STEP_TYPE, label: 'Step type', kind: 'step-type' },
+  { value: TIME_TRAVEL_TYPE.STEP_EXECUTION_ID, label: 'Step execution ID', kind: 'step-execution-id' },
+  { value: TIME_TRAVEL_TYPE.EVENT_ID, label: 'Event ID', kind: 'event-id' },
 ];
+
+function pointKindOf(timeTravelType: number): HistoryPointKind {
+  return timeTravelTypes.find((item) => item.value === timeTravelType)?.kind ?? 'beginning';
+}
 
 export function TimeTravelDialog({
   open,
@@ -60,17 +72,12 @@ export function TimeTravelDialog({
   ));
   const [target, setTarget] = useState(() => initialTarget?.stepExecutionId ?? '');
   const [stepMethod, setStepMethod] = useState<number>(() => initialTarget?.stepMethod ?? 0);
+  const [subFlowResetPolicy, setSubFlowResetPolicy] = useState<number>(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const stepTypes = useMemo(() => {
-    const values = new Set<string>();
-    events.forEach((event) => {
-      const context = event.payload.context as Record<string, unknown> | undefined;
-      if (typeof context?.stepType === 'string') values.add(context.stepType);
-    });
-    return [...values];
-  }, [events]);
+  const stepTypes = useStepTypesOf(events);
+  const pointKind = pointKindOf(timeTravelType);
 
   useEffect(() => {
     if (!open) return;
@@ -78,6 +85,7 @@ export function TimeTravelDialog({
     setTimeTravelType(eventTarget ? TIME_TRAVEL_TYPE.STEP_EXECUTION_ID : TIME_TRAVEL_TYPE.BEGINNING);
     setTarget(eventTarget?.stepExecutionId ?? '');
     setStepMethod(eventTarget?.stepMethod ?? 0);
+    setSubFlowResetPolicy(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
     setReason('');
     setError('');
   }, [initialEvent?.eventId, open]);
@@ -93,15 +101,9 @@ export function TimeTravelDialog({
       runId: summary.runId,
       timeTravelType,
       reason,
+      ...historyPointRequestFields(pointKind, target, stepMethod, timezone),
+      subFlowResetPolicy,
     };
-    if (timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME) {
-      payload.historyEventTime = historyEventTimeFromLocalInput(target, timezone);
-    }
-    if (timeTravelType === TIME_TRAVEL_TYPE.STEP_TYPE) payload.stepType = target;
-    if (timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID) {
-      payload.stepExecutionId = target;
-      payload.stepMethod = stepMethod;
-    }
     if (runAttempt > 0) payload.runAttempt = runAttempt;
     try {
       const response = await fetch(webURL('/api/flows/time-travel'), {
@@ -144,36 +146,16 @@ export function TimeTravelDialog({
             {timeTravelTypes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
           </select>
         </label>
-        {timeTravelType !== TIME_TRAVEL_TYPE.BEGINNING && (
-          <label>
-            {timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME
-              ? `Target (${timezone === 'UTC' ? 'UTC' : 'local time'})`
-              : 'Target'}
-            {timeTravelType === TIME_TRAVEL_TYPE.STEP_TYPE ? (
-              <>
-                <input list="time-travel-step-types" value={target} onChange={(event) => setTarget(event.target.value)} />
-                <datalist id="time-travel-step-types">{stepTypes.map((value) => <option value={value} key={value} />)}</datalist>
-              </>
-            ) : (
-              <input
-                type={timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME ? 'datetime-local' : 'text'}
-                step={timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME ? 1 : undefined}
-                value={target}
-                onChange={(event) => setTarget(event.target.value)}
-              />
-            )}
-          </label>
-        )}
-        {timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID && (
-          <label>
-            Step method
-            <select value={stepMethod} onChange={(event) => setStepMethod(Number(event.target.value))}>
-              <option value={0}>Select a method</option>
-              <option value={TIME_TRAVEL_STEP_METHOD.WAIT_FOR}>WaitFor</option>
-              <option value={TIME_TRAVEL_STEP_METHOD.EXECUTE}>Execute</option>
-            </select>
-          </label>
-        )}
+        <HistoryPointFields
+          kind={pointKind}
+          target={target}
+          stepMethod={stepMethod}
+          stepTypes={stepTypes}
+          timezone={timezone}
+          onTargetChange={setTarget}
+          onStepMethodChange={setStepMethod}
+        />
+        <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
         <label>
           Reason
           <textarea
@@ -191,10 +173,7 @@ export function TimeTravelDialog({
             className="button danger"
             disabled={submitting
               || !reason.trim()
-              || (timeTravelType !== TIME_TRAVEL_TYPE.BEGINNING && !target)
-              || (timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME
-                && !historyEventTimeFromLocalInput(target, timezone))
-              || (timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID && stepMethod === 0)}
+              || !isHistoryPointComplete(pointKind, target, stepMethod, timezone)}
             onClick={() => void submit()}
           >
             {submitting ? 'Time traveling…' : 'Time travel'}

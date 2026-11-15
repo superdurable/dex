@@ -380,7 +380,86 @@ describe('time travel on the run page', () => {
 
     await screen.findByText('Run page for run-2');
     expect(runPath).toHaveBeenCalledWith('run-2');
-    expect(timeTravelRequests).toEqual([{ flowId: 'order-1', runId: 'run-1', timeTravelType: 1, reason: 'replay' }]);
+    expect(timeTravelRequests).toEqual([{
+      flowId: 'order-1', runId: 'run-1', timeTravelType: 1, reason: 'replay', subFlowResetPolicy: 4,
+    }]);
+  });
+});
+
+describe('clone fork on the run page', () => {
+  function cloneForkDex(startPayload: Record<string, unknown> = {}) {
+    const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
+    const cloneForkRequests: Record<string, unknown>[] = [];
+    const lineage = [
+      { ...historyEvent(1, 1, 'FlowStartedOrContinued'), payload: startPayload },
+      historyEvent(2, 1, 'StepWaitForCompleted'),
+    ];
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://dex.test');
+      if (url.pathname === '/api/flows/summary') return json(summary(1));
+      if (url.pathname === '/api/flows/state') {
+        return json({ ...emptyState, flowConfig: { workerTarget: { isPullMode: true, taskQueue: 'orders' } } });
+      }
+      if (url.pathname === '/api/flows/history') return json(lineagePage(lineage, url.searchParams));
+      if (isNewestEventProbe(url)) return json({ eventAvailable: true, availableInternalEventId: '2' });
+      if (url.pathname === '/api/flows/wait') {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }
+      if (url.pathname === '/api/flows/clone-fork') {
+        cloneForkRequests.push(JSON.parse(String(init?.body)));
+        return json({ flowId: 'order-1-copy', runId: 'copy-run-1' });
+      }
+      throw new Error(`unexpected request ${input}`);
+    }));
+    return cloneForkRequests;
+  }
+
+  it('clone forks the current state and opens the new Flow', async () => {
+    const cloneForkRequests = cloneForkDex();
+    render(
+      <MemoryRouter initialEntries={['/v1/flows/order-1/run-1']}>
+        <PreferencesProvider>
+          <Routes>
+            <Route
+              path="/v1/flows/order-1/run-1"
+              element={<RunDetailsPage flowId="order-1" runId="run-1" runPath={(runID) => `/v1/flows/order-1/${runID}`} />}
+            />
+            <Route path="/v1/flows/order-1-copy/copy-run-1" element={<p>Run page for the copy</p>} />
+          </Routes>
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Clone fork/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Clone fork to a new Flow' });
+    expect((within(dialog).getByRole('combobox', { name: 'Clone fork point' }) as HTMLSelectElement).value).toBe('current');
+    await waitFor(() => expect((within(dialog).getByRole('textbox', { name: /^Task queue/ }) as HTMLInputElement).value).toBe('orders'));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'try a fix' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clone fork' }));
+
+    await screen.findByText('Run page for the copy');
+    expect(cloneForkRequests).toEqual([{
+      sourceFlowId: 'order-1',
+      sourceRunId: 'run-1',
+      flowId: 'order-1-copy',
+      requestId: expect.any(String),
+      pointType: 1,
+      idReusePolicy: 0,
+      subFlowResetPolicy: 4,
+      reason: 'try a fix',
+    }]);
+  });
+
+  it('links a clone forked run to its source point', async () => {
+    cloneForkDex({ cloneForkSource: { flowId: 'order-0', runId: 'run-0', runAttempt: 2, eventId: '12' } });
+    renderRun();
+
+    const link = await screen.findByRole('link', { name: /Clone forked from order-0 at event #12/ });
+    expect(link.getAttribute('href')).toBe('/v1/flows/order-0/run-0?runAttempt=2&event=12');
   });
 });
 

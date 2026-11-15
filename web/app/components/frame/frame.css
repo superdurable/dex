@@ -690,7 +690,8 @@ body {
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
-.selected-event-time-travel {
+.selected-event-time-travel,
+.selected-event-clone-fork {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -707,6 +708,8 @@ body {
 
 .v1-page .selected-event-anchor > .selected-event-actions {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 6px;
   grid-row: 1 / span 2;

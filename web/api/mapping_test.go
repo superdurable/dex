@@ -52,6 +52,24 @@ func TestMapChannelExternalDeleteHistoryEvent(t *testing.T) {
 	}
 }
 
+func TestMapFlowStartReportsTheCloneForkSource(t *testing.T) {
+	mapped, err := mapHistoryEvent(&dexpb.FlowHistoryEvent{
+		EventId: 1,
+		Payload: &dexpb.FlowHistoryEvent_FlowStartedOrContinued{FlowStartedOrContinued: &dexpb.FlowStartedOrContinuedHistoryEvent{
+			CloneForkSource: &dexpb.FlowCloneForkSource{FlowId: "order-1", RunId: "run-1", RunAttempt: 2, EventId: 12},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, ok := mapped.Payload["cloneForkSource"].(map[string]interface{})
+	// protojson writes int64 as a string, so the UI parses eventId.
+	if !ok || source["flowId"] != "order-1" || source["runId"] != "run-1" ||
+		source["runAttempt"] != float64(2) || source["eventId"] != "12" {
+		t.Fatalf("clone fork source = %#v", mapped.Payload["cloneForkSource"])
+	}
+}
+
 func TestMapSummaryReportsRunAttempt(t *testing.T) {
 	summary := mapSummary(&dexpb.GetFlowSummaryResponse{
 		FlowRunId:  &dexpb.FlowRunID{FlowId: "flow-1", RunId: "run-1"},

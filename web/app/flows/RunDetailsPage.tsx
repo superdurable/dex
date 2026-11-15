@@ -26,6 +26,7 @@ import {
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
+import { cloneForkSourceOf, type CloneForkSource } from '@/lib/cloneFork';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
@@ -40,6 +41,7 @@ import {
   Rows3,
   Bot,
   MousePointerClick,
+  Split,
   Waves,
   Workflow,
 } from 'lucide-react';
@@ -50,6 +52,7 @@ import { FlowOverview } from './details/FlowOverview';
 import type { FlowConfigChange } from './details/FlowConfigCard';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDialog';
+import { CloneForkDialog, type CloneForkResult } from './details/CloneForkDialog';
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
@@ -156,6 +159,16 @@ function persistEventsView(view: EventsView) {
 const horizontalTimelineQuery = '(min-width: 761px)';
 /** On desktop the strip gains the event list under it, so events can be scanned as rows. */
 const RUN_EVENT_PARAM = 'event';
+
+/** The source run of a clone fork, opened at its run attempt and the last event the copy includes. */
+function cloneForkSourcePath(source: CloneForkSource): string {
+  const params = new URLSearchParams();
+  if (source.runAttempt > 0) params.set(RUN_ATTEMPT_SEARCH_PARAM, String(source.runAttempt));
+  if (source.eventId > 0) params.set(RUN_EVENT_PARAM, String(source.eventId));
+  const path = source.runId ? currentRunPath(source.flowId, source.runId) : currentRunPath(source.flowId);
+  const search = params.toString();
+  return search ? `${path}?${search}` : path;
+}
 
 /** Follows a media query; without matchMedia, such as in tests, it reports no match. */
 function useMediaQuery(query: string): boolean {
@@ -330,6 +343,8 @@ export function RunDetailsPage({
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
   const [timeTravelEvent, setTimeTravelEvent] = useState<FlowHistoryEvent | null>(null);
+  const [cloneForkOpen, setCloneForkOpen] = useState(false);
+  const [cloneForkEvent, setCloneForkEvent] = useState<FlowHistoryEvent | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
   const [stateWriteKind, setStateWriteKind] = useState<StateWriteKind | null>(null);
   const [waitCycle, setWaitCycle] = useState(0);
@@ -935,6 +950,20 @@ export function RunDetailsPage({
     setTimeTravelEvent(null);
   }, []);
 
+  const openCloneFork = useCallback((event: FlowHistoryEvent | null) => {
+    setCloneForkEvent(event);
+    setCloneForkOpen(true);
+  }, []);
+
+  const closeCloneFork = useCallback(() => {
+    setCloneForkOpen(false);
+    setCloneForkEvent(null);
+  }, []);
+
+  const handleCloneForked = useCallback((result: CloneForkResult) => {
+    navigate(result.runId ? currentRunPath(result.flowId, result.runId) : currentRunPath(result.flowId));
+  }, [navigate]);
+
   const showRunAttempt = useCallback((runAttempt: number) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -966,6 +995,13 @@ export function RunDetailsPage({
   const displayedRunAttempt = summary && isViewingEarlierRunAttempt ? historyRunAttempt(summary) : currentRunAttempt;
 
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
+  const cloneForkSource = cloneForkSourceOf(flowStartEvent);
+  // An agent session forks through its agents package, which also moves the session's task queue.
+  const canCloneFork = isCatalogReady && runSessionSchema === null;
+  const sourceTaskQueue = (() => {
+    const workerTarget = state?.flowConfig.workerTarget as Record<string, unknown> | undefined;
+    return typeof workerTarget?.taskQueue === 'string' ? workerTarget.taskQueue : '';
+  })();
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
   const timelineEndNote: TimelineEndNote | null = runState ? {
@@ -988,9 +1024,20 @@ export function RunDetailsPage({
 
   // The run's relations and attempt sit in the line under the bar, so the bar is the same on every run.
   const hasRunContext = Boolean(relations?.parentFlowId) || (relations?.children.length ?? 0) > 0
-    || (summary !== null && currentRunAttempt > 1);
+    || (summary !== null && currentRunAttempt > 1) || cloneForkSource !== null;
   const runContext = hasRunContext ? (
     <span className="run-context">
+      {cloneForkSource && (
+        <Link
+          className="run-context-item"
+          title={`Clone forked from Flow ${cloneForkSource.flowId}, run ${cloneForkSource.runId}`}
+          to={cloneForkSourcePath(cloneForkSource)}
+        >
+          <Split aria-hidden="true" size={13} strokeWidth={2.25} />
+          Clone forked from <span className="mono">{middleTruncate(cloneForkSource.flowId, 32)}</span>
+          {cloneForkSource.eventId > 0 && <> at event #{cloneForkSource.eventId}</>}
+        </Link>
+      )}
       {relations?.parentFlowId && (
         <Link className="run-context-item" title={`Parent Flow ${relations.parentFlowId}`} to={currentRunPath(relations.parentFlowId)}>
           <CornerLeftUp aria-hidden="true" size={13} strokeWidth={2.25} />
@@ -1077,6 +1124,7 @@ export function RunDetailsPage({
           onTimeTravelFromFailure={failedEvent ? () => openTimeTravel(failedEvent) : undefined}
           onStop={() => setStopOpen(true)}
           onTimeTravel={() => openTimeTravel(selectedEvent ? selected : null)}
+          onCloneFork={canCloneFork ? () => openCloneFork(null) : undefined}
         />
       </AppBarSlot>
 
@@ -1320,6 +1368,7 @@ export function RunDetailsPage({
               isJumpDisabled={runHistory.isLoadingTimelinePage}
               // The bar's Operate already time travels from the failed event.
               onTimeTravelFromEvent={failedEvent && selected?.eventId === failedEvent.eventId ? undefined : openTimeTravel}
+              onCloneForkFromEvent={canCloneFork ? openCloneFork : undefined}
             />
           </aside>
         )}
@@ -1336,6 +1385,21 @@ export function RunDetailsPage({
           timezone={timezone}
           onClose={closeTimeTravel}
           onTimeTraveled={handleTimeTraveled}
+        />
+      )}
+      {summary && canCloneFork && (
+        <CloneForkDialog
+          key={cloneForkEvent?.eventId ?? 'current'}
+          open={cloneForkOpen}
+          summary={summary}
+          events={historyWithFlowStart}
+          initialEvent={cloneForkEvent}
+          runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
+          sourceTaskQueue={sourceTaskQueue}
+          isSourceRunning={isRunOpen && !isViewingEarlierRunAttempt}
+          timezone={timezone}
+          onClose={closeCloneFork}
+          onCloneForked={handleCloneForked}
         />
       )}
       {summary && (

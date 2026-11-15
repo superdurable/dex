@@ -184,11 +184,48 @@ type timeTravelFlowRequest struct {
 	StepMethod       int32  `json:"stepMethod"`
 	// RunAttempt selects the run attempt searched for the time travel point; zero selects the current one.
 	RunAttempt int32 `json:"runAttempt"`
+	// EventID is the history event ID of the event ID time travel type.
+	EventID int64 `json:"eventId"`
+	// SubFlowResetPolicy is a SubFlowResetPolicy number; zero selects the server default.
+	SubFlowResetPolicy int32 `json:"subFlowResetPolicy"`
 }
 
 type timeTravelFlowResponse struct {
 	RunID      string `json:"runId"`
 	RunAttempt int32  `json:"runAttempt"`
+}
+
+type cloneForkFlowRequest struct {
+	SourceFlowID string `json:"sourceFlowId"`
+	// SourceRunID names the source run; empty selects the latest run.
+	SourceRunID string `json:"sourceRunId"`
+	FlowID      string `json:"flowId"`
+	// RequestID makes a repeated submit a retry; empty makes the handler generate one.
+	RequestID string `json:"requestId"`
+	// PointType is a FlowCloneForkPointType number; zero selects the current state.
+	PointType        int32  `json:"pointType"`
+	HistoryEventTime string `json:"historyEventTime"`
+	StepType         string `json:"stepType"`
+	StepExecutionID  string `json:"stepExecutionId"`
+	StepMethod       int32  `json:"stepMethod"`
+	EventID          int64  `json:"eventId"`
+	// RunAttempt selects the source run attempt searched for the point; zero selects the current one.
+	RunAttempt int32 `json:"runAttempt"`
+	// IDReusePolicy is an IdReusePolicy number; zero selects the server default.
+	IDReusePolicy int32 `json:"idReusePolicy"`
+	// TaskQueue overrides the source run's task queue; empty keeps it.
+	TaskQueue string `json:"taskQueue"`
+	// SubFlowResetPolicy is a SubFlowResetPolicy number; zero selects the server default.
+	SubFlowResetPolicy int32  `json:"subFlowResetPolicy"`
+	Reason             string `json:"reason"`
+}
+
+type cloneForkFlowResponse struct {
+	FlowID           string `json:"flowId"`
+	RunID            string `json:"runId"`
+	SourceRunID      string `json:"sourceRunId"`
+	SourceRunAttempt int32  `json:"sourceRunAttempt"`
+	SourceEventID    int64  `json:"sourceEventId"`
 }
 
 type stopFlowRequest struct {

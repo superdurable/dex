@@ -50,6 +50,49 @@ func mapSummary(summary *dexpb.GetFlowSummaryResponse) flowSummary {
 	}
 }
 
+func resetFlowRequestOf(body timeTravelFlowRequest) *dexpb.ResetFlowRequest {
+	return &dexpb.ResetFlowRequest{
+		FlowId:             body.FlowID,
+		RunId:              body.RunID,
+		ResetType:          dexpb.FlowResetType(body.TimeTravelType),
+		Reason:             body.Reason,
+		StepType:           body.StepType,
+		StepExecutionId:    body.StepExecutionID,
+		HistoryEventTime:   body.HistoryEventTime,
+		StepMethod:         dexpb.FlowResetStepMethod(body.StepMethod),
+		RunAttempt:         body.RunAttempt,
+		EventId:            body.EventID,
+		SubFlowResetPolicy: dexpb.SubFlowResetPolicy(body.SubFlowResetPolicy),
+	}
+}
+
+func cloneForkFlowRequestOf(body cloneForkFlowRequest, requestID string) *dexpb.CloneForkFlowRequest {
+	var flowConfigOverride *dexpb.FlowConfig
+	if body.TaskQueue != "" {
+		// The server copies is_pull_mode from the override and requires it with a task queue.
+		flowConfigOverride = &dexpb.FlowConfig{
+			WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: body.TaskQueue},
+		}
+	}
+	return &dexpb.CloneForkFlowRequest{
+		SourceFlowId:       body.SourceFlowID,
+		SourceRunId:        body.SourceRunID,
+		FlowId:             body.FlowID,
+		RequestId:          requestID,
+		IdReusePolicy:      dexpb.IdReusePolicy(body.IDReusePolicy),
+		FlowConfigOverride: flowConfigOverride,
+		Reason:             body.Reason,
+		PointType:          dexpb.FlowCloneForkPointType(body.PointType),
+		HistoryEventTime:   body.HistoryEventTime,
+		StepType:           body.StepType,
+		StepExecutionId:    body.StepExecutionID,
+		StepMethod:         dexpb.FlowResetStepMethod(body.StepMethod),
+		EventId:            body.EventID,
+		RunAttempt:         body.RunAttempt,
+		SubFlowResetPolicy: dexpb.SubFlowResetPolicy(body.SubFlowResetPolicy),
+	}
+}
+
 func mapStreamMessage(message *dexpb.StreamMessage) streamMessage {
 	return streamMessage{
 		Value:       dexValue(message.GetValue()),

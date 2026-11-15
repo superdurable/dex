@@ -3353,6 +3353,18 @@ button.timeline-edge-stub:focus-visible {
   font-weight: 600;
 }
 
+/* Clone fork has more fields than a short phone screen holds, so the dialog scrolls inside. */
+.modal.clone-fork-dialog {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.modal .field-error {
+  color: var(--fail);
+  font-weight: 500;
+}
+
 .modal-actions {
   justify-content: flex-end;
   gap: 8px;
