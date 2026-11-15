@@ -72,21 +72,21 @@ const START_STEP: &str = "ChargeStep";
 const START_STEP_EXECUTION: &str = "ChargeStep-1";
 
 /// A node with real apply and debug replay checks, and the registry that serves it.
-struct TravelNode {
+pub(crate) struct TravelNode {
     node: EngineNode,
-    registry: FlowCoordinatorRegistry,
+    pub(crate) registry: FlowCoordinatorRegistry,
     /// Registries beside `registry` over the same committer; each serializes only its own
     /// ResetFlows.
     other_registries: Vec<FlowCoordinatorRegistry>,
-    store: Arc<RestoredLocalStore>,
-    hasher: PartitionHasher,
-    recording: Arc<RecordingCommandAndEffectHooks>,
+    pub(crate) store: Arc<RestoredLocalStore>,
+    pub(crate) hasher: PartitionHasher,
+    pub(crate) recording: Arc<RecordingCommandAndEffectHooks>,
     next_request: AtomicUsize,
     objects: Arc<InMemoryObjectStore>,
 }
 
 impl TravelNode {
-    async fn start(
+    pub(crate) async fn start(
         cluster: &TestCluster,
         local_store: LocalStoreConfig,
         opener: Arc<dyn TimeTravelHistoryOpener>,
@@ -220,7 +220,7 @@ impl TravelNode {
         }
     }
 
-    fn committer(&self) -> &CommandCommitter {
+    pub(crate) fn committer(&self) -> &CommandCommitter {
         self.node.committer()
     }
 
@@ -232,7 +232,7 @@ impl TravelNode {
         .await
     }
 
-    async fn start_flow_with(&self, request: StartFlowRequest) -> RunId {
+    pub(crate) async fn start_flow_with(&self, request: StartFlowRequest) -> RunId {
         let response = self
             .registry
             .start_flow(TenantId::DEFAULT, request)
@@ -285,7 +285,7 @@ impl TravelNode {
         ticket.wait().await.expect("the command commits");
     }
 
-    fn view(&self) -> impl FlowStateReader {
+    pub(crate) fn view(&self) -> impl FlowStateReader {
         self.committer()
             .committed_view()
             .expect("the committed view opens")
@@ -514,7 +514,7 @@ impl TravelNode {
     }
 
     /// Shuts the node down and releases the store, the registry, and the recorded commands.
-    async fn shutdown(self) {
+    pub(crate) async fn shutdown(self) {
         let Self {
             node,
             registry,
@@ -755,7 +755,7 @@ fn start_flow_request() -> StartFlowRequest {
     }
 }
 
-fn string_value(text: &str) -> Value {
+pub(crate) fn string_value(text: &str) -> Value {
     Value {
         kind: Some(value::Kind::StringValue(text.to_owned())),
     }
@@ -815,7 +815,7 @@ fn offloading_config() -> FlowCoordinationConfig {
     }
 }
 
-fn segmented_opener() -> Arc<dyn TimeTravelHistoryOpener> {
+pub(crate) fn segmented_opener() -> Arc<dyn TimeTravelHistoryOpener> {
     Arc::new(SegmentedTimeTravelHistory)
 }
 
