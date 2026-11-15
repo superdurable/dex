@@ -718,8 +718,8 @@ The Run page offers it in two places:
 - **Clone fork…** in the action button's menu opens the dialog on **Current
   state** while the run runs, and on **Beginning** once it has ended.
 - **Clone fork from here…** in the selected event's panel opens it on
-  **Event ID**, set to that event. It appears on the events that offer
-  **Time travel from here…**.
+  **Event ID**, set to that event. It appears on the Step events that time
+  travel can start at.
 
 The dialog has these fields:
 
@@ -733,15 +733,16 @@ The dialog has these fields:
 | **Reason** | Empty | Required. Recorded with the new run's start. |
 
 **Clone fork** opens the new Flow's run page. Each opening of the dialog sends
-one request ID, so a second click retries the same clone fork.
+one request ID, so a second click retries the same clone fork and returns the
+run it started.
 
 A run that a clone fork created shows **Clone forked from FLOW_ID at event #N**
 in the line under the bar. The link opens the source run at the copied run
 attempt, with event N selected. N is the last source event the copy includes.
 
-Agent sessions do not offer **Clone fork** on their Run page. A session's
-clone fork also needs its own task queue and session state, which a generic
-clone fork does not set.
+A run that Dex Web shows as an agent session, through its loaded Flow Definition
+Graph, offers no **Clone fork**. A session's clone fork also needs its own task
+queue and session state, which a generic clone fork does not set.
 
 **POST /api/flows/clone-fork** takes **sourceFlowId**, **sourceRunId**,
 **flowId**, **reason**, an optional **requestId**, and the point fields
@@ -750,7 +751,8 @@ clone fork does not set.
 **FlowCloneForkPointType** number; its numbers differ from **timeTravelType**.
 **idReusePolicy** and **subFlowResetPolicy** take the FlowService enum numbers.
 **taskQueue** sets the new run's task queue; empty keeps the source's. Without
-**requestId**, Dex Web makes one for each call. It answers with **flowId**,
+**requestId**, Dex Web makes one for each call. A call whose **requestId**
+started the latest run of **flowId** returns that run. It answers with **flowId**,
 **runId**, **sourceRunId**, **sourceRunAttempt**, and **sourceEventId**. A
 missing **sourceFlowId**, **flowId**, or **reason**, a **flowId** equal to
 **sourceFlowId**, or an event ID point without a positive **eventId** returns

@@ -53,9 +53,15 @@ export function cloneForkSourceOf(startEvent: FlowHistoryEvent | null): CloneFor
     flowId: source.flowId,
     runId: typeof source.runId === 'string' ? source.runId : '',
     runAttempt: positiveRunAttempt(source.runAttempt),
-    // The API writes int64 values as strings; positiveRunAttempt parses either form.
-    eventId: positiveRunAttempt(source.eventId),
+    // The API writes int64 values as strings.
+    eventId: positiveHistoryEventId(source.eventId),
   };
+}
+
+/** Returns a positive event ID from a number or its decimal string, or 0 when it is absent or invalid. */
+function positiveHistoryEventId(value: unknown): number {
+  const eventId = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  return typeof eventId === 'number' && Number.isSafeInteger(eventId) && eventId > 0 ? eventId : 0;
 }
 
 /** Suggests a new Flow ID for a clone fork: the source ID, "-fork-", and the time to the second in UTC. */

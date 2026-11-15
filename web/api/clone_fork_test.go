@@ -99,7 +99,8 @@ func TestCloneForkSendsTheEventPointAndOptions(t *testing.T) {
 		request.GetEventId() != 12 || request.GetRunAttempt() != 1 ||
 		request.GetIdReusePolicy() != dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING ||
 		request.GetSubFlowResetPolicy() != dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_ALWAYS_RESTART ||
-		request.GetReason() != "try a fix" {
+		request.GetReason() != "try a fix" ||
+		!request.GetFlowAlreadyStartedOptions().GetIgnoreAlreadyStartedError() {
 		t.Fatalf("clone fork request = %+v", request)
 	}
 	workerTarget := request.GetFlowConfigOverride().GetWorkerTarget()

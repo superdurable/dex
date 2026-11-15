@@ -90,6 +90,9 @@ func cloneForkFlowRequestOf(body cloneForkFlowRequest, requestID string) *dexpb.
 		EventId:            body.EventID,
 		RunAttempt:         body.RunAttempt,
 		SubFlowResetPolicy: dexpb.SubFlowResetPolicy(body.SubFlowResetPolicy),
+
+		// A resubmit with the same request ID returns the run it already started.
+		FlowAlreadyStartedOptions: &dexpb.FlowAlreadyStartedOptions{IgnoreAlreadyStartedError: true},
 	}
 }
 
