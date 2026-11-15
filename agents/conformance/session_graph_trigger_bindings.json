@@ -1,0 +1,118 @@
+{
+  "description": "Connector Trigger bindings of a session graph. Each core renders each case's entry as the binding, in case order, and the TypeScript Flow analyzer of dexcli derives the same entries from code that declares these bindings.",
+  "package_directory": "session_graph_trigger_bindings/connector-package",
+  "flow_type": "SupportAgent",
+  "action_permission": "support-agent.operate",
+  "cases": [
+    {
+      "flag": "workspace=@dex-test/messages@2.3.4:replyCreated:session-replies",
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "replyCreated",
+        "bindingName": "session-replies"
+      },
+      "binding": {
+        "connectorId": "messages",
+        "triggerName": "replyCreated",
+        "connectionName": "workspace",
+        "bindingName": "session-replies",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/messages/v2.3.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dex-test/messages",
+          "version": "2.3.4"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": [
+            {
+              "id": "channel",
+              "unitId": "channelPicker",
+              "label": "Channel",
+              "required": true,
+              "bindings": [
+                {
+                  "port": "channelId",
+                  "jsonPointer": "/channelId"
+                }
+              ]
+            },
+            {
+              "id": "posters",
+              "unitId": "memberPicker",
+              "label": "Posters",
+              "description": "People whose replies reach the session.",
+              "required": false,
+              "bindings": [
+                {
+                  "port": "memberIds",
+                  "jsonPointer": "/threadReplyMatcher/posterUserIds"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "entry": {
+        "connectionName": "workspace",
+        "packageName": "@dex-test/messages",
+        "packageVersion": "2.3.4",
+        "triggerName": "threadCreated",
+        "bindingName": "session-threads",
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "bindings": [
+                {
+                  "port": "text",
+                  "jsonPointer": "/threadTriggerMatcher/messageContains"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "binding": {
+        "connectorId": "messages",
+        "triggerName": "threadCreated",
+        "connectionName": "workspace",
+        "bindingName": "session-threads",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/messages/v2.3.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dex-test/messages",
+          "version": "2.3.4"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": [
+            {
+              "id": "keyword",
+              "unitId": "textInput",
+              "label": "Keyword",
+              "required": false,
+              "bindings": [
+                {
+                  "port": "text",
+                  "jsonPointer": "/threadTriggerMatcher/messageContains"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "rendered_sha256": "80ebe728e05c37ab597d3120718ddd4bee2435bc73f0399ff476cdc494b5f213"
+}

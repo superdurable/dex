@@ -213,6 +213,14 @@ export {
   sessionFlowDefinitionDocument,
   type SessionFlowGraphOptions,
 } from "./agent-session-flow-graph.js";
+export {
+  resolveSessionTriggerBinding,
+  type SessionConnectorConfigurationUI,
+  type SessionConnectorTriggerBinding,
+  type SessionConnectorUIBinding,
+  type SessionConnectorUIUnit,
+  type SessionTriggerBindingSpec,
+} from "./agent-session-trigger-bindings.js";
 export { buildSenderNamedText, isValidSenderName, maxSenderNameLength } from "./agent-sender-names.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
 export {

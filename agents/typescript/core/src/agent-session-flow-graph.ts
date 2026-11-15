@@ -9,6 +9,10 @@
 import type { FlowDefinitionDocument } from "@superdurable/dex";
 
 import sessionFlowGraphTemplate from "./agent-session-flow-graph.json" with { type: "json" };
+import {
+  canonicalSessionTriggerBinding,
+  type SessionConnectorTriggerBinding,
+} from "./agent-session-trigger-bindings.js";
 
 /**
  * When the session graph template last changed: the `generatedAt` of every {@link sessionFlowDefinitionDocument}.
@@ -27,6 +31,15 @@ export interface SessionFlowGraphOptions {
   readonly flowType: string;
   /** The permission every session Action requires, such as `support-agent.operate`. */
   readonly actionPermission: string;
+  /**
+   * The Connector Trigger bindings that deliver into the session Flow, from `resolveSessionTriggerBinding`.
+   *
+   * The graph lists them in `v2.connectorTriggerBindings`, in this order, so a hosting platform can configure them.
+   * When omitted or empty, the graph has no such field and its text is the same as without this option.
+   *
+   * @since 0.6.12
+   */
+  readonly connectorTriggerBindings?: readonly SessionConnectorTriggerBinding[] | undefined;
 }
 
 /**
@@ -53,10 +66,13 @@ export interface SessionFlowGraphOptions {
  * );
  * ```
  *
- * @param options - The Flow type and the Action permission.
+ * Changed in 0.6.12: `connectorTriggerBindings` adds Connector Trigger bindings to the graph.
+ *
+ * @param options - The Flow type, the Action permission, and optional Connector Trigger bindings.
  * @returns The graph as JSON text that ends with a newline.
- * @throws {TypeError} When `flowType` is blank, or when `actionPermission` is not lowercase letters, digits, dots, and
- *   hyphens that start with a letter.
+ * @throws {TypeError} When `flowType` is blank, when `actionPermission` is not lowercase letters, digits, dots, and
+ *   hyphens that start with a letter, when a binding is invalid, or when two bindings share a Connector ID,
+ *   connection name, Trigger name, and binding name.
  * @since 0.3.0
  */
 export function renderSessionFlowGraph(options: SessionFlowGraphOptions): string {
@@ -71,7 +87,22 @@ export function renderSessionFlowGraph(options: SessionFlowGraphOptions): string
   for (const action of graph.v2.actions) {
     action.requiredPermission = options.actionPermission;
   }
-  return `${JSON.stringify(graph, null, 2)}\n`;
+  const bindings = (options.connectorTriggerBindings ?? []).map(canonicalSessionTriggerBinding);
+  const bindingKeys = new Set<string>();
+  for (const binding of bindings) {
+    const key = JSON.stringify([binding.connectorId, binding.connectionName, binding.triggerName, binding.bindingName]);
+    if (bindingKeys.has(key)) {
+      throw new TypeError(
+        `Trigger binding ${binding.bindingName} of ${binding.connectorId} ${binding.triggerName} on connection ${binding.connectionName} is declared twice`,
+      );
+    }
+    bindingKeys.add(key);
+  }
+  if (bindings.length > 256) {
+    throw new TypeError("a session graph declares at most 256 Connector Trigger bindings");
+  }
+  const rendered = bindings.length === 0 ? graph : { ...graph, v2: { ...graph.v2, connectorTriggerBindings: bindings } };
+  return `${JSON.stringify(rendered, null, 2)}\n`;
 }
 
 /**
@@ -85,8 +116,8 @@ export function renderSessionFlowGraph(options: SessionFlowGraphOptions): string
  * The content is `renderSessionFlowGraph(options)`. Its `generatedAt` is the time the graph template last changed, not
  * the current time. Restarting a Worker therefore writes nothing, and upgrading this package replaces the graph of an
  * older release. Workers of either core upload the same document. The server keeps a stored graph whose `generatedAt`
- * is the same or later, so a new `actionPermission` alone does not replace it. To change only the permission, upload
- * the document once with `Client.uploadFlowDefinitions(documents, true)`.
+ * is the same or later, so a new `actionPermission` or new `connectorTriggerBindings` alone do not replace it. To
+ * change only those, upload the document once with `Client.uploadFlowDefinitions(documents, true)`.
  *
  * @example
  * ```ts

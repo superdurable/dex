@@ -1,7 +1,7 @@
 ---
 title: Connector Triggers
 sidebar_label: Connector Triggers
-description: "Connector Triggers can start an agent session and send it user messages, each event once while Dex Server keeps its request ID. This page covers the TypeScript packages, the request IDs of both targets, their limits, durable delivery from Slack, and tests without a provider."
+description: "Connector Triggers can start an agent session and send it user messages, each event once while Dex Server keeps its request ID. This page covers the TypeScript packages, the request IDs of both targets, their limits, durable delivery from Slack, session graph bindings, and tests without a provider."
 ---
 
 # Connector Triggers
@@ -9,8 +9,8 @@ description: "Connector Triggers can start an agent session and send it user mes
 Connector Triggers can start an agent session and send it user messages.
 [Start and feed sessions from Connector Triggers](/agent-frameworks/sessions#connector-triggers)
 explains the pattern. This page covers the TypeScript packages, the request
-IDs of both targets, their limits, durable delivery from Slack, and tests
-without a provider. Since 0.6.7, the first release that accepts
+IDs of both targets, their limits, durable delivery from Slack, session graph
+bindings, and tests without a provider. Since 0.6.7, the first release that accepts
 `@superdurable/connectors-sdk` 0.10. The
 [Slack thread agent example](https://github.com/superdurable/dex/tree/main/examples/typescript/slack-thread-agent)
 uses everything on this page.
@@ -111,6 +111,34 @@ a `MessageEvent` with `teamId`, `channelId`, `timestamp`, `threadTimestamp`,
 - The `threadReplyCreated` matcher requires at least one poster user ID.
 - Run every Trigger of one Slack connection on one runner. Slack sends each
   event to only one Socket Mode connection.
+
+## Declare the bindings in the session graph {#session-graph-bindings}
+
+Since 0.6.12. A hosting platform configures a Trigger binding only when a
+Flow Definition Graph declares it. The session Flow has no code that declares
+bindings, so add them when you render the session graph. Declare one binding
+for each Trigger that delivers into the session:
+
+```bash
+npx --no-install dex-agents-session-graph --flow-type SupportAgent \
+  --permission support-agent.operate \
+  --trigger-binding slack-workspace=@superdurable/connector-slack@0.6.0:channelThreadCreated:support-threads \
+  --trigger-binding slack-workspace=@superdurable/connector-slack@0.6.0:threadReplyCreated:support-thread-replies \
+  --out definitions/support-agent.json
+```
+
+- Use the connection and binding names that your Trigger runner uses.
+- Run the command where the Connector package is installed. It reads the
+  package's **dex-connector.json** and fails when the package or Trigger is
+  missing.
+- `@superdurable/connector-slack` 0.6.0 declares no UI units for its
+  Triggers. To offer a channel picker and a member picker, pass the units in a
+  **--trigger-bindings** file.
+- The binding does not deliver events. The reply target still calls
+  `send_user_message`, and the start target still starts the session Flow.
+
+[Declare Connector Trigger bindings](/reference/agents/dex-web#trigger-bindings)
+describes the flag, the file, and the code functions.
 
 ## Test without a provider {#testing}
 
