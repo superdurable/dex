@@ -304,6 +304,8 @@ impl FlowCoordinatorRegistry {
 
     /// Reads the source run's current hard-delete Attribute values for the new run's objects.
     ///
+    /// The computation already charged each object's size to the replay memory budget.
+    ///
     /// Returns FAILED_PRECONDITION when an object no longer exists, and UNAVAILABLE when object
     /// storage fails.
     async fn copied_hard_delete_writes(

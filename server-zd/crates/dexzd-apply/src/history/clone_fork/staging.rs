@@ -40,6 +40,10 @@ pub(crate) const STAGING_ID_BYTES: usize = 16;
 /// Stagings that one partition holds at most at once; another one is rejected.
 const MAX_PARTITION_STAGINGS: usize = 64;
 
+/// Chunk bytes that one partition's stagings hold at most: about 64 copies at the default
+/// 64 MiB state limit.
+const MAX_PARTITION_STAGED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
 /// Applies one FlowCloneForkStage chunk. It records no history and takes no run seq.
 ///
 /// A malformed chunk is rejected before it is stored, so FlowCloneFork never reads one.
@@ -53,13 +57,11 @@ pub(crate) fn apply_flow_clone_fork_stage(
     }
     let staging_id = command.staging_id.as_slice();
     let existing = read_staging_record(transaction, staging_id)?;
-    let staging = match (existing, command.chunk_index) {
-        (Some(record), 0) => {
-            delete_staging_rows(transaction, staging_id, &record);
-            FlowCloneForkStagingRecord::default()
-        }
+    let partition = partition_stagings(transaction)?;
+    let staging = match (&existing, command.chunk_index) {
+        (Some(_), 0) => FlowCloneForkStagingRecord::default(),
         (None, 0) => {
-            if partition_staging_count(transaction)? >= MAX_PARTITION_STAGINGS {
+            if partition.count >= MAX_PARTITION_STAGINGS {
                 return Ok(HandlerResult::Rejected(error_reply(
                     grpc_code::RESOURCE_EXHAUSTED,
                     ErrorSubStatus::Uncategorized,
@@ -74,11 +76,10 @@ pub(crate) fn apply_flow_clone_fork_stage(
         (Some(record), chunk_index) => {
             if record.is_complete || record.chunk_count != chunk_index {
                 return Ok(HandlerResult::Rejected(out_of_order_chunk_reply(
-                    command, &record,
+                    command, record,
                 )));
             }
-            delete_staging_index_row(transaction, staging_id, record.staged_at_micros);
-            record
+            *record
         }
         (None, chunk_index) => {
             return Ok(HandlerResult::Rejected(error_reply(
@@ -92,6 +93,31 @@ pub(crate) fn apply_flow_clone_fork_stage(
             )));
         }
     };
+    let chunk_bytes = u64::try_from(command.chunk.len()).expect("a chunk length fits a u64");
+    let staged_bytes = staging.staged_bytes.saturating_add(chunk_bytes);
+    let other_stagings_bytes = partition
+        .staged_bytes
+        .saturating_sub(existing.as_ref().map_or(0, |record| record.staged_bytes));
+    if other_stagings_bytes.saturating_add(staged_bytes) > MAX_PARTITION_STAGED_BYTES {
+        return Ok(HandlerResult::Rejected(error_reply(
+            grpc_code::RESOURCE_EXHAUSTED,
+            ErrorSubStatus::Uncategorized,
+            format!(
+                "chunk {} of clone fork staging {} would make this partition's stagings in \
+                 progress hold more than {MAX_PARTITION_STAGED_BYTES} bytes; retry the clone \
+                 fork later",
+                command.chunk_index,
+                hex(staging_id)
+            ),
+        )));
+    }
+    match (&existing, command.chunk_index) {
+        (Some(record), 0) => delete_staging_rows(transaction, staging_id, record),
+        (Some(record), _) => {
+            delete_staging_index_row(transaction, staging_id, record.staged_at_micros);
+        }
+        (None, _) => {}
+    }
     let flow_hash = transaction.context().flow_hash;
     transaction.put(
         ColumnFamily::Value,
@@ -105,6 +131,7 @@ pub(crate) fn apply_flow_clone_fork_stage(
             chunk_count: staging.chunk_count + 1,
             is_complete: command.is_last_chunk,
             staged_at_micros: scope.now_micros,
+            staged_bytes,
         },
     );
     transaction.put_message(
@@ -118,6 +145,7 @@ pub(crate) fn apply_flow_clone_fork_stage(
         &FlowCloneForkStagingIndexRecord {
             tenant_id: scope.tenant_id.0,
             flow_id: scope.flow_id().to_owned(),
+            staged_bytes,
         },
     );
     Ok(HandlerResult::Applied(no_run_output(ok_reply())))
@@ -251,24 +279,45 @@ fn delete_staging_index_row(
     );
 }
 
-/// Counts the partition's stagings, up to [`MAX_PARTITION_STAGINGS`].
-fn partition_staging_count(transaction: &FlowTransaction<'_>) -> Result<usize, ApplyError> {
+/// The stagings in progress on one partition.
+struct PartitionStagings {
+    count: usize,
+    staged_bytes: u64,
+}
+
+/// Counts the partition's stagings, up to [`MAX_PARTITION_STAGINGS`], and sums their bytes.
+///
+/// Returns an error when an index row does not decode.
+fn partition_stagings(transaction: &FlowTransaction<'_>) -> Result<PartitionStagings, ApplyError> {
     let prefix = partition_index_prefix(
         transaction.context().partition,
         IndexKind::FlowCloneForkStaging,
     );
     let (start, end) = prefix_range(&prefix);
-    Ok(transaction
-        .scan(
-            ColumnFamily::PartitionIndex,
-            &start,
-            &end,
-            MAX_PARTITION_STAGINGS,
-        )?
-        .len())
+    let index_rows = transaction.scan(
+        ColumnFamily::PartitionIndex,
+        &start,
+        &end,
+        MAX_PARTITION_STAGINGS,
+    )?;
+    let mut staged_bytes: u64 = 0;
+    for (key, value) in &index_rows {
+        let index = FlowCloneForkStagingIndexRecord::decode(value.as_slice()).map_err(|error| {
+            ApplyError::CorruptState {
+                table: "clone fork staging index",
+                key: hex(key),
+                detail: error.to_string(),
+            }
+        })?;
+        staged_bytes = staged_bytes.saturating_add(index.staged_bytes);
+    }
+    Ok(PartitionStagings {
+        count: index_rows.len(),
+        staged_bytes,
+    })
 }
 
-/// Checks a chunk's ID, decoding, target placement, and entries before storing it.
+/// Checks a chunk's ID, size, decoding, target placement, and entries before storing it.
 ///
 /// Returns the INVALID_ARGUMENT reply for a malformed chunk.
 fn validate_stage_command(command: &FlowCloneForkStageCommand) -> Result<(), CommandReply> {
@@ -276,6 +325,13 @@ fn validate_stage_command(command: &FlowCloneForkStageCommand) -> Result<(), Com
         return Err(invalid_staging_reply(&format!(
             "the staging ID has {} bytes instead of {STAGING_ID_BYTES}",
             command.staging_id.len()
+        )));
+    }
+    if command.chunk.len() > MAX_STAGE_CHUNK_BYTES {
+        return Err(invalid_staging_reply(&format!(
+            "chunk {} has {} bytes, more than the {MAX_STAGE_CHUNK_BYTES} one command carries",
+            command.chunk_index,
+            command.chunk.len()
         )));
     }
     let chunk = FlowCloneForkStagedChunk::decode(command.chunk.as_slice()).map_err(|error| {

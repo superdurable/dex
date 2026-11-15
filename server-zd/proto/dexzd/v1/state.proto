@@ -800,12 +800,16 @@ message FlowCloneForkStagingRecord {
   // Proposal time of the latest chunk's command; the FlowCloneForkStaging partition index row
   // carries the same time.
   int64 staged_at_micros = 3;
+  // Encoded bytes of the chunks staged so far.
+  uint64 staged_bytes = 4;
 }
 
 // Value of a FlowCloneForkStaging partition index row: the Flow whose staging the owner expires.
 message FlowCloneForkStagingIndexRecord {
   uint64 tenant_id = 1;
   string flow_id = 2;
+  // The staging's staged_bytes, which the partition's staging byte cap sums.
+  uint64 staged_bytes = 3;
 }
 
 // Value of a CloneForkFlow staging chunk row. The parts of all chunks, in chunk order, form the

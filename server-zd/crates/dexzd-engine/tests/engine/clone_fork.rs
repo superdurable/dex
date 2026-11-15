@@ -84,18 +84,26 @@ impl TravelNode {
     }
 
     async fn set_flow_attribute(&self, flow_id: &str, key: &str, value: Value) {
+        self.write_flow_attributes(
+            flow_id,
+            vec![AttributeWrite {
+                key: key.to_owned(),
+                value: Some(value),
+                ..AttributeWrite::default()
+            }],
+        )
+        .await;
+    }
+
+    async fn write_flow_attributes(&self, flow_id: &str, writes: Vec<AttributeWrite>) {
         self.registry
             .set_attributes(
                 TenantId::DEFAULT,
                 SetAttributesRequest {
                     flow_id: flow_id.to_owned(),
-                    attributes: vec![AttributeWrite {
-                        key: key.to_owned(),
-                        value: Some(value),
-                        ..AttributeWrite::default()
-                    }],
+                    attributes: writes,
                     request_id: format!(
-                        "set-{flow_id}-{key}-{}",
+                        "set-{flow_id}-{}",
                         NEXT_REQUEST.fetch_add(1, Ordering::SeqCst)
                     ),
                     ..SetAttributesRequest::default()
@@ -209,7 +217,8 @@ impl TravelNode {
             .collect()
     }
 
-    /// Returns the object that holds the value of the run's hard-delete Attribute `key`.
+    /// Returns the object that holds the value of the run's hard-delete Attribute `key`, or
+    /// `None` when the run lacks it or it is not a hard-delete Attribute.
     fn hard_delete_object_of(&self, flow_id: &str, run_id: RunId, key: &str) -> Option<String> {
         let row_key = run_named_key(
             self.context_of(flow_id).flow_hash,
@@ -220,8 +229,7 @@ impl TravelNode {
         let record = AttributeRecord::decode(
             self.view()
                 .get(ColumnFamily::Flow, &row_key)
-                .expect("the Attribute reads")
-                .expect("the Attribute exists")
+                .expect("the Attribute reads")?
                 .as_slice(),
         )
         .expect("the Attribute decodes");
@@ -1284,6 +1292,7 @@ struct MemoryHardDeleteObjects {
     /// The run of each upload call and the keys of its writes.
     uploads: std::sync::Mutex<Vec<(RunId, Vec<String>)>>,
     finished: std::sync::Mutex<Vec<(Vec<String>, dexzd_engine::HardDeleteUploadOutcome)>>,
+    reads: AtomicUsize,
 }
 
 impl dexzd_engine::HardDeleteValueReader for MemoryHardDeleteObjects {
@@ -1294,6 +1303,7 @@ impl dexzd_engine::HardDeleteValueReader for MemoryHardDeleteObjects {
         object: &'a dexzd_protocol::dexzd::v1::HardDeleteObjectReference,
     ) -> futures::future::BoxFuture<'a, Result<Option<Value>, dexzd_engine::HardDeleteReadError>>
     {
+        self.reads.fetch_add(1, Ordering::SeqCst);
         let value = self
             .values
             .lock()
@@ -1323,7 +1333,11 @@ impl dexzd_engine::HardDeleteValueUploader for MemoryHardDeleteObjects {
         ));
         let mut uploads = dexzd_engine::FlowCoordinationHardDeleteUploads::default();
         for (write_index, write) in writes.iter_mut().enumerate() {
-            let Some(value) = write.value.clone().filter(|_| write.is_hard_delete_on_null) else {
+            // A null value erases the Attribute and gets no object, as in the real uploader.
+            let Some(value) = write.value.clone().filter(|value| {
+                write.is_hard_delete_on_null
+                    && !matches!(value.kind, Some(value::Kind::NullValue(_)))
+            }) else {
                 continue;
             };
             let object_id = format!(
@@ -1468,6 +1482,134 @@ async fn hard_delete_attributes_are_uploaded_again_for_the_new_run() {
             .map(|(_, outcome)| *outcome),
         Some(dexzd_engine::HardDeleteUploadOutcome::NotCommitted),
         "the rejected clone fork's uploads are deleted"
+    );
+    node.shutdown().await;
+}
+
+async fn start_hard_delete_node(
+    config: FlowCoordinationConfig,
+) -> (
+    TestCluster,
+    TravelNode,
+    std::sync::Arc<MemoryHardDeleteObjects>,
+) {
+    let objects = std::sync::Arc::new(MemoryHardDeleteObjects::default());
+    let cluster = TestCluster::new();
+    let mut config = config;
+    config.validation.has_blob_store = true;
+    let node = TravelNode::start_with_hard_delete_ports(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        vec![segmented_opener()],
+        config,
+        dexzd_engine::HistoryReadsConfig::default(),
+        crate::time_travel::HardDeletePorts {
+            reader: objects.clone(),
+            uploader: objects.clone(),
+        },
+    )
+    .await;
+    (cluster, node, objects)
+}
+
+/// Hard-delete Attributes are the exception to the point, as in a time travel: a clone of an
+/// earlier point gets the source's current values and lacks the ones erased since.
+#[tokio::test(start_paused = true)]
+async fn hard_delete_attributes_take_their_current_values_at_a_historical_point() {
+    let (_cluster, node, objects) = start_hard_delete_node(FlowCoordinationConfig::default()).await;
+    let source_run = node
+        .start_source(StartFlowRequest {
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(pull_config("source-queue")),
+                attributes: vec![
+                    hard_delete_write("changed", "old"),
+                    hard_delete_write("erased", "set at the point"),
+                ],
+                ..FlowStartOptions::default()
+            }),
+            ..source_start("start-source")
+        })
+        .await;
+    let point_event_id = node.record_of(SOURCE_FLOW, source_run).next_event_id - 1;
+    node.write_flow_attributes(
+        SOURCE_FLOW,
+        vec![
+            hard_delete_write("added", "added after the point"),
+            hard_delete_write("changed", "new"),
+            AttributeWrite {
+                key: "erased".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            },
+        ],
+    )
+    .await;
+    let response = node
+        .clone_fork(CloneForkFlowRequest {
+            point_type: FlowCloneForkPointType::EventId as i32,
+            event_id: point_event_id,
+            ..clone_request("clone-hard-delete-point", "request-hard-delete-point")
+        })
+        .await
+        .expect("the clone fork applies");
+    assert_eq!(response.source_event_id, point_event_id);
+    let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+    let value_of = |key: &str| {
+        node.hard_delete_object_of("clone-hard-delete-point", clone_run, key)
+            .map(|object| objects.values.lock().expect("value lock")[&object].clone())
+    };
+    assert_eq!(
+        value_of("added"),
+        Some(string_value("added after the point")),
+        "an Attribute added after the point is copied"
+    );
+    assert_eq!(
+        value_of("changed"),
+        Some(string_value("new")),
+        "an Attribute changed after the point has its current value"
+    );
+    assert_eq!(
+        value_of("erased"),
+        None,
+        "an Attribute erased after the point is absent"
+    );
+    node.shutdown().await;
+}
+
+/// Hard-delete values past the memory budget fail the clone fork before the owner reads any
+/// object or stages anything.
+#[tokio::test(start_paused = true)]
+async fn hard_delete_values_over_the_memory_budget_fail_before_any_object_read() {
+    let (_cluster, node, objects) = start_hard_delete_node(FlowCoordinationConfig {
+        time_travel_replay_memory_bytes: 64 << 10,
+        ..FlowCoordinationConfig::default()
+    })
+    .await;
+    node.start_source(source_start("start-source")).await;
+    let fill = "h".repeat(8 << 10);
+    node.write_flow_attributes(
+        SOURCE_FLOW,
+        (0..16)
+            .map(|index| hard_delete_write(&format!("secret-{index}"), &fill))
+            .collect(),
+    )
+    .await;
+    let error = node
+        .clone_fork(clone_request("clone-over-budget", "request-over-budget"))
+        .await
+        .expect_err("128 KiB of hard-delete values exceed 64 KiB");
+    assert_eq!(error.grpc_code(), grpc_code::RESOURCE_EXHAUSTED, "{error}");
+    assert_eq!(objects.reads.load(Ordering::SeqCst), 0, "no object is read");
+    assert_eq!(
+        node.count_committed("clone-over-budget", |command| matches!(
+            command,
+            Command::FlowCloneForkStage(_)
+        )),
+        0,
+        "nothing is staged"
     );
     node.shutdown().await;
 }

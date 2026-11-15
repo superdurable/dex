@@ -579,8 +579,8 @@ condition now completes at the time travel instead of when the result arrives.
 ## Clone fork {#clone-fork}
 
 Since 0.1.33. **CloneForkFlow** creates a new Flow whose first run starts from a
-copy of another Flow run's state at one point. The source run keeps running
-and never changes. A typical use is an agent session that branches into a new
+copy of another Flow run's state at one point. The call only reads the source
+run, so the source never changes; a running source keeps running. A typical use is an agent session that branches into a new
 session while the old session continues. The call requires Server protocol
 version 6.
 
@@ -609,12 +609,17 @@ fails with **FAILED_PRECONDITION**; select an earlier point.
 
 The new run copies the state at the point:
 
-- its Attributes, and the source run's current hard-delete Attributes, which the
-  new run stores in objects of its own;
+- its Attributes, except hard-delete Attributes;
 - its pending Channel messages, Step executions, Step counters, and waits;
 - the Step timers, which keep their fire times;
 - every value that this state holds, including values that history offload
   moved to object storage.
+
+Hard-delete Attributes are the exception to the point: the new run gets the
+source run's current hard-delete Attributes, as a time travel keeps them. It
+receives each current value, including a value written after the point, and
+lacks each hard-delete Attribute that is unset now, even one set at the point.
+The new run stores these values in objects of its own.
 
 The new run keeps every copied value for its whole life. A time travel of the
 new run to its beginning therefore returns to the copied point. Steps that were
@@ -630,7 +635,9 @@ source fields.
 The new run leaves out the source run's history, Stream messages, outbox
 messages, and the request IDs that deduplicate RPCs and Channel publications. It
 has no parent Flow and no sticky Worker. The source run's input after the point,
-such as RPCs, Channel publications, and Attribute writes, is not applied.
+such as RPCs, Channel publications, and Attribute writes, is not applied. The
+one exception is hard-delete Attributes, which take their current values as
+described above.
 
 **attributes** are written after the copy, in the same change that creates the
 run. **flow_config_override** changes the copied FlowConfig, as a StartFlow
@@ -694,9 +701,11 @@ The source run's children never change.
 | **INVALID_ARGUMENT** | **flow_id** equals **source_flow_id**, a required field is empty, or a field does not fit the point type. |
 | **FAILED_PRECONDITION** | The point is outside the history window or does not exist, its state is not RUNNING, the SubFlow reset policy rejects a copied wait, a copied value is no longer stored, or the timeout rule above rejects the request. |
 | **ALREADY_EXISTS** | The ID reuse policy rejects the new run. |
-| **RESOURCE_EXHAUSTED** | The copied state exceeds [**limits.maxFlowStateBytes**](/reference/server/configuration#flow-state-budget), the computation needs more than [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints), or the new Flow's partition already holds 64 clone forks in progress. |
+| **RESOURCE_EXHAUSTED** | The copied state exceeds [**limits.maxFlowStateBytes**](/reference/server/configuration#flow-state-budget), the computation needs more than [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints), or the new Flow's partition already holds 64 clone forks in progress or 4 GiB of their staged copies. |
 | **ABORTED** | The staged copy expired or was replaced several times in a row, or the child Flows the call reads kept changing while it computed. Retry with the same **request_id**. |
 
 The server stages the copy on the new Flow's partition in chunks of about
 8 MiB before it creates the run. A staging that no chunk extends for 10 minutes
-expires.
+expires. The stagings in progress on one partition hold at most 4 GiB, about 64
+copies at the default **limits.maxFlowStateBytes** of 64 MiB. The cap is fixed,
+so a larger **limits.maxFlowStateBytes** leaves room for fewer copies at once.
