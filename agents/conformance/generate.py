@@ -74,6 +74,8 @@ from dex_agents import (
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TOOL_CALL_NOT_RUN_ERROR_PREFIX,
+    TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
+    TOOL_CALL_NOTE_TRUNCATION_MARKER,
     TOOL_TASK_ABANDONED_ERROR,
     TURN_CANCELLED_NOTE_HEADER,
     TURN_FAILURE_NOTE_FOOTER,
@@ -1779,6 +1781,7 @@ def build_names() -> dict[str, Any]:
             "message_rollover_max_chunks_per_commit": MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
             "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
             "default_retained_message_limit": DEFAULT_RETAINED_MESSAGE_LIMIT,
+            "tool_call_note_max_output_bytes": TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
             "session_terminal_lease_maximum_ttl_seconds": (
                 SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS
             ),
@@ -1966,6 +1969,28 @@ def note_records() -> list[AgentToolCall]:
     ]
 
 
+def long_outcome_note_records() -> list[list[AgentToolCall]]:
+    """Return failed-turn records whose outcomes sit at or past the note's byte budget."""
+    budget = TOOL_CALL_NOTE_MAX_OUTPUT_BYTES
+    return [
+        # Exactly at the budget: kept whole.
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="a" * budget)],
+        # Long ASCII.
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="<p>row</p>" * 250)],
+        # A 3-byte CJK character crosses the budget.
+        [final_record(ToolCallStatus.SUCCEEDED, 0, output="a" * (budget - 1) + "\u65e5\u672c")],
+        # A 4-byte emoji (a UTF-16 surrogate pair) crosses the budget; the short call stays whole.
+        [
+            final_record(
+                ToolCallStatus.SUCCEEDED, 0, output="a" * (budget - 2) + "\U0001f600\U0001f600"
+            ),
+            final_record(ToolCallStatus.FAILED, 1, error="smtp down"),
+        ],
+        # A long error: the cut counts the "The tool call failed: " prefix too.
+        [final_record(ToolCallStatus.FAILED, 1, error="x" + "\u00e9" * 1000)],
+    ]
+
+
 def record_json(record: AgentToolCall) -> Any:
     return json.loads(encode("AgentToolCall", record))
 
@@ -2062,6 +2087,7 @@ def build_texts() -> dict[str, Any]:
         "question_declined_tool_result": QUESTION_DECLINED_TOOL_RESULT,
         "turn_failure_note_header": TURN_FAILURE_NOTE_HEADER,
         "turn_failure_note_footer": TURN_FAILURE_NOTE_FOOTER,
+        "tool_call_note_truncation_marker": TOOL_CALL_NOTE_TRUNCATION_MARKER,
         "turn_steered_note_header": TURN_STEERED_NOTE_HEADER,
         "turn_cancelled_note_header": TURN_CANCELLED_NOTE_HEADER,
         "tool_call_cancelled_by_steering_result": TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
@@ -2097,9 +2123,10 @@ def build_texts() -> dict[str, Any]:
         ],
         "turn_failure_note": [
             {
-                "input": {"records": [record_json(record) for record in records]},
-                "text": build_turn_failure_note(records),
+                "input": {"records": [record_json(record) for record in case_records]},
+                "text": build_turn_failure_note(case_records),
             }
+            for case_records in [records, *long_outcome_note_records()]
         ],
         "turn_steered_note": [
             {

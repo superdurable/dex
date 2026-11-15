@@ -1520,6 +1520,12 @@ last message, so the next turn's model does not repeat a write. The text is
 Do not repeat these tool calls unless the user asks again.
 ```
 
+An outcome longer than `toolCallNoteMaxOutputBytes` (2,000 UTF-8 bytes) keeps its longest prefix of
+whole code points within that budget, followed by `toolCallNoteTruncationMarker`, such as
+`… [output truncated: 23456 of 25456 bytes omitted]`. The record keeps the full output; only the note
+is cut, because every later turn resends it. `buildToolCallNote`, which writes the steered and
+stopped turn notes, cuts outcomes the same way.
+
 | Persistence name | Kind | Value |
 | --- | --- | --- |
 | `AgentState` | Attribute | `AgentState` |

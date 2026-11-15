@@ -64,6 +64,26 @@ TURN_FAILURE_NOTE_HEADER = "[Dex] The previous turn failed after these tool call
 #: Last line of that note.
 TURN_FAILURE_NOTE_FOOTER = "Do not repeat these tool calls unless the user asks again."
 
+#: Most UTF-8 bytes of one tool call's outcome that a tool call note keeps.
+#:
+#: ``build_tool_call_note`` and ``build_turn_failure_note`` cut a longer outcome
+#: at the last whole character within this budget and append
+#: ``TOOL_CALL_NOTE_TRUNCATION_MARKER``. The stored tool call record keeps the
+#: full output. Every later turn resends the note, so the budget bounds that cost.
+#:
+#: .. versionadded:: 0.6.12
+TOOL_CALL_NOTE_MAX_OUTPUT_BYTES = 2000
+
+#: Marker a tool call note appends to a cut outcome.
+#:
+#: ``{omitted_bytes}`` is the UTF-8 size of the cut part and ``{total_bytes}``
+#: the size of the whole outcome, both in plain decimal digits.
+#:
+#: .. versionadded:: 0.6.12
+TOOL_CALL_NOTE_TRUNCATION_MARKER = (
+    "\u2026 [output truncated: {omitted_bytes} of {total_bytes} bytes omitted]"
+)
+
 #: Model-visible text for a rejection without a message.
 DEFAULT_REJECTION_TOOL_RESULT = "The user rejected this tool call."
 
@@ -206,12 +226,20 @@ def build_turn_failure_note(tool_calls: Sequence[AgentToolCall]) -> str:
         - charge {"amount": 5} -> succeeded: charged 5
         Do not repeat these tool calls unless the user asks again.
 
+    An outcome longer than ``TOOL_CALL_NOTE_MAX_OUTPUT_BYTES`` UTF-8 bytes keeps
+    its longest whole-character prefix within that budget, followed by
+    ``TOOL_CALL_NOTE_TRUNCATION_MARKER``. The records themselves are unchanged.
+
+    .. versionchanged:: 0.6.12
+       Long outcomes are cut to ``TOOL_CALL_NOTE_MAX_OUTPUT_BYTES``.
+
     Args:
         tool_calls: Final records of the failed turn.
 
     Returns:
         ``TURN_FAILURE_NOTE_HEADER``, one ``"- <tool_name> <arguments> ->
-        <status>: <describe_tool_call_outcome(record)>"`` line per record, and
+        <status>: <outcome>"`` line per record, where the outcome is
+        ``describe_tool_call_outcome(record)``, cut as above, and
         ``TURN_FAILURE_NOTE_FOOTER``, joined with newlines.
 
     Raises:
@@ -230,21 +258,57 @@ def build_tool_call_note(header: str, tool_calls: Sequence[AgentToolCall]) -> st
         header: First line, such as ``TURN_STEERED_NOTE_HEADER``.
         tool_calls: Final records of the ending turn.
 
+    .. versionchanged:: 0.6.12
+       Long outcomes are cut to ``TOOL_CALL_NOTE_MAX_OUTPUT_BYTES``, as in
+       ``build_turn_failure_note``.
+
     Returns:
-        ``header``, one line per record as in ``build_turn_failure_note``, and
-        ``TURN_FAILURE_NOTE_FOOTER``, joined with newlines.
+        ``header``, one line per record as in ``build_turn_failure_note``, with
+        long outcomes cut the same way, and ``TURN_FAILURE_NOTE_FOOTER``, joined
+        with newlines.
 
     Raises:
         ValueError: If a record is not final.
     """
     lines = [header]
     for tool_call in sorted(tool_calls, key=lambda record: record.deferral_order):
-        outcome = describe_tool_call_outcome(tool_call)
+        outcome = _truncate_note_outcome(describe_tool_call_outcome(tool_call))
         lines.append(
             f"- {tool_call.tool_name} {tool_call.arguments} -> {tool_call.status}: {outcome}"
         )
     lines.append(TURN_FAILURE_NOTE_FOOTER)
     return "\n".join(lines)
+
+
+def _truncate_note_outcome(outcome: str) -> str:
+    """Return ``outcome``, or its longest whole-character prefix within budget plus the marker."""
+    total_bytes = len(outcome.encode("utf-8", "surrogatepass"))
+    if total_bytes <= TOOL_CALL_NOTE_MAX_OUTPUT_BYTES:
+        return outcome
+    kept_bytes = 0
+    kept_characters = 0
+    for character in outcome:
+        size = _utf8_character_size(character)
+        if kept_bytes + size > TOOL_CALL_NOTE_MAX_OUTPUT_BYTES:
+            break
+        kept_bytes += size
+        kept_characters += 1
+    marker = TOOL_CALL_NOTE_TRUNCATION_MARKER.format(
+        omitted_bytes=total_bytes - kept_bytes, total_bytes=total_bytes
+    )
+    return outcome[:kept_characters] + marker
+
+
+def _utf8_character_size(character: str) -> int:
+    # A lone surrogate counts 3 bytes, as surrogatepass and the TypeScript core's U+FFFD do.
+    code_point = ord(character)
+    if code_point < 0x80:
+        return 1
+    if code_point < 0x800:
+        return 2
+    if code_point < 0x10000:
+        return 3
+    return 4
 
 
 @dataclass(frozen=True, kw_only=True)
