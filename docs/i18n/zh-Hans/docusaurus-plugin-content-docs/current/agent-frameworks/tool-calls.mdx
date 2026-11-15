@@ -18,7 +18,6 @@ slug: /agent-frameworks/tool-calls
 | --- | --- | --- |
 | **read** | 只读取。再次运行没有影响。 | `CallTool`，会重试 |
 | `idempotent_write` | 写入，用同一个幂等键重复执行不会产生更多效果。 | `CallTool`，会重试 |
-| `bounded_write` | 写入，重复执行可能重复产生效果，但次数有上限。 | `CallTool`，会重试 |
 | `non_idempotent_write` | 写入，重复执行可能重复产生效果。 | `CallSingleAttemptTool`，一次 |
 | **unclassified** | 对它一无所知。Dex 把它当作非幂等写操作。 | `CallSingleAttemptTool`，一次 |
 
@@ -32,7 +31,6 @@ Policy 有两个字段：effect class 和 `requires_approval`（TypeScript 中�
 | --- | --- |
 | **read** | 否 |
 | `idempotent_write` | 否 |
-| `bounded_write` | 是 |
 | `non_idempotent_write` | 是 |
 | **unclassified** | 是 |
 

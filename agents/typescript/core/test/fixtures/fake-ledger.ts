@@ -356,7 +356,8 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
  * lets a later attempt read back and resend while the call's sends stay below the cap. Words steer it: reject
  * (refused before sending), reject-on-send (the provider refuses the sent message, canResend), lose-first (attempt
  * 1's message is accepted where read-back cannot see it and its response is lost), lose-visible (the same, but
- * read-back finds it), and lose-always (every send is lost and hidden).
+ * read-back finds it), lose-always (every send is lost and hidden), and reject-before-fence-later (attempt 2 and
+ * later refuse before the fence decides, a wrong order the agent core must still treat as unknown).
  */
 export class SendMessageOperation implements Mutation<SendMessageInput, Message> {
   public constructor(
@@ -376,16 +377,21 @@ export class SendMessageOperation implements Mutation<SendMessageInput, Message>
     const words = input.text.split(/\s+/).filter((word) => word !== "");
     const key = call.idempotencyKey ?? call.id;
     const attempt = call.context.attempt;
+    if (words.includes("reject-before-fence-later") && attempt > 1) {
+      // A wrong order: a later attempt refuses before the fence reads the earlier attempt's claim.
+      return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "refused before the fence"));
+    }
+    // The fence decides before credentials or provider lookups, as the Connector contract requires.
+    const fence = new Fence(call, 30_000, { maxSends: definitionMaxSends(this.operationDefinition) });
+    const decision = fence.decide();
+    if (decision.kind === "failClosed") {
+      return newMutationUncertain({}, failure("sendMessage", decision.error?.message ?? "invalid checkpoint"));
+    }
     if (!(await this.provider.authorize(call))) {
       return newMutationBranch("providerRejected", {}, {}, refused("sendMessage"));
     }
     if (words.includes("reject")) {
       return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "channel archived"));
-    }
-    const fence = new Fence(call, 30_000, { maxSends: definitionMaxSends(this.operationDefinition) });
-    const decision = fence.decide();
-    if (decision.kind === "failClosed") {
-      return newMutationUncertain({}, failure("sendMessage", decision.error?.message ?? "invalid checkpoint"));
     }
     if (decision.kind === "readBackRequired" || decision.kind === "readBackThenResendAllowed") {
       const found = this.provider.find("sendMessage", key);

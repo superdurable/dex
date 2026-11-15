@@ -219,7 +219,7 @@ func effectLabel(effect dexagents.ToolEffect) string {
 	switch effect {
 	case dexagents.ToolEffectRead:
 		return "read"
-	case dexagents.ToolEffectIdempotentWrite, dexagents.ToolEffectBoundedWrite, dexagents.ToolEffectNonIdempotentWrite:
+	case dexagents.ToolEffectIdempotentWrite, dexagents.ToolEffectNonIdempotentWrite:
 		return "write"
 	case "":
 		return ""

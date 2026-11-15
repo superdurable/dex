@@ -232,10 +232,9 @@ class ConnectorTool:
         operation_id: The operation ID, such as ``createRefund``.
         kind: ``"query"`` or ``"mutation"``.
         effect: ``READ`` for a Query, ``IDEMPOTENT_WRITE`` for a Mutation with
-            ``agent.retry: safe``, ``BOUNDED_WRITE`` for a Mutation whose
-            manifest and operation definition both say
-            ``repeatOnUnknown: limited`` with the same send cap, and
-            ``NON_IDEMPOTENT_WRITE`` for any other Mutation.
+            ``agent.retry: safe``, and ``NON_IDEMPOTENT_WRITE`` for any other
+            Mutation, including one that resends a bounded number of times
+            (``max_sends``).
         is_approval_recommended: Whether the manifest says
             ``agent.approval: recommended``.
         requires_approval: The application's choice: ``True`` or ``False``
@@ -251,16 +250,20 @@ class ConnectorTool:
         execute_method_timeout: The operation's Execute timeout, or ``None``.
         retry_policy: The operation's Execute retry policy, which bounds a
             ``CallTool`` call's retries. A ``READ`` or ``IDEMPOTENT_WRITE``
-            tool gets at most 3 attempts. A ``BOUNDED_WRITE`` tool gets the
+            tool gets at most 3 attempts. A tool with ``max_sends`` gets the
             operation's attempts, at least ``max_sends``.
-        max_sends: The send cap of a ``BOUNDED_WRITE`` tool, the manifest's
-            ``agent.maxSends``; ``None`` for every other tool.
+        max_sends: The send cap of a Mutation that may resend a write whose
+            outcome is unknown: the manifest's ``agent.maxSends``, when the
+            manifest says ``agent.repeatOnUnknown: limited`` and the
+            operation definition agrees; ``None`` for every other tool. Such a
+            tool keeps ``NON_IDEMPOTENT_WRITE``; each call pins its cap in its
+            tool source reference and runs in ``CallSingleAttemptTool`` with
+            up to ``retry_policy``'s attempts.
 
     .. versionadded:: 0.4.0
 
     .. versionchanged:: 0.6.12
-        Added ``max_sends``. A ``limited`` Mutation is ``BOUNDED_WRITE``; it
-        was ``NON_IDEMPOTENT_WRITE``.
+        Added ``max_sends``.
     """
 
     name: str
@@ -304,23 +307,25 @@ def connector_tool(
     The manifest decides how the call runs. A Query is ``READ`` and runs in
     ``CallTool``. A Mutation with ``agent.retry: safe`` is
     ``IDEMPOTENT_WRITE`` and runs in ``CallTool``, whose retries stay inside
-    the operation's own Execute retry policy and timeout. A Mutation whose
-    manifest says ``agent.repeatOnUnknown: limited`` is ``BOUNDED_WRITE`` and
-    runs in ``CallTool``. When a send's outcome is unknown, such as after a
-    timeout or a 5xx, its connector reads back when it can and resends, at
-    most ``agent.maxSends`` times per call. A definite failure is never
-    resent. Its attempts are the operation's own, at least
-    ``agent.maxSends``. Any other Mutation is ``NON_IDEMPOTENT_WRITE`` and
-    runs once in ``CallSingleAttemptTool``. The effect class always comes from
-    the manifest; a session's ``tool_policies`` entry for the tool changes only
-    its approval and, for a ``BOUNDED_WRITE`` tool, its send cap through
-    ``max_sends``.
+    the operation's own Execute retry policy and timeout. Any other Mutation is
+    ``NON_IDEMPOTENT_WRITE`` and runs in ``CallSingleAttemptTool``, once. The
+    effect class always comes from the manifest; a session's
+    ``tool_policies`` entry for the tool changes only its approval and, for a
+    bounded resend, its send cap through ``max_sends``.
 
-    A ``BOUNDED_WRITE`` tool needs the manifest and the operation definition
-    to agree on the tier and the cap, which a Connector package built for
-    ``dex-connectors-sdk`` 0.10.0 or later does. Any other combination, an
-    unknown ``repeatOnUnknown`` value, or a ``maxSends`` outside 2 to 10 keeps
-    the Mutation ``NON_IDEMPOTENT_WRITE``.
+    A Mutation whose manifest says ``agent.repeatOnUnknown: limited``
+    resends a bounded number of times. Each call pins its send cap, the
+    manifest's ``agent.maxSends`` or the tool policy's ``max_sends``, in its
+    tool source reference. With a cap of 2 or more, ``CallSingleAttemptTool``
+    gets the operation's attempts, at least the cap. When a send's outcome is
+    unknown, such as after a timeout or a 5xx, the connector reads back when
+    it can and resends while the call's sends stay below the cap. A definite
+    failure is never resent. Every attempt passes the pinned cap to the
+    connector, also after a deploy that changes the manifest. This needs the
+    manifest and the operation definition to agree on the tier and the cap,
+    which a Connector package built for ``dex-connectors-sdk`` 0.10.0 or
+    later does. Any other combination, an unknown ``repeatOnUnknown`` value,
+    or a ``maxSends`` outside 2 to 10 runs the call once.
 
     Approval: a call waits for ``resolve_interrupt`` when the manifest says
     ``agent.approval: recommended``. ``requires_approval`` overrides that.
@@ -378,8 +383,9 @@ def connector_tool(
         ``list_story_i_d_s``.
 
     .. versionchanged:: 0.6.12
-        A Mutation whose manifest says ``agent.repeatOnUnknown: limited`` is
-        ``BOUNDED_WRITE``.
+        A Mutation whose manifest says ``agent.repeatOnUnknown: limited``
+        resends a bounded number of times. Its effect stays
+        ``NON_IDEMPOTENT_WRITE``.
     """
     definition = operation.definition()
     kind: Literal["query", "mutation"] = (
@@ -443,8 +449,6 @@ def connector_tool(
         if kind == "query"
         else ToolEffect.IDEMPOTENT_WRITE
         if retry == "safe"
-        else ToolEffect.BOUNDED_WRITE
-        if send_cap is not None
         else ToolEffect.NON_IDEMPOTENT_WRITE
     )
     step_defaults = definition.step_defaults
@@ -498,11 +502,11 @@ class ConnectorToolSource:
 
     The branch the operation selects maps as ``classify_connector_branch``
     describes. A connector retry raises through the Step, so the tool Step's
-    retry policy applies. For a ``BOUNDED_WRITE`` call, the next attempt's
+    retry policy applies. For a bounded resend, the next attempt's
     fence lets the connector read back and resend while the call's sends stay
     below its cap. A read-back that confirms an earlier send succeeds. At the
     cap, an unconfirmed write selects ``uncertain``, so the call records
-    ``OUTCOME_UNKNOWN``, as it does when the attempts run out. A
+    ``OUTCOME_UNKNOWN``, as it does when the attempts run out. Any other
     single-attempt write that asks to retry ends
     ``OUTCOME_UNKNOWN``, unless its single-dispatch fence saved a ``notSent`` or
     ``canResend`` marker in this attempt: that proves the provider did not
@@ -596,7 +600,7 @@ class ConnectorToolSource:
         Args:
             turn: The ``RunModel`` context. A ``tool_policies`` entry for the
                 tool changes only whether the call waits for approval and, for
-                a ``BOUNDED_WRITE`` tool, the send cap the call keeps on every
+                a tool with ``max_sends``, the send cap the call keeps on every
                 attempt.
             tool_call_id: Model tool call ID.
             tool_name: The tool name.
@@ -612,11 +616,11 @@ class ConnectorToolSource:
             requires_approval = session_policy.requires_approval
         else:
             requires_approval = _requires_approval(tool, arguments)
-        # The reference pins the policy's cap, so every attempt of this call passes the same one.
+        # The reference pins the call's cap, so every attempt, across deploys, passes the same one.
         policy_max_sends = session_policy.max_sends if session_policy is not None else None
         reference: dict[str, object] = {"tool": tool.name}
-        if tool.max_sends is not None and policy_max_sends is not None:
-            reference["maxSends"] = policy_max_sends
+        if tool.max_sends is not None:
+            reference["maxSends"] = policy_max_sends or tool.max_sends
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
@@ -639,6 +643,11 @@ class ConnectorToolSource:
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
         """Return the operation's timeout and retry policy for the call's tool Step.
 
+        A call that pinned a send cap of 2 or more also gets
+        ``bounded_resend_execute_retry``, while this Worker's manifest and
+        definition still confirm the tier: the operation's attempts, at least
+        the manifest's cap, plus the amount by which the pinned cap exceeds it.
+
         Args:
             tool_call: The record whose tool Step starts.
 
@@ -648,17 +657,24 @@ class ConnectorToolSource:
         tool = self._tools.get(_reference_tool_name(tool_call))
         if tool is None:
             return None
-        execute_retry = tool.retry_policy
         call_max_sends = _reference_max_sends(tool_call)
-        if tool.max_sends is not None and call_max_sends is not None and execute_retry is not None:
-            execute_retry = replace(
-                execute_retry,
-                maximum_attempts=bounded_write_attempts(
-                    execute_retry.maximum_attempts, tool.max_sends, call_max_sends
+        bounded_resend_retry = None
+        if (
+            tool.max_sends is not None
+            and call_max_sends is not None
+            and call_max_sends >= 2
+            and tool.retry_policy is not None
+        ):
+            bounded_resend_retry = replace(
+                tool.retry_policy,
+                maximum_attempts=bounded_resend_attempts(
+                    tool.retry_policy.maximum_attempts, tool.max_sends, call_max_sends
                 ),
             )
         return ToolCallStepOptions(
-            execute_method_timeout=tool.execute_method_timeout, execute_retry=execute_retry
+            execute_method_timeout=tool.execute_method_timeout,
+            execute_retry=tool.retry_policy,
+            bounded_resend_execute_retry=bounded_resend_retry,
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -712,8 +728,12 @@ class ConnectorToolSource:
                     cast(Query[Any, Any], tool.operation), connector_call, operation_input
                 )
         except RetryError as error:
-            if tool.effect is ToolEffect.NON_IDEMPOTENT_WRITE and _is_proven_not_sent(
-                connector_call
+            call_max_sends = _reference_max_sends(record)
+            is_bounded_resend = call_max_sends is not None and call_max_sends >= 2
+            if (
+                tool.effect is ToolEffect.NON_IDEMPOTENT_WRITE
+                and not is_bounded_resend
+                and _is_proven_not_sent(connector_call)
             ):
                 # One attempt only, so a Retry would record outcome_unknown though nothing was sent.
                 raise ToolExecutionError(_not_sent_detail(tool, error.failure)) from None
@@ -781,10 +801,11 @@ def _connector_call(
         save_checkpoint=call.save_heartbeat_checkpoint,
     )
     call_id = derive_call_id(context.flow_id, context.step_execution_id, operation_ref)
-    send_cap = (
-        None if tool.max_sends is None else _reference_max_sends(call.tool_call) or tool.max_sends
-    )
-    if send_cap is not None and _CALL_CARRIES_MAX_SENDS:
+    # A pinned cap holds even when this Worker's manifest no longer confirms the tier; a call
+    # without one, or an operation that is no longer limited, keeps the fence's single send.
+    send_cap = _reference_max_sends(call.tool_call)
+    is_limited = getattr(tool.operation.definition(), "repeat_on_unknown", None) == "limited"
+    if send_cap is not None and is_limited and _CALL_CARRIES_MAX_SENDS:
         # The connector hands Call.max_sends to its fence, as a Step factory does.
         return Call(
             call_id,
@@ -895,13 +916,32 @@ def _observe_fence(call: Call) -> _FenceObservation:
     has_not_sent_proof = evidence.has_not_sent_proof
     # A bounded resend's markers count earlier sends that may still have taken effect.
     has_prior_send = evidence.has_prior_send
-    is_prior_dispatch_possible = context._has_read_checkpoint and _is_prior_dispatch_possible(
-        call, context
+    is_prior_dispatch_possible = (
+        _is_prior_dispatch_possible(call, context)
+        if context._has_read_checkpoint
+        else _has_prior_send_marker(call, context)
     )
     may_have_dispatched = is_claimed or has_prior_send or is_prior_dispatch_possible
     return _FenceObservation(
         may_have_dispatched=may_have_dispatched,
         is_proven_not_sent=has_not_sent_proof and not may_have_dispatched,
+    )
+
+
+def _has_prior_send_marker(call: Call, context: ConnectorStepContext) -> bool:
+    """Report whether the earlier checkpoint is this call's marker for a possible send.
+
+    It holds even when the operation returned before it read the checkpoint.
+    """
+    previous = context._previous_checkpoint
+    if previous is None:
+        return False
+    try:
+        marker = Marker.from_wire(json.loads(previous))
+    except ValueError:
+        return False
+    return marker.call_id == call.id and (
+        marker.state is State.CLAIMED or prior_send_count(marker) > 0
     )
 
 
@@ -986,8 +1026,8 @@ def connector_send_cap(
     return cast(int, manifest_cap)
 
 
-def bounded_write_attempts(operation_attempts: int, manifest_cap: int, call_cap: int) -> int:
-    """Return the attempts one call of a ``BOUNDED_WRITE`` tool gets.
+def bounded_resend_attempts(operation_attempts: int, manifest_cap: int, call_cap: int) -> int:
+    """Return the attempts one bounded resend call gets.
 
     They are the operation's attempts, or 3 when those are unlimited, raised
     to at least the manifest's send cap, plus the amount by which the call's
@@ -1008,7 +1048,7 @@ def _tool_retry_policy(step_defaults: Any, send_cap: int | None) -> RetryPolicy:
         backoff_coefficient=policy.backoff_coefficient,
         maximum_interval=policy.maximum_interval,
         maximum_attempts=(
-            bounded_write_attempts(attempts, send_cap, send_cap)
+            bounded_resend_attempts(attempts, send_cap, send_cap)
             if send_cap is not None
             else _MAXIMUM_TOOL_ATTEMPTS
             if attempts <= 0

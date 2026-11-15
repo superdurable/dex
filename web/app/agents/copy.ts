@@ -167,7 +167,6 @@ export const SESSION_COPY = {
   effect: {
     read: 'read',
     idempotent_write: 'idempotent write',
-    bounded_write: 'bounded write',
     non_idempotent_write: 'non-idempotent write',
     unclassified: 'unclassified',
   } as Record<string, string>,

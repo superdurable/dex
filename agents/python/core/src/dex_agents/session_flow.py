@@ -282,11 +282,7 @@ _MODEL_CALL_STEP_OPTIONS = StepOptions(
     execute_retry=RetryPolicy(maximum_attempts=3, total_duration=timedelta(minutes=30)),
     execute_durability=StepDurability.SYNC,
 )
-MULTI_ATTEMPT_TOOL_EFFECTS = (
-    ToolEffect.READ,
-    ToolEffect.IDEMPOTENT_WRITE,
-    ToolEffect.BOUNDED_WRITE,
-)
+MULTI_ATTEMPT_TOOL_EFFECTS = (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE)
 BUILT_IN_TOOL_POLICY = ToolPolicy(ToolEffect.READ, requires_approval=False)
 EXECUTABLE_PLAN_STATUSES = (PlanStatus.DRAFT, PlanStatus.ACTIVE)
 # Consumes every pending message of a Channel at once; the plan's MAX.
@@ -3104,12 +3100,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         overrides = self._tool_call_step_options(tool_call)
         if overrides is not None and overrides.execute_method_timeout is not None:
             options = replace(options, execute_method_timeout=overrides.execute_method_timeout)
-        if (
-            overrides is not None
-            and overrides.execute_retry is not None
-            and step is self._call_tool
-        ):
-            options = replace(options, execute_retry=overrides.execute_retry)
+        if overrides is not None:
+            execute_retry = (
+                overrides.execute_retry
+                if step is self._call_tool
+                else overrides.bounded_resend_execute_retry
+            )
+            if execute_retry is not None:
+                options = replace(options, execute_retry=execute_retry)
         options = options.on_execute_failure_proceed_to(recovery_step, recovery_options)
         return StepMovement.of(step, tool_call.tool_call_id, options=options)
 

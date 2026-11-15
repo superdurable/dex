@@ -19,7 +19,7 @@ turn's records before the turn ends.
 ``retry: safe``, so the fenced write runs in ``CallTool`` with retries.
 ``payout_checked`` is ``createPayout`` with an approval predicate: amounts
 above 50 wait for approval. ``send_message`` is the limited ``sendMessage``
-Mutation, a ``BOUNDED_WRITE``; ``send_message_capped`` is the same tool under a
+Mutation, a bounded resend; ``send_message_capped`` is the same tool under a
 tool policy that raises its send cap to 4, and ``send_message_unreviewed`` runs
 it under a manifest from before ``repeatOnUnknown``.
 ``CONNECTOR_AGENT_MAX_RESULT_BYTES`` bounds results, and
@@ -64,7 +64,7 @@ DROPPED_TOOLS_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_DROPPED_TOOLS"
 CONNECTION = ConnectionRef("fake-ledger", "test-ledger")
 #: The tool policy that raises ``send_message_capped``'s send cap from the manifest's 3 to 4.
 CAPPED_SEND_TOOL_POLICIES = {
-    "send_message_capped": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=4),
+    "send_message_capped": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=4),
 }
 # The name dex-agents 0.4.0 gave getBalanceByID; 0.5.0 defaults to fake-ledger_get_balance_by_id.
 PREVIOUS_BY_ID_TOOL_NAME = "fake-ledger_get_balance_by_i_d"

@@ -27,13 +27,10 @@ from dex_agents_cli_core.harness import LocalToolGroup
 _EFFECT_CAUTION = {
     ToolEffect.READ: 0,
     ToolEffect.IDEMPOTENT_WRITE: 1,
-    ToolEffect.BOUNDED_WRITE: 2,
-    ToolEffect.NON_IDEMPOTENT_WRITE: 3,
-    ToolEffect.UNCLASSIFIED: 4,
+    ToolEffect.NON_IDEMPOTENT_WRITE: 2,
+    ToolEffect.UNCLASSIFIED: 3,
 }
-_APPROVED_BY_DEFAULT = frozenset(
-    {ToolEffect.BOUNDED_WRITE, ToolEffect.NON_IDEMPOTENT_WRITE, ToolEffect.UNCLASSIFIED}
-)
+_APPROVED_BY_DEFAULT = frozenset({ToolEffect.NON_IDEMPOTENT_WRITE, ToolEffect.UNCLASSIFIED})
 
 
 def resolve_turn_tool_policy(
@@ -49,7 +46,7 @@ def resolve_turn_tool_policy(
     ``AgentSessionOptions.tool_policies`` may make the effect more cautious,
     such as ``read`` to ``non_idempotent_write``, but never less, so a write
     is never retried as a read; the ranking is ``read``,
-    ``idempotent_write``, ``bounded_write``, ``non_idempotent_write``, then ``unclassified``.
+    ``idempotent_write``, ``non_idempotent_write``, then ``unclassified``.
     Approval is a floor too: the call waits when the tool asks for it, when
     the explicit policy asks for it, or, when the explicit policy leaves it
     unset, when the combined effect needs approval by default. An explicit

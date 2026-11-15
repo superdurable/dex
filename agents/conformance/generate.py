@@ -898,6 +898,20 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
     for effect in ToolEffect:
         tool_calls.value(f"effect-{effect}", f"Effect {effect}.", minimal_tool_call(effect=effect))
+    tool_calls.value(
+        "connector-bounded-resend",
+        "A connector call that may resend: its effect stays non_idempotent_write, and its "
+        "tool source reference pins the send cap, so readers before dex-agents 0.6.12 decode it.",
+        minimal_tool_call(
+            effect=ToolEffect.NON_IDEMPOTENT_WRITE,
+            tool_source_reference=json.dumps(
+                {
+                    "stepwise_tool_source": "connectors",
+                    "reference": json.dumps({"tool": "slack_post_message", "maxSends": 3}),
+                }
+            ),
+        ),
+    )
     for reason in ToolCallCancellationReason:
         tool_calls.value(
             f"cancelled-{reason}",

@@ -115,7 +115,7 @@ class ToolPolicy:
         ...     "search_tickets": ToolPolicy(ToolEffect.READ),
         ...     "create_refund": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=True),
         ...     "send_email": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
-        ...     "slack_post_message": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=5),
+        ...     "slack_post_message": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=5),
         ... })
 
     Attributes:
@@ -124,14 +124,15 @@ class ToolPolicy:
             change it.
         requires_approval: Whether a person must approve each call. ``None``
             uses the effect's default: ``False`` for ``READ`` and
-            ``IDEMPOTENT_WRITE``, ``True`` for ``BOUNDED_WRITE``,
-            ``NON_IDEMPOTENT_WRITE``, and ``UNCLASSIFIED``.
+            ``IDEMPOTENT_WRITE``, ``True`` for ``NON_IDEMPOTENT_WRITE`` and
+            ``UNCLASSIFIED``.
         max_sends: The most times one call of a connector tool may send its
             write when the outcome of a send is unknown, an integer from 1 to
             10. It replaces the manifest's ``agent.maxSends`` for this tool;
             ``1`` turns resending off. It applies only to a connector tool
-            whose effect is ``BOUNDED_WRITE``: a Mutation whose manifest says
-            ``agent.repeatOnUnknown: limited``. Every other tool ignores it.
+            that resends a bounded number of times: a Mutation whose manifest
+            says ``agent.repeatOnUnknown: limited`` (``ConnectorTool.max_sends``
+            is set). Every other tool ignores it.
             A call keeps the value it was deferred with on every attempt, so a
             later deploy that changes it affects only new calls. A raised value
             also raises the call's attempt limit by the difference, so the
@@ -143,7 +144,7 @@ class ToolPolicy:
         ValueError: If ``max_sends`` is not an integer from 1 to 10.
 
     .. versionchanged:: 0.6.12
-        Added ``max_sends``. ``BOUNDED_WRITE`` requires approval by default.
+        Added ``max_sends``.
     """
 
     effect: ToolEffect
@@ -165,11 +166,7 @@ class ToolPolicy:
         """
         if self.requires_approval is not None:
             return self.requires_approval
-        return self.effect in (
-            ToolEffect.BOUNDED_WRITE,
-            ToolEffect.NON_IDEMPOTENT_WRITE,
-            ToolEffect.UNCLASSIFIED,
-        )
+        return self.effect in (ToolEffect.NON_IDEMPOTENT_WRITE, ToolEffect.UNCLASSIFIED)
 
 
 def resolve_tool_policy(
@@ -770,8 +767,9 @@ class ToolCallStepOptions:
 
     A runner returns it from ``ToolCallStepOptionsProvider.tool_call_step_options``.
     The session applies it to the movement that starts the call's tool Step,
-    and to no other Step. A ``CallSingleAttemptTool`` call takes only
-    ``execute_method_timeout``; it still runs one attempt.
+    and to no other Step. A ``CallSingleAttemptTool`` call takes
+    ``execute_method_timeout``, and it runs one attempt unless
+    ``bounded_resend_execute_retry`` is set.
 
     Example:
         >>> ToolCallStepOptions(
@@ -784,12 +782,26 @@ class ToolCallStepOptions:
             tool Step's default.
         execute_retry: Retry policy of a ``CallTool`` call, or ``None`` for the
             default of three attempts.
+        bounded_resend_execute_retry: Retry policy of a
+            ``NON_IDEMPOTENT_WRITE`` call whose tool itself bounds how many
+            times a repeat can send the write, such as a connector Mutation
+            with ``agent.repeatOnUnknown: limited``. The call still runs in
+            ``CallSingleAttemptTool``, but with these attempts instead of one.
+            When they run out, the call records ``OUTCOME_UNKNOWN``, as a
+            single attempt does. Set it only for a tool that enforces its own
+            send cap on every attempt. The record's effect stays
+            ``NON_IDEMPOTENT_WRITE``, so Workers before 0.6.12 read the
+            session and run a later call once.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.6.12
+        Added ``bounded_resend_execute_retry``.
     """
 
     execute_method_timeout: timedelta | None = None
     execute_retry: RetryPolicy | None = None
+    bounded_resend_execute_retry: RetryPolicy | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

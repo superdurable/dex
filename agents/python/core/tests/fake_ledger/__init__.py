@@ -26,7 +26,9 @@ a ``FileGate`` on attempt 1 only. A message ``text`` takes ``reject`` (refused
 before sending), ``reject-on-send`` (the provider refuses the sent message,
 ``canResend``), ``lose-first`` (attempt 1's message is accepted where read-back
 cannot see it, and its response is lost), ``lose-visible`` (the same, but
-read-back finds it), and ``lose-always`` (every send is lost and hidden).
+read-back finds it), ``lose-always`` (every send is lost and hidden), and
+``reject-before-fence-later`` (attempt 2 and later refuse before the fence
+decides, a wrong order the agent core must still treat as unknown).
 """
 
 from __future__ import annotations
@@ -488,6 +490,21 @@ class SendMessageOperation:
         words = input.text.split()
         key = str(call.idempotency_key)
         attempt = call.context.attempt if call.context is not None else 1
+        if "reject-before-fence-later" in words and attempt > 1:
+            # A wrong order: a later attempt refuses before the fence reads the earlier claim.
+            return MutationAttempt.branch_result(
+                "providerRejected",
+                Message(),
+                Receipt(),
+                _failure("sendMessage", "refused before the fence"),
+            )
+        # The fence decides before credentials or provider lookups, as the contract requires.
+        fence = Fence(call, timedelta(seconds=30), max_sends=call.max_sends)
+        decision = await fence.decide()
+        if decision.kind is DecisionKind.FAIL_CLOSED:
+            return MutationAttempt.uncertain(
+                Message(), _failure("sendMessage", str(decision.error)), Receipt()
+            )
         if not await self._provider.authorize(call):
             return MutationAttempt.branch_result(
                 "providerRejected", Message(), Receipt(), _refused("sendMessage")
@@ -498,12 +515,6 @@ class SendMessageOperation:
                 Message(),
                 Receipt(),
                 _failure("sendMessage", "channel archived"),
-            )
-        fence = Fence(call, timedelta(seconds=30), max_sends=call.max_sends)
-        decision = await fence.decide()
-        if decision.kind is DecisionKind.FAIL_CLOSED:
-            return MutationAttempt.uncertain(
-                Message(), _failure("sendMessage", str(decision.error)), Receipt()
             )
         if decision.kind in (
             DecisionKind.READ_BACK_REQUIRED,

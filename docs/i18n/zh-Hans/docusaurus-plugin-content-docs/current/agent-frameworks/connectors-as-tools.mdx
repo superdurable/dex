@@ -28,14 +28,14 @@ Manifest 决定一次调用能否再次运行，从而决定由哪个 Step 运�
 | --- | --- | --- |
 | Query | **read** | `CallTool`，会重试 |
 | Manifest 标记为可安全重试（**agent.retry: safe**）的 Mutation | `idempotent_write` | `CallTool`，会重试 |
-| Manifest 允许有限次重发（**agent.repeatOnUnknown: limited**）的 Mutation | `bounded_write` | `CallTool`，有限次重发 |
+| Manifest 允许有限次重发（**agent.repeatOnUnknown: limited**）的 Mutation | `non_idempotent_write` | `CallSingleAttemptTool`，有限次重发 |
 | 其他 Mutation | `non_idempotent_write` | `CallSingleAttemptTool`，只运行一次 |
 
 可安全重试的意思是：用同一个 Call ID 重复执行，不会产生第二次效果。尝试次数用完的调用，Query 记录为 **failed**，Mutation 记录为 `outcome_unknown`。
 
-`bounded_write` 适合偶尔重复也能接受的写操作，例如聊天消息或电子邮件。一次发送的结果未知时（例如超时之后），Connector 先回读这次写操作。只有找不到它时才再次发送，而且一次调用最多发送 **maxSends** 次。明确的失败绝不会重发。达到上限时，仍找不到的写操作记录为 `outcome_unknown`。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
+有限次重发适合偶尔重复也能接受的写操作，例如聊天消息或电子邮件。一次发送的结果未知时（例如超时之后），如果 operation 支持回读，Connector 先回读这次写操作。无法确认写入时才再次发送，而且一次调用最多发送 **maxSends** 次。明确的失败绝不会重发。达到上限时，仍找不到的写操作记录为 `outcome_unknown`。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
 
-Session 对 Connector tool 设置的 tool policy 只改变它的审批方式，以及 `bounded_write` tool 的发送上限。Effect class 始终来自 manifest。
+Session 对 Connector tool 设置的 tool policy 只改变它的审批方式，以及有限次重发的发送上限。Effect class 始终来自 manifest。
 
 ### 审批 {#connector-tools-approval}
 
@@ -55,7 +55,7 @@ Operation 以它的某个分支结束，由分支决定 Tool Call 的记录：**
 
 ### 崩溃 {#connector-tools-crashes}
 
-Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次，`bounded_write` 除外。可安全重试的写操作会用同一个幂等键重试，或者先在 provider 那里查找之前的写入；单次尝试写操作记录为 `outcome_unknown`。`bounded_write` 先查找之前的写入，只在低于发送上限时才再次发送。[Crashes](/reference/agents/connector-tools#crashes)（英文）逐一列出了每种情况。
+Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次；有限次重发例外，它可能在发送上限内再次发送。可安全重试的写操作会用同一个幂等键重试，或者先在 provider 那里查找之前的写入；单次尝试写操作记录为 `outcome_unknown`。有限次重发在 operation 支持时先查找之前的写入，只在低于发送上限时才再次发送。[Crashes](/reference/agents/connector-tools#crashes)（英文）逐一列出了每种情况。
 
 ## 连接 Connector {#connect-connectors}
 

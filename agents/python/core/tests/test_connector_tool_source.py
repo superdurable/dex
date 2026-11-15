@@ -27,6 +27,7 @@ from dex_connectors.sdk import (
     OperationRef,
     QueryAttempt,
     Receipt,
+    RetryError,
     derive_call_id,
 )
 from dex_connectors.sdk.singledispatch import DecisionKind, Fence, Marker, State
@@ -39,6 +40,8 @@ from dex_agents import (
     DeferredToolExecution,
     ToolCallStatus,
     ToolEffect,
+    ToolExecutionError,
+    ToolOutcomeUnknownError,
     ToolPolicy,
     build_connector_tool_approval_display,
     is_credential_like_name,
@@ -57,7 +60,7 @@ from dex_agents.connectors._source import (
     _is_proven_not_sent,
     _lower_camel_to_snake,
     _may_have_dispatched,
-    bounded_write_attempts,
+    bounded_resend_attempts,
     connector_send_cap,
 )
 from tests.connector_agent import (
@@ -169,12 +172,106 @@ def test_send_caps_are_read_as_the_conformance_suite_says(case: dict[str, Any]) 
     assert connector_send_cap(case["kind"], case["agent"], definition) == case["maxSends"]
 
 
-@pytest.mark.parametrize("case", CONFORMANCE["boundedWriteAttemptCases"])
-def test_a_bounded_writes_attempts_follow_the_conformance_suite(case: dict[str, Any]) -> None:
-    attempts = bounded_write_attempts(
+@pytest.mark.parametrize("case", CONFORMANCE["boundedResendAttemptCases"])
+def test_a_bounded_resends_attempts_follow_the_conformance_suite(case: dict[str, Any]) -> None:
+    attempts = bounded_resend_attempts(
         case["operationAttempts"], case["manifestMaxSends"], case["callMaxSends"]
     )
     assert attempts == case["attempts"]
+
+
+@pytest.mark.parametrize(
+    "scenario", CONFORMANCE["boundedResendScenarios"]["cases"], ids=lambda case: case["name"]
+)
+async def test_bounded_resends_follow_the_conformance_scenarios_across_deploys(
+    scenario: dict[str, Any], tmp_path: Path
+) -> None:
+    ledger = FakeLedgerProvider(tmp_path)
+    policies = (
+        None
+        if scenario["policyMaxSends"] is None
+        else {
+            "send": ToolPolicy(
+                ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=scenario["policyMaxSends"]
+            )
+        }
+    )
+    deferred = _bounded_resend_source(ledger, scenario["deferVariant"]).deferred_tool_call(
+        _turn(policies),
+        tool_call_id="call-1",
+        tool_name="send",
+        arguments=json.dumps({"accountId": "a-1", "text": scenario["text"]}),
+        listed_tool=None,
+    )
+    assert deferred.tool_source_reference == scenario["reference"]
+    heartbeats = _ToolStepHeartbeats()
+    outcomes: list[str] = []
+    for attempt, variant in enumerate(scenario["attemptVariants"], start=1):
+        outcomes.append(
+            await _run_send_attempt(
+                _bounded_resend_source(ledger, variant), deferred, attempt, heartbeats
+            )
+        )
+        if outcomes[-1] != "retry":
+            break
+    assert outcomes == scenario["outcomes"]
+    assert len(ledger.writes("sendMessage")) == scenario["writes"]
+
+
+def _bounded_resend_source(ledger: FakeLedgerProvider, variant: str) -> ConnectorToolSource:
+    """Return a Worker's sendMessage tool: limited with cap 3 or 5, or cap 3 without the tier."""
+    cap = 5 if variant == "cap5" else 3
+    manifest = copy.deepcopy(read_fake_ledger_manifest())
+    agent = manifest["factories"][3]["agent"]
+    if variant == "fallback":
+        del agent["repeatOnUnknown"]
+        del agent["maxSends"]
+    else:
+        agent["maxSends"] = cap
+    definition = replace(SendMessageOperation(ledger).definition(), max_sends=cap)
+    operation = SendMessageOperation(ledger, definition)
+    return ConnectorToolSource(
+        [connector_tool(operation, CONNECTION, name="send", manifest=manifest)]
+    )
+
+
+async def _run_send_attempt(
+    source: ConnectorToolSource, deferred: Any, attempt: int, heartbeats: _ToolStepHeartbeats
+) -> str:
+    """Run one attempt of the call as the tool Step does, and name how it ended."""
+    live = _LiveContext(attempt)
+    live.step_execution_id = "CallSingleAttemptTool-5"
+    record = AgentToolCall(
+        tool_call_id="call-1",
+        turn_id="turn-1",
+        tool_name="send",
+        arguments=deferred.arguments,
+        effect=ToolEffect.NON_IDEMPOTENT_WRITE,
+        requires_approval=False,
+        status=ToolCallStatus.APPROVED,
+        tool_source_reference=deferred.tool_source_reference,
+    )
+    try:
+        await source.execute_deferred_tool_call(
+            DeferredToolExecution(
+                flow_id="session-1",
+                tool_call=record,
+                idempotency_key="session-1/turn-1/call-1",
+                attempt=attempt,
+                events=cast(AgentEventWriter, None),
+                heartbeat=heartbeats.record,
+                heartbeat_checkpoint=heartbeats.checkpoint,
+                save_heartbeat_checkpoint=heartbeats.save,
+                context=cast(AsyncContext, live),
+            )
+        )
+    except ToolOutcomeUnknownError:
+        return "outcome_unknown"
+    except ToolExecutionError:
+        return "failed"
+    except RetryError:
+        return "retry"
+    return "succeeded"
 
 
 @pytest.mark.parametrize("case", CONFORMANCE["resultCases"])
@@ -214,12 +311,12 @@ def test_each_operation_kind_maps_to_its_effect_class_and_step_options(
         assert tool.retry_policy.total_duration == timedelta(hours=1)
 
 
-def test_a_limited_mutation_is_a_bounded_write_unless_its_manifest_predates_the_tiers(
+def test_a_limited_mutation_keeps_its_effect_and_takes_a_send_cap(
     provider: FakeLedgerProvider,
 ) -> None:
     messages = SendMessageOperation(provider)
     bounded = connector_tool(messages, CONNECTION)
-    assert bounded.effect is ToolEffect.BOUNDED_WRITE
+    assert bounded.effect is ToolEffect.NON_IDEMPOTENT_WRITE
     assert bounded.max_sends == 3
     # The operation's five attempts already reach the cap of 3.
     assert bounded.retry_policy is not None and bounded.retry_policy.maximum_attempts == 5
@@ -263,38 +360,42 @@ def test_a_tool_policys_max_sends_is_pinned_on_the_call_and_raises_its_attempts(
             turn_id="turn-1",
             tool_name=tool_name,
             arguments="{}",
-            effect=ToolEffect.BOUNDED_WRITE,
+            effect=ToolEffect.NON_IDEMPOTENT_WRITE,
             requires_approval=False,
             status=ToolCallStatus.APPROVED,
             tool_source_reference=reference,
         )
         options = source.tool_call_step_options(record)
-        assert options is not None and options.execute_retry is not None
-        return options.execute_retry.maximum_attempts
+        assert options is not None
+        retry = options.bounded_resend_execute_retry
+        return None if retry is None else retry.maximum_attempts
 
     plain = defer("send")
-    assert plain.policy.effect is ToolEffect.BOUNDED_WRITE
+    assert plain.policy.effect is ToolEffect.NON_IDEMPOTENT_WRITE
     assert plain.policy.requires_approval is False
     assert plain.ordered
-    assert plain.tool_source_reference == '{"tool": "send"}'
+    # The manifest's cap is pinned too, so a deploy that changes it cannot change this call.
+    assert plain.tool_source_reference == '{"tool": "send", "maxSends": 3}'
     assert attempts_of("send", plain.tool_source_reference) == 5
     raised = defer("send", {"send": ToolPolicy(ToolEffect.READ, max_sends=6)})
-    assert raised.policy.effect is ToolEffect.BOUNDED_WRITE
+    assert raised.policy.effect is ToolEffect.NON_IDEMPOTENT_WRITE
     assert raised.tool_source_reference == '{"tool": "send", "maxSends": 6}'
     assert attempts_of("send", raised.tool_source_reference) == 8
-    lowered = defer("send", {"send": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=1)})
+    # A cap of 1 keeps one attempt, so a Worker that cannot pass the cap never runs a second one.
+    lowered = defer("send", {"send": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=1)})
     assert lowered.tool_source_reference == '{"tool": "send", "maxSends": 1}'
-    assert attempts_of("send", lowered.tool_source_reference) == 5
-    # Only a bounded write takes the cap.
-    note = defer("note", {"note": ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=6)})
+    assert attempts_of("send", lowered.tool_source_reference) is None
+    # Only a Mutation with a send cap takes one; another call keeps its reference bytes.
+    note = defer("note", {"note": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=6)})
     assert note.tool_source_reference == '{"tool": "note"}'
+    assert attempts_of("note", note.tool_source_reference) is None
 
 
 @pytest.mark.parametrize("max_sends", [0, 11, True])
 def test_a_tool_policys_max_sends_must_be_an_integer_from_1_to_10(max_sends: Any) -> None:
     with pytest.raises(ValueError, match="max_sends must be an integer from 1 to 10"):
-        ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=max_sends)
-    assert ToolPolicy(ToolEffect.BOUNDED_WRITE, max_sends=10).max_sends == 10
+        ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=max_sends)
+    assert ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, max_sends=10).max_sends == 10
 
 
 def test_an_explicit_name_keeps_a_previous_default_tool_name(

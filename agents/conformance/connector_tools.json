@@ -1088,6 +1088,51 @@
       ],
       "mayHaveDispatched": true,
       "isProvenNotSent": false
+    },
+    {
+      "name": "an earlier claim the operation did not read",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "an earlier bounded claim the operation did not read",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "an earlier canResend that counts a send, which the operation did not read",
+      "attempt": 3,
+      "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "an earlier notSent the operation did not read",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "another call's claim the operation did not read",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"state\":\"claimed\"}",
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
     }
   ],
   "sendCapCases": [
@@ -1338,7 +1383,7 @@
       "maxSends": null
     }
   ],
-  "boundedWriteAttemptCases": [
+  "boundedResendAttemptCases": [
     {
       "operationAttempts": 0,
       "manifestMaxSends": 3,
@@ -1393,5 +1438,138 @@
       "callMaxSends": 10,
       "attempts": 10
     }
-  ]
+  ],
+  "boundedResendScenarios": {
+    "description": "Attempts of one sendMessage call, each run by a Worker whose manifest and definition follow the named variant. cap3 and cap5 declare repeatOnUnknown limited with that cap in both; fallback keeps the definition at cap 3 but drops repeatOnUnknown and maxSends from the manifest. The call is deferred by deferVariant with the tool policy's maxSends, if any. Each attempt ends in retry (the connector asked to retry), succeeded, failed, or outcome_unknown. writes counts the messages the provider stored.",
+    "cases": [
+      {
+        "name": "a connector upgraded from cap 3 to cap 5 keeps the call's cap 3",
+        "text": "lose-always",
+        "deferVariant": "cap3",
+        "policyMaxSends": null,
+        "reference": "{\"tool\": \"send\", \"maxSends\": 3}",
+        "attemptVariants": [
+          "cap3",
+          "cap3",
+          "cap3",
+          "cap5"
+        ],
+        "outcomes": [
+          "retry",
+          "retry",
+          "retry",
+          "outcome_unknown"
+        ],
+        "writes": 3
+      },
+      {
+        "name": "a connector downgraded from cap 5 to cap 3 keeps the call's cap 5",
+        "text": "lose-always",
+        "deferVariant": "cap5",
+        "policyMaxSends": null,
+        "reference": "{\"tool\": \"send\", \"maxSends\": 5}",
+        "attemptVariants": [
+          "cap5",
+          "cap5",
+          "cap3",
+          "cap3",
+          "cap3",
+          "cap3"
+        ],
+        "outcomes": [
+          "retry",
+          "retry",
+          "retry",
+          "retry",
+          "retry",
+          "outcome_unknown"
+        ],
+        "writes": 5
+      },
+      {
+        "name": "a pinned cap of 1 holds after a deploy drops the tier from the manifest",
+        "text": "lose-always",
+        "deferVariant": "cap3",
+        "policyMaxSends": 1,
+        "reference": "{\"tool\": \"send\", \"maxSends\": 1}",
+        "attemptVariants": [
+          "cap3",
+          "fallback"
+        ],
+        "outcomes": [
+          "retry",
+          "outcome_unknown"
+        ],
+        "writes": 1
+      },
+      {
+        "name": "a pinned cap of 3 holds after a deploy drops the tier from the manifest",
+        "text": "lose-always",
+        "deferVariant": "cap3",
+        "policyMaxSends": null,
+        "reference": "{\"tool\": \"send\", \"maxSends\": 3}",
+        "attemptVariants": [
+          "cap3",
+          "fallback",
+          "fallback",
+          "fallback"
+        ],
+        "outcomes": [
+          "retry",
+          "retry",
+          "retry",
+          "outcome_unknown"
+        ],
+        "writes": 3
+      },
+      {
+        "name": "a later attempt that refuses before the fence, after a send, stays unknown",
+        "text": "lose-always reject-before-fence-later",
+        "deferVariant": "cap3",
+        "policyMaxSends": null,
+        "reference": "{\"tool\": \"send\", \"maxSends\": 3}",
+        "attemptVariants": [
+          "cap3",
+          "cap3"
+        ],
+        "outcomes": [
+          "retry",
+          "outcome_unknown"
+        ],
+        "writes": 1
+      },
+      {
+        "name": "a read-back that finds the first message succeeds without another send",
+        "text": "lose-visible",
+        "deferVariant": "cap3",
+        "policyMaxSends": null,
+        "reference": "{\"tool\": \"send\", \"maxSends\": 3}",
+        "attemptVariants": [
+          "cap3",
+          "cap3"
+        ],
+        "outcomes": [
+          "retry",
+          "succeeded"
+        ],
+        "writes": 1
+      },
+      {
+        "name": "a manifest without the tier runs the call once",
+        "text": "lose-always",
+        "deferVariant": "fallback",
+        "policyMaxSends": 5,
+        "reference": "{\"tool\": \"send\"}",
+        "attemptVariants": [
+          "fallback",
+          "fallback"
+        ],
+        "outcomes": [
+          "retry",
+          "outcome_unknown"
+        ],
+        "writes": 1
+      }
+    ]
+  }
 }

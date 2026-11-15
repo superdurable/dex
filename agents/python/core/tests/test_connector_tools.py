@@ -38,6 +38,8 @@ from tests.connector_agent import (
 from tests.fake_ledger import SECRET_ENVIRONMENT_VARIABLE, FakeLedgerProvider
 
 SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}"
+# ToolEffect as dex-agents 0.6.11 decodes it, a pinned copy of that release's contract.
+RELEASED_0_6_11_TOOL_EFFECTS = ("read", "idempotent_write", "non_idempotent_write", "unclassified")
 FAILED = "The tool call failed: "
 
 
@@ -281,7 +283,10 @@ async def test_a_limited_write_resends_after_a_lost_response_and_read_back_confi
     await harness.stack.start_worker()
     record, lines = await _run_held_write(harness, "send_message", "lose-first")
     # Read-back cannot see the first message, so attempt 2 sends again: a bounded duplicate.
-    assert record.effect is ToolEffect.BOUNDED_WRITE
+    # The effect stays one every released reader decodes; the reference pins the cap.
+    assert record.effect is ToolEffect.NON_IDEMPOTENT_WRITE
+    assert record.effect.value in RELEASED_0_6_11_TOOL_EFFECTS
+    assert _stored_reference(record) == '{"tool": "send_message", "maxSends": 3}'
     assert record.status is ToolCallStatus.SUCCEEDED
     assert lines == ['send_message: {"messageId":"sendMessage-2"}']
     assert len(ledger.writes("sendMessage")) == 2

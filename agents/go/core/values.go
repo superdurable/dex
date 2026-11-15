@@ -97,13 +97,9 @@ const (
 //
 // Every tool call runs in its own Step, and the effect picks that Step.
 // ToolEffectRead and ToolEffectIdempotentWrite calls run in CallTool with up
-// to three attempts and a stable idempotency key. ToolEffectBoundedWrite calls
-// also run in CallTool with retries. ToolEffectNonIdempotentWrite
+// to three attempts and a stable idempotency key. ToolEffectNonIdempotentWrite
 // and ToolEffectUnclassified calls run in CallSingleAttemptTool once; a crash
 // during the call records ToolCallStatusOutcomeUnknown.
-//
-// Changed in 0.6.12: added ToolEffectBoundedWrite. A Worker older than 0.6.12
-// cannot read a session that recorded a bounded_write call.
 type ToolEffect string
 
 const (
@@ -112,11 +108,6 @@ const (
 	// ToolEffectIdempotentWrite means the tool writes, and repeating it with the same idempotency
 	// key has no further effect.
 	ToolEffectIdempotentWrite ToolEffect = "idempotent_write"
-	// ToolEffectBoundedWrite means the tool writes, and a repeat can repeat the effect a
-	// bounded number of times. A connector Mutation whose manifest says
-	// agent.repeatOnUnknown: limited has it. When its attempts run out, the session records
-	// ToolCallStatusOutcomeUnknown. It waits for approval by default. Since 0.6.12.
-	ToolEffectBoundedWrite ToolEffect = "bounded_write"
 	// ToolEffectNonIdempotentWrite means the tool writes, and repeating it can repeat the effect.
 	ToolEffectNonIdempotentWrite ToolEffect = "non_idempotent_write"
 	// ToolEffectUnclassified means nothing is known about the tool. It is treated like a
@@ -129,23 +120,21 @@ const (
 // It returns an error that names the unknown value.
 func (effect *ToolEffect) UnmarshalText(text []byte) error {
 	return decodeWireEnum(text, effect, "ToolEffect",
-		ToolEffectRead, ToolEffectIdempotentWrite, ToolEffectBoundedWrite, ToolEffectNonIdempotentWrite,
-		ToolEffectUnclassified)
+		ToolEffectRead, ToolEffectIdempotentWrite, ToolEffectNonIdempotentWrite, ToolEffectUnclassified)
 }
 
-// IsValid reports whether the effect is one of the five contract values.
+// IsValid reports whether the effect is one of the four contract values.
 //
 // It returns false for the empty string and for any other text.
 func (effect ToolEffect) IsValid() bool {
 	return slices.Contains([]ToolEffect{
-		ToolEffectRead, ToolEffectIdempotentWrite, ToolEffectBoundedWrite, ToolEffectNonIdempotentWrite,
-		ToolEffectUnclassified,
+		ToolEffectRead, ToolEffectIdempotentWrite, ToolEffectNonIdempotentWrite, ToolEffectUnclassified,
 	}, effect)
 }
 
 // isMultiAttempt reports whether calls with this effect run in CallTool.
 func (effect ToolEffect) isMultiAttempt() bool {
-	return effect == ToolEffectRead || effect == ToolEffectIdempotentWrite || effect == ToolEffectBoundedWrite
+	return effect == ToolEffectRead || effect == ToolEffectIdempotentWrite
 }
 
 // ToolCallStatus names the lifecycle state of one deferred tool call record.

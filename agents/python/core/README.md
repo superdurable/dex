@@ -1233,7 +1233,6 @@ history, so poll at the slowest interval the task allows.
 | --- | --- | --- | --- | --- |
 | `read` | `CallTool` | Up to 3 attempts; then `failed` | Runs again | No |
 | `idempotent_write` | `CallTool` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>`; then `outcome_unknown` | Runs again with the same key | No |
-| `bounded_write` | `CallTool` | Up to 3 attempts, or a connector tool's own attempts; then `outcome_unknown` | Runs again | Yes |
 | `non_idempotent_write` | `CallSingleAttemptTool` | One attempt; then `outcome_unknown` | Outcome unknown | Yes |
 | `unclassified` | `CallSingleAttemptTool` | One attempt; then `outcome_unknown` | Outcome unknown | Yes |
 
@@ -1973,27 +1972,31 @@ stays one word, so `listStoryIDs` becomes `list_story_ids`.
 | --- | --- | --- | --- |
 | Query | `READ` | `CallTool` | The operation's Execute retry policy, at most three attempts |
 | Mutation with `agent.retry: safe` | `IDEMPOTENT_WRITE` | `CallTool` | The same |
-| Mutation with `agent.repeatOnUnknown: limited` and `agent.maxSends` | `BOUNDED_WRITE` | `CallTool` | The operation's attempts (3 when unlimited), at least `maxSends` |
+| Mutation with `agent.repeatOnUnknown: limited` and `agent.maxSends` | `NON_IDEMPOTENT_WRITE` | `CallSingleAttemptTool` | With a pinned cap of 2 or more, the operation's attempts (3 when unlimited), at least the cap |
 | Any other Mutation | `NON_IDEMPOTENT_WRITE` | `CallSingleAttemptTool` | None |
 
 The source gives each call's tool Step the operation's `executeMethodTimeout`
 and retry policy through `tool_call_step_options`, a movement-scoped option.
 Tool Steps stay `SYNC`. A session `tool_policies` entry for a connector tool
-changes only its approval and, for a `BOUNDED_WRITE` tool, its send cap
+changes only its approval and, for a bounded resend, its send cap
 (`ToolPolicy.max_sends`, 1 to 10); the effect always comes from the manifest.
 
-A `BOUNDED_WRITE` tool needs the operation definition to declare
+A bounded resend needs the operation definition to declare
 `repeat_on_unknown` `LIMITED` with the manifest's cap, as a package built for
-`dex-connectors-sdk` 0.10.0 does; otherwise the Mutation stays
-`NON_IDEMPOTENT_WRITE`. When a send's outcome is unknown, the connector returns
-a Retry, and the next attempt's fence lets it read back and resend while the
-call's sends stay below the cap. The source sets `Call.max_sends` to the cap on
-every attempt, which the connector hands to its `Fence`. The call keeps a
-policy's cap in its tool source reference, `{"tool": "<name>", "maxSends": <n>}`,
-and a raised cap adds its difference from the manifest's to the attempts.
-`dex-connectors-sdk` 0.9 has no `Call.max_sends`, so its connectors never
-resend. The fence observation reads a marker's `send_count`: a send it counts
-from an earlier attempt keeps an optional branch `OUTCOME_UNKNOWN`.
+`dex-connectors-sdk` 0.10.0 does. Its effect stays `NON_IDEMPOTENT_WRITE`, so
+released readers decode the record. Each call pins its cap, the manifest's or
+the policy's, in its tool source reference:
+`{"tool": "<name>", "maxSends": <n>}`. With a cap of 2 or more,
+`tool_call_step_options` returns `bounded_resend_execute_retry`, which
+`CallSingleAttemptTool` takes; a raised cap adds its difference from the
+manifest's to the attempts. While the operation definition is `LIMITED`, every
+attempt sets `Call.max_sends` to the pinned cap, which the connector hands to
+its `Fence`, also after a deploy changes the manifest; otherwise the fence
+keeps one send. `dex-connectors-sdk` 0.9 has no `Call.max_sends`, so its
+connectors never resend. The fence observation reads a marker's `send_count`:
+a send it counts from an earlier attempt keeps an optional branch
+`OUTCOME_UNKNOWN`, and so does an earlier attempt's claim that the operation
+returned before reading.
 
 Approval: a call waits for `resolve_interrupt` when the manifest says
 `agent.approval: recommended`. Other Mutations run without approval, though

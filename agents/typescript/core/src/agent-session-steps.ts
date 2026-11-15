@@ -1738,18 +1738,19 @@ export function toolStepMovement(
 
 /**
  * Returns the movement that starts an approved call's tool Step, with the runner's timeout and retry policy.
- * Only `CallTool` takes the retry policy; `CallSingleAttemptTool` keeps one attempt.
+ * Only `CallTool` takes the retry policy; `CallSingleAttemptTool` keeps one attempt unless the runner gives a bounded
+ * resend policy.
  */
 export function toolCallMovement(transitions: AgentSessionTransitions, toolCall: AgentToolCallRecord): StepMovement<string> {
   const stepType = toolStepTypeForEffect(toolCall.effect);
   const options = toolStepOptions(transitions.persistence, stepType, toolCall.toolCallId);
   const overrides = readToolCallStepOptions(transitions, toolCall);
+  const executeRetry =
+    stepType === agentSessionStepTypes.callTool ? overrides?.executeRetry : overrides?.boundedResendExecuteRetry;
   return StepMovement.of(new StepRef(stepType), toolCall.toolCallId, {
     ...options,
     ...(overrides?.executeMethodTimeout === undefined ? {} : { executeMethodTimeoutMs: overrides.executeMethodTimeout }),
-    ...(overrides?.executeRetry === undefined || stepType !== agentSessionStepTypes.callTool
-      ? {}
-      : { executeRetry: overrides.executeRetry }),
+    ...(executeRetry === undefined ? {} : { executeRetry }),
   });
 }
 

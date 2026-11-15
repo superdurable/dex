@@ -91,8 +91,7 @@ class ToolEffect(StrEnum):
 
     Every tool call runs in its own Step, and the effect picks that Step.
     ``READ`` and ``IDEMPOTENT_WRITE`` tools run in ``CallTool`` with up to
-    three attempts and a stable idempotency key. ``BOUNDED_WRITE`` tools also
-    run in ``CallTool`` with retries. ``NON_IDEMPOTENT_WRITE`` and
+    three attempts and a stable idempotency key. ``NON_IDEMPOTENT_WRITE`` and
     ``UNCLASSIFIED`` tools run in ``CallSingleAttemptTool`` exactly once; a
     crash during the call records ``outcome_unknown``. The values are JSON
     strings on the wire.
@@ -101,26 +100,14 @@ class ToolEffect(StrEnum):
         READ: The tool only reads. Running it again is harmless.
         IDEMPOTENT_WRITE: The tool writes, and repeating it with the same
             idempotency key has no further effect.
-        BOUNDED_WRITE: The tool writes, and a repeat can repeat the effect a
-            bounded number of times. A connector Mutation whose manifest says
-            ``agent.repeatOnUnknown: limited`` has it; its connector resends
-            at most ``maxSends`` times when a send's outcome is unknown. When
-            the attempts run out, the session records ``outcome_unknown``. It
-            waits for approval by default.
         NON_IDEMPOTENT_WRITE: The tool writes, and repeating it can repeat the
             effect.
         UNCLASSIFIED: Nothing is known about the tool. It is treated like a
             non-idempotent write.
-
-    .. versionchanged:: 0.6.12
-        Added ``BOUNDED_WRITE``. A Worker older than 0.6.12 cannot read a
-        session that recorded a ``bounded_write`` call, so upgrade every
-        Worker of a session Flow type before it offers such a tool.
     """
 
     READ = "read"
     IDEMPOTENT_WRITE = "idempotent_write"
-    BOUNDED_WRITE = "bounded_write"
     NON_IDEMPOTENT_WRITE = "non_idempotent_write"
     UNCLASSIFIED = "unclassified"
 

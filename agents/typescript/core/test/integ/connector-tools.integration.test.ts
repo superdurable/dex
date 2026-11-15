@@ -50,6 +50,8 @@ const execFileAsync = promisify(execFile);
 const workerEntryModulePath = fileURLToPath(new URL("../fixtures/connector-test-agent-worker.js", import.meta.url));
 const skippedError = `${toolCallNotRunErrorPrefix}: ${toolCallSkippedAfterWriteDetail}`;
 const failed = "The tool call failed: ";
+// ToolEffect as dex-agents 0.6.11 decodes it, a pinned copy of that release's contract.
+const released0611ToolEffects: readonly string[] = ["read", "idempotent_write", "non_idempotent_write", "unclassified"];
 
 type ToolArguments = Readonly<Record<string, unknown>>;
 
@@ -285,7 +287,10 @@ describe("connector tools on a Dex engine", () => {
     await harness.startWorker();
     let [record, lines] = await runHeldWrite(harness, "send_message", "lose-first");
     // Read-back cannot see the first message, so attempt 2 sends again: a bounded duplicate.
-    assert.equal(record.effect, "bounded_write");
+    // The effect stays one every released reader decodes; the reference pins the cap.
+    assert.equal(record.effect, "non_idempotent_write");
+    assert.ok(released0611ToolEffects.includes(record.effect));
+    assert.equal(JSON.parse(record.toolSourceReference ?? "{}").reference, '{"tool": "send_message", "maxSends": 3}');
     assert.equal(record.status, "succeeded");
     assert.deepEqual(lines, ['send_message: {"messageId":"sendMessage-2"}']);
     assert.equal(harness.ledger.writes("sendMessage").length, 2);

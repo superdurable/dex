@@ -108,9 +108,8 @@ const maximumDurableTaskPollIntervalSeconds = 3_600;
 const effectConservatism: Readonly<Record<ToolEffect, number>> = {
   read: 0,
   idempotent_write: 1,
-  bounded_write: 2,
-  non_idempotent_write: 3,
-  unclassified: 4,
+  non_idempotent_write: 2,
+  unclassified: 3,
 };
 // The server or a gateway may report InternalError after the call ran, so it leaves the outcome unknown.
 const noResultErrorCodes: ReadonlySet<number> = new Set([
@@ -709,8 +708,8 @@ export class McpToolSource {
    *
    * For a tool with a {@link McpTool.dexEffect}, your policy may keep or raise its safety but never lowers
    * it. The tool gets the more conservative of `dexEffect` and your policy's effect, ranked `read`,
-   * `idempotent_write`, `bounded_write`, `non_idempotent_write`, then `unclassified`. Your `requiresApproval`, when
-   * set, wins, so `false` turns off a recommended approval. When you leave it out, the tool requires approval when
+   * `idempotent_write`, `non_idempotent_write`, then `unclassified`. Your `requiresApproval`, when set, wins,
+   * so `false` turns off a recommended approval. When you leave it out, the tool requires approval when
    * {@link McpTool.isApprovalRecommended} is `true` or your policy's effect requires approval by default.
    *
    * For any other tool, your policy wins over its annotation effect, as before. Policies for tools that no
@@ -758,8 +757,8 @@ export class McpToolSource {
    *
    * For a tool with a {@link McpTool.dexEffect}, the session's {@link ToolPolicy} for the tool may keep or
    * raise its safety but never lowers it. The call gets the more conservative of `dexEffect` and the policy's
-   * effect, ranked `read`, `idempotent_write`, `bounded_write`, `non_idempotent_write`, then `unclassified`. It
-   * waits for approval when the policy sets `requiresApproval`. When the policy leaves `requiresApproval` out, the call
+   * effect, ranked `read`, `idempotent_write`, `non_idempotent_write`, then `unclassified`. It waits for
+   * approval when the policy sets `requiresApproval`. When the policy leaves `requiresApproval` out, the call
    * waits when {@link McpTool.isApprovalRecommended} is `true` or the policy's effect requires approval by
    * default. Without a policy, it waits exactly when {@link McpTool.isApprovalRecommended} is `true`. A write
    * runs in the model's order after the turn's earlier writes (`DeferredToolCall.ordered`). Changed in
@@ -1618,9 +1617,7 @@ function combineDeclaredToolPolicy(
   const effect =
     effectConservatism[sessionPolicy.effect] > effectConservatism[declaredEffect] ? sessionPolicy.effect : declaredEffect;
   const isApprovalRequiredBySessionEffect =
-    sessionPolicy.effect === "bounded_write" ||
-    sessionPolicy.effect === "non_idempotent_write" ||
-    sessionPolicy.effect === "unclassified";
+    sessionPolicy.effect === "non_idempotent_write" || sessionPolicy.effect === "unclassified";
   return {
     effect,
     requiresApproval: sessionPolicy.requiresApproval ?? (isApprovalRecommended || isApprovalRequiredBySessionEffect),

@@ -15,7 +15,7 @@
 // FileGate, so a test can read the turn's records before the turn ends. post_note_retried is postNote under a
 // manifest that claims retry: safe, so the fenced write runs in CallTool with retries. payout_checked is
 // createPayout with an approval predicate: amounts above 50 wait for approval. send_message is the limited
-// sendMessage Mutation, a bounded_write; send_message_capped is the same tool under a tool policy that raises its
+// sendMessage Mutation, a bounded resend; send_message_capped is the same tool under a tool policy that raises its
 // send cap to 4, and send_message_unreviewed runs it under a manifest from before repeatOnUnknown.
 
 import type { ConnectionRef } from "@superdurable/connectors-sdk";
@@ -79,7 +79,7 @@ export function unreviewedSendManifest(): ConnectorPackageManifest {
 }
 
 /** The tool policy that raises send_message_capped's send cap from the manifest's 3 to 4. */
-export const cappedSendToolPolicies = { send_message_capped: { effect: "bounded_write", maxSends: 4 } } as const;
+export const cappedSendToolPolicies = { send_message_capped: { effect: "non_idempotent_write", maxSends: 4 } } as const;
 
 export function byIdManifest(): ConnectorPackageManifest {
   const manifest = structuredClone(fakeLedgerManifest) as { factories: { operationId: string }[] };

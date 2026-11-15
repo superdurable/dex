@@ -1,8 +1,12 @@
 ---
 section: Fixed
 ---
-- `ConnectorToolSource` reads the `sendCount` that a single-dispatch fence
-  with a send cap writes on its markers. Earlier releases did not treat such a
-  marker as a fence marker, so a claim that carried a send count did not keep
-  a later optional branch `outcome_unknown`. A marker that counts a send of an
-  earlier attempt now also keeps the outcome unknown.
+- `ConnectorToolSource` keeps a Connector branch `outcome_unknown` when a
+  `sendCount` on an earlier attempt's fence marker counts a send that may have
+  taken effect, in both cores. It also does so when an earlier attempt's
+  claim stands but the operation returned before it read that record.
+- `@superdurable/dex-agents`: the TypeScript core reads the `sendCount` that a
+  single-dispatch fence with a send cap writes. With
+  `@superdurable/connectors-sdk` 0.11, outside the 0.6.11 peer range, 0.6.11
+  did not treat such a claim as a fence marker, so a later optional branch
+  could record `failed`. The Python core already recognized the claim.
