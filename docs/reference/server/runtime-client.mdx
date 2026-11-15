@@ -514,7 +514,7 @@ and restart the node before you retry.
 
 ### SubFlows across a time travel {#sub-flows-across-a-time-travel}
 
-Since 0.1.33. A time travel can restore a Step whose WaitFor waits on SubFlow
+Since 0.1.33. A time travel can restore a Step whose `WaitFor` waits on SubFlow
 conditions. The `sub_flow_reset_policy` field of `ResetFlowRequest` decides
 what happens to each such condition. Each condition names the child Flow that
 its Step started.
@@ -528,7 +528,7 @@ exists, for example because it was purged after its retention.
 
 The values are:
 
-- `SUB_FLOW_RESET_POLICY_UNSPECIFIED`: the default. For ResetFlow it means
+- `SUB_FLOW_RESET_POLICY_UNSPECIFIED`: the default. For `ResetFlow` it means
   `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART`.
 - `SUB_FLOW_RESET_POLICY_ALWAYS_RESTART`: restarts every child, whether it
   ended or still runs.
@@ -549,13 +549,13 @@ that still runs is terminated first. The restored condition then accepts only
 the restarted run's result, so a late result of the earlier run is ignored. The
 time travel reads the original start from the child run. When that run no
 longer exists, or its start wrote hard-delete Attributes, the child cannot be
-restarted and the time travel is rejected. Under ResetFlow, a child that cannot
+restarted and the time travel is rejected. Under `ResetFlow`, a child that cannot
 be attached is always gone, so `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART`
 rejects it.
 
 A failure terminates the child run when it may still run. The condition then
 completes with a `FAILED` child result whose error type is
-`FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED`. The Step's Execute receives it like any
+`FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED`. The Step's `Execute` receives it like any
 failed child.
 
 A restart or a failure needs the child's start to have reached the child. While
