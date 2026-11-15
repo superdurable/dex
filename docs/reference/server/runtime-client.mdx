@@ -477,6 +477,14 @@ Attributes, its Channel messages, and the Steps that were waiting or ready. The 
 otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
 
+The Flow timeout restarts at the time travel, as if the run started then. When
+the restored state still waits for the timeout, the new attempt times out after
+the run's full Flow timeout, counted from the time travel. When the timeout had
+already fired at the target point, the restored state keeps that outcome, such
+as a running timeout handler. Changed in 0.1.33: before, the restored timeout
+kept the original deadline from the run's start, so it could fire right after
+the time travel.
+
 By default, the window keeps about the newest 50,000 history events of each
 run on **serve**, and 5,000 on **dev**. The server key is
 **history.windowEvents**, and a Flow can set its own size in its Flow

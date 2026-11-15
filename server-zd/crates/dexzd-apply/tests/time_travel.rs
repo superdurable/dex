@@ -26,8 +26,9 @@ use dexzd_apply::{
     is_unstaged_time_travel_for_test, stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
-    attempt_record_key, checkpoint_key, hard_delete_current_key, hard_delete_pending_key,
-    history_record_key, retention_index_key, run_singleton_key, value_row_key,
+    attempt_record_key, checkpoint_key, decode_timer_index_key, hard_delete_current_key,
+    hard_delete_pending_key, history_record_key, retention_index_key, run_singleton_key,
+    value_row_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, ValueId,
@@ -1702,6 +1703,205 @@ fn timers_move_to_the_new_attempt_and_stale_timers_never_fire() {
         }],
     }));
     assert_eq!(harness.run_record().status, FlowStatus::Failed as i32);
+}
+
+#[test]
+fn time_travel_restarts_the_flow_timeout_from_the_travel_time() {
+    let mut harness = Harness::new();
+    let mut request = start_request();
+    request.flow_timeout_seconds = 30;
+    harness.start(request);
+    let started_at = harness.run_record().started_at_micros;
+    assert_eq!(
+        flow_timeout_timers(&harness),
+        vec![(1, started_at + 30 * SECOND)]
+    );
+    harness.now_micros += 20 * SECOND;
+    let (attempt, outcome) = harness.travel_to(reset(FlowResetType::Beginning));
+    let traveled_at = harness.now_micros;
+    assert_eq!(
+        flow_timeout_timers(&harness),
+        vec![(attempt, traveled_at + 30 * SECOND)],
+        "only the restarted deadline is armed"
+    );
+    assert!(outcome.effects.contains(&ApplyEffect::TimerArmed {
+        fire_at_micros: traveled_at + 30 * SECOND,
+    }));
+    let record = harness.run_record();
+    assert_eq!(record.timeout_deadline_micros, traveled_at + 30 * SECOND);
+    assert_eq!(record.timeout_duration_micros, 30 * SECOND);
+
+    // Both deadlines have passed; the next travel still waits the original 30 seconds.
+    harness.now_micros += 100 * SECOND;
+    let (second_attempt, _) = harness.travel_to(reset(FlowResetType::Beginning));
+    let second_traveled_at = harness.now_micros;
+    assert_eq!(
+        flow_timeout_timers(&harness),
+        vec![(second_attempt, second_traveled_at + 30 * SECOND)]
+    );
+    assert_eq!(
+        harness.run_record().timeout_deadline_micros,
+        second_traveled_at + 30 * SECOND
+    );
+    fire_flow_timeout(&mut harness, second_attempt);
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Failed as i32);
+    assert_eq!(
+        record.close.expect("the run closed").error_message,
+        "Flow timed out after 30 seconds"
+    );
+}
+
+#[test]
+fn time_travel_that_reopens_a_completed_run_restarts_its_flow_timeout() {
+    let mut harness = Harness::new();
+    harness.start(StartFlowRequest {
+        flow_timeout_seconds: 30,
+        step_options: skip_wait_for(),
+        ..start_request()
+    });
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ChargeStep-1", 1, force_complete());
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+    assert_eq!(flow_timeout_timers(&harness), Vec::new());
+    harness.now_micros += 60 * SECOND;
+    let (attempt, _) = harness.travel_to(reset(FlowResetType::Beginning));
+    let traveled_at = harness.now_micros;
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+    assert_eq!(
+        flow_timeout_timers(&harness),
+        vec![(attempt, traveled_at + 30 * SECOND)]
+    );
+    assert_eq!(
+        harness.run_record().timeout_deadline_micros,
+        traveled_at + 30 * SECOND
+    );
+}
+
+#[test]
+fn time_travel_to_a_flow_timeout_close_keeps_the_close() {
+    let mut harness = Harness::new();
+    let mut request = start_request();
+    request.flow_timeout_seconds = 30;
+    harness.start(request);
+    let original_deadline = harness.run_record().timeout_deadline_micros;
+    harness.now_micros += 30 * SECOND;
+    fire_flow_timeout(&mut harness, 1);
+    let fired_at = harness.now_micros;
+    assert_eq!(harness.run_record().status, FlowStatus::Failed as i32);
+    harness.now_micros += 60 * SECOND;
+    harness.travel_to(reset_to_time(fired_at));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Failed as i32);
+    assert_eq!(
+        record.close.expect("the run closed again").error_message,
+        "Flow timed out after 30 seconds"
+    );
+    assert_eq!(flow_timeout_timers(&harness), Vec::new());
+    assert_eq!(record.timeout_deadline_micros, original_deadline);
+    assert_eq!(record.timeout_duration_micros, 0);
+}
+
+#[test]
+fn time_travel_to_a_running_timeout_handler_arms_no_flow_timeout() {
+    let mut harness = Harness::new();
+    start_with_handler_timeout(&mut harness, 30);
+    let original_deadline = harness.run_record().timeout_deadline_micros;
+    harness.now_micros += 30 * SECOND;
+    fire_flow_timeout(&mut harness, 1);
+    let fired_at = harness.now_micros;
+    assert!(harness.has_step(TIMEOUT_HANDLER));
+    harness.set_attribute("status", "timed out", "set-status");
+    harness.now_micros += 60 * SECOND;
+    let (attempt, _) = harness.travel_to(reset_to_time(fired_at));
+    assert_eq!(harness.run_record().current_attempt, attempt);
+    assert!(harness.has_step(TIMEOUT_HANDLER), "the handler still runs");
+    assert_eq!(flow_timeout_timers(&harness), Vec::new());
+    assert_eq!(
+        harness.run_record().timeout_deadline_micros,
+        original_deadline
+    );
+
+    // A later travel to before the timeout restarts it with the original duration.
+    harness.now_micros += 60 * SECOND;
+    let (attempt, _) = harness.travel_to(reset(FlowResetType::Beginning));
+    let traveled_at = harness.now_micros;
+    assert!(!harness.has_step(TIMEOUT_HANDLER));
+    assert_eq!(
+        flow_timeout_timers(&harness),
+        vec![(attempt, traveled_at + 30 * SECOND)]
+    );
+}
+
+#[test]
+fn time_travel_of_a_run_without_a_flow_timeout_arms_no_flow_timeout() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    harness.now_micros += 60 * SECOND;
+    harness.travel_to(reset(FlowResetType::Beginning));
+    let record = harness.run_record();
+    assert_eq!(flow_timeout_timers(&harness), Vec::new());
+    assert_eq!(record.timeout_deadline_micros, 0);
+    assert_eq!(record.timeout_duration_micros, 0);
+}
+
+const TIMEOUT_HANDLER: &str = "sys:timeout_handler-1";
+
+/// Starts the harness run with the HANDLER Flow timeout policy.
+fn start_with_handler_timeout(harness: &mut Harness, flow_timeout_seconds: i32) {
+    let outcome = harness.apply(Command::FlowStart(FlowStartCommand {
+        new_run_id: vec![9; 16],
+        request: Some(StartFlowRequest {
+            flow_timeout_seconds,
+            step_options: skip_wait_for(),
+            flow_start_options: Some(FlowStartOptions {
+                timeout_handler_options: Some(FlowTimeoutHandlerOptions::default()),
+                ..FlowStartOptions::default()
+            }),
+            ..start_request()
+        }),
+        settings: Some(harness.settings),
+        resolved_timeout_policy: FlowTimeoutPolicy::Handler as i32,
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
+        ..FlowStartCommand::default()
+    }));
+    let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply else {
+        panic!("the run starts: {:?}", outcome.reply);
+    };
+    harness.run_id = reply.run_id.clone();
+}
+
+fn fire_flow_timeout(harness: &mut Harness, run_attempt: u32) {
+    let outcome = harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt,
+            kind: Some(timer_id::Kind::FlowTimeout(
+                dexzd_protocol::dexzd::v1::FlowTimeoutTimerId {},
+            )),
+        }],
+    }));
+    assert!(!outcome.writes.is_empty(), "the Flow timeout fires");
+}
+
+/// Returns the run attempt and fire time of each Flow timeout in the timer index.
+fn flow_timeout_timers(harness: &Harness) -> Vec<(u32, i64)> {
+    let run_id = harness.run();
+    harness
+        .state
+        .rows
+        .keys()
+        .filter(|(column_family, _)| *column_family == ColumnFamily::PartitionIndex)
+        .filter_map(|(_, key)| decode_timer_index_key(key))
+        .filter(|entry| entry.run_id == run_id)
+        .filter_map(|entry| {
+            let timer = TimerId::decode(entry.encoded_timer_id.as_slice()).expect("timer decodes");
+            matches!(timer.kind, Some(timer_id::Kind::FlowTimeout(_)))
+                .then_some((timer.run_attempt, entry.fire_at_micros))
+        })
+        .collect()
 }
 
 #[test]

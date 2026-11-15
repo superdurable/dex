@@ -31,6 +31,7 @@ use crate::command_handlers::flow_close::{
     update_directory_status,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
+use crate::command_handlers::step_commands::flow_timeout_duration_micros;
 use crate::command_handlers::{CommandScope, HandlerResult, ReplayedCommandCounters};
 use crate::history::attempt_scope::{
     AttemptRow, decode_timer_id, hex, holder_rows, read_attempt_rows, run_status_of, set_run_status,
@@ -268,7 +269,13 @@ fn replace_attempt_rows(
                     None => decode_timer_id(&row.key_suffix)?,
                 };
                 timer_id.run_attempt = cursor.attempt();
-                arm_timer(transaction, cursor, &timer_id, timer.fire_at_micros);
+                let fire_at_micros =
+                    if matches!(timer_id.kind, Some(timer_id::Kind::FlowTimeout(_))) {
+                        restart_flow_timeout(&mut cursor.record, scope.now_micros)
+                    } else {
+                        timer.fire_at_micros
+                    };
+                arm_timer(transaction, cursor, &timer_id, fire_at_micros);
             }
             RunTable::StepExecution => {
                 let mut step = decode_step_execution(&row)?;
@@ -292,6 +299,15 @@ fn replace_attempt_rows(
         }
     }
     Ok(())
+}
+
+/// Restarts an armed Flow timeout at `now_micros`, as if the run started then, and returns the
+/// new deadline. The duration stays the run's original Flow timeout.
+fn restart_flow_timeout(record: &mut RunRecord, now_micros: i64) -> i64 {
+    let duration_micros = flow_timeout_duration_micros(record);
+    record.timeout_duration_micros = duration_micros;
+    record.timeout_deadline_micros = now_micros.saturating_add(duration_micros);
+    record.timeout_deadline_micros
 }
 
 /// Returns the keys of the Attribute rows whose last write requested synchronization.

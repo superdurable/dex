@@ -11,17 +11,23 @@ use std::time::Duration;
 use dexzd_apply::ApplyEffect;
 use dexzd_keyspace::row_keys::{decode_timer_index_key, timer_index_key, timer_key};
 use dexzd_keyspace::{ColumnFamily, RunId};
+use dexzd_protocol::dex::{FlowResetType, FlowStatus, ResetFlowRequest};
 use dexzd_protocol::dexzd::v1::{
-    TimerId, TimerRecord, WaitConditionTimerId, flow_command, timer_id,
+    FlowCommand, TimeTravelCommand, TimerId, TimerRecord, WaitConditionTimerId, flow_command,
+    timer_id,
 };
 use prost::Message;
 
-use super::{CommandOverride, EffectHarness, is_timers_fired, ok_reply, settings, start_request};
+use super::{
+    CommandOverride, EffectHarness, SECOND_MICROS, is_error_reply, is_timers_fired, ok_reply,
+    settings, start_request,
+};
 use crate::effects::EffectsConfig;
-use crate::flow_coordination::FlowCoordinationEffectSink;
+use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 use dexzd_clock::WallClock;
 
 const MILLI_MICROS: i64 = 1000;
+const FLOW_TIMEOUT_MICROS: i64 = 10 * SECOND_MICROS;
 
 pub(super) fn wait_timer(index: u32) -> TimerId {
     TimerId {
@@ -286,4 +292,133 @@ async fn due_timers_behind_a_full_page_of_timers_in_backoff_still_fire() {
     assert_eq!(fired[0].0, run_id.as_bytes().to_vec());
     assert_eq!(fired[0].1, vec![wait_timer(0)]);
     harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_time_travel_restarts_an_armed_flow_timeout_from_the_travel_time() {
+    const FLOW_ID: &str = "travel-armed-timeout";
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let run_id = start_flow_with_flow_timeout(&harness, FLOW_ID);
+    let started_at = harness.run_record(FLOW_ID, run_id).started_at_micros;
+    sleep_until_micros(&harness, started_at + 6 * SECOND_MICROS).await;
+    let traveled_at = travel_to_beginning(&harness, FLOW_ID, run_id);
+
+    sleep_until_micros(&harness, started_at + FLOW_TIMEOUT_MICROS).await;
+    harness.settle().await;
+    sleep_until_micros(&harness, traveled_at + FLOW_TIMEOUT_MICROS - MILLI_MICROS).await;
+    harness.settle().await;
+    assert_eq!(flow_timeout_fires(&harness), Vec::new(), "the old deadline");
+    assert_eq!(
+        harness.run_record(FLOW_ID, run_id).status,
+        FlowStatus::Running as i32
+    );
+    sleep_until_micros(&harness, traveled_at + FLOW_TIMEOUT_MICROS).await;
+    harness.settle().await;
+
+    let fires = flow_timeout_fires(&harness);
+    assert_eq!(fires.len(), 1, "{fires:?}");
+    assert_eq!(fires[0].0, 2, "the new attempt's Flow timeout fires");
+    assert!(fires[0].1 >= traveled_at + FLOW_TIMEOUT_MICROS);
+    assert_eq!(
+        harness.run_record(FLOW_ID, run_id).status,
+        FlowStatus::Failed as i32
+    );
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_time_travel_after_the_flow_timed_out_waits_a_full_flow_timeout_again() {
+    const FLOW_ID: &str = "travel-after-timeout";
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let run_id = start_flow_with_flow_timeout(&harness, FLOW_ID);
+    let started_at = harness.run_record(FLOW_ID, run_id).started_at_micros;
+    sleep_until_micros(&harness, started_at + FLOW_TIMEOUT_MICROS).await;
+    harness.settle().await;
+    assert_eq!(flow_timeout_fires(&harness).len(), 1);
+    assert_eq!(
+        harness.run_record(FLOW_ID, run_id).status,
+        FlowStatus::Failed as i32
+    );
+    sleep_until_micros(&harness, started_at + 3 * FLOW_TIMEOUT_MICROS).await;
+    let traveled_at = travel_to_beginning(&harness, FLOW_ID, run_id);
+
+    harness.settle().await;
+    sleep_until_micros(&harness, traveled_at + FLOW_TIMEOUT_MICROS - MILLI_MICROS).await;
+    harness.settle().await;
+    assert_eq!(flow_timeout_fires(&harness).len(), 1, "no fire right after");
+    assert_eq!(
+        harness.run_record(FLOW_ID, run_id).status,
+        FlowStatus::Running as i32
+    );
+    sleep_until_micros(&harness, traveled_at + FLOW_TIMEOUT_MICROS).await;
+    harness.settle().await;
+
+    let fires = flow_timeout_fires(&harness);
+    assert_eq!(fires.len(), 2, "{fires:?}");
+    assert_eq!(fires[1].0, 2, "the new attempt's Flow timeout fires");
+    assert!(fires[1].1 >= traveled_at + FLOW_TIMEOUT_MICROS);
+    assert_eq!(
+        harness.run_record(FLOW_ID, run_id).status,
+        FlowStatus::Failed as i32
+    );
+    harness.shutdown().await;
+}
+
+/// Starts a run with the FAIL Flow timeout and no Step, so only the timeout changes it.
+fn start_flow_with_flow_timeout(harness: &EffectHarness, flow_id: &str) -> RunId {
+    let mut request = start_request(flow_id);
+    request.start_step_type.clear();
+    request.flow_timeout_seconds =
+        i32::try_from(FLOW_TIMEOUT_MICROS / SECOND_MICROS).expect("fits i32");
+    harness.start_flow(request, settings())
+}
+
+/// Commits a time travel to the run's beginning and returns its command time.
+fn travel_to_beginning(harness: &EffectHarness, flow_id: &str, run_id: RunId) -> i64 {
+    let command = FlowCommand {
+        flow_id: flow_id.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::TimeTravel(TimeTravelCommand {
+            request: Some(ResetFlowRequest {
+                flow_id: flow_id.to_owned(),
+                reset_type: FlowResetType::Beginning as i32,
+                reason: "restart the Flow timeout".to_owned(),
+                skip_writes_reapply: true,
+                ..ResetFlowRequest::default()
+            }),
+            ..TimeTravelCommand::default()
+        })),
+        ..FlowCommand::default()
+    };
+    let reply = harness
+        .flow_effect_operations
+        .commit(
+            &EffectHarness::flow(flow_id),
+            command,
+            CommitUrgency::Prompt,
+        )
+        .expect("the time travel commits");
+    assert!(!is_error_reply(&reply), "time travel failed: {reply:?}");
+    harness
+        .flow_effect_operations
+        .commands_matching(|command| matches!(command, flow_command::Command::TimeTravel(_)))
+        .last()
+        .expect("the time travel is recorded")
+        .command
+        .proposed_at_micros
+}
+
+/// Returns the run attempt and command time of every proposed Flow timeout fire.
+fn flow_timeout_fires(harness: &EffectHarness) -> Vec<(u32, i64)> {
+    fired_commands(harness)
+        .into_iter()
+        .flat_map(|(_, timers, proposed_at_micros)| {
+            timers
+                .into_iter()
+                .filter(|timer| matches!(timer.kind, Some(timer_id::Kind::FlowTimeout(_))))
+                .map(move |timer| (timer.run_attempt, proposed_at_micros))
+        })
+        .collect()
 }
