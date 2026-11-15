@@ -21,9 +21,10 @@ import json
 
 import pytest
 
-from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT
+from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, ToolCallStatus
 from dex_agents.connectors import CONNECTOR_NOT_SENT_RETRY_LATER
 from tests.conftest import ScriptedAgentHarness
+from tests.connector_agent import STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE
 from tests.fake_ledger import FakeLedgerProvider
 
 
@@ -199,3 +200,31 @@ async def test_a_retry_safe_fenced_write_refused_after_send_is_retried_and_sent_
     )
     assert answer == '{"noteId":"postNote-1"}'
     assert len(ledger.writes("postNote")) == 1
+
+
+async def test_a_bounded_write_sent_before_a_kill_stays_unknown_when_the_next_worker_refuses_it(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    arguments = {"accountId": "a-1", "text": "gate-after-send:kill"}
+    await harness.sessions.start_session(
+        session_id, "hold:held calls " + json.dumps([["send_message", arguments]])
+    )
+    await harness.gate("kill").wait_until_reached()
+    worker.kill()
+    # A later deploy requires channel, so this Worker refuses the stored arguments.
+    await harness.stack.start_worker({STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE: "1"})
+    await harness.gate("held").wait_until_reached()
+    snapshot = await harness.sessions.get_agent_snapshot(session_id)
+    harness.gate("held").release()
+    record = next(call for call in snapshot.tool_calls if call.tool_call_id == "call-0")
+    # The first attempt's claim stands, so the refusal cannot prove that nothing was sent.
+    assert record.status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert record.error is not None and record.error.startswith(
+        "invalid arguments for send_message: "
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == f"send_message: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert len(ledger.writes("sendMessage")) == 1

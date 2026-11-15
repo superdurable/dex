@@ -23,6 +23,7 @@ import { join } from "node:path";
 import {
   SecretString,
   StaticCredentialProvider,
+  definitionMaxSends,
   newMutationBranch,
   newMutationRetry,
   newMutationUncertain,
@@ -32,6 +33,7 @@ import {
   type Failure,
   type Mutation,
   type MutationAttempt,
+  type MutationDefinition,
   type Query,
   type QueryAttempt,
   type QueryDefinition,
@@ -57,11 +59,13 @@ export const CreatePayoutInputSchema = z.strictObject({
   memo: z.string().optional(),
 });
 export const PostNoteInputSchema = z.strictObject({ accountId: z.string(), text: z.string() });
+export const SendMessageInputSchema = z.strictObject({ accountId: z.string(), text: z.string() });
 export const CloseAccountInputSchema = z.strictObject({ accountId: z.string() });
 
 type GetBalanceInput = z.infer<typeof GetBalanceInputSchema>;
 type CreatePayoutInput = z.infer<typeof CreatePayoutInputSchema>;
 type PostNoteInput = z.infer<typeof PostNoteInputSchema>;
+type SendMessageInput = z.infer<typeof SendMessageInputSchema>;
 type CloseAccountInput = z.infer<typeof CloseAccountInputSchema>;
 
 interface Balance {
@@ -76,6 +80,9 @@ interface Payout {
 interface Note {
   readonly noteId?: string;
 }
+interface Message {
+  readonly messageId?: string;
+}
 
 function definition(operationId: string, ...branches: string[]): QueryDefinition {
   return {
@@ -89,6 +96,17 @@ const getBalanceDefinition = definition("getBalance", "found", "notFound", "inva
 const createPayoutDefinition = definition("createPayout", "paid", "providerRejected", "uncertain", "invalidResponse", "defect");
 const postNoteDefinition = definition("postNote", "posted", "providerRejected", "uncertain", "defect");
 const closeAccountDefinition = definition("closeAccount", "closed", "defect");
+export const sendMessageDefinition: MutationDefinition = {
+  ...definition("sendMessage", "sent", "providerRejected", "uncertain", "defect"),
+  stepDefaults: {
+    executeMethodTimeoutMs: 30_000,
+    executeDurability: "sync",
+    // Five attempts reach the send cap of 3 and one read-back after it.
+    executeRetry: { initialIntervalMs: 1_000, backoffCoefficient: 1, maximumIntervalMs: 1_000, maximumAttempts: 5, totalDurationMs: 600_000 },
+  },
+  repeatOnUnknown: "limited",
+  maxSends: 3,
+};
 // An operation ID whose default tool name changed in dex-agents 0.5.0.
 const getBalanceByIdDefinition = definition("getBalanceByID", "found", "notFound", "invalidResponse", "defect");
 
@@ -133,6 +151,11 @@ export class FakeLedgerProvider {
 
   public recordRateLimited(key: string): void {
     appendLine(this.sendsPath, { operation: "rate-limited", key });
+  }
+
+  /** Records a request that reached the provider, which refused it without acting. */
+  public recordRefused(operation: string, key: string): void {
+    appendLine(this.sendsPath, { operation: `${operation}-refused`, key });
   }
 
   public accept(
@@ -325,6 +348,82 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
       return newMutationUncertain({}, failure("postNote", "no response"));
     }
     return newMutationBranch("posted", { noteId }, { providerObjectId: noteId });
+  }
+}
+
+/**
+ * sendMessage, a Slack-like Mutation with `repeatOnUnknown: limited`: when a send's outcome is unknown, the fence
+ * lets a later attempt read back and resend while the call's sends stay below the cap. Words steer it: reject
+ * (refused before sending), reject-on-send (the provider refuses the sent message, canResend), lose-first (attempt
+ * 1's message is accepted where read-back cannot see it and its response is lost), lose-visible (the same, but
+ * read-back finds it), lose-always (every send is lost and hidden), reject-before-fence-later (attempt 2 and
+ * later refuse before the fence decides, a wrong order the agent core must still treat as unknown), and
+ * gate-after-send:<gate> (attempt 1 waits at a FileGate after the provider accepted the message).
+ */
+export class SendMessageOperation implements Mutation<SendMessageInput, Message> {
+  public constructor(
+    private readonly provider: FakeLedgerProvider,
+    private readonly operationDefinition: MutationDefinition = sendMessageDefinition,
+  ) {}
+
+  public definition(): MutationDefinition {
+    return this.operationDefinition;
+  }
+
+  public idempotencyKey(callId: string): string {
+    return callId;
+  }
+
+  public async invoke(call: Call, input: SendMessageInput): Promise<MutationAttempt<Message>> {
+    const words = input.text.split(/\s+/).filter((word) => word !== "");
+    const key = call.idempotencyKey ?? call.id;
+    const attempt = call.context.attempt;
+    if (words.includes("reject-before-fence-later") && attempt > 1) {
+      // A wrong order: a later attempt refuses before the fence reads the earlier attempt's claim.
+      return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "refused before the fence"));
+    }
+    // The fence decides before credentials or provider lookups, as the Connector contract requires.
+    const fence = new Fence(call, 30_000, { maxSends: definitionMaxSends(this.operationDefinition) });
+    const decision = fence.decide();
+    if (decision.kind === "failClosed") {
+      return newMutationUncertain({}, failure("sendMessage", decision.error?.message ?? "invalid checkpoint"));
+    }
+    if (!(await this.provider.authorize(call))) {
+      return newMutationBranch("providerRejected", {}, {}, refused("sendMessage"));
+    }
+    if (words.includes("reject")) {
+      return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "channel archived"));
+    }
+    if (decision.kind === "readBackRequired" || decision.kind === "readBackThenResendAllowed") {
+      const found = this.provider.find("sendMessage", key);
+      if (found !== undefined) {
+        return newMutationBranch("sent", { messageId: found }, { providerObjectId: found });
+      }
+      if (decision.kind === "readBackRequired") {
+        return newMutationUncertain({}, failure("sendMessage", "read-back found no message"));
+      }
+    }
+    const isLost =
+      words.includes("lose-always") || ((words.includes("lose-first") || words.includes("lose-visible")) && attempt === 1);
+    const messageId = await fence.dispatch(async (): Promise<string | undefined> => {
+      if (words.includes("reject-on-send")) {
+        this.provider.recordRefused("sendMessage", key);
+        return undefined;
+      }
+      const id = this.provider.accept("sendMessage", key, { deduplicate: false, hidden: isLost && !words.includes("lose-visible") });
+      await this.provider.waitAt(words, "gate-after-send", attempt);
+      return id;
+    });
+    if (messageId === undefined) {
+      await fence.recordCanResend();
+      return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "message refused"));
+    }
+    if (isLost) {
+      // The response never arrived: the outcome is unknown, and the cap decides whether a later attempt resends.
+      return newMutationRetry({ kind: "TRANSPORT", provider: fakeLedgerConnectorId, operation: "sendMessage", message: "response lost" });
+    }
+    await fence.recordProviderId(messageId);
+    return newMutationBranch("sent", { messageId }, { providerObjectId: messageId });
   }
 }
 

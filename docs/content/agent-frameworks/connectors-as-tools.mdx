@@ -28,11 +28,14 @@ The manifest decides whether a call can run again, and so which Step runs it:
 | --- | --- | --- |
 | Query | **read** | `CallTool`, with retries |
 | Mutation that the manifest marks retry-safe (**agent.retry: safe**) | `idempotent_write` | `CallTool`, with retries |
+| Mutation that the manifest lets resend a few times (**agent.repeatOnUnknown: limited**) | `non_idempotent_write` | `CallSingleAttemptTool`, with bounded resends |
 | Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool`, once |
 
 Retry-safe means a repeat with the same Call ID makes no second effect. A call whose attempts run out records **failed** for a Query and `outcome_unknown` for a Mutation.
 
-A session's tool policy for a Connector tool changes only its approval. The effect class always comes from the manifest.
+Bounded resends suit a write where a rare duplicate is acceptable, such as a chat message or an email. When a send's outcome is unknown, such as after a timeout, the Connector reads the write back first when the operation supports it. It sends again when it cannot confirm the write, and at most **maxSends** times for one call. A definite failure is never resent. At the cap, a write it cannot find records `outcome_unknown`. [Bounded resends](/reference/agents/connector-tools#bounded-resends) covers the details.
+
+A session's tool policy for a Connector tool changes only its approval and, for bounded resends, its send cap. The effect class always comes from the manifest.
 
 ### Approval {#connector-tools-approval}
 
@@ -52,7 +55,7 @@ When a write fails, ends `outcome_unknown`, or is rejected, the later Connector 
 
 ### Crashes {#connector-tools-crashes}
 
-A Worker crash during a Connector write sends the write at most once. A retry-safe write retries with the same idempotency key, or looks for the earlier write at the provider first; a single-attempt write records `outcome_unknown`. [Crashes](/reference/agents/connector-tools#crashes) shows each case.
+A Worker crash during a Connector write sends the write at most once, except with bounded resends, which can send it again up to the send cap. A retry-safe write retries with the same idempotency key, or looks for the earlier write at the provider first; a single-attempt write records `outcome_unknown`. A bounded resend looks for the earlier write first when the operation supports it, and sends again only below its send cap. [Crashes](/reference/agents/connector-tools#crashes) shows each case.
 
 ## Connect a Connector {#connect-connectors}
 

@@ -12,7 +12,9 @@ It ships ``dex-connector.json`` as package data, as a real Connector package
 does. ``getBalance`` is a Query. ``createPayout`` is a Stripe-like Mutation: the
 provider drops a repeated idempotency key, so it is ``retry: safe``.
 ``postNote`` is a Slack-like Mutation guarded by the single-dispatch fence; the
-provider does not drop repeats. ``closeAccount`` is not exposed to agents.
+provider does not drop repeats. ``sendMessage`` is the same kind of write with
+``repeatOnUnknown: limited``, so its fence lets a later attempt read back and
+resend under a send cap. ``closeAccount`` is not exposed to agents.
 
 Space-separated words in a payout ``memo`` or a note ``text`` steer the provider:
 ``reject``, ``invalid``, ``uncertain``, ``rate-limit-once`` (refused before the
@@ -20,14 +22,22 @@ claim, ``notSent``), ``rate-limit-after-send`` (the provider refuses the sent
 note, ``canResend``), ``hide`` (read-back finds nothing), and
 ``gate-before-send:<gate>``, ``gate-after-claim:<gate>``,
 ``gate-after-accept:<gate>``, or ``gate-before-can-resend:<gate>``, which wait at
-a ``FileGate`` on attempt 1 only.
+a ``FileGate`` on attempt 1 only. A message ``text`` takes ``reject`` (refused
+before sending), ``reject-on-send`` (the provider refuses the sent message,
+``canResend``), ``lose-first`` (attempt 1's message is accepted where read-back
+cannot see it, and its response is lost), ``lose-visible`` (the same, but
+read-back finds it), ``lose-always`` (every send is lost and hidden), and
+``reject-before-fence-later`` (attempt 2 and later refuse before the fence
+decides, a wrong order the agent core must still treat as unknown), and
+``gate-after-send:<gate>`` (attempt 1 waits at a ``FileGate`` after the
+provider accepted the message).
 """
 
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -46,6 +56,8 @@ from dex_connectors.sdk import (
     QueryAttempt,
     QueryDefinition,
     Receipt,
+    RepeatOnUnknown,
+    RetryPolicy,
     SecretString,
     StaticCredentialProvider,
     StepDefaults,
@@ -120,6 +132,21 @@ class NoteProgress:
 
 
 @dataclass(frozen=True)
+class SendMessageInput:
+    """One message."""
+
+    account_id: str = field(metadata={"dex_json_name": "accountId"})
+    text: str
+
+
+@dataclass(frozen=True)
+class Message:
+    """A message the provider stored."""
+
+    message_id: str = field(default="", metadata={"dex_json_name": "messageId"})
+
+
+@dataclass(frozen=True)
 class CloseAccountInput:
     """One account to close."""
 
@@ -148,6 +175,27 @@ CREATE_PAYOUT_DEFINITION = _definition(
 )
 POST_NOTE_DEFINITION = _definition(
     MutationDefinition, "postNote", "posted", "providerRejected", "uncertain", "defect"
+)
+# Five attempts reach the send cap of 3 and one read-back after it.
+SEND_MESSAGE_DEFINITION = replace(
+    cast(
+        MutationDefinition,
+        _definition(
+            MutationDefinition, "sendMessage", "sent", "providerRejected", "uncertain", "defect"
+        ),
+    ),
+    step_defaults=replace(
+        _DEFAULTS,
+        execute_retry=RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            backoff_coefficient=1,
+            maximum_interval=timedelta(seconds=1),
+            maximum_attempts=5,
+            total_duration=timedelta(minutes=10),
+        ),
+    ),
+    repeat_on_unknown=RepeatOnUnknown.LIMITED,
+    max_sends=3,
 )
 CLOSE_ACCOUNT_DEFINITION = _definition(MutationDefinition, "closeAccount", "closed", "defect")
 # An operation ID whose default tool name changed in dex-agents 0.5.0.
@@ -208,6 +256,10 @@ class FakeLedgerProvider:
             {"operation": operation, "key": key, "id": object_id, "hidden": str(hidden)},
         )
         return object_id
+
+    def record_refused(self, operation: str, key: str) -> None:
+        """Record a request that reached the provider, which refused it without acting."""
+        _append_line(self._sends, {"operation": f"{operation}-refused", "key": key})
 
     def find(self, operation: str, key: str) -> str | None:
         for entry in self.writes(operation):
@@ -416,6 +468,100 @@ class PostNoteOperation:
             return MutationAttempt.uncertain(Note(), _failure("postNote", "no response"), Receipt())
         return MutationAttempt.branch_result(
             "posted", Note(note_id), Receipt(provider_object_id=note_id)
+        )
+
+
+class SendMessageOperation:
+    """Send a message with ``repeatOnUnknown: limited``; a lost response may be resent."""
+
+    def __init__(
+        self,
+        provider: FakeLedgerProvider,
+        definition: MutationDefinition = SEND_MESSAGE_DEFINITION,
+    ) -> None:
+        self._provider = provider
+        self._definition = definition
+
+    def definition(self) -> MutationDefinition:
+        return self._definition
+
+    def idempotency_key(self, call_id: CallID, input: SendMessageInput) -> IdempotencyKey:
+        return IdempotencyKey(call_id)
+
+    async def invoke(self, call: Call, input: SendMessageInput) -> MutationAttempt[Message]:
+        words = input.text.split()
+        key = str(call.idempotency_key)
+        attempt = call.context.attempt if call.context is not None else 1
+        if "reject-before-fence-later" in words and attempt > 1:
+            # A wrong order: a later attempt refuses before the fence reads the earlier claim.
+            return MutationAttempt.branch_result(
+                "providerRejected",
+                Message(),
+                Receipt(),
+                _failure("sendMessage", "refused before the fence"),
+            )
+        # The fence decides before credentials or provider lookups, as the contract requires.
+        fence = Fence(call, timedelta(seconds=30), max_sends=call.max_sends)
+        decision = await fence.decide()
+        if decision.kind is DecisionKind.FAIL_CLOSED:
+            return MutationAttempt.uncertain(
+                Message(), _failure("sendMessage", str(decision.error)), Receipt()
+            )
+        if not await self._provider.authorize(call):
+            return MutationAttempt.branch_result(
+                "providerRejected", Message(), Receipt(), _refused("sendMessage")
+            )
+        if "reject" in words:
+            return MutationAttempt.branch_result(
+                "providerRejected",
+                Message(),
+                Receipt(),
+                _failure("sendMessage", "channel archived"),
+            )
+        if decision.kind in (
+            DecisionKind.READ_BACK_REQUIRED,
+            DecisionKind.READ_BACK_THEN_RESEND_ALLOWED,
+        ):
+            found = self._provider.find("sendMessage", key)
+            if found is not None:
+                return MutationAttempt.branch_result(
+                    "sent", Message(found), Receipt(provider_object_id=found)
+                )
+            if decision.kind is DecisionKind.READ_BACK_REQUIRED:
+                return MutationAttempt.uncertain(
+                    Message(), _failure("sendMessage", "read-back found no message"), Receipt()
+                )
+        is_lost = "lose-always" in words or (
+            ("lose-first" in words or "lose-visible" in words) and attempt == 1
+        )
+
+        async def send(deadline: datetime) -> str | None:
+            if "reject-on-send" in words:
+                self._provider.record_refused("sendMessage", key)
+                return None
+            message_id = self._provider.accept(
+                "sendMessage",
+                key,
+                deduplicate=False,
+                hidden=is_lost and "lose-visible" not in words,
+            )
+            await _wait_at(self._provider, words, "gate-after-send", attempt)
+            return message_id
+
+        message_id = await fence.dispatch(send)
+        if message_id is None:
+            await fence.record_can_resend()
+            return MutationAttempt.branch_result(
+                "providerRejected", Message(), Receipt(), _failure("sendMessage", "message refused")
+            )
+        if is_lost:
+            # The response never arrived: the outcome is unknown, and the cap decides a resend.
+            return MutationAttempt.retry(
+                Failure(FailureKind.TRANSPORT, CONNECTOR_ID, "sendMessage", "response lost")
+            )
+        await fence.record_provider_id(message_id)
+        return MutationAttempt.branch_result(
+            "sent", Message(message_id), Receipt(provider_object_id=message_id)
         )
 
 

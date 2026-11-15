@@ -55,6 +55,7 @@ import {
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import { checkStoredSessionSettings } from "./agent-session-settings.js";
+import { connectorMaxSendsCeiling, isConnectorMaxSends } from "./connectors/connector-max-sends.js";
 import type { ModelSpendLimit } from "./agent-session-spend-limit.js";
 import { resolveRunModelLimit, type ResolvedRunModelLimit, type RunModelLimit } from "./agent-session-step-options.js";
 import {
@@ -623,7 +624,8 @@ export interface AgentSessionFlow<
  * is set without `write_todos` or for a runner without {@link AgentFrameworkRunner.supportsPlanMode}, or
  * `compaction` is set for a runner without the compaction methods.
  * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive,
- * `maxDurableWaitMs` is not a positive whole number of seconds, or the compaction policy is out of range.
+ * `maxDurableWaitMs` is not a positive whole number of seconds, the compaction policy is out of range, or a
+ * tool policy's `maxSends` is not an integer from 1 to 10.
  */
 export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<DeferredToolOutcome>>(
   runner: Runner,
@@ -1150,6 +1152,9 @@ function resolveAgentSessionConfig(
   const toolPolicies: Record<string, ToolPolicy> = {};
   for (const [toolName, policy] of Object.entries(options.toolPolicies ?? {})) {
     requireToolEffect(policy.effect, `tool policy ${toolName}`);
+    if (policy.maxSends !== undefined && !isConnectorMaxSends(policy.maxSends)) {
+      throw new RangeError(`tool policy ${toolName} maxSends must be an integer from 1 to ${connectorMaxSendsCeiling}`);
+    }
     toolPolicies[toolName] = Object.freeze({ ...policy });
   }
   const eventStreamCapacityBytes =

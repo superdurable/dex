@@ -11,6 +11,7 @@ import {
   RetryError,
   createCall,
   defaultConnectorStepExecuteRetryPolicy,
+  deriveCallID,
   runMutation,
   runQuery,
   throwDexRetry,
@@ -40,9 +41,15 @@ import { serializeJsonWithSpacedSeparators } from "../builtin-loop/json-schema-v
 import type { SourceToolDefinition, ToolSource } from "../builtin-loop/tool-source.js";
 import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolation } from "./connector-input-schema.js";
 import {
+  connectorDefaultLimitedMaxSends,
+  connectorManifestMinimumMaxSends,
+  isConnectorMaxSends,
+} from "./connector-max-sends.js";
+import {
   ConnectorStepContext,
   hasReadCheckpoint,
   isFenceMarker,
+  priorSendCountOf,
   readFenceEvidence,
   readPreviousCheckpoint,
 } from "./connector-step-context.js";
@@ -73,7 +80,7 @@ export const connectorResultTruncatedNote = "[Dex] truncated, {total_bytes} byte
  */
 export const connectorNotSentRetryLater = "not sent; the provider asked to retry later";
 
-// The most CallTool attempts of any tool; a connector's own policy can only narrow it.
+// The most CallTool attempts of a read or idempotent_write tool; a connector's own policy can only narrow it.
 const maximumToolAttempts = 3;
 const defectBranch = "defect";
 const uncertainBranch = "uncertain";
@@ -142,12 +149,27 @@ export interface ConnectorManifestFactory {
   readonly description?: string;
   /** The JSON Schema of the input. */
   readonly inputSchema?: Readonly<Record<string, unknown>>;
-  /** The agent review: `exposed`, `approval`, `retry`, and `branches`. */
+  /**
+   * The agent review: `exposed`, `approval`, `retry`, `branches`, `repeatOnUnknown`, and `maxSends`.
+   *
+   * Changed in 0.6.12: reads `repeatOnUnknown` and `maxSends`.
+   */
   readonly agent?: {
     readonly exposed?: unknown;
     readonly approval?: unknown;
     readonly retry?: unknown;
     readonly branches?: unknown;
+    /**
+     * A Mutation's tier for a write whose outcome is unknown: `safe`, `limited`, or `unsafe`. Only `limited` with a
+     * valid `maxSends` lets a call resend; any other value keeps the behavior `retry` gives.
+     * @since 0.6.12
+     */
+    readonly repeatOnUnknown?: unknown;
+    /**
+     * The most sends of one call of a `limited` Mutation, an integer from 2 to 10.
+     * @since 0.6.12
+     */
+    readonly maxSends?: unknown;
   };
 }
 
@@ -203,9 +225,17 @@ export interface ConnectorTool {
   readonly kind: "query" | "mutation";
   /**
    * `read` for a Query, `idempotent_write` for a Mutation with `agent.retry: safe`, and `non_idempotent_write`
-   * for any other Mutation.
+   * for any other Mutation, including one that resends a bounded number of times ({@link maxSends}).
    */
   readonly effect: ToolEffect;
+  /**
+   * The send cap of a Mutation that may resend a write whose outcome is unknown: the manifest's `agent.maxSends`,
+   * when the manifest says `agent.repeatOnUnknown: limited` and the operation definition agrees. `undefined` for
+   * every other tool. Such a tool keeps the effect `non_idempotent_write`; each call pins its cap in its tool source
+   * reference and runs in `CallSingleAttemptTool` with up to {@link retryPolicy}'s attempts.
+   * @since 0.6.12
+   */
+  readonly maxSends?: number;
   /** Whether the manifest says `agent.approval: recommended`. */
   readonly isApprovalRecommended: boolean;
   /** The application's approval choice, or `undefined` to follow the manifest. */
@@ -220,7 +250,12 @@ export interface ConnectorTool {
   readonly requiredBranches: ReadonlySet<string>;
   /** The operation's Execute timeout in milliseconds, or `undefined`. */
   readonly executeMethodTimeout: number | undefined;
-  /** The operation's Execute retry policy, which bounds a `CallTool` call's retries. */
+  /**
+   * The operation's Execute retry policy, which bounds a `CallTool` call's retries. A `read` or `idempotent_write`
+   * tool gets at most 3 attempts. A tool with {@link maxSends} gets the operation's attempts, at least `maxSends`.
+   *
+   * Changed in 0.6.12: a tool with `maxSends` gets more than 3 attempts when its cap needs them.
+   */
   readonly retryPolicy: RetryPolicy;
   /** Validates, decodes, and runs one invocation. */
   readonly invoke: (call: Call, toolArguments: Readonly<Record<string, unknown>>) => Promise<QueryResult<unknown>>;
@@ -258,8 +293,9 @@ export interface ConnectorTool {
  * ```
  * @param options - The operation kind, the selected branch, the required branches, `agent.branches`, and
  * `mayHaveDispatched`: whether the attempt's single-dispatch fence checkpoints leave open that the request reached
- * the provider, because this attempt claimed a send and no canResend followed, or the earlier attempt's checkpoint
- * is missing, not a fence marker, malformed, foreign, or does not allow this attempt a send.
+ * the provider, because this attempt claimed a send and no canResend followed, a marker's `sendCount` counts a send
+ * of an earlier attempt, or the earlier attempt's checkpoint is missing, not a fence marker, malformed, foreign, or
+ * does not allow this attempt a send.
  * {@link ConnectorToolSource} computes it. It defaults to `false`
  * and applies only to a Mutation.
  * @returns The outcome to record.
@@ -301,9 +337,22 @@ export function classifyConnectorBranch(options: {
  *
  * The manifest decides how the call runs. A Query is `read` and runs in `CallTool`. A Mutation with
  * `agent.retry: safe` is `idempotent_write` and runs in `CallTool`, whose retries stay inside the operation's own
- * Execute retry policy and timeout. Any other Mutation is `non_idempotent_write` and runs once in
- * `CallSingleAttemptTool`. The effect always comes from the manifest; a session's `toolPolicies` entry for the
- * tool changes only its approval.
+ * Execute retry policy and timeout. Any other Mutation is `non_idempotent_write` and runs in
+ * `CallSingleAttemptTool`, once. The effect always comes from the manifest; a session's `toolPolicies` entry for the
+ * tool changes only its approval and, for a bounded resend, its send cap through `maxSends`.
+ *
+ * A Mutation whose manifest says `agent.repeatOnUnknown: limited` resends a bounded number of times. Each call pins
+ * its send cap, the manifest's `agent.maxSends` or the tool policy's `maxSends`, in its tool source reference. With
+ * a cap of 2 or more, `CallSingleAttemptTool` gets the operation's attempts, at least the cap. When a send's outcome
+ * is unknown, such as after a timeout or a 5xx, the connector reads back when it can and resends while the call's
+ * sends stay below the cap. A definite failure is never resent. Every attempt passes the pinned cap to the
+ * connector, also after a deploy that changes the manifest. This needs the manifest and the operation definition
+ * to agree on the tier and the cap, which a Connector package built for `@superdurable/connectors-sdk` 0.11.0 or
+ * later does. Any other combination, an unknown `repeatOnUnknown` value, or a `maxSends` outside 2 to 10 runs the
+ * call once.
+ *
+ * Changed in 0.6.12: a Mutation whose manifest says `agent.repeatOnUnknown: limited` resends a bounded number of
+ * times. Its effect stays `non_idempotent_write`.
  *
  * A call waits for `resolve_interrupt` when the manifest says `agent.approval: recommended`;
  * {@link ConnectorToolOptions.requiresApproval} overrides that. Arguments that break the schema never run, so
@@ -395,6 +444,7 @@ export function connectorTool<Input, Output>(
   if (options.maxResultBytes !== undefined && !(options.maxResultBytes >= 1)) {
     throw new RangeError("maxResultBytes must be positive");
   }
+  const sendCap = retry === "safe" ? undefined : connectorSendCapOf(kind, agent, definition);
   const effect: ToolEffect =
     kind === "query" ? "read" : retry === "safe" ? "idempotent_write" : "non_idempotent_write";
   const inputValidator = options.inputValidator;
@@ -418,6 +468,7 @@ export function connectorTool<Input, Output>(
     operationId,
     kind,
     effect,
+    ...(sendCap === undefined ? {} : { maxSends: sendCap }),
     isApprovalRecommended: approval === "recommended",
     requiresApproval: options.requiresApproval,
     maxResultBytes: options.maxResultBytes,
@@ -425,7 +476,7 @@ export function connectorTool<Input, Output>(
     agentBranches: { ...agentBranches },
     requiredBranches: new Set(definition.branches.filter((branch) => branch.optional !== true).map((branch) => branch.id)),
     executeMethodTimeout: timeout === undefined || timeout === 0 ? undefined : timeout,
-    retryPolicy: boundedRetryPolicy(definition.stepDefaults.executeRetry ?? defaultConnectorStepExecuteRetryPolicy()),
+    retryPolicy: toolRetryPolicy(definition.stepDefaults.executeRetry ?? defaultConnectorStepExecuteRetryPolicy(), sendCap),
     invoke,
   };
 }
@@ -448,7 +499,10 @@ export function connectorTool<Input, Output>(
  * writes of that response are recorded `failed` with `skipped` set.
  *
  * The selected branch maps as {@link classifyConnectorBranch} describes. A connector retry throws through the
- * Step, so the tool Step's retry policy applies. A single-attempt write that asks to retry ends `outcome_unknown`,
+ * Step, so the tool Step's retry policy applies. For a bounded resend, the next attempt's fence lets the
+ * connector read back and resend while the call's sends stay below its cap. A read-back that confirms an earlier
+ * send succeeds. At the cap, an unconfirmed write selects `uncertain`, so the call records `outcome_unknown`, as it
+ * does when the attempts run out. Any other single-attempt write that asks to retry ends `outcome_unknown`,
  * unless its single-dispatch fence saved a `notSent` or `canResend` marker in this attempt: that proves the
  * provider did not process the request, so the call records `failed` with {@link connectorNotSentRetryLater}.
  * Either way it stops the later writes. A result longer than `maxResultBytes` reaches the model truncated, with
@@ -533,7 +587,8 @@ export class ConnectorToolSource implements ToolSource {
   /**
    * Builds the call with the manifest's effect and the call's approval. A call that needs approval carries the
    * display of {@link buildConnectorToolApprovalDisplay}: the operation, the connection, and the short arguments.
-   * @param turn - The `RunModel` context; a `toolPolicies` entry for the tool changes only its approval.
+   * @param turn - The `RunModel` context; a `toolPolicies` entry for the tool changes only its approval and, for a
+   * tool with {@link ConnectorTool.maxSends}, the send cap the call keeps on every attempt.
    * @param call - The model's tool call.
    * @returns The deferred call, ordered when it is a write.
    */
@@ -552,12 +607,18 @@ export class ConnectorToolSource implements ToolSource {
         ? turn.toolPolicies[call.toolName]
         : undefined;
     const requiresApproval = sessionPolicy?.requiresApproval ?? requiresApprovalOf(tool, call.arguments);
+    // The reference pins the call's cap, so every attempt passes the same one, also across deploys.
+    const requestedMaxSends = sessionPolicy?.maxSends;
+    const callMaxSends =
+      tool.maxSends === undefined ? undefined : isConnectorMaxSends(requestedMaxSends) ? requestedMaxSends : tool.maxSends;
     return {
       toolCallId: call.toolCallId,
       toolName: call.toolName,
       arguments: call.arguments,
       policy: { effect: tool.effect, requiresApproval },
-      toolSourceReference: serializeJsonWithSpacedSeparators({ tool: tool.name }),
+      toolSourceReference: serializeJsonWithSpacedSeparators(
+        callMaxSends === undefined ? { tool: tool.name } : { tool: tool.name, maxSends: callMaxSends },
+      ),
       ordered: tool.effect !== "read",
       ...(requiresApproval
         ? {
@@ -573,7 +634,10 @@ export class ConnectorToolSource implements ToolSource {
   }
 
   /**
-   * Returns the operation's timeout and retry policy for the call's tool Step.
+   * Returns the operation's timeout and retry policy for the call's tool Step. A call that pinned a send cap of 2 or
+   * more also gets {@link ToolCallStepOptions.boundedResendExecuteRetry}, while this Worker's manifest and definition
+   * still confirm the tier: the operation's attempts, at least the manifest's cap, plus the amount by which the
+   * pinned cap exceeds it.
    * @param toolCall - The record whose tool Step starts.
    * @returns The options, or `undefined` when this source no longer has the tool.
    */
@@ -582,9 +646,19 @@ export class ConnectorToolSource implements ToolSource {
     if (tool === undefined) {
       return undefined;
     }
+    const callMaxSends = referenceMaxSends(toolCall);
+    const isBoundedResend = tool.maxSends !== undefined && callMaxSends !== undefined && callMaxSends >= 2;
     return {
       ...(tool.executeMethodTimeout === undefined ? {} : { executeMethodTimeout: tool.executeMethodTimeout }),
       executeRetry: tool.retryPolicy,
+      ...(isBoundedResend
+        ? {
+            boundedResendExecuteRetry: {
+              ...tool.retryPolicy,
+              maximumAttempts: boundedResendAttempts(tool.retryPolicy.maximumAttempts ?? 0, tool.maxSends!, callMaxSends),
+            },
+          }
+        : {}),
     };
   }
 
@@ -595,7 +669,8 @@ export class ConnectorToolSource implements ToolSource {
    * @throws {ToolExecutionError} When the arguments break the schema or do not decode, the operation selected a
    * `rejected` or failed branch, or a single-attempt write asked to retry after its fence recorded `notSent` or
    * `canResend` in this attempt, which proves the provider did not process it ({@link connectorNotSentRetryLater}).
-   * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch.
+   * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch, or this Worker refuses the
+   * arguments while an earlier attempt's checkpoint records a possible send of this call.
    * @throws {RangeError} When this source no longer has the tool, so the effect decides the outcome.
    * @throws Any other error, such as a connector retry for the tool Step's retry policy.
    */
@@ -605,10 +680,18 @@ export class ConnectorToolSource implements ToolSource {
     if (tool === undefined) {
       throw new RangeError(`connector tool ${record.toolName} is not configured on this Worker`);
     }
-    const toolArguments = parseToolArguments(tool.name, record.arguments);
+    // An argument this Worker refuses fails the call only when no earlier attempt may have sent it.
+    const refuseArguments = (detail: string): Error =>
+      hasEarlierSendCheckpoint(call, tool) ? new ToolOutcomeUnknownError(detail) : new ToolExecutionError(detail);
+    let toolArguments: Readonly<Record<string, unknown>>;
+    try {
+      toolArguments = parseToolArguments(tool.name, record.arguments);
+    } catch (error: unknown) {
+      throw error instanceof ToolExecutionError ? refuseArguments(error.message) : error;
+    }
     const problem = findConnectorInputViolation(toolArguments, tool.inputSchema);
     if (problem !== undefined) {
-      throw new ToolExecutionError(`invalid arguments for ${tool.name}: ${problem}`);
+      throw refuseArguments(`invalid arguments for ${tool.name}: ${problem}`);
     }
     if (call.context === undefined) {
       throw new Error("a connector tool call needs the tool Step's context");
@@ -620,22 +703,29 @@ export class ConnectorToolSource implements ToolSource {
         ? {}
         : { saveCheckpoint: (checkpoint: string) => call.saveHeartbeatCheckpoint!(checkpoint) }),
     });
-    const connectorCall = createCall(stepContext as unknown as AsyncContext, tool.connection, {
-      connectorId: tool.connectorId,
-      operationId: tool.operationId,
-    });
+    // A pinned cap holds even when this Worker's manifest no longer confirms the tier, and a call without one never
+    // resends. Connector SDK 0.11 hands maxSendsOverride to a limited operation's fence; earlier releases ignore it.
+    const callMaxSends = referenceMaxSends(record);
+    const connectorCall = createCall(
+      stepContext as unknown as AsyncContext,
+      tool.connection,
+      { connectorId: tool.connectorId, operationId: tool.operationId },
+      tool.kind === "mutation" ? { maxSendsOverride: callMaxSends ?? 1 } : {},
+    );
     let result: QueryResult<unknown>;
     try {
       result = await tool.invoke(connectorCall, toolArguments);
     } catch (error: unknown) {
       if (error instanceof RetryError) {
-        if (tool.effect === "non_idempotent_write" && isProvenNotSent(connectorCall, stepContext)) {
+        const isBoundedResend = callMaxSends !== undefined && callMaxSends >= 2;
+        if (tool.effect === "non_idempotent_write" && !isBoundedResend && isProvenNotSent(connectorCall, stepContext)) {
           // One attempt only, so a Retry would record outcome_unknown though nothing was sent.
           throw new ToolExecutionError(notSentDetail(tool, error.failure));
         }
         throwDexRetry(error);
       }
-      throw error;
+      // The input validator refused the arguments before the operation ran.
+      throw error instanceof ToolExecutionError ? refuseArguments(error.message) : error;
     }
     const outcome = classifyConnectorBranch({
       kind: tool.kind,
@@ -782,9 +872,62 @@ function observeFence(call: Call, context: ConnectorStepContext): FenceObservati
   const evidence = readFenceEvidence(context, call.id);
   const isClaimed = evidence?.isClaimed ?? false;
   const hasNotSentProof = evidence?.hasNotSentProof ?? false;
-  const isPriorDispatchPossible = hasReadCheckpoint(context) && isPriorDispatchPossibleFor(call, context);
-  const isDispatchPossible = isClaimed || isPriorDispatchPossible;
+  // A bounded resend's markers count earlier sends that may still have taken effect.
+  const hasPriorSend = evidence?.hasPriorSend ?? false;
+  const isPriorDispatchPossible = hasReadCheckpoint(context)
+    ? isPriorDispatchPossibleFor(call, context)
+    : hasPriorSendMarker(call, context);
+  const isDispatchPossible = isClaimed || hasPriorSend || isPriorDispatchPossible;
   return { mayHaveDispatched: isDispatchPossible, isProvenNotSent: hasNotSentProof && !isDispatchPossible };
+}
+
+/**
+ * Reports whether the checkpoint an earlier attempt saved is this call's fence marker for a possible send: a claim,
+ * or a send count above zero. It needs no ConnectorStepContext, so a check that fails before the operation runs can
+ * still see it.
+ */
+function hasEarlierSendCheckpoint(call: DeferredToolExecution, tool: ConnectorTool): boolean {
+  const checkpoint = call.heartbeatCheckpoint;
+  if (call.context === undefined || checkpoint === undefined) {
+    return false;
+  }
+  let previous: unknown;
+  try {
+    previous = JSON.parse(checkpoint);
+  } catch {
+    return false;
+  }
+  const callId = deriveCallID(call.context.flowId, call.context.stepExecutionId, {
+    connectorId: tool.connectorId,
+    operationId: tool.operationId,
+  });
+  return (
+    isFenceMarker(previous) &&
+    previous["callId"] === callId &&
+    (previous["state"] === "claimed" || priorSendCountOf(previous) > 0)
+  );
+}
+
+/**
+ * Reports whether the earlier attempt's checkpoint is this call's fence marker for a possible send, which holds even
+ * when the operation returned before it read the checkpoint.
+ */
+function hasPriorSendMarker(call: Call, context: ConnectorStepContext): boolean {
+  const previousCheckpoint = readPreviousCheckpoint(context);
+  if (previousCheckpoint === undefined) {
+    return false;
+  }
+  let previous: unknown;
+  try {
+    previous = JSON.parse(previousCheckpoint);
+  } catch {
+    return false;
+  }
+  return (
+    isFenceMarker(previous) &&
+    previous["callId"] === call.id &&
+    (previous["state"] === "claimed" || priorSendCountOf(previous) > 0)
+  );
 }
 
 /** Reports whether the earlier attempt's checkpoint denies this attempt a send. */
@@ -806,7 +949,8 @@ function isPriorDispatchPossibleFor(call: Call, context: ConnectorStepContext): 
     previous["callId"] === call.id &&
     previous["attempt"] === context.attempt - 1 &&
     (previous["state"] === "notSent" || previous["state"] === "canResend") &&
-    (previous["providerId"] === undefined || previous["providerId"] === "");
+    (previous["providerId"] === undefined || previous["providerId"] === "") &&
+    priorSendCountOf(previous) === 0;
   return !isSendAllowed;
 }
 
@@ -820,6 +964,17 @@ function branchDetail(tool: ConnectorTool, branch: string, failure: Failure | un
   return failure === undefined ? detail : `${detail}: ${failure.kind}: ${failure.message}`;
 }
 
+/** Returns the send cap a tool policy pinned when the call was deferred, or `undefined`. */
+function referenceMaxSends(record: AgentToolCall): number | undefined {
+  try {
+    const reference: unknown = JSON.parse(record.toolSourceReference ?? "");
+    const maxSends = isRecord(reference) ? reference["maxSends"] : undefined;
+    return isConnectorMaxSends(maxSends) ? maxSends : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function referenceToolName(record: AgentToolCall): string {
   try {
     const reference: unknown = JSON.parse(record.toolSourceReference ?? "");
@@ -830,19 +985,68 @@ function referenceToolName(record: AgentToolCall): string {
   }
 }
 
-function boundedRetryPolicy(policy: {
-  readonly initialIntervalMs: number;
-  readonly backoffCoefficient: number;
-  readonly maximumIntervalMs: number;
-  readonly maximumAttempts: number;
-  readonly totalDurationMs: number;
-}): RetryPolicy {
+/**
+ * Returns the send cap of a Mutation that may resend a write whose outcome is unknown, or `undefined` when its
+ * calls must not resend.
+ *
+ * The manifest must say `agent.repeatOnUnknown: limited` with an integer `agent.maxSends` from 2 to 10, and the
+ * operation definition must declare `repeatOnUnknown: limited` with the same cap; a definition without `maxSends`
+ * declares 3. Any other value, a Query, or an operation from a Connector package built before the tiers fails
+ * closed to `undefined`, so the call runs once as today.
+ */
+export function connectorSendCapOf(
+  kind: "query" | "mutation",
+  agent: Readonly<{ repeatOnUnknown?: unknown; maxSends?: unknown }>,
+  definition: unknown,
+): number | undefined {
+  const manifestCap = agent.maxSends;
+  if (
+    kind !== "mutation" ||
+    agent.repeatOnUnknown !== "limited" ||
+    !isConnectorMaxSends(manifestCap) ||
+    manifestCap < connectorManifestMinimumMaxSends
+  ) {
+    return undefined;
+  }
+  const declared = (typeof definition === "object" && definition !== null ? definition : {}) as Readonly<{
+    repeatOnUnknown?: unknown;
+    maxSends?: unknown;
+  }>;
+  const definitionCap = declared.maxSends ?? connectorDefaultLimitedMaxSends;
+  return declared.repeatOnUnknown === "limited" && definitionCap === manifestCap ? manifestCap : undefined;
+}
+
+/**
+ * Returns the attempts one bounded resend call gets: the operation's attempts, or 3 when they are
+ * unlimited, raised to at least the manifest's send cap, plus the amount by which the call's cap exceeds the
+ * manifest's. A raised cap needs one attempt per send, as the Connector SDK's Step factories add.
+ */
+export function boundedResendAttempts(operationAttempts: number, manifestCap: number, callCap: number): number {
+  const attempts = Math.max(operationAttempts <= 0 ? maximumToolAttempts : operationAttempts, manifestCap);
+  return attempts + Math.max(callCap - manifestCap, 0);
+}
+
+function toolRetryPolicy(
+  policy: {
+    readonly initialIntervalMs: number;
+    readonly backoffCoefficient: number;
+    readonly maximumIntervalMs: number;
+    readonly maximumAttempts: number;
+    readonly totalDurationMs: number;
+  },
+  sendCap: number | undefined,
+): RetryPolicy {
   const attempts = policy.maximumAttempts;
   return {
     initialIntervalMs: policy.initialIntervalMs,
     backoffCoefficient: policy.backoffCoefficient,
     maximumIntervalMs: policy.maximumIntervalMs,
-    maximumAttempts: attempts <= 0 ? maximumToolAttempts : Math.min(attempts, maximumToolAttempts),
+    maximumAttempts:
+      sendCap !== undefined
+        ? boundedResendAttempts(attempts, sendCap, sendCap)
+        : attempts <= 0
+          ? maximumToolAttempts
+          : Math.min(attempts, maximumToolAttempts),
     totalDurationMs: policy.totalDurationMs,
   };
 }
