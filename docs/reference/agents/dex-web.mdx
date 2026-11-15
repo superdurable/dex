@@ -110,8 +110,9 @@ The value is
 | `factoryName` | Optional. The `name` of one Trigger factory in the manifest. See the rule below. |
 | `bindingName` | The binding's name. One Connector, connection, Trigger, and binding name appear once. |
 
-Trigger and binding names cannot contain `:` or `#` in this form. Write such a
-binding in a `--trigger-bindings` file instead.
+In this form, a Trigger name cannot contain `:` or `#`, and a binding name
+cannot contain `:`. Write such a binding in a `--trigger-bindings` file
+instead.
 
 The command reads the manifest of the installed package. The npm command
 looks in `node_modules` from the current directory upward. The Python
