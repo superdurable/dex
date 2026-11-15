@@ -33,6 +33,7 @@ from dex_agents.session_failure import (
     read_session_failure,
 )
 from dex_agents.session_flow import AgentSessionFlow
+from dex_agents.session_fork import AgentSessionFork, fork_agent_session
 from dex_agents.session_settings import validate_session_settings
 from dex_agents.values import (
     AcquireSessionTerminalLeaseRequest,
@@ -538,6 +539,54 @@ class AgentSessionClient:
             lambda: self._client.invoke_rpc(
                 self._flow.release_session_terminal_lease, session_id, request
             )
+        )
+
+    async def fork_session(
+        self,
+        source_session_id: str,
+        session_id: str,
+        *,
+        after_message: int | None = None,
+        task_queue: str = "",
+        request_id: str | None = None,
+    ) -> AgentSessionFork:
+        """Create a new session from another session's conversation, between two turns.
+
+        It calls ``fork_agent_session`` with this client's Flow; see there for
+        the point, the reset Attributes, and the errors.
+
+        .. versionadded:: 0.6.13
+
+        Example:
+            >>> fork = await sessions.fork_session("session-42", "session-42-b", after_message=6)
+            >>> await sessions.send_user_message(fork.session_id, "Try the other plan")
+
+        Args:
+            source_session_id: The session to fork.
+            session_id: The new session's Flow ID.
+            after_message: The last message sequence the new session keeps,
+                or ``None`` for the source's current state.
+            task_queue: The new session's task queue; ``""`` keeps the source's.
+            request_id: The clone fork request ID, or ``None`` to generate one.
+
+        Returns:
+            The new session and the copied point.
+
+        Raises:
+            AgentSessionForkError: If no point between turns fits, Dex refuses
+                it, or the session changed during the fork.
+            CloneForkFlowUnsupportedError: If the server has no clone fork.
+            FlowAlreadyStartedError: If ``session_id`` is in use.
+            FlowNotFoundError: If the source session does not exist.
+        """
+        return await fork_agent_session(
+            self._client,
+            self._flow,
+            source_session_id,
+            session_id,
+            after_message=after_message,
+            task_queue=task_queue,
+            request_id=request_id,
         )
 
     async def _raise_session_failure(self, session_id: str, call: Awaitable[bool]) -> bool:
