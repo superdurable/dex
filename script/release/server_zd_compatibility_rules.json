@@ -13,38 +13,44 @@
       {"since": "0.10.2", "protocol": {"min": 2, "max": 2}},
       {"since": "1.11.0", "protocol": {"min": 2, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
-      {"since": "1.45.2", "protocol": {"min": 4, "max": 5}}
+      {"since": "1.45.2", "protocol": {"min": 4, "max": 5}},
+      {"since": "1.45.5", "protocol": {"min": 4, "max": 6}}
     ],
     "python": [
       {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
       {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
-      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}}
+      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}},
+      {"since": "1.45.3", "protocol": {"min": 4, "max": 6}}
     ],
     "typescript": [
       {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
       {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
-      {"since": "1.45.2", "protocol": {"min": 4, "max": 5}}
+      {"since": "1.45.2", "protocol": {"min": 4, "max": 5}},
+      {"since": "1.45.5", "protocol": {"min": 4, "max": 6}}
     ],
     "java": [
       {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
       {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
-      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}}
+      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}},
+      {"since": "1.45.2", "protocol": {"min": 4, "max": 6}}
     ],
     "rust": [
       {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
       {"since": "1.11.0", "protocol": {"min": 1, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
-      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}}
+      {"since": "1.45.1", "protocol": {"min": 4, "max": 5}},
+      {"since": "1.45.2", "protocol": {"min": 4, "max": 6}}
     ],
     "dexcli": [
       {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
       {"since": "0.11.0", "protocol": {"min": 2, "max": 2}},
       {"since": "1.11.0", "protocol": {"min": 2, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
-      {"since": "1.47.4", "protocol": {"min": 4, "max": 5}}
+      {"since": "1.47.4", "protocol": {"min": 4, "max": 5}},
+      {"since": "1.47.8", "protocol": {"min": 4, "max": 6}}
     ],
     "agents": [
       {"since": "0.1.0"},
