@@ -10,12 +10,13 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5).
+Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6).
 
 ### Breaking
 
 - Each Flow type has its own definition revision. A request about a Flow type sends that Flow type's revision in **X-Dex-Flow-Definition-Revision**, from **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE** or a **GET /api/v2/catalog** entry; a search of several Flow types sends theirs separated by commas. The catalog's top-level **definitionRevision** no longer passes the check. [Reference](/reference/web/dex-web#api-requests).
 - **GET /api/flow-definitions** lists definitions without their graphs. Read a Flow type's graphs from **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. [Reference](/reference/web/flow-visualization#definition-sources).
+- Dex Web no longer starts Dex Agents sessions. The **New session** button and dialog are gone from the **Conversation** tab and from **Work Queue**, and **POST /api/v2/agent-sessions/start** is removed. A session started there ran on the default task queue, so no Agents CLI command ran it. Start a session with an Agents CLI command, or with the application's Client, such as **AgentSessionClient.start_session** or **startAgentSession**. Dex Web still shows the session, sends it messages, and edits its settings. [Reference](/reference/web/dex-web#agent-new-session). Since 1.45.6.
 
 ### Added
 
@@ -28,6 +29,7 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - A run's details show its **Task queue**, or **default** when the Flow runs on the default task queue. The Flow type is shown on its own row; the Flow type is no longer shown as the task queue. Since 1.45.4.
 - A Step attempt's routing shows the **Task queue** of its dispatch next to the serving Worker ID and the queue source. The queue source that was called Task queue is now **Flow type queue**. An RPC shows the Flow's task queue. Since 1.45.4.
 - **Start Flow** takes an optional **Task queue**. Leave it empty for the default task queue. Dex Web checks the name before it starts the Flow. Since 1.45.4.
+- **web/embedded**: With **Target.HasHostNavigation**, Dex Web in a frame posts a **dex-web:location** message to its parent window after every route change. The message names the page's path relative to **BasePath** and its query string, so your page can keep Dex Web's page in its own URL and open it again after a refresh or from a shared link. See [Keep the page in the host URL](/reference/web/embed-dex-web#host-location). Since 1.45.6.
 
 ### Changed
 
@@ -121,6 +123,9 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - With no run selected, **Work Queue** says what to do next and how many runs
   are listed. On a phone it shows the list or the selected run. Rows, chips,
   and panels change smoothly; reduced motion turns this off. Since 1.45.5.
+- In the **Conversation** tab message box, Enter sends the message, or queues it while a turn runs, and Shift+Enter adds a line. Enter that commits input method text does not send. On a touch-only device, such as a phone, Enter adds a line and the button sends. Since 1.45.6.
+- The **Conversation** tab follows new messages while you are at the newest one, and offers **Jump to latest** when you have scrolled up. A message longer than about 30 lines shows its start with **Show more**. Since 1.45.6.
+- When a tool call starts waiting for approval or an answer while you are at the newest item, the **Conversation** tab scrolls its controls into view above the message box. The waiting status chip jumps to the call, and a waiting call shows less of its arguments, so its buttons stay close. The tab does not move the view when you have scrolled up or are working in another waiting call. Since 1.45.6.
 
 ### Fixed
 
@@ -132,6 +137,8 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - When **Work Queue** was the first page you opened, it showed **Running** but
   searched every status until you pressed **Search**. The first search now
   uses the **Running** filter. Since 1.45.5.
+- The **Conversation** tab shows a message that the session wrote itself, such as the note after a steered or stopped turn, as a closed **Dex note** row instead of a **User** message. Open the row to read the whole note. The Work Queue agent panel labels such a last message **Dex note** too. Since 1.45.6.
+- The **Conversation** tab hides an assistant message that the agent framework made up itself, such as the Claude Code "No response requested." entry, which Claude Code marks with its synthetic model value. The stored message is unchanged. Since 1.45.6.
 
 ## 1.44 {#v1-44}
 
