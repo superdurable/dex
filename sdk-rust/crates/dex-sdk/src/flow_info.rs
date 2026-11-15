@@ -27,7 +27,13 @@ pub enum FlowStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 /// Categorizes the failure recorded for an uncompleted Flow.
+///
+/// Dex may add categories in later releases, so a `match` needs a wildcard arm. A category that
+/// this SDK version does not recognize reads as `None` from [`crate::FlowResult::error_type`].
+///
+/// Changed in 1.45.2: the enum is `#[non_exhaustive]`.
 pub enum FlowErrorType {
     /// A Step returned an invalid or failing decision.
     StepDecisionFailed,
@@ -41,6 +47,26 @@ pub enum FlowErrorType {
     Internal,
     /// A Dex soft Flow timeout expired under the fail policy.
     FlowTimeout,
+    /// The parent Flow stopped waiting for this SubFlow child.
+    ///
+    /// A Time Travel restored a parent Step that waited on a SubFlow condition, and its SubFlow
+    /// reset policy chose to fail that condition. Dex terminates the child run if it still runs.
+    /// The condition then completes with a [`FlowStatus::Failed`] result that carries this error
+    /// type. Only a SubFlow result read in Execute carries it; the child run itself never closes
+    /// with it.
+    ///
+    /// Handle it like any other failed child: retry, compensate, or fail the parent. The child's
+    /// output is not available.
+    ///
+    /// ```ignore
+    /// let result = SubFlow::condition_result(context)?;
+    /// if result.error_type() == Some(FlowErrorType::SubFlowAbandoned) {
+    ///     return Err(HandlerError::new("ChildAbandoned", "child abandoned by a Time Travel"));
+    /// }
+    /// ```
+    ///
+    /// Since 1.45.2.
+    SubFlowAbandoned,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

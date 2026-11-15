@@ -97,6 +97,9 @@ impl FlowResult {
     }
 
     /// Returns the Dex failure category when one was reported.
+    ///
+    /// Returns `None` when Dex reported no category, or a category that this SDK version does
+    /// not recognize.
     pub fn error_type(&self) -> Option<FlowErrorType> {
         self.error_type
     }

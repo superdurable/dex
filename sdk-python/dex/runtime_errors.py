@@ -48,6 +48,25 @@ class FlowErrorType(Enum):
         INVALID_USER_FLOW_CODE: Application Flow definitions or results were invalid.
         INTERNAL: Dex encountered an internal invariant or infrastructure failure.
         FLOW_TIMEOUT: A Dex soft Flow timeout expired under the fail policy.
+        SUB_FLOW_ABANDONED: The parent Flow stopped waiting for this SubFlow child.
+            A Time Travel restored a parent Step that waited on a SubFlow
+            condition, and its SubFlow reset policy chose to fail that
+            condition. Dex terminates the child run if it still runs. The
+            condition then completes with a ``FlowStatus.FAILED`` result that
+            carries this error type. Only a SubFlow result read in Execute
+            carries it; the child run itself never closes with it. Handle it
+            like any other failed child: retry, compensate, or fail the parent.
+            The child's output is not available.
+
+            .. versionadded:: 1.45.3
+
+    A category that this SDK version does not recognize reads as ``None``
+    from ``FlowResult.error_type``.
+
+    Examples:
+        >>> result = SubFlow.get_condition_results(context)
+        >>> if result.error_type is FlowErrorType.SUB_FLOW_ABANDONED:
+        ...     raise RuntimeError("child abandoned by a Time Travel")
     """
 
     STEP_DECISION_FAILED = "step_decision_failed"
@@ -56,6 +75,7 @@ class FlowErrorType(Enum):
     INVALID_USER_FLOW_CODE = "invalid_user_flow_code"
     INTERNAL = "internal"
     FLOW_TIMEOUT = "flow_timeout"
+    SUB_FLOW_ABANDONED = "sub_flow_abandoned"
 
 
 class DexServiceError(RuntimeError):

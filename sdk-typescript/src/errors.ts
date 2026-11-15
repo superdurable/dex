@@ -49,6 +49,27 @@ export const FlowErrorType = Object.freeze({
   INTERNAL: "internal",
   /** A Dex soft Flow timeout expired under the fail policy. */
   FLOW_TIMEOUT: "flowTimeout",
+  /**
+   * The parent Flow stopped waiting for this SubFlow child.
+   *
+   * A Time Travel restored a parent Step that waited on a SubFlow condition, and its SubFlow reset
+   * policy chose to fail that condition. Dex terminates the child run if it still runs. The
+   * condition then completes with a `"failed"` result that carries this error type. Only a SubFlow
+   * result read in Execute carries it; the child run itself never closes with it. Handle it like
+   * any other failed child: retry, compensate, or fail the parent. The child's output is not
+   * available.
+   *
+   * @example
+   * ```ts
+   * const result = SubFlow.getConditionResults(context);
+   * if (result.errorType === FlowErrorType.SUB_FLOW_ABANDONED) {
+   *   throw new Error("child abandoned by a Time Travel");
+   * }
+   * ```
+   *
+   * @since 1.45.5
+   */
+  SUB_FLOW_ABANDONED: "subFlowAbandoned",
 } as const);
 
 /** Represents a value from {@link FlowErrorType}. */

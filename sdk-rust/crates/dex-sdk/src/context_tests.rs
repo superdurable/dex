@@ -382,3 +382,62 @@ fn recovery_attempt_progress_maps_every_value_and_unknown_values_conservatively(
         assert_eq!(recovery.error_type(), "failure type");
     }
 }
+
+#[test]
+fn sub_flow_results_map_abandoned_and_unrecognized_error_types() {
+    use dex_protocol::dex::{
+        ConditionResults, FlowErrorType as ProtoFlowErrorType, FlowResult as ProtoFlowResult,
+        FlowStatus as ProtoFlowStatus,
+    };
+
+    let registry = Registry::new().register(HardDeleteFlow).unwrap();
+    let context = Context::new(
+        ContextInput {
+            method: InvocationMethod::Execute,
+            flow: registry.flow("HardDeleteFlow").unwrap().clone(),
+            metadata: ProtoContext::default(),
+            attributes: Vec::new(),
+            locals: Vec::new(),
+            condition_results: Some(ConditionResults {
+                sub_flow_results: vec![
+                    ProtoFlowResult {
+                        flow_status: ProtoFlowStatus::Failed as i32,
+                        error_type: ProtoFlowErrorType::SubFlowAbandoned as i32,
+                        error_message: "abandoned by a Time Travel".to_string(),
+                        ..Default::default()
+                    },
+                    ProtoFlowResult {
+                        flow_status: ProtoFlowStatus::Failed as i32,
+                        error_type: 99,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            channel_infos: HashMap::new(),
+            loaded_channel_messages: HashMap::new(),
+            loaded_attribute_map_instances: Vec::new(),
+            loaded_channel_names: Vec::new(),
+            loaded_channel_map_instances: Vec::new(),
+            negotiated_protocol_version: NegotiatedServerProtocolVersion::default(),
+        },
+        None,
+        InvocationCancellation::new(),
+    )
+    .unwrap();
+
+    let abandoned = crate::SubFlow::condition_result_at(&context, 0).unwrap();
+    assert_eq!(abandoned.status(), crate::FlowStatus::Failed);
+    assert_eq!(
+        abandoned.error_type(),
+        Some(crate::FlowErrorType::SubFlowAbandoned)
+    );
+    assert_eq!(
+        abandoned.error_message(),
+        Some("abandoned by a Time Travel")
+    );
+
+    let unrecognized = crate::SubFlow::condition_result_at(&context, 1).unwrap();
+    assert_eq!(unrecognized.status(), crate::FlowStatus::Failed);
+    assert_eq!(unrecognized.error_type(), None);
+}

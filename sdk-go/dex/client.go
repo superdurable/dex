@@ -371,7 +371,8 @@ func (status FlowStatus) String() string {
 	}
 }
 
-// FlowErrorType categorizes the failure recorded for a terminal Flow.
+// FlowErrorType categorizes the failure recorded for a terminal Flow, or for a failed SubFlow
+// result that Execute reads with SubFlowResult.
 type FlowErrorType uint8
 
 const (
@@ -387,6 +388,28 @@ const (
 	FlowErrorInternal
 	// FlowErrorTimeout identifies expiration of a Dex soft Flow timeout.
 	FlowErrorTimeout
+	// FlowErrorSubFlowAbandoned identifies a SubFlow result whose parent Flow stopped waiting
+	// for the child.
+	//
+	// A Time Travel restores a parent Step that was waiting on a SubFlow condition. When its
+	// SubFlow reset policy chooses to fail that condition, Dex terminates the child run if it
+	// still runs. The condition then completes with a FlowFailed result that carries this
+	// error type. Only a SubFlow result read with SubFlowResult in Execute carries it; the
+	// child run itself never closes with it.
+	//
+	// Handle it like any other failed child: retry, compensate, or fail the parent from
+	// Execute. The child's output is not available.
+	//
+	//	result, err := dex.SubFlowResult(ctx)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	if result.Status == dex.FlowFailed && result.ErrorType == dex.FlowErrorSubFlowAbandoned {
+	//		return nil, errors.New("child abandoned by a Time Travel")
+	//	}
+	//
+	// Since 1.45.5.
+	FlowErrorSubFlowAbandoned
 )
 
 // StepCompletion contains one hydrated output from a completed Step.
@@ -410,6 +433,8 @@ type FlowResult struct {
 	// Parallel completion order is not deterministic; select by StepType or StepExecutionID.
 	Completions []StepCompletion
 	// ErrorType is the Flow failure category when available.
+	// It is the zero value when Dex reported no category, or a category this SDK version does
+	// not recognize. Changed in 1.45.5: an unrecognized category no longer fails the read.
 	ErrorType FlowErrorType
 	// ErrorMessage is the server completion detail when available.
 	ErrorMessage string
