@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""State that an earlier release wrote still resumes, ends without duplicates, and replays."""
+"""Runner-level run state and unfinished turns: earlier releases, part types, replays."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from pydantic_ai import (
     UserPromptPart,
 )
 from pydantic_ai.agent import WrapperAgent
+from pydantic_ai.messages import ToolSearchCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from dex_agents import (
@@ -143,6 +144,69 @@ async def test_a_tool_call_an_earlier_worker_left_unanswered_replays_an_unknown_
         for part in message.parts
         if isinstance(part, ToolReturnPart)
     ] == [(TOOL_CALL_ID, OUTCOME_UNKNOWN_TOOL_RESULT, "failed", None)]
+
+
+async def test_unfinished_turn_results_keep_each_part_type_and_outcome(tmp_path: Path) -> None:
+    runner = _runner(tmp_path)
+    search_content = {"discovered_tools": [{"name": "notify"}]}
+    response = ModelResponse(
+        parts=[
+            ToolSearchCallPart(
+                tool_name="search_tools", args={"queries": ["notify"]}, tool_call_id="search"
+            ),
+            ToolCallPart("publish", '{"message": "b"}', "publish"),
+            ToolCallPart("lookup", '{"query": "a"}', "unrecorded"),
+        ]
+    )
+    turn = _turn(
+        "turn-1",
+        [
+            _message(1, "turn-1", MessageRole.USER, ModelRequest(parts=[UserPromptPart(COMMAND)])),
+            _message(2, "turn-1", MessageRole.ASSISTANT, response),
+        ],
+        framework_run_state=json.dumps(
+            {
+                "format": "dex_agents_pydantic_ai.pending_tool_calls.v2",
+                "tool_call_ids": ["search", "publish"],
+                "structured_result_tool_call_ids": ["search"],
+            }
+        ),
+        tool_calls={
+            "search": _record("search", "search_tools", ToolCallStatus.SUCCEEDED, search_content),
+            "publish": _record("publish", "publish", ToolCallStatus.REJECTED, None),
+        },
+    )
+
+    messages = runner.build_unfinished_turn_messages(turn)
+
+    assert [message.role for message in messages] == [MessageRole.TOOL]
+    (request,) = ModelMessagesTypeAdapter.validate_json(messages[0].framework_item)
+    assert isinstance(request, ModelRequest)
+    assert [
+        (type(part).__name__, part.tool_call_id, part.content, part.outcome, part.timestamp)
+        for part in request.parts
+        if isinstance(part, ToolReturnPart)
+    ] == [
+        ("ToolSearchReturnPart", "search", search_content, "success", response.timestamp),
+        ("ToolReturnPart", "publish", "not now", "denied", response.timestamp),
+        ("ToolReturnPart", "unrecorded", OUTCOME_UNKNOWN_TOOL_RESULT, "failed", response.timestamp),
+    ]
+
+
+def _record(
+    tool_call_id: str, tool_name: str, status: ToolCallStatus, output: object
+) -> AgentToolCall:
+    return AgentToolCall(
+        tool_call_id=tool_call_id,
+        turn_id="turn-1",
+        tool_name=tool_name,
+        arguments="{}",
+        effect=ToolEffect.READ,
+        requires_approval=status is ToolCallStatus.REJECTED,
+        status=status,
+        output=None if output is None else json.dumps(output),
+        rejection_message="not now" if status is ToolCallStatus.REJECTED else None,
+    )
 
 
 def _runner(state_dir: Path) -> PydanticAIRunner[str]:

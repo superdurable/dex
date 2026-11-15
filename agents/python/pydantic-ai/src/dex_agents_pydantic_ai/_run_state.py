@@ -24,16 +24,7 @@ PENDING_TOOL_CALLS_FORMAT = "dex_agents_pydantic_ai.pending_tool_calls.v2"
 
 @dataclass(frozen=True)
 class PendingToolCallsState:
-    """Hold what resumes a turn while its tool call Steps run.
-
-    Attributes:
-        tool_call_ids: The calls of the latest model response that run as Steps.
-        structured_result_tool_call_ids: Those calls whose result is structured JSON.
-        unstored_turn_messages: The turn's messages that the session has not
-            stored. Only a legacy run state holds any: the whole turn from its
-            opening request on, while the session stored only the turn's user
-            message.
-    """
+    """Hold what resumes a turn; only a legacy state has unstored turn messages."""
 
     tool_call_ids: Sequence[str]
     structured_result_tool_call_ids: Sequence[str]
