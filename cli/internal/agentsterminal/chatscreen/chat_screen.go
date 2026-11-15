@@ -545,8 +545,6 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 			return screen.submitAction(sessionfeed.DetachImage{})
 		}
 		if screen.input.HandleEditingKey(key) {
-			// An edited draft waits for the next Enter.
-			screen.waitingSendRevision = 0
 			screen.pathCompletions = nil
 			screen.isCompletionDismissed = false
 			screen.completionIndex = 0

@@ -352,6 +352,31 @@ func TestDraftEditedBackToItsTextIsNotSentWhenImagesAttach(t *testing.T) {
 	}
 }
 
+// Moving the cursor changes no text, so the draft still sends.
+func TestCursorMovesKeepTheWaitingSend(t *testing.T) {
+	moves := []tea.KeyPressMsg{
+		key(tea.KeyLeft), key(tea.KeyRight), key(tea.KeyHome), key(tea.KeyEnd),
+		ctrlKey('b'), ctrlKey('f'), ctrlKey('a'), ctrlKey('e'),
+		{Code: tea.KeyLeft, Mod: tea.ModAlt}, {Code: tea.KeyRight, Mod: tea.ModAlt},
+		{Code: tea.KeyLeft, Mod: tea.ModCtrl}, {Code: tea.KeyRight, Mod: tea.ModCtrl},
+	}
+	for _, move := range moves {
+		t.Run(move.String(), func(t *testing.T) {
+			harness, imagePath := newImageHarness(t)
+			harness.typeText("current draft")
+			harness.paste(imagePath)
+			harness.press(key(tea.KeyEnter))
+			harness.press(move)
+			require.Contains(t, harness.plainFrame(), "sends when ready")
+			harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
+			messages := sentMessages(harness)
+			require.Len(t, messages, 1)
+			require.Equal(t, "current draft", messages[0].Text)
+			require.Len(t, messages[0].Images, 1)
+		})
+	}
+}
+
 // A recalled slash command never runs on its own when the images attach.
 func TestRecalledSlashCommandIsNotRunWhenImagesAttach(t *testing.T) {
 	harness, imagePath := newImageHarness(t)
