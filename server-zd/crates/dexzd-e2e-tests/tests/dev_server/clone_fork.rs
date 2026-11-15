@@ -14,8 +14,8 @@ use std::time::Duration;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
     AttributeWrite, CloneForkFlowRequest, FlowConfig, FlowStartOptions, FlowStatus,
-    GetAttributesRequest, InvokeExecuteMethodResponse, StartFlowRequest, StepOptions,
-    WaitForFlowRequest, WorkerTarget,
+    GetAttributesRequest, GetHistoryEventsRequest, InvokeExecuteMethodResponse, StartFlowRequest,
+    StepOptions, WaitForFlowRequest, WorkerTarget, flow_history_event,
 };
 use tonic::transport::Channel;
 
@@ -118,6 +118,26 @@ async fn a_clone_fork_runs_the_copied_step_on_its_own_task_queue() {
         .expect("GetAttributes succeeds")
         .into_inner();
     assert_eq!(attributes.attributes.len(), 2, "{attributes:?}");
+    let history = flow_client
+        .get_history_events(GetHistoryEventsRequest {
+            flow_id: "session-b".to_owned(),
+            ..GetHistoryEventsRequest::default()
+        })
+        .await
+        .expect("GetHistoryEvents succeeds")
+        .into_inner();
+    let first = history.events.first().expect("the new run has history");
+    assert_eq!(first.event_id, 1);
+    let Some(flow_history_event::Payload::FlowStartedOrContinued(started)) = first.payload.as_ref()
+    else {
+        panic!("the new run starts with its start event: {first:?}");
+    };
+    let source = started
+        .clone_fork_source
+        .as_ref()
+        .expect("the start event names its source");
+    assert_eq!(source.flow_id, "session-a");
+    assert_eq!(source.event_id, response.source_event_id);
 
     clone_worker.reply(
         clone_task.task_id,

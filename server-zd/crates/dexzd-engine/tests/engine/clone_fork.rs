@@ -112,7 +112,12 @@ impl TravelNode {
     }
 
     /// Commits `body` for `flow_id` straight to the log, as an effect or an owner does.
-    async fn commit_to(&self, flow_id: &str, run_id: Option<RunId>, body: Command) {
+    async fn commit_to(
+        &self,
+        flow_id: &str,
+        run_id: Option<RunId>,
+        body: Command,
+    ) -> dexzd_engine::CommittedCommand {
         let (_, ticket) = self
             .committer()
             .submit(
@@ -128,7 +133,7 @@ impl TravelNode {
                 CommitUrgency::Prompt,
             )
             .expect("the command is submitted");
-        ticket.wait().await.expect("the command commits");
+        ticket.wait().await.expect("the command commits")
     }
 
     fn record_of(&self, flow_id: &str, run_id: RunId) -> RunRecord {
@@ -926,8 +931,13 @@ async fn an_interrupted_staging_is_replaced_and_an_idle_one_expires() {
         node.has_staging("clone-interrupted", &abandoned_id),
         "a staging idle for less than 10 minutes stays"
     );
-    cluster.clock.shift(60 * 1_000_000);
-    node.commit_to("clone-interrupted", None, expire()).await;
+    // Proposal times may run ahead of the paused clock by a microsecond per command.
+    cluster.clock.shift(61 * 1_000_000);
+    let expired = node.commit_to("clone-interrupted", None, expire()).await;
+    assert!(
+        !expired.outcome.writes.is_empty(),
+        "the expiry deletes the staging"
+    );
     assert!(!node.has_staging("clone-interrupted", &abandoned_id));
     assert_eq!(
         node.staging_index_rows("clone-interrupted"),
@@ -1108,6 +1118,350 @@ async fn an_offloaded_value_of_the_point_is_copied_into_the_new_run() {
         node.attributes_of("clone-offloaded", clone_run)["report"],
         large_text('a', 400),
         "the new run stores the value the source no longer stores locally"
+    );
+    node.shutdown().await;
+}
+
+/// A point whose history exists only in uploaded segments is read from them, and a point of an
+/// earlier run attempt is copied after a time travel of the source.
+#[tokio::test(start_paused = true)]
+async fn points_in_uploaded_segments_and_earlier_attempts_are_copied() {
+    // The offloading helpers name the time travel tests' Flow.
+    const TRAVELED_SOURCE: &str = "travel-flow";
+    let cluster = TestCluster::new();
+    let node = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        crate::time_travel::offloading_config(),
+    )
+    .await;
+    node.enable_history_offload().await;
+    let source_run = node.start_flow(None).await;
+    node.set_attribute("stage", string_value("paid")).await;
+    let paid_event_id = node.run_record(source_run).next_event_id - 1;
+    for index in 0..3 {
+        node.set_attribute("report", string_value(&format!("{index}").repeat(400)))
+            .await;
+    }
+    node.set_attribute("stage", string_value("shipped")).await;
+    let uploaded_through_seq = node.offload_sealed_history(source_run).await;
+    assert_eq!(
+        uploaded_through_seq,
+        node.run_record(source_run).next_run_seq - 1
+    );
+    let reads_before = node.history_object_reads();
+    let from_segments = node
+        .clone_fork(CloneForkFlowRequest {
+            source_flow_id: TRAVELED_SOURCE.to_owned(),
+            point_type: FlowCloneForkPointType::EventId as i32,
+            event_id: paid_event_id,
+            ..clone_request("clone-from-segments", "request-from-segments")
+        })
+        .await
+        .expect("the clone fork applies");
+    assert!(
+        node.history_object_reads() > reads_before,
+        "the computation read uploaded segments"
+    );
+    let clone_run: RunId = from_segments.run_id.parse().expect("the run ID parses");
+    let copied = node.attributes_of("clone-from-segments", clone_run);
+    assert_eq!(copied["stage"], string_value("paid"));
+    assert!(!copied.contains_key("report"));
+
+    node.reset(ResetFlowRequest {
+        flow_id: TRAVELED_SOURCE.to_owned(),
+        reset_type: FlowResetType::Beginning as i32,
+        skip_writes_reapply: true,
+        ..ResetFlowRequest::default()
+    })
+    .await
+    .expect("the source travels to its beginning");
+    let from_attempt_one = node
+        .clone_fork(CloneForkFlowRequest {
+            source_flow_id: TRAVELED_SOURCE.to_owned(),
+            point_type: FlowCloneForkPointType::EventId as i32,
+            event_id: paid_event_id,
+            run_attempt: 1,
+            ..clone_request("clone-from-attempt-one", "request-from-attempt-one")
+        })
+        .await
+        .expect("a point of run attempt 1 is copied");
+    assert_eq!(from_attempt_one.source_run_attempt, 1);
+    let clone_run: RunId = from_attempt_one.run_id.parse().expect("the run ID parses");
+    assert_eq!(
+        node.attributes_of("clone-from-attempt-one", clone_run)["stage"],
+        string_value("paid")
+    );
+    node.shutdown().await;
+}
+
+/// The retry of a request whose owner stopped mid-staging replaces that partial staging, which
+/// has the same staging ID, and creates the run.
+#[tokio::test(start_paused = true)]
+async fn a_retry_replaces_the_partial_staging_of_its_own_request() {
+    let (_cluster, node) = start_node(FlowCoordinationConfig::default()).await;
+    node.start_source(source_start("start-source")).await;
+    let request = clone_request("clone-resumed", "request-resumed");
+    let mut identity = u64::try_from(request.flow_id.len())
+        .expect("a short Flow ID")
+        .to_be_bytes()
+        .to_vec();
+    identity.extend_from_slice(request.flow_id.as_bytes());
+    identity.extend_from_slice(request.request_id.as_bytes());
+    let staging_id = xxhash_rust::xxh3::xxh3_128(&identity)
+        .to_be_bytes()
+        .to_vec();
+    node.commit_to(
+        "clone-resumed",
+        None,
+        Command::FlowCloneForkStage(FlowCloneForkStageCommand {
+            staging_id: staging_id.clone(),
+            chunk_index: 0,
+            is_last_chunk: false,
+            chunk: FlowCloneForkStagedChunk {
+                target: Some(FlowCloneForkStagedTarget {
+                    request: Some(request.clone()),
+                    source: Some(dexzd_protocol::dex::FlowCloneForkSource::default()),
+                    source_run_seq: 1,
+                    first_run_seq: 2,
+                    flow_type: "SessionFlow".to_owned(),
+                    run_status: Some(dexzd_protocol::dexzd::v1::CheckpointRunStatus {
+                        status: FlowStatus::Running as i32,
+                        ..Default::default()
+                    }),
+                }),
+                ..FlowCloneForkStagedChunk::default()
+            }
+            .encode_to_vec(),
+        }),
+    )
+    .await;
+    assert!(node.has_staging("clone-resumed", &staging_id));
+    let response = node
+        .clone_fork(request)
+        .await
+        .expect("the retry stages again and applies");
+    let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+    assert_eq!(
+        node.record_of("clone-resumed", clone_run).status,
+        FlowStatus::Running as i32
+    );
+    assert!(!node.has_staging("clone-resumed", &staging_id));
+    assert_eq!(node.staging_index_rows("clone-resumed"), 0);
+    node.shutdown().await;
+}
+
+/// Hard-delete objects in memory: the source run's uploads, then the clone fork's.
+#[derive(Default)]
+struct MemoryHardDeleteObjects {
+    values: std::sync::Mutex<BTreeMap<String, Value>>,
+    next_object: AtomicUsize,
+    /// The run of each upload call and the keys of its writes.
+    uploads: std::sync::Mutex<Vec<(RunId, Vec<String>)>>,
+    finished: std::sync::Mutex<Vec<(Vec<String>, dexzd_engine::HardDeleteUploadOutcome)>>,
+}
+
+impl dexzd_engine::HardDeleteValueReader for MemoryHardDeleteObjects {
+    fn read_hard_delete_value<'a>(
+        &'a self,
+        _flow: &'a dexzd_engine::FlowAddress,
+        _run_id: RunId,
+        object: &'a dexzd_protocol::dexzd::v1::HardDeleteObjectReference,
+    ) -> futures::future::BoxFuture<'a, Result<Option<Value>, dexzd_engine::HardDeleteReadError>>
+    {
+        let value = self
+            .values
+            .lock()
+            .expect("value lock")
+            .get(&object.object_id)
+            .cloned();
+        Box::pin(async move { Ok(value) })
+    }
+}
+
+impl dexzd_engine::HardDeleteValueUploader for MemoryHardDeleteObjects {
+    fn upload_hard_delete_values<'a>(
+        &'a self,
+        _flow: &'a dexzd_engine::FlowAddress,
+        run_id: RunId,
+        writes: &'a mut [AttributeWrite],
+    ) -> futures::future::BoxFuture<
+        'a,
+        Result<
+            dexzd_engine::FlowCoordinationHardDeleteUploads,
+            dexzd_engine::HardDeleteUploadError,
+        >,
+    > {
+        self.uploads.lock().expect("upload lock").push((
+            run_id,
+            writes.iter().map(|write| write.key.clone()).collect(),
+        ));
+        let mut uploads = dexzd_engine::FlowCoordinationHardDeleteUploads::default();
+        for (write_index, write) in writes.iter_mut().enumerate() {
+            let Some(value) = write.value.clone().filter(|_| write.is_hard_delete_on_null) else {
+                continue;
+            };
+            let object_id = format!(
+                "object-{}",
+                self.next_object.fetch_add(1, Ordering::SeqCst) + 1
+            );
+            uploads
+                .references
+                .push(dexzd_protocol::dexzd::v1::HardDeleteObjectReference {
+                    write_index: u32::try_from(write_index).expect("few writes"),
+                    object_id: object_id.clone(),
+                    size_bytes: u64::try_from(value.encoded_len()).expect("small value"),
+                    is_string_value: matches!(value.kind, Some(value::Kind::StringValue(_))),
+                });
+            uploads.object_keys.push(object_id.clone());
+            self.values
+                .lock()
+                .expect("value lock")
+                .insert(object_id, value);
+            write.value = Some(Value { kind: None });
+        }
+        Box::pin(async move { Ok(uploads) })
+    }
+
+    fn finish_hard_delete_uploads(
+        &self,
+        uploads: dexzd_engine::FlowCoordinationHardDeleteUploads,
+        outcome: dexzd_engine::HardDeleteUploadOutcome,
+    ) -> futures::future::BoxFuture<'_, Result<(), dexzd_engine::HardDeleteUploadError>> {
+        self.finished
+            .lock()
+            .expect("finish lock")
+            .push((uploads.object_keys, outcome));
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn hard_delete_write(key: &str, text: &str) -> AttributeWrite {
+    AttributeWrite {
+        key: key.to_owned(),
+        value: Some(string_value(text)),
+        is_hard_delete_on_null: true,
+        ..AttributeWrite::default()
+    }
+}
+
+/// The source's current hard-delete Attributes reach the new run as objects of its own, beside
+/// the request's writes; a clone fork that ID reuse rejects leaves no object behind.
+#[tokio::test(start_paused = true)]
+async fn hard_delete_attributes_are_uploaded_again_for_the_new_run() {
+    let objects = std::sync::Arc::new(MemoryHardDeleteObjects::default());
+    let cluster = TestCluster::new();
+    let mut config = FlowCoordinationConfig::default();
+    config.validation.has_blob_store = true;
+    let node = TravelNode::start_with_hard_delete_ports(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        vec![segmented_opener()],
+        config,
+        dexzd_engine::HistoryReadsConfig::default(),
+        crate::time_travel::HardDeletePorts {
+            reader: objects.clone(),
+            uploader: objects.clone(),
+        },
+    )
+    .await;
+    let source_run = node
+        .start_source(StartFlowRequest {
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(pull_config("source-queue")),
+                attributes: vec![hard_delete_write("secret", "source secret")],
+                ..FlowStartOptions::default()
+            }),
+            ..source_start("start-source")
+        })
+        .await;
+    let request = CloneForkFlowRequest {
+        attributes: vec![
+            AttributeWrite {
+                key: "lease".to_owned(),
+                value: Some(string_value("released")),
+                ..AttributeWrite::default()
+            },
+            hard_delete_write("token", "clone token"),
+        ],
+        ..clone_request("clone-secret", "request-secret")
+    };
+    let response = node
+        .clone_fork(request.clone())
+        .await
+        .expect("the clone fork applies");
+    let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+    let uploads = objects.uploads.lock().expect("upload lock").clone();
+    assert_eq!(
+        uploads.last(),
+        Some(&(
+            clone_run,
+            vec!["secret".to_owned(), "lease".to_owned(), "token".to_owned()]
+        )),
+        "the copied hard-delete Attributes upload first, under the new run"
+    );
+    let object_of = |flow_id: &str, run_id: RunId, key: &str| {
+        let row_key = run_named_key(
+            node.context_of(flow_id).flow_hash,
+            run_id,
+            RunTable::Attribute,
+            key,
+        );
+        let record = AttributeRecord::decode(
+            node.view()
+                .get(ColumnFamily::Flow, &row_key)
+                .expect("the Attribute reads")
+                .expect("the Attribute exists")
+                .as_slice(),
+        )
+        .expect("the Attribute decodes");
+        match record.value.and_then(|stored| stored.kind) {
+            Some(stored_value::Kind::HardDeleteObject(object)) => Some(object.object_id),
+            _ => None,
+        }
+    };
+    let source_object = object_of(SOURCE_FLOW, source_run, "secret").expect("an object");
+    let copied_object = object_of("clone-secret", clone_run, "secret").expect("an object");
+    assert_ne!(copied_object, source_object, "the new run owns its object");
+    assert_eq!(
+        objects.values.lock().expect("value lock")[&copied_object],
+        string_value("source secret")
+    );
+    let token_object = object_of("clone-secret", clone_run, "token").expect("an object");
+    assert_eq!(
+        objects.values.lock().expect("value lock")[&token_object],
+        string_value("clone token")
+    );
+    assert_eq!(object_of("clone-secret", clone_run, "lease"), None);
+    assert_eq!(
+        objects
+            .finished
+            .lock()
+            .expect("finish lock")
+            .last()
+            .map(|(_, outcome)| *outcome),
+        Some(dexzd_engine::HardDeleteUploadOutcome::Committed)
+    );
+
+    let conflict = node
+        .clone_fork(CloneForkFlowRequest {
+            request_id: "request-secret-again".to_owned(),
+            id_reuse_policy: IdReusePolicy::DisallowReuse as i32,
+            ..request
+        })
+        .await
+        .expect_err("the new Flow ID already has a run");
+    assert_eq!(conflict.grpc_code(), grpc_code::ALREADY_EXISTS);
+    assert_eq!(
+        objects
+            .finished
+            .lock()
+            .expect("finish lock")
+            .last()
+            .map(|(_, outcome)| *outcome),
+        Some(dexzd_engine::HardDeleteUploadOutcome::NotCommitted),
+        "the rejected clone fork's uploads are deleted"
     );
     node.shutdown().await;
 }

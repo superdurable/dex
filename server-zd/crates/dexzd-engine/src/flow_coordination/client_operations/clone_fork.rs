@@ -205,8 +205,19 @@ impl FlowCoordinatorRegistry {
             None,
             flow_command::Command::FlowCloneFork(clone_fork),
         );
+        // Only a new run references the uploads; a conflict or retry commits just the cleanup.
         let reply = match self
-            .propose_client_command_with_uploads(target, uploads, |_| Ok(command.clone()))
+            .propose_client_command_with_referencing_uploads(
+                target,
+                uploads,
+                |_| Ok(command.clone()),
+                |committed| {
+                    matches!(
+                        &committed.outcome.reply.reply,
+                        Some(command_reply::Reply::StartFlow(started)) if !started.is_existing_run
+                    )
+                },
+            )
             .await
         {
             Ok(reply) => reply,

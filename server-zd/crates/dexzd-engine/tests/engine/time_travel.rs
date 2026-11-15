@@ -128,6 +128,30 @@ impl TravelNode {
         flow_coordination: FlowCoordinationConfig,
         history_reads: dexzd_engine::HistoryReadsConfig,
     ) -> Self {
+        Self::start_with_hard_delete_ports(
+            cluster,
+            local_store,
+            openers,
+            flow_coordination,
+            history_reads,
+            HardDeletePorts {
+                reader: Arc::new(UnusedPorts),
+                uploader: Arc::new(UnusedPorts),
+            },
+        )
+        .await
+    }
+
+    /// Starts a node as [`Self::start_with_registries`] does, whose registries read and upload
+    /// hard-delete values through `hard_delete`.
+    pub(crate) async fn start_with_hard_delete_ports(
+        cluster: &TestCluster,
+        local_store: LocalStoreConfig,
+        openers: Vec<Arc<dyn TimeTravelHistoryOpener>>,
+        flow_coordination: FlowCoordinationConfig,
+        history_reads: dexzd_engine::HistoryReadsConfig,
+        hard_delete: HardDeletePorts,
+    ) -> Self {
         let mut config = cluster.config(local_store);
         config.commit.debug_replay_checks = true;
         let captured = Arc::new(Mutex::new(None));
@@ -160,8 +184,8 @@ impl TravelNode {
                                 effects: ports.clone(),
                                 rpc_invoker: ports.clone(),
                                 step_queue_status: ports.clone(),
-                                hard_delete_reader: ports.clone(),
-                                hard_delete_uploader: ports.clone(),
+                                hard_delete_reader: Arc::clone(&hard_delete.reader),
+                                hard_delete_uploader: Arc::clone(&hard_delete.uploader),
                                 time_travel_history: opener,
                                 clock: clock.clone(),
                                 history_segment_reader: Arc::new(
@@ -224,7 +248,7 @@ impl TravelNode {
         self.node.committer()
     }
 
-    async fn start_flow(&self, step_options: Option<StepOptions>) -> RunId {
+    pub(crate) async fn start_flow(&self, step_options: Option<StepOptions>) -> RunId {
         self.start_flow_with(StartFlowRequest {
             step_options,
             ..start_flow_request()
@@ -241,7 +265,7 @@ impl TravelNode {
         response.run_id.parse().expect("the run ID parses")
     }
 
-    async fn set_attribute(&self, key: &str, value: Value) {
+    pub(crate) async fn set_attribute(&self, key: &str, value: Value) {
         self.registry
             .set_attributes(
                 TenantId::DEFAULT,
@@ -260,7 +284,10 @@ impl TravelNode {
             .expect("the Attributes are set");
     }
 
-    async fn reset(&self, request: ResetFlowRequest) -> Result<u32, FlowCoordinationError> {
+    pub(crate) async fn reset(
+        &self,
+        request: ResetFlowRequest,
+    ) -> Result<u32, FlowCoordinationError> {
         self.registry
             .reset_flow(TenantId::DEFAULT, request)
             .await
@@ -291,7 +318,7 @@ impl TravelNode {
             .expect("the committed view opens")
     }
 
-    fn run_record(&self, run_id: RunId) -> RunRecord {
+    pub(crate) fn run_record(&self, run_id: RunId) -> RunRecord {
         let key = run_singleton_key(self.context().flow_hash, run_id, RunTable::RunRecord);
         RunRecord::decode(
             self.view()
@@ -370,7 +397,7 @@ impl TravelNode {
     }
 
     /// Turns offload mode on for the Flow's partition.
-    async fn enable_history_offload(&self) {
+    pub(crate) async fn enable_history_offload(&self) {
         let partition = self.context().partition;
         let (_, ticket) = self
             .committer()
@@ -395,7 +422,7 @@ impl TravelNode {
     /// Uploads and acknowledges every SEALED segment of the run as the uploader does, then
     /// deletes the local History records and checkpoints they cover, except genesis, as local
     /// deletion after upload does. Returns the run's uploaded-through seq.
-    async fn offload_sealed_history(&self, run_id: RunId) -> u64 {
+    pub(crate) async fn offload_sealed_history(&self, run_id: RunId) -> u64 {
         let flow_hash = self.context().flow_hash;
         // FlowStart is the run's first seq.
         let genesis_seq = 1;
@@ -475,7 +502,7 @@ impl TravelNode {
     }
 
     /// Returns how many ranged reads of history segment objects object storage served.
-    fn history_object_reads(&self) -> u64 {
+    pub(crate) fn history_object_reads(&self) -> u64 {
         self.objects
             .call_count(ObjectStoreOperation::Get, "history/")
     }
@@ -562,6 +589,12 @@ impl CommittedCommandSink for ForwardingSink {
     fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {
         self.recording.finish_frame(partition, position);
     }
+}
+
+/// The hard-delete value ports of a node's registries.
+pub(crate) struct HardDeletePorts {
+    pub(crate) reader: Arc<dyn HardDeleteValueReader>,
+    pub(crate) uploader: Arc<dyn HardDeleteValueUploader>,
 }
 
 /// Ports the registry needs for client writes and resets without Workers.
@@ -803,7 +836,7 @@ pub(crate) fn table_value_id(record: &AttributeRecord) -> ValueId {
 
 /// Coordination whose runs seal a history segment with every command and write a checkpoint
 /// every two commands, so offloading leaves little history local.
-fn offloading_config() -> FlowCoordinationConfig {
+pub(crate) fn offloading_config() -> FlowCoordinationConfig {
     let config = FlowCoordinationConfig::default();
     FlowCoordinationConfig {
         run_settings: RunSettings {
