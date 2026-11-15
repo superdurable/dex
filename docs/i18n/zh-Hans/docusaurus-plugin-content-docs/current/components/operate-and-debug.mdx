@@ -61,19 +61,19 @@ Clone Fork 从另一个 run 在某个点的状态创建一个新的 Flow。这�
 
 用 Clone Fork 分出一个新的 agent session，原来的 session 继续运行。也可以从过去的某个点尝试另一条路径，同时保留原来的 run。要让同一个 Flow 退回去，用 Time Travel。
 
-| 问题 | Time Travel | Clone Fork |
+| 行为 | Time Travel | Clone Fork |
 | --- | --- | --- |
-| 哪个 Flow 继续？ | 同一个 Flow，Flow ID 和 Run ID 不变。 | 一个新的 Flow，有新的 Flow ID。 |
-| 原来的 Flow 会怎样？ | 退回到那个点。 | 只被读取，继续运行。 |
-| run 保留什么？ | 它的历史，并开始一次新的尝试。 | 不带源 run 的历史，新 run 开始自己的历史。 |
+| Flow 身份 | 同一个 Flow，Flow ID 和 Run ID 不变。 | 一个新的 Flow，有新的 Flow ID。 |
+| 源 run | 退回到那个点。 | 只被读取；如果仍在运行，就会继续运行。 |
+| 历史 | 它的历史，并开始一次新的尝试。 | 不带源 run 的历史，新 run 开始自己的历史。 |
 
-Clone Fork 复制状态。新 run 得到源 run 在那个点时的 Attribute、待处理的 Channel 消息、Step 和等待。它开始新的历史，所以不复制源的历史、Stream 消息和父 Flow。那个点之后进入源 run 的输入不会被应用。hard-delete Attribute 取当前值。
+Clone Fork 复制该点的状态。新 run 得到该点的 Attribute（hard-delete Attribute 除外）、待处理的 Channel 消息、Step 和等待。hard-delete Attribute 取源 run 的当前值。它开始新的历史，所以不复制源的历史、Stream 消息和父 Flow。那个点之后进入源 run 的输入不会被应用。
 
 那个点上正在运行的 Step 会在新 Flow 里重新运行，包括它们的外部调用，所以每个调用都需要[幂等键](/concepts/step#idempotency-keys)。当 Worker 按 task queue 选择 Flow 时，比如 agent session，给新 Flow 单独的 task queue。否则源的 Worker 也会运行新 Flow。
 
-ID 复用策略在创建 Flow 的同一次变更里决定新的 Flow ID。冲突会让调用失败，并且不创建任何东西。
+新 Flow ID 的复用和重试遵循相应策略。详见 [Clone fork](/reference/server/runtime-client#clone-fork-id-reuse)（英文）。
 
-被复制的 Step 可能在等待 SubFlow。SubFlow reset 策略决定每个这样的等待怎么办，对 Clone Fork 和 Time Travel 都适用。等待可以附着到原来的子 Flow 并取得它的结果，可以重新启动子 Flow，也可以失败，或者整个调用被拒绝。默认情况下，能附着就附着，否则重新启动。源的子 Flow 不会改变。
+被复制的 Step 可能在等待 SubFlow。对于 Clone Fork，已结束的子 Flow 可以附着。仍在运行的源子 Flow 不能附着；默认情况下，Dex 会为新 Flow 启动一个新的子 Flow。Time Travel 的 SubFlow 等待遵循自己的规则。详见 [Clone Fork 中的 SubFlow](/reference/server/runtime-client#sub-flows-across-a-clone-fork) 和 [Time Travel 中的 SubFlow](/reference/server/runtime-client#sub-flows-across-a-time-travel)（英文）。源的子 Flow 不会改变。
 
 可以从 Client 或用 `dexcli flow clone-fork` 启动 Clone Fork；[CLI 参考](/reference/cli)（英文）列出它的参数。server 参考中的 [Clone fork](/reference/server/runtime-client#clone-fork)（英文）介绍请求、各种点类型、SubFlow 策略和限制。
 

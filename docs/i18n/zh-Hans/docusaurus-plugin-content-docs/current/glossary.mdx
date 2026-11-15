@@ -51,7 +51,7 @@ Flow 上一个持久化、有类型的变量。可以为它建索引，用于搜
 
 #### [Clone Fork](/components/operate-and-debug#clone-fork)
 
-从另一个 Flow run 在某个点的状态创建一个新的 Flow，新 Flow 有新的 Flow ID。新 Flow 复制状态，不复制历史。源 run 只被读取，继续运行。对应的 FlowService 调用是 `CloneForkFlow`。
+从另一个 Flow run 在某个点的状态创建新的 Flow。新 Flow 有自己的历史。源 run 只被读取；如果仍在运行，就会继续运行。
 
 #### [Condition](/concepts/step#waitfor-and-execute)
 
