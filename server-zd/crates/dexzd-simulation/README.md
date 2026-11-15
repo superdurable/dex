@@ -610,7 +610,9 @@ is still detected at the same command:
 | Remove `\|\| scope.is_replay` from both request-deduplication guards. | `1592590341` | `apply-error`: replayed command rejected, command 500. |
 
 The Attribute Sync mutant has no detecting seed, and the model-stamp revert for `2204788261`
-was not rerun; both stay as described above.
+was not rerun; both stay as described above. Seed `1592590450` (400 commands) was added in #1372
+to cover an abandoned history migration. It started no history migration either before or
+after this change, so it is a historical case; the seed set still abandons one.
 
 ### Running
 
