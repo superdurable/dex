@@ -49,6 +49,17 @@ struct LoggedFlowCommand {
     flow_config_update: Option<LoggedFlowConfigUpdate>,
     #[prost(message, optional, tag = "70")]
     inbox_message: Option<LoggedInboxMessage>,
+    #[prost(message, optional, tag = "63")]
+    flow_clone_fork: Option<LoggedFlowCloneFork>,
+}
+
+/// `FlowCloneForkCommand`: the new run and its effective FlowConfig.
+#[derive(Clone, PartialEq, Message)]
+struct LoggedFlowCloneFork {
+    #[prost(bytes = "vec", tag = "2")]
+    new_run_id: Vec<u8>,
+    #[prost(message, optional, tag = "5")]
+    effective_flow_config: Option<RemovedFlowConfigFields>,
 }
 
 /// `FlowStartCommand`: the new run, the request override, and the effective FlowConfig.
@@ -168,6 +179,13 @@ impl LoggedRemovedFields {
                 &mut self.by_run,
                 start.new_run_id,
                 start.effective_flow_config.unwrap_or_default(),
+            );
+        }
+        if let Some(clone_fork) = command.flow_clone_fork {
+            insert_once(
+                &mut self.by_run,
+                clone_fork.new_run_id,
+                clone_fork.effective_flow_config.unwrap_or_default(),
             );
         }
         if let Some(update) = command.flow_config_update {

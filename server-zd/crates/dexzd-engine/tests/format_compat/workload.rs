@@ -10,9 +10,10 @@ use bytes::Bytes;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateChildFlowRuns,
-    StateHistorySource, TimeTravelComputation, TimeTravelComputationRequest,
-    TimeTravelComputationSources, WaitableChange, compute_time_travel,
+    ApplyContext, ApplyEffect, ApplyOutcome, CloneForkComputation, CloneForkComputationRequest,
+    FlowStateReader, StateChildFlowRuns, StateHistorySource, TimeTravelComputation,
+    TimeTravelComputationRequest, TimeTravelComputationSources, WaitableChange, compute_clone_fork,
+    compute_time_travel,
 };
 use dexzd_clock::WallClock;
 use dexzd_engine::{
@@ -29,9 +30,9 @@ use dexzd_keyspace::{
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore, WriteCondition, WriteOutcome};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, ChannelCondition, ChannelMessage,
-    CloseDecision, CloseDecisionType, DeleteChannelMessageRequest, ExecuteMethodFailurePolicy,
-    FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions, FlowTimeoutPolicy,
-    InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
+    CloneForkFlowRequest, CloseDecision, CloseDecisionType, DeleteChannelMessageRequest,
+    ExecuteMethodFailurePolicy, FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions,
+    FlowTimeoutPolicy, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
     InvokeWorkerRpcResponse, Kv, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepDurability,
     StepMovement, StepOptions, StopFlowRequest, StopType, SubFlowCondition, SubFlowOptions,
@@ -40,15 +41,16 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
-    ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
-    HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, HistoryLocalCleanupCommand,
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, InboxMessageCommand,
-    OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
-    RunSettings, SearchOutboxAckCommand, SetHistoryOffloadModeCommand,
-    SetSearchProjectionModeCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, StepAttemptQueuedCommand, StepAttemptReturnReason,
-    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
-    StepMethod, StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand,
+    ChannelPublishCommand, FlowCloneForkCommand, FlowCloneForkStagingExpireCommand, FlowCommand,
+    FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, HardDeleteObjectReference,
+    HardDeleteObjectsDeletedCommand, HistoryLocalCleanupCommand, HistorySegmentRecord,
+    HistorySegmentState, HistorySegmentUploadedCommand, InboxMessageCommand, OutboxAckCommand,
+    OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand, RunSettings,
+    SearchOutboxAckCommand, SetHistoryOffloadModeCommand, SetSearchProjectionModeCommand,
+    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    StepAttemptQueuedCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
+    StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand,
     ValueBirthRecord, ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
     inbox_message_command, outbox_record, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
@@ -147,6 +149,140 @@ impl Workload<'_> {
             .await;
         self.legacy_runs_record_history_without_offload().await;
         self.runs_follow_their_offload_choice().await;
+        self.clone_fork_copies_a_waiting_run_and_expires_an_abandoned_staging()
+            .await;
+    }
+
+    /// CloneForkFlow copies a run whose Step waits on a timer and holds a long value into a new
+    /// Flow: the owner's FlowCloneForkStage chunks, then the FlowCloneFork that creates the run.
+    /// A staging that no chunk extends for 10 minutes then expires.
+    async fn clone_fork_copies_a_waiting_run_and_expires_an_abandoned_staging(&self) {
+        let source = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: "clone-source-flow".to_owned(),
+                    flow_type: "SessionFlow".to_owned(),
+                    start_step_type: "TurnStep".to_owned(),
+                    step_options: Some(skip_wait_for()),
+                    flow_timeout_seconds: 3600,
+                    request_id: "start-clone-source".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                workload_run_settings(),
+            )
+            .await;
+        self.set_attributes(
+            &source,
+            vec![attribute("transcript", string_value(LONG_PROFILE_TEXT))],
+            "set-transcript",
+        )
+        .await;
+        let request = CloneForkFlowRequest {
+            source_flow_id: source.flow_id.clone(),
+            flow_id: "clone-target-flow".to_owned(),
+            request_id: "clone-session".to_owned(),
+            reason: "branch the session".to_owned(),
+            attributes: vec![attribute("lease", string_value("released"))],
+            ..CloneForkFlowRequest::default()
+        };
+        let context = self.context(&source.flow_id);
+        let computed = {
+            let view = self
+                .node
+                .committer()
+                .committed_view()
+                .expect("the committed view opens");
+            let history = StateHistorySource::new(&view, context, source.run_id);
+            let child_flow_runs = StateChildFlowRuns::new(&view, self.hasher);
+            match compute_clone_fork(
+                &context,
+                &TimeTravelComputationSources {
+                    state: &view,
+                    history: &history,
+                    offloaded_values: &NoOffloadedValues,
+                    child_flow_runs: &child_flow_runs,
+                },
+                &CloneForkComputationRequest {
+                    source_run_id: source.run_id,
+                    clone_fork: &request,
+                    now_micros: self.clock.now_unix_micros(),
+                    memory_budget_bytes: u64::MAX,
+                },
+            )
+            .expect("the clone fork computes")
+            {
+                CloneForkComputation::Computed(computed) => *computed,
+                CloneForkComputation::Rejected(reply) => {
+                    panic!("the workload's clone fork is rejected: {reply:?}")
+                }
+            }
+        };
+        let staging_id = self.next_uuid().as_bytes().to_vec();
+        for stage in computed
+            .stage_commands(&staging_id)
+            .expect("the copy fits in Stage commands")
+        {
+            assert!(matches!(
+                self.commit_to(&request.flow_id, &[], Command::FlowCloneForkStage(stage))
+                    .await
+                    .reply
+                    .reply,
+                Some(command_reply::Reply::Ok(_))
+            ));
+        }
+        let new_run_id = self.next_run_id();
+        let outcome = self
+            .commit_to(
+                &request.flow_id,
+                &[],
+                Command::FlowCloneFork(FlowCloneForkCommand {
+                    staging_id: staging_id.clone(),
+                    new_run_id: new_run_id.as_bytes().to_vec(),
+                    settings: Some(workload_run_settings()),
+                    effective_flow_config: Some(computed.source_flow_config().clone()),
+                    flow_timeout_duration_micros: computed.flow_timeout_duration_micros(),
+                    resolved_timeout_policy: computed.timeout_policy(),
+                    request: Some(request.clone()),
+                    ..FlowCloneForkCommand::default()
+                }),
+            )
+            .await;
+        assert!(
+            matches!(
+                outcome.reply.reply,
+                Some(command_reply::Reply::StartFlow(ref reply))
+                    if reply.run_id == new_run_id.as_bytes()
+            ),
+            "the clone fork creates its run: {:?}",
+            outcome.reply
+        );
+        let abandoned_id = self.next_uuid().as_bytes().to_vec();
+        let mut abandoned = computed
+            .stage_commands(&abandoned_id)
+            .expect("the copy fits in Stage commands")
+            .remove(0);
+        abandoned.is_last_chunk = false;
+        self.commit_to(
+            &request.flow_id,
+            &[],
+            Command::FlowCloneForkStage(abandoned),
+        )
+        .await;
+        self.clock.advance(10 * 60 * SECOND_MICROS);
+        let expiry = self
+            .commit_to(
+                &request.flow_id,
+                &[],
+                Command::FlowCloneForkStagingExpire(FlowCloneForkStagingExpireCommand {
+                    staging_id: abandoned_id,
+                }),
+            )
+            .await;
+        assert!(
+            !expiry.writes.is_empty(),
+            "the idle staging is deleted: {:?}",
+            expiry.reply
+        );
     }
 
     /// `history-flow`, in partition 1, which offloads history: a replaced Attribute supersedes a
