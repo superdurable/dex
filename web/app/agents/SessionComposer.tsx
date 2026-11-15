@@ -57,6 +57,7 @@ export function SessionComposer({
   const [message, setMessage] = useState<{ tone: 'note' | 'error'; text: string } | null>(null);
   const [senderName, setSenderName] = useState(readStoredSenderName);
   const isComposingSenderNameRef = useRef(false);
+  const isComposingTextRef = useRef(false);
   const changeSenderName = (name: string) => {
     // An input method's unfinished text may pass the limit, so the name is cut once it is committed.
     const next = isComposingSenderNameRef.current ? name : limitSenderNameLength(name);
@@ -115,6 +116,11 @@ export function SessionComposer({
   );
   const steer = () => run('steer', () => invoke(schema.steerUserMessage, steerInput), SESSION_COPY.steered);
 
+  const keysHint = SESSION_COPY.composerKeysHint(!isTurnRunning ? 'send' : sendBlocked === null ? 'queue' : 'steer');
+  const composerNote = !isTurnRunning
+    ? `${SESSION_COPY.steerIdleNote} ${keysHint}`
+    : sendBlocked === null && canSteer ? `${SESSION_COPY.runningNote} ${keysHint}` : keysHint;
+
   // The Work as button in place of Send already says why the box is blocked.
   const shownReasons = new Set<string | null>([null, hintShownAbove, workingAsOffer ? sendBlocked : null]);
   const blockedNotes: { label: string | null; reason: string }[] = [];
@@ -168,6 +174,15 @@ export function SessionComposer({
             rows={2}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onCompositionStart={() => { isComposingTextRef.current = true; }}
+            onCompositionEnd={() => { isComposingTextRef.current = false; }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.shiftKey) return;
+              // Enter that commits an input method's text must not send it.
+              if (isComposingTextRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }}
           />
           <div className="ses-composer-buttons">
             {workingAsOffer && (
@@ -214,10 +229,7 @@ export function SessionComposer({
             )}
           </div>
         </div>
-        {!isComposerBlocked && !isTurnRunning && <p className="agc-note">{SESSION_COPY.steerIdleNote}</p>}
-        {!isComposerBlocked && isTurnRunning && sendBlocked === null && canSteer && (
-          <p className="agc-note">{SESSION_COPY.runningNote}</p>
-        )}
+        {!isComposerBlocked && <p className="agc-note">{composerNote}</p>}
         {blockedNotes.map((note) => (
           <BlockedReason key={`${note.label}:${note.reason}`} label={note.label ?? undefined} reason={note.reason} />
         ))}

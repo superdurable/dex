@@ -13,6 +13,7 @@ import type { V2Catalog, V2CatalogEntry } from '@/lib/types';
 import { agentSessionFlowTypes } from './NewSessionDialog';
 import {
   agentSessionSchema,
+  decodeAgentMessage,
   decodeAgentToolCall,
   decodePendingInterrupts,
   REQUIRED_SESSION_ATTRIBUTES,
@@ -93,6 +94,15 @@ describe('decoders', () => {
       arguments: '{}', requires_approval: false, a_field_from_later: 1,
     });
     expect(record?.status).toBe('paused_by_future_release');
+  });
+
+  it('reads why the session wrote a message, keeping origins from later releases', () => {
+    const message = (origin: unknown) => decodeAgentMessage({ sequence: 3, role: 'user', text: 'note', origin });
+    expect(message('turn_steered_note')?.origin).toBe('turn_steered_note');
+    expect(message('origin_from_a_later_release')?.origin).toBe('origin_from_a_later_release');
+    expect(message(null)?.origin).toBeNull();
+    expect(message(7)?.origin).toBeNull();
+    expect(decodeAgentMessage({ sequence: 4, role: 'user', text: 'typed' })?.origin).toBeNull();
   });
 
   it('refuses a record without its identity', () => {

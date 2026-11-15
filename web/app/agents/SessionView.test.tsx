@@ -33,6 +33,8 @@ vi.mock('../catalog/WebCatalogProvider', () => ({ useWebCatalog: () => ({ revisi
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
 });
 
 const pastCall = (toolCallId: string, toolName: string, argumentsText: string): ToolCallView => ({
@@ -280,3 +282,151 @@ describe('SessionView', () => {
     expect(onChooseWorkingAs).toHaveBeenCalledWith('');
   });
 });
+
+const userMessage = (sequence: number, text: string, origin?: string | null) => ({
+  kind: 'message' as const, key: `m${sequence}`, message: {
+    sequence, turnId: 'turn-1', role: 'user', text, toolCallId: null, toolName: null,
+    toolArguments: null, toolOutput: null, createdAt: null, origin,
+  },
+});
+
+const waitingCall = (toolCallId: string): ToolCallView => ({
+  ...pastCall(toolCallId, 'create_refund', '{"amount":24000}'),
+  state: 'awaiting_approval', source: 'live', effect: 'non_idempotent_write', requiresApproval: true,
+  interrupt: {
+    interruptId: `interrupt-${toolCallId}`, kind: 'tool_approval', toolCallId, toolName: 'create_refund',
+    arguments: '{"amount":24000}', createdAt: null, deadline: null, question: null, choices: [], allowsFreeText: true,
+  },
+});
+
+function renderSession(reloadKey = 0) {
+  return <SessionView flowId="session-1" flowType="CodingAgent" reloadKey={reloadKey} schema={schema} workQueuePermissions={[]} />;
+}
+
+describe('SessionView notes and long text', () => {
+  it('shows a note the session wrote as a closed Dex note row, not as a user message', () => {
+    const note = '[Dex] The user stopped the previous turn after these tool calls ran:\n- fetch {"url":"x"} -> succeeded: <html>…</html>\nDo not repeat these tool calls unless the user asks again.';
+    loaded = sessionOf({ items: [userMessage(1, 'Fetch x.'), userMessage(2, note, 'turn_cancelled_note')] });
+    render(renderSession());
+
+    expect(screen.getAllByText(SESSION_COPY.user)).toHaveLength(1);
+    const row = screen.getByText(SESSION_COPY.dexNoteSummary('turn_cancelled_note')).closest('details') as HTMLDetailsElement;
+    expect(row.className).toBe('ses-dexnote');
+    expect(row.open).toBe(false);
+    expect(row.querySelector('summary')?.textContent).toContain(SESSION_COPY.dexNote);
+    expect(row.querySelector('.ses-dexnote-text')?.textContent).toBe(note);
+  });
+
+  it('shows a note with an origin from a later release as a Dex note too', () => {
+    loaded = sessionOf({ items: [userMessage(1, 'Something the session said.', 'origin_from_a_later_release')] });
+    render(renderSession());
+
+    expect(screen.queryByText(SESSION_COPY.user)).toBeNull();
+    expect(screen.getByText(SESSION_COPY.dexNoteSummary('origin_from_a_later_release'))).toBeTruthy();
+    expect(SESSION_COPY.dexNoteSummary('turn_steered_note')).toContain('steered');
+  });
+
+  it('shows the first lines of a long message until the reader asks for more', () => {
+    const long = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n');
+    loaded = sessionOf({ items: [userMessage(1, long), userMessage(2, 'short')] });
+    render(renderSession());
+
+    const texts = [...document.querySelectorAll('.ses-text')];
+    expect(texts.map((text) => text.getAttribute('data-collapsed'))).toEqual(['true', null]);
+    expect(screen.getAllByRole('button', { name: SESSION_COPY.showMore })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.showMore }));
+    expect(texts[0].getAttribute('data-collapsed')).toBeNull();
+    expect(screen.getByRole('button', { name: SESSION_COPY.showLess }).getAttribute('aria-expanded')).toBe('true');
+  });
+});
+
+describe('SessionView scrolling', () => {
+  function stubScrollIntoView() {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = vi.fn(function scrollIntoView(this: Element) { scrolled.push(this); });
+    return scrolled;
+  }
+
+  function placeLatestBelowTheView() {
+    const below = { top: 5000, bottom: 5000, left: 0, right: 0, width: 0, height: 0, x: 0, y: 5000, toJSON: () => ({}) };
+    const original = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect(this: Element) {
+      return this.classList.contains('ses-latest') ? below as DOMRect : original.call(this);
+    });
+  }
+
+  it('follows a new item while the reader is at the newest one, but not on the first read', () => {
+    const scrolled = stubScrollIntoView();
+    loaded = sessionOf({ items: [userMessage(1, 'First.')] });
+    const { rerender } = render(renderSession());
+    expect(scrolled).toHaveLength(0);
+
+    loaded = sessionOf({ items: [userMessage(1, 'First.'), userMessage(2, 'Second.')] });
+    rerender(renderSession(1));
+    expect(scrolled.map((element) => element.className)).toEqual(['ses-latest']);
+    expect(screen.queryByRole('button', { name: SESSION_COPY.jumpToLatest })).toBeNull();
+  });
+
+  it('offers Jump to latest instead of following when the reader scrolled up', () => {
+    const scrolled = stubScrollIntoView();
+    placeLatestBelowTheView();
+    loaded = sessionOf({ items: [userMessage(1, 'First.')] });
+    const { rerender } = render(renderSession());
+    loaded = sessionOf({ items: [userMessage(1, 'First.'), userMessage(2, 'Second.')] });
+    rerender(renderSession(1));
+    expect(scrolled).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.jumpToLatest }));
+    expect(scrolled.map((element) => element.className)).toEqual(['ses-latest']);
+  });
+
+  it('brings the controls of a call that starts waiting into view, wherever the reader is', () => {
+    const scrolled = stubScrollIntoView();
+    placeLatestBelowTheView();
+    loaded = sessionOf({ items: [userMessage(1, 'Refund order 7.')] });
+    const { rerender } = render(renderSession());
+
+    const call = waitingCall('call-1');
+    loaded = sessionOf({
+      state: { status: 'running_tools', turnCount: 1, activeTurnId: 'turn-1', lastTurnError: null, acceptsTurnControl: true },
+      items: [userMessage(1, 'Refund order 7.'), { kind: 'tool', key: 'call-1', call }],
+      waitingCalls: [call],
+    });
+    rerender(renderSession(1));
+    expect(scrolled).toEqual([screen.getByTestId('approval-interrupt-call-1')]);
+
+    // A later read of the same waiting call does not scroll again.
+    rerender(renderSession(2));
+    expect(scrolled).toHaveLength(1);
+  });
+
+  it('jumps from the waiting chip to the call and focuses its first control', () => {
+    const scrolled = stubScrollIntoView();
+    const call = waitingCall('call-1');
+    loaded = sessionOf({
+      state: { status: 'running_tools', turnCount: 1, activeTurnId: 'turn-1', lastTurnError: null, acceptsTurnControl: true },
+      items: [{ kind: 'tool', key: 'call-1', call }],
+      waitingCalls: [call],
+    });
+    const resolveInterrupt: FlowV2Action = {
+      rpcName: 'resolve_interrupt', label: 'resolve_interrupt', requiredPermission: 'coding.operate',
+      input: { kind: 'object', fields: [] },
+    };
+    render(
+      <SessionView
+        flowId="session-1"
+        flowType="CodingAgent"
+        reloadKey={0}
+        schema={{ ...schema, resolveInterrupt }}
+        workQueuePermissions={['coding.operate']}
+      />,
+    );
+    expect(scrolled).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.waitingForApproval(1) }));
+    const controls = screen.getByTestId('approval-interrupt-call-1');
+    expect(scrolled).toEqual([controls]);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: SESSION_COPY.approve }));
+  });
+});
+

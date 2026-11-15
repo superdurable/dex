@@ -223,6 +223,34 @@ describe('SessionComposer', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('sends with Enter, and keeps Shift+Enter and input method Enter in the text', async () => {
+    const { onActed } = renderComposer(sessionWith({}));
+    const box = screen.getByRole('textbox', { name: SESSION_COPY.steerLabel });
+    expect(screen.getByText(SESSION_COPY.composerKeysHint('send'), { exact: false })).toBeTruthy();
+
+    expect(fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(box, { key: 'Enter', isComposing: true })).toBe(true);
+    expect(fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 })).toBe(true);
+    fireEvent.compositionStart(box);
+    expect(fireEvent.keyDown(box, { key: 'Enter' })).toBe(true);
+    fireEvent.compositionEnd(box);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    expect(fireEvent.keyDown(box, { key: 'Enter' })).toBe(false);
+    await waitFor(() => expect(onActed).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v2/agent-sessions/messages');
+  });
+
+  it('queues with Enter while a turn runs', async () => {
+    const { invoke, onActed } = renderComposer(sessionWith({ status: 'running_model', activeTurnId: 'turn-2' }));
+    expect(screen.getByText(SESSION_COPY.composerKeysHint('queue'), { exact: false })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }), { key: 'Enter' });
+
+    await waitFor(() => expect(onActed).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v2/agent-sessions/messages');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it('only queues when the running turn does not accept steering', () => {
     renderComposer(sessionWith({ status: 'running_tools', activeTurnId: 'turn-2', acceptsTurnControl: false }));
     expect(screen.getByRole('button', { name: SESSION_COPY.queue })).toBeTruthy();

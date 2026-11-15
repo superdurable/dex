@@ -107,6 +107,8 @@ export interface AgentMessageRecord {
   createdAt: string | null;
   /** The name the sender declared, not verified; null when none. */
   senderName?: string | null;
+  /** Why the session wrote this message itself, such as `turn_steered_note`; null for typed text. */
+  origin?: string | null;
 }
 
 export interface AgentToolCallRecord {
@@ -200,6 +202,7 @@ export function decodeAgentMessage(value: unknown): AgentMessageRecord | null {
     toolOutput: text(value.tool_output),
     createdAt: text(value.created_at),
     senderName: text(value.sender_name),
+    origin: text(value.origin),
   };
 }
 

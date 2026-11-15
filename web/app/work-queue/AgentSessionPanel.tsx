@@ -98,9 +98,15 @@ export function AgentSessionPanel({
             {lastMessage?.kind === 'message' ? (
               <blockquote className="ai-message">
                 <span className="ai-role">
-                  {lastMessage.message.role === 'user' ? SESSION_COPY.user : SESSION_COPY.assistant}
+                  {lastMessage.message.origin
+                    ? SESSION_COPY.dexNote
+                    : lastMessage.message.role === 'user' ? SESSION_COPY.user : SESSION_COPY.assistant}
                 </span>
-                <span>{lastMessage.message.text}</span>
+                <span>
+                  {lastMessage.message.origin
+                    ? SESSION_COPY.dexNoteSummary(lastMessage.message.origin)
+                    : lastMessage.message.text}
+                </span>
               </blockquote>
             ) : (
               <p className="sc-state">{AGENT_INBOX_COPY.noMessage}</p>
