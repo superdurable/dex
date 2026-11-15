@@ -63,14 +63,15 @@ func (resolver PathResolver) PastedFilePaths(text string) ([]PastedPath, bool) {
 	if trimmed == "" {
 		return nil, false
 	}
+	// An open quote or a trailing backslash is typed text, not a terminal drop.
+	words, isComplete := splitShellWords(trimmed)
+	if !isComplete || len(words) == 0 {
+		return nil, false
+	}
 	if !strings.ContainsAny(trimmed, "\n\r") {
 		if pasted, isFile := resolver.pastedWholeFile(trimmed); isFile {
 			return []PastedPath{pasted}, true
 		}
-	}
-	words, isComplete := splitShellWords(trimmed)
-	if !isComplete || len(words) == 0 {
-		return nil, false
 	}
 	pastedPaths := make([]PastedPath, 0, len(words))
 	for _, word := range words {

@@ -773,7 +773,7 @@ func (screen *ChatScreen) inputHints() []string {
 	}
 	if len(screen.pendingImageAttachIDs) > 0 {
 		attachingHint := "attaching image…"
-		if screen.isSendWaitingForImages {
+		if screen.waitingSendDraft != nil && *screen.waitingSendDraft == screen.input.Value() {
 			attachingHint = "attaching image… sends when ready"
 		}
 		hints = append(hints, attachingHint)

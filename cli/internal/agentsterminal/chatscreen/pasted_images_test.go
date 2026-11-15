@@ -286,3 +286,43 @@ func TestPasteWhileAViewHasFocusGoesToTheInput(t *testing.T) {
 		})
 	}
 }
+
+// Any change after Enter cancels the automatic send: a recalled message or a
+// new line.
+func TestChangedDraftAfterEnterIsNotSentWhenImagesAttach(t *testing.T) {
+	changes := map[string]func(harness *screenHarness){
+		"history recall": func(harness *screenHarness) {
+			harness.press(ctrlKey('p'))
+			require.Equal(t, "previous message", harness.screen.input.Value())
+		},
+		"new line": func(harness *screenHarness) {
+			harness.press(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+		},
+	}
+	for name, change := range changes {
+		t.Run(name, func(t *testing.T) {
+			harness, imagePath := newImageHarness(t)
+			harness.screen.inputHistory, harness.screen.historyIndex = []string{"previous message"}, 1
+			harness.typeText("current draft")
+			harness.paste(imagePath)
+			harness.press(key(tea.KeyEnter))
+			change(harness)
+			harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
+			require.Empty(t, sentMessages(harness))
+			require.Len(t, harness.screen.attachments, 1, "the image stays on the draft")
+		})
+	}
+}
+
+// A recalled slash command never runs on its own when the images attach.
+func TestRecalledSlashCommandIsNotRunWhenImagesAttach(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	harness.screen.inputHistory, harness.screen.historyIndex = []string{"/help"}, 1
+	harness.typeText("current draft")
+	harness.paste(imagePath)
+	harness.press(key(tea.KeyEnter))
+	harness.press(ctrlKey('p'))
+	harness.feed(diagramAttached(attachImageActions(harness)[0].RequestID))
+	require.False(t, harness.screen.isHelpOpen)
+	require.Equal(t, "/help", harness.screen.input.Value())
+}

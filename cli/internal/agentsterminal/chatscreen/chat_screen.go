@@ -135,11 +135,12 @@ type ChatScreen struct {
 	// pendingImageAttachIDs are the pasted images of the draft still being
 	// stored; Enter waits for them.
 	pendingImageAttachIDs []int64
-	// isSendWaitingForImages sends the draft once its pasted images settle.
-	isSendWaitingForImages bool
-	pager                  *pagerView
-	isToolPickerOpen       bool
-	toolPickerIndex        int
+	// waitingSendDraft is the input Enter left waiting for its pasted images;
+	// nil when none. It sends only if the input still holds exactly this.
+	waitingSendDraft *string
+	pager            *pagerView
+	isToolPickerOpen bool
+	toolPickerIndex  int
 	// settingPicker is the open /model or /effort picker, or nil.
 	settingPicker *settingPicker
 	// turnTools are the calls of the newest turn that ran tools, with their
@@ -545,7 +546,7 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 		}
 		if screen.input.HandleEditingKey(key) {
 			// An edited draft waits for the next Enter.
-			screen.isSendWaitingForImages = false
+			screen.waitingSendDraft = nil
 			screen.pathCompletions = nil
 			screen.isCompletionDismissed = false
 			screen.completionIndex = 0
@@ -569,7 +570,7 @@ func (screen *ChatScreen) handlePaste(content string) tea.Cmd {
 	}
 	screen.closeViewsForPaste()
 	screen.pathCompletions = nil
-	screen.isSendWaitingForImages = false
+	screen.waitingSendDraft = nil
 	if command, isAttaching := screen.attachPastedImages(content); isAttaching {
 		return command
 	}
@@ -650,10 +651,10 @@ func (screen *ChatScreen) applyImageAttached(attached sessionfeed.ImageAttached)
 // applyImageAttachFailed keeps a draft waiting on the image unsent; the
 // notice before it says why.
 func (screen *ChatScreen) applyImageAttachFailed(requestID int64) {
-	if !screen.settlePendingImageAttach(requestID) || !screen.isSendWaitingForImages {
+	if !screen.settlePendingImageAttach(requestID) || screen.waitingSendDraft == nil {
 		return
 	}
-	screen.isSendWaitingForImages = false
+	screen.waitingSendDraft = nil
 	screen.printNotice(sessionfeed.NoticeSeverityWarning, "Message not sent: an image did not attach. Paste it again, or press Enter to send without it.")
 }
 
@@ -669,12 +670,20 @@ func (screen *ChatScreen) settlePendingImageAttach(requestID int64) bool {
 }
 
 // sendDraftWhenImagesSettled sends a draft that Enter left waiting once its
-// last pasted image attached.
+// last pasted image attached. Any change to the input since Enter, such as a
+// recalled message or a new line, cancels the send.
 func (screen *ChatScreen) sendDraftWhenImagesSettled() tea.Cmd {
-	if !screen.isSendWaitingForImages || len(screen.pendingImageAttachIDs) > 0 {
+	if screen.waitingSendDraft == nil || len(screen.pendingImageAttachIDs) > 0 {
 		return nil
 	}
-	screen.isSendWaitingForImages = false
+	waitingDraft := *screen.waitingSendDraft
+	screen.waitingSendDraft = nil
+	if screen.input.Value() != waitingDraft {
+		return nil
+	}
+	if _, isCommand := parseSlashCommand(strings.TrimRight(waitingDraft, " \n")); isCommand {
+		return nil
+	}
 	return screen.submitInput()
 }
 
@@ -773,7 +782,7 @@ func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
 	screen.replies = newReplyStream()
 	// Images and queued messages of the old session never reach the new one.
 	screen.attachments, screen.pendingImageDrop = nil, nil
-	screen.pendingImageAttachIDs, screen.isSendWaitingForImages = nil, false
+	screen.pendingImageAttachIDs, screen.waitingSendDraft = nil, nil
 	screen.dropQueuedMessagesOfOtherSessions(nextSessionID)
 	screen.closePopup()
 	screen.interrupts = nil
@@ -793,7 +802,8 @@ func (screen *ChatScreen) submitInput() tea.Cmd {
 	}
 	if _, isCommand := parseSlashCommand(text); !isCommand && len(screen.pendingImageAttachIDs) > 0 {
 		// The draft's pasted images must reach this message, not a later one.
-		screen.isSendWaitingForImages = true
+		waitingDraft := screen.input.Value()
+		screen.waitingSendDraft = &waitingDraft
 		return nil
 	}
 	screen.input.Clear()

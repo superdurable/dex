@@ -36,15 +36,40 @@ function failingStoreContext(failure: Error, logLines: string[]): WorkerHostMeth
 }
 
 describe("put_image failures say why", () => {
-  test("a media store failure returns and logs its reason", async () => {
+  test("a known media store failure returns and logs its reason", async () => {
     const path = join(directory, "dot.png");
     writeFileSync(path, png);
     const logLines: string[] = [];
-    const outcome = await executeWorkerHostMethod("put_image", { path }, "key-1", failingStoreContext(new Error("disk full"), logLines));
+    const diskFull = Object.assign(new Error("ENOSPC: no space left on device, write '/secret/media/root/tmp'"), { code: "ENOSPC" });
+    const outcome = await executeWorkerHostMethod("put_image", { path }, "key-1", failingStoreContext(diskFull, logLines));
     assert.deepEqual(outcome, {
-      error: { code: "store_failed", message: "dot.png could not be stored in the media store: disk full" },
+      error: { code: "store_failed", message: "dot.png could not be stored in the media store: the disk is full (ENOSPC)." },
     });
-    assert.deepEqual(logLines, ["put_image could not store dot.png: disk full"]);
+    assert.deepEqual(logLines, ["put_image could not store dot.png: the disk is full (ENOSPC)"]);
+    assert.ok(!JSON.stringify([outcome, logLines]).includes("/secret/media/root"), "the store root never leaks");
+  });
+
+  test("an S3 failure is named by its error class, and its URL and token never leak", async () => {
+    const path = join(directory, "dot.png");
+    writeFileSync(path, png);
+    const token = "X-Amz-Security-Token=FQoGZXIvYXdzEXAMPLESECRET";
+    const signedUrl = `https://storage.invalid/private?${token}`;
+    const denied = new Error(`Access Denied for ${signedUrl}`);
+    denied.name = "AccessDenied";
+    const unknown = new Error(`request to ${signedUrl} failed`, { cause: new Error(signedUrl) });
+    const logLines: string[] = [];
+    const deniedOutcome = await executeWorkerHostMethod("put_image", { path }, "key-5", failingStoreContext(denied, logLines));
+    assert.deepEqual(deniedOutcome, {
+      error: { code: "store_failed", message: "dot.png could not be stored in the media store: the S3 bucket denied access (AccessDenied)." },
+    });
+    const unknownOutcome = await executeWorkerHostMethod("put_image", { path }, "key-6", failingStoreContext(unknown, logLines));
+    assert.deepEqual(unknownOutcome, { error: { code: "store_failed", message: "dot.png could not be stored in the media store." } });
+    assert.deepEqual(logLines, [
+      "put_image could not store dot.png: the S3 bucket denied access (AccessDenied)",
+      "put_image could not store dot.png: an error of type Error",
+    ]);
+    const everything = JSON.stringify([deniedOutcome, unknownOutcome, logLines]);
+    assert.ok(!everything.includes("Security-Token") && !everything.includes("storage.invalid"), everything);
   });
 
   test("an unreadable file is not reported as missing", { skip: process.getuid?.() === 0 }, async () => {

@@ -131,3 +131,11 @@ func TestQuoteTypedPathRoundTrips(t *testing.T) {
 		require.Equal(t, path, resolved)
 	}
 }
+
+func TestPastedFilePathsRejectsAnUnclosedQuote(t *testing.T) {
+	fixture := newPastedFileFixture(t)
+	for _, pasted := range []string{`"` + fixture.other, "'" + fixture.other, fixture.other + `\`} {
+		_, isDrop := fixture.resolver.PastedFilePaths(pasted)
+		require.False(t, isDrop, pasted)
+	}
+}

@@ -97,9 +97,10 @@ async function putImage(
   try {
     reference = await context.opened.mediaStore.putImage(data);
   } catch (error: unknown) {
-    const reason = describeFailureWithoutDexDetails(error);
-    context.log(`put_image could not store ${name}: ${reason}`);
-    return refusal("store_failed", `${name} could not be stored in the media store: ${reason}`);
+    // Store errors may carry bucket URLs, signed tokens, or local roots; only known causes are named.
+    const reason = describeStoreFailure(error);
+    context.log(`put_image could not store ${name}: ${reason ?? `an error of type ${errorClassName(error)}`}`);
+    return refusal("store_failed", `${name} could not be stored in the media store${reason === undefined ? "" : `: ${reason}`}.`);
   }
   return {
     result: {
@@ -254,10 +255,64 @@ function describeFileError(error: unknown): string {
     case "EISDIR":
       return "it is a directory (EISDIR)";
     case undefined:
-      return error instanceof Error ? error.message : String(error);
+      return `an error of type ${errorClassName(error)}`;
     default:
       return errorCode(error) ?? String(error);
   }
+}
+
+/** Safe reasons for the file system error codes a local media store can hit. */
+const storeFileErrorReasons: Readonly<Record<string, string>> = {
+  ENOSPC: "the disk is full",
+  EDQUOT: "the disk quota is exceeded",
+  EACCES: "permission denied",
+  EPERM: "permission denied",
+  EROFS: "the file system is read-only",
+  ENOENT: "the media store directory does not exist",
+  ENOTDIR: "the media store directory does not exist",
+  EMFILE: "too many open files",
+  ENFILE: "too many open files",
+  EIO: "an input/output error",
+};
+
+/** Safe reasons for the S3 error names an S3 media store can hit. */
+const storeServiceErrorReasons: Readonly<Record<string, string>> = {
+  AccessDenied: "the S3 bucket denied access",
+  NoSuchBucket: "the S3 bucket does not exist",
+  InvalidAccessKeyId: "the S3 credentials are not valid",
+  SignatureDoesNotMatch: "the S3 credentials are not valid",
+  ExpiredToken: "the S3 credentials have expired",
+  CredentialsProviderError: "no S3 credentials were found",
+  SlowDown: "the S3 service is throttling requests",
+  RequestTimeout: "the S3 request timed out",
+  ServiceUnavailable: "the S3 service is unavailable",
+};
+
+/**
+ * Names a media store failure from its file system code or S3 error name, along its cause chain. Error messages are
+ * never copied, because they can hold URLs, tokens, or paths.
+ * @returns A reason without identifiers, such as "the disk is full (ENOSPC)", or undefined for an unknown error.
+ */
+function describeStoreFailure(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth++) {
+    const code = errorCode(current);
+    if (code !== undefined && Object.hasOwn(storeFileErrorReasons, code)) {
+      return `${storeFileErrorReasons[code]} (${code})`;
+    }
+    const name = "name" in current && typeof current.name === "string" ? current.name : undefined;
+    if (name !== undefined && Object.hasOwn(storeServiceErrorReasons, name)) {
+      return `${storeServiceErrorReasons[name]} (${name})`;
+    }
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return undefined;
+}
+
+/** Returns an error's class name when it is a plain identifier, else "unknown". */
+function errorClassName(error: unknown): string {
+  const name = error instanceof Error ? error.name : undefined;
+  return name !== undefined && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name) ? name : "unknown";
 }
 
 /** Writes a byte count with comma separators, such as "3,750,000". */
