@@ -50,7 +50,7 @@ Dex 按一个共享的 release train 发版。每次发版只给有改动的组�
 
 每一行都有锚点 **server-zd-MAJOR-MINOR-PATCH**，例如 **server-zd-0-1-31**，链接可以直接打开某个 server-zd 版本的那一行。每个 server-zd 参考版本在它的 [Upgrades and compatibility](/reference/server/upgrades#compatible-client-releases) 页面上显示自己的那一行。
 
-程序可以从 [server-zd.json](https://docs.superdurable.io/compatibility/server-zd.json) 读取同样的数据。它的 [JSON Schema](https://docs.superdurable.io/compatibility/server-zd.schema.json) 说明每个字段和兼容规则。
+程序可以从 [server-zd.json](https://docs.superdurable.io/compatibility/server-zd.json) 读取同样的数据。它的 [JSON Schema](https://docs.superdurable.io/compatibility/server-zd.schema.json) 说明每个字段和兼容规则。新字段可能出现而 `schemaVersion` 不变，所以程序应忽略不认识的字段。`agentsCliCommands` 为每个 Agents CLI 命令包列出已发布到对应 registry、并且所 pin 的 SDK 能和这个 server 一起使用的版本。
 
 Dex Web 1.45, 1.43, 1.41, 1.40, 1.37 需要 server-zd 0.1.17 或更新（协议版本 4）。
 

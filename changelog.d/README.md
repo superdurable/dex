@@ -106,10 +106,25 @@ anything.
 
 `docs/static/compatibility/server-zd.json` lists, for each supported
 server-zd release, the oldest and the newest compatible release of each SDK,
-dexcli, the Dex Agents packages, and the Agents CLI. The docs site serves it
-at https://docs.superdurable.io/compatibility/server-zd.json, and the
+dexcli, the Dex Agents packages, the Agents CLI core, and each Agents CLI
+command package. The docs site serves it at
+https://docs.superdurable.io/compatibility/server-zd.json, and the
 Compatibility matrix and each server reference's compatibility section render
 from it.
+
+- Readers depend on the file, so it stays forward compatible. Add a field or a
+  map key without raising `schemaVersion`. Raise it only for a change that
+  breaks readers, such as removing, renaming, or retyping a field. The
+  published schema allows unknown fields, and readers ignore them. `check`
+  still rejects any field the generator does not write.
+- `agentsCliCommands` keys each command package by its full published name,
+  such as `@superdurable/dex-agents-claude-sdk-cli` or
+  `dex-agents-claude-sdk-cli`. The generator finds the command packages in
+  each agents release tag. Each listed version exists on its registry, and
+  the SDK that the package itself pins works with the server. A program that
+  pins a command package reads its range there, not from `agentsCli`, because
+  a command package can start at a later release than the core. The schema
+  does not require the field, so files written before it still validate.
 
 - `prepare` of server, go, python, typescript, java, rust, cli, or agents
   rewrites the file from the prepared change logs, the release tags, and
@@ -127,7 +142,9 @@ from it.
 - The rules file is the only hand-maintained input: the oldest supported
   server-zd release (`oldestSupportedServerZd`), the protocol range of each
   server-zd and client release line, any minimum server-zd a client line
-  needs, and releases missing from one registry. When a pull request changes
+  needs, releases missing from one registry, and the first release of a
+  command package that a registry got later than its agents release
+  (`agentsCliCommandsFirstPublished`). When a pull request changes
   a protocol constant, add a rule line whose since is the next release of
   that component. To stop listing old servers, raise
   `oldestSupportedServerZd`. Then run
@@ -141,8 +158,11 @@ from it.
 - **Release changed components** runs
   `python3 script/release/server_zd_compatibility.py verify-registries` after
   it publishes. It checks that every listed version exists on its registry,
-  retrying while a registry catches up. Run it by hand after a server-zd
-  release.
+  retrying while a registry catches up. It also checks that each registry
+  lacks the release before every `agentsCliCommandsFirstPublished` entry.
+  Run it by hand after a server-zd release. When a publish leaves out a
+  command package, such as with `skip_packages`, add an `unpublished` entry
+  whose component is the package's published name, and run `update`.
 
 ## Check Gate rules
 

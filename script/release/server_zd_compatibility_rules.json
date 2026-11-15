@@ -1,5 +1,5 @@
 {
-  "description": "Hand-maintained input of server_zd_compatibility.py. Each line applies from its since version up to the next line. server_zd_compatibility.py check compares every protocol line with the release tags and the working tree.",
+  "description": "Hand-maintained input of server_zd_compatibility.py. Each line applies from its since version up to the next line. server_zd_compatibility.py check compares every protocol line with the release tags and the working tree. agentsCliCommandsFirstPublished names an Agents CLI command package whose first release on a registry came after the first agents release that shipped it; verify-registries checks that the registry lacks the release before it. An unpublished entry may name a command package by its published name as its component.",
   "oldestSupportedServerZd": "0.1.27",
   "serverZd": [
     {"since": "0.1.0", "protocol": {"min": 1, "max": 3}},
@@ -74,6 +74,44 @@
       "version": "0.6.7",
       "registry": "pypi",
       "reason": "0.6.7 fixed only an npm package, so only the npm packages were published."
+    }
+  ],
+  "agentsCliCommandsFirstPublished": [
+    {
+      "package": "dex-agents-builtin-cli",
+      "registry": "pypi",
+      "version": "0.6.0",
+      "reason": "Agents 0.5.0 shipped the command, but PyPI has no release of it before 0.6.0."
+    },
+    {
+      "package": "dex-agents-claude-sdk-cli",
+      "registry": "pypi",
+      "version": "0.6.0",
+      "reason": "Agents 0.5.0 shipped the command, but PyPI has no release of it before 0.6.0."
+    },
+    {
+      "package": "dex-agents-deepagents-cli",
+      "registry": "pypi",
+      "version": "0.6.0",
+      "reason": "Agents 0.5.0 shipped the command, but PyPI has no release of it before 0.6.0."
+    },
+    {
+      "package": "dex-agents-google-adk-cli",
+      "registry": "pypi",
+      "version": "0.6.8",
+      "reason": "Agents 0.5.0 shipped the command, but PyPI has no release of it before 0.6.8."
+    },
+    {
+      "package": "dex-agents-openai-sdk-cli",
+      "registry": "pypi",
+      "version": "0.6.0",
+      "reason": "Agents 0.5.0 shipped the command, but PyPI has no release of it before 0.6.0."
+    },
+    {
+      "package": "dex-agents-pydantic-ai-cli",
+      "registry": "pypi",
+      "version": "0.6.1",
+      "reason": "Agents 0.5.0 shipped the command, but PyPI has no release of it before 0.6.1."
     }
   ]
 }

@@ -2,13 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://docs.superdurable.io/compatibility/server-zd.schema.json",
   "title": "Dex server-zd compatibility",
-  "description": "For each server-zd release, the oldest and the newest release of each Dex client that works with it. A client release works with a server-zd release when their protocol ranges overlap (client minimum <= server maximum and server minimum <= client maximum) and the server is at least the minimum server-zd that the client's release line names, if any. A newer server keeps accepting older clients until it raises its minimum protocol. Releases before 0.9.0, which negotiate no protocol, are never listed. The Dex Agents packages and the Agents CLI take the protocol range of the SDK they pin on each registry. The docs Compatibility matrix gives each server-zd release a row with the anchor server-zd-<major>-<minor>-<patch>, such as https://docs.superdurable.io/reference#server-zd-0-1-31.",
+  "description": "For each server-zd release, the oldest and the newest release of each Dex client that works with it. A client release works with a server-zd release when their protocol ranges overlap (client minimum <= server maximum and server minimum <= client maximum) and the server is at least the minimum server-zd that the client's release line names, if any. A newer server keeps accepting older clients until it raises its minimum protocol. Releases before 0.9.0, which negotiate no protocol, are never listed. The Dex Agents packages and the Agents CLI take the protocol range of the SDK they pin on each registry. The docs Compatibility matrix gives each server-zd release a row with the anchor server-zd-<major>-<minor>-<patch>, such as https://docs.superdurable.io/reference#server-zd-0-1-31. The format is forward compatible: a new field or a new map key may appear in any object without a schemaVersion change. Readers ignore fields and keys they do not know, and may rely on every required field.",
   "type": "object",
   "required": ["schemaVersion", "generatedAt", "servers"],
-  "additionalProperties": false,
   "properties": {
     "$schema": {"type": "string", "description": "The URL of this schema."},
-    "schemaVersion": {"const": 1, "description": "The version of this format. A change that breaks readers raises it."},
+    "schemaVersion": {
+      "const": 1,
+      "description": "The version of this format. Only a change that breaks readers raises it, such as removing, renaming, or retyping a field. Adding a field never raises it, so readers ignore unknown fields."
+    },
     "generatedAt": {
       "type": "string",
       "format": "date",
@@ -28,7 +30,6 @@
         {
           "type": "object",
           "required": ["oldest", "newest"],
-          "additionalProperties": false,
           "properties": {"oldest": {"$ref": "#/$defs/version"}, "newest": {"$ref": "#/$defs/version"}}
         },
         {"type": "null"}
@@ -37,7 +38,6 @@
     "agentsRelease": {
       "type": "object",
       "required": ["version", "pinnedSdk"],
-      "additionalProperties": false,
       "properties": {
         "version": {"$ref": "#/$defs/version", "description": "The Dex Agents release. All agents packages share one version."},
         "pinnedSdk": {"$ref": "#/$defs/version", "description": "The exact Dex SDK version this release pins on the same registry: @superdurable/dex on npm, dex-python-sdk on PyPI."}
@@ -48,30 +48,31 @@
         {
           "type": "object",
           "required": ["oldest", "newest"],
-          "additionalProperties": false,
           "properties": {"oldest": {"$ref": "#/$defs/agentsRelease"}, "newest": {"$ref": "#/$defs/agentsRelease"}}
         },
         {"type": "null"}
       ]
     },
+    "commandRanges": {
+      "type": "object",
+      "description": "Each key is the full published name of one Agents CLI command package on this registry. Its value is the oldest and the newest release of that package that exists on this registry and whose own pinned SDK works with the server, or null when none does. A new command package adds a key without a schemaVersion change. A missing key means the package is not listed.",
+      "additionalProperties": {"$ref": "#/$defs/range"}
+    },
     "server": {
       "type": "object",
       "required": ["serverZd", "protocolVersion", "sdks", "dexcli", "agents", "agentsCli"],
-      "additionalProperties": false,
       "properties": {
         "serverZd": {"$ref": "#/$defs/version", "description": "The server-zd release, tagged server-zd/v<version>."},
         "protocolVersion": {
           "type": "object",
           "description": "The inclusive range of protocol versions this server accepts.",
           "required": ["min", "max"],
-          "additionalProperties": false,
           "properties": {"min": {"type": "integer", "minimum": 1}, "max": {"type": "integer", "minimum": 1}}
         },
         "sdks": {
           "type": "object",
           "description": "The Dex SDKs: Go module github.com/superdurable/dex/sdk-go, PyPI dex-python-sdk, npm @superdurable/dex, Maven io.superdurable:dex-sdk, and crate dex-sdk.",
           "required": ["go", "python", "typescript", "java", "rust"],
-          "additionalProperties": false,
           "properties": {
             "go": {"$ref": "#/$defs/range"},
             "python": {"$ref": "#/$defs/range"},
@@ -88,15 +89,19 @@
           "type": "object",
           "description": "The Dex Agents packages per registry, since one release can be published on one registry only.",
           "required": ["npm", "pypi"],
-          "additionalProperties": false,
           "properties": {"npm": {"$ref": "#/$defs/agentsRange"}, "pypi": {"$ref": "#/$defs/agentsRange"}}
         },
         "agentsCli": {
           "type": "object",
-          "description": "The Dex Agents CLI per registry, by its core package: @superdurable/dex-agents-cli-core on npm and dex-agents-cli-core on PyPI. A command package can start at a later release than the core.",
+          "description": "The Dex Agents CLI per registry, by its core package: @superdurable/dex-agents-cli-core on npm and dex-agents-cli-core on PyPI. A command package can start at a later release than the core, so a reader that pins a command package reads its range from agentsCliCommands instead.",
           "required": ["npm", "pypi"],
-          "additionalProperties": false,
           "properties": {"npm": {"$ref": "#/$defs/range"}, "pypi": {"$ref": "#/$defs/range"}}
+        },
+        "agentsCliCommands": {
+          "type": "object",
+          "description": "The Agents CLI command packages per registry, such as @superdurable/dex-agents-claude-sdk-cli on npm and dex-agents-claude-sdk-cli on PyPI. Each range's oldest and newest exist on that registry, and the SDK that each one pins works with the server. Added after the first schemaVersion 1 files, so a reader treats a missing agentsCliCommands as no command package listed.",
+          "required": ["npm", "pypi"],
+          "properties": {"npm": {"$ref": "#/$defs/commandRanges"}, "pypi": {"$ref": "#/$defs/commandRanges"}}
         }
       }
     }
