@@ -10,7 +10,7 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0); 1.45.2 released 2026-11-14 as [sdk-go/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-go/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.3); 1.45.4 released 2026-11-15 as [sdk-go/v1.45.4](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.4).
+Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0); 1.45.2 released 2026-11-14 as [sdk-go/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.2); 1.45.3 released 2026-11-14 as [sdk-go/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.3); 1.45.4 released 2026-11-15 as [sdk-go/v1.45.4](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.4); 1.45.5 released 2026-11-15 as [sdk-go/v1.45.5](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.5).
 
 ### Added
 
@@ -18,6 +18,9 @@ Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/rele
 - **ClientOnlyFlow** marks a Flow that only a Client uses: it types the RPCs and Streams of a Flow type that Workers of another application or language serve, so **Client.InvokeRPC** and **Client.ReadStream** can call them. **NewRegistry** rejects a client-only Flow that declares Steps, **NewWorker** returns **ClientOnlyFlowError** for a Registry that holds one, and **IsClientOnlyFlow** reports the marker. [API reference](pathname:///api/go/latest/dex/#type-clientonlyflow). Since 1.45.2.
 - Named task queues give one Flow type separate Worker pools. **PullWorkerOptions.TaskQueue** names the one task queue a Worker serves, **StartFlowOptions.TaskQueue** places a Flow on a task queue for its whole run, and **SubFlowOptions.TaskQueue** moves a SubFlow off its parent's task queue; **DefaultTaskQueue** selects the default task queue explicitly. Named task queues require Server protocol 5: against an older Server, **Worker.Start**, **Client.StartFlow**, and a WaitFor that starts such a SubFlow return **TaskQueueUnsupportedError** instead of using the default task queue. A Worker stream that the Server registers on another task queue is closed and reported as a permanent rejection, and **PullRegistrationState** entries and **PullRegistrationError** carry the task queue. [Go Workers](/reference/go/workers#task-queue) and [API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions). Since 1.45.2.
 - **RPCInvokeOptions.RequestID** sets the request ID of **Client.InvokeRPCWithOptions**. Pass the same ID on every attempt, such as the ID of an event that is delivered at least once, and Dex Server applies the RPC's Flow changes at most once. A transactional or locking RPC answers a repeat with the recorded reply without running its handler again, and a different request under the same ID fails with **ServiceError** and INVALID_ARGUMENT. Any other RPC runs its handler again on a repeat; when that attempt changes no Flow state and records no event, it returns the new output and keeps no request ID. Nil keeps the SDK-generated request ID. [API reference](pathname:///api/go/latest/dex/#type-rpcinvokeoptions). Since 1.45.3.
+- **Client.CloneForkFlow** creates a new Flow whose first run starts from a copy of another Flow run's state at one point, while the source run keeps running. **CloneForkFlowOptions** selects the point as **TimeTravelOptions** does, plus the new **TimeTravelToCurrent**, and sets the request ID, ID reuse policy, already-started options, Flow configuration and task queue, initial Attributes, Flow timeout, reason, and SubFlow reset policy. **CloneForkFlowResult** returns the new run ID and the copied source run, run attempt, and event ID. It needs Server protocol 6, server-zd 0.1.33 or later; against an older Server it returns **CloneForkFlowUnsupportedError**. Since 1.45.5.
+- **Client.TimeTravel** returns to the point after one history event with **TimeTravelByEventID** and **TimeTravelOptions.EventID**, and takes a **SubFlowResetPolicy** that decides what happens to the SubFlow conditions of restored Steps. Since 1.45.5.
+- **FlowErrorSubFlowAbandoned** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. **Execute** reads it from **SubFlowResult** like any other failed child. Since 1.45.5.
 
 ### Breaking
 
@@ -30,6 +33,7 @@ Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/rele
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [API reference](pathname:///api/go/latest/dex/#type-join).
+- A Flow result with an error type this SDK version does not recognize no longer fails the Worker invocation or the read. **FlowResult.ErrorType** is then the zero value. Since 1.45.5.
 
 ## 1.44 {#v1-44}
 

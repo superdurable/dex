@@ -10,7 +10,7 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6).
+Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6); 1.45.7 released 2026-11-15 as [web/v1.45.7](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.7).
 
 ### Breaking
 
@@ -30,6 +30,9 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - A Step attempt's routing shows the **Task queue** of its dispatch next to the serving Worker ID and the queue source. The queue source that was called Task queue is now **Flow type queue**. An RPC shows the Flow's task queue. Since 1.45.4.
 - **Start Flow** takes an optional **Task queue**. Leave it empty for the default task queue. Dex Web checks the name before it starts the Flow. Since 1.45.4.
 - **web/embedded**: With **Target.HasHostNavigation**, Dex Web in a frame posts a **dex-web:location** message to its parent window after every route change. The message names the page's path relative to **BasePath** and its query string, so your page can keep Dex Web's page in its own URL and open it again after a refresh or from a shared link. See [Keep the page in the host URL](/reference/web/embed-dex-web#host-location). Since 1.45.6.
+- Flow details label the **SUB_FLOW_ABANDONED** error type as "SubFlow abandoned by a time travel" instead of "Unknown (7)". Since 1.45.7.
+- The Run page offers **Clone fork…** in the action menu and **Clone fork from here…** in the selected event's panel. The dialog starts a new Flow from a copy of the run's state at a point, with the new Flow ID, task queue, ID reuse policy, SubFlow reset policy, and reason. A run that a clone fork created links to its source run and event. **POST /api/flows/clone-fork** calls **CloneForkFlow**. Since 1.45.7.
+- The time travel dialog adds the **Event ID** point and a **SubFlow reset policy** choice. **POST /api/flows/time-travel** accepts **eventId** and **subFlowResetPolicy**. Since 1.45.7.
 
 ### Changed
 

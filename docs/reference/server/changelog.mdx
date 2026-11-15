@@ -8,6 +8,22 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.33 {#v0-1-33}
+
+Released 2026-11-15 as [server-zd/v0.1.33](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.33).
+
+### Added
+
+- **CloneForkFlow** creates a new Flow whose first run starts from a copy of another Flow run's state, at its current state or at a point in its history. The call only reads the source run, and a running source keeps running. The new run copies Attributes, Channel messages, Steps, waits, and every value they hold, and leaves out history. Hard-delete Attributes take the source run's current values, as a time travel keeps them. **id_reuse_policy** decides on the new Flow ID as for StartFlow, **sub_flow_reset_policy** decides the copied SubFlow waits, and the Flow timeout restarts at the clone fork. See [Clone fork](/reference/server/runtime-client#clone-fork).
+- The server reports protocol version 6, which adds **CloneForkFlow**.
+- **ResetFlow** (Time Travel) can select its target by event ID: set **reset_type** to **FLOW_RESET_TYPE_EVENT_ID** and **event_id** to the **event_id** of an event that **GetHistoryEvents** returns. The run travels to the first point at or after that event where Time Travel can stop, as with a history event time. An event outside the selected **run_attempt**'s history or outside the window fails with **FAILED_PRECONDITION**. [Reference](/reference/server/runtime-client#time-travel).
+- **ResetFlow** takes a **sub_flow_reset_policy**. It decides what a Time Travel does with each SubFlow condition that a restored Step waits on: attach it to its child, restart the child, fail the condition with the new **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED** error type, or reject the Time Travel. The default is **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART**. An attached condition whose child ended completes with that child's result, even when the parent had not received it yet. See [SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel).
+
+### Fixed
+
+- Time Travel restarts the Flow timeout at the time travel, as if the run started then. Before, a restored Flow timeout kept the deadline from the run's start, so a run past that deadline timed out right after the time travel. A restored state whose timeout already fired, such as a running timeout handler, keeps that outcome.
+- A Time Travel no longer leaves the parent waiting forever on a child run that no longer exists, for example after its purge. It now rejects the request with **FAILED_PRECONDITION** and names each Step execution and child Flow ID, because such a child can be neither attached nor restarted.
+
 ## 0.1.32 {#v0-1-32}
 
 Released 2026-11-14 as [server-zd/v0.1.32](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.32).

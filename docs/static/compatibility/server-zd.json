@@ -4,6 +4,125 @@
   "generatedAt": "2026-11-15",
   "servers": [
     {
+      "serverZd": "0.1.33",
+      "protocolVersion": {
+        "min": 1,
+        "max": 6
+      },
+      "sdks": {
+        "go": {
+          "oldest": "0.9.0",
+          "newest": "1.45.5"
+        },
+        "python": {
+          "oldest": "0.9.0",
+          "newest": "1.45.3"
+        },
+        "typescript": {
+          "oldest": "0.9.0",
+          "newest": "1.45.5"
+        },
+        "java": {
+          "oldest": "0.9.0",
+          "newest": "1.45.2"
+        },
+        "rust": {
+          "oldest": "0.9.0",
+          "newest": "1.45.2"
+        }
+      },
+      "dexcli": {
+        "oldest": "0.9.0",
+        "newest": "1.47.7"
+      },
+      "agents": {
+        "npm": {
+          "oldest": {
+            "version": "0.1.0",
+            "pinnedSdk": "1.30.0"
+          },
+          "newest": {
+            "version": "0.6.12",
+            "pinnedSdk": "1.45.4"
+          }
+        },
+        "pypi": {
+          "oldest": {
+            "version": "0.1.0",
+            "pinnedSdk": "1.30.0"
+          },
+          "newest": {
+            "version": "0.6.12",
+            "pinnedSdk": "1.45.2"
+          }
+        }
+      },
+      "agentsCli": {
+        "npm": {
+          "oldest": "0.5.0",
+          "newest": "0.6.12"
+        },
+        "pypi": {
+          "oldest": "0.5.0",
+          "newest": "0.6.12"
+        }
+      },
+      "agentsCliCommands": {
+        "npm": {
+          "@superdurable/dex-agents-builtin-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.12"
+          },
+          "@superdurable/dex-agents-claude-sdk-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.12"
+          },
+          "@superdurable/dex-agents-mastra-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.12"
+          },
+          "@superdurable/dex-agents-openai-sdk-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.12"
+          },
+          "@superdurable/dex-agents-pi-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.12"
+          },
+          "@superdurable/dex-agents-vercel-ai-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.12"
+          }
+        },
+        "pypi": {
+          "dex-agents-builtin-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.12"
+          },
+          "dex-agents-claude-sdk-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.12"
+          },
+          "dex-agents-deepagents-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.12"
+          },
+          "dex-agents-google-adk-cli": {
+            "oldest": "0.6.8",
+            "newest": "0.6.12"
+          },
+          "dex-agents-openai-sdk-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.12"
+          },
+          "dex-agents-pydantic-ai-cli": {
+            "oldest": "0.6.1",
+            "newest": "0.6.12"
+          }
+        }
+      }
+    },
+    {
       "serverZd": "0.1.32",
       "protocolVersion": {
         "min": 1,
@@ -12,23 +131,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         }
       },
       "dexcli": {
@@ -131,23 +250,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         }
       },
       "dexcli": {
@@ -250,23 +369,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         }
       },
       "dexcli": {
@@ -369,23 +488,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         }
       },
       "dexcli": {
@@ -485,23 +604,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.4"
+          "newest": "1.45.5"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.1"
+          "newest": "1.45.2"
         }
       },
       "dexcli": {
