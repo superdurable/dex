@@ -14,7 +14,7 @@ import json
 import types
 import typing
 from collections.abc import Callable, Mapping, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Generic, TypeVar
 
 from pydantic_ai import (
@@ -24,7 +24,9 @@ from pydantic_ai import (
     DeferredToolResults,
     ModelMessage,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    RetryPromptPart,
     RunContext,
     RunUsage,
     Tool,
@@ -49,6 +51,7 @@ from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     DEFAULT_RETAINED_MESSAGE_LIMIT,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentFrameworkRunner,
     AgentImageReference,
     AgentSessionFlow,
@@ -93,8 +96,10 @@ from dex_agents_pydantic_ai._history import (
     build_turn_messages,
     build_user_prompt_message,
     build_user_prompt_message_with_images,
+    deserialize_framework_item,
     read_turn_user_prompt,
     rebuild_earlier_turn_history,
+    rebuild_turn_history,
 )
 from dex_agents_pydantic_ai._images import image_reference_placeholder, upload_tool_return_images
 from dex_agents_pydantic_ai._run_state import PendingToolCallsState
@@ -148,10 +153,13 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
     with a Pydantic AI capability that makes every function tool an external
     tool. The model call that asks for tools therefore ends the run with
     ``DeferredToolRequests`` before any tool runs, and the runner returns
-    ``ToolCallsRequested`` whose run state is the turn's messages so far. Each
-    tool call then runs in its own Dex Step, in parallel. When every call has a
-    final record, the next ``RunModel`` resumes the run with
-    ``DeferredToolResults`` built from those records.
+    ``ToolCallsRequested``, which stores the turn's new messages, so a UI
+    shows them while the tools run. Each tool call then runs in its own Dex
+    Step, in parallel. When every call has a final record, the next
+    ``RunModel`` resumes the run with ``DeferredToolResults`` built from those
+    records. When the user steers or cancels the turn, or it fails, before
+    that, ``build_unfinished_turn_messages`` stores each call's result from
+    its record.
 
     ``execute_deferred_tool_call`` runs the original tool once, through the
     agent itself: argument validation, the agent's capabilities and hooks,
@@ -328,15 +336,24 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
         """Let the agent make the turn's next model call.
 
         The runner replays the session's earlier turns as ``message_history``.
-        The turn's first model call runs its user prompt; a later one continues
-        from the stored run state with the recorded tool results.
+        The turn's first model call runs its user prompt; a later one replays
+        the turn's stored messages too and continues with the recorded tool
+        results.
+
+        .. versionchanged:: 0.6.12
+            ``ToolCallsRequested`` stores the turn's messages so far in
+            ``new_messages`` instead of keeping them in the run state, and
+            ``TurnCompleted`` holds only the messages not stored yet. A run
+            state from 0.6.11 or earlier still resumes, and its messages are
+            stored then.
 
         Args:
             turn: Committed session state for this model call.
 
         Returns:
-            ``ToolCallsRequested`` when the model asked for tools, otherwise
-            ``TurnCompleted`` with every message the turn produced.
+            ``ToolCallsRequested`` with the messages of this model call when
+            the model asked for tools, otherwise ``TurnCompleted`` with the
+            turn's messages that are not stored yet.
 
         Raises:
             Exception: Any model or Pydantic AI error fails the attempt.
@@ -346,10 +363,22 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
                 lists. Pydantic AI raises ``UserError`` for a name that one
                 of the agent's own toolsets also has.
         """
-        prior_history = rebuild_earlier_turn_history(turn.messages, turn.turn_id)
+        pending = (
+            None
+            if turn.framework_run_state is None
+            else PendingToolCallsState.from_json(turn.framework_run_state)
+        )
+        unstored_turn_messages: Sequence[ModelMessage] = (
+            () if pending is None else pending.unstored_turn_messages
+        )
+        history = rebuild_earlier_turn_history(turn.messages, turn.turn_id)
         if turn.context_summary is not None:
             note = build_context_summary_note(turn.context_summary)
-            prior_history.insert(0, ModelRequest(parts=[UserPromptPart(note)]))
+            history.insert(0, ModelRequest(parts=[UserPromptPart(note)]))
+        # The first call runs the turn's prompt; a legacy run state holds the turn's messages.
+        if pending is not None and not unstored_turn_messages:
+            history.extend(rebuild_turn_history(turn.messages, turn.turn_id))
+        history.extend(unstored_turn_messages)
         user_prompt = read_turn_user_prompt(turn.messages, turn.turn_id)
         source_tools = await self._tool_sources.list_source_tools(turn)
         capability = DexModelStepCapability(
@@ -357,26 +386,18 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             replay_only_tool_names=frozenset(tool.name for tool in source_tools.replay_only_tools),
             media_store=self._media_store,
         )
-        earlier_turn_messages: Sequence[ModelMessage] = ()
-        recorded_tool_call_ids: Sequence[str] = ()
-        if turn.framework_run_state is None:
-            result = await self._run_model_call(
-                turn, capability, source_tools, user_prompt, prior_history, None
-            )
-        else:
-            pending = PendingToolCallsState.from_json(turn.framework_run_state)
-            earlier_turn_messages = pending.turn_messages
-            recorded_tool_call_ids = pending.tool_call_ids
-            result = await self._run_model_call(
-                turn,
-                capability,
-                source_tools,
-                None,
-                [*prior_history, *earlier_turn_messages],
-                _recorded_deferred_tool_results(turn, pending),
-            )
+        result = await self._run_model_call(
+            turn,
+            capability,
+            source_tools,
+            user_prompt if pending is None else None,
+            history,
+            None if pending is None else _recorded_deferred_tool_results(turn, pending),
+        )
         new_messages = result.new_messages()
-        turn_messages = [*earlier_turn_messages, *new_messages]
+        turn_messages = [*unstored_turn_messages, *new_messages]
+        # Drops the opening request when it only repeats the stored user message.
+        new_framework_messages = build_turn_messages(turn_messages, user_prompt)
         usage = _agent_usage(result.usage)
         if isinstance(result.output, DeferredToolRequests):
             tool_calls = _requested_tool_calls(
@@ -384,7 +405,6 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             )
             return ToolCallsRequested(
                 framework_run_state=PendingToolCallsState(
-                    turn_messages=turn_messages,
                     tool_call_ids=[call.tool_call_id for call in tool_calls],
                     structured_result_tool_call_ids=[
                         call.tool_call_id
@@ -395,12 +415,73 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
                 tool_calls=tool_calls,
                 usage=usage,
                 model_call_metadata=capability.model_call_metadata(),
+                new_messages=new_framework_messages,
             )
-        _require_every_tool_result_recorded(new_messages, capability, recorded_tool_call_ids)
+        _require_every_tool_result_recorded(
+            new_messages, capability, () if pending is None else pending.tool_call_ids
+        )
         return TurnCompleted(
-            new_messages=build_turn_messages(turn_messages, user_prompt),
+            new_messages=new_framework_messages,
             usage=usage,
             model_call_metadata=capability.model_call_metadata(),
+        )
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
+        """Return the messages that a turn ending without a final answer has not stored yet.
+
+        The session calls it when the user steers or cancels a turn, and when
+        a turn fails. Every ``RunModel`` that asks for tools already stored
+        the turn's messages so far, so this method usually adds one
+        ``ModelRequest``. It holds a ``ToolReturnPart`` for each tool call of
+        the turn without a result, built from the call's final record as the
+        resumed run would have built it: the output with outcome
+        ``"success"``, the rejection with ``"denied"``, such as the steering
+        or cancellation result, or the failure or unknown outcome with
+        ``"failed"``. A call without a final record gets
+        ``OUTCOME_UNKNOWN_TOOL_RESULT``. The next turn's model then sees what
+        ran and its result, and the session stores no note in its place.
+
+        The method reads only the turn's stored messages, its run state, and
+        its records, so the same committed state gives the same messages. It
+        makes no model call and runs no tool. Applications call it only in
+        tests.
+
+        .. versionadded:: 0.6.12
+
+        Example:
+            >>> messages = runner.build_unfinished_turn_messages(ended_turn)
+            >>> messages[-1].role
+            <MessageRole.TOOL: 'tool'>
+
+        Args:
+            turn: The ending turn, with its stored messages, its run state,
+                and its records.
+
+        Returns:
+            The turn's messages that a run state from 0.6.11 or earlier still
+            holds, followed by one tool message that answers every
+            unanswered tool call. Empty when the turn has no run state or
+            every call has a result.
+
+        Raises:
+            ValueError: If the run state has an unknown format. The session
+                then stores its note instead.
+        """
+        if turn.framework_run_state is None:
+            return []
+        pending = PendingToolCallsState.from_json(turn.framework_run_state)
+        unfinished_messages: list[ModelMessage] = list(pending.unstored_turn_messages)
+        tool_return_request = _unfinished_tool_return_request(
+            turn,
+            pending,
+            [*_stored_turn_model_messages(turn), *pending.unstored_turn_messages],
+        )
+        if tool_return_request is not None:
+            unfinished_messages.append(tool_return_request)
+        if not unfinished_messages:
+            return []
+        return build_turn_messages(
+            unfinished_messages, read_turn_user_prompt(turn.messages, turn.turn_id)
         )
 
     @property
@@ -909,22 +990,109 @@ def _recorded_deferred_tool_results(
             raise RuntimeError(f"turn {turn.turn_id} has no record for tool call {tool_call_id}")
         outcome = describe_tool_call_outcome(record)
         if record.status is ToolCallStatus.SUCCEEDED:
-            output = (
-                _parse_structured_output(outcome)
-                if tool_call_id in structured_result_ids
-                else outcome
-            )
-            # Placeholders after the output; the model request carries the bytes in the result.
             results.calls[tool_call_id] = ToolReturn(
-                [output, *map(image_reference_placeholder, record.images)]
-                if record.images
-                else output
+                _succeeded_tool_return_content(record, tool_call_id in structured_result_ids)
             )
         elif record.status is ToolCallStatus.REJECTED:
             results.approvals[tool_call_id] = ToolDenied(outcome)
         else:
             results.calls[tool_call_id] = ToolFailed(outcome)
     return results
+
+
+def _succeeded_tool_return_content(record: AgentToolCall, is_structured_result: bool) -> Any:
+    output = describe_tool_call_outcome(record)
+    if is_structured_result:
+        output = _parse_structured_output(output)
+    # Placeholders after the output; the model request carries the bytes in the result.
+    return [output, *map(image_reference_placeholder, record.images)] if record.images else output
+
+
+def _stored_turn_model_messages(turn: AgentTurnContext) -> list[ModelMessage]:
+    return [
+        model_message
+        for message in turn.messages
+        if message.turn_id == turn.turn_id
+        for model_message in deserialize_framework_item(message.framework_item)
+    ]
+
+
+def _unfinished_tool_return_request(
+    turn: AgentTurnContext,
+    pending: PendingToolCallsState,
+    turn_messages: Sequence[ModelMessage],
+) -> ModelRequest | None:
+    """Answer each tool call of the turn without a result, as a resume would have."""
+    responses = [message for message in turn_messages if isinstance(message, ModelResponse)]
+    if not responses:
+        return None
+    answered_call_ids = {
+        part.tool_call_id
+        for message in turn_messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, ToolReturnPart | RetryPromptPart)
+    }
+    # Derived from committed state, so a retried Step stores the same request.
+    last_response = responses[-1]
+    structured_result_ids = set(pending.structured_result_tool_call_ids)
+    parts: list[ModelRequestPart] = []
+    for response in responses:
+        for call in response.tool_calls:
+            if call.tool_call_id in answered_call_ids:
+                continue
+            answered_call_ids.add(call.tool_call_id)
+            parts.append(
+                _unfinished_tool_return_part(
+                    call,
+                    turn.recorded_tool_call(call.tool_call_id),
+                    call.tool_call_id in structured_result_ids,
+                    last_response.timestamp,
+                )
+            )
+    if not parts:
+        return None
+    return ModelRequest(
+        parts=parts,
+        timestamp=last_response.timestamp,
+        run_id=last_response.run_id,
+        conversation_id=last_response.conversation_id,
+    )
+
+
+def _unfinished_tool_return_part(
+    call: ToolCallPart,
+    record: AgentToolCall | None,
+    is_structured_result: bool,
+    timestamp: datetime,
+) -> ToolReturnPart:
+    if record is None or not record.status.is_final:
+        return ToolReturnPart(
+            tool_name=call.tool_name,
+            content=OUTCOME_UNKNOWN_TOOL_RESULT,
+            tool_call_id=call.tool_call_id,
+            tool_kind=call.tool_kind,
+            timestamp=timestamp,
+            outcome="failed",
+        )
+    if record.status is ToolCallStatus.SUCCEEDED:
+        return ToolReturnPart.narrow_type(
+            ToolReturnPart(
+                tool_name=call.tool_name,
+                content=_succeeded_tool_return_content(record, is_structured_result),
+                tool_call_id=call.tool_call_id,
+                tool_kind=call.tool_kind,
+                timestamp=timestamp,
+            )
+        )
+    return ToolReturnPart(
+        tool_name=call.tool_name,
+        content=describe_tool_call_outcome(record),
+        tool_call_id=call.tool_call_id,
+        tool_kind=call.tool_kind,
+        timestamp=timestamp,
+        outcome="denied" if record.status is ToolCallStatus.REJECTED else "failed",
+    )
 
 
 def _parse_structured_output(output: str) -> Any:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import timedelta
@@ -36,6 +37,7 @@ from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     DEFAULT_RETAINED_MESSAGE_LIMIT,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentEventWriter,
     AgentImageReference,
     AgentMessage,
@@ -95,6 +97,7 @@ from dex_agents_google_adk._images import (
     extract_tool_result_images,
     image_placeholder_part,
     image_references_in_parts,
+    tool_result_image_response_parts,
 )
 from dex_agents_google_adk._run_state import SuspendedAdkTurn
 from dex_agents_google_adk._session_service import TurnSessionService
@@ -104,6 +107,7 @@ from dex_agents_google_adk._tool_deferral import (
     encode_tool_output,
     find_agent_tool,
     install_source_toolset,
+    recorded_tool_response,
     require_distinct_tool_names,
     require_supported_agent_tree,
 )
@@ -132,7 +136,9 @@ class AdkAgentRunner:
     ADK's own tool confirmation, and the session Flow runs each call in its own
     Dex Step, in parallel. The next ``RunModel`` answers each
     ``adk_request_confirmation`` call, and the plugin gives ADK the recorded
-    result instead of running the tool.
+    result instead of running the tool. When the user steers or cancels the
+    turn, or it fails, before that, ``build_unfinished_turn_messages`` stores
+    the turn's events with each call's recorded result.
 
     Tool sources, such as ``ConnectorToolSource``, add tools that every
     ``RunModel`` lists and offers to every ``LlmAgent`` of the tree. ADK
@@ -486,6 +492,65 @@ class AdkAgentRunner:
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]:
+        """Return the events of a turn that ends without a final answer.
+
+        The session calls it when the user steers or cancels a turn, and when
+        a turn fails. The run state holds every event of the turn so far, so
+        this method returns them as a completed turn would store them,
+        without the user event and the confirmation requests. It adds one
+        function response event for the tool calls that waited on their
+        Steps, as the resumed invocation would have appended it: each
+        response is the call's final record, the output, the failure, or the
+        rejection, such as the steering or cancellation result. A call
+        without a final record gets ``OUTCOME_UNKNOWN_TOOL_RESULT``. Each
+        event carries the author, branch, and isolation scope of the event
+        that made its calls, so every agent of a ``ParallelAgent`` sees its
+        own results. The next turn then replays a complete history, and the
+        session stores no note in its place.
+
+        The method reads only the turn's run state and records, and derives
+        each new event's ID and timestamp from them, so the same committed
+        state gives the same messages. It makes no model call and runs no
+        tool. Applications call it only in tests.
+
+        .. versionadded:: 0.6.12
+
+        Example:
+            >>> messages = runner.build_unfinished_turn_messages(ended_turn)
+            >>> messages[-1].role
+            <MessageRole.TOOL: 'tool'>
+
+        Args:
+            turn: The ending turn, with its run state and its records.
+
+        Returns:
+            The turn's events after its user event, each as a stored message,
+            ending with the function responses of the unanswered calls.
+            Empty when the turn has no run state.
+
+        Raises:
+            ValueError: If the run state has an unknown version. The session
+                then stores its note instead.
+        """
+        if turn.framework_run_state is None:
+            return []
+        suspended = SuspendedAdkTurn.from_framework_run_state(turn.framework_run_state)
+        turn_events = without_confirmation_plumbing(suspended.events)
+        response_events = _unfinished_tool_response_events(
+            turn, turn_events, include_images=self._media_store is not None
+        )
+        image_references_by_uri = (
+            {}
+            if self._media_store is None
+            else {reference.uri: reference for reference in collect_turn_images(turn)}
+        )
+        return [
+            _framework_message_with_images(event, image_references_by_uri)
+            for event in [*turn_events, *response_events]
+            if event.id != suspended.user_event_id and is_adk_event_kept_after_turn(event)
+        ]
 
     def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
         """Estimate the next model input from the stored events and the agents' prompts.
@@ -960,6 +1025,80 @@ def _confirmation_response_messages(
     if not parts_by_branch:
         raise RuntimeError(f"turn {turn.turn_id} resumed without a tool call")
     return [types.Content(role="user", parts=parts) for parts in parts_by_branch.values()]
+
+
+def _unfinished_tool_response_events(
+    turn: AgentTurnContext, turn_events: Sequence[Event], *, include_images: bool
+) -> list[Event]:
+    """Answer each unanswered call, grouped as ADK groups the responses of aborted calls."""
+    answered_call_ids = {
+        response.id
+        for event in turn_events
+        for response in event.get_function_responses()
+        if response.id
+    }
+    calls_by_issuer: dict[tuple[str, str | None, str | None], list[types.FunctionCall]] = {}
+    issuing_events: dict[tuple[str, str | None, str | None], Event] = {}
+    for event in turn_events:
+        for function_call in event.get_function_calls():
+            if not function_call.id or function_call.id in answered_call_ids:
+                continue
+            answered_call_ids.add(function_call.id)
+            # A response pairs with its call only in the issuing agent's branch and scope.
+            issuer = (event.author, event.branch, event.isolation_scope)
+            calls_by_issuer.setdefault(issuer, []).append(function_call)
+            issuing_events.setdefault(issuer, event)
+    response_events: list[Event] = []
+    for issuer, function_calls in calls_by_issuer.items():
+        issuing_event = issuing_events[issuer]
+        response_events.append(
+            Event(
+                # Derived from committed state, so a retried Step stores the same event.
+                id=str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"dex-agents-google-adk:{turn.flow_id}/{turn.turn_id}/"
+                        f"{function_calls[0].id}",
+                    )
+                ),
+                invocation_id=issuing_event.invocation_id,
+                author=issuing_event.author,
+                branch=issuing_event.branch,
+                isolation_scope=issuing_event.isolation_scope,
+                timestamp=issuing_event.timestamp,
+                content=types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=_unfinished_function_response(
+                                function_call,
+                                turn.recorded_tool_call(function_call.id or ""),
+                                include_images,
+                            )
+                        )
+                        for function_call in function_calls
+                    ],
+                ),
+            )
+        )
+    return response_events
+
+
+def _unfinished_function_response(
+    function_call: types.FunctionCall, record: AgentToolCall | None, include_images: bool
+) -> types.FunctionResponse:
+    if record is None or not record.status.is_final:
+        return types.FunctionResponse(
+            id=function_call.id,
+            name=function_call.name,
+            response={"error": OUTCOME_UNKNOWN_TOOL_RESULT},
+        )
+    return types.FunctionResponse(
+        id=function_call.id,
+        name=function_call.name,
+        response=recorded_tool_response(record),
+        parts=tool_result_image_response_parts(record) if include_images else None,
+    )
 
 
 def _raise_for_control_tools_beside_deferred_calls(

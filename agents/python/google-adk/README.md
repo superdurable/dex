@@ -277,10 +277,22 @@ error's `attempt_progress` is `NOT_STARTED`, the tool never ran, and the call
 records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` instead, so the model
 may call the tool again.
 
-When a turn fails after some of its tool calls finished, the session stores a
-turn-failure note through `build_user_message`: an ADK user event whose text
-lists each call and its outcome. The next turn's model sees it as user text,
-so it does not repeat those writes.
+When the user steers or cancels a turn, or the turn fails, while its calls
+are paused, `build_unfinished_turn_messages` stores the turn's events as a
+completed turn would store them. It adds one function response event per
+agent, branch, and isolation scope that answers each paused call from its
+final record, as the table above maps it; the rejection is the steering or
+cancellation result. A call without a final record gets
+`OUTCOME_UNKNOWN_TOOL_RESULT`. Each event takes the invocation ID, author,
+branch, isolation scope, and timestamp of the event that made the calls, and
+an ID derived from the turn and the first call, so a retried Step stores the
+same events and every branch of a `ParallelAgent` sees its own results. A
+steered or cancelled turn therefore stores no note.
+
+When a turn fails after some of its tool calls finished, the session also
+stores a turn-failure note through `build_user_message`: an ADK user event
+whose text lists each call and its outcome. The next turn's model sees it as
+user text, so it does not repeat those writes.
 
 ## Multi-agent trees
 

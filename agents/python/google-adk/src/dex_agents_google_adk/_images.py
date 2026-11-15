@@ -56,6 +56,18 @@ def with_tool_result_images(response: dict[str, Any], record: AgentToolCall) -> 
     }
 
 
+def tool_result_image_response_parts(
+    record: AgentToolCall,
+) -> list[types.FunctionResponsePart] | None:
+    """Return a record's images as ADK makes them from ``with_tool_result_images``."""
+    if not record.images:
+        return None
+    return [
+        types.FunctionResponsePart.from_uri(file_uri=image.uri, mime_type=image.mime_type)
+        for image in record.images
+    ]
+
+
 def extract_tool_result_images(result: object) -> tuple[object, list[bytes]]:
     """Take the image ``inline_data`` Parts out of an ADK tool result, as ADK does.
 

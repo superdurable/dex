@@ -220,10 +220,14 @@ capability that wraps the run's toolset and marks every function tool as an
 external tool. Pydantic AI never executes an external tool, so the model call
 that asks for tools ends the run with `DeferredToolRequests` right away. The
 runner returns `ToolCallsRequested` with one call per tool call, in model
-order, and the session starts one Step per call. The run state is the turn's
-Pydantic AI messages so far, serialized with `ModelMessagesTypeAdapter`, plus
-the IDs of the requested calls. Each run lists `DeferredToolRequests` in its
-output type, unless the agent's `output_type` already does.
+order, and the session starts one Step per call. Its `new_messages` are the
+messages of this model call, which the session stores in the same commit, so a
+UI shows the assistant's tool calls and the earlier tool results while the
+tools run. The run state holds only the IDs of the requested calls. A run
+state that 0.6.11 or earlier wrote holds the turn's messages instead; the next
+`RunModel` resumes from it and stores them. Each run lists
+`DeferredToolRequests` in its output type, unless the agent's `output_type`
+already does.
 
 Because no tool runs during `RunModel`, the agent's own tool hooks run only in
 the tool Steps, where the tool really runs. The capability wraps every other
@@ -239,7 +243,9 @@ that no Dex Step ran, the `RunModel` attempt fails instead of completing the
 turn.
 
 **Resume.** When every call has a final record, the next `RunModel` resumes the
-run with the stored messages and `DeferredToolResults`:
+run with the stored messages, the turn's own included, and
+`DeferredToolResults`. It stores only the messages the turn has not stored
+yet:
 
 | Record status | Result given to Pydantic AI |
 | --- | --- |
@@ -290,10 +296,24 @@ as the agent's system prompts on the first turn, the runner stores that
 request after the user message, without display text, and replays it in place
 of the user message.
 
-A failed turn is replayed as it is stored: its user prompt and, when it ran
-tools, the core's turn-failure note, which `build_user_message` stores as one
-more user prompt. The next turn's model therefore sees what already ran and
-does not repeat a write. Every model Step also includes Pydantic AI's
+**Unfinished turns.** When the user steers or cancels a turn, or the turn
+fails, while tool calls are outstanding, `build_unfinished_turn_messages`
+stores one `ModelRequest` that answers every tool call of the turn without a
+result. Each `ToolReturnPart` comes from the call's final record, as the
+table above maps it: outcome `success`, `denied` for a rejection such as the
+steering or cancellation result, or `failed`. A call without a final record
+gets `OUTCOME_UNKNOWN_TOOL_RESULT`. The method derives the request from
+committed state only, so a retried Step stores the same request. A steered or
+cancelled turn therefore stores no note, and the next turn replays the exact
+tool calls and results. A Worker of 0.6.11 or earlier ends such a turn with
+only the note, even when a newer Worker already stored its tool calls. Each
+replay of an earlier turn therefore answers a tool call without a result with
+`OUTCOME_UNKNOWN_TOOL_RESULT`, in the model input only.
+
+A failed turn is replayed as it is stored: its messages, the results above,
+and, when it ran tools, the core's turn-failure note, which
+`build_user_message` stores as one more user prompt. The next turn's model
+therefore sees what already ran and does not repeat a write. Every model Step also includes Pydantic AI's
 `ReinjectSystemPrompt` capability. It does nothing when the replayed history
 holds the agent's system prompts, and adds them when it does not, such as
 after a failed first turn.
@@ -461,9 +481,8 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
   [Compaction](#compaction) for long sessions.
 - `steer_user_message` and `cancel_turn` work as the
   [core describes](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#steering-and-turn-cancellation).
-  The runner has no `build_unfinished_turn_messages`, so after either one the
-  next model call sees the core's note about the tool calls that ran, not
-  their exact items.
+  After either one the turn keeps its tool calls and their results, as
+  [How it works](#how-it-works) describes.
 
 ## Tests
 
