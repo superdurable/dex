@@ -18,7 +18,8 @@ use std::time::Duration;
 use dexzd_apply::SegmentCheckpoint;
 use dexzd_apply::{
     ApplyContext, ComputedTimeTravel, LoadedHistorySegments, MissingHistorySegments,
-    SegmentedTimeTravelComputation, TimeTravelComputation, TimeTravelComputationRequest,
+    SegmentedTimeTravelComputation, StateChildFlowRuns, TimeTravelComputation,
+    TimeTravelComputationRequest,
 };
 use dexzd_keyspace::{RunId, TenantId, ValueId, ValueReference};
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, ResetFlowResponse};
@@ -312,11 +313,15 @@ impl FlowCoordinatorRegistry {
             })?;
         let reset = request.clone();
         let replay_memory_budget_bytes = self.inner.config.time_travel_replay_memory_bytes;
+        // Child Flows may live on other partitions; this node's store holds them all for now.
+        let child_view = self.inner.dependencies.committer.committed_view()?;
+        let hasher = self.inner.dependencies.hasher.clone();
         let (computation, missing_values) = self
             .inner
             .config
             .blocking_work
             .run(move || {
+                let child_flow_runs = StateChildFlowRuns::new(child_view.as_ref(), &hasher);
                 let computation = history.compute_time_travel(
                     &context,
                     &TimeTravelComputationRequest {
@@ -325,6 +330,7 @@ impl FlowCoordinatorRegistry {
                         now_micros,
                         replay_memory_budget_bytes,
                     },
+                    &child_flow_runs,
                 );
                 (computation, history.take_missing_offloaded_values())
             })

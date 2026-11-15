@@ -18,7 +18,7 @@ use bytes::Bytes;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyError, FlowStateReader, LoadedHistorySegments,
+    ApplyContext, ApplyEffect, ApplyError, ChildFlowRuns, FlowStateReader, LoadedHistorySegments,
     SegmentedTimeTravelComputation, TimeTravelComputationRequest,
     compute_time_travel_from_segments,
 };
@@ -694,12 +694,14 @@ impl TimeTravelRunHistory for ScriptedRunHistory {
         &self,
         context: &ApplyContext,
         request: &TimeTravelComputationRequest<'_>,
+        child_flow_runs: &dyn ChildFlowRuns,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
         compute_time_travel_from_segments(
             context,
             self.view.as_ref(),
             &self.segments,
             &self.removed_values,
+            child_flow_runs,
             request,
         )
     }

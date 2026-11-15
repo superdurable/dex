@@ -9,17 +9,19 @@
 use dexzd_keyspace::row_keys::inbox_dedup_key;
 use dexzd_keyspace::{ColumnFamily, RunId};
 use dexzd_protocol::dex::{
-    ErrorSubStatus, FlowStatus, FlowTimeoutPolicy, IdReusePolicy, StartFlowRequest,
-    SubFlowReusePolicy,
+    ErrorSubStatus, FlowResult, FlowStatus, FlowTimeoutPolicy, IdReusePolicy, StartFlowRequest,
+    StopFlowRequest, StopType, SubFlowReusePolicy,
 };
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowCompletedMessage, ChildFlowStartMessage, CrossFlowEndpoint, InboxDedupRecord,
-    InboxMessageCommand, ParentFlowReference, StoredFlowResult, StoredStepCompletionOutput,
-    SubFlowResultRecord, inbox_message_command,
+    ChildFlowCompletedMessage, ChildFlowStartMessage, ChildFlowTerminateMessage, CrossFlowEndpoint,
+    FlowCommand, FlowStopCommand, InboxDedupRecord, InboxMessageCommand, ParentFlowReference,
+    StoredFlowResult, StoredStepCompletionOutput, SubFlowResultRecord, flow_command,
+    inbox_message_command,
 };
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, ok_reply};
+use crate::command_handlers::flow_close::{FlowClosing, close_flow_immediately};
 use crate::command_handlers::flow_start::{RunStart, run_settings_with_offload_choice, start_run};
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
@@ -55,6 +57,9 @@ pub(crate) fn apply_inbox_message(
         }
         Some(inbox_message_command::Payload::ChildCompleted(completed)) => {
             apply_child_completed(transaction, scope, command, source, completed)
+        }
+        Some(inbox_message_command::Payload::ChildTerminate(terminate)) => {
+            apply_child_terminate(transaction, scope, source, terminate)
         }
         None => Err(invalid_cross_flow_message(
             "cross-Flow message has no payload",
@@ -302,11 +307,68 @@ fn apply_child_completed(
     {
         return Ok(HandlerResult::Rejected(ok_reply()));
     }
+    store_sub_flow_result(
+        transaction,
+        &mut cursor,
+        StoredSubFlowResult {
+            child_flow_id: &completed.child_flow_id,
+            registration_attempt,
+            child_run_id: &completed.child_run_id,
+            child_run_attempt: completed.child_run_attempt,
+            result,
+        },
+        previous,
+    )?;
+    put_inbox_dedup(transaction, rows, source, &command.message_id, cursor.seq);
+    acknowledge_child_starts_of_reporting_child(transaction, &mut cursor, scope, parent_reference)?;
+    if cursor.record.status == FlowStatus::Running as i32 {
+        crate::steps::wait_conditions::on_child_result(
+            transaction,
+            &mut cursor,
+            scope,
+            &completed.child_flow_id,
+            registration_attempt,
+        )?;
+    }
+    Ok(HandlerResult::Applied(cursor.finish(
+        transaction,
+        scope,
+        ok_reply(),
+        HistoryKind::SEMANTIC,
+    )?))
+}
+
+/// A child result that the parent run stores, keyed by child Flow ID and registration attempt.
+pub(crate) struct StoredSubFlowResult<'result> {
+    pub(crate) child_flow_id: &'result str,
+    pub(crate) registration_attempt: u32,
+    pub(crate) child_run_id: &'result [u8],
+    pub(crate) child_run_attempt: u32,
+    pub(crate) result: FlowResult,
+}
+
+/// Stores `stored` in the run of `cursor`, replacing `previous`, the record already at its key.
+///
+/// Returns an error when an output cannot be stored, which the child's admission prevents.
+pub(crate) fn store_sub_flow_result(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    stored: StoredSubFlowResult<'_>,
+    previous: Option<SubFlowResultRecord>,
+) -> Result<(), ApplyError> {
+    let rows = cursor.rows;
+    let StoredSubFlowResult {
+        child_flow_id,
+        registration_attempt,
+        child_run_id,
+        child_run_attempt,
+        result,
+    } = stored;
     if let Some(previous) = previous.and_then(|previous| previous.result) {
         for (index, output) in previous.results.into_iter().enumerate() {
             if let Some(stored) = output.completed_step_output {
                 let holder = ValueHolder::SubFlowResultAttemptOutput {
-                    child_flow_id: completed.child_flow_id.clone(),
+                    child_flow_id: child_flow_id.to_owned(),
                     registration_attempt,
                     output_index: u32::try_from(index)
                         .expect("stored output count fits a u32 index"),
@@ -319,7 +381,7 @@ fn apply_child_completed(
     for (index, output) in result.results.into_iter().enumerate() {
         let stored = if let Some(value) = output.completed_step_output.as_ref() {
             let holder = ValueHolder::SubFlowResultAttemptOutput {
-                child_flow_id: completed.child_flow_id.clone(),
+                child_flow_id: child_flow_id.to_owned(),
                 registration_attempt,
                 output_index: u32::try_from(index).expect("child output count fits a u32 index"),
             };
@@ -352,10 +414,10 @@ fn apply_child_completed(
     }
     transaction.put_message(
         ColumnFamily::Flow,
-        key,
+        sub_flow_result_key(rows, child_flow_id, registration_attempt),
         &SubFlowResultRecord {
-            child_run_id: completed.child_run_id.clone(),
-            child_run_attempt: completed.child_run_attempt,
+            child_run_id: child_run_id.to_vec(),
+            child_run_attempt,
             result: Some(StoredFlowResult {
                 flow_status: result.flow_status,
                 results: outputs,
@@ -366,20 +428,73 @@ fn apply_child_completed(
             parent_registration_attempt: registration_attempt,
         },
     );
-    put_inbox_dedup(transaction, rows, source, &command.message_id, cursor.seq);
-    acknowledge_child_starts_of_reporting_child(transaction, &mut cursor, scope, parent_reference)?;
-    if cursor.record.status == FlowStatus::Running as i32 {
-        crate::steps::wait_conditions::on_child_result(
-            transaction,
-            &mut cursor,
-            scope,
-            &completed.child_flow_id,
-            registration_attempt,
-        )?;
+    Ok(())
+}
+
+/// Terminates the child Flow's latest run when it still runs and reports to the abandoned
+/// condition. Otherwise acknowledges without a change, so redelivery is harmless.
+fn apply_child_terminate(
+    transaction: &mut FlowTransaction<'_>,
+    scope: &CommandScope<'_>,
+    source: &CrossFlowEndpoint,
+    terminate: &ChildFlowTerminateMessage,
+) -> Result<HandlerResult, ApplyError> {
+    let Some(parent) = terminate.parent.as_ref() else {
+        return Err(invalid_cross_flow_message(
+            "child termination has no parent reference",
+        ));
+    };
+    if terminate.child_flow_id != scope.flow_id()
+        || source.tenant_id != scope.tenant_id.0
+        || parent.parent.as_ref() != Some(source)
+        || terminate.child_flow_id != expected_child_flow_id(parent, &source.flow_id)
+    {
+        return Err(invalid_cross_flow_message(
+            "child termination source or target does not match",
+        ));
     }
+    let directory = read_flow_directory(transaction, scope.tenant_id, scope.flow_id())?;
+    let Some(latest) = directory.runs.last() else {
+        return Ok(HandlerResult::Rejected(ok_reply()));
+    };
+    let run_id = run_id_from_directory(&latest.run_id)?;
+    let rows = RunRows::new(transaction.context().flow_hash, run_id);
+    let Some(record) = rows.run_record(transaction)? else {
+        return Ok(HandlerResult::Rejected(ok_reply()));
+    };
+    let reports_to_parent =
+        record.parent.as_ref() == Some(parent) || record.attached_parents.contains(parent);
+    if record.is_purging || record.status != FlowStatus::Running as i32 || !reports_to_parent {
+        return Ok(HandlerResult::Rejected(ok_reply()));
+    }
+    // The run's history records its termination, as for an ID reuse termination.
+    let termination = FlowCommand {
+        run_id: run_id.as_bytes().to_vec(),
+        expected_run_attempt: 0,
+        command: Some(flow_command::Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                flow_id: scope.flow_id().to_owned(),
+                stop_type: StopType::Terminate as i32,
+                reason: terminate.reason.clone(),
+                ..StopFlowRequest::default()
+            }),
+        })),
+        ..scope.command.clone()
+    };
+    let run_scope = CommandScope {
+        command: &termination,
+        ..*scope
+    };
+    let mut cursor = RunCursor::for_new_run(rows, record);
+    close_flow_immediately(
+        transaction,
+        &mut cursor,
+        &run_scope,
+        FlowClosing::terminated(terminate.reason.clone()),
+    )?;
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,
-        scope,
+        &run_scope,
         ok_reply(),
         HistoryKind::SEMANTIC,
     )?))

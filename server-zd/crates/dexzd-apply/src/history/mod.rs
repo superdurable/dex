@@ -28,14 +28,16 @@ pub(crate) use local_cleanup::{
     schedule_local_cleanup,
 };
 pub use time_travel::{
-    ComputedTimeTravel, SegmentedTimeTravelComputation, StagedEntryTooLarge, TimeTravelComputation,
-    TimeTravelComputationRequest, TimeTravelComputationSources, compute_time_travel,
-    compute_time_travel_from_segments,
+    ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns, ChildFlowStartRead, ComputedTimeTravel,
+    NoChildFlowRuns, SegmentedTimeTravelComputation, StagedEntryTooLarge, StateChildFlowRuns,
+    TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
+    compute_time_travel, compute_time_travel_from_segments,
 };
 #[cfg(feature = "test-util")]
 pub use time_travel::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
     stage_computed_time_travel_for_test, stage_time_travel_for_test,
+    stage_time_travel_reading_child_flows_for_test,
 };
 pub(crate) use time_travel::{apply_time_travel, apply_time_travel_stage, delete_idle_staging};
 pub(crate) use window::{

@@ -444,6 +444,15 @@ message ChildFlowCompletedMessage {
   ParentFlowReference parent = 5;
 }
 
+// A parent's time travel abandoned a SubFlow condition: terminate the child run that reports to
+// `parent` while it still runs. Written into the parent's outbox by apply.
+message ChildFlowTerminateMessage {
+  string child_flow_id = 1;
+  // The abandoned condition's reference, with the run attempt that registered it.
+  ParentFlowReference parent = 2;
+  string reason = 3;
+}
+
 // A cross-Flow message delivered to the receiving Flow's owner.
 message InboxMessageCommand {
   // 16-byte outbox message ID; with the source it deduplicates redeliveries.
@@ -452,6 +461,7 @@ message InboxMessageCommand {
   oneof payload {
     ChildFlowStartMessage child_start = 3;
     ChildFlowCompletedMessage child_completed = 4;
+    ChildFlowTerminateMessage child_terminate = 7;
   }
   // For child starts: run ID the receiving owner generated, and its resolved settings.
   bytes new_run_id = 5;

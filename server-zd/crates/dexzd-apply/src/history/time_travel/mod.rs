@@ -12,15 +12,23 @@
 //! input, and forks.
 
 mod attempt_fork;
+mod child_flow_runs;
 mod reapplied_input_values;
 mod result_computation;
 mod staged_result;
 mod staging;
+mod sub_flow_reset;
+mod sub_flow_reset_findings;
 
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRunStatus, TimeTravelCommand, TimeTravelStagedInput, TimeTravelStagedValue,
+    CheckpointRunStatus, TimeTravelCommand, TimeTravelStagedChildFlow, TimeTravelStagedInput,
+    TimeTravelStagedValue,
 };
 
+pub use child_flow_runs::{
+    ChildFlowRun, ChildFlowRunQuery, ChildFlowRuns, ChildFlowStartRead, NoChildFlowRuns,
+    StateChildFlowRuns,
+};
 pub use result_computation::{
     ComputedTimeTravel, SegmentedTimeTravelComputation, StagedEntryTooLarge, TimeTravelComputation,
     TimeTravelComputationRequest, TimeTravelComputationSources, compute_time_travel,
@@ -50,6 +58,8 @@ pub(crate) struct TimeTravelResult {
     pub(crate) unstored_values: Vec<TimeTravelStagedValue>,
     /// External input after the target point, in (run seq, index in record) order.
     pub(crate) reapplied_inputs: Vec<TimeTravelStagedInput>,
+    /// What the owner found in the child Flows of restored SubFlow conditions.
+    pub(crate) child_flows: Vec<TimeTravelStagedChildFlow>,
 }
 
 pub(crate) fn apply_time_travel(
@@ -59,7 +69,8 @@ pub(crate) fn apply_time_travel(
     command: &TimeTravelCommand,
 ) -> Result<HandlerResult, ApplyError> {
     let request = command.request.clone().unwrap_or_default();
-    let result = if command.staging_id.is_empty() {
+    let is_staged = !command.staging_id.is_empty();
+    let result = if !is_staged {
         // Binaries before staging logged TimeTravel without a result; their history is local.
         let history = LocalHistorySource::new(transaction, cursor.rows);
         let memory_budget = ReplayMemoryBudget::unlimited();
@@ -83,28 +94,48 @@ pub(crate) fn apply_time_travel(
         Ok(result) => result,
         Err(reply) => return Ok(HandlerResult::Rejected(reply)),
     };
+    let sub_flow_actions = match sub_flow_reset::plan_restored_sub_flow_actions(
+        transaction,
+        &cursor,
+        &request,
+        is_staged,
+        &result,
+    )? {
+        Ok(actions) => actions,
+        Err(reply) => return Ok(HandlerResult::Rejected(reply)),
+    };
     if let Err(reply) = staged_result::restore_held_values(transaction, &cursor, &result)? {
         return Ok(HandlerResult::Rejected(reply));
     }
     staging::delete_staging(transaction, &mut cursor);
-    attempt_fork::fork_attempt(transaction, cursor, scope, command, &request, result)
+    attempt_fork::fork_attempt(
+        transaction,
+        cursor,
+        scope,
+        command,
+        &request,
+        result,
+        sub_flow_actions,
+    )
 }
 
 #[cfg(feature = "test-util")]
 pub use owner_staging::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
     stage_computed_time_travel_for_test, stage_time_travel_for_test,
+    stage_time_travel_reading_child_flows_for_test,
 };
 
 /// Test entry point that stages a TimeTravel the way an owner does.
 #[cfg(feature = "test-util")]
 mod owner_staging {
-    use dexzd_keyspace::RunId;
+    use dexzd_keyspace::{PartitionHasher, RunId};
     use dexzd_protocol::dexzd::v1::{CommandReply, FlowCommand, flow_command::Command};
 
     use super::{
-        ComputedTimeTravel, TimeTravelComputation, TimeTravelComputationRequest,
-        TimeTravelComputationSources, compute_time_travel,
+        ChildFlowRuns, ComputedTimeTravel, NoChildFlowRuns, StateChildFlowRuns,
+        TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
+        compute_time_travel,
     };
     use crate::history::lineage::StateHistorySource;
     use crate::values::NoOffloadedValues;
@@ -156,7 +187,7 @@ mod owner_staging {
     }
 
     /// Computes the unstaged TimeTravel `command` on `state` as an owner does, without a
-    /// replay memory budget.
+    /// replay memory budget and without reading child Flows, which it finds gone.
     ///
     /// Returns the commands that stage the result and then apply it, under a staging ID made
     /// from the command ID; they expect the computed run attempt unless `command` expected
@@ -166,6 +197,29 @@ mod owner_staging {
     pub fn stage_time_travel_for_test(
         context: &ApplyContext,
         state: &dyn FlowStateReader,
+        command: &FlowCommand,
+    ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
+        stage_time_travel_with_child_flows(context, state, &NoChildFlowRuns, command)
+    }
+
+    /// Stages `command` as [`stage_time_travel_for_test`] does, reading child Flows from
+    /// `state`, which holds every partition that `hasher` places them in.
+    ///
+    /// Returns what [`stage_time_travel_for_test`] returns.
+    pub fn stage_time_travel_reading_child_flows_for_test(
+        context: &ApplyContext,
+        state: &dyn FlowStateReader,
+        hasher: &PartitionHasher,
+        command: &FlowCommand,
+    ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
+        let child_flow_runs = StateChildFlowRuns::new(state, hasher);
+        stage_time_travel_with_child_flows(context, state, &child_flow_runs, command)
+    }
+
+    fn stage_time_travel_with_child_flows(
+        context: &ApplyContext,
+        state: &dyn FlowStateReader,
+        child_flow_runs: &dyn ChildFlowRuns,
         command: &FlowCommand,
     ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
         let run_id =
@@ -185,6 +239,7 @@ mod owner_staging {
                 state,
                 history: &history,
                 offloaded_values: &NoOffloadedValues,
+                child_flow_runs,
             },
             &TimeTravelComputationRequest {
                 run_id,

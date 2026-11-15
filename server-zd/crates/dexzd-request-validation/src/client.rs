@@ -9,7 +9,7 @@
 use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, DeleteChannelMessageRequest, FlowConfig,
     FlowResetStepMethod, FlowResetType, IdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
-    ResetFlowRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    ResetFlowRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest, SubFlowResetPolicy,
     UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForStepCompletionRequest, value,
 };
 
@@ -268,6 +268,12 @@ fn validate_skip_timer(request: &SkipTimerRequest) -> Result<(), ValidationError
 fn validate_reset_flow(request: &ResetFlowRequest) -> Result<(), ValidationError> {
     if request.flow_id.is_empty() {
         return Err(invalid("flow_id", "flow ID is required"));
+    }
+    if SubFlowResetPolicy::try_from(request.sub_flow_reset_policy).is_err() {
+        return Err(invalid(
+            "sub_flow_reset_policy",
+            "SubFlow reset policy is unknown",
+        ));
     }
     match FlowResetType::try_from(request.reset_type) {
         Ok(FlowResetType::Beginning) => {

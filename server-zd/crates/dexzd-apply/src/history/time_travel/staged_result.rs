@@ -99,12 +99,14 @@ pub(super) fn read_staged_result(
     let mut rows = Vec::new();
     let mut unstored_values = Vec::new();
     let mut reapplied_inputs = Vec::new();
+    let mut child_flows = Vec::new();
     for chunk in std::iter::once(first).chain(chunks) {
         for row in &chunk.rows {
             rows.push(AttemptRow::from_checkpoint_row(row)?);
         }
         unstored_values.extend(chunk.values);
         reapplied_inputs.extend(chunk.reapplied_inputs);
+        child_flows.extend(chunk.child_flows);
     }
     if let Err(reply) = check_staged_inputs(&reapplied_inputs, point.seq, &target, is_reapplying) {
         return Ok(Err(reply));
@@ -122,6 +124,7 @@ pub(super) fn read_staged_result(
         rows,
         unstored_values,
         reapplied_inputs,
+        child_flows,
     }))
 }
 

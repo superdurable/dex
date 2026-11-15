@@ -21,8 +21,10 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::TimeTravelResult;
+use super::child_flow_runs::ChildFlowRuns;
 use super::reapplied_input_values::unstored_input_values;
 use super::staging::{staged_chunks, staged_result_bytes};
+use super::sub_flow_reset_findings::child_flow_findings;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::flow_not_found_reply;
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
@@ -46,6 +48,8 @@ pub struct TimeTravelComputationSources<'sources> {
     pub history: &'sources dyn HistorySource,
     /// Values of the run that `state` no longer holds.
     pub offloaded_values: &'sources dyn OffloadedValues,
+    /// Child runs of the restored SubFlow conditions, for the request's SubFlow reset policy.
+    pub child_flow_runs: &'sources dyn ChildFlowRuns,
 }
 
 /// A time travel request that an owner computes before it proposes TimeTravel.
@@ -174,7 +178,8 @@ pub struct StagedEntryTooLarge {
 ///
 /// Returns [`TimeTravelComputation::Rejected`] with the reply apply would give, including when
 /// the replay exceeds its memory budget or the target state holds a value that no source has.
-/// Returns an error when stored state is corrupt.
+/// Also returns it with FAILED_PRECONDITION when the SubFlow reset policy rejects a restored
+/// SubFlow condition. Returns an error when stored state is corrupt.
 pub fn compute_time_travel(
     context: &ApplyContext,
     sources: &TimeTravelComputationSources<'_>,
@@ -198,7 +203,7 @@ pub fn compute_time_travel(
         offloaded_values: sources.offloaded_values,
         memory_budget: &memory_budget,
     };
-    let result = match compute_result(
+    let mut result = match compute_result(
         &transaction,
         sources.history,
         rows,
@@ -209,6 +214,17 @@ pub fn compute_time_travel(
         resources,
     )? {
         Ok(result) => result,
+        Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
+    };
+    result.child_flows = match child_flow_findings(
+        &transaction,
+        rows,
+        &record,
+        request.reset,
+        &result,
+        sources.child_flow_runs,
+    )? {
+        Ok(findings) => findings,
         Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
     };
     // Staging encodes every entry once more.
@@ -242,6 +258,7 @@ pub fn compute_time_travel_from_segments(
     state: &dyn FlowStateReader,
     segments: &LoadedHistorySegments,
     offloaded_values: &dyn OffloadedValues,
+    child_flow_runs: &dyn ChildFlowRuns,
     request: &TimeTravelComputationRequest<'_>,
 ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
     let transaction = FlowTransaction::new(state, *context);
@@ -269,6 +286,7 @@ pub fn compute_time_travel_from_segments(
             state,
             history,
             offloaded_values,
+            child_flow_runs,
         },
         request,
     );
@@ -380,6 +398,7 @@ pub(super) fn compute_result(
         rows: rebuilt.rows,
         unstored_values,
         reapplied_inputs,
+        child_flows: Vec::new(),
     }))
 }
 

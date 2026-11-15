@@ -231,6 +231,19 @@ fn read_delivery(
                 None,
             )
         }
+        Some(outbox_record::Payload::ChildTerminate(terminate)) => {
+            let source = terminate
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.parent.clone())
+                .ok_or_else(|| corrupt("child termination has no parent endpoint"))?;
+            (
+                source,
+                inbox_message_command::Payload::ChildTerminate(terminate),
+                Vec::new(),
+                None,
+            )
+        }
         None => return Err(corrupt("outbox message has no payload")),
     };
     let command = FlowCommand {

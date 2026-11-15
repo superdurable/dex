@@ -51,6 +51,10 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
             Some(inbox_message_command::Payload::ChildStart(_)) => {
                 TransactionalRpcHold::ClosesAtOnce
             }
+            // A child termination terminates the run at once.
+            Some(inbox_message_command::Payload::ChildTerminate(_)) => {
+                TransactionalRpcHold::ClosesAtOnce
+            }
             Some(inbox_message_command::Payload::ChildCompleted(_)) | None => {
                 TransactionalRpcHold::MayClose
             }

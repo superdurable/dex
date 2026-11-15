@@ -24,8 +24,8 @@ use dexzd_apply::read_model::{
 use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, LoadedHistorySegments,
-    SegmentCheckpoint, SegmentedTimeTravelComputation, StateReadError, StateRow, StateWrite,
-    TimeTravelComputation, TimeTravelComputationRequest, apply_flow_command,
+    NoChildFlowRuns, SegmentCheckpoint, SegmentedTimeTravelComputation, StateReadError, StateRow,
+    StateWrite, TimeTravelComputation, TimeTravelComputationRequest, apply_flow_command,
     compute_time_travel_from_segments,
 };
 use dexzd_history_segment::{HistorySegmentContent, encode_history_segment};
@@ -763,6 +763,7 @@ impl Harness {
             state,
             &self.loaded_segments(),
             &NoOffloadedValues,
+            &NoChildFlowRuns,
             &TimeTravelComputationRequest {
                 run_id: self.run(),
                 reset: request,
@@ -797,6 +798,7 @@ impl Harness {
             &self.state,
             &self.loaded_segments(),
             &NoOffloadedValues,
+            &NoChildFlowRuns,
             &TimeTravelComputationRequest {
                 run_id: self.run(),
                 reset: request,

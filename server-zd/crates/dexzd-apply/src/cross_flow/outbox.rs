@@ -7,15 +7,17 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_keyspace::row_keys::{outbox_key, prefix_range, run_item_index_key};
-use dexzd_keyspace::{ColumnFamily, IndexKind};
+use dexzd_keyspace::{ColumnFamily, IndexKind, RunId};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, ExecuteMethodFailurePolicy, FlowConfig, FlowResult, FlowTimeoutPolicy,
-    StepCompletionOutput, StepDurability, SubFlowCondition, SubFlowReusePolicy, WorkerTarget,
+    StepCompletionOutput, StepDurability, SubFlowCondition, SubFlowOptions, SubFlowReusePolicy,
+    WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowCompletedMessage, ChildFlowStartMessage, CrossFlowEndpoint, OutboxAckCommand,
-    OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, StepExecutionRecord, StoredValue,
-    TimerId, flow_command, outbox_record, step_method_completed_command, timer_id,
+    ChildFlowCompletedMessage, ChildFlowStartMessage, ChildFlowTerminateMessage, CrossFlowEndpoint,
+    OutboxAckCommand, OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, RunRecord,
+    StepExecutionRecord, StoredValue, TimerId, flow_command, outbox_record,
+    step_method_completed_command, timer_id,
 };
 use dexzd_protocol::task_queue_names::{overridden_task_queue, registered_task_queue_name_error};
 
@@ -24,7 +26,7 @@ use crate::ApplyError;
 use crate::command_handlers::command_replies::ok_reply;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
-use crate::state_access::FlowTransaction;
+use crate::state_access::{FlowTransaction, RunRows};
 use crate::steps::arm_timer;
 use crate::values::{
     ValueHolder, ValueRejection, complete_worker_value, load_stored_value, release_stored_value,
@@ -33,6 +35,12 @@ use crate::values::{
 const OUTBOX_RETENTION_MICROS: i64 = 24 * 60 * 60 * 1_000_000;
 const CHILD_START_MESSAGE_KIND: u8 = 1;
 const CHILD_COMPLETED_MESSAGE_KIND: u8 = 2;
+const CHILD_TERMINATE_MESSAGE_KIND: u8 = 3;
+/// Restarted child starts share the start kind, so child reports acknowledge them, but not the
+/// indexes of SubFlow conditions.
+const RESTARTED_CHILD_START_INDEX_BASE: u64 = 1 << 48;
+/// Close reason of a child run that a parent's time travel abandoned.
+const CHILD_TERMINATE_REASON: &str = "terminated by the parent's time travel";
 
 /// Writes one complete child-start message per SubFlow condition.
 pub(crate) fn start_child_flows(
@@ -134,11 +142,11 @@ pub(crate) fn start_child_flows(
             sub_flow_index,
             condition_id: condition.condition_id.clone(),
         };
-        let request_id = format!(
-            "{}:{}:{}:{sub_flow_index}",
+        let request_id = child_start_request_id(
             cursor.run_id(),
             cursor.attempt(),
-            step_execution_id
+            step_execution_id,
+            sub_flow_index,
         );
         let flow_config = effective_flow_config(
             cursor.record.flow_config.as_ref(),
@@ -169,6 +177,106 @@ pub(crate) fn start_child_flows(
         );
     }
     Ok(Ok(()))
+}
+
+/// Returns the start request ID a parent run attempt uses for the child of one SubFlow condition.
+pub(crate) fn child_start_request_id(
+    parent_run_id: RunId,
+    parent_run_attempt: u32,
+    step_execution_id: &str,
+    sub_flow_index: i32,
+) -> String {
+    format!("{parent_run_id}:{parent_run_attempt}:{step_execution_id}:{sub_flow_index}")
+}
+
+/// Writes the start of a child that a time travel restarts from its original `start`.
+///
+/// The new start belongs to the current run attempt and terminates a still-running child run.
+/// History rebuild writes nothing, as for [`start_child_flows`].
+pub(crate) fn write_restarted_child_start(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    restart_index: u64,
+    parent: ParentFlowReference,
+    start: &ChildFlowStartMessage,
+) {
+    if scope.is_history_rebuild() {
+        return;
+    }
+    let child_flow_id = start.child_flow_id.clone();
+    let request_id = child_start_request_id(
+        cursor.run_id(),
+        cursor.attempt(),
+        &parent.step_execution_id,
+        parent.sub_flow_index,
+    );
+    write_outbox(
+        transaction,
+        cursor,
+        message_id(
+            CHILD_START_MESSAGE_KIND,
+            cursor.seq,
+            RESTARTED_CHILD_START_INDEX_BASE + restart_index,
+        ),
+        CrossFlowEndpoint {
+            tenant_id: scope.tenant_id.0,
+            flow_id: child_flow_id.clone(),
+            run_id: Vec::new(),
+            run_attempt: 0,
+        },
+        outbox_record::Payload::ChildStart(ChildFlowStartMessage {
+            child_flow_id,
+            condition: Some(restarted_child_condition(start)),
+            flow_config: start.flow_config.clone(),
+            request_id,
+            parent: Some(parent),
+            hard_delete_objects: Vec::new(),
+        }),
+        Vec::new(),
+    );
+}
+
+/// Returns the condition of `start` with the reuse policy that restarts its child.
+pub(crate) fn restarted_child_condition(start: &ChildFlowStartMessage) -> SubFlowCondition {
+    let mut condition = start.condition.clone().unwrap_or_default();
+    condition
+        .options
+        .get_or_insert_with(SubFlowOptions::default)
+        .reuse_policy = SubFlowReusePolicy::AlwaysRestart as i32;
+    condition
+}
+
+/// Writes the message that terminates the child run reporting to `parent` while it still runs.
+/// History rebuild writes nothing, as for [`start_child_flows`].
+pub(crate) fn write_child_terminate(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    terminate_index: u64,
+    child_flow_id: &str,
+    parent: ParentFlowReference,
+) {
+    if scope.is_history_rebuild() {
+        return;
+    }
+    write_outbox(
+        transaction,
+        cursor,
+        message_id(CHILD_TERMINATE_MESSAGE_KIND, cursor.seq, terminate_index),
+        CrossFlowEndpoint {
+            tenant_id: scope.tenant_id.0,
+            flow_id: child_flow_id.to_owned(),
+            run_id: Vec::new(),
+            run_attempt: 0,
+        },
+        outbox_record::Payload::ChildTerminate(ChildFlowTerminateMessage {
+            child_flow_id: child_flow_id.to_owned(),
+            parent: Some(parent),
+            reason: CHILD_TERMINATE_REASON.to_owned(),
+        }),
+        Vec::new(),
+    );
 }
 
 fn effective_flow_config(
@@ -473,14 +581,40 @@ pub(crate) fn report_terminal_to_parent(
             detail: "child parent reference has no endpoint".to_owned(),
         });
     };
-    let close = cursor.record.close.clone().unwrap_or_default();
+    let result = closed_run_flow_result(transaction, cursor.rows, &cursor.record)?;
+    write_outbox(
+        transaction,
+        cursor,
+        message_id(CHILD_COMPLETED_MESSAGE_KIND, cursor.seq, index),
+        target,
+        outbox_record::Payload::ChildCompleted(ChildFlowCompletedMessage {
+            child_flow_id: cursor.record.flow_id.clone(),
+            child_run_id: cursor.run_id().as_bytes().to_vec(),
+            child_run_attempt: cursor.attempt(),
+            result: Some(result),
+            parent: Some(parent),
+        }),
+        Vec::new(),
+    );
+    Ok(())
+}
+
+/// Returns the result a closed run reports to its parents, with complete output values.
+///
+/// Returns an error when a stored output has no value row.
+pub(crate) fn closed_run_flow_result(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+    record: &RunRecord,
+) -> Result<FlowResult, ApplyError> {
+    let close = record.close.clone().unwrap_or_default();
     let mut results = Vec::with_capacity(close.results.len());
     for output in &close.results {
         let complete = output
             .completed_step_output
             .as_ref()
             .map(|stored| {
-                load_stored_value(transaction, cursor.rows, stored)?.ok_or_else(|| {
+                load_stored_value(transaction, rows, stored)?.ok_or_else(|| {
                     ApplyError::InvariantViolation {
                         detail: "stored child output has no value row".to_owned(),
                     }
@@ -493,26 +627,12 @@ pub(crate) fn report_terminal_to_parent(
             completed_step_output: complete,
         });
     }
-    write_outbox(
-        transaction,
-        cursor,
-        message_id(CHILD_COMPLETED_MESSAGE_KIND, cursor.seq, index),
-        target,
-        outbox_record::Payload::ChildCompleted(ChildFlowCompletedMessage {
-            child_flow_id: cursor.record.flow_id.clone(),
-            child_run_id: cursor.run_id().as_bytes().to_vec(),
-            child_run_attempt: cursor.attempt(),
-            result: Some(FlowResult {
-                flow_status: cursor.record.status,
-                results,
-                error_type: close.error_type,
-                error_message: close.error_message,
-            }),
-            parent: Some(parent),
-        }),
-        Vec::new(),
-    );
-    Ok(())
+    Ok(FlowResult {
+        flow_status: record.status,
+        results,
+        error_type: close.error_type,
+        error_message: close.error_message,
+    })
 }
 
 pub(crate) fn apply_outbox_ack(
