@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import { outcomeUnknownToolResult, toolCallCancelledBySteeringResult } from "@superdurable/dex-agents";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
@@ -25,6 +26,14 @@ import {
   type ClaudeTestAgentCli,
 } from "../fixtures/claude-test-agent.js";
 import { FakeLedgerProvider } from "../fixtures/fake-ledger.js";
+import {
+  assertNoTurnNote,
+  assertUniqueTranscriptEntries,
+  deferralsOf,
+  firstNewMessageOf,
+  resultsOf,
+  storedTranscriptEntries,
+} from "../fixtures/transcript-assertions.js";
 import {
   mockScriptMarker,
   MockAnthropicApi,
@@ -217,6 +226,180 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(scriptedRequestsOf(command), 3);
   });
 
+  test("a turn steered at an approval keeps its transcript and the next turn resumes a complete session", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-steered");
+    const command = 'call lookup {"query":"docs"} && call publish {"message":"draft"}';
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    const waiting = await agent.sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      waiting.messages.map((message) => [message.role, message.toolName]),
+      [
+        ["user", null],
+        ["assistant", null],
+        ["tool", "lookup"],
+      ],
+    );
+    // One assistant message holds both calls; the CLI deferred publish after it ran lookup.
+    assert.equal(waiting.messages[1]?.frameworkItem.includes(`"id":"${interrupt.toolCallId}"`), true);
+    assert.equal(waiting.messages[2]?.toolOutput, "found docs");
+
+    assert.equal(await agent.sessions.steerUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+    const snapshot = await agent.waitForTurns(sessionId, 2);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.deepEqual(snapshot.messages.slice(0, waiting.messages.length), waiting.messages);
+    const steeredResult = snapshot.messages[waiting.messages.length];
+    assert.deepEqual(
+      [steeredResult?.role, steeredResult?.toolName, steeredResult?.toolCallId, steeredResult?.toolOutput],
+      ["tool", "publish", interrupt.toolCallId, toolCallCancelledBySteeringResult],
+    );
+    assert.deepEqual(
+      snapshot.messages.slice(waiting.messages.length + 1).map((message) => [message.role, message.text]),
+      [
+        ["user", `${mockScriptMarker}recall`],
+        // Claude Code's own placeholder reply after a turn that ended at a tool result, which the model sees too.
+        ["assistant", "No response requested."],
+        ["assistant", `history: ${command}`],
+      ],
+    );
+    assertNoTurnNote(snapshot.messages);
+    assertUniqueTranscriptEntries(snapshot.messages);
+    assert.equal(agent.invocations.count("publish"), 0);
+    assert.equal(agent.invocations.count("lookup"), 1);
+    // The next turn's request answers the abandoned call, and the CLI neither resumed it nor added a resume prompt.
+    const [recallRequest, ...laterRecallRequests] = api.scriptedRequests().filter((request) =>
+      request.messages.some((message) => contentOf(message).some((block) => block["tool_use_id"] === interrupt.toolCallId)) &&
+      request.command === "recall",
+    );
+    assert.ok(recallRequest !== undefined);
+    assert.deepEqual(laterRecallRequests, []);
+    assert.deepEqual(recallRequest.textsAfterCommand, []);
+    assert.equal(
+      recallRequest.messages.some((message) => userTextsIn(message).some((text) => text.includes(resumePrompt))),
+      false,
+    );
+    const toolResultIndex = recallRequest.messages.findIndex((message) =>
+      contentOf(message).some((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId),
+    );
+    const toolUseIndex = recallRequest.messages.findIndex((message) =>
+      contentOf(message).some((block) => block["type"] === "tool_use" && block["id"] === interrupt.toolCallId),
+    );
+    assert.ok(toolUseIndex >= 0 && toolResultIndex === toolUseIndex + 1, `${toolUseIndex} ${toolResultIndex}`);
+    assert.deepEqual(
+      contentOf(recallRequest.messages[toolResultIndex])
+        .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId)
+        .map((block) => [block["content"], block["is_error"]]),
+      [[toolCallCancelledBySteeringResult, true]],
+    );
+    assert.equal(scriptedRequestsOf(command), 1);
+    // The CLI's placeholder reply is no model call.
+    assert.equal(snapshot.usage.modelCalls, 2);
+  });
+
+  test("the next turn answers a call that a Worker without buildUnfinishedTurnMessages left open", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-older-worker-end");
+    const command = 'call publish {"message":"draft"}';
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    const ended = await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 1);
+    assert.equal(ended.messages.at(-1)?.origin, "turn_cancelled_note");
+
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+    const snapshot = await agent.waitForTurns(sessionId, 2);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.equal(snapshot.messages.at(-1)?.text, `history: ${command}`);
+    const healedResult = snapshot.messages[ended.messages.length + 1];
+    assert.deepEqual(
+      [healedResult?.role, healedResult?.turnId, healedResult?.toolCallId, healedResult?.toolOutput],
+      ["tool", "turn-2", interrupt.toolCallId, outcomeUnknownToolResult],
+    );
+    assertUniqueTranscriptEntries(snapshot.messages);
+    // The CLI did not resume the call again: one deferral, and one stored result.
+    const entries = storedTranscriptEntries(snapshot.messages);
+    const deferrals = entries.filter(
+      (entry) => (entry["attachment"] as JsonBlock | undefined)?.["toolUseID"] === interrupt.toolCallId,
+    );
+    assert.equal(deferrals.length, 1);
+    const storedResults = entries
+      .map((entry) => entry["message"]).flatMap(contentOf)
+      .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId);
+    assert.equal(storedResults.length, 1);
+    assert.equal(agent.invocations.count("publish"), 0);
+    // The model sees the unknown outcome right after the call, never the CLI's internal-error filler.
+    const recallRequests = api
+      .scriptedRequests()
+      .filter((request) => request.command === "recall" && JSON.stringify(request.messages).includes(interrupt.toolCallId));
+    assert.equal(recallRequests.length, 1);
+    const recallMessages = recallRequests[0]?.messages ?? [];
+    assert.equal(JSON.stringify(recallMessages).includes("Tool result missing"), false);
+    const toolUseIndex = recallMessages.findIndex((message) =>
+      contentOf(message).some((block) => block["type"] === "tool_use" && block["id"] === interrupt.toolCallId),
+    );
+    const resultBlocks = contentOf(recallMessages[toolUseIndex + 1]).filter(
+      (block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId,
+    );
+    assert.deepEqual(
+      resultBlocks.map((block) => [withoutSystemReminders(block["content"]), block["is_error"]]),
+      [[outcomeUnknownToolResult, true]],
+    );
+  });
+
+  test("a call left open behind a turn that an older Worker completed is answered right after its tool use", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-older-worker-turns");
+    const command = 'call publish {"message":"draft"}';
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    await agent.cancelTurnWithoutUnfinishedTurnMessages(sessionId, 1);
+    const afterOlderTurn = await agent.withoutEndedTurnAnswers(async () => {
+      assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}say second`), true);
+      return agent.waitForTurns(sessionId, 2);
+    });
+    // The older Worker's CLI deferred the open call again and stored no result for it.
+    assert.equal(deferralsOf(afterOlderTurn.messages, interrupt.toolCallId), 2);
+    assert.equal(resultsOf(afterOlderTurn.messages, interrupt.toolCallId), 0);
+    const firstNewRequest = api.requests.length;
+
+    const { result: snapshot, outcomes } = await agent.withFailedFirstAttempt("turn-3", async () => {
+      assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+      return agent.waitForTurns(sessionId, 3);
+    });
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.equal(snapshot.messages.at(-1)?.text, `history: ${command} | say second`);
+    const answer = snapshot.messages[afterOlderTurn.messages.length + 1];
+    assert.deepEqual(
+      [answer?.role, answer?.turnId, answer?.toolCallId, answer?.toolOutput],
+      ["tool", "turn-3", interrupt.toolCallId, outcomeUnknownToolResult],
+    );
+    assert.equal(outcomes.length, 2);
+    assert.deepEqual(firstNewMessageOf(outcomes[1]), firstNewMessageOf(outcomes[0]));
+    assert.equal(resultsOf(snapshot.messages, interrupt.toolCallId), 1);
+    assert.equal(deferralsOf(snapshot.messages, interrupt.toolCallId), 2);
+    assertUniqueTranscriptEntries(snapshot.messages);
+    assert.equal(agent.invocations.count("publish"), 0);
+    // Both attempts sent the model the answer right after the call, and never the CLI's filler.
+    const turnThreeRequests = api.requests.slice(firstNewRequest).filter((request) => request.command === "recall");
+    assert.equal(turnThreeRequests.length, 2);
+    for (const request of turnThreeRequests) {
+      assert.equal(JSON.stringify(request.messages).includes("Tool result missing"), false);
+      const toolUseIndex = request.messages.findIndex((message) =>
+        contentOf(message).some((block) => block["type"] === "tool_use" && block["id"] === interrupt.toolCallId),
+      );
+      assert.ok(toolUseIndex >= 0);
+      assert.deepEqual(
+        contentOf(request.messages[toolUseIndex + 1])
+          .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId)
+          .map((block) => [withoutSystemReminders(block["content"]), block["is_error"]]),
+        [[outcomeUnknownToolResult, true]],
+      );
+    }
+  });
+
   test("two connector writes of one reply run one at a time in the model's order", async () => {
     const agent = await startHarness("dontAsk");
     const ledger = new FakeLedgerProvider(agent.stateDirectory);
@@ -286,10 +469,16 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     await agent.sessions.startSession(sessionId);
     assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}${command}`, false, [userImage]), true);
     const interrupt = await agent.waitForNewInterrupt(sessionId, "screenshot");
-    // The suspended turn keeps its transcript, user image included, in the run state.
+    // The suspended turn stores its transcript so far, user image included, as references only.
+    const suspended = await agent.sessions.getAgentSnapshot(sessionId);
+    const storedTranscript = suspended.messages
+      .filter((message) => message.role !== "user")
+      .map((message) => message.frameworkItem)
+      .join("\n");
+    assert.ok(storedTranscript.includes(userImage.uri));
+    assert.equal(storedTranscript.includes(userImageBase64), false);
     const [runState] = await agent.sessions.client.getAttributes(sessionId, agent.flow.frameworkRunState);
-    assert.ok(runState?.includes(userImage.uri));
-    assert.equal(runState?.includes(userImageBase64), false);
+    assert.equal(runState?.includes(userImage.uri), false);
 
     await worker.kill();
     worker = await agent.startWorker(workerEnvironment);
@@ -422,6 +611,23 @@ type JsonBlock = Readonly<Record<string, unknown>>;
 function contentOf(message: unknown): JsonBlock[] {
   const content = (message as JsonBlock | undefined)?.["content"];
   return Array.isArray(content) ? (content as JsonBlock[]) : [];
+}
+
+// The real CLI may append reminders to the last tool result it sends.
+function withoutSystemReminders(content: unknown): unknown {
+  return typeof content === "string"
+    ? content.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim()
+    : content;
+}
+
+function userTextsIn(message: unknown): string[] {
+  const content = (message as JsonBlock | undefined)?.["content"];
+  if (typeof content === "string") {
+    return [content];
+  }
+  return contentOf(message)
+    .filter((block) => block["type"] === "text")
+    .map((block) => String(block["text"]));
 }
 
 function imageBlocksOf(content: unknown): JsonBlock[] {

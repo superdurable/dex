@@ -159,9 +159,13 @@ describe("tool tasks and questions of a Claude agent's tool source", () => {
 
     assert.equal(await agent.sessions.cancelTurn(sessionId), true);
     const snapshot = await agent.waitForTurns(sessionId, 1);
-    const note = snapshot.messages.at(-1)?.text ?? "";
-    assert.ok(note.startsWith(turnCancelledNoteHeader), note);
-    assert.ok(note.includes(`-> outcome_unknown: ${outcomeUnknownToolResult}`), note);
+    // The abandoned call's stored result is its unknown outcome, so the turn needs no note.
+    const abandonedResult = snapshot.messages.at(-1);
+    assert.deepEqual(
+      [abandonedResult?.role, abandonedResult?.toolCallId, abandonedResult?.toolOutput],
+      ["tool", waiting.toolCallId, outcomeUnknownToolResult],
+    );
+    assert.equal(snapshot.messages.some((message) => message.text?.startsWith(turnCancelledNoteHeader) === true), false);
     // The source sees the abandoned record with its task ID and cancellation reason.
     assert.equal(
       agent.invocations.names().filter((name) => name === `cancel-task ${taskId} waiting_for_task turn_cancelled`).length,

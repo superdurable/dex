@@ -22,7 +22,10 @@ import {
 import {
   ToolExecutionError,
   collectTurnImages,
+  describeToolCallOutcome,
+  isFinalToolCallStatus,
   loadImages,
+  outcomeUnknownToolResult,
   type AgentFrameworkRunner,
   type AgentImageReference,
   type AgentToolCall,
@@ -60,6 +63,8 @@ import {
 } from "./claude-tool-sources.js";
 import {
   answeredToolUseIds,
+  buildResumeTranscript,
+  buildUnfinishedToolResultEntries,
   decodeRunState,
   encodeRunState,
   encodeUserPromptItem,
@@ -69,6 +74,7 @@ import {
   toolResultText,
   type ClaudeTranscriptEntry,
   type PromptContentBlock,
+  type UnfinishedToolResult,
 } from "./claude-transcript.js";
 import { TranscriptImageCodec, imageReferencesIn } from "./claude-transcript-images.js";
 import { TurnSegmentSessionStore } from "./turn-segment-session-store.js";
@@ -464,10 +470,19 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * call's final record. The CLI then adds a hidden "Continue from where you left off." message. The
    * runner keeps the CLI's input open until the segment's result message, then closes it.
    *
+   * Every segment also answers each tool use of an ended turn that has no result, with
+   * {@link outcomeUnknownToolResult}. Only a Worker without {@link buildUnfinishedTurnMessages}, such as adapter
+   * 0.6.11 or the Python adapter, ends a turn that way after a deferral this adapter stored. Without the answer, the
+   * CLI would resume that call as a pending deferral and fill in its own missing-result text. The segment stores a new
+   * answer before its own messages. The CLI always gets each answer right after its tool use, and no deferral
+   * attachment of an answered call. Since 0.6.12.
+   *
    * @param turn - Committed session state for this segment.
-   * @returns `ToolCallsRequested` with the one call the CLI deferred, and the Claude session ID and the
-   * turn's transcript entries so far as run state; otherwise `TurnCompleted` with the turn's transcript
-   * entries grouped into messages.
+   * @returns `ToolCallsRequested` with the one call the CLI deferred, the Claude session ID as run state, and the
+   * segment's transcript entries grouped into `newMessages`; otherwise `TurnCompleted` with the segment's
+   * transcript entries grouped into messages. Entries that an earlier adapter's run state still holds come first
+   * in either. Changed in 0.6.12: `ToolCallsRequested` stores the turn so far in `newMessages` instead of keeping
+   * it in the run state, and `TurnCompleted` holds only what the turn has not stored yet.
    * @throws {TypeError} When the options are unsupported, or a tool source listed a name another tool uses.
    * @throws {Error} When the CLI reported an error result, ended without a result, deferred a call that the
    * adapter's PreToolUse hook did not defer, or its transcript could not be stored. The session retries the
@@ -488,7 +503,13 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
       earlierTurnEntries = suspendedTurn.turnEntries;
       promptContent = undefined;
     }
-    const resumedEntries = [...committedTranscript.entries, ...earlierTurnEntries];
+    const resumeTranscript = buildResumeTranscript(
+      committedTranscript.sessionId,
+      [...committedTranscript.entries, ...earlierTurnEntries],
+      loadSessionTranscript(turn.messages.filter((message) => message.turnId !== turn.turnId)).entries,
+      outcomeUnknownToolResult,
+    );
+    const resumedEntries = resumeTranscript.entries;
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const imageCodec = this.transcriptImageCodec(turn, [resumedEntries, promptContent]);
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries, imageCodec);
@@ -534,26 +555,84 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     }
     const result = observer.successfulResult();
     const segmentTranscript = sessionStore.takeSegmentTranscript();
-    const turnEntries = [...earlierTurnEntries, ...segmentTranscript.entries];
+    // A run state from adapter 0.6.11 or earlier holds the turn's unstored entries so far.
+    const unstoredTurnEntries = [...resumeTranscript.newAnswerEntries, ...earlierTurnEntries, ...segmentTranscript.entries];
+    const newMessages = projectTurnEntries(
+      segmentTranscript.sessionId,
+      unstoredTurnEntries,
+      (cliToolName) => toolCatalog.policyToolName(cliToolName),
+      committedTranscript.entries,
+    );
     const usage = observer.usage(result);
     const modelCallMetadata = observer.modelCallMetadata(result, applicationOptions.model);
     if (result.subtype === "success" && result.deferred_tool_use !== undefined) {
       return {
         kind: "tool_calls_requested",
-        frameworkRunState: encodeRunState(segmentTranscript.sessionId, turnEntries),
+        frameworkRunState: encodeRunState(segmentTranscript.sessionId, []),
         toolCalls: [toolCallGate.deferredToolCall(result.deferred_tool_use)],
         usage,
         modelCallMetadata,
+        newMessages,
       };
     }
-    return {
-      kind: "completed",
-      newMessages: projectTurnEntries(segmentTranscript.sessionId, turnEntries, (cliToolName) =>
-        toolCatalog.policyToolName(cliToolName),
-      ),
-      usage,
-      modelCallMetadata,
-    };
+    return { kind: "completed", newMessages, usage, modelCallMetadata };
+  }
+
+  /**
+   * Returns the transcript messages that a turn ending without a final answer still needs.
+   *
+   * The session calls it when the user steers or cancels a turn, and when a turn fails. Each `RunModel` that defers
+   * a call stores the turn's transcript so far, so most of the turn is already stored. This method adds a tool
+   * result for every tool use of the turn that has none, which is usually the last deferred call. The result is the
+   * call's final record, as the resumed CLI would have received it: the output of a custom or source tool, its
+   * failure, or its rejection, such as the steering or cancellation result. A tool that runs inside the CLI, such as
+   * `Bash`, gets the unknown-outcome text, because a failed `RunModel` attempt may have run it. A tool use without a
+   * final record gets the same text. Each result is a Claude Code tool result entry, so the next turn resumes a
+   * complete Claude session: the model sees what ran and its result, and nothing resumes the abandoned call.
+   *
+   * The method reads only the turn's stored messages, its run state, and its records, so it returns the same
+   * messages for the same committed state. Applications call it only in tests.
+   *
+   * @example
+   * ```ts
+   * const runner = new ClaudeAgentRunner(buildOptions, { customTools: [publish] });
+   * const messages = runner.buildUnfinishedTurnMessages(endedTurn);
+   * assert.equal(messages.at(-1)?.toolOutput, endedTurn.toolCalls.at(-1)?.output);
+   * ```
+   * @param turn - The ended turn, with its stored messages, its run state, and its final records.
+   * @returns The turn's entries that are not stored yet, from an earlier adapter's run state, followed by one `"tool"`
+   * message per tool use without a result; none when every tool use has a result or the turn stored no transcript.
+   * Each `frameworkItem` is a `claude_transcript` item.
+   * @throws {TypeError} When a stored transcript item or the run state is malformed. The session then stores its note
+   * instead.
+   * @since 0.6.12
+   */
+  public buildUnfinishedTurnMessages(turn: AgentTurnContext): FrameworkMessage[] {
+    const storedTurnTranscript = loadSessionTranscript(
+      turn.messages.filter((message) => message.turnId === turn.turnId),
+    );
+    const suspendedTurn = turn.frameworkRunState === null ? null : decodeRunState(turn.frameworkRunState);
+    const sessionId = suspendedTurn?.sessionId ?? storedTurnTranscript.sessionId;
+    const unstoredTurnEntries = suspendedTurn?.turnEntries ?? [];
+    const turnEntries = [...storedTurnTranscript.entries, ...unstoredTurnEntries];
+    if (sessionId === null || turnEntries.length === 0) {
+      return [];
+    }
+    const toolCatalog = this.toolCatalog.withSourceTools(
+      new Map(),
+      turn.toolCalls
+        .filter((toolCall) => this.toolSourceRouter.isSourceCall(toolCall))
+        .map((toolCall) => toolCall.toolName),
+    );
+    const resultEntries = buildUnfinishedToolResultEntries(sessionId, turnEntries, (toolUse) =>
+      this.describeUnfinishedToolResult(turn.recordedToolCall(toolUse.toolUseId)),
+    );
+    return projectTurnEntries(
+      sessionId,
+      [...unstoredTurnEntries, ...resultEntries],
+      (cliToolName) => toolCatalog.policyToolName(cliToolName),
+      storedTurnTranscript.entries,
+    );
   }
 
   /**
@@ -730,6 +809,22 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
       throw new RangeError(`no tool source built the call of tool ${toolCall.toolName}`);
     }
     return routed;
+  }
+
+  private describeUnfinishedToolResult(record: AgentToolCall | undefined): UnfinishedToolResult {
+    if (record === undefined || !isFinalToolCallStatus(record.status)) {
+      return { text: outcomeUnknownToolResult, isError: true, images: [] };
+    }
+    if (record.status !== "succeeded") {
+      return { text: describeToolCallOutcome(record), isError: true, images: [] };
+    }
+    const isCliToolCall =
+      this.toolSourceRouter.route(record) === undefined && this.toolCatalog.customTool(record.toolName) === undefined;
+    // An approved CLI tool runs only in the resumed CLI, which may have run it before failing.
+    if (isCliToolCall) {
+      return { text: outcomeUnknownToolResult, isError: true, images: [] };
+    }
+    return { text: describeToolCallOutcome(record), isError: false, images: record.images ?? [] };
   }
 
   private async loadRecordedToolImages(turn: AgentTurnContext): Promise<ReadonlyMap<string, Uint8Array>> {

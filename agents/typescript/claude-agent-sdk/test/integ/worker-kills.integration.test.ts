@@ -14,6 +14,7 @@ import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { ClaudeAgentTestHarness } from "../fixtures/claude-agent-test-harness.js";
 import { slowWriteGateName } from "../fixtures/claude-test-agent.js";
+import { assertUniqueTranscriptEntries } from "../fixtures/transcript-assertions.js";
 
 describe("Claude agent sessions survive a Worker killed with SIGKILL", () => {
   let engine: PrivateDexEngine;
@@ -127,6 +128,16 @@ describe("Claude agent sessions survive a Worker killed with SIGKILL", () => {
     const snapshot = await agent.waitForTurns(sessionId, 1);
     assert.equal(snapshot.state?.lastTurnError, null);
     assert.equal(snapshot.messages.at(-1)?.text, "publish: published hello");
+    assert.deepEqual(
+      snapshot.messages.map((message) => [message.role, message.toolName]),
+      [
+        ["user", null],
+        ["assistant", "publish"],
+        ["tool", "publish"],
+        ["assistant", null],
+      ],
+    );
+    assertUniqueTranscriptEntries(snapshot.messages);
     assert.equal(agent.invocations.count("publish"), 1);
     assert.equal(agent.invocations.count("cli:resume"), 2);
     assert.equal(answerGate.reachedCount(), 2);

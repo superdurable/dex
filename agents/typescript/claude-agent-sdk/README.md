@@ -350,9 +350,10 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
    - A custom `read` call without approval, or an approval-free CLI tool call: `allow`.
    - The first other custom tool call of the segment, or the first CLI tool call that needs approval:
      `defer`. The CLI ends the segment with `terminal_reason: "tool_deferred"` and the call in
-     `deferred_tool_use`. The runner returns `ToolCallsRequested` with that one call, the session ID,
-     and the turn's entries so far as `FrameworkRunState`. The call's arguments are the CLI's recorded
-     input, after every PreToolUse hook's `updatedInput`.
+     `deferred_tool_use`. The runner returns `ToolCallsRequested` with that one call, the session ID
+     as `FrameworkRunState`, and the segment's transcript entries as `newMessages`, so the session
+     stores the turn so far in the same commit and a UI shows it while the call waits. The call's
+     arguments are the CLI's recorded input, after every PreToolUse hook's `updatedInput`.
    - Every later deferrable call of the same segment: `deny` with "<tool> did not run. ... Call
      <tool> again by itself." The CLI resumes only one deferred call, so a second one would never get
      a result. The model calls it again in a later reply.
@@ -368,7 +369,8 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
    result writes `outcome_unknown`. A rejected or unfinished CLI tool is `ask`, and `canUseTool` denies it with "The user rejected this <tool> call: <reason>", or the
    record's failure or unknown outcome text. The CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
    The runner closes the CLI's input when the segment's result arrives.
-6. When the CLI produces the final answer, the runner returns `TurnCompleted`. Each assistant API
+6. When the CLI produces the final answer, the runner returns `TurnCompleted` with the segment's
+   entries; earlier segments of the turn are already stored. Each assistant API
    message and each tool result becomes one stored message. Its `frameworkItem` is
    `{"kind": "claude_transcript", "session_id": ..., "entries": [...]}`; other entries, such as the
    CLI's copy of the prompt, the deferral attachment, and the hidden continuation, ride along with the
@@ -478,9 +480,47 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
   from an earlier segment would make a later resume skip every entry after it. Entries that adapter
   0.4.0 stored are dropped when a segment reads the transcript.
 
-When a turn fails after deferred calls ran, the core stores a turn-failure note that lists them. The
-failed turn's transcript is not stored, so the next turn resumes the last completed turn's Claude
-session and sends the failed prompt, the note, and its own prompt as three text blocks.
+A turn that ends without a final answer keeps the transcript that its deferrals stored. When the user
+steers or cancels it, or it fails, `buildUnfinishedTurnMessages` adds a tool result for each tool use
+that has none, usually the last deferred call, with the call's final record: a custom or source tool's
+output, failure, or rejection, such as the steering or cancellation result. An approved tool that runs
+inside the CLI, such as `Bash`, and a call without a final record get the unknown-outcome text, since
+a failed segment may have run it. A steered or cancelled turn then needs no note. The next turn resumes
+the same Claude session, which has no unanswered tool use, so the CLI never resumes the abandoned
+call. Claude Code adds its own assistant message "No response requested." after such a tail, before
+the next prompt; the model sees it, and the session stores it with the next turn. A failed turn also
+gets the core's turn-failure note; the next turn sends the note and its own prompt as two text
+blocks. A turn that ends before its first deferral stored nothing, so a failed one sends the failed
+prompt, the note, and its own prompt as three text blocks.
+
+Changed in 0.6.12: each deferral stores the turn so far, and a steered, cancelled, or failed turn
+stores the tool result of its abandoned call instead of relying on the core's note alone. A run state
+of an earlier adapter still holds the turn's unstored entries, which the runner stores when the turn
+continues or ends. `RunModel` answers the open calls of ended turns, as below.
+
+### Ended turns
+
+A Worker of the same Flow type without `buildUnfinishedTurnMessages`, such as adapter 0.6.11 during a
+rolling upgrade or the Python adapter, can end a turn after this adapter stored its deferral. It
+stores only the core's note, so the stored tool use keeps no result. The CLI would then resume that
+call as a pending deferral on every later turn and give the model its own missing-result text, even
+after such a Worker completes more turns. So every `RunModel` builds the transcript the CLI resumes
+from this way:
+
+- An ended turn is any turn other than the running one. Each main-conversation tool use of an ended
+  turn that has no tool result anywhere in the stored transcript gets an answer: an error tool result
+  with the unknown-outcome text. That turn's records are gone; the note still tells the model what
+  ran. The answer's uuid derives from the Claude session ID and the tool use ID, and its timestamp is
+  the tool use's, so every attempt builds the same answer.
+- The segment stores each new answer once, in the running turn, before its own messages, so a UI
+  shows it there and later turns find the call answered.
+- The CLI gets every answer, stored or new, right after the entry of its tool use, chained to it.
+  Entries that continued the conversation from that entry continue from the answer instead, and the
+  call's deferral attachments are left out, with their children chained to their parents. So the
+  model sees the call paired with its answer, and the CLI resumes no deferral of an ended turn. The
+  stored entries never change; only the transcript given to the CLI does.
+- The scan reads only the transcript entries that every `RunModel` already loads to resume the
+  session, so it adds no Flow state reads.
 
 ## Limits
 
@@ -588,13 +628,19 @@ attempts run out, a tool error result, approved and rejected `Bash`, two writes 
 input-rewriting application hook, a rewritten input that fails the tool's schema, a resumed call
 answered through `canUseTool` when the hooks are skipped, custom tool names that collide with Claude
 Code tools, SIGKILL during
-a resumed segment, a CLI error result, and a resumed turn that fails after a write and leaves a note
-for the next prompt. `test/integ/tracing.integration.test.ts` runs an in-process Worker with an
+a resumed segment, a CLI error result, and a resumed turn that fails after a write and leaves the
+write's result and a note for the next prompt. `test/integ/unfinished-turns.integration.test.ts`
+covers the transcript a deferral stores, a turn steered at an approval, turns cancelled while the
+resumed CLI runs a custom tool or `Bash`, and the next turn after a Worker without
+`buildUnfinishedTurnMessages` cancelled a turn at a stored deferral, also behind a turn such a Worker
+completed, with a retried attempt. `test/integ/tracing.integration.test.ts` runs an in-process Worker with an
 in-memory span exporter and checks the `chat` span metadata of a one-call answer, a two-call `read`
 tool turn, a deferred write and its resumed answer, and a segment with a subagent call, plus the
 provider name mapping. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
-write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, two
-writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
+write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, a
+turn steered at an approval whose next turn resumes a complete session, the next turn after a Worker
+without `buildUnfinishedTurnMessages` cancelled a turn at a stored deferral, also behind a turn such
+a Worker completed, two writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
 approved `Bash`, also with a command that an application hook rewrote. The fake-CLI suites also cover an application hook that denies a resumed call, and a
 `Bash` command that an application hook rewrote and that resumes with the approved input.
 
