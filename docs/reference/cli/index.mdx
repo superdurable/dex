@@ -316,6 +316,22 @@ Every command that changes a Flow requires **--yes**. Stop and time travel act
 on the current run by default. Pass **--run-id** to act on an exact run, so an
 agent that looked up an older run cannot change a newer one.
 
+**flow stop** calls
+[**StopFlow**](/reference/server/runtime-client#stop-a-flow). **--type** is
+**cancel** (the default), **terminate**, **fail**, **graceful-complete**, or
+**force-complete**. **terminate** and **fail** use **--reason**. The two
+complete types close the Flow as completed. **--result** adds one Flow result
+to them; it takes natural JSON, **@FILE**, or **-** for stdin, and other types
+reject it.
+
+```bash
+dexcli flow stop session-42 --type graceful-complete \
+  --result '{"summary":"user ended the session"}' --yes
+```
+
+The complete types and **--result** are available since 1.47.9 and need
+server-zd 0.1.34 or later.
+
 ### Time travel and clone fork {#time-travel-and-clone-fork}
 
 **flow time-travel** returns a Flow run to a point in its history. It calls

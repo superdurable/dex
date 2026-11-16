@@ -80,6 +80,28 @@ function expectStrongLabelsInOrder(markup: string, labels: string[]): void {
 }
 
 describe('selected step event details', () => {
+  it('labels a Flow result that a stop request added without a Step', () => {
+    const closed: FlowHistoryEvent = {
+      eventId: 20,
+      eventTime: '2026-11-15T12:00:00Z',
+      type: 'FlowClosed',
+      payload: {
+        flowStatus: 2,
+        results: [
+          { completedStepType: 'Review', completedStepExecutionId: 'Review-1', completedStepOutput: { stringValue: 'approved' } },
+          { completedStepOutput: { stringValue: 'closed by operator' } },
+        ],
+      },
+    };
+
+    const markup = renderDetails(closed);
+
+    expect(markup).toContain('Flow results');
+    expect(markup).toContain('Review-1');
+    expect(markup).toContain('None (added by a stop request)');
+    expect(markup).toContain('closed by operator');
+  });
+
   it('links a Time Travel fork to its previous run', () => {
     const fork: FlowHistoryEvent = {
       eventId: 9,

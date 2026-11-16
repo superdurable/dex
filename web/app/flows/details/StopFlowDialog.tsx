@@ -13,10 +13,23 @@ import { webURL } from '@/lib/basePath';
 import { useModalFocus } from '../../components/useModalFocus';
 
 const stopTypes = [
-  { value: 1, label: 'Cancel', needsReason: false },
-  { value: 2, label: 'Terminate', needsReason: true },
-  { value: 3, label: 'Fail', needsReason: true },
+  { value: 1, label: 'Cancel', needsReason: false, completes: false, hint: 'Requests cooperative cancellation, so running Steps can clean up.' },
+  { value: 2, label: 'Terminate', needsReason: true, completes: false, hint: 'Stops the run at once, without cleanup.' },
+  { value: 3, label: 'Fail', needsReason: true, completes: false, hint: 'Closes the run as failed, with the reason as its error.' },
+  { value: 4, label: 'Graceful complete', needsReason: false, completes: true, hint: 'Completes the Flow after active Steps finish; their decisions still apply.' },
+  { value: 5, label: 'Force complete', needsReason: false, completes: true, hint: 'Cancels active Steps and completes the Flow once pending Attribute Sync writes and transactional RPCs finish.' },
 ];
+
+/** Returns the JSON parse error message for text, or an empty string when text is empty or valid JSON. */
+function stopOutputError(text: string): string {
+  if (text.trim() === '') return '';
+  try {
+    JSON.parse(text);
+    return '';
+  } catch (parseError) {
+    return parseError instanceof Error ? `Invalid JSON: ${parseError.message}` : 'Invalid JSON';
+  }
+}
 
 export function StopFlowDialog({
   open,
@@ -31,11 +44,22 @@ export function StopFlowDialog({
 }) {
   const [stopType, setStopType] = useState(1);
   const [reason, setReason] = useState('');
+  const [output, setOutput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [wasOpen, setWasOpen] = useState(open);
+  // The dialog stays mounted, so a reopen must not resend an earlier output.
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setOutput('');
+      setError('');
+    }
+  }
   const selected = stopTypes.find((item) => item.value === stopType) || stopTypes[0];
   const reasonRequired = selected.needsReason;
-  const canSubmit = !submitting && (!reasonRequired || reason.trim() !== '');
+  const outputError = selected.completes ? stopOutputError(output) : '';
+  const canSubmit = !submitting && (!reasonRequired || reason.trim() !== '') && outputError === '';
 
   const modalRef = useModalFocus<HTMLDivElement>(open, onClose);
   if (!open) return null;
@@ -44,6 +68,7 @@ export function StopFlowDialog({
     setSubmitting(true);
     setError('');
     try {
+      // The raw text keeps large integers exact; the server decodes it.
       const response = await fetch(webURL('/api/flows/stop'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -51,7 +76,8 @@ export function StopFlowDialog({
           flowId: summary.flowId,
           runId: summary.runId,
           stopType,
-          reason,
+          reason: selected.completes ? '' : reason,
+          output: selected.completes ? output.trim() : '',
         }),
       });
       await readResponseJSON(response);
@@ -71,10 +97,7 @@ export function StopFlowDialog({
           <h2 className="modal-title-danger">Stop flow</h2>
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
-        <p>
-          Stop ends the current run. Cancel requests graceful cancellation,
-          terminate forces an immediate stop, and fail records a client failure.
-        </p>
+        <p>Stop ends the current run. The stop type decides how it ends.</p>
         <label>
           Stop type
           <select value={stopType} onChange={(event) => setStopType(Number(event.target.value))}>
@@ -82,11 +105,34 @@ export function StopFlowDialog({
               <option value={item.value} key={item.value}>{item.label}</option>
             ))}
           </select>
+          <small className="muted">{selected.hint}</small>
         </label>
-        <label>
-          Reason{reasonRequired ? '' : ' (optional)'}
-          <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
-        </label>
+        {selected.completes ? (
+          <label>
+            Output (optional JSON)
+            <textarea
+              aria-describedby="stop-flow-output-message"
+              aria-invalid={outputError ? true : undefined}
+              placeholder={'{"summary": "ended by operator"}'}
+              rows={3}
+              spellCheck={false}
+              value={output}
+              onChange={(event) => setOutput(event.target.value)}
+            />
+            <small
+              aria-live="polite"
+              className={outputError ? 'field-error' : 'muted'}
+              id="stop-flow-output-message"
+            >
+              {outputError || 'Added to the Flow results. Leave empty for no output.'}
+            </small>
+          </label>
+        ) : (
+          <label>
+            Reason{reasonRequired ? '' : ' (optional)'}
+            <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
+          </label>
+        )}
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions">
           <button className="button ghost" onClick={onClose}>Close</button>

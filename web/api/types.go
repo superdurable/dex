@@ -259,4 +259,6 @@ type stopFlowRequest struct {
 	RunID    string `json:"runId"`
 	StopType int32  `json:"stopType"`
 	Reason   string `json:"reason"`
+	// Output is the natural JSON text of the Flow result for a complete stop type; empty sends none.
+	Output string `json:"output"`
 }
