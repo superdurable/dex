@@ -204,7 +204,8 @@ export function StepOutputs({ values }: { values: unknown }) {
       {outputs.map((output, index) => (
         <div className="semantic-record" key={`${String(output.completedStepExecutionId)}-${index}`}>
           <Fields values={[
-            ['Step', output.completedStepType],
+            // A StopFlow complete type adds a result that no Step returned.
+            ['Step', isPresent(output.completedStepType) ? output.completedStepType : 'None (added by a stop request)'],
             ['Execution ID', output.completedStepExecutionId],
           ]} />
           <ValueBlock label="Output" value={output.completedStepOutput} />

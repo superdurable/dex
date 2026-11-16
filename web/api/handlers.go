@@ -594,29 +594,84 @@ func (h *handler) stopFlow(response http.ResponseWriter, request *http.Request) 
 		return
 	}
 	stopType := dexpb.StopType(body.StopType)
+	isCompleteStopType := false
 	switch stopType {
-	case dexpb.StopType_STOP_TYPE_CANCEL,
-		dexpb.StopType_STOP_TYPE_TERMINATE,
+	case dexpb.StopType_STOP_TYPE_CANCEL:
+	case dexpb.StopType_STOP_TYPE_TERMINATE,
 		dexpb.StopType_STOP_TYPE_FAIL:
+		if strings.TrimSpace(body.Reason) == "" {
+			WriteError(response, http.StatusBadRequest, "reason is required for terminate and fail", nil)
+			return
+		}
+	case dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE,
+		dexpb.StopType_STOP_TYPE_FORCE_COMPLETE:
+		isCompleteStopType = true
 	default:
-		WriteError(response, http.StatusBadRequest, "stopType must be cancel, terminate, or fail", nil)
+		WriteError(response, http.StatusBadRequest,
+			"stopType must be cancel, terminate, fail, graceful complete, or force complete", nil)
 		return
 	}
-	if stopType != dexpb.StopType_STOP_TYPE_CANCEL && strings.TrimSpace(body.Reason) == "" {
-		WriteError(response, http.StatusBadRequest, "reason is required for terminate and fail", nil)
-		return
+	var output *dexpb.Value
+	if strings.TrimSpace(body.Output) != "" {
+		if !isCompleteStopType {
+			WriteError(response, http.StatusBadRequest, "output requires graceful complete or force complete", nil)
+			return
+		}
+		var err error
+		output, err = encodeNaturalJSONValue(body.Output)
+		if err != nil {
+			WriteError(response, http.StatusBadRequest, "output: "+err.Error(), nil)
+			return
+		}
 	}
 	_, err := h.client.StopFlow(request.Context(), &dexpb.StopFlowRequest{
 		FlowId:   body.FlowID,
 		RunId:    body.RunID,
 		Reason:   body.Reason,
 		StopType: stopType,
+		Output:   output,
 	})
 	if err != nil {
 		writeGRPCError(response, err, "StopFlow")
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]struct{}{})
+}
+
+// encodeNaturalJSONValue maps one JSON value to a Dex Value with the SDK encoding rules, as dexcli does.
+func encodeNaturalJSONValue(text string) (*dexpb.Value, error) {
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	var value interface{}
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("must contain exactly one JSON value")
+	}
+	switch typed := value.(type) {
+	case string:
+		return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: typed}}, nil
+	case bool:
+		return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: typed}}, nil
+	case json.Number:
+		if integer, err := typed.Int64(); err == nil {
+			return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: integer}}, nil
+		}
+		floating, err := typed.Float64()
+		if err != nil || math.IsInf(floating, 0) || math.IsNaN(floating) {
+			return nil, fmt.Errorf("number %q is outside Dex's numeric range", typed)
+		}
+		return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: floating}}, nil
+	default:
+		payload, err := json.Marshal(typed)
+		if err != nil {
+			return nil, fmt.Errorf("encode JSON value: %w", err)
+		}
+		return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: "json", Payload: payload,
+		}}}, nil
+	}
 }
 
 func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request) {

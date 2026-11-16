@@ -683,7 +683,8 @@ dexcli flow history FLOW_ID [--run-id RUN_ID] [--start-event-id N]
 dexcli flow inspect FLOW_ID [--run-id RUN_ID] [--all-history]
 dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N]
 dexcli flow stop FLOW_ID [--run-id RUN_ID]
-                 [--type cancel|terminate|fail] [--reason TEXT] --yes
+                 [--type cancel|terminate|fail|graceful-complete|force-complete]
+                 [--reason TEXT] [--result JSON|@FILE|-] --yes
 dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
                     (--condition-id ID|--condition-index N) --yes
 dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--request-timeout DURATION]

@@ -844,6 +844,62 @@ func TestWebServerStopsFlow(t *testing.T) {
 	}
 }
 
+func TestWebServerCompletesFlowWithStopOutput(t *testing.T) {
+	service := &flowService{
+		stopRequests: make(chan *dexpb.StopFlowRequest, 2),
+	}
+	harness := newHarness(t, service)
+
+	graceful := postJSON(t, harness.http.URL+"/api/flows/stop", `{
+		"flowId":"checkout-1",
+		"runId":"run-1",
+		"stopType":4,
+		"output":"{\"summary\":\"done\",\"count\":9007199254740993}"
+	}`)
+	defer graceful.Body.Close()
+	if graceful.StatusCode != http.StatusOK {
+		t.Fatalf("graceful complete status = %d", graceful.StatusCode)
+	}
+	gracefulRequest := <-service.stopRequests
+	if gracefulRequest.GetStopType() != dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE ||
+		gracefulRequest.GetOutput().GetObjValue().GetEncoding() != "json" ||
+		string(gracefulRequest.GetOutput().GetObjValue().GetPayload()) != `{"count":9007199254740993,"summary":"done"}` {
+		t.Fatalf("unexpected graceful complete request: %+v", gracefulRequest)
+	}
+
+	force := postJSON(t, harness.http.URL+"/api/flows/stop", `{
+		"flowId":"checkout-1",
+		"stopType":5,
+		"output":"\"closed by operator\""
+	}`)
+	defer force.Body.Close()
+	if force.StatusCode != http.StatusOK {
+		t.Fatalf("force complete status = %d", force.StatusCode)
+	}
+	forceRequest := <-service.stopRequests
+	if forceRequest.GetStopType() != dexpb.StopType_STOP_TYPE_FORCE_COMPLETE ||
+		forceRequest.GetOutput().GetStringValue() != "closed by operator" {
+		t.Fatalf("unexpected force complete request: %+v", forceRequest)
+	}
+
+	for _, scenario := range []struct {
+		name string
+		body string
+	}{
+		{"output with cancel", `{"flowId":"checkout-1","stopType":1,"output":"\"done\""}`},
+		{"invalid output JSON", `{"flowId":"checkout-1","stopType":4,"output":"{"}`},
+		{"unknown stop type", `{"flowId":"checkout-1","stopType":6}`},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			response := postJSON(t, harness.http.URL+"/api/flows/stop", scenario.body)
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d", response.StatusCode)
+			}
+		})
+	}
+}
+
 func (s *flowService) SearchFlows(
 	_ context.Context,
 	request *dexpb.SearchFlowsRequest,

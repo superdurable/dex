@@ -340,6 +340,68 @@ func TestMutationRequiresYesBeforeSendingRequest(t *testing.T) {
 	}
 }
 
+func TestFlowStopCompleteTypesSendResult(t *testing.T) {
+	service, address := startTestFlowService(t)
+	executeTestCommand(t, nil,
+		"flow", "stop", "flow-1", "--type", "graceful-complete", "--result", `{"summary":"done"}`, "--yes", "--server", address,
+	)
+	service.mu.Lock()
+	request := service.stopRequest
+	service.mu.Unlock()
+	if request.GetStopType() != dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE ||
+		request.GetOutput().GetObjValue().GetEncoding() != "json" ||
+		string(request.GetOutput().GetObjValue().GetPayload()) != `{"summary":"done"}` {
+		t.Fatalf("unexpected graceful complete request: %#v", request)
+	}
+
+	executeTestCommand(t, []byte(`"closed by operator"`),
+		"flow", "stop", "flow-1", "--type", "force-complete", "--result", "-", "--yes", "--server", address,
+	)
+	service.mu.Lock()
+	request = service.stopRequest
+	service.mu.Unlock()
+	if request.GetStopType() != dexpb.StopType_STOP_TYPE_FORCE_COMPLETE ||
+		request.GetOutput().GetStringValue() != "closed by operator" {
+		t.Fatalf("unexpected force complete request: %#v", request)
+	}
+
+	executeTestCommand(t, nil,
+		"flow", "stop", "flow-1", "--type", "force-complete", "--yes", "--server", address,
+	)
+	service.mu.Lock()
+	request = service.stopRequest
+	service.mu.Unlock()
+	if request.GetStopType() != dexpb.StopType_STOP_TYPE_FORCE_COMPLETE || request.GetOutput() != nil {
+		t.Fatalf("unexpected force complete request without result: %#v", request)
+	}
+}
+
+func TestFlowStopRejectsResultForOtherTypes(t *testing.T) {
+	service, address := startTestFlowService(t)
+	for _, scenario := range []struct {
+		name string
+		args []string
+	}{
+		{"result with cancel", []string{"--type", "cancel", "--result", `"done"`}},
+		{"invalid result JSON", []string{"--type", "graceful-complete", "--result", "{"}},
+		{"unknown type", []string{"--type", "complete"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+			args := append([]string{"flow", "stop", "flow-1"}, scenario.args...)
+			err := app.Execute(context.Background(), append(args, "--yes", "--server", address))
+			if err == nil || ExitCode(err) != 2 {
+				t.Fatalf("expected usage error, got %v", err)
+			}
+		})
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.stopCalls != 0 {
+		t.Fatalf("stop was called after a usage error")
+	}
+}
+
 func TestGenericAPIStreamWriteRequiresConfirmation(t *testing.T) {
 	service, address := startTestFlowService(t)
 	requestJSON := `{"flowId":"flow-1","flowType":"OrderFlow","streamName":"progress","streamCapacityBytes":"1024","value":{"stringValue":"working"},"source":"cli#writer"}`

@@ -307,11 +307,12 @@ func watchRun(
 func executeStop(c *flowCommand, ctx context.Context, args []string, options options) error {
 	flags := newFlagSet("dexcli flow stop", c.stderr)
 	runID := flags.String("run-id", "", "Flow run ID")
-	stopTypeName := flags.String("type", "cancel", "cancel, terminate, or fail")
+	stopTypeName := flags.String("type", "cancel", "cancel, terminate, fail, graceful-complete, or force-complete")
 	reason := flags.String("reason", "", "stop reason")
+	resultSource := flags.String("result", "", "Flow result JSON, @file, or - for stdin; only with graceful-complete or force-complete")
 	yes := flags.Bool("yes", false, "confirm the operation")
 	addCommonFlags(flags, &options)
-	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow stop FLOW_ID [--run-id ID] [--type TYPE] [--reason TEXT] --yes"); done || err != nil {
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow stop FLOW_ID [--run-id ID] [--type TYPE] [--reason TEXT] [--result JSON|@FILE|-] --yes"); done || err != nil {
 		return err
 	}
 	flowID, err := oneFlowID(flags, "flow stop")
@@ -322,12 +323,16 @@ func executeStop(c *flowCommand, ctx context.Context, args []string, options opt
 	if err != nil {
 		return newUsageError("flow stop", err)
 	}
+	output, err := parseStopResult(c.stdin, *resultSource, stopType)
+	if err != nil {
+		return newUsageError("flow stop", err)
+	}
 	if !*yes {
 		return newConfirmationError("flow stop")
 	}
 	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
 		_, callErr := client.service.StopFlow(callCtx, &dexpb.StopFlowRequest{
-			FlowId: flowID, RunId: *runID, StopType: stopType, Reason: *reason,
+			FlowId: flowID, RunId: *runID, StopType: stopType, Reason: *reason, Output: output,
 		})
 		if callErr != nil {
 			return newOperationError("flow stop", callErr)
@@ -346,9 +351,28 @@ func parseStopType(value string) (dexpb.StopType, error) {
 		return dexpb.StopType_STOP_TYPE_TERMINATE, nil
 	case "fail":
 		return dexpb.StopType_STOP_TYPE_FAIL, nil
+	case "graceful-complete":
+		return dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE, nil
+	case "force-complete":
+		return dexpb.StopType_STOP_TYPE_FORCE_COMPLETE, nil
 	default:
-		return dexpb.StopType_STOP_TYPE_UNSPECIFIED, fmt.Errorf("type must be cancel, terminate, or fail")
+		return dexpb.StopType_STOP_TYPE_UNSPECIFIED, fmt.Errorf("type must be cancel, terminate, fail, graceful-complete, or force-complete")
 	}
+}
+
+// parseStopResult returns nil when source is empty, or the natural JSON Value for a complete stop type.
+func parseStopResult(reader io.Reader, source string, stopType dexpb.StopType) (*dexpb.Value, error) {
+	if source == "" {
+		return nil, nil
+	}
+	if stopType != dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE && stopType != dexpb.StopType_STOP_TYPE_FORCE_COMPLETE {
+		return nil, fmt.Errorf("result requires type graceful-complete or force-complete")
+	}
+	output, err := parseNaturalValue(reader, source)
+	if err != nil {
+		return nil, fmt.Errorf("result: %w", err)
+	}
+	return output, nil
 }
 
 func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, options options) error {
