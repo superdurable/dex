@@ -17,7 +17,7 @@ const stopTypes = [
   { value: 2, label: 'Terminate', needsReason: true, completes: false, hint: 'Stops the run at once, without cleanup.' },
   { value: 3, label: 'Fail', needsReason: true, completes: false, hint: 'Closes the run as failed, with the reason as its error.' },
   { value: 4, label: 'Graceful complete', needsReason: false, completes: true, hint: 'Completes the Flow after active Steps finish; their decisions still apply.' },
-  { value: 5, label: 'Force complete', needsReason: false, completes: true, hint: 'Completes the Flow at once and cancels active Steps.' },
+  { value: 5, label: 'Force complete', needsReason: false, completes: true, hint: 'Cancels active Steps and completes the Flow once pending Attribute Sync writes and transactional RPCs finish.' },
 ];
 
 /** Returns the JSON parse error message for text, or an empty string when text is empty or valid JSON. */
@@ -47,6 +47,15 @@ export function StopFlowDialog({
   const [output, setOutput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [wasOpen, setWasOpen] = useState(open);
+  // The dialog stays mounted, so a reopen must not resend an earlier output.
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setOutput('');
+      setError('');
+    }
+  }
   const selected = stopTypes.find((item) => item.value === stopType) || stopTypes[0];
   const reasonRequired = selected.needsReason;
   const outputError = selected.completes ? stopOutputError(output) : '';
@@ -102,6 +111,7 @@ export function StopFlowDialog({
           <label>
             Output (optional JSON)
             <textarea
+              aria-describedby="stop-flow-output-message"
               aria-invalid={outputError ? true : undefined}
               placeholder={'{"summary": "ended by operator"}'}
               rows={3}
@@ -109,9 +119,13 @@ export function StopFlowDialog({
               value={output}
               onChange={(event) => setOutput(event.target.value)}
             />
-            {outputError
-              ? <small className="field-error">{outputError}</small>
-              : <small className="muted">Added to the Flow results. Leave empty for no output.</small>}
+            <small
+              aria-live="polite"
+              className={outputError ? 'field-error' : 'muted'}
+              id="stop-flow-output-message"
+            >
+              {outputError || 'Added to the Flow results. Leave empty for no output.'}
+            </small>
           </label>
         ) : (
           <label>

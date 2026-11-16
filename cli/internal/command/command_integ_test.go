@@ -395,6 +395,15 @@ func TestFlowStopRejectsResultForOtherTypes(t *testing.T) {
 			}
 		})
 	}
+	t.Run("result with cancel before confirmation", func(t *testing.T) {
+		app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+		err := app.Execute(context.Background(), []string{
+			"flow", "stop", "flow-1", "--type", "cancel", "--result", `"done"`, "--server", address,
+		})
+		if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "result requires type") {
+			t.Fatalf("expected result usage error before confirmation, got %v", err)
+		}
+	})
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.stopCalls != 0 {

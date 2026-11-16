@@ -50,7 +50,7 @@ describe('StopFlowDialog', () => {
     expect(screen.queryByText(/^Reason/)).toBeNull();
 
     fireEvent.change(stopTypeSelect, { target: { value: '5' } });
-    expect(screen.getByText(/at once and cancels active Steps/)).toBeTruthy();
+    expect(screen.getByText(/Cancels active Steps and completes the Flow once pending/)).toBeTruthy();
     expect(screen.getByText('Output (optional JSON)')).toBeTruthy();
 
     fireEvent.change(stopTypeSelect, { target: { value: '2' } });
@@ -69,7 +69,10 @@ describe('StopFlowDialog', () => {
     const submitButton = screen.getByRole('button', { name: 'Stop flow' }) as HTMLButtonElement;
 
     fireEvent.change(outputField, { target: { value: '{"summary":' } });
-    expect(screen.getByText(/^Invalid JSON/)).toBeTruthy();
+    const outputMessage = screen.getByText(/^Invalid JSON/);
+    expect(outputMessage.getAttribute('aria-live')).toBe('polite');
+    expect(outputField.getAttribute('aria-describedby')).toBe(outputMessage.id);
+    expect(outputField.getAttribute('aria-invalid')).toBe('true');
     expect(submitButton.disabled).toBe(true);
 
     fireEvent.change(outputField, { target: { value: ' {"count": 9007199254740993} ' } });
@@ -86,4 +89,64 @@ describe('StopFlowDialog', () => {
       output: '{"count": 9007199254740993}',
     });
   });
+
+  it('submits Force complete with its output', async () => {
+    const fetchMock = vi.fn(async () => okResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const { onStopped, stopTypeSelect } = renderDialog();
+    fireEvent.change(stopTypeSelect, { target: { value: '5' } });
+    fireEvent.change(screen.getByPlaceholderText(outputPlaceholder), { target: { value: '"closed by operator"' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop flow' }));
+
+    await waitFor(() => expect(onStopped).toHaveBeenCalled());
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      flowId: 'session-42',
+      runId: 'run-1',
+      stopType: 5,
+      reason: '',
+      output: '"closed by operator"',
+    });
+  });
+
+  it('clears the output and error when it reopens after a close', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse()));
+    const { rerender } = render(dialogAt(true));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '4' } });
+    fireEvent.change(screen.getByPlaceholderText(outputPlaceholder), { target: { value: '{"summary":' } });
+    expect(screen.getByText(/^Invalid JSON/)).toBeTruthy();
+
+    rerender(dialogAt(false));
+    rerender(dialogAt(true));
+
+    expect((screen.getByPlaceholderText(outputPlaceholder) as HTMLTextAreaElement).value).toBe('');
+    expect(screen.queryByText(/^Invalid JSON/)).toBeNull();
+  });
+
+  it('clears the submitted output when it reopens after a stop', async () => {
+    const fetchMock = vi.fn(async () => okResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    let isOpen = true;
+    const onClose = vi.fn(() => { isOpen = false; });
+    const { rerender } = render(dialogAt(true, onClose));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '4' } });
+    fireEvent.change(screen.getByPlaceholderText(outputPlaceholder), { target: { value: '{"summary":"done"}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop flow' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    rerender(dialogAt(isOpen, onClose));
+    rerender(dialogAt(true, onClose));
+
+    expect((screen.getByPlaceholderText(outputPlaceholder) as HTMLTextAreaElement).value).toBe('');
+  });
 });
+
+const outputPlaceholder = '{"summary": "ended by operator"}';
+
+function okResponse(): Response {
+  return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
+function dialogAt(open: boolean, onClose: () => void = () => {}) {
+  return <StopFlowDialog open={open} summary={summary} onClose={onClose} onStopped={() => {}} />;
+}
