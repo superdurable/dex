@@ -128,7 +128,7 @@ for the next user message. Combine it with that message in `Wait.anyOf`. In
 `execute`, handle a message that the Wait consumed first. A ready message
 wins the `anyOf`, but the condition still reports completed when a request
 exists. When there is no message and
-`context.isGracefulCompletionConditionCompleted()` is true, return
+`isGracefulCompletionConditionCompleted(context)` is true, return
 `deadEnd()`. The Flow completes once no other Step is active.
 
 When the request arrives, Dex checks only the Waits that include this
@@ -136,7 +136,7 @@ condition. A Wait holds at most one. It needs Server protocol version 7, and
 against an older Server the Step fails with
 `GracefulCompletionConditionUnsupportedError`. To keep working with older
 Servers, add the condition only when
-[`context.supportsGracefulCompletionCondition()`](pathname:///api/typescript/latest/interfaces/Context.html#supportsgracefulcompletioncondition)
+[`supportsGracefulCompletionCondition(context)`](pathname:///api/typescript/latest/functions/supportsGracefulCompletionCondition.html)
 returns true in `waitFor`; it reads the Worker's negotiated protocol and
 sends no request. The
 [`GracefulCompletion` API reference](pathname:///api/typescript/latest/variables/GracefulCompletion.html)

@@ -112,8 +112,8 @@ def graceful_completion_requested(*, condition_id: str | None = None) -> Conditi
     complete. A typical Step waits for the next message or this Condition with
     :meth:`Wait.any_of`. Its ``execute`` first handles a message that the Wait
     consumed. When there is none and
-    ``Context.is_graceful_completion_condition_completed`` returns ``True``, it
-    returns ``dead_end``. The Flow then completes once no other Step is active.
+    :func:`dex.is_graceful_completion_condition_completed` returns ``True``,
+    it returns ``dead_end``. The Flow then completes once no other Step is active.
 
     In :meth:`Wait.any_of`, this Condition comes after Timers, Channels, and
     SubFlows, so a ready message still wins over the request. This Condition
@@ -143,6 +143,7 @@ def graceful_completion_requested(*, condition_id: str | None = None) -> Conditi
         >>> from dex import (
         ...     Channel, Context, Step, StepDecision, Wait, dead_end,
         ...     go_to, graceful_completion_requested,
+        ...     is_graceful_completion_condition_completed,
         ... )
         >>> USER_MESSAGES = Channel("user-messages", str)
         >>> class WaitForMessage(Step[None]):
@@ -156,7 +157,7 @@ def graceful_completion_requested(*, condition_id: str | None = None) -> Conditi
         ...         messages = USER_MESSAGES.results(context)
         ...         if messages:
         ...             return go_to(HandleMessage, messages[0])
-        ...         if context.is_graceful_completion_condition_completed():
+        ...         if is_graceful_completion_condition_completed(context):
         ...             return dead_end()
         ...         return go_to(WaitForMessage, None)
 

@@ -28,6 +28,8 @@ from dex import (
     Wait,
     dead_end,
     graceful_completion_requested,
+    is_graceful_completion_condition_completed,
+    supports_graceful_completion_condition,
 )
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._server_protocol import NegotiatedServerProtocol
@@ -57,7 +59,7 @@ class GracefulWaitStep(Step[str]):
                     graceful_completion_requested(condition_id="graceful")
                 ),
             )
-        if input == "if-supported" and context.supports_graceful_completion_condition():
+        if input == "if-supported" and supports_graceful_completion_condition(context):
             return Wait.any_of(
                 MESSAGES.for_one(),
                 graceful_completion_requested(condition_id="graceful"),
@@ -66,7 +68,7 @@ class GracefulWaitStep(Step[str]):
 
     def execute(self, context: Context, input: str) -> StepDecision:
         GracefulConditionFlow.observed.append(
-            context.is_graceful_completion_condition_completed()
+            is_graceful_completion_condition_completed(context)
         )
         return dead_end()
 

@@ -22,7 +22,9 @@ from dex import (
     dead_end,
     go_to,
     graceful_completion_requested,
+    is_graceful_completion_condition_completed,
     rpc,
+    supports_graceful_completion_condition,
 )
 
 GATE_INPUT = "gate"
@@ -47,7 +49,7 @@ class GracefulConditionMessageOrStopStep(Step[None]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        is_supported = context.supports_graceful_completion_condition()
+        is_supported = supports_graceful_completion_condition(context)
         self.flow.support_observations.append(is_supported)
         if not is_supported:
             return Wait.until(self.flow.messages.for_one())
@@ -58,7 +60,7 @@ class GracefulConditionMessageOrStopStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         messages = self.flow.messages.results(context)
-        is_graceful_completed = context.is_graceful_completion_condition_completed()
+        is_graceful_completed = is_graceful_completion_condition_completed(context)
         self.flow.observations.append((tuple(messages), is_graceful_completed))
         if messages:
             return go_to(self.flow.message_or_stop, None)

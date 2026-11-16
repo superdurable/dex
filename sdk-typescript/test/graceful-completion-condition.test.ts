@@ -20,7 +20,9 @@ import {
   Wait,
   deadEnd,
   goTo,
+  isGracefulCompletionConditionCompleted,
   stringCodec,
+  supportsGracefulCompletionCondition,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -50,7 +52,7 @@ class GracefulWaitStep implements Step<string> {
   public waitFor(context: Context, input: string): Wait {
     switch (input) {
       case "if-supported":
-        if (context.supportsGracefulCompletionCondition()) {
+        if (supportsGracefulCompletionCondition(context)) {
           return Wait.anyOf(messages.forOne(), GracefulCompletion.requested("graceful"));
         }
         return Wait.until(messages.forOne());
@@ -66,7 +68,7 @@ class GracefulWaitStep implements Step<string> {
   }
 
   public execute(context: Context, _input: string): StepDecision {
-    return context.isGracefulCompletionConditionCompleted() ? deadEnd() : goTo(this, "again");
+    return isGracefulCompletionConditionCompleted(context) ? deadEnd() : goTo(this, "again");
   }
 }
 

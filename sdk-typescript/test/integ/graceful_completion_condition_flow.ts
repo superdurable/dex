@@ -17,9 +17,11 @@ import {
   booleanCodec,
   deadEnd,
   goTo,
+  isGracefulCompletionConditionCompleted,
   jsonCodec,
   rpc,
   stringCodec,
+  supportsGracefulCompletionCondition,
   voidCodec,
   type Context,
   type Flow,
@@ -68,7 +70,7 @@ class GracefulMessageWaiterStep implements Step<void> {
   }
 
   public waitFor(context: Context): Wait {
-    const isSupported = context.supportsGracefulCompletionCondition();
+    const isSupported = supportsGracefulCompletionCondition(context);
     gracefulWaiterSupportsCondition.set(context, isSupported);
     if (isSupported) {
       return Wait.anyOf(gracefulConditionMessages.forOne(), GracefulCompletion.requested("graceful"));
@@ -78,7 +80,7 @@ class GracefulMessageWaiterStep implements Step<void> {
 
   public execute(context: Context): StepDecision {
     const messages = gracefulConditionMessages.results(context);
-    const isGracefulCompleted = context.isGracefulCompletionConditionCompleted();
+    const isGracefulCompleted = isGracefulCompletionConditionCompleted(context);
     const executions = gracefulWaiterExecutions.get(context) ?? [];
     gracefulWaiterExecutions.set(context, [...executions, { messages, isGracefulCompleted }]);
     if (messages.length > 0) {
