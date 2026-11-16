@@ -10,7 +10,7 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6); 1.45.7 released 2026-11-15 as [web/v1.45.7](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.7).
+Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6); 1.45.7 released 2026-11-15 as [web/v1.45.7](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.7); 1.45.8 released 2026-11-15 as [web/v1.45.8](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.8).
 
 ### Breaking
 
@@ -33,6 +33,8 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - Flow details label the **SUB_FLOW_ABANDONED** error type as "SubFlow abandoned by a time travel" instead of "Unknown (7)". Since 1.45.7.
 - The Run page offers **Clone fork…** in the action menu and **Clone fork from here…** in the selected event's panel. The dialog starts a new Flow from a copy of the run's state at a point, with the new Flow ID, task queue, ID reuse policy, SubFlow reset policy, and reason. A run that a clone fork created links to its source run and event. **POST /api/flows/clone-fork** calls **CloneForkFlow**. Since 1.45.7.
 - The time travel dialog adds the **Event ID** point and a **SubFlow reset policy** choice. **POST /api/flows/time-travel** accepts **eventId** and **subFlowResetPolicy**. Since 1.45.7.
+- The **Conversation** tab forks an agent session. **Fork session** copies the session right after its latest turn ended. **Fork from this message** on the message that ended a turn copies the session right after that turn. A fork of a session on its own task queue, as an Agents CLI command starts it, gets its own task queue, derived from its session ID as the Agents CLI does; a fork of any other session inherits the source's task queue. The new session starts with no terminal lease, so an Agents CLI command can open it. The source session does not change. [Reference](/reference/web/dex-web#agent-session-fork). Since 1.45.8.
+- **POST /api/flows/clone-fork** takes **deleteAttributeKeys**, the Attributes the new run deletes after the copy. [Reference](/reference/web/dex-web#clone-fork). Since 1.45.8.
 
 ### Changed
 
@@ -142,6 +144,8 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
   uses the **Running** filter. Since 1.45.5.
 - The **Conversation** tab shows a message that the session wrote itself, such as the note after a steered or stopped turn, as a closed **Dex note** row instead of a **User** message. Open the row to read the whole note. The Work Queue agent panel labels such a last message **Dex note** too. Since 1.45.6.
 - The **Conversation** tab hides an assistant message that the agent framework made up itself, such as the Claude Code "No response requested." entry, which Claude Code marks with its synthetic model value. The stored message is unchanged. Since 1.45.6.
+- Dex Web no longer offers or sends options the connected server does not support. **Clone fork**, the session fork actions, the **Event ID** time travel point, and the **SubFlow reset policy** choice appear only when the server reports protocol version 6 or later, as server-zd 0.1.33 and later do. On an older server, time travel sends no **subFlowResetPolicy**, and **POST /api/flows/clone-fork** and **POST /api/flows/time-travel** reject these options with HTTP 400 **SERVER_PROTOCOL_UNSUPPORTED** instead of a silent no-op or a misleading error. [Reference](/reference/web/dex-web#clone-fork). Since 1.45.8.
+- **GET /api/server-info** returns **serverEngine** and **currentProtocolVersion**, and **GET /api/v2/catalog** adds **currentProtocolVersion**. Since 1.45.8.
 
 ## 1.44 {#v1-44}
 
