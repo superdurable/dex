@@ -217,6 +217,15 @@ export class InvocationContext implements AsyncContext {
     );
   }
 
+  public isGracefulCompletionConditionCompleted(): boolean {
+    if (this.method !== "execute") {
+      return false;
+    }
+    return (this.conditionResults?.gracefulCompletionResults ?? []).some(
+      (result) => result.conditionStatus === ConditionStatus.CONDITION_STATUS_COMPLETED,
+    );
+  }
+
   public waitForMethodFailed(): boolean {
     return this.conditionResults?.waitForFailed ?? false;
   }

@@ -2,7 +2,7 @@
 id: waits
 title: Waits
 sidebar_label: Waits
-description: "Dex stores the wait durably and checks the conditions whenever related state changes. A condition waits for a Timer, a Channel, or a SubFlow."
+description: "Dex stores the wait durably and checks the conditions whenever related state changes. A condition waits for a Timer, a Channel, a SubFlow, or a graceful completion request."
 ---
 
 # Waits
@@ -10,7 +10,8 @@ description: "Dex stores the wait durably and checks the conditions whenever rel
 **WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
 Dex stores the wait durably and checks the conditions whenever related state
 changes. A condition waits for a [Timer](/concepts/primitives/timer), a
-[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+[Channel](/concepts/primitives/channel), a [SubFlow](/concepts/primitives/subflow),
+or a [graceful completion request](#graceful-completion-requests).
 
 - **Until** waits for one condition.
 - **AnyOf** is met when any condition is met.
@@ -54,7 +55,8 @@ they are also ready, and their messages stay queued.
 
 When several **AnyOf** conditions are ready at the same check, Dex selects the
 first ready one in this order: Timer conditions, then Channel conditions, then
-SubFlow conditions, each kind in the order you declared them. A condition that
+SubFlow conditions, then the graceful completion condition, each kind in the
+order you declared them. A condition that
 is not ready does not block a later one that is. So across kinds, the order of
 the arguments in your call does not decide which condition wins.
 
@@ -105,6 +107,30 @@ public StepDecision execute(final Context context, final Integer input) {
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java)
+
+## Graceful completion requests {#graceful-completion-requests}
+
+Since 1.45.3. `GracefulCompletion.requested()` returns a condition that
+completes once the Flow has a graceful completion request. The request comes
+from a Step that returns `StepDecision.gracefulComplete`, or from
+`Client.stopFlow` with `StopType.GRACEFUL_COMPLETE`. A request made before the
+Wait starts completes the condition at once.
+
+Use it in a Step that would otherwise wait indefinitely, such as one that waits
+for the next user message. Combine it with that message in `Wait.anyOf`. In
+`execute`, handle a message that the Wait consumed first. A ready message
+wins the `anyOf`, but the condition still reports completed when a request
+exists. When there is no message and
+`context.isGracefulCompletionConditionCompleted()` is true, return
+`StepDecision.deadEnd()`. The Flow completes once no other Step is active.
+
+When the request arrives, Dex checks only the Waits that include this
+condition. A Wait holds at most one. It needs Server protocol version 7, and
+against an older Server the Step fails with
+`GracefulCompletionConditionUnsupportedException`. The
+[`GracefulCompletion` API reference](pathname:///api/java/latest/io/superdurable/dex/GracefulCompletion.html)
+shows an example. The server rules are in
+[Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
 
 ## Join parallel branches {#join}
 

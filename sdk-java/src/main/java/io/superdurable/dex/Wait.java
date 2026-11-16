@@ -72,7 +72,7 @@ public final class Wait {
      *
      * <p>The Condition does not need a condition ID.
      *
-     * @param condition the single Timer, Channel, or SubFlow condition
+     * @param condition the single Timer, Channel, SubFlow, or graceful completion condition
      * @return a wait equivalent to {@code allOf(condition)}
      */
     public static Wait until(final Condition condition) {
@@ -96,10 +96,11 @@ public final class Wait {
      * Waits until any supplied condition is satisfied.
      *
      * <p>Conditions do not need condition IDs. Read Channel results from the Channel definition
-     * and inspect Timer outcomes through {@link Context}.
+     * and inspect Timer and graceful completion outcomes through {@link Context}.
      *
-     * <p>Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
-     * SubFlows, preserving argument order within each kind. An unready condition does not block a
+     * <p>Among ready conditions, Dex selects the first in canonical order: Timers, Channels,
+     * SubFlows, then the graceful completion condition, preserving argument order within each
+     * kind. An unready condition does not block a
      * later ready condition. To wait for strict priority, return only the higher-priority
      * condition.
      *

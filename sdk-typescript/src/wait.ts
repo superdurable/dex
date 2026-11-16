@@ -27,10 +27,14 @@ export interface ChannelMapLoad {
   readonly instance: string;
 }
 
-/** Describes one durable Timer, Channel, or SubFlow readiness condition. */
+/**
+ * Describes one durable Timer, Channel, SubFlow, or graceful completion readiness condition.
+ *
+ * Changed in 1.45.6: `kind` may be `"gracefulCompletion"`; see {@link GracefulCompletion}.
+ */
 export interface Condition {
   /** Condition family interpreted by Dex. */
-  readonly kind: "timer" | "channel" | "subFlow";
+  readonly kind: "timer" | "channel" | "subFlow" | "gracefulCompletion";
   /** Optional stable ID unique within the Wait tree. */
   readonly conditionId?: string;
   /** Timer delay in non-negative milliseconds. */
@@ -98,6 +102,76 @@ export const Timer = Object.freeze({
     return {
       kind: "timer",
       durationMs,
+      ...(conditionId === undefined ? {} : { conditionId }),
+    };
+  },
+});
+
+/**
+ * Creates the Condition that is satisfied once the Flow has a graceful completion request.
+ *
+ * A graceful completion request comes from `Client.stopFlow` with `StopType.GRACEFUL_COMPLETE`,
+ * or from a Step that returns `gracefulComplete`. The request stays in force, so a Wait
+ * registered after it is satisfied at once. When the request arrives, Dex re-checks only the
+ * Waits that include this Condition. Other waiting Steps keep waiting and keep the Flow running.
+ *
+ * Use it to let a long-waiting Step end when someone asks the Flow to complete. A typical Step
+ * waits for the next message or this Condition with `Wait.anyOf`. Its `execute` first handles a
+ * message that the Wait consumed. When there is none and
+ * {@link Context.isGracefulCompletionConditionCompleted} returns true, it returns `deadEnd()`.
+ * The Flow then completes once no other Step is active.
+ *
+ * In `Wait.anyOf`, this Condition comes after Timers, Channels, and SubFlows, so a ready message
+ * still wins over the request. The Condition still reports completed when a message won and a
+ * request exists. Check the message first, or it is lost. The Condition also works in
+ * `Wait.allOf` and in `Wait.anyCombinationOf`, where it needs a condition ID. A Wait may hold at
+ * most one graceful completion condition. A second one fails the Step's `waitFor` with an
+ * {@link InvalidStepResultError}.
+ *
+ * It requires Server protocol version 7 or later (server-zd 0.1.34 or later). With an older
+ * Server, the Step's `waitFor` fails with {@link GracefulCompletionConditionUnsupportedError}, and
+ * Dex retries it according to its retry policy.
+ *
+ * @example
+ * ```ts
+ * const messages = new Channel("messages", stringCodec);
+ *
+ * class WaitForMessageStep implements Step<void> {
+ *   public waitFor(): Wait {
+ *     return Wait.anyOf(messages.forOne(), GracefulCompletion.requested());
+ *   }
+ *
+ *   public execute(context: Context): StepDecision {
+ *     const received = messages.results(context);
+ *     if (received.length > 0) {
+ *       return goTo(new HandleMessageStep(), received[0]);
+ *     }
+ *     if (context.isGracefulCompletionConditionCompleted()) {
+ *       return deadEnd();
+ *     }
+ *     return goTo(new WaitForMessageStep(), undefined);
+ *   }
+ * }
+ * ```
+ *
+ * @since 1.45.6
+ */
+export const GracefulCompletion = Object.freeze({
+  /**
+   * Creates a Condition satisfied once the Flow has a graceful completion request.
+   *
+   * See {@link GracefulCompletion} for the semantics and an example.
+   *
+   * @param conditionId - Optional stable condition identifier. `Wait.anyCombinationOf` requires
+   *   one.
+   * @returns A graceful completion Condition accepted by Wait factories.
+   * @throws {TypeError} When an explicitly supplied conditionId is empty.
+   * @since 1.45.6
+   */
+  requested(conditionId?: string): Condition {
+    requireConditionId(conditionId);
+    return {
+      kind: "gracefulCompletion",
       ...(conditionId === undefined ? {} : { conditionId }),
     };
   },
@@ -509,9 +583,10 @@ export const Wait = Object.freeze({
    * Conditions do not need condition IDs. Read Channel results from the Channel
    * definition and inspect Timer outcomes through `Context`.
    *
-   * Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
-   * SubFlows, preserving argument order within each kind. An unready condition does not block a
-   * later ready condition. To wait for strict priority, return only the higher-priority condition.
+   * Among ready conditions, Dex selects the first in canonical order: Timers, Channels, SubFlows,
+   * then the graceful completion condition, preserving argument order within each kind. An
+   * unready condition does not block a later ready condition. To wait for strict priority, return
+   * only the higher-priority condition.
    *
    * Channel consumption is not greedy across alternatives: only the selected condition consumes.
    * Other ready Channel conditions consume nothing.

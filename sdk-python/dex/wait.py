@@ -89,11 +89,15 @@ class Wait:
         """Create a Wait that continues when any Condition is ready.
 
         Conditions do not need condition IDs. Read Channel results from the
-        Channel definition and inspect Timer outcomes through ``Context``.
+        Channel definition and inspect Timer and graceful completion outcomes
+        through ``Context``.
+
+        .. versionchanged:: 1.45.4
+           Accepts the Condition from :func:`dex.graceful_completion_requested`.
 
         Among ready Conditions, Dex selects the first in canonical order:
-        Timers, Channels, then SubFlows, preserving argument order within each
-        kind. An unready Condition does not block a later ready Condition. To
+        Timers, Channels, SubFlows, then the graceful completion condition,
+        preserving argument order within each kind. An unready Condition does not block a later ready Condition. To
         wait for strict priority, return only the higher-priority Condition.
 
         Channel consumption is not greedy across alternatives. Dex consumes

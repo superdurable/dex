@@ -441,3 +441,47 @@ fn sub_flow_results_map_abandoned_and_unrecognized_error_types() {
     assert_eq!(unrecognized.status(), crate::FlowStatus::Failed);
     assert_eq!(unrecognized.error_type(), None);
 }
+
+#[test]
+fn graceful_completion_result_reads_completed_waiting_and_absent() {
+    use dex_protocol::dex::{ConditionResults, ConditionStatus, GracefulCompletionResult};
+
+    let graceful_results = |status: ConditionStatus| ConditionResults {
+        graceful_completion_results: vec![GracefulCompletionResult {
+            condition_id: String::new(),
+            condition_status: status as i32,
+        }],
+        ..Default::default()
+    };
+    for (condition_results, expected) in [
+        (Some(graceful_results(ConditionStatus::Completed)), true),
+        (Some(graceful_results(ConditionStatus::Waiting)), false),
+        (Some(ConditionResults::default()), false),
+        (None, false),
+    ] {
+        let registry = Registry::new().register(HardDeleteFlow).unwrap();
+        let context = Context::new(
+            ContextInput {
+                method: InvocationMethod::Execute,
+                flow: registry.flow("HardDeleteFlow").unwrap().clone(),
+                metadata: ProtoContext::default(),
+                attributes: Vec::new(),
+                locals: Vec::new(),
+                condition_results,
+                channel_infos: HashMap::new(),
+                loaded_channel_messages: HashMap::new(),
+                loaded_attribute_map_instances: Vec::new(),
+                loaded_channel_names: Vec::new(),
+                loaded_channel_map_instances: Vec::new(),
+                negotiated_protocol_version: NegotiatedServerProtocolVersion::default(),
+            },
+            None,
+            InvocationCancellation::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            context.is_graceful_completion_condition_completed(),
+            expected
+        );
+    }
+}

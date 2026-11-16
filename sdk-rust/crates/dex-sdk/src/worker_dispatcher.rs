@@ -41,7 +41,7 @@ use crate::step_options::ErasedStepOptions;
 use crate::sub_flow::warn_dashed_sub_flow_step_type;
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
-use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
+use crate::wait::{Condition, ConditionKind, GracefulCompletionConditions, Wait, WaitKind};
 use crate::worker_output::{StepOutputEmitter, WorkerInvocation};
 use crate::{
     FlowTimeoutHandlerOptions, HandlerError, HandlerResult, Registry, RetryPolicy, SdkError,
@@ -192,6 +192,10 @@ impl WorkerDispatcher {
                             "wait_for",
                             error,
                         )
+                    })
+                    .and_then(|waiting| {
+                        negotiated_protocol_version
+                            .require_graceful_completion_condition_support(waiting)
                     })
             });
             let waiting_condition = context.finalize_step_outputs(handler_result)?;
@@ -1065,7 +1069,7 @@ fn map_wait(
         channel_conditions: mapper.channels,
         sub_flow_conditions: mapper.sub_flows,
         condition_combinations: combinations,
-        graceful_completion_conditions: Vec::new(),
+        graceful_completion_conditions: mapper.graceful_completions.into_conditions(),
     }))
 }
 
@@ -1216,6 +1220,7 @@ struct ConditionMapper<'a> {
     timers: Vec<TimerCondition>,
     channels: Vec<ChannelCondition>,
     sub_flows: Vec<ProtoSubFlowCondition>,
+    graceful_completions: GracefulCompletionConditions,
 }
 
 impl<'a> ConditionMapper<'a> {
@@ -1233,6 +1238,7 @@ impl<'a> ConditionMapper<'a> {
             timers: Vec::new(),
             channels: Vec::new(),
             sub_flows: Vec::new(),
+            graceful_completions: GracefulCompletionConditions::default(),
         }
     }
 
@@ -1308,6 +1314,7 @@ impl<'a> ConditionMapper<'a> {
                     at_most: optional_count(at_most)?,
                 });
             }
+            ConditionKind::GracefulCompletion => self.graceful_completions.add(id.clone())?,
             ConditionKind::Invalid(reason) => {
                 return Err(HandlerError::new("dex_sdk::HandlerError", reason));
             }
@@ -1596,7 +1603,7 @@ mod tests {
         Attribute, AttributeMap, Channel, ChannelMap, ConditionCombination, Context, Flow,
         FlowTimeoutHandler, FlowTimeoutHandlerFailure, FlowTimeoutHandlerOptions, HandlerResult,
         PersistenceSchema, Registry, RetryPolicy, Step, StepDecision, StepDurability, StepList,
-        StepOptions, SubFlow, SubFlowOptions, Timer, Wait,
+        StepOptions, Timer, Wait,
     };
     use std::time::Duration;
 
@@ -1830,89 +1837,12 @@ mod tests {
         assert!(mapped_timeout.failure_proceed_step_options.is_some());
         assert!(map_flow_timeout_handler_options(flow, 0, 0, Some(&timeout_options)).is_err());
     }
-
-    struct HardDeleteSubFlowTarget {
-        start: TimeoutRecovery,
-        api_key: Attribute<String>,
-    }
-
-    impl Flow for HardDeleteSubFlowTarget {
-        type StartInput = ();
-
-        fn steps(&self) -> StepList<'_, Self::StartInput> {
-            StepList::start(&self.start)
-        }
-
-        fn persistence(&self) -> PersistenceSchema {
-            PersistenceSchema::new().attribute(&self.api_key)
-        }
-    }
-
-    #[test]
-    fn sub_flow_hard_delete_attributes_require_protocol_version_three() {
-        let api_key = Attribute::<String>::new("api-key").hard_delete_on_null();
-        let target = HardDeleteSubFlowTarget {
-            start: TimeoutRecovery,
-            api_key: api_key.clone(),
-        };
-        let registry = Registry::new()
-            .register(ConditionFlow {
-                channel: Channel::new("commands"),
-            })
-            .and_then(|registry| {
-                registry.register(HardDeleteSubFlowTarget {
-                    start: TimeoutRecovery,
-                    api_key: api_key.clone(),
-                })
-            })
-            .expect("register SubFlow Flows");
-        let parent = registry.flow("ConditionFlow").expect("lookup parent Flow");
-        let sub_flow_wait = |attribute: &Attribute<String>| {
-            Wait::until(
-                SubFlow::run_with_options(
-                    &target,
-                    (),
-                    SubFlowOptions::new().initial_attribute(attribute, "key-1".to_string()),
-                )
-                .expect("SubFlow Condition"),
-            )
-        };
-
-        for version in [0, 2] {
-            let negotiated = NegotiatedServerProtocolVersion::default();
-            negotiated.store(version);
-            let error = map_wait(&registry, parent, &negotiated, sub_flow_wait(&api_key))
-                .expect_err("old Server rejects SubFlow hard-delete writes");
-            assert!(error.to_string().contains("protocol version 3 or later"));
-        }
-
-        let negotiated = NegotiatedServerProtocolVersion::default();
-        negotiated.store(3);
-        let error = map_wait(
-            &registry,
-            parent,
-            &negotiated,
-            sub_flow_wait(&Attribute::new("api-key")),
-        )
-        .expect_err("mismatched SubFlow definition");
-        assert!(
-            error
-                .to_string()
-                .contains("does not match its registered definition")
-        );
-        let condition = map_wait(&registry, parent, &negotiated, sub_flow_wait(&api_key))
-            .expect("map SubFlow wait")
-            .expect("waiting condition");
-        let write = &condition.sub_flow_conditions[0]
-            .options
-            .as_ref()
-            .expect("SubFlow options")
-            .attributes[0];
-        assert_eq!("api-key", write.key);
-        assert!(write.is_hard_delete_on_null);
-    }
 }
 
 #[cfg(test)]
 #[path = "worker_dispatcher_pull_routing_tests.rs"]
 mod pull_routing_tests;
+
+#[cfg(test)]
+#[path = "worker_dispatcher_wait_mapping_tests.rs"]
+mod wait_mapping_tests;

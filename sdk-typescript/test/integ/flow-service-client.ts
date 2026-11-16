@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { credentials } from "@grpc/grpc-js";
 
 import {
+  ActiveStepPhase,
   FlowServiceClient,
   type GetFlowStateResponse,
   type KV,
@@ -75,6 +76,30 @@ export async function awaitLiveWorkerFailure(
   }
   client.close();
   throw new Error("active Step did not expose retry failure");
+}
+
+export async function awaitGracefulCompletionConditionWaiting(
+  flowId: string,
+  timeoutMilliseconds = 10_000,
+): Promise<void> {
+  const client = flowServiceClient();
+  try {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const response = await getFlowState(client, flowId, "");
+      const isWaiting = response.activeStepExecutions.some(
+        (step) => step.phase === ActiveStepPhase.ACTIVE_STEP_PHASE_WAITING
+          && step.waitingCondition?.gracefulCompletionConditions.length === 1,
+      );
+      if (isWaiting) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("no Step waits on the graceful completion condition");
+  } finally {
+    client.close();
+  }
 }
 
 export function assertWorkerFailureStackTrace(

@@ -6,10 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { ServerInfo } from "./gen/dex.js";
+import { GracefulCompletionConditionUnsupportedError } from "./errors.js";
+import type { ServerInfo, WaitingCondition } from "./gen/dex.js";
 
 export const minimumSupportedServerProtocolVersion: number = 4;
-export const maximumSupportedServerProtocolVersion: number = 6;
+export const maximumSupportedServerProtocolVersion: number = 7;
+export const gracefulCompletionConditionMinimumServerProtocolVersion: number = 7;
 const minimumServerRelease = "server-zd newer than v0.1.16";
 
 export function negotiateServerProtocol(
@@ -46,6 +48,23 @@ export function negotiateServerProtocol(
     );
   }
   return Math.min(serverCurrent, maximumSupportedServerProtocolVersion);
+}
+
+// An older Server drops the condition, so a Wait could complete without waiting.
+export function requireGracefulCompletionConditionSupport(
+  negotiatedServerProtocolVersion: number,
+  waitingCondition: WaitingCondition | undefined,
+): void {
+  if (
+    (waitingCondition?.gracefulCompletionConditions.length ?? 0) === 0
+    || negotiatedServerProtocolVersion >= gracefulCompletionConditionMinimumServerProtocolVersion
+  ) {
+    return;
+  }
+  throw new GracefulCompletionConditionUnsupportedError(
+    negotiatedServerProtocolVersion,
+    gracefulCompletionConditionMinimumServerProtocolVersion,
+  );
 }
 
 function sdkDescription(sdkVersion: string): string {

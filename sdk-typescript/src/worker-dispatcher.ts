@@ -19,6 +19,7 @@ import {
   StepMovement as ProtoStepMovement,
   StepOptions as ProtoStepOptions,
   TimerCondition,
+  GracefulCompletionCondition,
   SubFlowCondition as ProtoSubFlowCondition,
   SubFlowOptions as ProtoSubFlowOptions,
   SubFlowReusePolicy as ProtoSubFlowReusePolicy,
@@ -85,6 +86,7 @@ import type {
   StepOptions,
 } from "./step.js";
 import { voidCodec } from "./codec.js";
+import { requireGracefulCompletionConditionSupport } from "./server-protocol.js";
 import { requireNamedTaskQueueSupport, validateFlowTaskQueue } from "./task-queue.js";
 import {
   codecOrJson,
@@ -158,6 +160,10 @@ export class WorkerDispatcher {
         ...(response.waitingCondition?.subFlowConditions ?? [])
           .flatMap((condition) => condition.options?.attributes ?? []),
       ]);
+      requireGracefulCompletionConditionSupport(
+        this.negotiatedServerProtocolVersion(),
+        response.waitingCondition,
+      );
       for (const condition of response.waitingCondition?.subFlowConditions ?? []) {
         requireNamedTaskQueueSupport(
           this.negotiatedServerProtocolVersion(),
@@ -525,6 +531,7 @@ function mapWait(
     channelConditions: mapper.channels,
     subFlowConditions: mapper.subFlows,
     conditionCombinations: combinations,
+    gracefulCompletionConditions: mapper.gracefulCompletions,
   });
 }
 
@@ -752,6 +759,7 @@ class ConditionMapper {
   public readonly timers: TimerCondition[] = [];
   public readonly channels: ChannelCondition[] = [];
   public readonly subFlows: ProtoSubFlowCondition[] = [];
+  public readonly gracefulCompletions: GracefulCompletionCondition[] = [];
   private readonly ids = new Map<Condition, string>();
   private readonly used = new Set<string>();
 
@@ -803,6 +811,11 @@ class ConditionMapper {
           atMost: condition.atMost,
         }),
       );
+    } else if (condition.kind === "gracefulCompletion") {
+      if (this.gracefulCompletions.length > 0) {
+        throw new TypeError("a Wait accepts at most one graceful completion condition");
+      }
+      this.gracefulCompletions.push(GracefulCompletionCondition.create({ conditionId: id }));
     } else {
       warnIfDashedStepTypeStartsSubFlow(this.stepType);
       const targetFlow = condition.subFlow;

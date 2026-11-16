@@ -308,6 +308,44 @@ export class InvalidStepResultError extends FlowDefinitionError {
   }
 }
 
+/**
+ * Reports a Wait with a graceful completion condition for a Server that cannot evaluate it.
+ *
+ * The condition that `GracefulCompletion.requested` returns requires Server protocol version 7
+ * or later, which server-zd 0.1.34 and later releases provide. An older Server would drop the
+ * condition, so a Wait with only that condition would not wait at all. The SDK refuses instead
+ * and sends no `waitFor` result. A Step whose `waitFor` returns such a Wait fails with this
+ * error, and Dex retries it according to its retry policy. Upgrade the Dex Server to resolve it.
+ *
+ * @example
+ * ```ts
+ * if (failure instanceof GracefulCompletionConditionUnsupportedError) {
+ *   console.error(
+ *     `upgrade Dex: the graceful completion condition needs protocol ${failure.requiredServerProtocolVersion}`,
+ *   );
+ * }
+ * ```
+ *
+ * @since 1.45.6
+ */
+export class GracefulCompletionConditionUnsupportedError extends Error {
+  /**
+   * Creates the error.
+   * @param negotiatedServerProtocolVersion - Protocol version agreed with the Server.
+   * @param requiredServerProtocolVersion - Minimum Server protocol version for the condition.
+   */
+  public constructor(
+    public readonly negotiatedServerProtocolVersion: number,
+    public readonly requiredServerProtocolVersion: number,
+  ) {
+    super(
+      `the graceful completion condition requires Server protocol ${requiredServerProtocolVersion} `
+        + `or later, but the Server negotiated ${negotiatedServerProtocolVersion}. Upgrade the Server.`,
+    );
+    this.name = new.target.name;
+  }
+}
+
 /** Reports an application value encoding, decoding, or hydration failure. */
 export class ValueMappingError extends Error {
   /**

@@ -91,3 +91,39 @@ pub(crate) fn assert_worker_failure_stack_trace(
     assert!(!stack_trace.is_empty());
     assert!(stack_trace.contains(expected_detail));
 }
+
+pub(crate) fn await_graceful_completion_condition_waiting(flow_id: &str) {
+    use dex_protocol::dex::ActiveStepPhase;
+
+    let server_address =
+        std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
+    let runtime = Runtime::new().expect("create FlowService runtime");
+    runtime.block_on(async {
+        let mut client = FlowServiceClient::connect(format!("http://{server_address}"))
+            .await
+            .expect("connect FlowService");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let response = client
+                .get_flow_state(GetFlowStateRequest {
+                    flow_id: flow_id.to_string(),
+                    run_id: String::new(),
+                })
+                .await
+                .expect("GetFlowState")
+                .into_inner();
+            let is_waiting = response.active_step_executions.iter().any(|step| {
+                step.phase == ActiveStepPhase::Waiting as i32
+                    && step
+                        .waiting_condition
+                        .as_ref()
+                        .is_some_and(|waiting| waiting.graceful_completion_conditions.len() == 1)
+            });
+            if is_waiting {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("no Step waits on the graceful completion condition");
+    });
+}

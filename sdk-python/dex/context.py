@@ -271,6 +271,26 @@ class Context(Protocol):
         """
         ...
 
+    def is_graceful_completion_condition_completed(self) -> bool:
+        """Report whether the graceful completion condition of the Wait completed.
+
+        It returns ``True`` when the Flow had a graceful completion request as
+        the Wait completed. That holds even when another :meth:`Wait.any_of`
+        Condition won, such as a Timer that fired or a Channel message. Read
+        consumed Channel messages first, so a message that won is not dropped.
+
+        It returns ``False`` when the Wait has no such Condition, outside
+        ``execute``, and after ``Wait.skip_immediately``. See
+        :func:`dex.graceful_completion_requested` for an example.
+
+        Returns:
+            ``True`` when the current ``execute`` call's Wait reports its
+            graceful completion condition as completed; otherwise ``False``.
+
+        .. versionadded:: 1.45.4
+        """
+        ...
+
     def wait_for_method_failed(self) -> bool:
         """Report whether ``wait_for`` failed before this ``execute`` call.
 

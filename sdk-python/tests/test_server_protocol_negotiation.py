@@ -235,16 +235,16 @@ async def _stop_output_with_cancel_fails_before_contacting_server(
         (
             pb.ServerInfo(
                 server_version="future",
-                minimum_supported_protocol_version=7,
-                current_protocol_version=8,
+                minimum_supported_protocol_version=8,
+                current_protocol_version=9,
             ),
-            'Python SDK version "test" supports Dex Server protocol versions 4-6, '
+            'Python SDK version "test" supports Dex Server protocol versions 4-7, '
             "but the Server requires a newer protocol. The Server reports protocol "
-            "versions 7-8 (server version future). Upgrade the SDK.",
+            "versions 8-9 (server version future). Upgrade the SDK.",
         ),
         (
             pb.ServerInfo(),
-            'Python SDK version "test" protocol [4,6] cannot use Server version '
+            'Python SDK version "test" protocol [4,7] cannot use Server version '
             '"unknown" protocol [0,0]: Server protocol interval is invalid',
         ),
         (
@@ -253,7 +253,7 @@ async def _stop_output_with_cancel_fails_before_contacting_server(
                 minimum_supported_protocol_version=5,
                 current_protocol_version=4,
             ),
-            'Python SDK version "test" protocol [4,6] cannot use Server version '
+            'Python SDK version "test" protocol [4,7] cannot use Server version '
             '"broken" protocol [5,4]: Server protocol interval is invalid',
         ),
     ],

@@ -1037,8 +1037,10 @@ use the local publishing command:
 
 Worker startup calls `GetServerInfo`, requires protocol 4, synchronizes Attribute
 indexes, and opens the reserved-slot streams. The Java SDK protocol interval is
-`[4,5]`. A Worker with a named task queue requires protocol 5 and fails startup
-on an older Server. This SDK requires a Dex Server with protocol version 4 or later
+`[4,7]`. A Worker with a named task queue requires protocol 5 and fails startup
+on an older Server. A Wait with `GracefulCompletion.requested()` requires protocol 7;
+with an older Server, the Step's waitFor fails with
+`GracefulCompletionConditionUnsupportedException`. This SDK requires a Dex Server with protocol version 4 or later
 (server-zd newer than v0.1.16). Upgrade the Server before upgrading the SDK.
 Absent RPCs, invalid intervals, and negotiation request failures also stop startup.
 The compatibility error includes the actual reported values in this message:
@@ -1048,7 +1050,7 @@ This SDK requires a Dex Server with protocol version 4 or later (server-zd newer
 ```
 
 Client construction stays lazy and does no network I/O. Before the first network
-request of any method, the Client negotiates a protocol from 4 to 5. A start
+request of any method, the Client negotiates a protocol from 4 to 7. A start
 with a named task queue, or a SubFlow that names one, requires protocol 5. It caches success and
 incompatibility; every subsequent request against an older Server returns the
 same compatibility error. Transient negotiation failures are retried on the next

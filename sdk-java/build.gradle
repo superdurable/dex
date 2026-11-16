@@ -180,6 +180,7 @@ tasks.register('localIntegrationTest', Test) {
         includeTestsMatching 'io.superdurable.dex.TaskQueueOptionsTest'
         includeTestsMatching 'io.superdurable.dex.ServerProtocolCompatibilityTest'
         includeTestsMatching 'io.superdurable.dex.CloneForkFlowTest'
+        includeTestsMatching 'io.superdurable.dex.GracefulCompletionConditionTest'
     }
     useJUnitPlatform()
 }

@@ -61,7 +61,7 @@ use crate::{
 /// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
 /// Attribute, and Channel arguments are checked against the [`Registry`].
 /// Construction performs no network I/O. Before its first service request, every Client negotiates
-/// protocol version 4, 5, or 6. Successful negotiation and incompatibility errors are cached for its lifetime;
+/// protocol version 4, 5, 6, or 7. Successful negotiation and incompatibility errors are cached for its lifetime;
 /// transient negotiation failures are retried on the next call. Incompatibility errors name the
 /// Server version and required server-zd release. Concurrent first calls share one negotiation.
 /// An unreachable Server during negotiation returns the usual service error with its gRPC code.

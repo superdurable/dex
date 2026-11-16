@@ -206,6 +206,17 @@ class InvocationContext:
             and results[index].condition_status == pb.CONDITION_STATUS_COMPLETED
         )
 
+    def is_graceful_completion_condition_completed(self) -> bool:
+        if (
+            self._method is not InvocationMethod.EXECUTE
+            or self._condition_results is None
+        ):
+            return False
+        return any(
+            result.condition_status == pb.CONDITION_STATUS_COMPLETED
+            for result in self._condition_results.graceful_completion_results
+        )
+
     def wait_for_method_failed(self) -> bool:
         return bool(
             self._condition_results is not None
