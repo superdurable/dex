@@ -124,6 +124,8 @@ interface DexWebStub {
   definitionsReleased?: Promise<void>;
   /** The protocol GET /api/server-info reports; 6 by default. */
   serverProtocolVersion?: number;
+  /** Collects each POST /api/flows/clone-fork body. */
+  cloneForkRequests?: Record<string, unknown>[];
 }
 
 /** Serves one run, its definitions and an optional operator catalog, and records every request path. */
@@ -135,12 +137,17 @@ function stubDexWeb({
   currentRunId = 'run-1',
   definitionsReleased,
   serverProtocolVersion = 6,
+  cloneForkRequests,
 }: DexWebStub) {
   const requests: string[] = [];
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
-  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+  vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://dex.test');
     requests.push(url.pathname);
+    if (url.pathname === '/api/flows/clone-fork' && cloneForkRequests) {
+      cloneForkRequests.push(JSON.parse(String(init?.body)));
+      return json({ flowId: 'run-flow-copy', runId: 'copy-run-1' });
+    }
     if (url.pathname === '/api/flow-definition-types') {
       const flowTypes = [...new Set(definitions.map((definition) => definition.flowName))];
       return json({
@@ -466,27 +473,57 @@ describe('Run page experimental tabs', () => {
   });
 
   it.each([
-    { name: 'session', session: true, operator: true, visible: false },
-    { name: 'non-session', session: false, operator: true, visible: true },
-    { name: 'unavailable operator API', session: false, operator: false, visible: false },
-  ])('shows Clone fork only for a loaded $name schema', async ({ session, operator, visible }) => {
+    { name: 'a session', session: true },
+    { name: 'a non-session', session: false },
+  ])('shows Clone fork for $name schema', async ({ session }) => {
     const graph = session ? sessionGraph() : plainGraph;
     const flowType = graph.flow.name;
     stubDexWeb({
       flowType,
       definitions: [definitionEntry('schema', flowType, graph)],
-      operatorFlows: operator ? [{ flowType, definition: { actions: [], display: { fields: [] } } as unknown as FlowV2Definition }] : undefined,
+      operatorFlows: [{ flowType, definition: { actions: [], display: { fields: [] } } as unknown as FlowV2Definition }],
     });
     renderRun();
     fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
-    await waitFor(() => expect(Boolean(screen.queryByRole('menuitem', { name: /^Clone fork/ }))).toBe(visible));
+    expect(await screen.findByRole('menuitem', { name: /^Clone fork/ })).toBeTruthy();
   });
 
-  it('hides Clone fork when the schema load fails', async () => {
+  it('shows a plain Clone fork for a Flow type without a definition', async () => {
     stubDexWeb({ flowType: 'MissingFlow', definitions: [], operatorFlows: [] });
     renderRun();
     fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
-    expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Clone fork/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' });
+    expect(within(dialog).queryByTestId('clone-fork-session-note')).toBeNull();
+  });
+
+  it('applies the agent session rules when it clone forks a session', async () => {
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    const cloneForkRequests: Record<string, unknown>[] = [];
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: graph.v2 as FlowV2Definition }],
+      cloneForkRequests,
+    });
+    renderRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Clone fork/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' });
+    await within(dialog).findByTestId('clone-fork-session-note');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'run-flow-copy' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'try again' } });
+    const submit = within(dialog).getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+    await waitFor(() => expect(cloneForkRequests).toHaveLength(1));
+    // The source has no task queue of its own, so the fork keeps its Workers.
+    expect(cloneForkRequests[0]).not.toHaveProperty('taskQueue');
+    expect(cloneForkRequests[0]).toMatchObject({
+      flowId: 'run-flow-copy',
+      deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
+    });
   });
 
   it('opens an agent session on its Conversation when no tab is remembered', async () => {

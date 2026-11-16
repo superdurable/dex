@@ -1020,8 +1020,9 @@ export function RunDetailsPage({
 
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const cloneForkSource = cloneForkSourceOf(flowStartEvent);
-  // An agent session forks through its agents package, which also moves the session's task queue.
-  const canCloneFork = isCatalogReady && hasRunHistoryForks && catalogEntry !== null && runSessionSchema === null;
+  // Any run can be clone forked; an agent session forks with its session rules, which also move the session's task queue.
+  const canCloneFork = hasRunHistoryForks;
+  const isAgentSessionDefinition = isCatalogReady ? runSessionSchema !== null : null;
   const sourceTaskQueue = (() => {
     const startFlowConfig = flowStartEvent?.payload.flowConfig as Record<string, unknown> | undefined;
     const closedConfig = closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
@@ -1426,6 +1427,7 @@ export function RunDetailsPage({
           initialEvent={cloneForkEvent}
           runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
           sourceTaskQueue={sourceTaskQueue}
+          isAgentSessionDefinition={isAgentSessionDefinition}
           isSourceRunning={isRunOpen && !isViewingEarlierRunAttempt}
           timezone={timezone}
           onClose={closeCloneFork}

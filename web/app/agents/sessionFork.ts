@@ -13,7 +13,7 @@ import { isOpenFlowStatusCode } from '../work-queue/liveness';
 import type { ConversationItem } from './sessionModel';
 import type { LoadedAgentSession } from './useAgentSession';
 
-const SESSION_TASK_QUEUE_PREFIX = 's-';
+export const SESSION_TASK_QUEUE_PREFIX = 's-';
 const SESSION_TASK_QUEUE_HASH_LENGTH = 20;
 /** A CLI core session ID: harness name, UTC date and time, and 6 hex characters. */
 const CLI_SESSION_ID = /^(.+)-\d{8}-\d{6}-[0-9a-f]{6}$/;

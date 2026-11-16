@@ -52,6 +52,7 @@ function renderDialog(overrides: Partial<Parameters<typeof CloneForkDialog>[0]> 
       initialEvent={event}
       runAttempt={0}
       sourceTaskQueue="orders"
+      isAgentSessionDefinition={false}
       isSourceRunning
       timezone="UTC"
       onClose={onClose}
