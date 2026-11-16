@@ -285,6 +285,16 @@ describe('Dex Web bar settings', () => {
     expect(within(server).queryByText('Version')).toBeNull();
   });
 
+  it('shows the server info when the host draws the navigation', async () => {
+    addMeta(HOST_NAVIGATION_META_NAME, 'true');
+    stubServerInfo({ serverEngine: 'zd', serverVersion: '0.1.34', currentProtocolVersion: 7 });
+    renderBar('/v1/flows');
+    expect(screen.queryByRole('navigation', { name: 'Dex Web' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const server = within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('group', { name: 'Dex Server' });
+    expect(await within(server).findByText('server-zd 0.1.34 · protocol 7')).toBeTruthy();
+  });
+
   it('shows unknown when the server info cannot be read', async () => {
     stubServerInfo('fail');
     renderBar('/v1/flows');
