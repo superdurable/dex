@@ -45,7 +45,7 @@ from dex.codec import (
     Value,
     WireKind,
 )
-from dex.condition import ConditionCombination
+from dex.condition import ConditionCombination, graceful_completion_requested
 from dex.context import AsyncContext, Context, RecoveryErrorInfo, StepAttemptProgress
 from dex.credential import (
     ApiKeyCredential,
@@ -116,6 +116,7 @@ from dex.runtime_errors import (
     FlowErrorType,
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
+    GracefulCompletionConditionUnsupportedError,
     InvalidStepResultError,
     LongPollTimeoutError,
     RequestTimeoutError,
@@ -254,6 +255,7 @@ __all__ = [
     "CloneForkFlowOptions",
     "CloneForkFlowResult",
     "CloneForkFlowUnsupportedError",
+    "GracefulCompletionConditionUnsupportedError",
     "SubFlowResetPolicy",
     "RetryPolicy",
     "SearchFlowEntry",
@@ -299,6 +301,7 @@ __all__ = [
     "force_complete_if_channels_empty",
     "force_fail",
     "graceful_complete",
+    "graceful_completion_requested",
     "heartbeat",
     "go_to",
     "go_to_many",

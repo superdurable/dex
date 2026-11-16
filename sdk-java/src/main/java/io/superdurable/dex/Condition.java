@@ -13,11 +13,12 @@ package io.superdurable.dex;
 import java.time.Duration;
 
 /**
- * Represents one Timer, Channel, or SubFlow condition used by a {@link Wait}.
+ * Represents one Timer, Channel, SubFlow, or graceful completion condition used by a {@link Wait}.
  *
  * <p>Applications create conditions through fluent domain factories such as
- * {@link Timer#byDuration}, {@link Channel#forOne}, and {@link SubFlow#run}; a condition is immutable
- * and is interpreted by Dex when a Step returns its wait definition.
+ * {@link Timer#byDuration}, {@link Channel#forOne}, {@link SubFlow#run}, and
+ * {@link GracefulCompletion#requested()}; a condition is immutable and is interpreted by Dex when
+ * a Step returns its wait definition.
  *
  * <pre>{@code
  * Condition deadline = Timer.byDuration(Duration.ofMinutes(5), "deadline");
@@ -29,7 +30,8 @@ public final class Condition {
     enum Kind {
         TIMER,
         CHANNEL,
-        SUB_FLOW
+        SUB_FLOW,
+        GRACEFUL_COMPLETION
     }
 
     private final Kind kind;
@@ -122,6 +124,11 @@ public final class Condition {
                 flowClass,
                 input,
                 effective);
+    }
+
+    static Condition gracefulCompletion(final String conditionId) {
+        return new Condition(
+                Kind.GRACEFUL_COMPLETION, conditionId, null, null, null, null, null, null, null, null);
     }
 
     Kind getKind() {

@@ -401,6 +401,27 @@ impl Context {
             .is_some_and(|timer| timer.condition_status == ConditionStatus::Completed as i32)
     }
 
+    /// Returns whether the graceful completion condition of this `execute` invocation's Wait
+    /// completed.
+    ///
+    /// It returns `true` when the Flow had a graceful completion request as the Wait completed,
+    /// even when another [`crate::Wait::any_of`] condition won, as with a Timer that fired. Read
+    /// consumed Channel messages first, so a message that won is not dropped. It returns `false`
+    /// when the Wait has no such condition, outside `execute`, and after
+    /// [`crate::Wait::skip_immediately`]. See [`crate::Condition::graceful_completion_requested`]
+    /// for an example.
+    ///
+    /// Since 1.45.3.
+    pub fn is_graceful_completion_condition_completed(&self) -> bool {
+        self.method == InvocationMethod::Execute
+            && self.condition_results.as_ref().is_some_and(|results| {
+                results
+                    .graceful_completion_results
+                    .iter()
+                    .any(|result| result.condition_status == ConditionStatus::Completed as i32)
+            })
+    }
+
     /// Returns whether `execute` is running because `wait_for` exhausted retries with Proceed.
     pub fn wait_for_method_failed(&self) -> bool {
         self.condition_results

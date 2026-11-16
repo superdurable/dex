@@ -430,3 +430,53 @@ class CloneForkFlowUnsupportedError(RuntimeError):
         )
         self.negotiated_server_protocol = negotiated_server_protocol
         self.required_server_protocol = required_server_protocol
+
+
+class GracefulCompletionConditionUnsupportedError(RuntimeError):
+    """Report a Wait with a graceful completion condition for an older Server.
+
+    The Condition that :func:`dex.graceful_completion_requested` returns
+    requires Dex Server protocol version 7 or later, which server-zd 0.1.34 and
+    later releases provide. An older Server would drop the Condition, so a Wait
+    with only that Condition would not wait at all. The SDK refuses instead and
+    sends no Wait. A Step whose ``wait_for`` returns such a Wait fails with this
+    error, and Dex retries it according to its retry policy. Upgrade the Server
+    to resolve it. It is a ``RuntimeError``, like the other Server protocol
+    compatibility errors.
+
+    Attributes:
+        negotiated_server_protocol: The protocol version agreed with the Server.
+        required_server_protocol: The minimum protocol version for the graceful
+            completion condition.
+
+    Examples:
+        >>> def describe_wait_for_failure(error: Exception) -> str:
+        ...     if isinstance(error, GracefulCompletionConditionUnsupportedError):
+        ...         return f"upgrade Dex: needs protocol {error.required_server_protocol}"
+        ...     return str(error)
+
+    .. versionadded:: 1.45.4
+    """
+
+    def __init__(
+        self,
+        negotiated_server_protocol: int,
+        required_server_protocol: int,
+        required_server_release: str,
+    ) -> None:
+        """Create the error for a negotiated protocol older than required.
+
+        Args:
+            negotiated_server_protocol: The protocol version agreed with the Server.
+            required_server_protocol: The minimum protocol version for the
+                graceful completion condition.
+            required_server_release: The first server-zd release with that protocol.
+        """
+        super().__init__(
+            "the graceful completion condition requires Dex Server protocol "
+            f"version {required_server_protocol} or later "
+            f"({required_server_release} or later), but the negotiated protocol "
+            f"version is {negotiated_server_protocol}; upgrade the Server"
+        )
+        self.negotiated_server_protocol = negotiated_server_protocol
+        self.required_server_protocol = required_server_protocol

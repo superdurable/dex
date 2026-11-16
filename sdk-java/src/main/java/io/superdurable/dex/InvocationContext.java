@@ -26,6 +26,7 @@ import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.ConditionStatus;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.FlowResult;
+import io.superdurable.gen.GracefulCompletionResult;
 import io.superdurable.gen.StepMethodHeartbeat;
 import io.superdurable.gen.StepStreamWrite;
 import io.superdurable.gen.TimerResult;
@@ -241,6 +242,20 @@ final class InvocationContext implements Context {
                 && index < conditionResults.getTimerResultsCount()
                 && conditionResults.getTimerResults(index).getConditionStatus()
                 == ConditionStatus.CONDITION_STATUS_COMPLETED;
+    }
+
+    @Override
+    public boolean isGracefulCompletionConditionCompleted() {
+        if (method != Method.EXECUTE || conditionResults == null) {
+            return false;
+        }
+        for (GracefulCompletionResult result
+                : conditionResults.getGracefulCompletionResultsList()) {
+            if (result.getConditionStatus() == ConditionStatus.CONDITION_STATUS_COMPLETED) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

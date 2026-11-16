@@ -45,6 +45,10 @@ mod flow_service_client;
 mod get_attributes_test;
 #[path = "integ/get_attributes_workflow.rs"]
 mod get_attributes_workflow;
+#[path = "integ/graceful_completion_condition_test.rs"]
+mod graceful_completion_condition_test;
+#[path = "integ/graceful_completion_condition_workflow.rs"]
+mod graceful_completion_condition_workflow;
 #[path = "integ/hard_delete_attribute_test.rs"]
 mod hard_delete_attribute_test;
 #[path = "integ/hard_delete_attribute_workflow.rs"]

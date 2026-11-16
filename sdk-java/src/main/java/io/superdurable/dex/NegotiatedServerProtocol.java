@@ -10,7 +10,9 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.GracefulCompletionConditionUnsupportedException;
 import io.superdurable.gen.AttributeWrite;
+import io.superdurable.gen.WaitingCondition;
 
 import java.util.List;
 
@@ -72,6 +74,17 @@ final class NegotiatedServerProtocol {
                         + ServerProtocolCompatibility.CLONE_FORK_FLOW_SERVER_RELEASE
                         + " or later), but the negotiated Server protocol version " + negotiated
                         + "; upgrade the Dex Server");
+    }
+
+    // An older Server drops the condition, so fail closed instead.
+    void requireGracefulCompletionConditionSupport(final WaitingCondition waiting) {
+        final int version = negotiatedVersion;
+        if (waiting.getGracefulCompletionConditionsCount() == 0
+                || version >= ServerProtocolCompatibility.GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION) {
+            return;
+        }
+        throw new GracefulCompletionConditionUnsupportedException(
+                version, ServerProtocolCompatibility.GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION);
     }
 
     // An older Server ignores task_queue and would silently use the default task queue.

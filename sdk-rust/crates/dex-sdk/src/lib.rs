@@ -104,7 +104,9 @@ pub use time_travel_options::{SubFlowResetPolicy, TimeTravelOptions, TimeTravelS
 pub use timer::{Timer, TimerId};
 pub use tonic::Code as GrpcCode;
 pub use value::Value;
-pub use wait::{Condition, ConditionCombination, Wait};
+pub use wait::{
+    Condition, ConditionCombination, GracefulCompletionConditionUnsupportedError, Wait,
+};
 pub use wait_options::{WaitForAttributeOptions, WaitForStepCompletionOptions};
 pub use worker::Worker;
 pub use worker_options::{PullWorkerOptions, WorkerOptions};

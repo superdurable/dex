@@ -277,8 +277,8 @@ test("Worker rejects hard-delete writes below Server protocol version 3", async 
   );
 });
 
-test("TypeScript SDK supports Server protocol version 6", () => {
-  assert.equal(maximumSupportedServerProtocolVersion, 6);
+test("TypeScript SDK supports Server protocol version 7", () => {
+  assert.equal(maximumSupportedServerProtocolVersion, 7);
 });
 
 test("Server protocol errors name the side to upgrade or the invalid ServerInfo", () => {
@@ -286,12 +286,12 @@ test("Server protocol errors name the side to upgrade or the invalid ServerInfo"
     serverVersion: "test", minimumSupportedProtocolVersion, currentProtocolVersion, serverEngine: 0,
   });
   assert.equal(negotiateServerProtocol(serverInfo(1, 4), "1.0.0"), 4);
-  assert.equal(negotiateServerProtocol(serverInfo(3, 9), "1.0.0"), 6);
+  assert.equal(negotiateServerProtocol(serverInfo(3, 9), "1.0.0"), 7);
   assert.throws(() => negotiateServerProtocol(serverInfo(1, 3), "1.0.0"), (failure: Error) =>
     /requires a Dex Server with protocol version 4 or later/.test(failure.message)
     && /Upgrade the Server before upgrading the SDK/.test(failure.message));
-  assert.throws(() => negotiateServerProtocol(serverInfo(7, 8), "1.0.0"), (failure: Error) =>
-    /The Server requires protocol version 7 or later/.test(failure.message)
+  assert.throws(() => negotiateServerProtocol(serverInfo(8, 9), "1.0.0"), (failure: Error) =>
+    /The Server requires protocol version 8 or later/.test(failure.message)
     && /Upgrade the TypeScript SDK/.test(failure.message) && !/Upgrade the Server/.test(failure.message));
   for (const invalid of [serverInfo(0, 0), serverInfo(0, 4), serverInfo(5, 4)]) {
     assert.throws(() => negotiateServerProtocol(invalid, "1.0.0"), (failure: Error) =>

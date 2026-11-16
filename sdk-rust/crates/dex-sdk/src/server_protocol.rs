@@ -9,13 +9,16 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use dex_protocol::dex::ServerInfo;
+use dex_protocol::dex::{ServerInfo, WaitingCondition};
+
+use crate::{GracefulCompletionConditionUnsupportedError, HandlerError, HandlerResult};
 
 pub(crate) const MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 4;
-pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 6;
+pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 7;
 pub(crate) const HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION: u32 = 3;
 pub(crate) const NAMED_TASK_QUEUE_PROTOCOL_VERSION: u32 = 5;
 pub(crate) const CLONE_FORK_FLOW_PROTOCOL_VERSION: u32 = 6;
+pub(crate) const GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION: u32 = 7;
 const CLONE_FORK_FLOW_SERVER_ZD_RELEASE: &str = "server-zd 0.1.33";
 pub(crate) const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -94,6 +97,30 @@ impl NegotiatedServerProtocolVersion {
         ))
     }
 
+    /// Returns `waiting` unchanged when it has no graceful completion condition or the negotiated
+    /// Server has protocol 7, and a [`GracefulCompletionConditionUnsupportedError`] otherwise.
+    /// It fails closed because an older Server drops the condition.
+    pub(crate) fn require_graceful_completion_condition_support(
+        &self,
+        waiting: Option<WaitingCondition>,
+    ) -> HandlerResult<Option<WaitingCondition>> {
+        let version = self.version();
+        let has_graceful_condition = waiting
+            .as_ref()
+            .is_some_and(|waiting| !waiting.graceful_completion_conditions.is_empty());
+        if !has_graceful_condition || version >= GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION {
+            return Ok(waiting);
+        }
+        let error = GracefulCompletionConditionUnsupportedError::new(
+            version,
+            GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION,
+        );
+        Err(HandlerError::new(
+            "dex_sdk::GracefulCompletionConditionUnsupportedError",
+            error.to_string(),
+        ))
+    }
+
     fn version(&self) -> u32 {
         self.version.load(Ordering::Acquire)
     }
@@ -164,7 +191,7 @@ mod tests {
 
     #[test]
     fn negotiates_highest_common_protocol() {
-        for (server_current, expected) in [(4, 4), (5, 5), (6, 6), (7, 6)] {
+        for (server_current, expected) in [(4, 4), (5, 5), (6, 6), (7, 7), (8, 7)] {
             let negotiated = negotiate_server_protocol(&ServerInfo {
                 server_version: "newer".to_string(),
                 minimum_supported_protocol_version: 1,
@@ -283,9 +310,9 @@ mod tests {
         )));
         assert!(old_server.contains("protocol versions 1-3 (server version old)"));
         assert!(old_server.contains("Upgrade the Server"));
-        let future_server = negotiate_server_protocol(&server_info("future", 7, 7))
+        let future_server = negotiate_server_protocol(&server_info("future", 8, 8))
             .expect_err("Server newer than the SDK maximum");
-        assert!(future_server.contains("requires protocol version 7 or later"));
+        assert!(future_server.contains("requires protocol version 8 or later"));
         assert!(future_server.contains("(server version future)"));
         assert!(future_server.contains("Upgrade the SDK"));
         assert!(!future_server.contains("Upgrade the Server"));

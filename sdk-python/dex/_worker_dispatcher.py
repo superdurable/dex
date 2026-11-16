@@ -26,7 +26,13 @@ from dex.attribute import (
     _require_matching_hard_delete_on_null,
 )
 from dex.channel import Channel, ChannelMap, ChannelMapLoad
-from dex.condition import ChannelCondition, Condition, SubFlowCondition, TimerCondition
+from dex.condition import (
+    ChannelCondition,
+    Condition,
+    GracefulCompletionCondition,
+    SubFlowCondition,
+    TimerCondition,
+)
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, RPCResult, _RegisteredFlow, _RegisteredStep
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
@@ -661,6 +667,8 @@ class WorkerDispatcher:
         waiting.timer_conditions.extend(mapper.timers)
         waiting.channel_conditions.extend(mapper.channels)
         waiting.sub_flow_conditions.extend(mapper.sub_flows)
+        waiting.graceful_completion_conditions.extend(mapper.graceful_completions)
+        self._server_protocol.require_graceful_completion_condition_support(waiting)
         return waiting
 
     def _map_sub_flow_options(
@@ -997,6 +1005,7 @@ class _ConditionMapper:
         self.timers: list[pb.TimerCondition] = []
         self.channels: list[pb.ChannelCondition] = []
         self.sub_flows: list[pb.SubFlowCondition] = []
+        self.graceful_completions: list[pb.GracefulCompletionCondition] = []
 
     def add_all(self, conditions: tuple[Condition, ...]) -> None:
         if not conditions:
@@ -1083,6 +1092,14 @@ class _ConditionMapper:
                 self._dispatcher._map_sub_flow_options(target, options)
             )
             self.sub_flows.append(mapped_sub_flow)
+        elif isinstance(condition, GracefulCompletionCondition):
+            if self.graceful_completions:
+                raise ValueError(
+                    "a Wait accepts at most one graceful completion condition"
+                )
+            self.graceful_completions.append(
+                pb.GracefulCompletionCondition(condition_id=condition_id)
+            )
         else:
             raise TypeError("unsupported Condition")
         self._ids[identity] = condition_id

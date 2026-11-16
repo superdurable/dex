@@ -136,6 +136,24 @@ public interface Context {
     boolean hasTimerFired(int index);
 
     /**
+     * Reports whether the graceful completion condition of the current execute invocation's Wait
+     * completed.
+     *
+     * <p>It returns {@code true} when the Flow had a graceful completion request as the Wait
+     * completed, even when another {@link Wait#anyOf} condition won, as with a Timer that fired.
+     * Read consumed Channel messages first, so a message that won is not dropped. It returns
+     * {@code false} when the Wait has no such condition, outside execute, after
+     * {@link Wait#skipImmediately()}, and for a Context that Dex did not create. See
+     * {@link GracefulCompletion} for an example.
+     *
+     * @return {@code true} when the graceful completion condition completed
+     * @since 1.45.3
+     */
+    default boolean isGracefulCompletionConditionCompleted() {
+        return false;
+    }
+
+    /**
      * Reports whether execute is running after a failed wait-for method.
      *
      * <p>This can be {@code true} only when the Step uses

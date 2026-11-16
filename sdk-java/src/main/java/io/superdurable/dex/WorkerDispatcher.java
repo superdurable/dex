@@ -29,6 +29,7 @@ import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
 import io.superdurable.gen.InvokeWorkerRPCResponse;
 import io.superdurable.gen.StepMovement;
+import io.superdurable.gen.GracefulCompletionCondition;
 import io.superdurable.gen.SubFlowCondition;
 import io.superdurable.gen.TimerCondition;
 import io.superdurable.gen.WaitForMethodFailurePolicy;
@@ -116,6 +117,7 @@ final class WorkerDispatcher {
                             .addAllDeleteFromChannel(context.getChannelDeletions());
             final WaitingCondition waiting = mapWait(flow, step, wait);
             if (waiting != null) {
+                serverProtocol.requireGracefulCompletionConditionSupport(waiting);
                 response.setWaitingCondition(waiting);
             }
             final Throwable finalizationFailure = context.finalizeStepOutputs(null);
@@ -340,6 +342,7 @@ final class WorkerDispatcher {
         waiting.addAllTimerConditions(mapper.timers);
         waiting.addAllChannelConditions(mapper.channels);
         waiting.addAllSubFlowConditions(mapper.subFlows);
+        waiting.addAllGracefulCompletionConditions(mapper.gracefulCompletions);
         return waiting.build();
     }
 
@@ -788,6 +791,8 @@ final class WorkerDispatcher {
         private final List<TimerCondition> timers = new ArrayList<TimerCondition>();
         private final List<ChannelCondition> channels = new ArrayList<ChannelCondition>();
         private final List<SubFlowCondition> subFlows = new ArrayList<SubFlowCondition>();
+        private final List<GracefulCompletionCondition> gracefulCompletions =
+                new ArrayList<GracefulCompletionCondition>();
 
         ConditionMapper(final Registry.RegisteredFlow flow) {
             this.flow = flow;
@@ -844,6 +849,15 @@ final class WorkerDispatcher {
                     channel.setAtMost(condition.getAtMost());
                 }
                 channels.add(channel.build());
+            } else if (condition.getKind() == Condition.Kind.GRACEFUL_COMPLETION) {
+                if (!gracefulCompletions.isEmpty()) {
+                    throw new InvalidStepResultException(
+                            "Flow " + flow.getName()
+                                    + " Wait accepts at most one graceful completion condition");
+                }
+                gracefulCompletions.add(GracefulCompletionCondition.newBuilder()
+                        .setConditionId(id)
+                        .build());
             } else {
                 subFlows.add(mapSubFlow(condition, id, subFlows.size()));
             }
