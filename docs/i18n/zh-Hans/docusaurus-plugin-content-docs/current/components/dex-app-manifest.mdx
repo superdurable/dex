@@ -94,9 +94,11 @@ stack 决定 build profile：
 
 Dex Cloud 尚未构建的 agent 框架会被拒绝，并提示暂不支持，例如 `claude-agent-sdk`、`vercel-ai`、`mastra` 和 `openai-agents`。
 
-每个命令由 `make`、一个空格和一个 target 组成。target 以小写字母开头，只包含小写字母、数字和 `-`。对应的模式是 `^make [a-z][a-z0-9-]*$`。Preview 会运行 `bootstrap`。
+每个命令由 `make`、一个空格和一个 target 组成。target 以小写字母开头，只包含小写字母、数字和 `-`。对应的模式是 `^make [a-z][a-z0-9-]*$`。Dex Cloud 在准备 coding workspace 时运行 `bootstrap`，Preview 使用这个 workspace。
 
 你让 coding agent 做修改时，它会提交到 `main`。Dex Cloud 按这些规则检查这些 commit，并对它们运行 `checkStatic` 和 `testApplication`。本页把这些检查称为 commit 检查。commit 检查只读取 `schemaVersion`、`buildProfile`、`checkStatic` 和 `testApplication`，缺少 `buildProfile` 时按 `go-react-v1` 处理。
+
+你自己推送的 commit 要到 Preview 或 Live 构建读取它们时才会被检查。coding agent 的输出把 commit 检查显示为 "Source gate"。
 
 ## 部署 manifest {#dex-app-yaml}
 
@@ -306,7 +308,7 @@ enum: ["yes", "no"]
 | [S1](#s1) | 每个字段 | commit 检查读取 `schemaVersion`、`buildProfile`、`checkStatic` 和 `testApplication` |
 | [S2](#s2) | manifest、每个 Flow 源文件，以及 `.json` graph 的 Trigger binding | commit 检查读取 manifest。构建时检查 Flow 源文件。Preview 和 Live 渲染每个 Flow，并拒绝无效的 Flow。 |
 | [S3](#s3) | 每个文件是否存在 | Live 构建编译这些文件 |
-| [S4](#s4) | 根目录 `Makefile` | commit 检查运行这些 target。Preview 运行 `bootstrap`，Go 还会运行 `generate`。 |
+| [S4](#s4) | 根目录 `Makefile` | commit 检查运行这些 target。Dex Cloud 在准备 coding workspace 时运行 `bootstrap`，Preview 使用这个 workspace。Go 的 Preview 还会运行 `generate`。 |
 | [S5](#s5) | 不检查 | commit 检查运行 `make test-app` |
 | [S6](#s6) | 不检查 | Preview 和 Live 运行应用 |
 | [S7](#s7) | 不检查 | Go 代码的 commit 检查；每次 Go 的 Live 构建 |
@@ -346,7 +348,7 @@ template manifest 无法解码为包含 template manifest 字段的 JSON 对象�
 
 ### `template_schema_version` {#template_schema_version}
 
-`schemaVersion` 的值不是 `1`。
+`schemaVersion` 缺失或不是 `1`。
 
 把 `schemaVersion` 设为数字 `1`，这是 Dex Cloud 读取的唯一 template manifest 版本：
 
@@ -356,7 +358,7 @@ template manifest 无法解码为包含 template manifest 字段的 JSON 对象�
 
 ### `build_profile_unknown` {#build_profile_unknown}
 
-`buildProfile` 指定的 build profile 在 Dex Cloud 中不存在。
+`buildProfile` 缺失，或者指定了 Dex Cloud 不构建的 build profile。
 
 Go process 加 React web UI 时把 `buildProfile` 设为 `go-react-v1`，TypeScript process 或 agent 时设为 `node-ts-v1`。
 
@@ -374,7 +376,7 @@ Go process 加 React web UI 时把 `buildProfile` 设为 `go-react-v1`，TypeScr
 
 ### `stack_unsupported` {#stack_unsupported}
 
-`stack` 指定了 Dex Cloud 以后才会构建的 stack，例如 `claude-agent-sdk`、`vercel-ai`、`mastra` 和 `openai-agents`。
+`stack` 指定了 Dex Cloud 暂不构建的 stack，例如 `claude-agent-sdk`、`vercel-ai`、`mastra` 和 `openai-agents`。
 
 在 Dex Cloud 现在构建的 stack 上构建应用，process 用 `go` 或 `typescript`，agent 用 `pi`，并把 `stack` 设为它。
 
@@ -501,7 +503,7 @@ flowDefinitions:
 
 ### `flow_graph_invalid_json` {#flow_graph_invalid_json}
 
-某个已提交的 `.json` graph 有 JSON 语法错误。
+某个已提交的 `.json` graph 不是合法的 JSON，或者有字段类型错误。
 
 重新导出 Dex 写出的 FDG 2.0 JSON，不要手工编辑，并检查所示行的语法错误。
 
@@ -593,7 +595,7 @@ func main() {
 
 ### `npm_package_invalid` {#npm_package_invalid}
 
-`package.json` 有 JSON 语法错误。
+`package.json` 不是合法的 JSON，或者有字段类型错误。
 
 修复 `package.json` 中所示行的 JSON。`npm pkg fix` 或 JSON linter 会指出错误位置。
 

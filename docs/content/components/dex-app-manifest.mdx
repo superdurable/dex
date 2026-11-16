@@ -6,7 +6,7 @@ description: "The files, manifest fields, YAML rules, limits, rules S1 to S8, an
 toc_max_heading_level: 2
 ---
 
-# Dex app manifest and repository layout
+# Dex app manifest and repository layout {#dex-app-manifest-and-repository-layout}
 
 This page lists the files, the manifest fields, the YAML rules, the limits, the rules S1 to S8, and the import findings of a [Managed Dex App](/components/managed-dex-app) repository. Use it to prepare a repository for import and to fix a refused import.
 
@@ -94,9 +94,11 @@ The stack decides the build profile:
 
 Agent frameworks that Dex Cloud does not build yet are refused as not yet supported, such as `claude-agent-sdk`, `vercel-ai`, `mastra` and `openai-agents`.
 
-Each command is the word `make`, one space, and one target. A target starts with a lowercase letter and holds lowercase letters, digits, and `-`. The pattern is `^make [a-z][a-z0-9-]*$`. Preview runs `bootstrap`.
+Each command is the word `make`, one space, and one target. A target starts with a lowercase letter and holds lowercase letters, digits, and `-`. The pattern is `^make [a-z][a-z0-9-]*$`. Dex Cloud runs `bootstrap` when it prepares the coding workspace, which Preview uses.
 
 When you ask the coding agent for a change, it commits to `main`. Dex Cloud checks those commits against these rules, and runs `checkStatic` and `testApplication` on them. This page calls them commit checks. Commit checks read only `schemaVersion`, `buildProfile`, `checkStatic`, and `testApplication`, and they read a missing `buildProfile` as `go-react-v1`.
+
+Commits you push yourself are checked when Preview or a Live build reads them, and not before. The coding agent's output shows commit checks as "Source gate".
 
 ## Deployment manifest {#dex-app-yaml}
 
@@ -306,7 +308,7 @@ The import checks S1, S2, S3, S4, and S8. It lists every rule the repository bre
 | [S1](#s1) | Every field | Commit checks read `schemaVersion`, `buildProfile`, `checkStatic`, and `testApplication` |
 | [S2](#s2) | The manifest, every Flow source, and Trigger bindings of `.json` graphs | Commit checks read the manifest. The build checks the Flow sources. Preview and Live render every Flow and refuse an invalid one. |
 | [S3](#s3) | That each file is present | The Live build compiles them |
-| [S4](#s4) | The root `Makefile` | Commit checks run the targets. Preview runs `bootstrap`, and `generate` for Go. |
+| [S4](#s4) | The root `Makefile` | Commit checks run the targets. Dex Cloud runs `bootstrap` when it prepares the coding workspace, which Preview uses. Preview runs `generate` for Go. |
 | [S5](#s5) | Not checked | Commit checks run `make test-app` |
 | [S6](#s6) | Not checked | Preview and Live run the application |
 | [S7](#s7) | Not checked | Commit checks of Go code; every Go Live build |
@@ -346,7 +348,7 @@ Fix the JSON at the line shown, often a missing comma or quote, and give each fi
 
 ### `template_schema_version` {#template_schema_version}
 
-`schemaVersion` holds a value other than `1`.
+`schemaVersion` is missing, or it holds a value other than `1`.
 
 Set `schemaVersion` to the number `1`, the only template manifest version Dex Cloud reads:
 
@@ -356,7 +358,7 @@ Set `schemaVersion` to the number `1`, the only template manifest version Dex Cl
 
 ### `build_profile_unknown` {#build_profile_unknown}
 
-`buildProfile` names a build profile that Dex Cloud lacks.
+`buildProfile` is missing or names a build profile that Dex Cloud does not build.
 
 Set `buildProfile` to `go-react-v1` for a Go process with a React web UI, or to `node-ts-v1` for a TypeScript process or agent.
 
@@ -374,7 +376,7 @@ Set `stack` to the language or harness the application is written in: `go` or `t
 
 ### `stack_unsupported` {#stack_unsupported}
 
-`stack` names a stack that Dex Cloud builds later, such as `claude-agent-sdk`, `vercel-ai`, `mastra` and `openai-agents`.
+`stack` names a stack that Dex Cloud does not build yet, such as `claude-agent-sdk`, `vercel-ai`, `mastra` and `openai-agents`.
 
 Build the application on a stack Dex Cloud builds today, `go` or `typescript` for a process or `pi` for an agent, and set `stack` to it.
 
@@ -501,7 +503,7 @@ Split the Flow into smaller Flows, or move helper code into other files. A commi
 
 ### `flow_graph_invalid_json` {#flow_graph_invalid_json}
 
-A committed `.json` graph has a JSON syntax error.
+A committed `.json` graph has invalid JSON or a field of the wrong type.
 
 Export the graph again as the FDG 2.0 JSON that Dex writes instead of editing it by hand, and check the line shown for a syntax error.
 
@@ -593,7 +595,7 @@ func main() {
 
 ### `npm_package_invalid` {#npm_package_invalid}
 
-`package.json` has a JSON syntax error.
+`package.json` has invalid JSON or a field of the wrong type.
 
 Fix the JSON of `package.json` at the line shown. `npm pkg fix` or a JSON linter points at the error.
 

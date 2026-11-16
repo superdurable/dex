@@ -32,7 +32,7 @@ Dex Cloud 提供两种产品：
 
 ## 导入仓库 {#import}
 
-导入功能处于早期体验阶段，正在逐步向账号开放。你的账号能否使用可能随时变化。
+导入功能处于早期体验阶段，正在 Dex Cloud 中逐步开启。尚未开启的地方，Import 视图会显示 "GitHub connections are not available here."
 
 Dex Cloud 通过 **SuperDurable Dex Cloud** GitHub App 读取你的仓库。这个 app 申请以下权限：
 
@@ -42,11 +42,11 @@ Dex Cloud 通过 **SuperDurable Dex Cloud** GitHub App 读取你的仓库。这�
 
 导入仓库的步骤：
 
-1. 由 workspace 管理员连接你的 GitHub 组织：在组织上安装 [SuperDurable Dex Cloud](https://github.com/apps/superdurable-dex-cloud) GitHub App，并授予它访问该仓库的权限。
-2. workspace 成员在 Dex Cloud 开始页面选择 **Import project**。
-3. 从列表中选择仓库，或者输入 `owner/name`。
+1. 拥有该 GitHub 组织（或个人账号）的 Teamspace 管理员打开 **Connections**，选择 **Install the GitHub App**，安装 [SuperDurable Dex Cloud](https://github.com/apps/superdurable-dex-cloud) GitHub App 并授予它访问该仓库的权限，然后选择 **Connect GitHub**。
+2. Teamspace 的任何成员在开始页面选择 **Import project**。
+3. 在 **Import from** 下选择 GitHub 账号。从列表中选择仓库，或者输入 `owner/name` 并选择 **Check repository**。
 4. 查看检查结果。Dex Cloud 读取 `main`，显示 `kind`、`stack`，以及仓库违反的每条规则。
-5. 检查通过后，创建 project。
+5. 检查通过后，选择 **Create project**。
 
 导入时，你的仓库保持原样。删除 project 会删除它的 Preview、Live 和数据，你的仓库保持原样。
 
