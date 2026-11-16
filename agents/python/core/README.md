@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.45.2`:
+later and requires the released `dex-python-sdk==1.45.3`:
 
 ```bash
 pip install dex-agents
@@ -1389,6 +1389,37 @@ for session in sort_agent_sessions_by_last_activity(page.sessions):
   registered one of these keys with another type, or when all three keys of
   the type are taken by other names. Search queries of other Flow types must
   filter on `FlowType`.
+
+## Forking sessions
+
+Since 0.6.13, `fork_agent_session` (and `AgentSessionClient.fork_session`)
+creates a new session from another session's conversation between two turns,
+with Dex clone fork. It needs server-zd 0.1.33 or later. The source session
+keeps running unchanged.
+
+```python
+fork = await sessions.fork_session("session-42", "session-42-b", after_message=6)
+await sessions.send_user_message(fork.session_id, "Try the other plan")
+```
+
+- Every fork copies the state at the start of one `AwaitUserMessage` WaitFor:
+  the one waiting now, or, with `after_message`, the one that started the turn
+  after that message, read from its `turn_started` event. A turn that starts
+  during the call never reaches the copy.
+- The fork deletes `SessionTerminalLease` and `SessionLastTerminalEnvironment`
+  in the change that creates it, and never reuses a Flow ID. Pass
+  `task_queue` when Workers pick sessions by task queue.
+- A point inside a turn, during a running turn, before a turn that steering
+  started, or beyond the retained `AgentEvents` raises
+  `AgentSessionForkError`, whose `code` names the rule, and creates nothing.
+  The point fixes the copied state, so the call returns once Dex created the
+  fork.
+- The fork has no Flow history and no `AgentEvents` of the source.
+- Register `AgentSessionForkingFlow(flow_type)` to fork from a Client that has
+  no `AgentSessionFlow` of that type.
+
+The rules are shared with the TypeScript core in
+[`session_fork.json`](../../conformance/session_fork.json).
 
 ## Showing sessions in Dex Web
 

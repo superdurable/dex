@@ -473,9 +473,22 @@ export class SessionClients {
     this.environments.clear();
   }
 
+  /**
+   * Starts a client with an in-process Worker on the default task queue for a test home's harness Flow type, as
+   * another application may run sessions of that type. Close its environment when done.
+   * @param home - The test home.
+   * @returns The environment and the client.
+   */
+  public async openWithSharedQueueWorker(
+    home: TestHome,
+  ): Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }> {
+    return this.open(home.sessionFlowType(), home.harness, true);
+  }
+
   private async open(
     flowType: string,
     harness: AgentHarness,
+    isWorkerInProcess = false,
   ): Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }> {
     const effective = resolveConfig({}, harness.configSection, harness.defaultModel);
     const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
@@ -494,7 +507,7 @@ export class SessionClients {
     const environment = await AgentTestEnvironment.start({
       serverAddress: this.engine.serverAddress,
       flows: [flow],
-      isWorkerInProcess: false,
+      isWorkerInProcess,
     });
     return { environment, sessions: new AgentSessionTestClient(environment.client, flow) };
   }

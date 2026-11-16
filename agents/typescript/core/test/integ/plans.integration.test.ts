@@ -16,6 +16,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import {
   buildPlanExecutionMessage,
   createAgentSessionFlow,
+  forkAgentSession,
   noPlanNote,
   planningTurnInstruction,
   planningTurnToolRejection,
@@ -271,6 +272,28 @@ describe("plans: write_todos, plan mode, and execute_plan", () => {
     // The execution marked every task completed, so nothing is left to execute.
     assert.deepEqual([snapshot.plan?.revision, snapshot.plan?.status], [3, "completed"]);
     assert.equal(await sessions.executePlan(sessionId, 3), false);
+  });
+
+  test("a fork before a plan execution keeps the draft plan, which the fork can execute", async () => {
+    const markerDirectory = newMarkerDirectory();
+    await startWorker(markerDirectory);
+    const sessionId = await startWithDraft("plan Look up the order | Publish the note");
+    const afterPlanning = (await sessions.getAgentSnapshot(sessionId)).messages.length;
+    assert.equal(await sessions.executePlan(sessionId, 1), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    const forkId = `plan-fork-${randomUUID()}`;
+    const fork = await forkAgentSession(sessions.client, sessions.flow, sessionId, forkId, {
+      afterMessage: afterPlanning,
+    });
+
+    assert.equal(fork.afterMessage, afterPlanning);
+    const [state, plan] = await sessions.client.getAttributes(forkId, sessions.flow.agentState, sessions.flow.agentPlan);
+    assert.equal(state?.nextMessageSequence, afterPlanning + 1);
+    assert.deepEqual([plan?.revision, plan?.status], [1, "draft"]);
+    assert.equal(await sessions.executePlan(forkId, 1), true);
+    await sessions.waitForCompletedTurns(forkId, 2);
+    assert.equal((await sessions.getAgentSnapshot(forkId)).state?.interactionMode, "executing");
   });
 
   test("a planning turn that answers in text ends without a draft", async () => {

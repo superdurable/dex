@@ -218,6 +218,18 @@ connection or operation is off there, or when a call that had no approval is
 no longer allowed without one: a shell command missing from its allow list,
 or a tool now in `approval.always`.
 
+`fork <session-id> [--at <message-number>]` (since 0.6.13) copies a session
+between turns into a new session with `forkAgentSession` of
+`@superdurable/dex-agents`, then asks whether to open it; without a terminal it
+prints the `--resume` line. The fork gets a new CLI session ID. A source of the
+harness's Flow type gives it the fork's own task queue, also when the source ran
+on a shared one, because the opener accepts that type only on its own queue; an
+environment-hashed source keeps its task queue. In the plain chat,
+`/fork [message-number]` does the same for the open session and, on yes,
+releases it and opens the fork. When the fork exists but cannot be opened, the
+error names it. The lines are in
+[`session_fork.json`](../../../conformance/session_fork.json).
+
 ## The harness interface
 
 A harness package exports one `AgentHarness`. Its bin calls `runAgentCli` and

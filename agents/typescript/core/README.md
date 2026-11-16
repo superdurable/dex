@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.4
+npm i @superdurable/dex-agents @superdurable/dex@1.45.5
 ```
 
-`@superdurable/dex` 1.45.4 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.45.5 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -1411,6 +1411,29 @@ for (const session of sortAgentSessionsByLastActivity(page.sessions)) {
   `FAILED_PRECONDITION` when the namespace registered one of these keys with another type, or when all three keys of
   the type are taken by other names. Search queries of other Flow types must filter on `FlowType`.
 
+## Forking sessions
+
+Since 0.6.13, `forkAgentSession` creates a new session from another session's conversation between two turns, with
+Dex clone fork. It needs server-zd 0.1.33 or later. The source session keeps running unchanged.
+
+```ts
+const fork = await forkAgentSession(client, flow, "session-42", "session-42-b", { afterMessage: 6 });
+await sendAgentUserMessage(client, flow, fork.sessionId, { text: "Try the other plan" });
+```
+
+- Every fork copies the state at the start of one `AwaitUserMessage` WaitFor: the one waiting now, or, with
+  `afterMessage`, the one that started the turn after that message, read from its `turn_started` event. A turn that
+  starts during the call never reaches the copy.
+- The fork deletes `SessionTerminalLease` and `SessionLastTerminalEnvironment` in the change that creates it, and
+  never reuses a Flow ID. Pass `taskQueue` when Workers pick sessions by task queue.
+- A point inside a turn, during a running turn, before a turn that steering started, or beyond the retained
+  `AgentEvents` throws `AgentSessionForkError`, whose `code` names the rule, and creates nothing. The point fixes
+  the copied state, so the call returns once Dex created the fork.
+- The fork has no Flow history and no `AgentEvents` of the source.
+- Pass `createAgentSessionForkingFlow(flowType)` to fork from a Client that has no session Flow of that type.
+
+The rules are shared with the Python core in [`session_fork.json`](../../conformance/session_fork.json).
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1640,7 +1663,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.4 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.45.5 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or

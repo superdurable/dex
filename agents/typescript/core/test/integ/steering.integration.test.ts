@@ -19,6 +19,8 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { ChannelMessageNotFoundError } from "@superdurable/dex";
 
 import {
+  AgentSessionForkError,
+  forkAgentSession,
   toolCallCancelledBySteeringResult,
   toolCallCancelledByTurnCancellationResult,
   turnCancelledNoteHeader,
@@ -369,6 +371,61 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     assert.equal(snapshot.messages.at(-1)?.text, "said: queued-19");
     const executed = await executedStepTypes(sessionId);
     assert.equal(executed.filter((stepType) => stepType === "ApplyTurnControl").length, 1);
+  });
+
+  test("a turn that steering started has no fork point before it", async () => {
+    const token = newToken();
+    const sessionId = `fork-steer-${token}`;
+    const gate = new FileGate(markerDirectory, `model-${token}`);
+    await sessions.startSession(sessionId, `stall-then-call model-${token} order-1 | launch notes`);
+    await gate.waitUntilReached();
+    assert.equal(await sessions.steerUserMessage(sessionId, "say steered"), true);
+    gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const steeredStart = snapshot.messages.find((message) => message.turnId === "turn-2")?.sequence ?? 0;
+
+    await assert.rejects(
+      forkAgentSession(sessions.client, sessions.flow, sessionId, `fork-${newToken()}`, {
+        afterMessage: steeredStart - 1,
+      }),
+      (error: unknown) => error instanceof AgentSessionForkError && error.code === "steered_turn",
+    );
+    const fork = await forkAgentSession(sessions.client, sessions.flow, sessionId, `fork-${newToken()}`);
+    assert.equal(fork.afterMessage, snapshot.messages.length);
+  });
+
+  test("a fork after a cancelled turn keeps the cancelled turn and continues", async () => {
+    const token = newToken();
+    const sessionId = `fork-cancel-${token}`;
+    await sessions.startSession(sessionId, "publish launch notes");
+    await sessions.waitForPendingInterrupt(sessionId, "publish_note");
+    await assert.rejects(
+      forkAgentSession(sessions.client, sessions.flow, sessionId, `fork-${newToken()}`),
+      (error: unknown) => error instanceof AgentSessionForkError && error.code === "turn_in_progress",
+    );
+    assert.equal(await sessions.cancelTurn(sessionId, "turn-1"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const cancelled = await sessions.getAgentSnapshot(sessionId);
+    const afterCancelled = cancelled.messages.length;
+    assert.equal(await sessions.sendUserMessage(sessionId, "say later"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    const forkId = `fork-${newToken()}`;
+    const fork = await forkAgentSession(sessions.client, sessions.flow, sessionId, forkId, {
+      afterMessage: afterCancelled,
+    });
+
+    assert.equal(fork.afterMessage, afterCancelled);
+    assert.equal(await sessions.sendUserMessage(forkId, "say forked"), true);
+    await sessions.waitForCompletedTurns(forkId, 2);
+    const forked = await sessions.getAgentSnapshot(forkId);
+    assert.equal(forked.messages[afterCancelled]?.text, "say forked");
+    assert.equal(forked.messages.at(-1)?.text, "said: forked");
+    assert.deepEqual(
+      forked.messages.slice(0, afterCancelled).map((message) => message.text),
+      cancelled.messages.map((message) => message.text),
+    );
   });
 
   test("A5-7: cancel_turn ends an approval wait and aborts a running model call", async () => {

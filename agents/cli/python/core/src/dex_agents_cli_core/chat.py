@@ -41,6 +41,7 @@ from dex_agents import (
     AgentImageReference,
     AgentInterrupt,
     AgentSessionClient,
+    AgentSessionFork,
     AgentSessionStatus,
     AgentSnapshot,
     ImageValidationError,
@@ -48,6 +49,16 @@ from dex_agents import (
     MediaStore,
     MessageRole,
     detect_image_mime_type,
+)
+from dex_agents_cli_core.session_forks import (
+    CHAT_FORK_USAGE_LINE,
+    FORK_COMMAND,
+    SessionForkFailure,
+    build_chat_fork_failure_line,
+    build_forked_line,
+    build_open_prompt,
+    build_resume_hint,
+    is_yes_answer,
 )
 
 #: The line that ends the chat, like Ctrl-D.
@@ -183,6 +194,7 @@ class TerminalChat:
         *,
         media_store: MediaStore,
         home: Path,
+        fork_session: Callable[[int | None], Awaitable[AgentSessionFork]] | None = None,
     ) -> None:
         """Chat with one session.
 
@@ -194,6 +206,9 @@ class TerminalChat:
             resume_command: The command that resumes this session, shown on exit.
             media_store: The store that ``/image`` uploads to.
             home: The home directory that a leading ``~`` in an image path means.
+            fork_session: What ``/fork`` calls with the message number, or
+                ``None`` for the current state. It raises
+                ``SessionForkFailure``. ``None`` turns ``/fork`` off.
         """
         self._client = client
         self._sessions = sessions
@@ -207,6 +222,9 @@ class TerminalChat:
         self._is_exit_requested = False
         self._is_input_ended = False
         self._has_failure = False
+        self._fork_session = fork_session
+        # The fork that /fork opened; the chat ended to open it.
+        self.switch_session_id: str | None = None
 
     async def run(self) -> bool:
         """Chat until the user exits.
@@ -239,6 +257,9 @@ class TerminalChat:
             if command == IMAGE_COMMAND:
                 await self._attach_image(argument)
                 continue
+            if command == FORK_COMMAND and self._fork_session is not None:
+                await self._fork(argument)
+                continue
             await self._send(line)
         self._terminal.write(
             f"\nSession {self._session_id} keeps running. Resume it with: "
@@ -267,6 +288,31 @@ class TerminalChat:
                 self._terminal.write("[not sent]\n")
             return
         await self._follow_turn(0 if snapshot.state is None else snapshot.state.turn_count, tail)
+
+    async def _fork(self, argument: str) -> None:
+        """Fork this session, then open the fork when the user says yes."""
+        assert self._fork_session is not None, "run handles /fork only with a forker"
+        text = argument.strip()
+        if text and not text.isdecimal():
+            self._terminal.write(CHAT_FORK_USAGE_LINE + "\n")
+            return
+        try:
+            fork = await self._fork_session(int(text) if text else None)
+        except SessionForkFailure as failure:
+            self._terminal.write(build_chat_fork_failure_line(str(failure)) + "\n")
+            return
+        self._terminal.write(
+            build_forked_line(self._session_id, fork.after_message, fork.session_id) + "\n"
+        )
+        self._terminal.write(build_open_prompt(fork.session_id))
+        answer = await self._next_answer()
+        if answer is not None and is_yes_answer(answer):
+            self.switch_session_id = fork.session_id
+            self._is_exit_requested = True
+            return
+        if answer is None:
+            self._terminal.write("\n")
+        self._terminal.write(build_resume_hint(self._resume_command, fork.session_id) + "\n")
 
     async def _attach_image(self, argument: str) -> None:
         """Copy one image file into the media store and keep it for the next message."""

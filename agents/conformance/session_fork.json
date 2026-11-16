@@ -1,0 +1,190 @@
+{
+  "description": "Session forks: the point a fork copies, the Attributes it resets, its errors, and the CLI lines. Both cores and both CLI cores test against this file. Every point is the WaitFor of an AwaitUserMessage execution: the one waiting now for the current state (waiting_step_execution_id, absent means null), or the one that started the turn after the message.",
+  "turn_start_step_type": "AwaitUserMessage",
+  "reset_attributes": ["SessionTerminalLease", "SessionLastTerminalEnvironment"],
+  "id_reuse_policy": "DISALLOW",
+  "fork_reason": "fork of agent session {source_session_id} after message {after_message}",
+  "errors": {
+    "not_started": "session {session_id} has not started yet, so it cannot be forked",
+    "session_failed": "session {session_id} failed, so it cannot be forked",
+    "turn_in_progress": "session {session_id} is running a turn; fork it once the turn ends, or after an earlier message",
+    "no_messages": "session {session_id} has no messages yet; fork it without a message number",
+    "message_out_of_range": "session {session_id} has messages 1 to {last_message}; fork after one of them",
+    "inside_turn": "message {after_message} of session {session_id} is inside a turn; fork after the last message of a turn",
+    "steered_turn": "steering ended the turn of message {after_message} of session {session_id}, so no point between turns follows it; fork after another message",
+    "point_unavailable": "the events of session {session_id} no longer show where the turn after message {after_message} started; fork after a later message",
+    "point_refused": "Dex cannot fork session {session_id} after message {after_message}: {detail}"
+  },
+  "points": [
+    {
+      "name": "the current state of an idle session",
+      "after_message": null,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": "AwaitUserMessage-3",
+      "turn_starts": [],
+      "expected": {"after_message": 4, "step_execution_id": "AwaitUserMessage-3"}
+    },
+    {
+      "name": "the current state of a session without messages",
+      "after_message": null,
+      "state": {"next_message_sequence": 1, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": "AwaitUserMessage-1",
+      "turn_starts": [],
+      "expected": {"after_message": 0, "step_execution_id": "AwaitUserMessage-1"}
+    },
+    {
+      "name": "an idle state whose wait for a message has not started",
+      "after_message": null,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": null,
+      "turn_starts": [],
+      "expected": {"error": "turn_in_progress", "values": {"session_id": "source-1"}}
+    },
+    {
+      "name": "the current state while a turn runs",
+      "after_message": null,
+      "state": {"next_message_sequence": 4, "active_turn_id": "turn-2", "status": "running_model"},
+      "turn_starts": [{"sequence": 1, "step_execution_id": "AwaitUserMessage-1"}, {"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}],
+      "expected": {"error": "turn_in_progress", "values": {"session_id": "source-1"}}
+    },
+    {
+      "name": "after the last message of an idle session",
+      "after_message": 4,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "waiting_step_execution_id": "AwaitUserMessage-3",
+      "turn_starts": [],
+      "expected": {"after_message": 4, "step_execution_id": "AwaitUserMessage-3"}
+    },
+    {
+      "name": "after the last message while its turn runs",
+      "after_message": 3,
+      "state": {"next_message_sequence": 4, "active_turn_id": "turn-2", "status": "running_model"},
+      "turn_starts": [{"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}],
+      "expected": {"error": "turn_in_progress", "values": {"session_id": "source-1"}}
+    },
+    {
+      "name": "after the last message of an earlier turn",
+      "after_message": 2,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [{"sequence": 1, "step_execution_id": "AwaitUserMessage-1"}, {"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}],
+      "expected": {"after_message": 2, "step_execution_id": "AwaitUserMessage-2"}
+    },
+    {
+      "name": "after an earlier turn while a later turn runs",
+      "after_message": 2,
+      "state": {"next_message_sequence": 7, "active_turn_id": "turn-3", "status": "running_tools"},
+      "turn_starts": [{"sequence": 1, "step_execution_id": "AwaitUserMessage-1"}, {"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}, {"sequence": 5, "step_execution_id": "AwaitUserMessage-3"}],
+      "expected": {"after_message": 2, "step_execution_id": "AwaitUserMessage-2"}
+    },
+    {
+      "name": "after the first turn of a session started with a message",
+      "after_message": 2,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [{"sequence": 1, "step_execution_id": "StartAgentSession-1"}, {"sequence": 3, "step_execution_id": "AwaitUserMessage-1"}],
+      "expected": {"after_message": 2, "step_execution_id": "AwaitUserMessage-1"}
+    },
+    {
+      "name": "a retried turn start repeats its event",
+      "after_message": 2,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [{"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}, {"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}],
+      "expected": {"after_message": 2, "step_execution_id": "AwaitUserMessage-2"}
+    },
+    {
+      "name": "inside a turn",
+      "after_message": 3,
+      "state": {"next_message_sequence": 7, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [{"sequence": 1, "step_execution_id": "AwaitUserMessage-1"}, {"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}, {"sequence": 6, "step_execution_id": "AwaitUserMessage-3"}],
+      "expected": {"error": "inside_turn", "values": {"session_id": "source-1", "after_message": 3}}
+    },
+    {
+      "name": "before a turn that steering started",
+      "after_message": 2,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [{"sequence": 1, "step_execution_id": "AwaitUserMessage-1"}, {"sequence": 3, "step_execution_id": "ApplyTurnControl-1"}],
+      "expected": {"error": "steered_turn", "values": {"session_id": "source-1", "after_message": 2}}
+    },
+    {
+      "name": "the events no longer reach the message",
+      "after_message": 2,
+      "state": {"next_message_sequence": 9, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [{"sequence": 7, "step_execution_id": "AwaitUserMessage-4"}],
+      "expected": {"error": "point_unavailable", "values": {"session_id": "source-1", "after_message": 2}}
+    },
+    {
+      "name": "a failed session",
+      "after_message": null,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "failed"},
+      "turn_starts": [],
+      "expected": {"error": "session_failed", "values": {"session_id": "source-1"}}
+    },
+    {
+      "name": "an earlier message of a failed session",
+      "after_message": 2,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "failed"},
+      "turn_starts": [{"sequence": 3, "step_execution_id": "AwaitUserMessage-2"}],
+      "expected": {"error": "session_failed", "values": {"session_id": "source-1"}}
+    },
+    {
+      "name": "message zero",
+      "after_message": 0,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [],
+      "expected": {"error": "message_out_of_range", "values": {"session_id": "source-1", "last_message": 4}}
+    },
+    {
+      "name": "a message after the last one",
+      "after_message": 5,
+      "state": {"next_message_sequence": 5, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [],
+      "expected": {"error": "message_out_of_range", "values": {"session_id": "source-1", "last_message": 4}}
+    },
+    {
+      "name": "a message number of a session without messages",
+      "after_message": 1,
+      "state": {"next_message_sequence": 1, "active_turn_id": null, "status": "waiting_for_user_message"},
+      "turn_starts": [],
+      "expected": {"error": "no_messages", "values": {"session_id": "source-1"}}
+    }
+  ],
+  "cli": {
+    "task_queues": [
+      {
+        "name": "a session of the harness's Flow type gets the fork's own task queue, whatever queue it ran on",
+        "source_flow_type": "DexAgentsCliBuiltinSession",
+        "harness_flow_type": "DexAgentsCliBuiltinSession",
+        "session_id": "builtin-20261115-101730-d4e5f6",
+        "expected_task_queue": "s-414c03475fa436010fa8"
+      },
+      {
+        "name": "an environment-hashed session from before 0.6.8 keeps its task queue",
+        "source_flow_type": "DexAgentsCliBuiltinSession-k3x9q2",
+        "harness_flow_type": "DexAgentsCliBuiltinSession",
+        "session_id": "builtin-20261115-101730-d4e5f6",
+        "expected_task_queue": ""
+      }
+    ],
+    "open_failure": "session {session_id} was forked, but it could not be opened: {error}",
+    "forked": "Forked session {source_session_id} after message {after_message} into session {session_id}.",
+    "open_prompt": "Open session {session_id} now? [Y/n] ",
+    "resume_hint": "Resume it with: {command_name} --resume {session_id}",
+    "usage": "fork needs a session ID: {command_name} fork <session-id> [--at <message-number>]",
+    "chat_usage": "[not forked] usage: /fork [message-number]",
+    "chat_failure": "[not forked] {error}",
+    "unsupported_server": "{command_name} needs a Dex server with clone fork to fork sessions, such as the one dexcli 1.47.8 or later starts; this server is older. Upgrade it, or stop the dexcli dev this command reuses",
+    "other_harness": "session {session_id} is a {flow_type} session, which {command_name} does not run; fork it with the command that started it",
+    "missing_session": "session {session_id} does not exist; list sessions with {command_name} sessions",
+    "lines": [
+      {
+        "template": "forked",
+        "values": {"source_session_id": "builtin-20261115-101500-a1b2c3", "after_message": 4, "session_id": "builtin-20261115-101730-d4e5f6"},
+        "line": "Forked session builtin-20261115-101500-a1b2c3 after message 4 into session builtin-20261115-101730-d4e5f6."
+      },
+      {
+        "template": "resume_hint",
+        "values": {"command_name": "dex-agents-builtin", "session_id": "builtin-20261115-101730-d4e5f6"},
+        "line": "Resume it with: dex-agents-builtin --resume builtin-20261115-101730-d4e5f6"
+      }
+    ]
+  }
+}
