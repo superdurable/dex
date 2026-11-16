@@ -7,5 +7,5 @@
   "typescript": "1.45.x",
   "rust": "1.45.x",
   "web": "1.45.x",
-  "agents": "0.4.x"
+  "agents": "0.6.x"
 }

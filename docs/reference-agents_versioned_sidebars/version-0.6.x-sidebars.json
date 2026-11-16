@@ -1,0 +1,25 @@
+{
+  "reference": [
+    {
+      "type": "link",
+      "label": "← Developer Reference",
+      "href": "/reference/"
+    },
+    "index",
+    "install",
+    "event-stream",
+    "tracing",
+    "workers",
+    "session-limits",
+    "approvals",
+    "connector-tools",
+    "connector-triggers",
+    "failures",
+    "spend-limits",
+    "upgrades",
+    "credentials",
+    "dex-web",
+    "cli",
+    "changelog"
+  ]
+}

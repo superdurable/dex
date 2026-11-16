@@ -1,0 +1,57 @@
+---
+title: Agents reference
+slug: /
+description: "This reference covers the Dex Agents packages in production: install, streaming, tracing, sizing, limits, timeouts, approvals, Connector tools, upgrades, credentials, and Dex Web. Agent Frameworks explains how an agent session works and the rules for tool calls. Server limits on these pages are server-zd defaults."
+---
+
+# Agents reference
+
+This reference covers the Dex Agents packages in production: install, streaming, tracing, sizing,
+limits, timeouts, approvals, Connector tools, upgrades, credentials, Dex
+Web, and the CLI commands. [Agent Frameworks](/agent-frameworks) explains how an agent session works
+and the rules for tool calls. Server limits on these pages are server-zd
+defaults. See the [Server reference](/reference/server/) and
+[Application](/components/application) for the rest of the setup.
+
+## Pages
+
+- [Install the packages](/reference/agents/0.6.x/install): the Python and TypeScript
+  packages, their runtimes, and how they are versioned.
+- [AgentEvents Stream](/reference/agents/0.6.x/event-stream): reading the live Stream in a UI, the Stream backend, and
+  how to size the live event Stream.
+- [Tracing](/reference/agents/0.6.x/tracing): OpenTelemetry GenAI spans for each
+  activation, model call, and tool call.
+- [Workers and timeouts](/reference/agents/0.6.x/workers): Worker task slots, Step
+  timeouts, long model calls, separate Worker pools, and graceful stop.
+- [Limits for long sessions](/reference/agents/0.6.x/session-limits): the server
+  limits a session grows into, what happens at the limit, and compaction.
+- [Approval deadlines and waiting sessions](/reference/agents/0.6.x/approvals): approval
+  deadlines, RPC locks, how to find sessions that wait for a person, and how
+  to list sessions with their titles.
+- [Connector tools](/reference/agents/0.6.x/connector-tools): packages, tool names,
+  result size, and Connector connections.
+- [Connector Triggers](/reference/agents/0.6.x/connector-triggers): start a session
+  and send it user messages from Connector Trigger events, each event once while Dex Server keeps its request ID.
+- [Crashes and tool call outcomes](/reference/agents/0.6.x/failures): what each
+  failure repeats, its tests, and how a tool Step's failure picks the call's
+  record.
+- [Spend limits](/reference/agents/0.6.x/spend-limits): the **ModelSpendLimit**
+  interface and its limits.
+- [Upgrades](/reference/agents/0.6.x/upgrades): deploy agent code while sessions
+  wait, and roll out session settings.
+- [Credentials](/reference/agents/0.6.x/credentials): where model keys and tool
+  credentials live.
+- [Dex Web](/reference/agents/0.6.x/dex-web): render the session graph and show
+  sessions in Dex Web.
+- [CLI commands](/reference/agents/0.6.x/cli): run an agent in your terminal with
+  one command per harness, its configuration file, local tools, Connectors,
+  and images.
+- [Change log](/reference/agents/0.6.x/changelog): user-visible changes in each
+  release.
+
+## Release notes
+
+The agents packages are released together as **agents/vX.Y.Z**, on their own
+version line. See the
+[agents releases](https://github.com/superdurable/dex/releases?q=agents%2Fv&expanded=true)
+on GitHub and the [change log](/reference/agents/0.6.x/changelog).
