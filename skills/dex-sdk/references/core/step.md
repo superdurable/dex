@@ -59,16 +59,19 @@ Do not split only because there is another API call. Keep consecutive work in on
 | Timer | a durable delay. See [timer.md](timer.md). |
 | Channel | enough pending messages on a Channel or ChannelMap instance. See [channel.md](channel.md#wait-and-consume). A Join's conditions are Channel conditions on its ChannelMap; see [patterns.md](patterns.md#await-parallel-steps). |
 | SubFlow | a child Flow finishes. WaitFor starts the child. See [subflow.md](subflow.md). |
+| Graceful completion | the Flow has a graceful completion request, from a GracefulComplete decision or a Flow stop with graceful complete. See [Graceful completion requests](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). |
 
 Rules:
 
 - Leave Conditions unnamed in Until, AnyOf, and AllOf. Read Channel results from the Channel definition and Timer outcomes from the Context.
 - Every Condition in AnyCombinationOf needs a unique Condition ID.
 - A Timer needs an ID when another operation selects it by ID. SkipTimer can also select by zero-based Condition index.
-- When several AnyOf alternatives are ready together, Dex picks the first in canonical order: Timers in declaration order, then Channels, then SubFlows. An unready earlier Condition does not block a later ready one. Mixed kinds do not keep one global argument order.
+- When several AnyOf alternatives are ready together, Dex picks the first in canonical order: Timers in declaration order, then Channels, then SubFlows, then the graceful completion Condition. An unready earlier Condition does not block a later ready one. Mixed kinds do not keep one global argument order.
 - Consumption is not greedy. Only the winning AnyOf alternative, or the winning AnyCombinationOf group, consumes Channel messages. The others stay pending.
 - AnyOf is a race. For strict priority, return only the high-priority Condition until it resolves.
 - In Execute, check which Condition won before reading its result. When a Timer wins, no Channel message was consumed.
+- Add the graceful completion Condition to a Step that would otherwise wait indefinitely, such as one that waits for the next message. Combine it with that Channel in AnyOf, so the Step stops waiting when the Flow is asked to complete gracefully.
+- Handle consumed messages first in Execute; return DeadEnd only when no message was consumed and the graceful completion request exists, so the Flow completes once no Step is active. See [Wait for a completion request](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition).
 
 ## Step decisions
 
