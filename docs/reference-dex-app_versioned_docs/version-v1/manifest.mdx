@@ -11,7 +11,7 @@ This page lists the files, the manifest fields, the YAML rules, the limits, the 
 
 The minimal example [`superdurable-apps/cloud-dex-app-example`](https://github.com/superdurable-apps/cloud-dex-app-example) meets every rule. It is a TypeScript process.
 
-This version of the page describes manifest schema v1: `schemaVersion: superverse.dev/dex-app/v1` in `dex-app.yaml` and `"schemaVersion": 1` in `.superverse/template.json`. The limits are Dex Cloud's current values for that schema.
+This version of the page describes manifest schema v1: `schemaVersion: dex.superdurable.io/dex-app/v1` in `dex-app.yaml` and `"schemaVersion": 1` in `.dex/template.json`. The limits are Dex Cloud's current values for that schema.
 
 ## Repository layout {#repository-layout}
 
@@ -19,7 +19,7 @@ Every repository has these files at its root:
 
 | Path | What it holds |
 | --- | --- |
-| `.superverse/template.json` | The template manifest: build profile, kind, stack, and commands ([S1](#s1)) |
+| `.dex/template.json` | The template manifest: build profile, kind, stack, and commands ([S1](#s1)) |
 | `dex-app.yaml` | The deployment manifest: port, health path, Flow sources, and connectors ([S2](#s2)) |
 | `Makefile` | The targets that the template manifest's commands name ([S4](#s4)) |
 | `AGENTS.md` | Instructions for coding agents that work in the repository, such as how to build and test it |
@@ -28,7 +28,7 @@ Every repository has these files at its root:
 The build profile adds its own files ([S3](#s3)). A Go process with the `go-react-v1` profile looks like this:
 
 ~~~text
-.superverse/template.json
+.dex/template.json
 dex-app.yaml
 Makefile
 AGENTS.md
@@ -49,7 +49,7 @@ Dex Cloud builds the application from the build profile. Your repository needs n
 
 ## Template manifest {#template-manifest}
 
-`.superverse/template.json` is a JSON object of at most 64 KiB:
+`.dex/template.json` is a JSON object of at most 64 KiB:
 
 ~~~json
 {
@@ -104,7 +104,7 @@ Commits you push yourself are checked when Preview or a Live build reads them, a
 `dex-app.yaml` declares how the application is served, which Flows it defines, and which connectors it uses. This Go process sends email through the Gmail connector:
 
 ~~~yaml
-schemaVersion: superverse.dev/dex-app/v1
+schemaVersion: dex.superdurable.io/dex-app/v1
 application:
   port: 8080
   healthPath: /api/health
@@ -122,7 +122,7 @@ connectors:
 An application without connectors declares an empty list:
 
 ~~~yaml
-schemaVersion: superverse.dev/dex-app/v1
+schemaVersion: dex.superdurable.io/dex-app/v1
 application:
   port: 8080
   healthPath: /api/health
@@ -137,7 +137,7 @@ Dex Cloud checks the fields below at import, in commit checks, and when Preview 
 
 | Field | Type | Required | Rule |
 | --- | --- | --- | --- |
-| `schemaVersion` | string | yes | Exactly `superverse.dev/dex-app/v1`. |
+| `schemaVersion` | string | yes | Exactly `dex.superdurable.io/dex-app/v1`. |
 | `application` | mapping | yes | How the application is served. See [`application`](#application). |
 | `flowDefinitions` | list | yes | At least 1 and at most 1,000 entries. See [`flowDefinitions`](#flow-definitions). |
 | `connectors` | list | yes | May be empty (`[]`). An absent or `null` value is an error. See [`connectors`](#connectors). |
@@ -289,7 +289,7 @@ enum: ["yes", "no"]
 | One committed `.json` Flow graph | 8 MiB |
 | One other Flow source | 32 MiB |
 | `application.environment` entries | 128 |
-| `.superverse/template.json` | 64 KiB |
+| `.dex/template.json` | 64 KiB |
 | Root `Makefile` | 4 MiB |
 | `package.json` and `package-lock.json` of `node-ts-v1`; `web/package.json` of `go-react-v1` | 4 MiB each |
 | Files in the repository | 5,000 |
@@ -325,19 +325,19 @@ If the import says the repository cannot be read, give the SuperDurable Dex Clou
 
 ## S1: Template manifest {#s1}
 
-`.superverse/template.json` exists at the root, is at most 64 KiB, and is a JSON object with the fields of the [template manifest](#template-manifest). `schemaVersion` is `1`. `buildProfile`, `kind`, and `stack` are supported and agree with each other. `openapiSpec` is `openapi/openapi.yaml` and `agentInstructions` is `AGENTS.md`, and both files exist. `commands` declares `bootstrap`, `checkStatic`, and `testApplication`, each as `make <target>`.
+`.dex/template.json` exists at the root, is at most 64 KiB, and is a JSON object with the fields of the [template manifest](#template-manifest). `schemaVersion` is `1`. `buildProfile`, `kind`, and `stack` are supported and agree with each other. `openapiSpec` is `openapi/openapi.yaml` and `agentInstructions` is `AGENTS.md`, and both files exist. `commands` declares `bootstrap`, `checkStatic`, and `testApplication`, each as `make <target>`.
 
 ### `template_manifest_missing` {#template_manifest_missing}
 
-The repository lacks `.superverse/template.json`.
+The repository lacks `.dex/template.json`.
 
-Add `.superverse/template.json` at the repository root, starting from the [example](#template-manifest), and set `buildProfile`, `kind`, and `stack` to your application's.
+Add `.dex/template.json` at the repository root, starting from the [example](#template-manifest), and set `buildProfile`, `kind`, and `stack` to your application's.
 
 ### `template_manifest_too_large` {#template_manifest_too_large}
 
 The template manifest is larger than 64 KiB.
 
-Reduce `.superverse/template.json` to the fields the example shows. Dex Cloud reads at most 64 KiB of it.
+Reduce `.dex/template.json` to the fields the example shows. Dex Cloud reads at most 64 KiB of it.
 
 ### `template_manifest_invalid` {#template_manifest_invalid}
 
@@ -437,7 +437,7 @@ Commit `AGENTS.md` at the repository root with the instructions a coding agent f
 
 `commands` lacks `bootstrap`, `checkStatic`, or `testApplication`.
 
-Add the command under `commands` in `.superverse/template.json` as `make <target>`, and define that target in the root `Makefile`.
+Add the command under `commands` in `.dex/template.json` as `make <target>`, and define that target in the root `Makefile`.
 
 ### `command_not_make` {#command_not_make}
 
@@ -628,7 +628,7 @@ The root `Makefile` defines a rule for every target that `commands` names, and f
 
 The repository lacks a root `Makefile`.
 
-Add a `Makefile` at the repository root that defines a target for every make command of `.superverse/template.json`.
+Add a `Makefile` at the repository root that defines a target for every make command of `.dex/template.json`.
 
 ~~~makefile
 bootstrap:
