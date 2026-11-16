@@ -97,6 +97,8 @@ class StopType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     STOP_TYPE_CANCEL: _ClassVar[StopType]
     STOP_TYPE_TERMINATE: _ClassVar[StopType]
     STOP_TYPE_FAIL: _ClassVar[StopType]
+    STOP_TYPE_GRACEFUL_COMPLETE: _ClassVar[StopType]
+    STOP_TYPE_FORCE_COMPLETE: _ClassVar[StopType]
 
 class FlowStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -310,6 +312,8 @@ STOP_TYPE_UNSPECIFIED: StopType
 STOP_TYPE_CANCEL: StopType
 STOP_TYPE_TERMINATE: StopType
 STOP_TYPE_FAIL: StopType
+STOP_TYPE_GRACEFUL_COMPLETE: StopType
+STOP_TYPE_FORCE_COMPLETE: StopType
 FLOW_STATUS_UNSPECIFIED: FlowStatus
 FLOW_STATUS_RUNNING: FlowStatus
 FLOW_STATUS_COMPLETED: FlowStatus
@@ -954,16 +958,18 @@ class StreamMessage(_message.Message):
     def __init__(self, value: _Optional[_Union[Value, _Mapping]] = ..., resume_token: _Optional[str] = ..., created_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., source: _Optional[str] = ...) -> None: ...
 
 class StopFlowRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "reason", "stop_type")
+    __slots__ = ("flow_id", "run_id", "reason", "stop_type", "output")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     REASON_FIELD_NUMBER: _ClassVar[int]
     STOP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     reason: str
     stop_type: StopType
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reason: _Optional[str] = ..., stop_type: _Optional[_Union[StopType, str]] = ...) -> None: ...
+    output: Value
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reason: _Optional[str] = ..., stop_type: _Optional[_Union[StopType, str]] = ..., output: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class GetAttributesRequest(_message.Message):
     __slots__ = ("flow_id", "run_id", "keys", "all_keys")

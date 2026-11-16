@@ -879,6 +879,27 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{}))
 	require.Equal(t, dexpb.StopType_STOP_TYPE_CANCEL, service.stopRequest.StopType)
+	require.Nil(t, service.stopRequest.GetOutput())
+	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{
+		Type:   GracefulCompleteFlow,
+		Output: "session ended",
+	}))
+	require.Equal(t, dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE, service.stopRequest.StopType)
+	stopOutput, err := newValue(service.stopRequest.GetOutput())
+	require.NoError(t, err)
+	var stopOutputText string
+	require.NoError(t, stopOutput.Decode(&stopOutputText))
+	require.Equal(t, "session ended", stopOutputText)
+	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{Type: ForceCompleteFlow}))
+	require.Equal(t, dexpb.StopType_STOP_TYPE_FORCE_COMPLETE, service.stopRequest.StopType)
+	require.Nil(t, service.stopRequest.GetOutput())
+	service.stopRequest = nil
+	require.ErrorContains(
+		t,
+		client.StopFlow(ctx, "order-1", StopOptions{Type: TerminateFlow, Output: "ignored"}),
+		"StopOptions.Output requires",
+	)
+	require.Nil(t, service.stopRequest)
 	newRunID, err := client.TimeTravel(ctx, "order-1", TimeTravelOptions{
 		Type:              TimeTravelToBeginning,
 		SkipWritesReapply: true,

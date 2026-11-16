@@ -741,14 +741,66 @@ const (
 	TerminateFlow
 	// FailFlow marks the Flow failed with Reason.
 	FailFlow
+	// GracefulCompleteFlow completes the Flow once no Step is active, like a Step that returns
+	// GracefulComplete.
+	//
+	// Use it to end a Flow successfully from outside its Steps, for example from a Step that
+	// ends its own Flow through a Client. Active Steps keep running. Their decisions still
+	// apply, so a Step that moves to another Step keeps the Flow running. The Flow closes with
+	// FlowCompleted when the last active Step finishes, or at once when no Step is active.
+	// StopOptions.Output becomes one of the Flow results. A Step waiting for Channel messages
+	// or a Timer stays active until its wait ends.
+	//
+	// A later stop of any type still applies while the Flow waits. Another
+	// GracefulCompleteFlow adds its output to the results. The server ignores Reason.
+	//
+	//	err := client.StopFlow(ctx, "session-42", dex.StopOptions{
+	//		Type:   dex.GracefulCompleteFlow,
+	//		Output: map[string]string{"summary": "user ended the session"},
+	//	})
+	//
+	// It requires a server that supports the complete stop types; older servers reject it with
+	// an invalid argument error.
+	//
+	// Since 1.45.6.
+	GracefulCompleteFlow
+	// ForceCompleteFlow completes the Flow at once, like a Step that returns ForceComplete.
+	//
+	// Use it to end a Flow successfully without waiting for its Steps. The server cancels
+	// every active Step and discards their results. Results that Steps already returned
+	// through GracefulComplete stay, and StopOptions.Output is added after them. The Flow
+	// closes with FlowCompleted. Like the Step decision, the close waits until pending Attribute
+	// Sync writes and transactional RPCs finish. The server ignores Reason.
+	//
+	//	err := client.StopFlow(ctx, "session-42", dex.StopOptions{
+	//		Type:   dex.ForceCompleteFlow,
+	//		Output: "closed by operator",
+	//	})
+	//
+	// It requires a server that supports the complete stop types; older servers reject it with
+	// an invalid argument error.
+	//
+	// Since 1.45.6.
+	ForceCompleteFlow
 )
 
 // StopOptions configures Client.StopFlow.
 type StopOptions struct {
-	// Type selects cancel, terminate, or fail behavior. Zero defaults to cooperative cancellation.
+	// Type selects cancel, terminate, fail, or complete behavior. Zero defaults to cooperative
+	// cancellation.
 	Type StopType
-	// Reason is recorded with the stop operation.
+	// Reason explains the stop. TerminateFlow keeps it in the FlowClosed history event, and
+	// FailFlow uses it as the Flow error message. The other types ignore it.
 	Reason string
+	// Output becomes a Flow result when Type is GracefulCompleteFlow or ForceCompleteFlow.
+	//
+	// The SDK encodes it like a Step decision output, so WaitForFlow with results returns it as
+	// a StepCompletion whose StepType and StepExecutionID are empty. Nil adds no result. The
+	// server rejects an output that exceeds its maximum value size. StopFlow returns an error
+	// when Output is set for any other stop type.
+	//
+	// Since 1.45.6.
+	Output any
 }
 
 // StepExecutionID identifies one execution of a Step type within a Flow run.

@@ -27,6 +27,22 @@ public enum StopType
    * <code>STOP_TYPE_FAIL = 3;</code>
    */
   STOP_TYPE_FAIL(3),
+  /**
+   * <pre>
+   * Completes after every active Step finishes, like the GracefulComplete Step decision.
+   * </pre>
+   *
+   * <code>STOP_TYPE_GRACEFUL_COMPLETE = 4;</code>
+   */
+  STOP_TYPE_GRACEFUL_COMPLETE(4),
+  /**
+   * <pre>
+   * Completes at once and cancels active Steps, like the ForceComplete Step decision.
+   * </pre>
+   *
+   * <code>STOP_TYPE_FORCE_COMPLETE = 5;</code>
+   */
+  STOP_TYPE_FORCE_COMPLETE(5),
   UNRECOGNIZED(-1),
   ;
 
@@ -55,6 +71,22 @@ public enum StopType
    * <code>STOP_TYPE_FAIL = 3;</code>
    */
   public static final int STOP_TYPE_FAIL_VALUE = 3;
+  /**
+   * <pre>
+   * Completes after every active Step finishes, like the GracefulComplete Step decision.
+   * </pre>
+   *
+   * <code>STOP_TYPE_GRACEFUL_COMPLETE = 4;</code>
+   */
+  public static final int STOP_TYPE_GRACEFUL_COMPLETE_VALUE = 4;
+  /**
+   * <pre>
+   * Completes at once and cancels active Steps, like the ForceComplete Step decision.
+   * </pre>
+   *
+   * <code>STOP_TYPE_FORCE_COMPLETE = 5;</code>
+   */
+  public static final int STOP_TYPE_FORCE_COMPLETE_VALUE = 5;
 
 
   public final int getNumber() {
@@ -85,6 +117,8 @@ public enum StopType
       case 1: return STOP_TYPE_CANCEL;
       case 2: return STOP_TYPE_TERMINATE;
       case 3: return STOP_TYPE_FAIL;
+      case 4: return STOP_TYPE_GRACEFUL_COMPLETE;
+      case 5: return STOP_TYPE_FORCE_COMPLETE;
       default: return null;
     }
   }

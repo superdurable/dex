@@ -27,6 +27,27 @@ overrides.
 lets the Flow handle the cancellation. You can instead terminate it
 immediately, or fail it with a reason.
 
+StopFlow can also complete a Flow, with an optional output that becomes a Flow
+result. Since 0.1.34.
+
+- **Graceful complete** works like the **GracefulComplete** Step decision.
+  Active Steps keep running, and their decisions still apply. The Flow
+  completes when no Step is active, or at once when none is. A Step can stop
+  its own Flow this way and then return.
+- **Force complete** works like the **ForceComplete** Step decision. The server
+  cancels every active Step and completes the Flow. Like the Step decision,
+  the close waits for pending Attribute Sync writes and transactional RPCs.
+
+The output appears in the Flow results with an empty Step type and Step
+execution ID. Outputs that Steps already returned through graceful completion
+stay in the results. A later stop of any type still applies while a graceful
+completion waits, and another graceful completion adds its output. The complete
+stop types ignore the stop reason. The server rejects an output with any other
+stop type as **INVALID_ARGUMENT**. While a Flow closes, it rejects the complete
+stop types as described in
+[Requests during Flow close](#requests-during-flow-close). Servers before 0.1.34
+reject the complete stop types as **INVALID_ARGUMENT**.
+
 ## Invoke an RPC {#invoke-an-rpc}
 
 **InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and
@@ -43,7 +64,8 @@ While a Flow closes, the server rejects these new requests with gRPC
 - transactional or locking RPCs;
 - **WaitForStepCompletion** and **WaitForAttributeMatch**;
 - Channel message deletion;
-- Channel publication by a client (**PublishToChannel**).
+- Channel publication by a client (**PublishToChannel**);
+- **StopFlow** with a complete stop type. Since 0.1.34.
 
 A rejected publication stores no message. A closing Flow starts no Step, so no
 Step could consume the message. Changed in 0.1.26: before, the server accepted

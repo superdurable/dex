@@ -18,7 +18,7 @@ mod time_travel;
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{
     DeleteChannelMessageRequest, PublishToChannelRequest, SetAttributesRequest, SkipTimerRequest,
-    StartFlowRequest, StartFlowResponse, StopFlowRequest, StopType, UpdateFlowConfigRequest,
+    StartFlowRequest, StartFlowResponse, StopFlowRequest, UpdateFlowConfigRequest,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, FlowCommand,
@@ -97,22 +97,16 @@ impl FlowCoordinatorRegistry {
         }
     }
 
-    /// Stops a run (cancel, fail, or terminate) once the stop is committed.
+    /// Stops a run (cancel, fail, terminate, or complete) once the stop is committed.
     pub async fn stop_flow(
         &self,
         tenant_id: TenantId,
         request: StopFlowRequest,
     ) -> Result<(), FlowCoordinationError> {
-        if request.flow_id.is_empty() {
-            return Err(FlowCoordinationError::invalid_argument(
-                "flow ID is required",
-            ));
-        }
-        if StopType::try_from(request.stop_type).is_err() {
-            return Err(FlowCoordinationError::invalid_argument(
-                "stop type is required",
-            ));
-        }
+        validate_client_request(
+            ClientRequest::StopFlow(&request),
+            &self.inner.config.validation,
+        )?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         self.propose_targeted(&flow, &request.run_id.clone(), |_| {
             flow_command::Command::FlowStop(FlowStopCommand {

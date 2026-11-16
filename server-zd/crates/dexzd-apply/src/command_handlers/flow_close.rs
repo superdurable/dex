@@ -12,10 +12,10 @@
 
 use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::{active_work_index_key, retention_index_key};
-use dexzd_protocol::dex::{FlowErrorType, FlowStatus, StepCompletionOutput};
+use dexzd_protocol::dex::{FlowErrorType, FlowStatus, StepCompletionOutput, StopType};
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, FlowTimeoutTimerId, PendingFlowClose, RetentionTimerId, StepExecutionPhase,
-    TimerId, flow_command::Command, inbox_message_command, timer_id,
+    FlowCommand, FlowStopCommand, FlowTimeoutTimerId, PendingFlowClose, RetentionTimerId,
+    StepExecutionPhase, TimerId, flow_command::Command, inbox_message_command, timer_id,
 };
 
 use crate::command_handlers::command_replies::ok_reply;
@@ -33,7 +33,8 @@ use crate::{ApplyEffect, ApplyError, WaitableChange};
 pub enum TransactionalRpcHold {
     /// May record a natural or pending close, so the owner checks it while such RPCs run.
     MayClose,
-    /// StopFlow, StartFlow, and child starts terminate at once, whatever is in flight.
+    /// StopFlow (except the complete stop types), StartFlow, and child starts terminate at once,
+    /// whatever is in flight.
     ClosesAtOnce,
     /// Time travel bumps the attempt, which fails admitted RPCs, as a Go reset fails updates.
     ReplacesAttempt,
@@ -45,6 +46,8 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         return TransactionalRpcHold::MayClose;
     };
     match body {
+        // Completing like a Step decision closes naturally, so it waits like one.
+        Command::FlowStop(stop) if is_complete_stop_type(stop) => TransactionalRpcHold::MayClose,
         // CloneForkFlow only closes a run through ID reuse termination.
         Command::FlowStop(_) | Command::FlowStart(_) | Command::FlowCloneFork(_) => {
             TransactionalRpcHold::ClosesAtOnce
@@ -92,6 +95,15 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::HistoryLocalCleanup(_)
         | Command::RunPurge(_) => TransactionalRpcHold::MayClose,
     }
+}
+
+/// Whether `stop` completes the Flow like a GracefulComplete or ForceComplete Step decision.
+pub(crate) fn is_complete_stop_type(stop: &FlowStopCommand) -> bool {
+    let stop_type = stop.request.as_ref().map_or(0, |request| request.stop_type);
+    matches!(
+        StopType::try_from(stop_type),
+        Ok(StopType::GracefulComplete | StopType::ForceComplete)
+    )
 }
 
 /// Fails loudly in debug builds when a command classified as closing at once closes naturally.

@@ -56,4 +56,31 @@ public interface StopFlowRequestOrBuilder extends
    * @return The stopType.
    */
   io.superdurable.gen.StopType getStopType();
+
+  /**
+   * <pre>
+   * Flow result output; only the complete stop types accept it.
+   * </pre>
+   *
+   * <code>.dex.Value output = 5;</code>
+   * @return Whether the output field is set.
+   */
+  boolean hasOutput();
+  /**
+   * <pre>
+   * Flow result output; only the complete stop types accept it.
+   * </pre>
+   *
+   * <code>.dex.Value output = 5;</code>
+   * @return The output.
+   */
+  io.superdurable.gen.Value getOutput();
+  /**
+   * <pre>
+   * Flow result output; only the complete stop types accept it.
+   * </pre>
+   *
+   * <code>.dex.Value output = 5;</code>
+   */
+  io.superdurable.gen.ValueOrBuilder getOutputOrBuilder();
 }
