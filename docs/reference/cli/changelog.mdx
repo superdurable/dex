@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.47 {#v1-47}
 
-Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7); 1.47.8 released 2026-11-15 as [cli-v1.47.8](https://github.com/superdurable/dex/releases/tag/cli-v1.47.8).
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7); 1.47.8 released 2026-11-15 as [cli-v1.47.8](https://github.com/superdurable/dex/releases/tag/cli-v1.47.8); 1.47.9 released 2026-11-16 as [cli-v1.47.9](https://github.com/superdurable/dex/releases/tag/cli-v1.47.9).
 
 ### Added
 
@@ -59,6 +59,7 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
 - **dexcli flow time-travel** accepts **--type event-id** with the history event ID as **--target**, **--run-attempt** to search an earlier run attempt, and **--sub-flow-reset-policy** to decide what happens to restored SubFlow waits. Its output adds **runAttempt**. Since 1.47.8.
 - **dexcli api** lists the **CloneForkFlow** call of the FlowService and, as for other writes, calls it only with **--yes**. Since 1.47.8.
 - Flow analysis accepts the **agent.repeatOnUnknown** and **agent.maxSends** fields of a Connector package's **dex-connector.json**, and the published manifest schema declares them. Since 1.47.8.
+- **dexcli flow stop** accepts **--type graceful-complete** and **--type force-complete**, which close the Flow as completed, and **--result JSON|@FILE|-**, which adds one Flow result with those two types. They need server-zd 0.1.34 or later. Since 1.47.9.
 
 ### Changed
 
@@ -74,6 +75,7 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
 - **dexcli agents-tui**: pasting image paths, or dropping image files on the terminal, attaches them at once, without the **Attach NAME?** question, also when the input holds text. One paste may name several files, quoted or with backslash-escaped spaces. A pasted path that does not attach stays as text. When the paste also names an image, or the path ends in an image extension, a notice says why: not a PNG, JPEG, GIF, or WebP image, missing, or unreadable. A paste while a panel or list has focus closes it and goes to the input instead of being lost. [Reference](/reference/agents/cli#images). Since 1.47.8.
 - **dexcli agents-tui**: the notice for an image over the size limit gives both sizes in exact bytes, such as "an image may have at most 3,750,000", instead of a rounded "3.6 MB". Since 1.47.8.
 - The release archives bundle **dex-server-zd** 0.1.33 instead of 0.1.30, so **dexcli dev** serves **CloneForkFlow**, Time Travel to an event ID, and the SubFlow reset policy (Server protocol version 6). [Reference](/reference/server/runtime-client#clone-fork). Since 1.47.8.
+- The release archives bundle **dex-server-zd** 0.1.34 instead of 0.1.33, so **dexcli dev** serves the graceful completion wait condition and **StopFlow** with the graceful and force complete stop types (Server protocol version 7). [Reference](/reference/server/step-and-flow-close#graceful-completion-condition). Since 1.47.9.
 
 ### Fixed
 
