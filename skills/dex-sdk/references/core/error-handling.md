@@ -281,7 +281,7 @@ Clone fork:
 - It creates a new Flow, with a new Flow ID, from another run's state at a point. The point is the current state or an earlier one inside the retained history window. The beginning is always available.
 - It copies state, not history. The new run gets the Attributes, pending Channel messages, Steps, and waits of that point, and starts a history of its own. Hard-delete Attributes are the exception: they take the source's current values, as in a time travel. It does not copy the source's history, Stream messages, parent, or input that reached the source after the point.
 - It only reads the source. The source keeps its Flow ID, Run ID, and run attempt, and a running source keeps running.
-- The new Flow ID must differ from the source's. The ID reuse policy decides the new Flow ID atomically with the copy, and a conflict creates nothing. Keep the Request ID on a retry.
+- Use a distinct Flow ID for the fork; keep the new Flow ID, Request ID, and options stable across retries.
 - Steps that were running at the point run again in the new Flow. Apply the same idempotency rules as for time travel, and key external effects by the new Flow ID, not the source's.
 - The state at the point must be running. Select an earlier point when the source had begun to close.
 
@@ -308,7 +308,8 @@ SubFlow reset policy, for time travel and clone fork:
 - Under time travel, an attached child that still runs keeps the wait open until it ends.
 - Under clone fork, the source's children report only to the source and never change. Only a child that has ended can be attached. For a child that still runs, an attach-else policy takes its fallback: restart, fail, or reject.
 - A restarted child under clone fork is a new child of the new Flow. The source's child keeps running for the source.
-- A restart repeats the child's start, so the child's external effects need idempotency keys. A rejection changes nothing, and its message names what blocked it.
+- Under time travel, restarting a child replaces its run under the same Flow ID and terminates it first if it still runs; failing its wait terminates the child if it may still run.
+- A restart repeats the child's start, so the child's external effects need idempotency keys.
 - Pick the policy explicitly when the default is not what the recovery needs. See the [Developer reference](https://docs.superdurable.io/reference/server/runtime-client#sub-flows-across-a-clone-fork) for the values.
 
 Details of the request, point types, copied state, and errors are in the [clone fork reference](https://docs.superdurable.io/reference/server/runtime-client#clone-fork).
