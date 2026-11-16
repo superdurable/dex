@@ -106,7 +106,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	}
 	resources.connection = dexConnection
 	flowServiceClient := dexpb.NewFlowServiceClient(dexConnection)
-	serverVersion := describeServerVersion(startupCtx, flowServiceClient)
+	serverVersion := startServerVersionLookup(startupCtx, flowServiceClient)
 
 	webServer, err := dexweb.NewServer(
 		&dexweb.Config{
@@ -152,7 +152,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return formatComponentExit(exited, "stopped before readiness")
 	default:
 	}
-	s.printReady(webURL, dexAddress, serverVersion, dataDirectory)
+	s.printReady(webURL, dexAddress, serverVersion.versionIfAnswered(), dataDirectory)
 	if connectorsMCP != nil {
 		connectorsMCP.Start(ctx)
 		resources.connectorsMCP = connectorsMCP
@@ -176,6 +176,29 @@ func formatComponentExit(exited componentExit, phase string) error {
 		return fmt.Errorf("%s %s", exited.name, phase)
 	}
 	return fmt.Errorf("%s %s: %w", exited.name, phase, exited.err)
+}
+
+// serverVersionLookup is one GetServerInfo call that runs while Dex Web starts, so startup never waits for it.
+type serverVersionLookup struct {
+	// result receives the one answer; its buffer lets the goroutine finish when nobody reads it.
+	result chan string
+}
+
+// startServerVersionLookup starts the lookup; it ends within serverVersionLookupTimeout or when ctx ends.
+func startServerVersionLookup(ctx context.Context, client dexpb.FlowServiceClient) *serverVersionLookup {
+	lookup := &serverVersionLookup{result: make(chan string, 1)}
+	go func() { lookup.result <- describeServerVersion(ctx, client) }()
+	return lookup
+}
+
+// versionIfAnswered returns the version when the lookup already answered, or "" at once otherwise.
+func (l *serverVersionLookup) versionIfAnswered() string {
+	select {
+	case version := <-l.result:
+		return version
+	default:
+		return ""
+	}
 }
 
 // describeServerVersion returns the server version and protocol range for the ready banner, or "" when unknown.

@@ -28,6 +28,8 @@ function useServerInfoWhileOpen(isOpen: boolean): ServerInfoDisplay | undefined 
   const [info, setInfo] = useState<ServerInfoDisplay>();
   useEffect(() => {
     if (!isOpen) return undefined;
+    // Closing aborts the read, so an earlier open's late answer never replaces this one.
+    setInfo(undefined);
     const controller = new AbortController();
     void fetchServerInfoDisplay(controller.signal).then((next) => {
       if (!controller.signal.aborted) setInfo(next);

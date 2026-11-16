@@ -44,8 +44,9 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 
 Since 1.47.10, the ready message has a **Server version** line with the
 version and protocol range that server-zd reports, such as
-**0.1.34 (protocol 1-7)**. The line is left out when the server does not answer
-within one second. The embedded Dex Web shows the same version in its
+**0.1.34 (protocol 1-7)**. dexcli asks for it while Dex Web starts, so startup
+never waits for it. The line is left out when the answer has not arrived by
+then. The embedded Dex Web shows the same version in its
 settings menu.
 
 If a default port is in use, Dex picks the next free port and prints its

@@ -191,7 +191,12 @@ func dexWebModuleVersion() string {
 	if !isAvailable {
 		return ""
 	}
-	for _, module := range buildInfo.Deps {
+	return dexWebModuleVersionOf(buildInfo.Deps)
+}
+
+// dexWebModuleVersionOf returns "dex-web <version>" for the Dex Web module in modules, or "" when it has no release version.
+func dexWebModuleVersionOf(modules []*debug.Module) string {
+	for _, module := range modules {
 		if module.Path != "github.com/superdurable/dex/web/embedded" && module.Path != "github.com/superdurable/dex/web" {
 			continue
 		}

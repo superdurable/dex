@@ -13,6 +13,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
@@ -52,6 +53,56 @@ func TestDescribeServerVersion(t *testing.T) {
 				t.Fatalf("server version = %q, want %q", got, testCase.want)
 			}
 		})
+	}
+}
+
+// hangingServerInfoClient answers GetServerInfo only when the call's context ends.
+type hangingServerInfoClient struct {
+	dexpb.FlowServiceClient
+}
+
+func (hangingServerInfoClient) GetServerInfo(ctx context.Context, _ *emptypb.Empty, _ ...grpc.CallOption) (*dexpb.ServerInfo, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestServerVersionLookupNeverDelaysTheReadyMessage(t *testing.T) {
+	lookupContext, cancel := context.WithCancel(context.Background())
+	started := time.Now()
+	lookup := startServerVersionLookup(lookupContext, hangingServerInfoClient{})
+	if version := lookup.versionIfAnswered(); version != "" {
+		t.Fatalf("server version = %q before the server answered", version)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("a hanging GetServerInfo delayed startup by %s", elapsed)
+	}
+	cancel()
+	select {
+	case version := <-lookup.result:
+		if version != "" {
+			t.Fatalf("canceled lookup returned %q", version)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the lookup did not end when its context ended")
+	}
+}
+
+func TestServerVersionLookupReportsAnAnswerThatArrived(t *testing.T) {
+	lookup := startServerVersionLookup(context.Background(), &serverInfoTestClient{serverInfo: &dexpb.ServerInfo{
+		ServerVersion: "0.1.34", MinimumSupportedProtocolVersion: 1, CurrentProtocolVersion: 7,
+	}})
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if version := lookup.versionIfAnswered(); version != "" {
+			if version != "0.1.34 (protocol 1-7)" {
+				t.Fatalf("server version = %q", version)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the lookup never answered")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

@@ -295,6 +295,40 @@ describe('Dex Web bar settings', () => {
     expect(await within(server).findByText('server-zd 0.1.34 · protocol 7')).toBeTruthy();
   });
 
+  it('reads the server info again on each open and ignores a late answer from an earlier open', async () => {
+    const pendingReplies: ((body: Record<string, unknown>) => void)[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+      if (input === '/api/server-info') {
+        return new Promise<Response>((resolve) => {
+          pendingReplies.push((body) => resolve(new Response(JSON.stringify(body), { status: 200 })));
+        });
+      }
+      if (input === '/api/flow-definition-types') return definitionsResponse(0);
+      return new Response('404 page not found', { status: 404 });
+    }));
+    renderBar('/v1/flows');
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    const serverGroup = () =>
+      within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('group', { name: 'Dex Server' });
+
+    fireEvent.click(settingsButton);
+    await waitFor(() => expect(pendingReplies).toHaveLength(1));
+    fireEvent.click(settingsButton);
+    fireEvent.click(settingsButton);
+    await waitFor(() => expect(pendingReplies).toHaveLength(2));
+    expect(within(serverGroup()).getByText('Checking…')).toBeTruthy();
+
+    await act(async () => pendingReplies[1]({ serverEngine: 'zd', serverVersion: '0.1.34', currentProtocolVersion: 7 }));
+    expect(await within(serverGroup()).findByText('server-zd 0.1.34 · protocol 7')).toBeTruthy();
+    await act(async () => pendingReplies[0]({ serverEngine: 'zd', serverVersion: '0.1.33', currentProtocolVersion: 6 }));
+    expect(within(serverGroup()).getByText('server-zd 0.1.34 · protocol 7')).toBeTruthy();
+
+    fireEvent.click(settingsButton);
+    fireEvent.click(settingsButton);
+    expect(within(serverGroup()).getByText('Checking…')).toBeTruthy();
+    expect(within(serverGroup()).queryByText('server-zd 0.1.34 · protocol 7')).toBeNull();
+  });
+
   it('shows unknown when the server info cannot be read', async () => {
     stubServerInfo('fail');
     renderBar('/v1/flows');
