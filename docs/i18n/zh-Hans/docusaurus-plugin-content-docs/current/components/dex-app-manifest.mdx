@@ -241,7 +241,7 @@ connectors:
     operations: [postThreadReply]
 ~~~
 
-当应用的某个 Flow 在 graph 的 `v2.connectorTriggerBindings` 中声明了这个 Trigger binding、启用了配置，并且使用 `dex-app.yaml` 固定的版本时，这个 Trigger binding 才可以配置。按 Flow type 顺序，第一个匹配的条目生效。所有声明的 Trigger binding 都配置好之后，Preview 才会启动（只针对非 optional 的 connector，或已经选择了连接的 connector）。只有所有 Flow 源文件都是已提交的 `.json` graph 时，导入才会检查这一点，因为 `.go` 或 `.ts` 源文件要渲染之后才有 graph。
+当应用的某个 Flow 在 graph 的 `v2.connectorTriggerBindings` 中声明了这个 Trigger binding、启用了配置，并且使用 `dex-app.yaml` 固定的版本时，这个 Trigger binding 才可以配置。按 Flow type 顺序，第一个匹配的条目生效。使用 Preview 时，所有声明的 Trigger binding 都配置好之后，Preview 才会启动（只针对非 optional 的 connector，或已经选择了连接的 connector）。只有所有 Flow 源文件都是已提交的 `.json` graph 时，导入才会检查这一点，因为 `.go` 或 `.ts` 源文件要渲染之后才有 graph。
 
 ## YAML 规则 {#yaml-rules}
 
@@ -823,4 +823,4 @@ git push -u origin main
 ## 下一步 {#next}
 
 - [在生产环境运行 Dex](/components/production)：关于 Flow 代码和代码变更的检查项同样适用于 Managed Dex App。
-- [Managed Dex App](/components/managed-dex-app)：导入仓库，然后构建、Preview 并发布到 Live。
+- [Managed Dex App](/components/managed-dex-app)：导入仓库并发布到 Live，Preview 可选。

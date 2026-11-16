@@ -7,7 +7,7 @@ description: A Managed Dex App is a Dex application that Dex Cloud builds, previ
 
 # Managed Dex App {#managed-dex-app}
 
-A **Managed Dex App** is a Dex application that Dex Cloud builds and runs from your GitHub repository. Super Durable runs the application and its Workers in Preview and Live. You maintain the code.
+A **Managed Dex App** is a Dex application that Dex Cloud builds and runs from your GitHub repository. Super Durable runs the application and its Workers in Live, and in an optional Preview. You maintain the code.
 
 ## When to use it {#when-to-use}
 
@@ -54,10 +54,10 @@ Importing leaves your repository unchanged. Deleting the project removes its Pre
 
 Dex Cloud builds the application from the build profile. Your repository needs no Dockerfile.
 
-- **Preview** runs `main` on its own Dex Server, with no change to your code. When new commits reach `main`, Preview offers to follow them.
-- **Live**: choose **Publish**, pick a version (a commit of `main`) and choose **Publish to Live**; Dex Cloud builds it and deploys it.
+- **Live** runs a version you publish: choose **Publish**, pick a version (a commit of `main`) and choose **Publish to Live**; Dex Cloud builds an image and deploys it.
+- **Preview** is optional: it runs a version quickly, without an image build, on data separate from Live, so you can try a change before your users see it. It runs on its own Dex Server. When new commits reach `main`, Preview offers to follow them. When you do not need that, publish straight to Live.
 
-Both run your web server and your Worker as two modes of one build; Live builds an image. Dex Cloud publishes your Flow definitions from the Flow sources that `dex-app.yaml` declares. The **Runs** tab opens Dex Web on the running Preview and on the current Live deployment.
+Both run your web server and your Worker as two modes of one build. Dex Cloud publishes your Flow definitions from the Flow sources that `dex-app.yaml` declares. The **Runs** tab opens Dex Web on the current Live deployment, and on the Preview while one runs.
 
 You and your team keep pushing to `main` as before. When you ask the coding agent for a change, it commits to `main`, and Dex Cloud checks those commits against the same rules.
 

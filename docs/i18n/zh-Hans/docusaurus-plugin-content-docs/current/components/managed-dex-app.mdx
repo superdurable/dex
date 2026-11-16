@@ -7,7 +7,7 @@ description: Managed Dex App 是一个由 Dex Cloud 从你的 GitHub 仓库构�
 
 # Managed Dex App {#managed-dex-app}
 
-**Managed Dex App** 是由 Dex Cloud 从你的 GitHub 仓库构建并运行的 Dex 应用。Super Durable 在 Preview 和 Live 中运行应用及其 Worker。你负责维护代码。
+**Managed Dex App** 是由 Dex Cloud 从你的 GitHub 仓库构建并运行的 Dex 应用。Super Durable 在 Live 中运行应用及其 Worker，也可以在可选的 Preview 中运行。你负责维护代码。
 
 ## 何时使用 {#when-to-use}
 
@@ -54,10 +54,10 @@ Dex Cloud 通过 **SuperDurable Dex Cloud** GitHub App 读取你的仓库。这�
 
 Dex Cloud 按 build profile 构建应用。你的仓库里不需要 Dockerfile。
 
-- **Preview** 在它自己的 Dex Server 上运行 `main`，你的代码无需任何改动。有新的 commit 进入 `main` 时，Preview 会提示你跟进。
-- **Live**：选择 **Publish**，选一个版本（`main` 的一个 commit），再选择 **Publish to Live**；Dex Cloud 构建并部署它。
+- **Live** 运行你发布的版本：选择 **Publish**，选一个版本（`main` 的一个 commit），再选择 **Publish to Live**；Dex Cloud 构建镜像并部署它。
+- **Preview** 是可选的：它不构建镜像，快速运行一个版本，使用和 Live 分开的数据，让你在用户看到之前先试一个改动。它运行在自己的 Dex Server 上。有新的 commit 进入 `main` 时，Preview 会提示你跟进。如果你用不到它，就直接发布到 Live。
 
-两者都把你的 web server 和 Worker 作为同一次构建的两种模式运行；Live 会构建镜像。Dex Cloud 根据 `dex-app.yaml` 声明的 Flow 源文件发布 Flow 定义。**Runs** 标签页会在运行中的 Preview 和当前的 Live 部署上打开 Dex Web。
+两者都把你的 web server 和 Worker 作为同一次构建的两种模式运行。Dex Cloud 根据 `dex-app.yaml` 声明的 Flow 源文件发布 Flow 定义。**Runs** 标签页会在当前的 Live 部署上打开 Dex Web；Preview 运行时，也可以在 Preview 上打开。
 
 你和团队照常向 `main` 推送代码。你让 coding agent 做修改时，它会提交到 `main`，Dex Cloud 按同样的规则检查这些 commit。
 

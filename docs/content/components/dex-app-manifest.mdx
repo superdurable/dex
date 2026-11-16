@@ -241,7 +241,7 @@ connectors:
     operations: [postThreadReply]
 ~~~
 
-A Trigger binding is configurable when a Flow of the application declares it with configuration enabled, in its graph's `v2.connectorTriggerBindings`, at the release that `dex-app.yaml` pins. The first matching entry in Flow type order counts. A Preview starts after every declared Trigger binding is configured (for connectors that are not optional or have a chosen connection). The import checks this only when every Flow source is a committed `.json` graph, because a `.go` or `.ts` source has a graph only after it is rendered.
+A Trigger binding is configurable when a Flow of the application declares it with configuration enabled, in its graph's `v2.connectorTriggerBindings`, at the release that `dex-app.yaml` pins. The first matching entry in Flow type order counts. When you use Preview, it starts after every declared Trigger binding is configured (for connectors that are not optional or have a chosen connection). The import checks this only when every Flow source is a committed `.json` graph, because a `.go` or `.ts` source has a graph only after it is rendered.
 
 ## YAML rules {#yaml-rules}
 
@@ -823,4 +823,4 @@ git push -u origin main
 ## Next {#next}
 
 - [Run Dex in Production](/components/production): the checklist items for your Flow code and code changes apply to a Managed Dex App too.
-- [Managed Dex App](/components/managed-dex-app): import a repository, then build, Preview, and publish it to Live.
+- [Managed Dex App](/components/managed-dex-app): import a repository and publish it to Live, with an optional Preview.
