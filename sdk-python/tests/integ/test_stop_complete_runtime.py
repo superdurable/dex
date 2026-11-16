@@ -103,9 +103,7 @@ async def _run_async_client_graceful_complete() -> None:
         info = await environment.client.describe_flow(flow_id)
         assert info.status is FlowStatus.RUNNING
         flow.release_execute.set()
-        result = await environment.client.wait_for_flow(
-            flow_id, timedelta(seconds=15)
-        )
+        result = await environment.client.wait_for_flow(flow_id, timedelta(seconds=15))
         assert_only_stop_output(result)
 
 
