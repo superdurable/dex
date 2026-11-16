@@ -59,7 +59,7 @@ Do not split only because there is another API call. Keep consecutive work in on
 | Timer | a durable delay. See [timer.md](timer.md). |
 | Channel | enough pending messages on a Channel or ChannelMap instance. See [channel.md](channel.md#wait-and-consume). A Join's conditions are Channel conditions on its ChannelMap; see [patterns.md](patterns.md#await-parallel-steps). |
 | SubFlow | a child Flow finishes. WaitFor starts the child. See [subflow.md](subflow.md). |
-| Graceful completion | the Flow has a graceful completion request, from a GracefulComplete decision or a Flow stop with graceful complete. A request made before the Wait starts completes it at once. See [Graceful completion requests](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). |
+| Graceful completion | the Flow has a graceful completion request, from a GracefulComplete decision or a Flow stop with graceful complete. See [Graceful completion requests](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). |
 
 Rules:
 
@@ -71,7 +71,7 @@ Rules:
 - AnyOf is a race. For strict priority, return only the high-priority Condition until it resolves.
 - In Execute, check which Condition won before reading its result. When a Timer wins, no Channel message was consumed.
 - Add the graceful completion Condition to a Step that would otherwise wait indefinitely, such as one that waits for the next message. Combine it with that Channel in AnyOf, so the Step stops waiting when the Flow is asked to complete gracefully.
-- Handle messages first. The graceful completion result reports completed whenever the Flow has a request, even when a Channel won and consumed messages. In Execute, process consumed messages first. Return DeadEnd only when no message was consumed and the request exists; the Flow then completes once no Step is active. See [Wait for a completion request](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition).
+- Handle consumed messages first in Execute; return DeadEnd only when no message was consumed and the graceful completion request exists, so the Flow completes once no Step is active. See [Wait for a completion request](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition).
 
 ## Step decisions
 

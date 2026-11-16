@@ -205,7 +205,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 用 `AnyOf` 或 `AllOf` 组合条件。`AnyCombinationOf` 在几组条件中任意一组全部满足时成立。等待结束后，`Execute` 可以读取满足它的结果，比如它消费的 Channel 消息。见 [Waits](/reference/python/waits)。
 
-等待下一条消息的 Step 也可以同时等待 graceful completion 请求。这样 Flow 被要求 graceful completion 时，它就停止等待。它的 `Execute` 先处理已消费的消息。没有消费到消息、且请求存在时，它返回 `DeadEnd`。见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)（英文）。
+等待下一条消息的 Step 可以用 `AnyOf` 组合 Channel 条件和 graceful completion 条件。即使没有消息，完成请求也会唤醒它。在 `Execute` 中先处理已消费的消息。仅在没有消费到消息且请求存在时返回 `DeadEnd`。见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)（英文）。
 
 要等待并行分支，用 **Join**。它不是另一类条件：它等待的是各分支上报结果的 [ChannelMap](/concepts/primitives/channel#channelmap)。见 [等待并行 Step](/design-patterns/parallel/await)。
 

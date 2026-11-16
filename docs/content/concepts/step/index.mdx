@@ -222,10 +222,10 @@ any one of several groups of conditions. After the wait, `Execute` reads what
 satisfied it, such as the Channel messages it consumed. See
 [Waits](/reference/python/waits).
 
-A Step that waits for the next message can also wait for a graceful
-completion request. It then stops waiting when the Flow is asked to complete gracefully.
-Its `Execute` handles consumed messages first. When no message was consumed
-and the request exists, it returns `DeadEnd`. See
+A Step that waits for the next message can combine that Channel with the
+graceful completion condition in `AnyOf`. A completion request then wakes it
+even without a message. In `Execute`, handle consumed messages first. Return
+`DeadEnd` only when no message was consumed and the request exists. See
 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
 
 To wait for parallel branches, use a **Join**. It is not another kind of
