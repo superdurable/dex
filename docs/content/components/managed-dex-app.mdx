@@ -7,7 +7,7 @@ description: A Managed Dex App is a Dex application that Dex Cloud builds, previ
 
 # Managed Dex App
 
-A Managed Dex App is a Dex application that Dex Cloud builds, previews, and runs in Live from your GitHub repository. Use it when you want Super Durable to run your whole application, Workers included, and you keep only the code.
+A **Managed Dex App** is a Dex application that Dex Cloud builds and runs from your GitHub repository. Super Durable runs the application and its Workers in Preview and Live. You maintain the code.
 
 ## When to use it {#when-to-use}
 
@@ -20,7 +20,7 @@ Dex Cloud offers two products:
 | You provide | Worker code and its deployment | A GitHub repository in the Dex app structure |
 | Start here | [Run on Dex Cloud](/components/dex-cloud) | This page |
 
-Choose a Managed Dex App for a new application that fits one of its stacks: a process in Go or TypeScript, or an agent on a [stack that Dex Cloud builds](/reference/server/dex-app-manifest#template-manifest). Choose the managed Dex Server when you already deploy your Workers, or when your code runs in another language.
+Choose a Managed Dex App when you want Dex Cloud to run your application and Workers. Check the [supported stacks](/reference/server/dex-app-manifest#template-manifest) before importing. Choose a managed Dex Server when you deploy your own Workers.
 
 ## Start from the example {#example}
 
@@ -28,17 +28,7 @@ The minimal example is [`superdurable-apps/cloud-dex-app-example`](https://githu
 
 ## Follow the repository rules {#repository-rules}
 
-Dex Cloud imports a repository that follows the Dex app structure. In short:
-
-- The default branch is `main`, and it has a commit.
-- `.superverse/template.json` at the root names the kind, the stack, the build profile, and the `make` commands.
-- `dex-app.yaml` at the root names the port, the health path, the Flow sources, and the connectors.
-- Each Flow source is committed in the language of the build profile.
-- Connectors are released versions from the Dex connector library, pinned by the application's lockfile.
-- The files the build profile needs are committed, and the root `Makefile` defines every target the commands name.
-- The repository holds regular files only, without submodules, symbolic links, or committed secret files, and it fits the size limits.
-
-Each rule has a number, S1 to S8. [Dex app manifest and repository layout](/reference/server/dex-app-manifest) gives every field, rule, and limit.
+Prepare your repository using the [repository layout and import rules](/reference/server/dex-app-manifest#repository-layout).
 
 ## Import a repository {#import}
 
@@ -53,7 +43,7 @@ To import a repository:
 1. Install the [SuperDurable Dex Cloud](https://github.com/apps/superdurable-dex-cloud) GitHub App on the GitHub organization or account that owns the repository. Give it access to the repository.
 2. Sign in to Dex Cloud, or [sign up](https://dex.superdurable.io/register). On the start page, choose **Import project**.
 3. Pick the repository from the list, or enter it as `owner/name`.
-4. Review the check. Dex Cloud reads `main` and shows the kind, the stack, and every rule the repository breaks.
+4. Review the check. Dex Cloud reads `main` and shows `kind`, `stack`, and every rule the repository breaks.
 5. When the check passes, create the project.
 
 Importing changes nothing in your repository. Deleting the project only disconnects it.

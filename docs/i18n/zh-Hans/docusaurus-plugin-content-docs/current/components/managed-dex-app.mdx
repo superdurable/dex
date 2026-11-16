@@ -5,9 +5,9 @@ slug: /components/managed-dex-app
 description: Managed Dex App 是一个由 Dex Cloud 从你的 GitHub 仓库构建、预览并在 Live 中运行的 Dex 应用。
 ---
 
-# Managed Dex App
+# Managed Dex App {#managed-dex-app}
 
-Managed Dex App 是一个由 Dex Cloud 从你的 GitHub 仓库构建、预览并在 Live 中运行的 Dex 应用。如果你希望 Super Durable 运行整个应用（包括 Worker），而你只维护代码，就用它。
+**Managed Dex App** 是由 Dex Cloud 从你的 GitHub 仓库构建并运行的 Dex 应用。Super Durable 在 Preview 和 Live 中运行应用及其 Worker。你负责维护代码。
 
 ## 何时使用 {#when-to-use}
 
@@ -20,7 +20,7 @@ Dex Cloud 提供两种产品：
 | 你提供 | Worker 代码和它的部署 | 一个符合 Dex app 结构的 GitHub 仓库 |
 | 从这里开始 | [在 Dex Cloud 上运行](/components/dex-cloud) | 本页 |
 
-新应用如果符合它支持的 stack，就选 Managed Dex App：用 Go 或 TypeScript 写的 process，或使用 [Dex Cloud 支持构建的 stack](/reference/server/dex-app-manifest#template-manifest) 的 agent。如果你已经自己部署 Worker，或者代码用的是其他语言，就选 Managed Dex Server。
+如果你希望 Dex Cloud 运行应用和 Worker，就选 Managed Dex App。导入前，先查看[支持的 stack](/reference/server/dex-app-manifest#template-manifest)。如果你自己部署 Worker，就选 Managed Dex Server。
 
 ## 从示例开始 {#example}
 
@@ -28,17 +28,7 @@ Dex Cloud 提供两种产品：
 
 ## 遵守仓库规则 {#repository-rules}
 
-Dex Cloud 导入符合 Dex app 结构的仓库。简要来说：
-
-- 默认分支是 `main`，并且至少有一个 commit。
-- 根目录的 `.superverse/template.json` 写明 kind、stack、build profile 和 `make` 命令。
-- 根目录的 `dex-app.yaml` 写明端口、健康检查路径、Flow 源文件和 connector。
-- 每个 Flow 源文件都已提交，并使用 build profile 对应的语言。
-- connector 是 Dex connector library 中已发布的版本，由应用的 lockfile 固定版本。
-- build profile 需要的文件都已提交，根目录 `Makefile` 定义了命令用到的每个 target。
-- 仓库只包含普通文件，没有 submodule、符号链接或提交进去的密钥文件，并且在大小限制之内。
-
-每条规则都有编号，从 S1 到 S8。[Dex app manifest and repository layout](/reference/server/dex-app-manifest) 列出了每个字段、规则和限制。
+按照[仓库结构和导入规则](/reference/server/dex-app-manifest#repository-layout)准备仓库。
 
 ## 导入仓库 {#import}
 
@@ -53,7 +43,7 @@ Dex Cloud 通过 **SuperDurable Dex Cloud** GitHub App 读取你的仓库。这�
 1. 在拥有该仓库的 GitHub 组织或账号上安装 [SuperDurable Dex Cloud](https://github.com/apps/superdurable-dex-cloud) GitHub App，并授予它访问该仓库的权限。
 2. 登录 Dex Cloud，或者[注册](https://dex.superdurable.io/register)。在开始页面选择 **Import project**。
 3. 从列表中选择仓库，或者输入 `owner/name`。
-4. 查看检查结果。Dex Cloud 读取 `main`，显示 kind、stack，以及仓库违反的每条规则。
+4. 查看检查结果。Dex Cloud 读取 `main`，显示 `kind`、`stack`，以及仓库违反的每条规则。
 5. 检查通过后，创建 project。
 
 导入时，你的仓库保持原样。删除 project 只会断开与仓库的连接。

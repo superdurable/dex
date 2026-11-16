@@ -54,8 +54,8 @@ A TypeScript process or agent with the `node-ts-v1` profile keeps
 `package.json` and `package-lock.json` at the root instead of the Go and `web/`
 files. Its `package.json` has a `build` script and a `main` entry.
 
-The repository supplies no Dockerfile. Dex Cloud builds the image from the
-build profile.
+Dex Cloud builds the image from the build profile. Your repository needs no
+Dockerfile.
 
 ## Template manifest {#template-manifest}
 
@@ -158,7 +158,7 @@ is an error.
 | `flowDefinitions` | list | yes | At least 1 and at most 1,000 entries. See [flowDefinitions](#flow-definitions). |
 | `connectors` | list | yes | May be empty (`[]`). An absent or `null` value is an error. See [connectors](#connectors). |
 
-### application {#application}
+### `application` {#application}
 
 | Field | Type | Required | Rule |
 | --- | --- | --- | --- |
@@ -167,7 +167,7 @@ is an error.
 | `workerSlots` | integer | no | 1 to 64. How many Steps and RPCs the Worker runs at once. The default is 4. |
 | `environment` | list | no | The environment variables the application reads. At most 128 entries. See [application.environment](#application-environment). |
 
-### application.environment {#application-environment}
+### `application.environment` {#application-environment}
 
 Each entry declares one variable that the application reads. The entry holds
 no value. You set the value in Dex Cloud.
@@ -203,7 +203,7 @@ application:
       enum: [eu, us]
 ~~~
 
-### flowDefinitions {#flow-definitions}
+### `flowDefinitions` {#flow-definitions}
 
 Each entry names one Flow source with its only field, `sourcePath`.
 
@@ -228,7 +228,7 @@ A `.json` source is a committed Flow Definition Graph (FDG) 2.0, such as a Dex
 Agents session graph. Dex Cloud renders the graph of a `.go` or `.ts` source
 from the code.
 
-### connectors {#connectors}
+### `connectors` {#connectors}
 
 Each entry declares one connection to a released connector of the
 [Dex connector library](https://github.com/superdurable/dex-connectors-library).
@@ -835,8 +835,8 @@ The repository:
 The secret file check matches only these names. A secret inside another file is
 not detected.
 
-After the import, commits are not checked against S8. The Live build still
-refuses links, unclean paths, and archives over its limits.
+After the import, only the Live build rechecks part of S8. It refuses links,
+unclean paths, and archives over its limits.
 
 ### `tree_truncated` {#tree_truncated}
 
