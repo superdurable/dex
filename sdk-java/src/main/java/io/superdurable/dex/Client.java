@@ -889,24 +889,48 @@ public final class Client implements AutoCloseable {
     /**
      * Stops a running Flow with explicit terminal behavior.
      *
-     * <p>The default is cooperative cancellation; {@link StopType} also supports termination
-     * and failure. This request does not wait for application threads or external side effects
+     * <p>The default is cooperative cancellation; {@link StopType} also supports termination,
+     * failure, and completion. {@link StopType#GRACEFUL_COMPLETE} and
+     * {@link StopType#FORCE_COMPLETE} complete the Flow with the output of
+     * {@link StopFlowOptions} as a result, like the graceful and force complete Step decisions.
+     * This request does not wait for application threads or external side effects
      * to stop. Handlers must honor interruption and keep effects idempotent. Use
      * {@link #waitForFlow(String)} to observe the terminal Flow result. See
      * {@link StopFlowOptions} for a complete stop example.
      *
+     * <p>Changed in 1.45.3: accepts {@link StopType#GRACEFUL_COMPLETE},
+     * {@link StopType#FORCE_COMPLETE}, and a {@link StopFlowOptions} output.
+     *
      * @param flowId the target Flow ID
-     * @param stopOptions the stop mode and optional reason
+     * @param stopOptions the stop mode, optional reason, and optional output
+     * @throws IllegalArgumentException if the options carry an output for a stop type that does
+     *     not complete the Flow; the Client sends no request
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot stop the Flow
      * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
-        call(() -> service.stopFlow(StopFlowRequest.newBuilder()
+        final StopFlowRequest request = mapStopFlowRequest(flowId, stopOptions);
+        call(() -> service.stopFlow(request), FlowTargetRequirement.ACTIVE, flowId);
+    }
+
+    private StopFlowRequest mapStopFlowRequest(
+            final String flowId,
+            final StopFlowOptions stopOptions) {
+        final StopType type = stopOptions.getType();
+        final StopFlowRequest.Builder request = StopFlowRequest.newBuilder()
                 .setFlowId(flowId)
                 .setReason(stopOptions.getReason() == null ? "" : stopOptions.getReason())
-                .setStopType(mapStopType(stopOptions.getType()))
-                .build()), FlowTargetRequirement.ACTIVE, flowId);
+                .setStopType(mapStopType(type));
+        if (stopOptions.getOutput() == null) {
+            return request.build();
+        }
+        if (type != StopType.GRACEFUL_COMPLETE && type != StopType.FORCE_COMPLETE) {
+            throw new IllegalArgumentException(
+                    "StopFlowOptions output requires StopType.GRACEFUL_COMPLETE or "
+                            + "StopType.FORCE_COMPLETE");
+        }
+        return request.setOutput(values.encode(stopOptions.getOutput())).build();
     }
 
     /**
@@ -2219,6 +2243,10 @@ public final class Client implements AutoCloseable {
                 return io.superdurable.gen.StopType.STOP_TYPE_TERMINATE;
             case FAIL:
                 return io.superdurable.gen.StopType.STOP_TYPE_FAIL;
+            case GRACEFUL_COMPLETE:
+                return io.superdurable.gen.StopType.STOP_TYPE_GRACEFUL_COMPLETE;
+            case FORCE_COMPLETE:
+                return io.superdurable.gen.StopType.STOP_TYPE_FORCE_COMPLETE;
             default:
                 return io.superdurable.gen.StopType.STOP_TYPE_CANCEL;
         }

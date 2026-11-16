@@ -65,6 +65,7 @@ import {
   StepOptions as ProtoStepOptions,
   FlowTimeoutHandlerOptions as ProtoFlowTimeoutHandlerOptions,
   StopType as ProtoStopType,
+  type StopFlowRequest,
   WaitForMethodFailurePolicy,
   type FlowServiceClient as FlowServiceClientType,
   type FlowConfig as ProtoFlowConfig,
@@ -154,7 +155,14 @@ import { requireNamedTaskQueueSupport, validateFlowTaskQueue } from "./task-queu
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { voidCodec } from "./codec.js";
-import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
+import {
+  codecOrJson,
+  decodeUnknown,
+  decodeValue,
+  encodeUnknown,
+  encodeValue,
+  ValueHydrator,
+} from "./value-mapper.js";
 import { Channel, ChannelMap } from "./wait.js";
 import type { Stream, StreamMessage, StreamMessagesPage } from "./stream.js";
 
@@ -869,35 +877,34 @@ export class Client {
   }
 
   /**
-   * Requests cancellation, termination, or failure of an active Flow.
+   * Requests cancellation, termination, failure, or completion of an active Flow.
    * The promise resolves after acceptance and does not await terminal status.
    * Omitted type requests cooperative cancellation. TERMINATE closes immediately; FAIL records failure.
+   * GRACEFUL_COMPLETE and FORCE_COMPLETE complete the Flow with `options.output` as a result, like
+   * the graceful and force complete Step decisions; see {@link StopType}.
    * A handler must observe cancellationSignal; stopping cannot undo an external side effect.
    * Use waitForFlow to observe the terminal result after acceptance.
+   *
+   * Changed in 1.45.6: accepts `StopType.GRACEFUL_COMPLETE`, `StopType.FORCE_COMPLETE`, and
+   * `StopFlowOptions.output`.
    * @example
    * ```ts
    * await client.stopFlow("order-42", { type: StopType.CANCEL, reason: "Order withdrawn" });
    * const result = await client.waitForFlow("order-42");
    * ```
+   * @throws `TypeError` when `options.output` is set for a stop type that does not complete the
+   * Flow; the Client sends no request.
+   * @throws {@link ValueMappingError} when `options.output` cannot be encoded.
    * @throws {@link FlowNotActiveOrNotFoundError} when the Flow is closed or missing.
    * @throws {@link DexServiceError} for other service or transport failures.
    * @param flowId - Non-empty active Flow ID.
-   * @param options - Stop mode and optional recorded reason.
+   * @param options - Stop mode, optional recorded reason, and optional output.
    */
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
+    const request = mapStopFlowRequest(flowId, options);
     await this.unary<Empty>(
       { operation: "stopFlow", flowId, requirement: "active" },
-      (callback) =>
-      this.service.stopFlow(
-        {
-          flowId: requireName(flowId),
-          runId: "",
-          reason: options.reason ?? "",
-          stopType: mapStopType(options.type),
-          output: undefined,
-        },
-        callback,
-      ),
+      (callback) => this.service.stopFlow(request, callback),
     );
   }
 
@@ -1997,12 +2004,35 @@ function mapIdReusePolicy(policy: IdReusePolicy | undefined): ProtoIdReusePolicy
   }
 }
 
+function mapStopFlowRequest(flowId: string, options: StopFlowOptions): StopFlowRequest {
+  const request: StopFlowRequest = {
+    flowId: requireName(flowId),
+    runId: "",
+    reason: options.reason ?? "",
+    stopType: mapStopType(options.type),
+    output: undefined,
+  };
+  if (options.output === undefined) {
+    return request;
+  }
+  if (options.type !== StopType.GRACEFUL_COMPLETE && options.type !== StopType.FORCE_COMPLETE) {
+    throw new TypeError(
+      "StopFlowOptions.output requires StopType.GRACEFUL_COMPLETE or StopType.FORCE_COMPLETE",
+    );
+  }
+  return { ...request, output: encodeUnknown(options.output) };
+}
+
 function mapStopType(type: StopType | undefined): ProtoStopType {
   switch (type) {
     case StopType.TERMINATE:
       return ProtoStopType.STOP_TYPE_TERMINATE;
     case StopType.FAIL:
       return ProtoStopType.STOP_TYPE_FAIL;
+    case StopType.GRACEFUL_COMPLETE:
+      return ProtoStopType.STOP_TYPE_GRACEFUL_COMPLETE;
+    case StopType.FORCE_COMPLETE:
+      return ProtoStopType.STOP_TYPE_FORCE_COMPLETE;
     default:
       return ProtoStopType.STOP_TYPE_CANCEL;
   }

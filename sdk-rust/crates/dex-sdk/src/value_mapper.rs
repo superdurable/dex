@@ -51,7 +51,7 @@ pub(crate) fn deletion() -> ProtoValue {
     }
 }
 
-fn encode_json(json: JsonValue) -> SdkResult<ProtoValue> {
+pub(crate) fn encode_json(json: JsonValue) -> SdkResult<ProtoValue> {
     let kind = match json {
         JsonValue::Null => value::Kind::NullValue(NullValue::NullValue.into()),
         JsonValue::String(text) => value::Kind::StringValue(text),

@@ -47,6 +47,7 @@ from dex._server_protocol import (
     remaining_negotiation_seconds,
     sdk_version,
 )
+from dex._stop_flow_mapping import map_stop_flow_request
 from dex._utils import require_name
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
@@ -82,7 +83,6 @@ from dex.flow_options import (
     IdReusePolicy,
     StartFlowOptions,
     StopFlowOptions,
-    StopType,
     TimeTravelOptions,
     _AttributeInitialization,
     _resolve_flow_timeout_policy,
@@ -681,33 +681,35 @@ class AsyncClient:
         flow_id: str,
         options: StopFlowOptions = StopFlowOptions(),
     ) -> None:
-        """Request cancellation, termination, or failure of an active Flow.
+        """Request cancellation, termination, failure, or completion of an active Flow.
 
         The await completes after Dex accepts the request, not after terminal status.
         Await wait_for_flow afterward to observe closure. Cancellation is cooperative;
         a handler may still be unwinding, and external effects are not undone.
+        ``StopType.GRACEFUL_COMPLETE`` and ``StopType.FORCE_COMPLETE`` complete the
+        Flow with ``StopFlowOptions.output`` as a result, like the graceful and force
+        complete Step decisions; see :class:`StopType`.
         The synchronous Client examples also apply here with awaited calls.
 
         Args:
             flow_id: The non-empty target Flow ID.
-            options: Stop mode and optional recorded reason.
+            options: Stop mode, optional recorded reason, and optional output.
 
         Raises:
+            ValueError: If ``options.output`` is set for a stop type that does not
+                complete the Flow.
+            ValueMappingError: If ``options.output`` cannot be encoded.
             FlowNotActiveOrNotFoundError: If no active run exists.
             DexServiceError: If FlowService rejects or cannot perform the request.
             RuntimeError: If the Server reports a protocol range without protocol 4.
+
+        .. versionchanged:: 1.45.4
+            Accepts ``StopType.GRACEFUL_COMPLETE``, ``StopType.FORCE_COMPLETE``, and
+            ``StopFlowOptions.output``.
         """
         await self._call(
             self._service.StopFlow,
-            pb.StopFlowRequest(
-                flow_id=require_name(flow_id),
-                reason=options.reason or "",
-                stop_type={
-                    StopType.CANCEL: pb.STOP_TYPE_CANCEL,
-                    StopType.TERMINATE: pb.STOP_TYPE_TERMINATE,
-                    StopType.FAIL: pb.STOP_TYPE_FAIL,
-                }[options.type],
-            ),
+            map_stop_flow_request(flow_id, options, self._values),
             "stop_flow",
             flow_id,
             "active",

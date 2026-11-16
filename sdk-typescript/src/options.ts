@@ -1040,6 +1040,52 @@ export const StopType = Object.freeze({
   TERMINATE: "terminate",
   /** Closes the Flow as failed. */
   FAIL: "fail",
+  /**
+   * Completes the Flow once no Step is active, like a Step that returns `gracefulComplete`.
+   *
+   * Use it to end a Flow successfully from outside its Steps, for example from a Step that ends its
+   * own Flow through a `Client`. Active Steps keep running. Their decisions still apply, so a Step
+   * that moves to another Step keeps the Flow running. The Flow closes as `COMPLETED` when the last
+   * active Step finishes, or at once when no Step is active. {@link StopFlowOptions.output} becomes
+   * one of the Flow results. A Step waiting for Channel messages or a Timer stays active until its
+   * wait ends.
+   *
+   * A later stop of any type still applies while the Flow waits. Another graceful completion adds
+   * its output to the results. The server ignores the reason.
+   *
+   * It requires Dex Server 0.1.34 or newer. Older servers reject it with an invalid argument error.
+   *
+   * @example
+   * ```ts
+   * await client.stopFlow("session-42", {
+   *   type: StopType.GRACEFUL_COMPLETE,
+   *   output: { summary: "user ended the session" },
+   * });
+   * ```
+   * @since 1.45.6
+   */
+  GRACEFUL_COMPLETE: "gracefulComplete",
+  /**
+   * Completes the Flow at once, like a Step that returns `forceComplete`.
+   *
+   * Use it to end a Flow successfully without waiting for its Steps. The server cancels every
+   * active Step and discards their results. Results that Steps already returned through graceful
+   * completion stay, and {@link StopFlowOptions.output} is added after them. The Flow closes as
+   * `COMPLETED`. Like the Step decision, the close waits until pending Attribute Sync writes and
+   * transactional RPCs finish. The server ignores the reason.
+   *
+   * It requires Dex Server 0.1.34 or newer. Older servers reject it with an invalid argument error.
+   *
+   * @example
+   * ```ts
+   * await client.stopFlow("session-42", {
+   *   type: StopType.FORCE_COMPLETE,
+   *   output: "closed by operator",
+   * });
+   * ```
+   * @since 1.45.6
+   */
+  FORCE_COMPLETE: "forceComplete",
 } as const);
 
 /** Represents a value from {@link StopType}. */
@@ -1049,8 +1095,31 @@ export type StopType = (typeof StopType)[keyof typeof StopType];
 export interface StopFlowOptions {
   /** Stop behavior; defaults to cooperative cancellation. */
   readonly type?: StopType;
-  /** Optional operator-readable reason recorded by Dex. */
+  /**
+   * Optional operator-readable reason.
+   *
+   * `TERMINATE` keeps it in the Flow closed history event, and `FAIL` uses it as the Flow error
+   * message. The other stop types ignore it.
+   */
   readonly reason?: string;
+  /**
+   * Becomes a Flow result when `type` is `GRACEFUL_COMPLETE` or `FORCE_COMPLETE`.
+   *
+   * The SDK encodes it like a Step decision output, so `waitForFlow` returns it as a Step
+   * completion whose Step type and Step execution ID are empty. `undefined` adds no result. The
+   * server rejects an output that exceeds its maximum value size. `stopFlow` rejects with a
+   * `TypeError`, before it sends the request, when `output` is set for any other stop type.
+   *
+   * @example
+   * ```ts
+   * await client.stopFlow("session-42", {
+   *   type: StopType.FORCE_COMPLETE,
+   *   output: { summary: "closed by operator" },
+   * });
+   * ```
+   * @since 1.45.6
+   */
+  readonly output?: unknown;
 }
 
 /**

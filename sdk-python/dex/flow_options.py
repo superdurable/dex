@@ -853,11 +853,53 @@ class StopType(Enum):
         CANCEL: Request cooperative cancellation.
         TERMINATE: Force immediate termination.
         FAIL: Close the Flow as failed with the reason in :class:`StopFlowOptions`.
+        GRACEFUL_COMPLETE: Complete the Flow once no Step is active, like a Step
+            that returns ``graceful_complete``. Use it to end a Flow successfully
+            from outside its Steps, for example from a Step that ends its own
+            Flow through a Client. Active Steps keep running. Their decisions
+            still apply, so a Step that moves to another Step keeps the Flow
+            running. The Flow closes as ``FlowStatus.COMPLETED`` when the last
+            active Step finishes, or at once when no Step is active.
+            ``StopFlowOptions.output`` becomes one of the Flow results. A Step
+            waiting for Channel messages or a Timer stays active until its wait
+            ends. A later stop of any type still applies while the Flow waits.
+            Another graceful completion adds its output to the results. The
+            server ignores the reason. It requires Dex Server 0.1.34 or newer;
+            older servers reject it with an invalid argument error.
+        FORCE_COMPLETE: Complete the Flow at once, like a Step that returns
+            ``force_complete``. Use it to end a Flow successfully without waiting
+            for its Steps. The server cancels every active Step and discards
+            their results. Results that Steps already returned through graceful
+            completion stay, and ``StopFlowOptions.output`` is added after them.
+            The Flow closes as ``FlowStatus.COMPLETED``. Like the Step decision,
+            the close waits until pending Attribute Sync writes and transactional
+            RPCs finish. The server ignores the reason. It requires Dex Server
+            0.1.34 or newer; older servers reject it with an invalid argument
+            error.
+
+    Examples:
+        >>> from dex import StopFlowOptions, StopType
+        >>> client.stop_flow(
+        ...     "session-42",
+        ...     StopFlowOptions(
+        ...         type=StopType.GRACEFUL_COMPLETE,
+        ...         output={"summary": "user ended the session"},
+        ...     ),
+        ... )
+        >>> client.stop_flow(
+        ...     "session-43",
+        ...     StopFlowOptions(type=StopType.FORCE_COMPLETE, output="closed by operator"),
+        ... )
+
+    .. versionadded:: 1.45.4
+        ``GRACEFUL_COMPLETE`` and ``FORCE_COMPLETE``.
     """
 
     CANCEL = "cancel"
     TERMINATE = "terminate"
     FAIL = "fail"
+    GRACEFUL_COMPLETE = "graceful_complete"
+    FORCE_COMPLETE = "force_complete"
 
 
 @dataclass(frozen=True)
@@ -866,8 +908,21 @@ class StopFlowOptions:
 
     Attributes:
         type: The stop behavior; defaults to cooperative cancellation.
-        reason: Optional operator-readable reason recorded by Dex.
+        reason: Optional operator-readable reason. ``StopType.TERMINATE`` keeps
+            it in the Flow closed history event, and ``StopType.FAIL`` uses it as
+            the Flow error message. The other stop types ignore it.
+        output: Optional Flow result for ``StopType.GRACEFUL_COMPLETE`` and
+            ``StopType.FORCE_COMPLETE``. The SDK encodes it like a Step decision
+            output, so ``wait_for_flow`` returns it as a Step completion whose
+            ``step_type`` and ``step_execution_id`` are empty. ``None`` adds no
+            result. The server rejects an output that exceeds its maximum value
+            size. ``stop_flow`` raises ``ValueError`` before it sends the request
+            when ``output`` is set for any other stop type.
+
+    .. versionadded:: 1.45.4
+        ``output``.
     """
 
     type: StopType = StopType.CANCEL
     reason: str | None = None
+    output: object | None = None
