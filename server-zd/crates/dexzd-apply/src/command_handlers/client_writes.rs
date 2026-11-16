@@ -396,7 +396,7 @@ fn apply_flow_stop_by_completion(
         completed_step_output: output,
     };
     let completion = if stop_type == StopType::GracefulComplete {
-        request_graceful_completion(transaction, &mut cursor, &output)?
+        request_graceful_completion(transaction, &mut cursor, scope.now_micros, &output)?
     } else {
         force_complete_flow(transaction, &mut cursor, scope, &output)?
     };

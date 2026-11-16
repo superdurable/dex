@@ -33,7 +33,9 @@ result. Since 0.1.34.
 - **Graceful complete** works like the **GracefulComplete** Step decision.
   Active Steps keep running, and their decisions still apply. The Flow
   completes when no Step is active, or at once when none is. A Step can stop
-  its own Flow this way and then return.
+  its own Flow this way and then return. Since 0.1.34, it also wakes Steps that
+  wait on the
+  [graceful completion condition](/reference/server/step-and-flow-close#graceful-completion-condition).
 - **Force complete** works like the **ForceComplete** Step decision. The server
   cancels every active Step and completes the Flow. Like the Step decision,
   the close waits for pending Attribute Sync writes and transactional RPCs.

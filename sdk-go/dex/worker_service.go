@@ -139,6 +139,9 @@ func (service *workerService) invokeWaitForMethod(
 	if err := service.serverProtocol.requireHardDeleteAttributeSupport(attributeWrites); err != nil {
 		return err
 	}
+	if err := service.serverProtocol.requireGracefulCompletionConditionSupport(waiting); err != nil {
+		return err
+	}
 	for _, subFlow := range waiting.GetSubFlowConditions() {
 		if err := service.serverProtocol.requireHardDeleteAttributeSupport(subFlow.GetOptions().GetAttributes()); err != nil {
 			return err

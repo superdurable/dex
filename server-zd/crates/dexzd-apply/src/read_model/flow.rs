@@ -222,6 +222,7 @@ fn active_step_state(
                         condition_id: sub_flow.condition_id.clone(),
                     })
                     .collect(),
+                graceful_completion_conditions: condition.graceful_completion_conditions.clone(),
             })
     });
     let timers = step

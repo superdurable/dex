@@ -233,6 +233,43 @@ func (e *CloneForkFlowUnsupportedError) Error() string {
 	)
 }
 
+// GracefulCompletionConditionUnsupportedError reports a Wait with a graceful completion
+// condition for a Server that cannot evaluate it.
+//
+// The condition that GracefulCompletionRequested returns requires Server protocol version 7 or
+// later, which server-zd 0.1.34 and later releases provide. An older Server would drop the
+// condition, so a Wait with only that condition would not wait at all. The SDK refuses instead.
+// A Step whose WaitFor returns such a Wait fails with this error, and Dex retries it according
+// to its retry policy. Upgrade the Dex Server to resolve it.
+//
+// Example:
+//
+//	var unsupported *dex.GracefulCompletionConditionUnsupportedError
+//	if errors.As(err, &unsupported) {
+//		log.Printf("upgrade Dex: the graceful completion condition needs protocol %d", unsupported.RequiredServerProtocolVersion)
+//	}
+//
+// Since 1.45.6.
+type GracefulCompletionConditionUnsupportedError struct {
+	// NegotiatedServerProtocol is the protocol version agreed with the Server.
+	NegotiatedServerProtocol uint32
+	// RequiredServerProtocolVersion is the minimum Server protocol version for the graceful
+	// completion condition.
+	RequiredServerProtocolVersion uint32
+}
+
+// Error describes the required Server protocol version.
+func (e *GracefulCompletionConditionUnsupportedError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf(
+		"dex: the graceful completion condition requires Server protocol %d or later, but the Server negotiated %d",
+		e.RequiredServerProtocolVersion,
+		e.NegotiatedServerProtocol,
+	)
+}
+
 // ValueMappingError reports a Dex value conversion failure.
 type ValueMappingError struct {
 	// Operation describes whether encoding, decoding, indexing, or hydration failed.

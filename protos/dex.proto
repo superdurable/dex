@@ -1942,6 +1942,8 @@ message WaitingCondition {
   repeated ChannelCondition channel_conditions = 3;
   repeated ConditionCombination condition_combinations = 4;
   repeated SubFlowCondition sub_flow_conditions = 5;
+  // At most one. Requires Server protocol version 7 or later.
+  repeated GracefulCompletionCondition graceful_completion_conditions = 6;
 }
 
 message WaitingConditionState {
@@ -1950,6 +1952,7 @@ message WaitingConditionState {
   repeated ChannelCondition channel_conditions = 3;
   repeated ConditionCombination condition_combinations = 4;
   repeated SubFlowConditionState sub_flow_conditions = 5;
+  repeated GracefulCompletionCondition graceful_completion_conditions = 6;
 }
 
 enum SubFlowReusePolicy {
@@ -2005,11 +2008,18 @@ message ChannelCondition {
   optional int32 at_most = 4;
 }
 
+// Completes once the Flow has a graceful completion request, from StopFlow or a Step decision.
+message GracefulCompletionCondition {
+  // Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED.
+  string condition_id = 1;
+}
+
 message ConditionResults {
   repeated ChannelResult channel_results = 1;
   repeated TimerResult timer_results = 2;
   bool wait_for_failed = 3;
   repeated FlowResult sub_flow_results = 4;
+  repeated GracefulCompletionResult graceful_completion_results = 5;
 }
 
 enum ConditionStatus {
@@ -2019,6 +2029,12 @@ enum ConditionStatus {
 }
 
 message TimerResult {
+  string condition_id = 1;
+  ConditionStatus condition_status = 2;
+}
+
+// COMPLETED when the Flow had a graceful completion request as the wait completed.
+message GracefulCompletionResult {
   string condition_id = 1;
   ConditionStatus condition_status = 2;
 }

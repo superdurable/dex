@@ -21,7 +21,7 @@ import (
 
 const (
 	minimumSupportedServerProtocolVersion uint32 = 4
-	maximumSupportedServerProtocolVersion uint32 = 6
+	maximumSupportedServerProtocolVersion uint32 = 7
 	// hardDeleteAttributeProtocolVersion is the first Server protocol that keeps hard-delete Attributes out of history.
 	hardDeleteAttributeProtocolVersion uint32 = 3
 	// taskQueueProtocolVersion is the first Server protocol that routes Flows to named task queues.
@@ -30,7 +30,9 @@ const (
 	cloneForkFlowProtocolVersion uint32 = 6
 	// cloneForkFlowServerZDRelease names the first server-zd release with cloneForkFlowProtocolVersion.
 	cloneForkFlowServerZDRelease = "server-zd 0.1.33"
-	goSDKModulePath              = "github.com/superdurable/dex/sdk-go"
+	// gracefulCompletionConditionProtocolVersion is the first Server protocol with the graceful completion condition.
+	gracefulCompletionConditionProtocolVersion uint32 = 7
+	goSDKModulePath                                   = "github.com/superdurable/dex/sdk-go"
 	// minimumSupportedServerZDRelease names the first server-zd releases with minimumSupportedServerProtocolVersion.
 	minimumSupportedServerZDRelease = "server-zd newer than v0.1.16"
 )
@@ -127,6 +129,20 @@ func (protocol *negotiatedServerProtocol) requireCloneForkFlowSupport() error {
 	return &CloneForkFlowUnsupportedError{
 		NegotiatedServerProtocol:      protocol.version.Load(),
 		RequiredServerProtocolVersion: cloneForkFlowProtocolVersion,
+	}
+}
+
+// requireGracefulCompletionConditionSupport fails closed because an older Server drops the condition.
+func (protocol *negotiatedServerProtocol) requireGracefulCompletionConditionSupport(
+	waiting *dexpb.WaitingCondition,
+) error {
+	if len(waiting.GetGracefulCompletionConditions()) == 0 ||
+		protocol.version.Load() >= gracefulCompletionConditionProtocolVersion {
+		return nil
+	}
+	return &GracefulCompletionConditionUnsupportedError{
+		NegotiatedServerProtocol:      protocol.version.Load(),
+		RequiredServerProtocolVersion: gracefulCompletionConditionProtocolVersion,
 	}
 }
 

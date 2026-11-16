@@ -288,6 +288,17 @@ func validateConditionResults(results *dexpb.ConditionResults) error {
 			}
 		}
 	}
+	for index, result := range results.GracefulCompletionResults {
+		if result == nil || !validConditionStatus(result.ConditionStatus) {
+			return fmt.Errorf("dex: invalid graceful completion result at index %d", index)
+		}
+		if result.ConditionId != "" {
+			if _, found := conditionIDs[result.ConditionId]; found {
+				return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+			}
+			conditionIDs[result.ConditionId] = struct{}{}
+		}
+	}
 	for index, result := range results.SubFlowResults {
 		if result == nil {
 			return fmt.Errorf("dex: invalid SubFlow result at index %d", index)
@@ -357,6 +368,19 @@ func (invocation *invocationContext) HasTimerFiredByIndex(index int) bool {
 	}
 	return invocation.conditionResults.TimerResults[index].ConditionStatus ==
 		dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED
+}
+
+func (invocation *invocationContext) isGracefulCompletionConditionCompleted() bool {
+	if !invocation.active || invocation.method != invocationExecute ||
+		invocation.conditionResults == nil {
+		return false
+	}
+	for _, result := range invocation.conditionResults.GracefulCompletionResults {
+		if result.ConditionStatus == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+			return true
+		}
+	}
+	return false
 }
 
 func (invocation *invocationContext) WaitForMethodFailed() bool {

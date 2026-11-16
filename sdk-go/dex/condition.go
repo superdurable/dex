@@ -49,8 +49,9 @@ func AllOf(conditions ...Condition) *Wait {
 
 // AnyOf waits until at least one condition is satisfied.
 // Conditions do not need IDs.
-// Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
-// SubFlows, preserving declaration order within each kind. An unready condition does not block
+// Among ready conditions, Dex selects the first in canonical order: Timers, Channels, SubFlows,
+// then the graceful completion condition, preserving declaration order within each kind.
+// An unready condition does not block
 // a later ready condition. Return only the higher-priority condition to wait for strict priority.
 // It consumes messages only from the selected Channel condition, not other ready alternatives.
 func AnyOf(conditions ...Condition) *Wait {
@@ -64,8 +65,9 @@ func AnyComboOf(combinations ...ConditionCombination) *Wait {
 	return &Wait{kind: waitAnyComboOf, combinations: combinations}
 }
 
-// Condition represents one durable Timer, Channel, or SubFlow predicate.
-// Create values through Timer, SubFlow, Channel, or ChannelMap; custom implementations are not supported.
+// Condition represents one durable Timer, Channel, SubFlow, or graceful completion predicate.
+// Create values through Timer, SubFlow, Channel, ChannelMap, or GracefulCompletionRequested;
+// custom implementations are not supported.
 type Condition interface {
 	condition()
 }
@@ -124,6 +126,76 @@ func SubFlow(target Flow, input any, options ...SubFlowOptions) Condition {
 	condition.conditionID = condition.subFlowOptions.ConditionID
 	condition.idSet = condition.conditionID != ""
 	return condition
+}
+
+// GracefulCompletionRequested returns a Condition satisfied once the Flow has a graceful
+// completion request.
+//
+// A graceful completion request comes from Client.StopFlow with GracefulCompleteFlow, or from
+// a Step that returns GracefulComplete. The request stays in force, so a Wait registered after
+// it is satisfied at once. When the request arrives, Dex re-checks only the Waits that include
+// this Condition; other waiting Steps keep waiting and keep the Flow running.
+//
+// Use it to let a long-waiting Step end when someone asks the Flow to complete. A typical Step
+// waits for the next message or this Condition with AnyOf. Its Execute first handles a message
+// that the Wait consumed. When there is none and IsGracefulCompletionConditionCompleted is true,
+// it returns DeadEnd. The Flow then completes once no other Step is active.
+//
+// In AnyOf, this Condition comes after Timers, Channels, and SubFlows, so a ready message still
+// wins over the request. This Condition still reports completed when a message won and a request
+// exists, so check the message first or it is lost. It also works in AllOf and in AnyComboOf, where it needs
+// WithConditionID. A Wait may hold at most one graceful completion condition; a second one fails
+// serialization of the returned Wait.
+//
+// It requires Server protocol version 7 or later. With an older Server, the Step's WaitFor fails
+// with GracefulCompletionConditionUnsupportedError.
+//
+// Example:
+//
+//	func (waitForMessage) WaitFor(_ dex.Context, _ struct{}) (*dex.Wait, error) {
+//		return dex.AnyOf(
+//			UserMessages.ForOne(),
+//			dex.GracefulCompletionRequested(),
+//		), nil
+//	}
+//
+//	func (waitForMessage) Execute(ctx dex.Context, _ struct{}) (*dex.StepDecision, error) {
+//		messages, err := UserMessages.GetConditionResults(ctx)
+//		if err != nil {
+//			return nil, err
+//		}
+//		if len(messages) > 0 {
+//			return dex.GoTo(handleMessage{}, messages[0]), nil
+//		}
+//		if dex.IsGracefulCompletionConditionCompleted(ctx) {
+//			return dex.DeadEnd(), nil
+//		}
+//		return dex.GoTo(waitForMessage{}, struct{}{}), nil
+//	}
+//
+// Since 1.45.6.
+func GracefulCompletionRequested(options ...ConditionOption) Condition {
+	condition := &conditionImpl{kind: conditionGracefulCompletion}
+	applyConditionOptions(condition, options)
+	return condition
+}
+
+// IsGracefulCompletionConditionCompleted reports whether the graceful completion condition of
+// the current Execute invocation's Wait completed.
+//
+// It returns true when the Flow had a graceful completion request as the Wait completed, even
+// when another AnyOf condition won, as with a Timer that fired. Read consumed Channel messages
+// first, so a message that won is not dropped. It returns false when the Wait
+// has no such condition, outside Execute, after SkipWaitImmediately, and for a Context that Dex
+// did not create. See GracefulCompletionRequested for an example.
+//
+// Since 1.45.6.
+func IsGracefulCompletionConditionCompleted(ctx Context) bool {
+	invocation, ok := ctx.(*invocationContext)
+	if !ok || invocation == nil {
+		return false
+	}
+	return invocation.isGracefulCompletionConditionCompleted()
 }
 
 // SubFlowResult returns one SubFlow result from the current Execute invocation.
@@ -186,7 +258,7 @@ type ConditionOption interface {
 	applyCondition(*conditionImpl)
 }
 
-// WithConditionID assigns a stable timer or Channel Condition ID for later targeting.
+// WithConditionID assigns a stable timer, Channel, or graceful completion Condition ID for later targeting.
 func WithConditionID(conditionID string) ConditionOption {
 	return conditionIDOption{conditionID: conditionID}
 }
@@ -216,6 +288,7 @@ const (
 	conditionChannel conditionKind = iota + 1
 	conditionTimer
 	conditionSubFlow
+	conditionGracefulCompletion
 )
 
 type conditionImpl struct {

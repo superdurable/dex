@@ -2325,6 +2325,18 @@ Channel values are read through the strongly typed channel handles.
 `Context.HasTimerFired` and `HasTimerFiredByIndex` expose timer completion
 without exporting proto-shaped condition result types.
 
+Since 1.45.6, a Wait can also wait for the Flow's graceful completion request:
+
+```go
+func GracefulCompletionRequested(options ...ConditionOption) Condition
+func IsGracefulCompletionConditionCompleted(ctx Context) bool
+```
+
+The reader is a package function, like `SubFlowResult`, so `Context` keeps its
+method set. A Wait holds at most one such condition. It needs Server protocol 7;
+below it, WaitFor fails with `GracefulCompletionConditionUnsupportedError`
+instead of sending a condition an older Server would drop.
+
 ### Step movements and close decisions
 
 `StepMovement`, `StepDecision`, and `CloseDecision` have unexported fields.

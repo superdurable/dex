@@ -605,6 +605,8 @@ type conditionMapper struct {
 	timers   []*dexpb.TimerCondition
 	channels []*dexpb.ChannelCondition
 	subFlows []*dexpb.SubFlowCondition
+
+	gracefulCompletions []*dexpb.GracefulCompletionCondition
 }
 
 func newConditionMapper(registry *Registry, flow *registeredFlow) *conditionMapper {
@@ -696,6 +698,14 @@ func (mapper *conditionMapper) add(
 			Options:       options,
 			SubFlowIndex:  int32(len(mapper.subFlows)),
 		})
+	case conditionGracefulCompletion:
+		if len(mapper.gracefulCompletions) > 0 {
+			return "", fmt.Errorf("dex: a Wait accepts at most one graceful completion condition")
+		}
+		mapper.gracefulCompletions = append(
+			mapper.gracefulCompletions,
+			&dexpb.GracefulCompletionCondition{ConditionId: id},
+		)
 	default:
 		return "", fmt.Errorf("dex: unsupported condition kind %d", concrete.kind)
 	}
@@ -732,6 +742,8 @@ func (mapper *conditionMapper) result(
 		TimerConditions:      mapper.timers,
 		ChannelConditions:    mapper.channels,
 		SubFlowConditions:    mapper.subFlows,
+
+		GracefulCompletionConditions: mapper.gracefulCompletions,
 	}
 }
 

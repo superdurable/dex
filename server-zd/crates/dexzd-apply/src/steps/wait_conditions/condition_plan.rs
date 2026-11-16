@@ -28,6 +28,8 @@ pub(crate) struct ConditionProgress<'progress> {
     pub(crate) is_timer_completed: &'progress [bool],
     /// Whether each SubFlow condition has a child result, in declaration order.
     pub(crate) is_sub_flow_completed: &'progress [bool],
+    /// Whether the Flow has a graceful completion request.
+    pub(crate) is_graceful_completion_requested: bool,
 }
 
 /// Returns the first satisfied candidate's channel consumptions in declaration order, or `None`.
@@ -35,10 +37,7 @@ pub(crate) fn plan_condition(
     condition: &WaitingCondition,
     progress: &ConditionProgress<'_>,
 ) -> Option<Vec<ChannelConsumption>> {
-    let is_empty = condition.timer_conditions.is_empty()
-        && condition.channel_conditions.is_empty()
-        && condition.sub_flow_conditions.is_empty();
-    if is_empty {
+    if super::is_empty_condition(condition) {
         return Some(Vec::new());
     }
     let bounds: Vec<ChannelBounds> = condition
@@ -57,17 +56,20 @@ struct TriggerCandidate {
     timer_indexes: Vec<usize>,
     channel_indexes: Vec<usize>,
     sub_flow_indexes: Vec<usize>,
+    needs_graceful_completion_request: bool,
 }
 
 fn build_candidates(condition: &WaitingCondition) -> Vec<TriggerCandidate> {
     let timer_count = condition.timer_conditions.len();
     let channel_count = condition.channel_conditions.len();
     let sub_flow_count = condition.sub_flow_conditions.len();
+    let has_graceful_completion_condition = !condition.graceful_completion_conditions.is_empty();
     match WaitingConditionType::try_from(condition.waiting_condition_type) {
         Ok(WaitingConditionType::AllCompleted) => vec![TriggerCandidate {
             timer_indexes: (0..timer_count).collect(),
             channel_indexes: (0..channel_count).collect(),
             sub_flow_indexes: (0..sub_flow_count).collect(),
+            needs_graceful_completion_request: has_graceful_completion_condition,
         }],
         Ok(WaitingConditionType::AnyCompleted) => {
             let timers = (0..timer_count).map(|index| TriggerCandidate {
@@ -82,7 +84,16 @@ fn build_candidates(condition: &WaitingCondition) -> Vec<TriggerCandidate> {
                 sub_flow_indexes: vec![index],
                 ..TriggerCandidate::default()
             });
-            timers.chain(channels).chain(sub_flows).collect()
+            // Last, so pending messages and results win over a graceful completion request.
+            let graceful_completion = has_graceful_completion_condition.then(|| TriggerCandidate {
+                needs_graceful_completion_request: true,
+                ..TriggerCandidate::default()
+            });
+            timers
+                .chain(channels)
+                .chain(sub_flows)
+                .chain(graceful_completion)
+                .collect()
         }
         Ok(WaitingConditionType::AnyCombinationCompleted) => condition
             .condition_combinations
@@ -100,7 +111,8 @@ fn build_candidates(condition: &WaitingCondition) -> Vec<TriggerCandidate> {
     }
 }
 
-/// Resolves a combination member by condition ID: timers first, then channels, then SubFlows.
+/// Resolves a combination member by condition ID: timers first, then channels, then SubFlows,
+/// then the graceful completion condition.
 /// Go builds ID maps, so a duplicated ID resolves to its last declaration.
 fn add_combination_member(
     condition: &WaitingCondition,
@@ -125,6 +137,12 @@ fn add_combination_member(
         .rposition(|sub_flow| sub_flow.condition_id == condition_id)
     {
         candidate.sub_flow_indexes.push(index);
+    } else if condition
+        .graceful_completion_conditions
+        .iter()
+        .any(|graceful| graceful.condition_id == condition_id)
+    {
+        candidate.needs_graceful_completion_request = true;
     }
 }
 
@@ -160,6 +178,9 @@ fn check_candidate(
     progress: &ConditionProgress<'_>,
 ) -> Option<Vec<ChannelConsumption>> {
     let is_flag_set = |flags: &[bool], index: usize| flags.get(index).copied().unwrap_or(false);
+    if candidate.needs_graceful_completion_request && !progress.is_graceful_completion_requested {
+        return None;
+    }
     if !candidate
         .timer_indexes
         .iter()
@@ -232,6 +253,7 @@ mod tests {
             pending_counts: &pending_counts,
             is_timer_completed: &[true],
             is_sub_flow_completed: &[],
+            is_graceful_completion_requested: false,
         };
         assert_eq!(plan_condition(&condition, &progress), Some(Vec::new()));
         let progress = ConditionProgress {

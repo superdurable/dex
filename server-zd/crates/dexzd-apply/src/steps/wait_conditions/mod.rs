@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::row_keys::{channel_name_prefix, channel_waiter_key, prefix_range};
 use dexzd_keyspace::{ColumnFamily, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{
-    ChannelResult, ConditionResults, ConditionStatus, FlowResult, FlowStatus, StepCompletionOutput,
-    TimerResult, WaitingCondition,
+    ChannelResult, ConditionResults, ConditionStatus, FlowResult, FlowStatus,
+    GracefulCompletionResult, StepCompletionOutput, TimerResult, WaitingCondition,
 };
 use dexzd_protocol::dexzd::v1::{
     ChannelMessageRecord, ChannelResultRecord, ChannelWaiterRecord, ConditionResultsRecord,
@@ -157,6 +157,35 @@ pub(crate) fn on_channels_changed(
         else {
             continue;
         };
+        if evaluate_waiting_step(transaction, cursor, now_micros, &mut step)? {
+            cursor.rows.put_step_execution(transaction, &step);
+        }
+    }
+    Ok(())
+}
+
+/// Re-evaluates only waits with a graceful completion condition, in started-waiting order.
+pub(crate) fn on_graceful_completion_requested(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    now_micros: i64,
+) -> Result<(), ApplyError> {
+    let mut waiters: Vec<(u64, StepExecutionRecord)> = cursor
+        .rows
+        .step_executions(transaction)?
+        .into_iter()
+        .filter_map(|(_, step)| {
+            let started_waiting_seq = step.wait.as_ref().and_then(|wait| {
+                wait.condition
+                    .as_ref()
+                    .is_some_and(|condition| !condition.graceful_completion_conditions.is_empty())
+                    .then_some(wait.started_waiting_seq)
+            })?;
+            Some((started_waiting_seq, step))
+        })
+        .collect();
+    waiters.sort_by_key(|(started_waiting_seq, _)| *started_waiting_seq);
+    for (_, mut step) in waiters {
         if evaluate_waiting_step(transaction, cursor, now_micros, &mut step)? {
             cursor.rows.put_step_execution(transaction, &step);
         }
@@ -378,6 +407,7 @@ pub(crate) fn wire_condition_results(
             .iter()
             .map(wire_flow_result)
             .collect(),
+        graceful_completion_results: results.graceful_completion_results.clone(),
     }
 }
 
@@ -415,10 +445,12 @@ fn evaluate_waiting_step(
         let meta = cursor.rows.channel_meta(transaction, channel_name)?;
         pending_counts.insert(channel_name.to_owned(), meta.pending_count);
     }
+    let is_graceful_completion_requested = cursor.record.is_graceful_completion_requested;
     let progress = ConditionProgress {
         pending_counts: &pending_counts,
         is_timer_completed: &is_timer_completed,
         is_sub_flow_completed: &is_sub_flow_completed,
+        is_graceful_completion_requested,
     };
     let Some(consumptions) = plan_condition(&condition, &progress) else {
         return Ok(false);
@@ -439,6 +471,7 @@ fn evaluate_waiting_step(
         &wait,
         consumed,
         sub_flow_results,
+        is_graceful_completion_requested,
     ));
     step.phase = StepExecutionPhase::Execute as i32;
     make_invocation_pending(
@@ -512,7 +545,9 @@ fn consume_messages(
 }
 
 /// Condition results as the Go Server reports them: one entry per timer, per channel
-/// condition (messages only for the winning candidate), and per SubFlow.
+/// condition (messages only for the winning candidate), and per SubFlow. A graceful completion
+/// condition is completed when the Flow has a graceful completion request, like a fired timer
+/// that did not win.
 ///
 /// SubFlow entries share stored values with the run's SubFlowResultRecord rows, which keep
 /// their own holders until the run is deleted.
@@ -521,6 +556,7 @@ fn build_condition_results(
     wait: &WaitStateRecord,
     mut consumed: BTreeMap<usize, Vec<ChannelMessageRecord>>,
     sub_flow_results: Vec<Option<StoredFlowResult>>,
+    is_graceful_completion_requested: bool,
 ) -> ConditionResultsRecord {
     let timer_results = condition
         .timer_conditions
@@ -562,11 +598,25 @@ fn build_condition_results(
             })
         })
         .collect();
+    let graceful_completion_status = if is_graceful_completion_requested {
+        ConditionStatus::Completed
+    } else {
+        ConditionStatus::Waiting
+    };
+    let graceful_completion_results = condition
+        .graceful_completion_conditions
+        .iter()
+        .map(|graceful| GracefulCompletionResult {
+            condition_id: graceful.condition_id.clone(),
+            condition_status: graceful_completion_status as i32,
+        })
+        .collect();
     ConditionResultsRecord {
         channel_results,
         timer_results,
         wait_for_failed: false,
         sub_flow_results,
+        graceful_completion_results,
     }
 }
 
@@ -689,6 +739,7 @@ fn is_empty_condition(condition: &WaitingCondition) -> bool {
     condition.timer_conditions.is_empty()
         && condition.channel_conditions.is_empty()
         && condition.sub_flow_conditions.is_empty()
+        && condition.graceful_completion_conditions.is_empty()
 }
 
 fn is_status_completed(status: Option<i32>) -> bool {

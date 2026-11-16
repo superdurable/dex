@@ -116,4 +116,48 @@ public interface WaitingConditionOrBuilder extends
    */
   io.superdurable.gen.SubFlowConditionOrBuilder getSubFlowConditionsOrBuilder(
       int index);
+
+  /**
+   * <pre>
+   * At most one. Requires Server protocol version 7 or later.
+   * </pre>
+   *
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  java.util.List<io.superdurable.gen.GracefulCompletionCondition> 
+      getGracefulCompletionConditionsList();
+  /**
+   * <pre>
+   * At most one. Requires Server protocol version 7 or later.
+   * </pre>
+   *
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  io.superdurable.gen.GracefulCompletionCondition getGracefulCompletionConditions(int index);
+  /**
+   * <pre>
+   * At most one. Requires Server protocol version 7 or later.
+   * </pre>
+   *
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  int getGracefulCompletionConditionsCount();
+  /**
+   * <pre>
+   * At most one. Requires Server protocol version 7 or later.
+   * </pre>
+   *
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.GracefulCompletionConditionOrBuilder> 
+      getGracefulCompletionConditionsOrBuilderList();
+  /**
+   * <pre>
+   * At most one. Requires Server protocol version 7 or later.
+   * </pre>
+   *
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  io.superdurable.gen.GracefulCompletionConditionOrBuilder getGracefulCompletionConditionsOrBuilder(
+      int index);
 }

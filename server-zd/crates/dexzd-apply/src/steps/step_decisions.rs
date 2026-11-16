@@ -29,7 +29,9 @@ use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::history_event_links::{HistoryEventIndex, StepEventLink};
 use crate::projections::history_events;
 use crate::state_access::FlowTransaction;
-use crate::steps::wait_conditions::{on_channels_changed, requeue_consumed_messages};
+use crate::steps::wait_conditions::{
+    on_channels_changed, on_graceful_completion_requested, requeue_consumed_messages,
+};
 use crate::steps::{InvocationEnd, NewStepExecution, create_step_execution, end_running_attempt};
 use crate::values::{
     ValueHolder, ValueRejection, flow_result_output_bytes, release_stored_value, store_value,
@@ -140,7 +142,8 @@ fn apply_step_decision(
                 }
             }
             CloseDecisionType::GracefulComplete => {
-                if let Err(rejection) = request_graceful_completion(transaction, cursor, &output())?
+                if let Err(rejection) =
+                    request_graceful_completion(transaction, cursor, scope.now_micros, &output())?
                 {
                     return Ok(Err(rejection));
                 }
@@ -212,18 +215,21 @@ fn apply_step_decision(
 }
 
 /// Keeps `output` as a Flow result and requests graceful completion; active Steps keep running.
+/// Steps that wait on a graceful completion condition leave waiting.
 /// Used by the GracefulComplete Step decision and StopFlow.
 ///
 /// Returns the rejection of an output that is too large for a Flow result.
 pub(crate) fn request_graceful_completion(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
+    now_micros: i64,
     output: &StepCompletionOutput,
 ) -> Result<Result<(), ValueRejection>, ApplyError> {
     if let Err(rejection) = collect_output(transaction, cursor, output)? {
         return Ok(Err(rejection));
     }
     cursor.record.is_graceful_completion_requested = true;
+    on_graceful_completion_requested(transaction, cursor, now_micros)?;
     Ok(Ok(()))
 }
 

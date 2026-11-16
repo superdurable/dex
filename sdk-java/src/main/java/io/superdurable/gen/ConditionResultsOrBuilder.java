@@ -87,4 +87,28 @@ public interface ConditionResultsOrBuilder extends
    */
   io.superdurable.gen.FlowResultOrBuilder getSubFlowResultsOrBuilder(
       int index);
+
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  java.util.List<io.superdurable.gen.GracefulCompletionResult> 
+      getGracefulCompletionResultsList();
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  io.superdurable.gen.GracefulCompletionResult getGracefulCompletionResults(int index);
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  int getGracefulCompletionResultsCount();
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.GracefulCompletionResultOrBuilder> 
+      getGracefulCompletionResultsOrBuilderList();
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  io.superdurable.gen.GracefulCompletionResultOrBuilder getGracefulCompletionResultsOrBuilder(
+      int index);
 }
