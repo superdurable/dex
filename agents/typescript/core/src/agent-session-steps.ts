@@ -8,8 +8,11 @@
 
 import {
   ExecuteFailure,
+  GracefulCompletion,
   StepMovement,
   int64Codec,
+  isGracefulCompletionConditionCompleted,
+  supportsGracefulCompletionCondition,
   StepRef,
   StepAttemptProgress,
   Timer,
@@ -192,7 +195,10 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   }
 }
 
-/** Waits for one queued user message, or an approved plan execution, and starts its turn. */
+/**
+ * Waits for one queued user message, or an approved plan execution, and starts its turn. A graceful completion
+ * request with no consumed message ends the session.
+ */
 export class AwaitUserMessageStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
@@ -224,6 +230,10 @@ export class AwaitUserMessageStep implements Step<void> {
     if (plan !== null && isExecutablePlanStatus(plan.status)) {
       conditions.push(persistence.planExecutions.forOne(planExecutionKey(plan.revision)));
     }
+    // Servers before protocol 7 cannot take it; the session then waits for the next message.
+    if (supportsGracefulCompletionCondition(context)) {
+      conditions.push(GracefulCompletion.requested());
+    }
     return Wait.anyOf(...conditions);
   }
 
@@ -244,6 +254,10 @@ export class AwaitUserMessageStep implements Step<void> {
     const [execution] =
       plan === null ? [] : context.channelResults(persistence.planExecutions, planExecutionKey(plan.revision));
     if (execution === undefined) {
+      // The condition also reports a request when a message won, so messages go first.
+      if (isGracefulCompletionConditionCompleted(context)) {
+        return deadEnd();
+      }
       return transitions.goToAwaitUserMessage();
     }
     if (persistence.pendingPlanExecution.get(context) !== undefined) {

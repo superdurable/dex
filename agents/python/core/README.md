@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.45.3`:
+later and requires the released `dex-python-sdk==1.45.4`:
 
 ```bash
 pip install dex-agents
@@ -94,9 +94,34 @@ Register one `AgentSessionFlow` per agent, each with its own `flow_type`. All
 Steps are `async`, so the Registry needs `allow_async_handlers=True` and an
 `AsyncWorker` serves it. Tool calls run as parallel Steps, so give the Worker
 enough task slots (`PullWorkerOptions.max_concurrent_tasks`) for the largest
-batch of tool calls a model makes. A session never completes by itself; it
-waits for the next user message after every turn. Stop it with
-`AsyncClient.stop_flow`.
+batch of tool calls a model makes. After every turn a session waits for the
+next user message. See [Ending a session](#ending-a-session).
+
+## Ending a session
+
+Since 0.6.14, `AsyncClient.stop_flow` with `StopType.GRACEFUL_COMPLETE` ends
+a session as `COMPLETED`. Call it from a client, or from one of the session's
+own tools. It needs server-zd 0.1.34 or later.
+
+```python
+from dex import StopFlowOptions, StopType
+
+await client.stop_flow("session-42", StopFlowOptions(type=StopType.GRACEFUL_COMPLETE))
+```
+
+- The running turn finishes first. Its tool results and final assistant
+  message are stored, and `get_agent_snapshot` serves them after the close.
+- User messages queued before the request still run their turns. Then the
+  session Flow completes at its next wait for a user message.
+- Servers before 0.1.34 reject the request as an invalid argument.
+- It ends a session whose idle wait for a user message a Worker at 0.6.14 or
+  later registered on server-zd 0.1.34 or later. A session idle since before
+  the upgrade keeps waiting. It completes this way after its next turn
+  returns it to the idle wait. Cancel it to end it sooner.
+- Upgrade every Worker of the session's Flow type to 0.6.14 or later before
+  you send it. A session that an earlier Worker serves can retry its wait for
+  a user message instead of completing.
+- The other stop types end the session at once, also during a turn.
 
 ## Built-in agent loop
 
@@ -1492,7 +1517,7 @@ ApplyTurnControl -> RunModel with steered messages, else AwaitUserMessage
 | Step (input) | What it does | Next |
 | --- | --- | --- |
 | `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, interrupts, and `SessionSettings`. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
-| `AwaitUserMessage` (none) | Waits for any of, in this order, `TurnControlRequests`, `QueuedUserMessages.for_one()`, and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`. Locks `TurnCancellationRequest` in Execute, so no turn starts while `cancel_turn` decides. A steer: moves to `ApplyTurnControl`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. | `ApplyTurnControl`, `RunModel`, or itself for a stale approval |
+| `AwaitUserMessage` (none) | Waits for any of, in this order, `TurnControlRequests`, `QueuedUserMessages.for_one()`, and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`, and, on a server with protocol 7 or later, the graceful completion condition last. Locks `TurnCancellationRequest` in Execute, so no turn starts while `cancel_turn` decides. A steer: moves to `ApplyTurnControl`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. No consumed message and a graceful completion request: ends with `dead_end`, so the session Flow completes. | `ApplyTurnControl`, `RunModel`, itself for a stale approval, or `dead_end` |
 | `RunModel` (none) | Ends the turn and moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, `ApplyTurnControl`, `CompactContext`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
 | `CompactContext` (`CompactContextInput`) | Calls `summarize_context` once and stores `ContextSummary`. `RunModel`'s timeouts, attempts, and failure route. | `RunModel` |
 | `AwaitToolApproval` (tool call ID) | Waits for `ToolCallCancellations.for_one(id)` or `InterruptResolutions.for_one(id)`, plus a Timer at the deadline, rounded up to whole seconds, while the interrupt is pending. Approved: marks the record `approved`. Rejected or expired: records `rejected` and publishes `ToolCallResults`. A Timer that fires before the deadline waits again. A cancellation records `rejected` with its reason. | `CallTool` or `CallSingleAttemptTool`, or ends |

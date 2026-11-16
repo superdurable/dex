@@ -251,8 +251,16 @@ func WithLogger(logger *slog.Logger) AgentSessionOption {
 // Register one AgentSessionFlow per agent, each with its own Flow type. Every
 // model call runs in its own RunModel Step and every tool call in its own tool
 // Step, so each has its own retry policy, timeout, failure route, and history
-// entry. The session never completes on its own: it waits for the next user
-// message after every turn. Stop it with Client.StopFlow.
+// entry. After every turn the session waits for the next user message. To end
+// it as COMPLETED, call Client.StopFlow with dex.GracefulCompleteFlow, from a
+// client or from one of the session's own tools. The running turn finishes
+// first, and so do user messages queued before the request. Then the session
+// Flow completes. This needs server-zd 0.1.34 or later; older servers reject
+// the request, and the session keeps waiting. Other stop types end the
+// session at once.
+//
+// Changed in 0.6.14: a graceful complete request ends the session at its next
+// wait for a user message.
 //
 // The Flow type, Step types, persistence names, RPC names, and wire values are
 // the contract the Python and TypeScript cores share, so a session that a
@@ -718,9 +726,10 @@ func (step StartAgentSession) Execute(ctx dex.Context, input AgentSessionStartIn
 }
 
 // AwaitUserMessage waits for the next queued user message and starts its turn.
+// A graceful completion request with no consumed message ends the session.
 //
 // dex:group group-id:turn group-label:"Turn"
-// dex:explanation text:"Wait for the next queued user message, store it, and start its turn."
+// dex:explanation text:"Wait for the next queued user message or a completion request, and start the message's turn."
 type AwaitUserMessage struct {
 	dex.StepDefaults
 	session *AgentSessionFlow
@@ -735,7 +744,8 @@ func (AwaitUserMessage) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-// WaitFor waits for one QueuedUserMessages message.
+// WaitFor waits for one QueuedUserMessages message, or for a graceful completion request when
+// the server supports that condition.
 func (step AwaitUserMessage) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
 	// Execute fails the session at once; waiting would stall it.
 	unsupported, err := step.session.unsupportedSessionError(ctx)
@@ -745,10 +755,15 @@ func (step AwaitUserMessage) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, er
 	if unsupported != "" {
 		return dex.SkipWaitImmediately(), nil
 	}
+	// Servers before protocol 7 cannot take it; the session then waits for the next message.
+	if dex.SupportsGracefulCompletionCondition(ctx) {
+		return dex.AnyOf(QueuedUserMessagesChannel.ForOne(), dex.GracefulCompletionRequested()), nil
+	}
 	return dex.Until(QueuedUserMessagesChannel.ForOne()), nil
 }
 
-// Execute stores the consumed message as the turn's user message and moves to RunModel.
+// Execute stores the consumed message as the turn's user message and moves to RunModel. With
+// no consumed message, a graceful completion request ends the session with DeadEnd.
 func (step AwaitUserMessage) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -762,6 +777,10 @@ func (step AwaitUserMessage) Execute(ctx dex.Context, _ dex.None) (*dex.StepDeci
 		return nil, err
 	}
 	if len(messages) == 0 {
+		// The condition also reports a request when a message won, so messages go first.
+		if dex.IsGracefulCompletionConditionCompleted(ctx) {
+			return dex.DeadEnd(), nil
+		}
 		return nil, errors.New("the user message wait completed without a message")
 	}
 	state, err := requireAgentState(ctx)
