@@ -228,7 +228,7 @@ function QueryEntry({ query, name, time, timeLabel, now, onRun, children }: Quer
         <code className="query-entry-text">{query}</code>
         {time && (
           <span className="query-entry-meta">
-            {timeLabel} <time dateTime={time} title={exactTimeText(time)}>{relativeTimeText(time, now)}</time>
+            {timeLabel} <time dateTime={time} title={exactTimeText(time)}>{entryTimeText(time, now)}</time>
           </span>
         )}
       </button>
@@ -238,6 +238,12 @@ function QueryEntry({ query, name, time, timeLabel, now, onRun, children }: Quer
       </span>
     </li>
   );
+}
+
+/** Reads "Ran just now" under a minute and "Ran 2 hours ago" after. */
+function entryTimeText(time: string, now: Date): string {
+  const text = relativeTimeText(time, now);
+  return text === 'now' ? 'just now' : text;
 }
 
 function QueryEntryAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {

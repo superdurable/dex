@@ -49,10 +49,10 @@ built-in fields and the indexed Attributes under **Fields**. See
 
 | Operator | Field types |
 | --- | --- |
-| **=**, **!=** (or **<>**) | All types |
+| **=**, **!=** (or **&lt;&gt;**) | All types |
 | **IN (v1, v2, …)**, **NOT IN (v1, v2, …)** | All types |
 | **IS NULL**, **IS NOT NULL** | All types. They test whether the run has the field. |
-| **>**, **>=**, **<**, **<=**, **BETWEEN v1 AND v2** | Int, Double, Datetime, and Keyword. Keyword compares text byte by byte. **BETWEEN** includes both ends. |
+| **&gt;**, **&gt;=**, **&lt;**, **&lt;=**, **BETWEEN v1 AND v2** | Int, Double, Datetime, and Keyword. Keyword compares text byte by byte. **BETWEEN** includes both ends. |
 | **STARTS_WITH "prefix"** | Keyword |
 
 - **AND**, **OR**, and **NOT** combine conditions. **NOT** binds tightest,
