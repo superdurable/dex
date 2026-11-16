@@ -260,7 +260,27 @@ Changed in 1.45.4: every page has one bar in place of the header and the page br
 - The search button, or ⌘K and Ctrl+K, lists Flows whose ID starts with what you type, opens a pasted run link, and shows this browser's recent runs and the pages. Arrow keys and Enter choose a match.
 - The settings button holds **Theme**, **Timezone**, and **Docs**.
 
-The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The result list is paged, and you can save queries and choose columns. Changed in 1.45.4: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter. **Group by type**, on by default, groups the page's runs by Flow type, each under its name and its counts by status on that page, with **Design ›** to the type's design on **Designs** when one is loaded. The browser remembers the choice.
+The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the [query syntax](/reference/server/search#query-syntax) of SearchFlows. The result list is paged, and you can save queries and choose columns. Changed in 1.45.4: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter. **Group by type**, on by default, groups the page's runs by Flow type, each under its name and its counts by status on that page, with **Design ›** to the type's design on **Designs** when one is loaded. The browser remembers the choice.
+
+### Saved and recent queries {#flows-saved-queries}
+
+Changed in 1.45.9: **Queries** opens two lists, **Saved** and **Recent**. This browser keeps both for each Dex Server.
+
+- Each entry shows its query, cut to two lines; hover for the whole query. Saved entries add their name. An entry shows when it was saved or last run, for entries that Dex Web 1.45.9 or later recorded.
+- Choose an entry to run it. **Copy** copies its query. A recent entry also has **Save** and **Remove**, and a saved entry has **Delete**. **Clear** empties **Recent**, which keeps the last 10 queries.
+- **Save query** names the current query in a field inside the panel. A name already in use replaces that saved query.
+- Arrow keys, **Home**, and **End** move between entries, and **Escape** closes the panel.
+- When the page cannot use the clipboard or browser storage, as can happen inside an embedding page, the panel says so.
+
+### Searchable fields {#flows-search-fields}
+
+Since 1.45.9: **Fields** lists what a query can name, each with its type.
+
+- **Built-in fields**, such as **ExecutionStatus** and **StartTime**.
+- **Indexed Attributes** that each loaded Flow definition declares, grouped by Flow type. Each shows its index key, which is the name a query uses, and its Attribute key when that differs. Dex Web reads them from **GET /api/v2/catalog**.
+- **Seen in these results**: other indexed Attribute keys in the loaded runs. Their types are guessed from the values.
+
+Choose a field to add it as a filter row on **Filters**, or as a condition at the end of the query on **Query**. The filter field suggestions list the same fields. **Query syntax** in the panel and under **Search query** opens the [query syntax](/reference/server/search#query-syntax) reference.
 
 Changed in 1.45.4: the Run page puts the run in the bar, so the selected tab starts right below it.
 

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import type { TimezonePreference } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import {
@@ -91,7 +91,8 @@ export function CloneForkDialog({
   const stepTypes = useStepTypesOf(events);
   const points = isSourceRunning ? cloneForkPoints : cloneForkPoints.filter((point) => point.kind !== 'current');
 
-  useEffect(() => {
+  // A layout effect resets the fields before anyone can type, even when the dialog opens outside an event.
+  useLayoutEffect(() => {
     if (!open) return;
     setPointKind(initialPointKind(initialEvent, isSourceRunning));
     setTarget(initialEvent ? String(initialEvent.eventId) : '');

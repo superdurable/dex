@@ -99,6 +99,42 @@ describe('Flow search query builder and pagination', () => {
     expect(screen.getByText('Page 1')).toBeTruthy();
   });
 
+  it('shows the new filter row after a status search from Recent', async () => {
+    // A quick-status search hides its rows; a new row must leave that one-row layout.
+    localStorage.setItem('dex-web-recent-queries', JSON.stringify(['ExecutionStatus = "Failed"']));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run ExecutionStatus = "Failed"' }));
+    await waitFor(() => expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }));
+    expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(false);
+    const fields = screen.getAllByRole('combobox', { name: 'Filter field' }) as HTMLInputElement[];
+    expect(fields.map((field) => field.value)).toEqual(['ExecutionStatus', 'FlowType']);
+  });
+
+  it('opens a filter row from the All search', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }));
+    expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(false);
+    expect((screen.getByRole('combobox', { name: 'Filter field' }) as HTMLInputElement).value).toBe('FlowType');
+  });
+
   it('names its tabs Filters and Query and its hand-written field Search query', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
     render(
@@ -247,7 +283,6 @@ async function searchAndSaveQuery(basePath: string, query: string, name: string)
   setBasePathMeta(basePath === '/' ? null : basePath);
   const pagePath = basePath === '/' ? '/v1/flows' : `${basePath}/v1/flows`;
   window.history.replaceState(null, '', `${pagePath}?q=${encodeURIComponent(query)}`);
-  vi.stubGlobal('prompt', vi.fn(() => name));
   render(
     <MemoryRouter>
       <PreferencesProvider>
@@ -256,8 +291,10 @@ async function searchAndSaveQuery(basePath: string, query: string, name: string)
     </MemoryRouter>,
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
-  await waitFor(() => expect(screen.getAllByText(query).length).toBeGreaterThan(0));
+  await screen.findByRole('button', { name: `Run ${query}` });
   fireEvent.click(screen.getByRole('button', { name: 'Save query' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Query name' }), { target: { value: name } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await screen.findByText(name);
 }
 
@@ -295,6 +332,223 @@ describe('Flow search storage', () => {
     expect(localStorage.getItem('dex-web-saved-queries')).toContain('Root orders');
     expect([...Array(localStorage.length).keys()].map((index) => localStorage.key(index)))
       .not.toContainEqual(expect.stringContaining('@'));
+  });
+});
+
+function renderFlowSearchPage() {
+  render(
+    <MemoryRouter>
+      <PreferencesProvider>
+        <FlowSearchPage />
+      </PreferencesProvider>
+    </MemoryRouter>,
+  );
+}
+
+/** Answers searches with the given runs and the catalog with the given Flow definitions. */
+function stubFlowSearchAPI(flows: unknown[], catalogFlows: unknown[] | Error) {
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    if (String(input).endsWith('/api/v2/catalog')) {
+      if (catalogFlows instanceof Error) {
+        return new Response(JSON.stringify({ error: catalogFlows.message }), { status: 403 });
+      }
+      return new Response(JSON.stringify({ enabled: true, flows: catalogFlows, definitionRevision: 'r1' }));
+    }
+    return new Response(JSON.stringify({ flows, nextPageToken: '' }));
+  }));
+}
+
+describe('Flow search Queries panel', () => {
+  it('reads recent queries an older Dex Web stored and shows their actions and times', async () => {
+    const ranAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem('dex-web-recent-queries', JSON.stringify(['FlowType = "Checkout"', 'WorkflowId = "a"']));
+    localStorage.setItem('dex-web-recent-query-times', JSON.stringify({ 'FlowType = "Checkout"': ranAt }));
+    localStorage.setItem('dex-web-saved-queries', JSON.stringify([{ name: 'Checkouts', query: 'FlowType = "Checkout"' }]));
+    stubFlowSearchAPI([], []);
+    renderFlowSearchPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
+
+    const panel = screen.getByRole('region', { name: 'Queries' });
+    expect(panel.querySelector('h3')?.textContent).toBe('Saved1');
+    expect(screen.getByRole('button', { name: 'Run Checkouts: FlowType = "Checkout"' })).toBeTruthy();
+    expect(screen.getByText('2 hours ago')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete saved query Checkouts' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save WorkflowId = "a"' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove WorkflowId = "a" from Recent' }));
+    expect(screen.queryByRole('button', { name: 'Run WorkflowId = "a"' })).toBeNull();
+    expect(JSON.parse(localStorage.getItem('dex-web-recent-queries') ?? '[]')).toEqual(['FlowType = "Checkout"']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete saved query Checkouts' }));
+    expect(screen.getByText('No saved queries')).toBeTruthy();
+    expect(screen.getByText('Run a search, then choose Save query to keep it here.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear recent queries' }));
+    expect(screen.getByText('No recent queries')).toBeTruthy();
+  });
+
+  it('moves among entries with the arrow keys and closes on Escape', async () => {
+    localStorage.setItem('dex-web-recent-queries', JSON.stringify(['WorkflowId = "a"', 'WorkflowId = "b"']));
+    stubFlowSearchAPI([], []);
+    renderFlowSearchPage();
+    const queriesButton = await screen.findByRole('button', { name: 'Queries' });
+    fireEvent.click(queriesButton);
+    const first = screen.getByRole('button', { name: 'Run WorkflowId = "a"' });
+    const second = screen.getByRole('button', { name: 'Run WorkflowId = "b"' });
+
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'End' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: 'Home' });
+    expect(document.activeElement).toBe(first);
+
+    // Removing the focused entry moves focus to the entry now in its place.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove WorkflowId = "a" from Recent' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run WorkflowId = "b"' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear recent queries' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Queries' })));
+
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Queries' })).toBeNull();
+    expect(document.activeElement).toBe(queriesButton);
+  });
+
+  it('says so when the page cannot use the clipboard', async () => {
+    localStorage.setItem('dex-web-recent-queries', JSON.stringify(['WorkflowId = "a"']));
+    stubFlowSearchAPI([], []);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => { throw new Error('denied'); }) } });
+    renderFlowSearchPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy WorkflowId = "a"' }));
+    // The status line is always present, so wait for its text rather than for the element.
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('cannot use the clipboard'));
+  });
+
+  it('names a query inline and asks for a query first when there is none', async () => {
+    stubFlowSearchAPI([], []);
+    renderFlowSearchPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Save query' }));
+    expect(screen.getByText('Nothing to save yet')).toBeTruthy();
+
+    // Escape leaves only the save state; the panel stays open.
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    expect(screen.queryByText('Nothing to save yet')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Queries' })).toBeTruthy();
+  });
+
+  it('loads and reports the error when the browser refuses storage', async () => {
+    const refusingStorage = {
+      get length() { return 0; },
+      clear: () => { throw new DOMException('denied', 'SecurityError'); },
+      getItem: () => { throw new DOMException('denied', 'SecurityError'); },
+      key: () => null,
+      removeItem: () => { throw new DOMException('denied', 'SecurityError'); },
+      setItem: () => { throw new DOMException('denied', 'SecurityError'); },
+    };
+    vi.stubGlobal('localStorage', refusingStorage);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    stubFlowSearchAPI([flow('checkout-1')], []);
+    renderFlowSearchPage();
+    await screen.findByText('checkout-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Queries' }));
+    expect(screen.getByRole('status').textContent).toContain('storage is unavailable');
+  });
+});
+
+describe('Flow search Fields panel', () => {
+  const catalogFlows = [{
+    flowType: 'RefundFlow',
+    definition: {
+      indexedAttributes: [{
+        attributeKey: 'case-status', indexKey: 'keyword2', indexType: 'keyword', valueType: 'string', description: 'Current case status',
+      }],
+      summary: { rpcName: 'GetDexSummary', fields: [] },
+      display: { rpcName: 'GetDexDisplay', fields: [] },
+      actions: [],
+    },
+  }];
+  const runWithAttributes = {
+    ...flow('refund-1'),
+    indexedAttributes: [
+      { key: 'keyword2', value: 'open' },
+      { key: 'Priority', value: 3 },
+      { key: 'ActiveStepTypes', value: ['Review'] },
+    ],
+  };
+
+  it('lists built-in fields, declared indexed Attributes, and keys seen in results, with types', async () => {
+    stubFlowSearchAPI([runWithAttributes], catalogFlows);
+    renderFlowSearchPage();
+    await screen.findByText('refund-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+
+    expect(screen.getByRole('button', { name: 'Add ExecutionStatus, Keyword' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add StartTime, Datetime' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Add keyword2, Keyword' })).toBeTruthy();
+    expect(screen.getByText('RefundFlow')).toBeTruthy();
+    expect(screen.getByText('Attribute case-status · Current case status')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add Priority, Int, guessed' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Add ActiveStepTypes, KeywordArray, guessed/ })).toBeNull();
+    const syntaxLink = screen.getByRole('link', { name: 'Query syntax' });
+    expect(syntaxLink.getAttribute('href')).toBe('https://docs.superdurable.io/reference/server/search#query-syntax');
+    expect(syntaxLink.getAttribute('target')).toBe('_blank');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add keyword2, Keyword' }));
+    expect(screen.queryByRole('region', { name: 'Searchable fields' })).toBeNull();
+    const fields = screen.getAllByRole('combobox', { name: 'Filter field' }) as HTMLInputElement[];
+    expect(fields.map((field) => field.value)).toEqual(['keyword2']);
+    expect([...document.querySelectorAll('#visibility-fields option')].map((option) => option.getAttribute('value')))
+      .toEqual(expect.arrayContaining(['ExecutionStatus', 'keyword2', 'Priority']));
+  });
+
+  it('adds a clause to the hand-written query', async () => {
+    stubFlowSearchAPI([], []);
+    renderFlowSearchPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Query' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search query' }), { target: { value: 'FlowType = "A"' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add CloseTime, Datetime' }));
+    expect((screen.getByRole('textbox', { name: 'Search query' }) as HTMLTextAreaElement).value)
+      .toBe('FlowType = "A" AND CloseTime = ');
+    expect(screen.getByRole('link', { name: 'Query syntax' })).toBeTruthy();
+  });
+
+  it('quotes a hyphenated key and adds the condition before ORDER BY', async () => {
+    stubFlowSearchAPI([{ ...flow('order-1'), indexedAttributes: [{ key: 'order-status', value: 'open' }] }], []);
+    renderFlowSearchPage();
+    await screen.findByText('order-1');
+    fireEvent.click(screen.getByRole('tab', { name: 'Query' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search query' }), {
+      target: { value: 'FlowType = "A" OR FlowType = "B" ORDER BY StartTime DESC' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add order-status, Keyword, guessed' }));
+    expect((screen.getByRole('textbox', { name: 'Search query' }) as HTMLTextAreaElement).value)
+      .toBe('(FlowType = "A" OR FlowType = "B") AND `order-status` =  ORDER BY StartTime DESC');
+  });
+
+  it('quotes a hyphenated key in the generated query of a filter row', async () => {
+    stubFlowSearchAPI([{ ...flow('order-1'), indexedAttributes: [{ key: 'order-status', value: 'open' }] }], []);
+    renderFlowSearchPage();
+    await screen.findByText('order-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add order-status, Keyword, guessed' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter value' }), { target: { value: 'open' } });
+    expect(document.querySelector('.query-preview code')?.textContent).toBe('`order-status` = "open"');
+  });
+
+  it('keeps built-in fields and shows the error when Flow definitions do not load', async () => {
+    stubFlowSearchAPI([], new Error('write access required'));
+    renderFlowSearchPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Fields' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('write access required');
+    expect(screen.getByRole('button', { name: 'Add RunId, Keyword' })).toBeTruthy();
   });
 });
 
