@@ -99,6 +99,42 @@ describe('Flow search query builder and pagination', () => {
     expect(screen.getByText('Page 1')).toBeTruthy();
   });
 
+  it('shows the new filter row after a status search from Recent', async () => {
+    // A quick-status search hides its rows; a new row must leave that one-row layout.
+    localStorage.setItem('dex-web-recent-queries', JSON.stringify(['ExecutionStatus = "Failed"']));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ExecutionStatus = "Failed"' }));
+    await waitFor(() => expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }));
+    expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(false);
+    const fields = screen.getAllByRole('combobox', { name: 'Filter field' }) as HTMLInputElement[];
+    expect(fields.map((field) => field.value)).toEqual(['ExecutionStatus', 'FlowType']);
+  });
+
+  it('opens a filter row from the All search', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }));
+    expect(document.querySelector('.query-card')?.classList.contains('is-quick-status')).toBe(false);
+    expect((screen.getByRole('combobox', { name: 'Filter field' }) as HTMLInputElement).value).toBe('FlowType');
+  });
+
   it('names its tabs Filters and Query and its hand-written field Search query', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
     render(

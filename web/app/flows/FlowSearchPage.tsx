@@ -237,7 +237,9 @@ export function FlowSearchPage() {
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
   const quickStatus = quickStatusOf(parseVisibilityQuery(searchedQuery));
   // A search that is just one status chip keeps the card one row; Add filter opens the rows.
-  const isQuickStatusSearch = mode === 'basic' && quickStatus !== null && generatedQuery === searchedQuery;
+  // Read the rows, not the query: a new row has no value yet and leaves the query unchanged.
+  const isQuickStatusSearch = mode === 'basic' && quickStatus !== null
+    && quickStatusOf(filters) === quickStatus && generatedQuery === searchedQuery;
   const customAttributes = useMemo(() => selectVisibleIndexedAttributeKeys(flows), [flows]);
 
   const executeSearch = useCallback(async (
