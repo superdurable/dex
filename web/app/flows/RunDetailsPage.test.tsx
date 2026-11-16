@@ -591,6 +591,31 @@ describe('clone fork on the run page', () => {
     expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
   });
 
+  it('keeps the Time travel options of the newest read when an older read of 6 answers last', async () => {
+    const heldServerInfoReads = { isHolding: false, pending: [] as ((version: number) => void)[] };
+    cloneForkDex({}, { heldServerInfoReads });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    await screen.findByRole('menuitem', { name: /^Clone fork/ });
+
+    heldServerInfoReads.isHolding = true;
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
+    await waitFor(() => expect(heldServerInfoReads.pending).toHaveLength(2));
+    const [olderRead, newerRead] = heldServerInfoReads.pending;
+    await act(async () => {
+      newerRead(5);
+      await new Promise((settled) => setTimeout(settled, 0));
+      olderRead(6);
+      await new Promise((settled) => setTimeout(settled, 0));
+    });
+    const dialog = await screen.findByRole('dialog');
+    const points = within(dialog).getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
+    expect([...points.options].map((option) => option.textContent)).not.toContain('Event ID');
+    expect(within(dialog).queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
+  });
+
   it('reads the server protocol again when a dialog opens and follows a rollback to 5', async () => {
     const serverProtocol = { version: 6 };
     const timeTravelRequests: Record<string, unknown>[] = [];

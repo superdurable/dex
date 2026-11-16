@@ -21,7 +21,8 @@ import (
 
 const serverEngineLookupTimeout = 2 * time.Second
 
-// serverProtocolCacheTTL bounds how long a server upgrade or rollback stays unseen.
+// serverProtocolCacheTTL is when a display read starts one refresh; a failed refresh keeps the old value.
+// Gated writes never use this cache; they read the protocol fresh.
 const serverProtocolCacheTTL = 60 * time.Second
 
 // runHistoryForkProtocolVersion is the first server protocol with CloneForkFlow, EVENT_ID resets, and SubFlow reset policies.
@@ -96,10 +97,29 @@ func (r *ServerEngineResolver) resolveServerInfo(ctx context.Context) (dexpb.Ser
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.isProtocolResolved {
+	// select picks at random when both are ready, so a canceled caller always reads as unknown.
+	if ctx.Err() != nil || !r.isProtocolResolved {
 		return r.engine, 0, false
 	}
 	return r.engine, r.protocolVersion, true
+}
+
+// ReadCurrentProtocolVersion reads the protocol version from the server now, bypassing the cache, and caches the answer.
+// It returns 0 for a server without GetServerInfo or without the field, and the lookup error when the server cannot answer.
+func (r *ServerEngineResolver) ReadCurrentProtocolVersion(ctx context.Context) (uint32, error) {
+	lookupContext, cancel := context.WithTimeout(ctx, serverEngineLookupTimeout)
+	defer cancel()
+	serverInfo, err := r.client.GetServerInfo(lookupContext, &emptypb.Empty{})
+	if status.Code(err) == codes.Unimplemented {
+		serverInfo, err = &dexpb.ServerInfo{}, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.cacheServerInfo(serverInfo)
+	return serverInfo.GetCurrentProtocolVersion(), nil
 }
 
 // runRefresh looks up the server info with its own timeout and caches a definitive answer.

@@ -556,9 +556,11 @@ func (h *handler) cloneForkFlow(response http.ResponseWriter, request *http.Requ
 }
 
 // requireRunHistoryForkProtocol writes an error and returns false unless the server speaks protocol 6 or later.
+// It reads the protocol fresh, so a server rollback blocks the write at once.
 func (h *handler) requireRunHistoryForkProtocol(response http.ResponseWriter, request *http.Request, feature string) bool {
-	protocolVersion, isResolved := h.serverEngine.ResolveCurrentProtocolVersion(request.Context())
-	if !isResolved {
+	protocolVersion, err := h.serverEngine.ReadCurrentProtocolVersion(request.Context())
+	if err != nil {
+		slog.Warn("Dex Web cannot read the server protocol version", "error", err)
 		WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_SERVICE_UNAVAILABLE",
 			"Dex Web cannot read the server protocol version; try again")
 		return false

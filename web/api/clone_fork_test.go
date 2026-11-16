@@ -299,6 +299,60 @@ func TestTimeTravelWithoutNewOptionsSkipsTheProtocolCheck(t *testing.T) {
 	}
 }
 
+func TestRunHistoryForkWritesReadTheProtocolFreshAfterARollback(t *testing.T) {
+	client := &runHistoryOperationsTestClient{}
+	mux := http.NewServeMux()
+	RegisterHandlers(mux, client)
+	readServerInfo := func() serverInfoResponse {
+		t.Helper()
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/server-info", nil))
+		var result serverInfoResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if info := readServerInfo(); info.CurrentProtocolVersion != 6 {
+		t.Fatalf("server info = %+v, want a cached 6", info)
+	}
+
+	// The server rolls back while the display cache still holds 6.
+	client.serverInfo = &dexpb.ServerInfo{CurrentProtocolVersion: 5, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
+	for _, request := range []struct{ path, body string }{
+		{"/api/flows/clone-fork", `{"sourceFlowId":"order-1","flowId":"order-1-fork","reason":"branch"}`},
+		{"/api/flows/time-travel", `{"flowId":"order-1","runId":"run-1","timeTravelType":1,"subFlowResetPolicy":4,"reason":"replay"}`},
+	} {
+		httpRequest := httptest.NewRequest(http.MethodPost, request.path, strings.NewReader(request.body))
+		httpRequest.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httpRequest)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), serverProtocolUnsupportedCode) {
+			t.Fatalf("%s: status = %d body = %s", request.path, response.Code, response.Body.String())
+		}
+	}
+	if len(client.cloneForkRequests) != 0 || len(client.resetRequests) != 0 {
+		t.Fatal("a protocol 6 write reached a server that rolled back to 5")
+	}
+	if info := readServerInfo(); info.CurrentProtocolVersion != 5 {
+		t.Fatalf("server info = %+v, want the fresh 5 the write read", info)
+	}
+}
+
+func TestServerProtocolCanceledFirstWaiterReadsAsUnknown(t *testing.T) {
+	// The lookup answers at once, so cancellation and completion race; the canceled caller must never see 6.
+	for range 50 {
+		client := &runHistoryOperationsTestClient{}
+		resolver, _ := newTestServerProtocolResolver(client)
+		canceledContext, cancel := context.WithCancel(context.Background())
+		cancel()
+		if version, isResolved := resolver.ResolveCurrentProtocolVersion(canceledContext); version != 0 || isResolved {
+			t.Fatalf("protocol = %d resolved = %t, want unknown for a canceled caller", version, isResolved)
+		}
+		waitForServerInfoRefresh(t, resolver)
+	}
+}
+
 func TestRunHistoryForkOptionsWaitForAnUnavailableFlowService(t *testing.T) {
 	client := &runHistoryOperationsTestClient{serverInfoError: status.Error(codes.Unavailable, "FlowService is starting")}
 	response := performRunHistoryOperation(client, "/api/flows/clone-fork",
