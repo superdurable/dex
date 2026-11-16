@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import threading
-
 from dex import (
     Channel,
     Context,
@@ -49,7 +47,6 @@ class GracefulConditionMessageOrStopStep(Step[None]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        self.flow.wait_registered.set()
         return Wait.any_of(
             self.flow.messages.for_one(),
             graceful_completion_requested(),
@@ -71,7 +68,6 @@ class GracefulCompletionConditionFlow(Flow[str]):
     gate = Channel("graceful-condition-gate", str)
 
     def __init__(self) -> None:
-        self.wait_registered = threading.Event()
         self.observations: list[tuple[tuple[str, ...], bool]] = []
         self.gate_step = GracefulConditionGateStep(self)
         self.message_or_stop = GracefulConditionMessageOrStopStep(self)

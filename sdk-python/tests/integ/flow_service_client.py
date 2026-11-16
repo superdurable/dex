@@ -46,6 +46,25 @@ def await_live_worker_failure(
     raise AssertionError("active Step did not expose retry failure")
 
 
+def await_graceful_completion_condition_waiting(
+    flow_id: str,
+    *,
+    timeout_seconds: float = 10.0,
+) -> None:
+    client = flow_service_client()
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        response = client.GetFlowState(pb.GetFlowStateRequest(flow_id=flow_id))
+        for step in response.active_step_executions:
+            if (
+                step.phase == pb.ACTIVE_STEP_PHASE_WAITING
+                and len(step.waiting_condition.graceful_completion_conditions) == 1
+            ):
+                return
+        time.sleep(0.05)
+    raise AssertionError("no Step waits on the graceful completion condition")
+
+
 def assert_worker_failure_stack_trace(
     failure: pb.StepMethodFailure,
     expected_detail: str,

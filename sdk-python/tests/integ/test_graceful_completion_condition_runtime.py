@@ -16,6 +16,7 @@ from dex import FlowStatus, StopFlowOptions, StopType
 from dex._server_protocol import GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION
 
 from .environment import DexDevTestEnvironment
+from .flow_service_client import await_graceful_completion_condition_waiting
 from .graceful_completion_condition_flow import (
     DIRECT_INPUT,
     GATE_INPUT,
@@ -29,7 +30,7 @@ def test_graceful_stop_wakes_a_step_waiting_on_the_graceful_condition() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("python-graceful-condition-wake")
         environment.client.start_flow(flow, flow_id, DIRECT_INPUT)
-        assert flow.wait_registered.wait(timeout=10)
+        await_graceful_completion_condition_waiting(flow_id)
         assert (
             environment.client._server_protocol.version
             >= GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION

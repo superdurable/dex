@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use dex_sdk::{FlowStatus, Registry, StopFlowOptions};
 
+use crate::flow_service_client::await_graceful_completion_condition_waiting;
 use crate::graceful_completion_condition_workflow::{
     GracefulConditionProbe, GracefulConditionWorkflow, GracefulReaderObservation,
 };
@@ -66,6 +67,7 @@ impl GracefulConditionFixture {
 fn test_graceful_stop_wakes_a_step_waiting_on_the_graceful_completion_condition() {
     let fixture = GracefulConditionFixture::start(GracefulConditionProbe::default());
     let flow_id = fixture.start_flow("rust-graceful-condition");
+    await_graceful_completion_condition_waiting(&flow_id);
 
     fixture.stop_gracefully(&flow_id);
 

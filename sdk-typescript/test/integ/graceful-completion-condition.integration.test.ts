@@ -13,6 +13,7 @@ import test from "node:test";
 
 import { StopType } from "../../src/index.js";
 import { flowId, withEnvironment } from "./environment.js";
+import { awaitGracefulCompletionConditionWaiting } from "./flow-service-client.js";
 import {
   GracefulCompletionConditionFlow,
   gracefulWaiterExecutions,
@@ -24,7 +25,7 @@ test("stopFlow GRACEFUL_COMPLETE wakes a Step waiting on the graceful completion
     const id = flowId("typescript-graceful-condition-wake");
     await client.startFlow(flow, id, undefined);
     await client.invokeRPC(flow.openGate, id);
-    await flow.waiterWaitForCalled;
+    await awaitGracefulCompletionConditionWaiting(id);
 
     await client.stopFlow(id, { type: StopType.GRACEFUL_COMPLETE });
 

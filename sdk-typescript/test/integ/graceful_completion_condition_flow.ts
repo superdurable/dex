@@ -61,14 +61,11 @@ class GracefulConditionGateStep implements Step<void> {
 class GracefulMessageWaiterStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
-  public constructor(private readonly flow: GracefulCompletionConditionFlow) {}
-
   public getStepType(): string {
     return "GracefulMessageWaiterStep";
   }
 
   public waitFor(): Wait {
-    this.flow.markWaiterWaitForCalled();
     return Wait.anyOf(gracefulConditionMessages.forOne(), GracefulCompletion.requested("graceful"));
   }
 
@@ -88,14 +85,8 @@ class GracefulMessageWaiterStep implements Step<void> {
 }
 
 export class GracefulCompletionConditionFlow implements Flow<void> {
-  public readonly waiterWaitForCalled: Promise<void>;
-  private resolveWaiterWaitForCalled!: () => void;
-  private readonly waiter = new GracefulMessageWaiterStep(this);
+  private readonly waiter = new GracefulMessageWaiterStep();
   private readonly gate = new GracefulConditionGateStep(this.waiter);
-
-  public constructor() {
-    this.waiterWaitForCalled = new Promise((resolve) => { this.resolveWaiterWaitForCalled = resolve; });
-  }
 
   public getFlowType(): string {
     return "GracefulCompletionConditionFlow";
@@ -110,10 +101,6 @@ export class GracefulCompletionConditionFlow implements Flow<void> {
       attributes: [gracefulWaiterExecutions],
       channels: [gracefulConditionMessages, gracefulConditionGate],
     };
-  }
-
-  public markWaiterWaitForCalled(): void {
-    this.resolveWaiterWaitForCalled();
   }
 
   @rpc({ inputCodec: stringCodec })

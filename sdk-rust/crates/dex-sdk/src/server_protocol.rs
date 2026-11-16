@@ -97,9 +97,7 @@ impl NegotiatedServerProtocolVersion {
         ))
     }
 
-    /// Returns `waiting` unchanged when it has no graceful completion condition or the negotiated
-    /// Server has protocol 7, and a [`GracefulCompletionConditionUnsupportedError`] otherwise.
-    /// It fails closed because an older Server drops the condition.
+    /// Rejects a graceful completion condition below protocol 7 because older Servers drop it.
     pub(crate) fn require_graceful_completion_condition_support(
         &self,
         waiting: Option<WaitingCondition>,

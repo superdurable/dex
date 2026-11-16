@@ -12,10 +12,17 @@
 
 package io.superdurable.dex.integ;
 
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
+import io.superdurable.gen.ActiveStepExecutionState;
+import io.superdurable.gen.ActiveStepPhase;
+import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.GetFlowStateRequest;
+import io.superdurable.gen.GetFlowStateResponse;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,9 +31,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 @Tag("dex-dev")
 public final class GracefulCompletionConditionTest {
@@ -41,6 +50,7 @@ public final class GracefulCompletionConditionTest {
                 workflow)) {
             final String flowId = flowId("wake");
             environment.client().startFlow(workflow, flowId, false);
+            awaitGracefulCompletionConditionWaiting(flowId);
 
             environment.client().stopFlow(
                     flowId,
@@ -86,6 +96,32 @@ public final class GracefulCompletionConditionTest {
             assertTrue(workflow.observations.get(0).isGracefulCompleted);
             assertEquals(Collections.emptyList(), workflow.observations.get(1).consumedMessages);
             assertTrue(workflow.observations.get(1).isGracefulCompleted);
+        }
+    }
+
+    private static void awaitGracefulCompletionConditionWaiting(final String flowId) throws InterruptedException {
+        final ManagedChannel channel = ManagedChannelBuilder
+                .forTarget(DexDevTestEnvironment.serverAddress())
+                .usePlaintext()
+                .build();
+        try {
+            final FlowServiceGrpc.FlowServiceBlockingStub service = FlowServiceGrpc.newBlockingStub(channel);
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (System.nanoTime() < deadline) {
+                final GetFlowStateResponse state = service.getFlowState(
+                        GetFlowStateRequest.newBuilder().setFlowId(flowId).build());
+                for (ActiveStepExecutionState step : state.getActiveStepExecutionsList()) {
+                    if (step.getPhase() == ActiveStepPhase.ACTIVE_STEP_PHASE_WAITING
+                            && step.getWaitingCondition().getGracefulCompletionConditionsCount() == 1) {
+                        return;
+                    }
+                }
+                Thread.sleep(50);
+            }
+            fail("no Step waits on the graceful completion condition");
+        } finally {
+            channel.shutdownNow();
+            assertTrue(channel.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
