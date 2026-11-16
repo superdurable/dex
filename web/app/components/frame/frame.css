@@ -1106,7 +1106,7 @@ body {
 }
 
 /* With no filter rows the Flows search is one line: modes, statuses, Add filter, Search. */
-:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.saved-query-panel)) {
+:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.query-panel)) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1115,11 +1115,11 @@ body {
   padding-bottom: 12px;
 }
 
-:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.saved-query-panel)) > .query-toolbar {
+:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.query-panel)) > .query-toolbar {
   flex: 1 1 640px;
 }
 
-:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.saved-query-panel)) > .query-submit {
+:is(.v1-page .query-card:has(#flow-search-filters-panel):not(:has(.filter-row)), .v1-page .query-card.is-quick-status):not(:has(.query-panel)) > .query-submit {
   margin-top: 0;
 }
 

@@ -29,6 +29,7 @@ import {
   History,
   Inbox,
   Layers,
+  ListTree,
   Plus,
   Search,
   X,
@@ -37,6 +38,15 @@ import { StatusBadge } from '../components/StatusBadge';
 import { middleTruncate } from './details/RunFactsMenu';
 import { usePreferences } from '../providers';
 import { scopedStorageKey, webURL } from '@/lib/basePath';
+import {
+  BUILT_IN_SEARCH_FIELDS,
+  selectDeclaredSearchFields,
+  selectObservedSearchFields,
+  useSearchFieldCatalog,
+  type SearchField,
+} from './flowSearchFields';
+import { QueryLibraryPanel, type RecentQuery, type SavedQuery } from './FlowSearchQueries';
+import { QuerySyntaxLink, SearchFieldsPanel } from './SearchFieldsPanel';
 
 type QueryMode = 'basic' | 'advanced';
 type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration';
@@ -64,15 +74,6 @@ const columnLabels: Record<ColumnId, string> = {
   duration: 'Duration',
 };
 
-const builtInFields = [
-  'ExecutionStatus',
-  'WorkflowId',
-  'RunId',
-  'FlowType',
-  'StartTime',
-  'CloseTime',
-];
-
 const hiddenIndexedAttributeKeys = new Set([
   'ActiveStepTypes',
   'BinaryChecksums',
@@ -87,11 +88,47 @@ const hiddenIndexedAttributeKeys = new Set([
 // Recent and saved searches name one Dex Server's Flows, so scopedStorageKey scopes them by base path.
 const recentQueriesStorageKey = 'dex-web-recent-queries';
 const savedQueriesStorageKey = 'dex-web-saved-queries';
+// Run times live apart, so the recent list keeps the string array that older Dex Web reads.
+const recentQueryTimesStorageKey = 'dex-web-recent-query-times';
+const maxRecentQueries = 10;
 
-interface SavedQuery {
-  name: string;
-  query: string;
+function readRecentQueries(): RecentQuery[] {
+  const queries = readJSON<unknown>(scopedStorageKey(recentQueriesStorageKey), []);
+  const times = readJSON<unknown>(scopedStorageKey(recentQueryTimesStorageKey), {});
+  if (!Array.isArray(queries)) return [];
+  const timesByQuery = times !== null && typeof times === 'object' ? times as Record<string, unknown> : {};
+  return queries.filter((query): query is string => typeof query === 'string').map((query) => {
+    const lastRunAt = timesByQuery[query];
+    return typeof lastRunAt === 'string' ? { query, lastRunAt } : { query };
+  });
 }
+
+function readSavedQueries(): SavedQuery[] {
+  const saved = readJSON<unknown>(scopedStorageKey(savedQueriesStorageKey), []);
+  if (!Array.isArray(saved)) return [];
+  return saved.filter((item): item is SavedQuery => (
+    item !== null && typeof item === 'object' && typeof item.name === 'string' && typeof item.query === 'string'
+  ));
+}
+
+/** Writes JSON to this browser's storage; returns false when the browser refuses, such as in a private window. */
+function writeJSON(key: string, value: unknown): boolean {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (storageError) {
+    console.warn('Unable to save Flow search queries.', storageError);
+    return false;
+  }
+}
+
+function writeRecentQueries(recent: readonly RecentQuery[]): boolean {
+  const times = Object.fromEntries(recent.flatMap((item) => (item.lastRunAt ? [[item.query, item.lastRunAt]] : [])));
+  return writeJSON(scopedStorageKey(recentQueriesStorageKey), recent.map((item) => item.query))
+    && writeJSON(scopedStorageKey(recentQueryTimesStorageKey), times);
+}
+
+const storageRefusedMessage = 'This browser did not keep the change: its storage is unavailable here.';
 
 function newFilter(field = 'ExecutionStatus'): BasicFilter {
   return {
@@ -223,8 +260,14 @@ export function FlowSearchPage() {
   const [pageSize, setPageSize] = useState(50);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [recent, setRecent] = useState<string[]>([]);
+  const [recent, setRecent] = useState<RecentQuery[]>([]);
   const [saved, setSaved] = useState<SavedQuery[]>([]);
+  const [saveDraft, setSaveDraft] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState('');
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const queriesButtonRef = useRef<HTMLButtonElement>(null);
+  const fieldsButtonRef = useRef<HTMLButtonElement>(null);
+  const queryTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [columns, setColumns] = useState<ColumnId[]>(defaultColumns);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [isGroupedByType, setIsGroupedByType] = useState(storedIsGroupedByType);
@@ -241,6 +284,18 @@ export function FlowSearchPage() {
   const isQuickStatusSearch = mode === 'basic' && quickStatus !== null
     && quickStatusOf(filters) === quickStatus && generatedQuery === searchedQuery;
   const customAttributes = useMemo(() => selectVisibleIndexedAttributeKeys(flows), [flows]);
+  // Read once a viewer looks for fields: the Fields panel, a filter row, or the Query tab.
+  const catalogState = useSearchFieldCatalog(fieldsOpen || filters.length > 0 || mode === 'advanced');
+  const declaredFields = useMemo(() => selectDeclaredSearchFields(catalogState.catalog), [catalogState.catalog]);
+  const observedFields = useMemo(
+    () => selectObservedSearchFields(flows, new Set(declaredFields.map((field) => field.name))),
+    [flows, declaredFields],
+  );
+  const fieldSuggestions = useMemo(() => [...new Set([
+    ...BUILT_IN_SEARCH_FIELDS.map((field) => field.name),
+    ...declaredFields.map((field) => field.name),
+    ...observedFields.map((field) => field.name),
+  ])], [declaredFields, observedFields]);
 
   const executeSearch = useCallback(async (
     requestedQuery: string,
@@ -280,9 +335,13 @@ export function FlowSearchPage() {
       navigateRef.current({ search: url.search, hash: url.hash }, { replace: true });
       rememberFlowsSearch(url.search);
       if (requestedQuery.trim()) {
+        const ranAt = new Date().toISOString();
         setRecent((current) => {
-          const next = [requestedQuery, ...current.filter((item) => item !== requestedQuery)].slice(0, 10);
-          window.localStorage.setItem(scopedStorageKey(recentQueriesStorageKey), JSON.stringify(next));
+          const next = [
+            { query: requestedQuery, lastRunAt: ranAt },
+            ...current.filter((item) => item.query !== requestedQuery),
+          ].slice(0, maxRecentQueries);
+          if (!writeRecentQueries(next)) setStorageError(storageRefusedMessage);
           return next;
         });
       }
@@ -309,8 +368,8 @@ export function FlowSearchPage() {
     } else {
       setMode('advanced');
     }
-    setRecent(readJSON(scopedStorageKey(recentQueriesStorageKey), []));
-    setSaved(readJSON(scopedStorageKey(savedQueriesStorageKey), []));
+    setRecent(readRecentQueries());
+    setSaved(readSavedQueries());
     const storedColumns = normalizeColumnOrder(readJSON('dex-web-columns', defaultColumns));
     setColumns(storedColumns);
     window.localStorage.setItem('dex-web-columns', JSON.stringify(storedColumns));
@@ -379,15 +438,66 @@ export function FlowSearchPage() {
     void executeSearch(nextQuery, '', 0, pageSize);
   }
 
-  function saveCurrentQuery() {
-    const name = window.prompt('Name this query');
-    if (!name?.trim() || !appliedQuery.trim()) return;
+  function runLibraryQuery(nextQuery: string) {
+    setSavedOpen(false);
+    setSaveDraft(null);
+    loadQuery(nextQuery);
+  }
+
+  function startSave(queryToSave: string) {
+    setFieldsOpen(false);
+    setSavedOpen(true);
+    setSaveDraft(queryToSave);
+  }
+
+  function saveQuery(name: string, queryToSave: string) {
     const next = [
-      { name: name.trim(), query: appliedQuery },
-      ...saved.filter((item) => item.name !== name.trim()),
+      { name, query: queryToSave, savedAt: new Date().toISOString() },
+      ...saved.filter((item) => item.name !== name),
     ];
     setSaved(next);
-    window.localStorage.setItem(scopedStorageKey(savedQueriesStorageKey), JSON.stringify(next));
+    setSaveDraft(null);
+    setStorageError(writeJSON(scopedStorageKey(savedQueriesStorageKey), next) ? '' : storageRefusedMessage);
+  }
+
+  function deleteSavedQuery(name: string) {
+    const next = saved.filter((item) => item.name !== name);
+    setSaved(next);
+    setStorageError(writeJSON(scopedStorageKey(savedQueriesStorageKey), next) ? '' : storageRefusedMessage);
+  }
+
+  function updateRecentQueries(next: RecentQuery[]) {
+    setRecent(next);
+    setStorageError(writeRecentQueries(next) ? '' : storageRefusedMessage);
+  }
+
+  function toggleQueriesPanel() {
+    setFieldsOpen(false);
+    setSaveDraft(null);
+    setSavedOpen(!savedOpen);
+  }
+
+  function toggleFieldsPanel() {
+    setSavedOpen(false);
+    setSaveDraft(null);
+    setFieldsOpen(!fieldsOpen);
+  }
+
+  /** Adds a field to the search: a filter row on Filters, or a clause to complete on Query. */
+  function pickField(field: SearchField) {
+    setFieldsOpen(false);
+    if (mode === 'basic') {
+      setFilters([...filters, newFilter(field.name)]);
+      return;
+    }
+    const prefix = query.trim() ? `${query.trim()} AND ` : '';
+    const nextQuery = `${prefix}${field.name} = `;
+    setQuery(nextQuery);
+    window.requestAnimationFrame(() => {
+      const textarea = queryTextareaRef.current;
+      textarea?.focus();
+      textarea?.setSelectionRange(nextQuery.length, nextQuery.length);
+    });
   }
 
   function toggleColumn(column: ColumnId) {
@@ -472,11 +582,27 @@ export function FlowSearchPage() {
             ))}
           </div>
           <div className="query-actions">
-            <button aria-expanded={savedOpen} className="button quiet" onClick={() => setSavedOpen(!savedOpen)} type="button">
+            <button
+              aria-expanded={fieldsOpen}
+              className="button quiet"
+              onClick={toggleFieldsPanel}
+              ref={fieldsButtonRef}
+              type="button"
+            >
+              <ListTree aria-hidden="true" size={15} strokeWidth={2} />
+              Fields
+            </button>
+            <button
+              aria-expanded={savedOpen}
+              className="button quiet"
+              onClick={toggleQueriesPanel}
+              ref={queriesButtonRef}
+              type="button"
+            >
               <History aria-hidden="true" size={15} strokeWidth={2} />
               Queries
             </button>
-            <button className="button quiet" onClick={saveCurrentQuery} type="button">
+            <button className="button quiet" onClick={() => startSave(appliedQuery)} type="button">
               <Bookmark aria-hidden="true" size={15} strokeWidth={2} />
               Save query
             </button>
@@ -484,22 +610,37 @@ export function FlowSearchPage() {
         </div>
 
         {savedOpen && (
-          <div className="saved-query-panel">
-            <div>
-              <strong>Named queries</strong>
-              {saved.length === 0 && <span className="muted">No saved queries</span>}
-              {saved.map((item) => (
-                <button key={item.name} onClick={() => loadQuery(item.query)}>
-                  <b>{item.name}</b><span>{item.query}</span>
-                </button>
-              ))}
-            </div>
-            <div>
-              <strong>Recent</strong>
-              {recent.length === 0 && <span className="muted">No recent queries</span>}
-              {recent.map((item) => <button key={item} onClick={() => loadQuery(item)}>{item}</button>)}
-            </div>
-          </div>
+          <QueryLibraryPanel
+            onCancelSave={() => setSaveDraft(null)}
+            onClearRecent={() => updateRecentQueries([])}
+            onClose={() => {
+              setSavedOpen(false);
+              setSaveDraft(null);
+              queriesButtonRef.current?.focus();
+            }}
+            onDeleteSaved={deleteSavedQuery}
+            onRemoveRecent={(removed) => updateRecentQueries(recent.filter((item) => item.query !== removed))}
+            onRunQuery={runLibraryQuery}
+            onSaveQuery={saveQuery}
+            onStartSave={startSave}
+            recent={recent}
+            saveDraft={saveDraft}
+            saved={saved}
+            storageError={storageError}
+          />
+        )}
+
+        {fieldsOpen && (
+          <SearchFieldsPanel
+            catalogState={catalogState}
+            declaredFields={declaredFields}
+            observedFields={observedFields}
+            onClose={() => {
+              setFieldsOpen(false);
+              fieldsButtonRef.current?.focus();
+            }}
+            onPickField={pickField}
+          />
         )}
 
         {mode === 'basic' ? (
@@ -558,7 +699,7 @@ export function FlowSearchPage() {
               </div>
             ))}
             <datalist id="visibility-fields">
-              {builtInFields.map((field) => <option value={field} key={field} />)}
+              {fieldSuggestions.map((field) => <option value={field} key={field} />)}
             </datalist>
             <button className="text-button" onClick={() => setFilters([...filters, newFilter('FlowType')])} type="button">
               <Plus aria-hidden="true" size={15} strokeWidth={2} />
@@ -577,11 +718,16 @@ export function FlowSearchPage() {
               <span>Search query</span>
               <textarea
                 value={query}
+                ref={queryTextareaRef}
                 rows={4}
                 placeholder='ExecutionStatus = "Running" AND FlowType = "Checkout"'
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
+            <p className="query-syntax-hint">
+              Combine conditions with AND, OR, and NOT. Fields lists what you can search.{' '}
+              <QuerySyntaxLink />
+            </p>
           </div>
         )}
 
