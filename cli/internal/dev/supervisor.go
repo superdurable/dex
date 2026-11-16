@@ -28,7 +28,11 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+// serverVersionLookupTimeout bounds the one GetServerInfo call for the ready banner on a server that is already serving.
+const serverVersionLookupTimeout = time.Second
 
 type supervisor struct {
 	cfg    *Config
@@ -101,6 +105,8 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	resources.connection = dexConnection
+	flowServiceClient := dexpb.NewFlowServiceClient(dexConnection)
+	serverVersion := describeServerVersion(startupCtx, flowServiceClient)
 
 	webServer, err := dexweb.NewServer(
 		&dexweb.Config{
@@ -111,8 +117,9 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 			ConnectorConfigDirectory:  s.cfg.ConnectorConfigDirectory,
 			ConnectorReleaseOverrides: s.cfg.ConnectorReleaseOverrides,
 			AllowedHosts:              dexweb.SplitAllowedHosts(s.cfg.AllowedHosts),
+			WebVersion:                "dexcli " + s.cfg.version,
 		},
-		dexpb.NewFlowServiceClient(dexConnection),
+		flowServiceClient,
 		assets.Files,
 	)
 	if err != nil {
@@ -145,7 +152,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return formatComponentExit(exited, "stopped before readiness")
 	default:
 	}
-	s.printReady(webURL, dexAddress, dataDirectory)
+	s.printReady(webURL, dexAddress, serverVersion, dataDirectory)
 	if connectorsMCP != nil {
 		connectorsMCP.Start(ctx)
 		resources.connectorsMCP = connectorsMCP
@@ -171,7 +178,36 @@ func formatComponentExit(exited componentExit, phase string) error {
 	return fmt.Errorf("%s %s: %w", exited.name, phase, exited.err)
 }
 
-func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDirectory string) {
+// describeServerVersion returns the server version and protocol range for the ready banner, or "" when unknown.
+func describeServerVersion(ctx context.Context, client dexpb.FlowServiceClient) string {
+	lookupCtx, cancel := context.WithTimeout(ctx, serverVersionLookupTimeout)
+	defer cancel()
+	serverInfo, err := client.GetServerInfo(lookupCtx, &emptypb.Empty{})
+	if err != nil {
+		// The banner is informational; a slow or failed lookup omits the line instead of failing startup.
+		return ""
+	}
+	return formatServerVersion(serverInfo)
+}
+
+// formatServerVersion returns "<version> (protocol <minimum>-<current>)", or "" when the server reports no version.
+func formatServerVersion(serverInfo *dexpb.ServerInfo) string {
+	version := serverInfo.GetServerVersion()
+	if version == "" {
+		return ""
+	}
+	minimum, current := serverInfo.GetMinimumSupportedProtocolVersion(), serverInfo.GetCurrentProtocolVersion()
+	switch {
+	case current == 0:
+		return version
+	case minimum == 0 || minimum == current:
+		return fmt.Sprintf("%s (protocol %d)", version, current)
+	default:
+		return fmt.Sprintf("%s (protocol %d-%d)", version, minimum, current)
+	}
+}
+
+func (s *supervisor) printReady(webURL string, dexAddress string, serverVersion string, serverDataDirectory string) {
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Dex development environment is ready")
 	fmt.Fprintln(s.stdout)
@@ -183,6 +219,9 @@ func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDire
 		fmt.Fprintln(s.stdout, "Connectors MCP: off, because --bind-address is not a loopback address")
 	}
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
+	if serverVersion != "" {
+		fmt.Fprintf(s.stdout, "Server version: %s\n", serverVersion)
+	}
 	fmt.Fprintf(s.stdout, "State dir:     %s\n", serverDataDirectory)
 	if s.cfg.LogDirectory != "" {
 		fmt.Fprintf(s.stdout, "Server log folder: %s\n", s.cfg.LogDirectory)

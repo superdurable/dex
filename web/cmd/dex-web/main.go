@@ -55,6 +55,7 @@ func runDexWeb(ctx context.Context, arguments []string, output io.Writer, errorO
 		return err
 	}
 	defer func() { runErr = errors.Join(runErr, connection.Close()) }()
+	cfg.web.WebVersion = "dex-web " + version
 	server, err := web.NewServer(&cfg.web, dexpb.NewFlowServiceClient(connection), assets.Files)
 	if err != nil {
 		return err

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -409,6 +410,12 @@ func TestServerInfoReportsTheProtocolVersion(t *testing.T) {
 		{"protocol 6", &runHistoryOperationsTestClient{}, serverInfoResponse{ServerEngine: "zd", CurrentProtocolVersion: 6}},
 		{"protocol 5", &runHistoryOperationsTestClient{serverInfo: &dexpb.ServerInfo{CurrentProtocolVersion: 5, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}},
 			serverInfoResponse{ServerEngine: "zd", CurrentProtocolVersion: 5}},
+		{"version and range", &runHistoryOperationsTestClient{serverInfo: &dexpb.ServerInfo{
+			ServerVersion: "0.1.34", MinimumSupportedProtocolVersion: 1, CurrentProtocolVersion: 7,
+			ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD,
+		}}, serverInfoResponse{ServerEngine: "zd", ServerVersion: "0.1.34", MinimumSupportedProtocolVersion: 1, CurrentProtocolVersion: 7}},
+		{"unimplemented", &runHistoryOperationsTestClient{serverInfoError: status.Error(codes.Unimplemented, "old server")},
+			serverInfoResponse{ServerEngine: "unspecified"}},
 		{"unavailable", &runHistoryOperationsTestClient{serverInfoError: status.Error(codes.Unavailable, "starting")},
 			serverInfoResponse{ServerEngine: "unspecified"}},
 	} {
@@ -426,4 +433,48 @@ func TestServerInfoReportsTheProtocolVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServerInfoReportsTheWebVersionAndEveryKey(t *testing.T) {
+	client := &runHistoryOperationsTestClient{serverInfoError: status.Error(codes.Unavailable, "starting")}
+	mux := http.NewServeMux()
+	RegisterHandlersWithConfig(mux, client, HandlerConfig{WebVersion: "dex-web 1.45.11"})
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/server-info", nil))
+	var result map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"serverEngine": "unspecified", "currentProtocolVersion": float64(0), "minimumSupportedProtocolVersion": float64(0),
+		"serverVersion": "", "webVersion": "dex-web 1.45.11",
+	}
+	if response.Code != http.StatusOK || !reflect.DeepEqual(result, want) {
+		t.Fatalf("status = %d server info = %v", response.Code, result)
+	}
+}
+
+func TestServerVersionIsReadAgainAfterTheTTL(t *testing.T) {
+	client := &runHistoryOperationsTestClient{serverInfo: &dexpb.ServerInfo{
+		ServerVersion: "0.1.33", MinimumSupportedProtocolVersion: 1, CurrentProtocolVersion: 6,
+		ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD,
+	}}
+	resolver, advanceClock := newTestServerProtocolResolver(client)
+	assertServerInfo := func(wantVersion string, wantMinimum uint32) {
+		t.Helper()
+		serverInfo, isKnown := resolver.resolveCachedServerInfo(context.Background())
+		waitForServerInfoRefresh(t, resolver)
+		if !isKnown || serverInfo.serverVersion != wantVersion || serverInfo.minimumProtocolVersion != wantMinimum {
+			t.Fatalf("server info = %+v known = %t, want %s from protocol %d", serverInfo, isKnown, wantVersion, wantMinimum)
+		}
+	}
+	assertServerInfo("0.1.33", 1)
+	client.serverInfo = &dexpb.ServerInfo{
+		ServerVersion: "0.1.34", MinimumSupportedProtocolVersion: 2, CurrentProtocolVersion: 7,
+		ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD,
+	}
+	advanceClock(serverProtocolCacheTTL)
+	// The expired read answers with the stale version and refreshes in the background.
+	assertServerInfo("0.1.33", 1)
+	assertServerInfo("0.1.34", 2)
 }

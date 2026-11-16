@@ -57,6 +57,9 @@ type Config struct {
 	// "X-Frame-Options: SAMEORIGIN". Connector configuration UI assets, which Dex Web frames, send no
 	// X-Frame-Options.
 	FrameAncestors []string
+	// WebVersion defaults empty and names the build that serves Dex Web, such as "dex-web 1.45.11" or
+	// "dexcli 1.47.10". The settings menu shows it next to the server version; empty shows nothing.
+	WebVersion string
 }
 
 type Server struct {
@@ -113,6 +116,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	}
 	routes := pages.newTargetRouteMux(targetRoutes{
 		client: client, flowDefinitions: flowDefinitions, connectorSetup: connectorSetup, basePath: basePath,
+		webVersion: cfg.WebVersion,
 	})
 	protectedRoutes := newAPIRequestProtection(newRequestHostPolicy(cfg)).wrap(routes)
 	requestBaseContext, cancelRequestContexts := context.WithCancel(context.Background())
@@ -152,13 +156,15 @@ type targetRoutes struct {
 	basePath       string
 	// hasHostNavigation is true when the host draws the navigation around this Dex Web.
 	hasHostNavigation bool
+	// webVersion is empty when the Dex Web build is unknown.
+	webVersion string
 }
 
 // newTargetRouteMux registers the API, probe, and page routes; paths are relative to the base path.
 func (pages *sitePages) newTargetRouteMux(routes targetRoutes) *http.ServeMux {
 	mux := http.NewServeMux()
 	if routes.client != nil {
-		api.RegisterHandlers(mux, routes.client)
+		api.RegisterHandlersWithConfig(mux, routes.client, api.HandlerConfig{WebVersion: routes.webVersion})
 		api.RegisterDynamicV2Handlers(mux, routes.client, api.V2DefinitionLoader(func(ctx context.Context) (api.V2DefinitionSnapshot, error) {
 			snapshot, loadErr := routes.flowDefinitions.Load(ctx)
 			if loadErr != nil {

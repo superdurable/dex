@@ -6,8 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { BookOpen, Settings } from 'lucide-react';
+import {
+  fetchServerInfoDisplay,
+  serverInfoSummaryOf,
+  serverProtocolRangeOf,
+  type ServerInfoDisplay,
+} from '@/lib/serverInfo';
 import { usePreferences } from '../../providers';
 import { THEME_CHOICES, useTheme, type ThemeChoice } from '../../theme';
 import { usePopover } from './usePopover';
@@ -17,12 +23,58 @@ export const DEX_DOCS_URL = 'https://docs.superdurable.io/';
 
 const THEME_LABEL: Record<ThemeChoice, string> = { light: 'Light', dark: 'Dark', system: 'Auto' };
 
-/** The viewer's own settings: theme, timezone and a link to the docs. */
+/** Reads the server info each time the menu opens; undefined while the read runs. */
+function useServerInfoWhileOpen(isOpen: boolean): ServerInfoDisplay | undefined {
+  const [info, setInfo] = useState<ServerInfoDisplay>();
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const controller = new AbortController();
+    void fetchServerInfoDisplay(controller.signal).then((next) => {
+      if (!controller.signal.aborted) setInfo(next);
+    });
+    return () => controller.abort();
+  }, [isOpen]);
+  return info;
+}
+
+/** What Dex Web is connected to: a one-line summary, then the engine, versions and protocol range. */
+function ConnectedServerInfo({ info }: { info: ServerInfoDisplay | undefined }) {
+  const summary = info ? serverInfoSummaryOf(info) ?? 'unknown' : 'Checking…';
+  const protocolRange = info && serverProtocolRangeOf(info);
+  const details: [string, string | undefined][] = info ? [
+    ['Engine', info.engineLabel],
+    ['Version', info.serverVersion],
+    ['Protocol', protocolRange],
+    ['Dex Web', info.webVersion],
+  ] : [];
+  const knownDetails = details.filter((detail): detail is [string, string] => detail[1] !== undefined);
+  return (
+    <div aria-label="Dex Server" className="app-bar-server-info" role="group">
+      <div className="app-bar-server-info-head">
+        <span>Server</span>
+        <span className="app-bar-server-info-summary">{summary}</span>
+      </div>
+      {knownDetails.length > 0 && (
+        <dl className="app-bar-server-info-details">
+          {knownDetails.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/** The viewer's own settings: theme, timezone, the connected server and a link to the docs. */
 export function SettingsMenu() {
   const { isOpen, setIsOpen, rootRef } = usePopover<HTMLDivElement>();
   const { timezone, setTimezone } = usePreferences();
   const theme = useTheme();
   const menuId = useId();
+  const serverInfo = useServerInfoWhileOpen(isOpen);
   return (
     <div className="app-bar-settings" ref={rootRef}>
       <button
@@ -69,6 +121,7 @@ export function SettingsMenu() {
               ))}
             </div>
           </div>
+          <ConnectedServerInfo info={serverInfo} />
           <a
             aria-label="Dex documentation"
             className="app-bar-menu-item app-bar-docs-link"

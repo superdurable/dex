@@ -42,6 +42,12 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--connectors-mcp-binary** | **DEX_CONNECTORS_MCP_BINARY**; a local **dex-connectors-mcp** executable to run instead of a downloaded release. Since 1.43. |
 | **--connectors-mcp-connection** | Repeatable **connectorId/connectionName[=tool,...]**; the connections the server offers, optionally narrowed to tools. Empty offers every authorized connection. Since 1.43. |
 
+Since 1.47.10, the ready message has a **Server version** line with the
+version and protocol range that server-zd reports, such as
+**0.1.34 (protocol 1-7)**. The line is left out when the server does not answer
+within one second. The embedded Dex Web shows the same version in its
+settings menu.
+
 If a default port is in use, Dex picks the next free port and prints its
 addresses. If a port you pass explicitly is in use, the command fails. The
 default state directory uses the Dex port that was picked. Ctrl+C stops Dex Web
@@ -428,6 +434,9 @@ dexcli version check --output table
 
 On success, the output includes the client and server versions, both ranges,
 the highest common protocol as **negotiatedProtocol**, and **compatible: true**.
+Since 1.47.10, it also includes **serverEngine**, such as **zd**. Use this
+command to see which server version you are connected to; **--output table**
+prints one field per row.
 The command then exits with status 0. It prints a structured compatibility
 error and exits with status 1 when the server does not implement the
 information RPC, returns an invalid response, cannot be reached, or shares no

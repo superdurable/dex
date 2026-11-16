@@ -251,4 +251,46 @@ describe('Dex Web bar settings', () => {
     expect(docs.getAttribute('target')).toBe('_blank');
     expect(docs.getAttribute('rel')).toBe('noopener noreferrer');
   });
+
+  function stubServerInfo(reply: Record<string, unknown> | 'fail') {
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+      if (input === '/api/server-info') {
+        if (reply === 'fail') return new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+        return new Response(JSON.stringify(reply), { status: 200 });
+      }
+      if (input === '/api/flow-definition-types') return definitionsResponse(0);
+      return new Response('404 page not found', { status: 404 });
+    }));
+  }
+
+  it('shows the connected server version, protocol range and Dex Web build', async () => {
+    stubServerInfo({
+      serverEngine: 'zd', serverVersion: '0.1.34', minimumSupportedProtocolVersion: 1,
+      currentProtocolVersion: 7, webVersion: 'dexcli 1.47.10',
+    });
+    renderBar('/v1/flows');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const server = within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('group', { name: 'Dex Server' });
+    expect(await within(server).findByText('server-zd 0.1.34 · protocol 7')).toBeTruthy();
+    expect(within(server).getByText('1–7')).toBeTruthy();
+    expect(within(server).getByText('dexcli 1.47.10')).toBeTruthy();
+  });
+
+  it('reads an older Dex Web reply that has only the engine and protocol', async () => {
+    stubServerInfo({ serverEngine: 'zd', currentProtocolVersion: 6 });
+    renderBar('/v1/flows');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const server = within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('group', { name: 'Dex Server' });
+    expect(await within(server).findByText('server-zd · protocol 6')).toBeTruthy();
+    expect(within(server).queryByText('Version')).toBeNull();
+  });
+
+  it('shows unknown when the server info cannot be read', async () => {
+    stubServerInfo('fail');
+    renderBar('/v1/flows');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const server = within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('group', { name: 'Dex Server' });
+    expect(await within(server).findByText('unknown')).toBeTruthy();
+    expect(server.querySelector('dl')).toBeNull();
+  });
 });

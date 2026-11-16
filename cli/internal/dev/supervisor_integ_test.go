@@ -193,6 +193,9 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if !strings.Contains(output.String(), "Dex development environment is ready") {
 		t.Fatalf("missing readiness output: %s", output.String())
 	}
+	if !strings.Contains(output.String(), "Server version: ") {
+		t.Fatalf("missing server version: %s", output.String())
+	}
 	if !strings.Contains(output.String(), "State dir:     "+cfg.zdDataDirectory()) {
 		t.Fatalf("missing state directory: %s", output.String())
 	}
