@@ -1,0 +1,971 @@
+---
+title: Dex app manifest and repository layout
+sidebar_label: Dex app manifest
+description: "The files, manifest fields, YAML rules, limits, rules S1 to S8, and import findings of a repository that Dex Cloud imports as a Managed Dex App."
+toc_max_heading_level: 2
+---
+
+# Dex app manifest and repository layout
+
+A repository that Dex Cloud imports as a [Managed Dex App](/components/managed-dex-app)
+follows Dex app structure version 1. This page lists its files, every field of
+its two manifests, the YAML rules, the limits, the rules S1 to S8, and each
+finding that an import reports with its fix.
+
+The minimal example
+[`superdurable-apps/cloud-dex-app-example`](https://github.com/superdurable-apps/cloud-dex-app-example)
+meets every rule. It is a TypeScript process.
+
+The values on this page are Dex Cloud's current values. They are not tied to a
+server-zd release.
+
+## Repository layout {#repository-layout}
+
+Every repository has these files at its root:
+
+| Path | What it holds |
+| --- | --- |
+| `.superverse/template.json` | The template manifest: build profile, kind, stack, and commands ([S1](#s1)) |
+| `dex-app.yaml` | The deployment manifest: port, health path, Flow sources, and connectors ([S2](#s2)) |
+| `Makefile` | The targets that the template manifest's commands name ([S4](#s4)) |
+| `AGENTS.md` | Instructions for a coding agent, such as how to build and test the repository |
+| `openapi/openapi.yaml` | The OpenAPI document of the application's HTTP API |
+
+The build profile adds its own files ([S3](#s3)). A Go process with the
+`go-react-v1` profile looks like this:
+
+~~~text
+.superverse/template.json
+dex-app.yaml
+Makefile
+AGENTS.md
+openapi/openapi.yaml
+go.mod
+go.sum
+cmd/server/                 the web server and the Worker
+internal/process/*.go       the Flow sources that dex-app.yaml declares
+tools/openapi/go.mod
+tools/openapi/go.sum
+web/package.json            with generate and build scripts
+web/package-lock.json
+~~~
+
+A TypeScript process or agent with the `node-ts-v1` profile keeps
+`package.json` and `package-lock.json` at the root instead of the Go and `web/`
+files. Its `package.json` has a `build` script and a `main` entry.
+
+The repository supplies no Dockerfile. Dex Cloud builds the image from the
+build profile.
+
+## Template manifest {#template-manifest}
+
+`.superverse/template.json` is a JSON object of at most 64 KiB:
+
+~~~json
+{
+  "schemaVersion": 1,
+  "buildProfile": "go-react-v1",
+  "kind": "process",
+  "stack": "go",
+  "openapiSpec": "openapi/openapi.yaml",
+  "agentInstructions": "AGENTS.md",
+  "commands": {
+    "bootstrap": "make bootstrap",
+    "checkStatic": "make check-static",
+    "testApplication": "make test-app"
+  }
+}
+~~~
+
+Every field is required at import.
+
+| Field | Type | Allowed values |
+| --- | --- | --- |
+| `schemaVersion` | integer | `1` |
+| `buildProfile` | string | `go-react-v1` or `node-ts-v1` |
+| `kind` | string | `process` (an application of Flows) or `agent` (an application built with Dex Agents) |
+| `stack` | string | `go` or `typescript` for a `process`; `pi` for an `agent` |
+| `openapiSpec` | string | `openapi/openapi.yaml`, and the file exists |
+| `agentInstructions` | string | `AGENTS.md`, and the file exists |
+| `commands.bootstrap` | string | `make <target>` |
+| `commands.checkStatic` | string | `make <target>` |
+| `commands.testApplication` | string | `make <target>` |
+
+The stack decides the build profile:
+
+| `stack` | `kind` | `buildProfile` |
+| --- | --- | --- |
+| `go` | `process` | `go-react-v1` |
+| `typescript` | `process` | `node-ts-v1` |
+| `pi` | `agent` | `node-ts-v1` |
+
+The stack `claude-agent-sdk` is recognized and refused as not yet supported.
+
+Each command is the word `make`, one space, and one target. A target starts
+with a lowercase letter and holds lowercase letters, digits, and `-`. The
+pattern is `^make [a-z][a-z0-9-]*$`. Dex Cloud runs `bootstrap` when it prepares
+a workspace or a Preview. It runs `checkStatic` and `testApplication` to check
+the coding agent's commits.
+
+After the import, commit checks read only `schemaVersion`, `buildProfile`,
+`checkStatic`, and `testApplication`. They read a missing `buildProfile` as
+`go-react-v1`.
+
+## Deployment manifest {#dex-app-yaml}
+
+`dex-app.yaml` declares how the application is served, which Flows it defines,
+and which connectors it uses. This Go process sends email through the Gmail
+connector:
+
+~~~yaml
+schemaVersion: superverse.dev/dex-app/v1
+application:
+  port: 8080
+  healthPath: /api/health
+flowDefinitions:
+  - sourcePath: internal/process/lead_follow_up_flow.go
+connectors:
+  - connectionName: gmail
+    connectorId: gmail
+    modulePath: github.com/superdurable/dex-connectors-library/connectors/google/gmail/go
+    version: v0.25.2
+    authMethodId: google-oauth
+    operations: [sendMessage]
+~~~
+
+An application without connectors declares an empty list:
+
+~~~yaml
+schemaVersion: superverse.dev/dex-app/v1
+application:
+  port: 8080
+  healthPath: /api/health
+flowDefinitions:
+  - sourcePath: src/greeting-flow.ts
+connectors: []
+~~~
+
+Every field below is checked when you import, when a commit is checked, and
+when Preview and Live read the manifest. A field that this page does not list
+is an error.
+
+### Top-level fields {#top-level-fields}
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `schemaVersion` | string | yes | Exactly `superverse.dev/dex-app/v1`. |
+| `application` | mapping | yes | How the application is served. See [application](#application). |
+| `flowDefinitions` | list | yes | At least 1 and at most 1,000 entries. See [flowDefinitions](#flow-definitions). |
+| `connectors` | list | yes | May be empty (`[]`). An absent or `null` value is an error. See [connectors](#connectors). |
+
+### application {#application}
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `port` | integer | yes | 1024 to 65535. The application runs as an unprivileged user, so it cannot bind a lower port. |
+| `healthPath` | string | yes | Starts with exactly one `/`, such as `/api/health`. It holds no `?`, `#`, carriage return, or line feed. |
+| `workerSlots` | integer | no | 1 to 64. How many Steps and RPCs the Worker runs at once. The default is 4. |
+| `environment` | list | no | The environment variables the application reads. At most 128 entries. See [application.environment](#application-environment). |
+
+### application.environment {#application-environment}
+
+Each entry declares one variable that the application reads. The entry holds
+no value. You set the value in Dex Cloud.
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `name` | string | yes | Matches `^[A-Z][A-Z0-9_]{0,127}$`. Unique in the list. Reserved names are refused (below). |
+| `required` | boolean | no | `true` when the application needs a value. The default is `false`. |
+| `secret` | boolean | no | `true` for a credential. The default is `false`. A secret has no `enum`. |
+| `minLength` | integer | no | 0 to 32768 characters. The default is 0. |
+| `enum` | list of strings | no | The allowed values. At most 128 distinct values. Each holds at most 32768 bytes of valid UTF-8, has no NUL, and is at least `minLength` characters long. |
+
+These names are reserved:
+
+- Names that start with `DEX_`, `AWS_`, `LD_`, `GO`, or `GIT_`, or with the
+  prefix Dex Cloud keeps for its own variables.
+- `PATH`, `HOME`, `PORT`, `HOST`, `NODE_OPTIONS`, `SSL_CERT_FILE`,
+  `SSL_CERT_DIR`, `PUBLIC_BASE_URL`, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
+  and `NO_PROXY`.
+
+~~~yaml
+application:
+  port: 8080
+  healthPath: /api/health
+  workerSlots: 8
+  environment:
+    - name: SUPPORT_INBOX
+      required: true
+    - name: CRM_API_TOKEN
+      required: true
+      secret: true
+    - name: REGION
+      enum: [eu, us]
+~~~
+
+### flowDefinitions {#flow-definitions}
+
+Each entry names one Flow source with its only field, `sourcePath`.
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `sourcePath` | string | yes | The path of a committed file from the repository root. |
+
+A `sourcePath`:
+
+- Is relative and clean: no leading `/`, no `.` segment, no `//`, and no
+  trailing `/`. It holds no `..` anywhere, even inside a file name.
+- Ends in `.go`, `.ts`, or `.json`. The build profile narrows this:
+  `go-react-v1` takes `.go` files, and `node-ts-v1` takes `.ts` files or
+  committed `.json` graphs.
+- Appears once in the list.
+- Names a committed regular file that is outside every `node_modules`
+  directory.
+- Names a file of at most 8 MiB for a `.json` graph and at most 32 MiB for any
+  other source.
+
+A `.json` source is a committed Flow Definition Graph (FDG) 2.0, such as a Dex
+Agents session graph. Dex Cloud renders the graph of a `.go` or `.ts` source
+from the code.
+
+### connectors {#connectors}
+
+Each entry declares one connection to a released connector of the
+[Dex connector library](https://github.com/superdurable/dex-connectors-library).
+The application's lockfile pins the same release: `go.mod` and `go.sum` for Go,
+`package-lock.json` for TypeScript. The build resolves the version from the
+lockfile.
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `connectionName` | string | yes | Not empty. Unique in the list. |
+| `connectorId` | string | yes | The connector's ID, such as `gmail`. |
+| `modulePath` | string | Go | The published Go module, under `github.com/superdurable/dex-connectors-library/connectors/`. |
+| `package` | string | TypeScript | The npm package `@superdurable/connector-<name>`. |
+| `version` | string | yes | Go: the module version, such as `v0.25.2`. TypeScript: the exact npm release, such as `"0.7.0"`, quoted, with no `v` and no range. |
+| `authMethodId` | string | yes | The authentication method of the release. Use `""` when the release has one method. |
+| `optional` | boolean | no | Marks the connection as optional. The default is `false`. |
+| `operations` | list of strings | see rule | The operations the application calls. Each is a non-empty string. |
+| `triggerBindings` | list | see rule | The Triggers the application binds. See below. |
+
+An entry names a `modulePath` or a `package`, never both. It has at least one
+operation or one Trigger binding.
+
+A `modulePath` names a connector with lowercase letters, digits, `-`, and `_`
+in each path segment. It may end in `/go`.
+
+Each `triggerBindings` entry has two fields:
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `triggerName` | string | yes | The Trigger of the connector. Not empty. |
+| `bindingName` | string | yes | The binding's name. Not empty. The pair of `triggerName` and `bindingName` is unique in the entry. |
+
+A TypeScript connector looks like this:
+
+~~~yaml
+connectors:
+  - connectionName: slack
+    connectorId: slack
+    package: "@superdurable/connector-slack"
+    version: "0.7.0"
+    authMethodId: ""
+    operations: [postThreadReply]
+~~~
+
+A Trigger binding is configurable only when a Flow of the application declares
+it with configuration enabled, in its graph's `v2.connectorTriggerBindings`, at
+the release that `dex-app.yaml` pins. The first matching entry in Flow type
+order counts. A Preview starts after every declared Trigger binding is
+configured. The import checks this only when every Flow source is a committed
+`.json` graph, because a `.go` or `.ts` source has a graph only after it is
+rendered.
+
+## YAML rules {#yaml-rules}
+
+`dex-app.yaml` is strict YAML. YAML 1.1 and YAML 1.2 libraries read every
+accepted file the same way. JSON is accepted, because JSON is YAML.
+
+The file holds:
+
+- Exactly one YAML document, whose root is a mapping.
+- Mappings whose keys are strings, each key once.
+- Sequences.
+- Strings in any style. A quoted or block scalar is always a string.
+- Unsigned decimal integers up to 2147483647, written without a leading zero.
+- `true` and `false`, also written `True`, `TRUE`, `False`, or `FALSE`.
+- `null`, `~`, or an empty value, which reads as absent.
+
+The decoder refuses, with the line and column:
+
+- Anchors (`&name`), aliases (`*name`), merge keys (`<<`), and tags such as
+  `!!str`.
+- A repeated key.
+- A key that reads as something other than a string, such as `1` or `true`.
+- A second document after `---`.
+- A floating-point number, such as `1.5` or `1e3`, and a signed number, such
+  as `-1` or `+1`.
+- A date, such as `2026-11-16`.
+- A plain value that YAML 1.1 and YAML 1.2 read differently: `yes`, `no`,
+  `on`, `off`, `y`, and `n` in any case, `=`, a number with a leading zero
+  such as `0123`, a version such as `0.6.0`, a hexadecimal, octal, or binary
+  number such as `0x1F`, and a time such as `12:30`.
+
+Quote a value that must be a string:
+
+~~~yaml
+version: "0.7.0"
+authMethodId: ""
+enum: ["yes", "no"]
+~~~
+
+## Limits {#limits}
+
+| What | Limit |
+| --- | --- |
+| `dex-app.yaml` | 1 MiB |
+| Nesting in `dex-app.yaml` | 64 levels |
+| Values in `dex-app.yaml` (each key, value, and item) | 100,000 |
+| One scalar in `dex-app.yaml` | 64 KiB |
+| One integer in `dex-app.yaml` | 2147483647 |
+| `flowDefinitions` entries | 1,000 |
+| One committed `.json` Flow graph | 8 MiB |
+| One other Flow source | 32 MiB |
+| `application.environment` entries | 128 |
+| `.superverse/template.json` | 64 KiB |
+| Root `Makefile` | 4 MiB |
+| `package.json` and `package-lock.json` of `node-ts-v1`; `web/package.json` of `go-react-v1` | 4 MiB each |
+| Files in the repository | 5,000 |
+| One file | 10 MiB |
+| All files together | 100 MiB |
+| Files plus distinct directories plus 1 | 20,000 |
+| The source archive in the worst case | 128 MiB |
+
+## When each rule is checked {#when-checked}
+
+The import checks S1, S2, S3, S4, and S8. It lists every rule the repository
+breaks before you create the project. Dex Cloud checks the other rules when it
+checks a commit, builds a Preview or a Live release, or runs the application.
+
+| Rule | At import | Later |
+| --- | --- | --- |
+| [S1](#s1) | Every field | Commit checks read `schemaVersion`, `buildProfile`, `checkStatic`, and `testApplication` |
+| [S2](#s2) | The manifest, every Flow source, and Trigger bindings of `.json` graphs | Commit checks read the manifest. Preview and Live render every Flow and refuse an invalid one. |
+| [S3](#s3) | That each file is present | The Live build compiles them |
+| [S4](#s4) | The root `Makefile` | Commit checks run the targets. Preview runs `bootstrap`, and `generate` for Go. |
+| [S5](#s5) | Not checked | Commit checks run `make test-app` |
+| [S6](#s6) | Not checked | Preview and Live run the image |
+| [S7](#s7) | Not checked | Commit checks of Go code; every Go Live build |
+| [S8](#s8) | All of it | The Live build refuses links, unclean paths, and archives over its limits |
+
+The license of the repository is its owner's choice. Dex Cloud does not check
+it.
+
+## Read an import report {#import-report}
+
+Each finding of an import names:
+
+- Its rule, with a link to the rule's section on this page, such as
+  `#s2`.
+- Its code, such as `flow_source_missing`. Each code has its own section below,
+  with the anchor `#<code>`.
+- The path it concerns, or none for the whole repository.
+- The field, command, or make target, and the line, when known.
+- The value found there, when it is safe to repeat.
+- One sentence about what this repository has, and the fix.
+
+The report lists at most 10 findings of each rule and counts the rest.
+
+If the import says the repository cannot be read, give the Dex Cloud GitHub App
+access to the repository on GitHub. That case is not a finding.
+
+## S1: Template manifest {#s1}
+
+`.superverse/template.json` exists at the root, is at most 64 KiB, and is a
+JSON object with the fields of the [template manifest](#template-manifest).
+`schemaVersion` is `1`. `buildProfile`, `kind`, and `stack` are supported and
+agree with each other. `openapiSpec` is `openapi/openapi.yaml` and
+`agentInstructions` is `AGENTS.md`, and both files exist. `commands` declares
+`bootstrap`, `checkStatic`, and `testApplication`, each as `make <target>`.
+
+### `template_manifest_missing` {#template_manifest_missing}
+
+The repository has no `.superverse/template.json`.
+
+Add `.superverse/template.json` at the repository root, starting from the
+[example](#template-manifest), and set `buildProfile`, `kind`, and `stack` to
+your application's.
+
+### `template_manifest_too_large` {#template_manifest_too_large}
+
+The template manifest is larger than 64 KiB.
+
+Reduce `.superverse/template.json` to the fields the example shows. Dex Cloud
+reads at most 64 KiB of it.
+
+### `template_manifest_invalid` {#template_manifest_invalid}
+
+The template manifest is not a JSON object with the template manifest's fields.
+
+Fix the JSON at the line shown, often a missing comma or quote, and give each
+field the type the example shows.
+
+### `template_schema_version` {#template_schema_version}
+
+`schemaVersion` is not `1`.
+
+Set `schemaVersion` to the number `1`, the only template manifest version Dex
+Cloud reads:
+
+~~~json
+"schemaVersion": 1
+~~~
+
+### `build_profile_unknown` {#build_profile_unknown}
+
+`buildProfile` names no build profile that Dex Cloud builds.
+
+Set `buildProfile` to `go-react-v1` for a Go process with a React web UI, or to
+`node-ts-v1` for a TypeScript process or agent.
+
+### `kind_unknown` {#kind_unknown}
+
+`kind` is neither `process` nor `agent`.
+
+Set `kind` to `process` for an application of Flows, or to `agent` for an
+application built with Dex Agents.
+
+### `stack_unknown` {#stack_unknown}
+
+`stack` names no known stack.
+
+Set `stack` to the language or harness the application is written in: `go` or
+`typescript` for a process, `pi` for an agent.
+
+### `stack_unsupported` {#stack_unsupported}
+
+`stack` names a stack that Dex Cloud does not build yet, such as
+`claude-agent-sdk`.
+
+Build the application on a stack Dex Cloud builds today, `go` or `typescript`
+for a process or `pi` for an agent, and set `stack` to it.
+
+### `stack_kind_mismatch` {#stack_kind_mismatch}
+
+The stack belongs to the other kind.
+
+Make `kind` and `stack` agree: set `kind` to the kind the stack belongs to, or
+choose a stack of the kind you set.
+
+~~~json
+"kind": "process",
+"stack": "go"
+~~~
+
+### `stack_profile_mismatch` {#stack_profile_mismatch}
+
+The build profile does not build the stack.
+
+Set `buildProfile` to the profile that builds the stack: `go-react-v1` for
+`go`, `node-ts-v1` for `typescript` and `pi`.
+
+~~~json
+"buildProfile": "node-ts-v1",
+"stack": "typescript"
+~~~
+
+### `context_path_field` {#context_path_field}
+
+`openapiSpec` or `agentInstructions` names another path.
+
+Set `openapiSpec` to `openapi/openapi.yaml` and `agentInstructions` to
+`AGENTS.md`, the fixed paths Dex Cloud reads, and move the files there.
+
+### `openapi_document_missing` {#openapi_document_missing}
+
+The repository has no `openapi/openapi.yaml`.
+
+Commit the OpenAPI document of the application's HTTP API at
+`openapi/openapi.yaml`. The build generates the server from it.
+
+~~~yaml
+openapi: 3.1.0
+info:
+  title: Orders
+  version: 1.0.0
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: The application is healthy.
+~~~
+
+### `agent_instructions_missing` {#agent_instructions_missing}
+
+The repository has no `AGENTS.md`.
+
+Commit `AGENTS.md` at the repository root with the instructions a coding agent
+follows in this repository, such as how to build and test it.
+
+### `command_missing` {#command_missing}
+
+`commands` lacks `bootstrap`, `checkStatic`, or `testApplication`.
+
+Add the command under `commands` in `.superverse/template.json` as
+`make <target>`, and define that target in the root `Makefile`.
+
+### `command_not_make` {#command_not_make}
+
+A command is not `make <target>`.
+
+Move what the command runs into a target of the root `Makefile`, and write the
+command as `make <target>`, the only form Dex Cloud runs.
+
+~~~json
+"testApplication": "make test-app"
+~~~
+
+## S2: Deployment manifest {#s2}
+
+`dex-app.yaml` exists at the root, is at most 1 MiB, follows the
+[YAML rules](#yaml-rules), and passes every field rule of the
+[deployment manifest](#dex-app-yaml). It declares at most 1,000 Flow sources.
+Each is a committed regular file outside `node_modules`, at most 8 MiB for a
+`.json` graph and 32 MiB for any other source. A Flow declares each Trigger
+binding at the pinned release. The import checks that last rule only when every
+Flow source is a committed `.json` graph.
+
+### `app_manifest_missing` {#app_manifest_missing}
+
+The repository has no `dex-app.yaml`.
+
+Add `dex-app.yaml` at the repository root to declare the application's port and
+health path, its Flow sources, and its connectors. Start from the
+[example](#dex-app-yaml).
+
+### `app_manifest_too_large` {#app_manifest_too_large}
+
+`dex-app.yaml` is larger than 1 MiB.
+
+Keep `dex-app.yaml` within 1 MiB by declaring only the Flow sources and
+connectors the application uses.
+
+### `app_manifest_invalid` {#app_manifest_invalid}
+
+Dex Cloud refuses `dex-app.yaml`. The message names the field or the YAML rule.
+
+Correct the part of `dex-app.yaml` that the message names, comparing it with the
+[example](#dex-app-yaml), the [field rules](#top-level-fields), and the
+[YAML rules](#yaml-rules).
+
+### `flow_definitions_too_many` {#flow_definitions_too_many}
+
+`dex-app.yaml` declares more than 1,000 Flow sources.
+
+Declare at most 1,000 Flow sources: merge small Flows, or remove the Flows the
+application no longer runs.
+
+### `flow_source_node_modules` {#flow_source_node_modules}
+
+A Flow source is under `node_modules`.
+
+Move the Flow source into the application's own source tree, such as `src/`,
+and point its `sourcePath` there.
+
+~~~yaml
+flowDefinitions:
+  - sourcePath: src/order-flow.ts
+~~~
+
+### `flow_source_missing` {#flow_source_missing}
+
+A declared Flow source is not a committed regular file.
+
+Commit the Flow source at this path, or correct its `sourcePath` in
+`dex-app.yaml` to the file's path from the repository root.
+
+### `flow_source_too_large` {#flow_source_too_large}
+
+A Flow source is larger than the build reads.
+
+Split the Flow into smaller Flows, or move helper code into other files. A
+committed `.json` graph may hold 8 MiB, and any other Flow source 32 MiB.
+
+### `flow_graph_invalid_json` {#flow_graph_invalid_json}
+
+A committed `.json` graph is not valid JSON.
+
+Export the graph again as the FDG 2.0 JSON that Dex writes instead of editing
+it by hand, and check the line shown for a syntax error.
+
+### `flow_graph_invalid` {#flow_graph_invalid}
+
+A committed `.json` graph is not a valid FDG 2.0 graph.
+
+Export the graph again from Dex so that it is a valid FDG 2.0 graph, and fix
+the part the message names.
+
+### `flow_bundle_invalid` {#flow_bundle_invalid}
+
+The declared graphs do not load together, for example because two graphs
+define one Flow type.
+
+Resolve the conflict the message names between the declared graphs, so that
+they load together.
+
+### `trigger_binding_undeclared` {#trigger_binding_undeclared}
+
+`dex-app.yaml` declares a Trigger binding that no Flow declares.
+
+Declare the Trigger binding in a Flow with configuration enabled
+(`v2.connectorTriggerBindings`), or remove it from `dex-app.yaml`.
+
+### `trigger_binding_release_mismatch` {#trigger_binding_release_mismatch}
+
+The Flow that declares the Trigger binding pins another connector release.
+
+Pin the same connector release, its `modulePath` and `version`, in
+`dex-app.yaml` and in the Flow that declares the Trigger binding.
+
+## S3: Build profile files {#s3}
+
+The repository holds the files its build profile needs. Each Flow source has a
+suffix the profile accepts. A file that S1 already reported, such as
+`openapi/openapi.yaml`, is reported once.
+
+`go-react-v1` needs:
+
+| Requirement | Why |
+| --- | --- |
+| `go.mod` and `go.sum` | The build downloads the modules offline, so every dependency needs its checksum. |
+| A Go package `cmd/server` | The build compiles `./cmd/server`. |
+| `openapi/openapi.yaml` | The build generates the server from it. |
+| `tools/openapi/go.mod` and `tools/openapi/go.sum` | The modules of the OpenAPI code generator. |
+| `web/package.json` with `generate` and `build` scripts, and `web/package-lock.json` | The build runs `npm ci`, `generate`, and `build` in `web/`. |
+| A `generate` target in the root `Makefile` | Preview runs `make generate`. |
+| `.go` Flow sources | The profile renders Go Flows only. |
+
+The Live build also runs `go vet ./...` and `go test ./...`, and it needs the
+Dex Go SDK `github.com/superdurable/dex/sdk-go` at `v1.16.0` or later. The
+import does not check these.
+
+`node-ts-v1` needs:
+
+| Requirement | Why |
+| --- | --- |
+| `package.json` and `package-lock.json`, each at most 4 MiB | The build runs `npm ci`. |
+| A `build` script in `package.json` that writes `dist` | The build and Preview run `npm run build`. |
+| `main` in `package.json` | The image starts the module that `main` names with Node.js. |
+| `.ts` Flow sources or committed `.json` graphs | The profile renders TypeScript Flows and reads committed graphs. |
+
+The build image runs Node.js 22.19 or later, or Node.js 24. A
+`tsconfig.build.json` is needed only when your `build` script reads it.
+
+### `flow_source_suffix` {#flow_source_suffix}
+
+A Flow source has a suffix that the build profile does not accept.
+
+Write the Flow in the build profile's language: `.go` files for `go-react-v1`;
+`.ts` files or committed `.json` graphs for `node-ts-v1`.
+
+### `profile_file_missing` {#profile_file_missing}
+
+A file the build profile needs is missing, such as `go.sum` or
+`package-lock.json`.
+
+Commit this file, which the build copies. Create a lockfile with its tool, such
+as `npm install` for `package-lock.json` or `go mod tidy` for `go.sum`.
+
+### `profile_file_too_large` {#profile_file_too_large}
+
+An npm manifest is larger than the build reads.
+
+Shrink the file below the size the message names, for example by dropping
+unused dependencies.
+
+### `go_package_missing` {#go_package_missing}
+
+The repository has no Go package `cmd/server`.
+
+Add the Go package `cmd/server` with the `main` function that starts the
+application, as the Go template does. The build compiles `./cmd/server`.
+
+~~~go
+// cmd/server/main.go
+package main
+
+func main() {
+	// Start the web or the worker mode from os.Args[1].
+}
+~~~
+
+### `npm_package_invalid` {#npm_package_invalid}
+
+`package.json` is not valid JSON.
+
+Fix the JSON of `package.json` at the line shown. `npm pkg fix` or a JSON linter
+points at the error.
+
+### `npm_script_missing` {#npm_script_missing}
+
+`package.json` lacks a script that the build runs.
+
+Add the script under `scripts` in `package.json`. The build runs it with
+`npm run`.
+
+~~~json
+"scripts": {
+  "build": "tsc -p tsconfig.build.json"
+}
+~~~
+
+### `npm_main_missing` {#npm_main_missing}
+
+`package.json` has no `main`.
+
+Set `main` in `package.json` to the compiled entry module, which the image
+starts with Node.js.
+
+~~~json
+"main": "dist/main.js"
+~~~
+
+## S4: Make targets {#s4}
+
+The root `Makefile` defines a rule for every target that `commands` names, and
+for `generate` with `go-react-v1`. The import reads only the file named
+`Makefile` at the root. It takes a target from each line that starts in the
+first column with `target:`, and a line may name several targets. A target
+that only an included file defines counts as missing. The root `Makefile` is at
+most 4 MiB.
+
+### `makefile_missing` {#makefile_missing}
+
+The repository has no root `Makefile`.
+
+Add a `Makefile` at the repository root that defines a target for every make
+command of `.superverse/template.json`.
+
+~~~makefile
+bootstrap:
+	./scripts/bootstrap.sh
+check-static:
+	go vet ./...
+test-app:
+	go test ./internal/apptest
+~~~
+
+### `makefile_too_large` {#makefile_too_large}
+
+The root `Makefile` is larger than 4 MiB.
+
+Keep the root `Makefile` within 4 MiB by moving long recipes into scripts that
+it calls.
+
+### `make_target_missing` {#make_target_missing}
+
+A make target is missing, or only an included file defines it.
+
+Define the target in the root `Makefile` itself. Dex Cloud reads only the root
+`Makefile`, not the files it includes.
+
+~~~makefile
+generate:
+	./scripts/generate-openapi.sh
+~~~
+
+## S5: Application tests {#s5}
+
+`make test-app` runs the application's API tests against a Dex Server that
+exists only for that run, with the mock packages of the connectors. Commit
+checks run it when the template manifest declares `testApplication`. Preview
+and Live do not need it. The import does not check it, so it has no findings.
+
+## S6: Runtime contract {#s6}
+
+One image runs in two modes, chosen by its first argument:
+
+- `web` serves the application and its `healthPath` on the port in the `PORT`
+  environment variable.
+- `worker` runs the Worker. It answers `GET /readyz` on the readiness address
+  of the runtime settings once its slots are registered.
+
+Both modes read the runtime settings file that Dex Cloud places under `/tmp`.
+They write only under `/tmp`. The image runs as an unprivileged user on a
+read-only root file system.
+
+On SIGTERM, the web process finishes its open requests. The Worker drops
+readiness, drains its running tasks within the drain timeout, and exits.
+
+Dex Cloud renders and publishes the Flow definitions from the declared Flow
+sources, so the Worker uploads none.
+
+Preview and Live check this rule by running the image. The import does not
+check it, so it has no findings.
+
+## S7: No connector mocks in production {#s7}
+
+Production code imports no connector mock package. Tests may import one.
+
+Commit checks enforce this for Go code. Every Go Live build enforces it too,
+and fails with `connector-mock-in-production`. TypeScript code is not checked.
+The import does not check it, so it has no findings.
+
+## S8: Repository shape {#s8}
+
+The repository:
+
+- Is not archived, and Dex Cloud did not create it for a project.
+- Has the default branch `main`, and `main` has a commit.
+- Belongs to no other project.
+- Has a complete tree listing on GitHub.
+- Holds only regular files: no submodule and no symbolic link, even one that
+  points inside the repository.
+- Has no committed secret file. The match ignores letter case:
+  - `.env` and `.env.*`, except `.env.example`, `.env.sample`, and
+    `.env.template`.
+  - SSH private keys `id_rsa*` and `id_ed25519*`, except their `.pub` files.
+  - `*.pem` files outside a `testdata` directory.
+- Fits the file and archive [limits](#limits): 5,000 files, 10 MiB per file,
+  100 MiB in total, 20,000 files and directories, and a source archive of
+  128 MiB in the worst case.
+
+The secret file check matches only these names. A secret inside another file is
+not detected.
+
+After the import, commits are not checked against S8. The Live build still
+refuses links, unclean paths, and archives over its limits.
+
+### `tree_truncated` {#tree_truncated}
+
+GitHub returned an incomplete tree, so the import reports only this finding.
+
+Remove generated, vendored, and build output files from `main`, and list them
+in `.gitignore`, so that the repository stays within the file limit.
+
+~~~text
+# .gitignore
+node_modules/
+dist/
+.local/
+~~~
+
+### `submodule` {#submodule}
+
+The repository has a Git submodule.
+
+Replace the submodule with its files: remove it with `git rm`, then copy its
+files into the repository and commit them.
+
+~~~bash
+git rm <path>
+cp -R <its files> <path>
+git add <path>
+~~~
+
+### `symbolic_link` {#symbolic_link}
+
+The repository has a symbolic link.
+
+Replace the link with a copy of what it points to, or change the code to read
+the target path directly.
+
+### `unsupported_entry_mode` {#unsupported_entry_mode}
+
+An entry has a Git mode that is not a regular file.
+
+Commit a regular file at this path instead.
+
+### `repository_file_too_large` {#repository_file_too_large}
+
+A file is larger than 10 MiB.
+
+Remove the file from `main`, and keep large data outside the repository, such
+as in object storage, loading it at run time.
+
+### `secret_file` {#secret_file}
+
+A secret file is committed, such as `.env`.
+
+Delete the file from `main`, add it to `.gitignore`, and rotate every credential
+it held, which the Git history keeps. Commit an example such as `.env.example`
+instead.
+
+~~~text
+# .gitignore
+.env
+.env.*
+!.env.example
+~~~
+
+### `too_many_files` {#too_many_files}
+
+The repository has more than 5,000 files.
+
+Remove generated, vendored, and build output files from `main`, and list them
+in `.gitignore`.
+
+### `repository_too_large` {#repository_too_large}
+
+The files hold more than 100 MiB in total.
+
+Remove large generated or binary files from `main`, list them in `.gitignore`,
+and keep large data outside the repository.
+
+### `archive_too_many_entries` {#archive_too_many_entries}
+
+The files and their directories make more than 20,000 archive entries.
+
+Reduce the files and directories of `main`: remove generated and vendored trees,
+and list them in `.gitignore`.
+
+### `archive_too_large` {#archive_too_large}
+
+The source archive may exceed 128 MiB with its headers.
+
+Remove large or generated files from `main`, or shorten very long paths, so that
+the source archive fits the release build.
+
+### `repository_archived` {#repository_archived}
+
+The repository is archived.
+
+Unarchive the repository in its settings on GitHub, then check it again.
+
+### `repository_managed` {#repository_managed}
+
+Dex Cloud created this repository for a project.
+
+Open the project Dex Cloud created this repository for, or import a repository
+of your own.
+
+### `repository_bound_elsewhere` {#repository_bound_elsewhere}
+
+Another project already uses the repository.
+
+Open the project that already uses this repository, or delete that project
+first. A repository belongs to one project at a time.
+
+### `default_branch_not_main` {#default_branch_not_main}
+
+The default branch is not `main`.
+
+Make `main` the repository's default branch in its settings, renaming the
+current one if needed, then check again.
+
+~~~bash
+git branch -m master main
+git push -u origin main
+~~~
+
+### `main_branch_missing` {#main_branch_missing}
+
+The repository is empty, or it has no `main` branch.
+
+Push the application to the branch `main`, then check again.
+
+~~~bash
+git push -u origin main
+~~~

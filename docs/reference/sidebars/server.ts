@@ -16,6 +16,7 @@ const sidebars: SidebarsConfig = {
     'search',
     'attribute-store-sync',
     'metrics',
+    'dex-app-manifest',
     'upgrades',
     'changelog',
   ],

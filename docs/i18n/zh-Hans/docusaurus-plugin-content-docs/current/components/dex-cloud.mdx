@@ -13,6 +13,8 @@ description: 在 Dex Cloud 中，Super Durable 为你的应用运行 Dex Server�
 
 [注册 Dex Cloud](https://dex.superdurable.io/register)，然后创建一个 server。价格、区域和 SLA，请[联系 Super Durable](https://superdurable.io/about/#contact)。
 
+Dex Cloud 也能运行整个应用。[Managed Dex App](/components/managed-dex-app) 从你的 GitHub 仓库构建，并且连你的 Worker 一起运行。
+
 ## 连接 Worker 和 Client {#connect}
 
 你在 Dex Cloud 创建的每个 server 都有自己的 endpoint 和 API key。Worker 和 Client 通过 TLS、使用这个 key 连接到这个 endpoint：
@@ -53,5 +55,6 @@ dex-agents-claude-sdk
 
 ## 下一步 {#next}
 
+- [Managed Dex App](/components/managed-dex-app)：让 Dex Cloud 从 GitHub 仓库构建并运行你的整个应用。
 - [在生产环境运行 Dex](/components/production)：关于 Worker、代码变更和数据库的检查项在 Dex Cloud 中同样适用。
 - [运维和排错](/components/operate-and-debug)：找到 Flow，修复停住或失败的 Flow。
