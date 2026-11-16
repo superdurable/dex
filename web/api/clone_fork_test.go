@@ -20,12 +20,34 @@ import (
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type runHistoryOperationsTestClient struct {
 	dexpb.FlowServiceClient
 	resetRequests     []*dexpb.ResetFlowRequest
 	cloneForkRequests []*dexpb.CloneForkFlowRequest
+	// serverInfo is nil for a protocol 6 server.
+	serverInfo      *dexpb.ServerInfo
+	serverInfoError error
+	serverInfoCalls int
+}
+
+func (c *runHistoryOperationsTestClient) GetServerInfo(
+	context.Context,
+	*emptypb.Empty,
+	...grpc.CallOption,
+) (*dexpb.ServerInfo, error) {
+	c.serverInfoCalls++
+	if c.serverInfoError != nil {
+		return nil, c.serverInfoError
+	}
+	if c.serverInfo == nil {
+		return &dexpb.ServerInfo{CurrentProtocolVersion: 6, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}, nil
+	}
+	return c.serverInfo, nil
 }
 
 func (c *runHistoryOperationsTestClient) ResetFlow(
@@ -232,5 +254,83 @@ func TestCloneForkRejectsInvalidRequests(t *testing.T) {
 		if response.Code != http.StatusBadRequest || len(client.cloneForkRequests) != 0 {
 			t.Fatalf("%s: status = %d requests = %d", body, response.Code, len(client.cloneForkRequests))
 		}
+	}
+}
+
+func TestRunHistoryForkOptionsRequireProtocol6(t *testing.T) {
+	olderServers := map[string]*runHistoryOperationsTestClient{
+		"protocol 5":             {serverInfo: &dexpb.ServerInfo{CurrentProtocolVersion: 5, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}},
+		"without GetServerInfo":  {serverInfoError: status.Error(codes.Unimplemented, "unknown method")},
+		"without protocol field": {serverInfo: &dexpb.ServerInfo{ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}},
+	}
+	requests := []struct{ name, path, body string }{
+		{"clone fork", "/api/flows/clone-fork", `{"sourceFlowId":"order-1","flowId":"order-1-fork","reason":"branch"}`},
+		{"event ID time travel", "/api/flows/time-travel", `{"flowId":"order-1","runId":"run-1","timeTravelType":6,"eventId":12,"reason":"replay"}`},
+		{"SubFlow reset policy", "/api/flows/time-travel", `{"flowId":"order-1","runId":"run-1","timeTravelType":1,"subFlowResetPolicy":4,"reason":"replay"}`},
+	}
+	for serverName, client := range olderServers {
+		for _, request := range requests {
+			t.Run(serverName+"/"+request.name, func(t *testing.T) {
+				response := performRunHistoryOperation(client, request.path, request.body)
+				var result errorResponse
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if response.Code != http.StatusBadRequest || result.Code != serverProtocolUnsupportedCode ||
+					!strings.Contains(result.Error, "server-zd 0.1.33") {
+					t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+				}
+				if len(client.resetRequests) != 0 || len(client.cloneForkRequests) != 0 {
+					t.Fatalf("an older server received %d resets and %d clone forks", len(client.resetRequests), len(client.cloneForkRequests))
+				}
+			})
+		}
+	}
+}
+
+func TestTimeTravelWithoutNewOptionsSkipsTheProtocolCheck(t *testing.T) {
+	client := &runHistoryOperationsTestClient{serverInfo: &dexpb.ServerInfo{CurrentProtocolVersion: 5}}
+	response := performRunHistoryOperation(client, "/api/flows/time-travel",
+		`{"flowId":"order-1","runId":"run-1","timeTravelType":1,"reason":"replay"}`)
+	if response.Code != http.StatusOK || client.serverInfoCalls != 0 ||
+		client.resetRequests[0].GetSubFlowResetPolicy() != dexpb.SubFlowResetPolicy_SUB_FLOW_RESET_POLICY_UNSPECIFIED {
+		t.Fatalf("status = %d GetServerInfo calls = %d body = %s", response.Code, client.serverInfoCalls, response.Body.String())
+	}
+}
+
+func TestRunHistoryForkOptionsWaitForAnUnavailableFlowService(t *testing.T) {
+	client := &runHistoryOperationsTestClient{serverInfoError: status.Error(codes.Unavailable, "FlowService is starting")}
+	response := performRunHistoryOperation(client, "/api/flows/clone-fork",
+		`{"sourceFlowId":"order-1","flowId":"order-1-fork","reason":"branch"}`)
+	if response.Code != http.StatusServiceUnavailable || len(client.cloneForkRequests) != 0 {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestServerInfoReportsTheProtocolVersion(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		client *runHistoryOperationsTestClient
+		want   serverInfoResponse
+	}{
+		{"protocol 6", &runHistoryOperationsTestClient{}, serverInfoResponse{ServerEngine: "zd", CurrentProtocolVersion: 6}},
+		{"protocol 5", &runHistoryOperationsTestClient{serverInfo: &dexpb.ServerInfo{CurrentProtocolVersion: 5, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}},
+			serverInfoResponse{ServerEngine: "zd", CurrentProtocolVersion: 5}},
+		{"unavailable", &runHistoryOperationsTestClient{serverInfoError: status.Error(codes.Unavailable, "starting")},
+			serverInfoResponse{ServerEngine: "unspecified"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			RegisterHandlers(mux, testCase.client)
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/server-info", nil))
+			var result serverInfoResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusOK || result != testCase.want {
+				t.Fatalf("status = %d server info = %+v", response.Code, result)
+			}
+		})
 	}
 }

@@ -381,16 +381,26 @@ describe('time travel on the run page', () => {
 
     await screen.findByText('Run page for run-2');
     expect(runPath).toHaveBeenCalledWith('run-2');
+    // Without a catalog the server protocol is unknown, so no SubFlow reset policy is sent.
     expect(timeTravelRequests).toEqual([{
-      flowId: 'order-1', runId: 'run-1', timeTravelType: 1, reason: 'replay', subFlowResetPolicy: 4,
+      flowId: 'order-1', runId: 'run-1', timeTravelType: 1, reason: 'replay',
     }]);
   });
 });
 
 describe('clone fork on the run page', () => {
-  function cloneForkDex(startPayload: Record<string, unknown> = {}, options: { closed?: boolean; taskQueue?: string | null } = {}) {
+  function cloneForkDex(
+    startPayload: Record<string, unknown> = {},
+    options: {
+      closed?: boolean;
+      taskQueue?: string | null;
+      serverProtocolVersion?: number;
+      timeTravelRequests?: Record<string, unknown>[];
+    } = {},
+  ) {
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
     const cloneForkRequests: Record<string, unknown>[] = [];
+    const timeTravelRequests = options.timeTravelRequests ?? [];
     const lineage = [
       { ...historyEvent(1, 1, 'FlowStartedOrContinued'), payload: startPayload },
       { ...historyEvent(2, 1, 'StepWaitForCompleted'), payload: { context: { stepExecutionId: 'Charge-1' } } },
@@ -398,7 +408,12 @@ describe('clone fork on the run page', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, 'http://dex.test');
       if (url.pathname === '/api/flow-definition-types') return json({ configured: true, operatorAPI: true, flowTypes: [{ flowType: 'OrderFlow', source: 'directory' }] });
+      if (url.pathname === '/api/server-info') return json({ serverEngine: 'zd', currentProtocolVersion: options.serverProtocolVersion ?? 6 });
       if (url.pathname === '/api/flow-definitions/by-type') return json({ flowType: 'OrderFlow', definitions: [], v2: { flowType: 'OrderFlow', definition: { actions: [], display: { fields: [] } } } });
+      if (url.pathname === '/api/flows/time-travel') {
+        timeTravelRequests.push(JSON.parse(String(init?.body)));
+        return json({ runId: 'run-1', runAttempt: 2 });
+      }
       if (url.pathname === '/api/flows/summary') return json(options.closed
         ? { ...summary(1), flowStatus: 'Completed', flowStatusCode: 2, closeTime: '2026-10-24T18:00:00Z' }
         : summary(1));
@@ -492,6 +507,49 @@ describe('clone fork on the run page', () => {
     await waitFor(() => expect(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')).not.toBeNull());
     fireEvent.click(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')!);
     expect(await screen.findByRole('button', { name: 'Clone fork from here…' })).toBeTruthy();
+  });
+
+  it('hides Clone fork and sends no SubFlow reset policy before server protocol 6', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    const timeTravelRequests: Record<string, unknown>[] = [];
+    cloneForkDex({}, { serverProtocolVersion: 5, timeTravelRequests });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Events' }));
+    await waitFor(() => expect(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')).not.toBeNull());
+    fireEvent.click(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')!);
+    expect(await screen.findByRole('button', { name: 'Time travel from here…' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Clone fork from here…' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
+    expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
+    const dialog = screen.getByRole('dialog');
+    const points = within(dialog).getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
+    expect([...points.options].map((option) => option.textContent)).not.toContain('Event ID');
+    expect(within(dialog).queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Time travel' }));
+    await waitFor(() => expect(timeTravelRequests).toHaveLength(1));
+    expect(timeTravelRequests[0]).not.toHaveProperty('subFlowResetPolicy');
+  });
+
+  it('offers the event ID point and sends the SubFlow reset policy from server protocol 6', async () => {
+    const timeTravelRequests: Record<string, unknown>[] = [];
+    cloneForkDex({}, { timeTravelRequests });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    await screen.findByRole('menuitem', { name: /^Clone fork/ });
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
+    const dialog = screen.getByRole('dialog');
+    const points = within(dialog).getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
+    expect([...points.options].map((option) => option.textContent)).toContain('Event ID');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Time travel' }));
+    await waitFor(() => expect(timeTravelRequests).toHaveLength(1));
+    expect(timeTravelRequests[0]).toMatchObject({ subFlowResetPolicy: 4 });
   });
 
   it.each([

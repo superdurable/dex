@@ -26,13 +26,19 @@ vi.mock('../design/FlowDesignGraph', () => ({
   ),
 }));
 vi.mock('../agents/SessionView', () => ({
-  SessionView: ({ flowId, workQueuePermissions, workingAsOptions = [], onChooseWorkingAs }: {
+  SessionView: ({ flowId, workQueuePermissions, workingAsOptions = [], onChooseWorkingAs, onSessionForked }: {
     flowId: string;
     workQueuePermissions: string[];
     workingAsOptions?: readonly string[];
     onChooseWorkingAs?: (permission: string) => void;
+    onSessionForked?: (sessionId: string, runId: string) => void;
   }) => (
-    <div data-testid="session-view" data-flow-id={flowId} data-permissions={workQueuePermissions.join(',')}>
+    <div
+      data-testid="session-view"
+      data-flow-id={flowId}
+      data-permissions={workQueuePermissions.join(',')}
+      data-can-fork={String(onSessionForked !== undefined)}
+    >
       {workingAsOptions[0] && (
         <button onClick={() => onChooseWorkingAs?.(workingAsOptions[0])} type="button">{`Work as ${workingAsOptions[0]}`}</button>
       )}
@@ -116,6 +122,8 @@ interface DexWebStub {
   currentRunId?: string;
   /** Holds the definitions response until this promise settles. */
   definitionsReleased?: Promise<void>;
+  /** The protocol GET /api/server-info reports; 6 by default. */
+  serverProtocolVersion?: number;
 }
 
 /** Serves one run, its definitions and an optional operator catalog, and records every request path. */
@@ -126,6 +134,7 @@ function stubDexWeb({
   summary,
   currentRunId = 'run-1',
   definitionsReleased,
+  serverProtocolVersion = 6,
 }: DexWebStub) {
   const requests: string[] = [];
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
@@ -153,6 +162,7 @@ function stubDexWeb({
         v2: operatorFlow ? { ...operatorFlow, definitionRevision: `r-${requested}`, agentSession: agentSessionOf(matches) } : null,
       });
     }
+    if (url.pathname === '/api/server-info') return json({ serverEngine: 'zd', currentProtocolVersion: serverProtocolVersion });
     if (url.pathname === '/api/v2/catalog') {
       return operatorFlows ? json({ enabled: true, definitionRevision: 'r1', flows: operatorFlows }) : json({}, 404);
     }
@@ -421,6 +431,38 @@ describe('Run page experimental tabs', () => {
     expect(screen.getByRole('tab', { name: 'Conversation' }).textContent).toBe('Conversation');
     expect(screen.getByRole('tab', { name: 'Actions' }).textContent).toBe('Actions');
     expect(document.querySelector('.run-tabs .experimental-tag')).toBeNull();
+  });
+
+  it.each([
+    { serverProtocolVersion: 5, canFork: 'false' },
+    { serverProtocolVersion: 6, canFork: 'true' },
+  ])('offers session forks at server protocol $serverProtocolVersion: $canFork', async ({ serverProtocolVersion, canFork }) => {
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: graph.v2 as FlowV2Definition }],
+      serverProtocolVersion,
+    });
+    renderRun('/v1/flows/run-flow/run-1?view=session');
+    const sessionView = await screen.findByTestId('session-view');
+    await waitFor(() => expect(sessionView.getAttribute('data-can-fork')).toBe(canFork));
+  });
+
+  it('hides Clone fork for a non-session before server protocol 6', async () => {
+    const flowType = plainGraph.flow.name;
+    const requests = stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('schema', flowType, plainGraph)],
+      operatorFlows: [{ flowType, definition: { actions: [], display: { fields: [] } } as unknown as FlowV2Definition }],
+      serverProtocolVersion: 5,
+    });
+    renderRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    await waitFor(() => expect(requests).toContain('/api/server-info'));
+    await settle();
+    expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
   });
 
   it.each([

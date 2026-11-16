@@ -27,6 +27,7 @@ import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
 import { cloneForkSourceOf, type CloneForkSource } from '@/lib/cloneFork';
+import { supportsRunHistoryForks } from '@/lib/serverInfo';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
@@ -287,6 +288,7 @@ export function RunDetailsPage({
   const isCatalogReady = webCatalog === null || (webCatalog.ready && runDefinitions?.status !== 'loading');
   const designDefinition = designDefinitionFor(runDefinitions?.value, summary?.flowType);
   const catalogEntry = catalogEntryFor(runDefinitions?.value, webCatalog?.canUseV2 ?? false);
+  const hasRunHistoryForks = supportsRunHistoryForks(webCatalog?.serverProtocolVersion ?? 0);
   const workingAsDefinitions = useMemo(
     () => (catalogEntry ? [catalogEntry.definition] : noOperatorDefinitions),
     [catalogEntry],
@@ -997,7 +999,7 @@ export function RunDetailsPage({
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const cloneForkSource = cloneForkSourceOf(flowStartEvent);
   // An agent session forks through its agents package, which also moves the session's task queue.
-  const canCloneFork = isCatalogReady && catalogEntry !== null && runSessionSchema === null;
+  const canCloneFork = isCatalogReady && hasRunHistoryForks && catalogEntry !== null && runSessionSchema === null;
   const sourceTaskQueue = (() => {
     const startFlowConfig = flowStartEvent?.payload.flowConfig as Record<string, unknown> | undefined;
     const closedConfig = closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
@@ -1388,6 +1390,7 @@ export function RunDetailsPage({
           initialEvent={timeTravelEvent}
           runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
           timezone={timezone}
+          supportsRunHistoryForks={hasRunHistoryForks}
           onClose={closeTimeTravel}
           onTimeTraveled={handleTimeTraveled}
         />

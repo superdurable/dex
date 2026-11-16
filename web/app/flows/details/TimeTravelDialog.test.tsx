@@ -67,6 +67,7 @@ describe('selected event time travel', () => {
           initialEvent={event}
           runAttempt={0}
           timezone="local"
+          supportsRunHistoryForks
           onClose={() => {}}
           onTimeTraveled={() => {}}
         />
@@ -88,6 +89,7 @@ describe('selected event time travel', () => {
         initialEvent={null}
         runAttempt={1}
         timezone="UTC"
+        supportsRunHistoryForks
         onClose={() => {}}
         onTimeTraveled={() => {}}
       />,
@@ -115,6 +117,7 @@ describe('time travel requests', () => {
         initialEvent={null}
         runAttempt={1}
         timezone="UTC"
+        supportsRunHistoryForks
         onClose={onClose}
         onTimeTraveled={onTimeTraveled}
       />,
@@ -154,6 +157,7 @@ describe('time travel requests', () => {
         initialEvent={null}
         runAttempt={0}
         timezone="UTC"
+        supportsRunHistoryForks
         onClose={() => {}}
         onTimeTraveled={onTimeTraveled}
       />,
@@ -194,6 +198,7 @@ describe('time travel requests', () => {
         initialEvent={event}
         runAttempt={0}
         timezone="local"
+        supportsRunHistoryForks
         onClose={() => {}}
         onTimeTraveled={onTimeTraveled}
       />,
@@ -206,5 +211,41 @@ describe('time travel requests', () => {
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body.runAttempt).toBeUndefined();
     expect(body.stepExecutionId).toBe('ChargeOrder-2');
+  });
+
+  it('offers neither the event ID point nor a SubFlow reset policy before server protocol 6', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      JSON.stringify({ runId: 'run-1', runAttempt: 2 }),
+      { status: 200 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const onTimeTraveled = vi.fn();
+    render(
+      <TimeTravelDialog
+        open
+        summary={{ ...summary, runAttempt: 1 }}
+        events={[event]}
+        initialEvent={null}
+        runAttempt={0}
+        timezone="UTC"
+        supportsRunHistoryForks={false}
+        onClose={() => {}}
+        onTimeTraveled={onTimeTraveled}
+      />,
+    );
+
+    const points = screen.getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
+    expect([...points.options].map((option) => option.textContent)).not.toContain('Event ID');
+    expect(screen.queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'replay' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
+
+    await waitFor(() => expect(onTimeTraveled).toHaveBeenCalled());
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({
+      flowId: 'order-1',
+      runId: 'run-1',
+      timeTravelType: 1,
+      reason: 'replay',
+    });
   });
 });

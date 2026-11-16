@@ -604,7 +604,7 @@ When **resolve_interrupt** or **answer_question** returns false, another operato
 
 ### Fork a session {#agent-session-fork}
 
-Since 1.45.8. The **Conversation** tab forks a session into a new session. The new session starts from a copy of the conversation and goes on by itself. The source session does not change. Dex Web forks only between turns, so the copy never holds a turn in progress.
+Since 1.45.8. The **Conversation** tab forks a session into a new session. The new session starts from a copy of the conversation and goes on by itself. The source session does not change. Dex Web forks only between turns, so the copy never holds a turn in progress. A fork is a [clone fork](#clone-fork), so it needs server-zd 0.1.33 or later; on an older server the fork actions are hidden.
 
 - **Fork session**, beside **Reload**, copies the session right after its latest turn ended, or from its beginning when it has had no turn yet. It appears while the session is open, waits for a message, and has no turn running and no pending interrupt. Its latest turn end must also be in the loaded Flow history. Dex Web pins that point when you click, so a turn that starts while the dialog is open is not in the copy.
 - **Fork from this message**, under an agent message, copies the session right after the turn that this message ended. It appears on the last message of each ended turn whose history event is in the loaded Flow history. A message in the middle of a turn, such as one followed by tool calls, offers no fork.
@@ -729,12 +729,28 @@ accepts **eventId** with **timeTravelType** 6, and **subFlowResetPolicy**, a
 **SubFlowResetPolicy** number. An event ID point without a positive
 **eventId** returns HTTP 400.
 
+Changed in 1.45.8: the dialog shows **Event ID** and **SubFlow reset policy**
+when the connected server reports protocol version 6 or later. server-zd
+0.1.33 and later provide it. On an older server, or before Dex Web reads the
+version, both are hidden and the request carries no **subFlowResetPolicy**, so
+the server applies its own default. Dex Web reads the version once per page
+load from **GET /api/server-info**, which returns **serverEngine** and
+**currentProtocolVersion**; 0 means the server reports none. On an older
+server, **POST /api/flows/time-travel** with **timeTravelType** 6 or a non-zero
+**subFlowResetPolicy** returns HTTP 400 with code
+**SERVER_PROTOCOL_UNSUPPORTED**.
+
 ### Clone fork {#clone-fork}
 
 Since 1.45.7. **Clone fork** starts a new Flow from a copy of a run's state at
 one point. Dex only reads the source run, so it never changes. The call is
 [CloneForkFlow](/reference/server/runtime-client#clone-fork) and needs a server
 with protocol version 6.
+
+Changed in 1.45.8: Dex Web shows the Clone fork actions when the connected
+server reports protocol version 6 or later, as server-zd 0.1.33 and later do.
+On an older server they are hidden, and **POST /api/flows/clone-fork** returns
+HTTP 400 with code **SERVER_PROTOCOL_UNSUPPORTED**.
 
 The Run page offers it in two places:
 

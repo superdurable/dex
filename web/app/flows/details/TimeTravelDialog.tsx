@@ -52,6 +52,7 @@ export function TimeTravelDialog({
   initialEvent,
   runAttempt,
   timezone,
+  supportsRunHistoryForks,
   onClose,
   onTimeTraveled,
 }: {
@@ -62,9 +63,14 @@ export function TimeTravelDialog({
   /** The run attempt whose history is shown; 0 selects the current one. */
   runAttempt: number;
   timezone: TimezonePreference;
+  /** True when the server offers the Event ID point and SubFlow reset policies; otherwise neither is sent. */
+  supportsRunHistoryForks: boolean;
   onClose: () => void;
   onTimeTraveled: (result: TimeTravelResult) => void;
 }) {
+  const offeredTimeTravelTypes = supportsRunHistoryForks
+    ? timeTravelTypes
+    : timeTravelTypes.filter((item) => item.value !== TIME_TRAVEL_TYPE.EVENT_ID);
   const hasRunAttempts = positiveRunAttempt(summary.runAttempt) > 0;
   const initialTarget = eventTimeTravelTarget(initialEvent);
   const [timeTravelType, setTimeTravelType] = useState<number>(() => (
@@ -102,8 +108,8 @@ export function TimeTravelDialog({
       timeTravelType,
       reason,
       ...historyPointRequestFields(pointKind, target, stepMethod, timezone),
-      subFlowResetPolicy,
     };
+    if (supportsRunHistoryForks) payload.subFlowResetPolicy = subFlowResetPolicy;
     if (runAttempt > 0) payload.runAttempt = runAttempt;
     try {
       const response = await fetch(webURL('/api/flows/time-travel'), {
@@ -143,7 +149,7 @@ export function TimeTravelDialog({
             setTarget('');
             setStepMethod(0);
           }}>
-            {timeTravelTypes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
+            {offeredTimeTravelTypes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
           </select>
         </label>
         <HistoryPointFields
@@ -155,7 +161,9 @@ export function TimeTravelDialog({
           onTargetChange={setTarget}
           onStepMethodChange={setStepMethod}
         />
-        <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
+        {supportsRunHistoryForks && (
+          <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
+        )}
         <label>
           Reason
           <textarea

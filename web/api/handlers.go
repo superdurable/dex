@@ -35,8 +35,19 @@ const (
 	historyEventLongPollTimeout = 50 * time.Second
 )
 
+// serverProtocolUnsupportedCode marks a request for an option the connected server's protocol lacks.
+const serverProtocolUnsupportedCode = "SERVER_PROTOCOL_UNSUPPORTED"
+
 type handler struct {
-	client dexpb.FlowServiceClient
+	client       dexpb.FlowServiceClient
+	serverEngine *ServerEngineResolver
+}
+
+// serverInfoResponse is what GET /api/server-info returns.
+type serverInfoResponse struct {
+	ServerEngine string `json:"serverEngine"`
+	// CurrentProtocolVersion is 0 when the server does not report one or cannot answer.
+	CurrentProtocolVersion uint32 `json:"currentProtocolVersion"`
 }
 
 func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
@@ -46,7 +57,8 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	handler := &handler{client: client}
+	handler := &handler{client: client, serverEngine: NewServerEngineResolver(client)}
+	mux.HandleFunc("GET /api/server-info", handler.getServerInfo)
 	mux.HandleFunc("POST /api/flows/search", handler.searchFlows)
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
@@ -472,9 +484,16 @@ func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Req
 		WriteError(response, http.StatusBadRequest, "runAttempt must be a non-negative integer", nil)
 		return
 	}
-	if body.TimeTravelType == int32(dexpb.FlowResetType_FLOW_RESET_TYPE_EVENT_ID) && body.EventID <= 0 {
+	isEventIDPoint := body.TimeTravelType == int32(dexpb.FlowResetType_FLOW_RESET_TYPE_EVENT_ID)
+	if isEventIDPoint && body.EventID <= 0 {
 		WriteError(response, http.StatusBadRequest, "eventId must be a positive integer", nil)
 		return
+	}
+	// Older servers ignore subFlowResetPolicy, so the gate stops a silently dropped option.
+	if isEventIDPoint || body.SubFlowResetPolicy != 0 {
+		if !h.requireRunHistoryForkProtocol(response, request, "the Event ID time travel point and subFlowResetPolicy") {
+			return
+		}
 	}
 	result, err := h.client.ResetFlow(request.Context(), resetFlowRequestOf(body))
 	if err != nil {
@@ -515,6 +534,9 @@ func (h *handler) cloneForkFlow(response http.ResponseWriter, request *http.Requ
 		WriteError(response, http.StatusBadRequest, "deleteAttributeKeys must not contain an empty key", nil)
 		return
 	}
+	if !h.requireRunHistoryForkProtocol(response, request, "Clone Fork") {
+		return
+	}
 	requestID := body.RequestID
 	if requestID == "" {
 		requestID = uuid.NewString()
@@ -530,6 +552,32 @@ func (h *handler) cloneForkFlow(response http.ResponseWriter, request *http.Requ
 		SourceRunID:      result.GetSourceRunId(),
 		SourceRunAttempt: result.GetSourceRunAttempt(),
 		SourceEventID:    result.GetSourceEventId(),
+	})
+}
+
+// requireRunHistoryForkProtocol writes an error and returns false unless the server speaks protocol 6 or later.
+func (h *handler) requireRunHistoryForkProtocol(response http.ResponseWriter, request *http.Request, feature string) bool {
+	protocolVersion, isResolved := h.serverEngine.ResolveCurrentProtocolVersion(request.Context())
+	if !isResolved {
+		WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_SERVICE_UNAVAILABLE",
+			"Dex Web cannot read the server protocol version; try again")
+		return false
+	}
+	if protocolVersion < runHistoryForkProtocolVersion {
+		WriteCodedError(response, http.StatusBadRequest, serverProtocolUnsupportedCode, fmt.Sprintf(
+			"the connected server speaks protocol %d; %s requires protocol %d (server-zd 0.1.33 or later)",
+			protocolVersion, feature, runHistoryForkProtocolVersion))
+		return false
+	}
+	return true
+}
+
+func (h *handler) getServerInfo(response http.ResponseWriter, request *http.Request) {
+	// An unanswered lookup reports the unspecified engine and protocol 0, so the browser hides newer options.
+	serverInfo, _ := h.serverEngine.resolveServerInfo(request.Context())
+	writeJSON(response, http.StatusOK, serverInfoResponse{
+		ServerEngine:           serverEngineName(serverInfo.GetServerEngine()),
+		CurrentProtocolVersion: serverInfo.GetCurrentProtocolVersion(),
 	})
 }
 

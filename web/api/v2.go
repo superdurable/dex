@@ -405,11 +405,13 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 		entries = append(entries, NewV2CatalogEntry(flowType, snapshot.Definitions[flowType], snapshot.revisionFor(flowType)))
 	}
 	setDefinitionETag(response, snapshot.Revision)
+	serverInfo, _ := h.serverEngine.resolveServerInfo(request.Context())
 	writeJSON(response, http.StatusOK, map[string]interface{}{
-		"enabled":            len(entries) > 0,
-		"flows":              entries,
-		"definitionRevision": snapshot.Revision,
-		"serverEngine":       serverEngineName(h.serverEngine.ResolveServerEngine(request.Context())),
+		"enabled":                len(entries) > 0,
+		"flows":                  entries,
+		"definitionRevision":     snapshot.Revision,
+		"serverEngine":           serverEngineName(serverInfo.GetServerEngine()),
+		"currentProtocolVersion": serverInfo.GetCurrentProtocolVersion(),
 	})
 }
 

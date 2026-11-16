@@ -19,6 +19,7 @@ import {
 import { DexAPIError, readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionTypeList, FlowTypeDefinitions, V2Catalog } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
+import { fetchServerProtocolVersion } from '@/lib/serverInfo';
 import { fetchFlowTypeDefinitions } from './flowTypeDefinitionCache';
 
 /** One Flow type's definitions as a page reads them. */
@@ -35,6 +36,8 @@ interface WebCatalogValue {
   canUseOperatorAPI: boolean;
   /** True where Dex Web runs local Connector setup; read once per app load. */
   hasConnectorSetup: boolean;
+  /** The server's current protocol version, read once per app load; 0 until known or when unreported. */
+  serverProtocolVersion: number;
   canUseV2: boolean;
   /** Every Flow type with a definition; reading it reads no definition. */
   flowTypes: FlowDefinitionTypeList | null;
@@ -70,6 +73,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   const [definitionUpdateKey, setDefinitionUpdateKey] = useState(0);
   const [notice, setNotice] = useState('');
   const [hasConnectorSetup, setHasConnectorSetup] = useState(false);
+  const [serverProtocolVersion, setServerProtocolVersion] = useState(0);
   const isCatalogRequested = useRef(false);
   const requestedFlowTypes = useRef(new Set<string>());
   // Each load takes a number; only the newest load of a kind may apply, so a slow older answer never wins.
@@ -154,6 +158,15 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [isOperatorAPI]);
 
+  useEffect(() => {
+    if (!isOperatorAPI) return undefined;
+    const controller = new AbortController();
+    void fetchServerProtocolVersion(controller.signal).then((version) => {
+      if (!controller.signal.aborted) setServerProtocolVersion(version);
+    });
+    return () => controller.abort();
+  }, [isOperatorAPI]);
+
   const requestCatalog = useCallback(() => {
     if (isCatalogRequested.current) return;
     isCatalogRequested.current = true;
@@ -194,6 +207,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     ready,
     canUseOperatorAPI: flowTypes?.operatorAPI === true,
     hasConnectorSetup,
+    serverProtocolVersion,
     canUseV2: flowTypes?.operatorAPI === true && flowTypes.configured,
     flowTypes,
     catalog,
@@ -218,6 +232,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     requestCatalog,
     requestFlowTypeDefinitions,
     revisionFor,
+    serverProtocolVersion,
   ]);
 
   return (
