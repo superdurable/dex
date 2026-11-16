@@ -393,14 +393,26 @@ describe('Flow search Queries panel', () => {
     renderFlowSearchPage();
     const queriesButton = await screen.findByRole('button', { name: 'Queries' });
     fireEvent.click(queriesButton);
-    const panel = screen.getByRole('region', { name: 'Queries' });
+    const first = screen.getByRole('button', { name: 'Run WorkflowId = "a"' });
+    const second = screen.getByRole('button', { name: 'Run WorkflowId = "b"' });
 
-    fireEvent.keyDown(panel, { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run WorkflowId = "a"' }));
-    fireEvent.keyDown(document.activeElement as Element, { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run WorkflowId = "b"' }));
-    fireEvent.keyDown(document.activeElement as Element, { key: 'Home' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run WorkflowId = "a"' }));
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'End' });
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: 'Home' });
+    expect(document.activeElement).toBe(first);
+
+    // Removing the focused entry moves focus to the entry now in its place.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove WorkflowId = "a" from Recent' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Run WorkflowId = "b"' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear recent queries' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Queries' })));
 
     fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Queries' })).toBeNull();
@@ -422,6 +434,29 @@ describe('Flow search Queries panel', () => {
     renderFlowSearchPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Save query' }));
     expect(screen.getByText('Nothing to save yet')).toBeTruthy();
+
+    // Escape leaves only the save state; the panel stays open.
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    expect(screen.queryByText('Nothing to save yet')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Queries' })).toBeTruthy();
+  });
+
+  it('loads and reports the error when the browser refuses storage', async () => {
+    const refusingStorage = {
+      get length() { return 0; },
+      clear: () => { throw new DOMException('denied', 'SecurityError'); },
+      getItem: () => { throw new DOMException('denied', 'SecurityError'); },
+      key: () => null,
+      removeItem: () => { throw new DOMException('denied', 'SecurityError'); },
+      setItem: () => { throw new DOMException('denied', 'SecurityError'); },
+    };
+    vi.stubGlobal('localStorage', refusingStorage);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    stubFlowSearchAPI([flow('checkout-1')], []);
+    renderFlowSearchPage();
+    await screen.findByText('checkout-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Queries' }));
+    expect(screen.getByRole('status').textContent).toContain('storage is unavailable');
   });
 });
 
@@ -481,6 +516,30 @@ describe('Flow search Fields panel', () => {
     expect((screen.getByRole('textbox', { name: 'Search query' }) as HTMLTextAreaElement).value)
       .toBe('FlowType = "A" AND CloseTime = ');
     expect(screen.getByRole('link', { name: 'Query syntax' })).toBeTruthy();
+  });
+
+  it('quotes a hyphenated key and adds the condition before ORDER BY', async () => {
+    stubFlowSearchAPI([{ ...flow('order-1'), indexedAttributes: [{ key: 'order-status', value: 'open' }] }], []);
+    renderFlowSearchPage();
+    await screen.findByText('order-1');
+    fireEvent.click(screen.getByRole('tab', { name: 'Query' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search query' }), {
+      target: { value: 'FlowType = "A" OR FlowType = "B" ORDER BY StartTime DESC' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add order-status, Keyword, guessed' }));
+    expect((screen.getByRole('textbox', { name: 'Search query' }) as HTMLTextAreaElement).value)
+      .toBe('(FlowType = "A" OR FlowType = "B") AND `order-status` =  ORDER BY StartTime DESC');
+  });
+
+  it('quotes a hyphenated key in the generated query of a filter row', async () => {
+    stubFlowSearchAPI([{ ...flow('order-1'), indexedAttributes: [{ key: 'order-status', value: 'open' }] }], []);
+    renderFlowSearchPage();
+    await screen.findByText('order-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Fields' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add order-status, Keyword, guessed' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter value' }), { target: { value: 'open' } });
+    expect(document.querySelector('.query-preview code')?.textContent).toBe('`order-status` = "open"');
   });
 
   it('keeps built-in fields and shows the error when Flow definitions do not load', async () => {

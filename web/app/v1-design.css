@@ -2285,6 +2285,11 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--ui-well);
 }
 
+/* The panel takes focus only when its last entry leaves; the entries draw the focus ring. */
+.v1-page .query-panel:focus {
+  outline: none;
+}
+
 .v1-page .query-library-section {
   display: flex;
   min-width: 0;

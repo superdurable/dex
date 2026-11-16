@@ -11,7 +11,9 @@ import { rememberFlowsSearch } from '../components/frame/lastFlowsSearch';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
+  appendQueryCondition,
   buildVisibilityQuery,
+  encodeQueryFieldName,
   parseVisibilityQuery,
   type BasicFilter,
   type QueryOperator,
@@ -372,7 +374,7 @@ export function FlowSearchPage() {
     setSaved(readSavedQueries());
     const storedColumns = normalizeColumnOrder(readJSON('dex-web-columns', defaultColumns));
     setColumns(storedColumns);
-    window.localStorage.setItem('dex-web-columns', JSON.stringify(storedColumns));
+    if (!writeJSON('dex-web-columns', storedColumns)) setStorageError(storageRefusedMessage);
     setHydrated(true);
     void executeSearch(initialQuery, '', 0, initialPageSize);
   }, [executeSearch]);
@@ -490,13 +492,12 @@ export function FlowSearchPage() {
       setFilters([...filters, newFilter(field.name)]);
       return;
     }
-    const prefix = query.trim() ? `${query.trim()} AND ` : '';
-    const nextQuery = `${prefix}${field.name} = `;
+    const { query: nextQuery, cursor } = appendQueryCondition(query, `${encodeQueryFieldName(field.name)} = `);
     setQuery(nextQuery);
     window.requestAnimationFrame(() => {
       const textarea = queryTextareaRef.current;
       textarea?.focus();
-      textarea?.setSelectionRange(nextQuery.length, nextQuery.length);
+      textarea?.setSelectionRange(cursor, cursor);
     });
   }
 
@@ -506,7 +507,8 @@ export function FlowSearchPage() {
       : [...columns, column];
     if (!next.length) return;
     setColumns(next);
-    window.localStorage.setItem('dex-web-columns', JSON.stringify(next));
+    // The column choice still applies to this page when storage refuses it.
+    writeJSON('dex-web-columns', next);
   }
 
   function moveColumn(column: ColumnId, direction: -1 | 1) {
@@ -516,7 +518,8 @@ export function FlowSearchPage() {
     const next = [...columns];
     [next[index], next[target]] = [next[target], next[index]];
     setColumns(next);
-    window.localStorage.setItem('dex-web-columns', JSON.stringify(next));
+    // The column order still applies to this page when storage refuses it.
+    writeJSON('dex-web-columns', next);
   }
 
   function nextPage() {

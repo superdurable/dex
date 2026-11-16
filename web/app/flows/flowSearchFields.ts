@@ -47,13 +47,11 @@ export const BUILT_IN_SEARCH_FIELDS: readonly SearchField[] = [
   { name: 'CloseTime', type: 'Datetime', description: 'When the run closed, as RFC 3339' },
   { name: 'ActiveStepTypes', type: 'KeywordArray', description: 'Step types active now, when the Flow turns this on' },
   { name: 'DexParentFlowID', type: 'Keyword', description: 'The parent Flow ID of a SubFlow' },
+  { name: 'DexWorkQueuePermissions', type: 'KeywordArray', description: 'Internal: the Work Queue permissions the run has offered' },
+  { name: 'WorkflowType', type: 'Keyword', description: 'The server engine name, not the Flow type' },
 ];
 
-const builtInFieldNames = new Set([
-  ...BUILT_IN_SEARCH_FIELDS.map((field) => field.name),
-  'WorkflowType',
-  'DexWorkQueuePermissions',
-]);
+const builtInFieldNames = new Set(BUILT_IN_SEARCH_FIELDS.map((field) => field.name));
 
 // Older servers report these engine keys with results; a query cannot use them.
 const unsearchableResultKeys = new Set([

@@ -22,15 +22,23 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   const [timezone, setTimezone] = useState<TimezonePreference>('local');
 
   useEffect(() => {
-    const saved = window.localStorage.getItem('dex-web-timezone');
-    if (saved === 'UTC' || saved === 'local') setTimezone(saved);
+    try {
+      const saved = window.localStorage.getItem('dex-web-timezone');
+      if (saved === 'UTC' || saved === 'local') setTimezone(saved);
+    } catch (storageError) {
+      console.warn('Unable to read the timezone preference.', storageError);
+    }
   }, []);
 
   const value = useMemo(() => ({
     timezone,
     setTimezone: (next: TimezonePreference) => {
       setTimezone(next);
-      window.localStorage.setItem('dex-web-timezone', next);
+      try {
+        window.localStorage.setItem('dex-web-timezone', next);
+      } catch (storageError) {
+        console.warn('Unable to save the timezone preference.', storageError);
+      }
     },
   }), [timezone]);
 

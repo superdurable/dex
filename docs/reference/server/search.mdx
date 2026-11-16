@@ -32,6 +32,7 @@ other field fails with **INVALID_ARGUMENT** and **unknown visibility field**.
 | **WorkflowId** | Keyword | The Flow ID |
 | **RunId** | Keyword | The run ID |
 | **FlowType** | Keyword | The Flow type |
+| **WorkflowType** | Keyword | The server engine name, the same for every run. It is not the Flow type; search **FlowType** for that. |
 | **StartTime** | Datetime | When the run started |
 | **CloseTime** | Datetime | When the run closed. A running run has none. |
 | **ActiveStepTypes** | KeywordArray | The Step types active now, when the Flow turns on **ActiveStepSearchMode** |
@@ -75,8 +76,15 @@ built-in fields and the indexed Attributes under **Fields**. See
   **"2026-11-01T00:00:00Z"**. A time range is two conditions or a
   **BETWEEN**: **StartTime BETWEEN "2026-11-01T00:00:00Z" AND
   "2026-11-02T00:00:00Z"**.
-- Write Int and Double values as numbers, quoted or not. An Int condition with
-  a fractional value, such as **int1 = 1.5**, matches no run.
+- Write an Int value as a whole number, such as **int1 = 15**. An unquoted
+  number with a decimal point or an exponent, such as **int1 = 1.5**, fails
+  with **INVALID_ARGUMENT**. A quoted Int value may use a decimal or an
+  exponent, such as **"1.5"** or **"1e3"**. A fractional value never equals
+  an Int value: **=** and **IN** skip it, and **!=** and **NOT IN** keep every
+  run that has the field. A fractional range bound moves inward to the next
+  whole number.
+- Write a Double value as a number, quoted or not, such as **2.5** or
+  **"2.5"**.
 - Write Bool values as **true** or **false**, quoted or not.
 
 ### Order {#query-order}

@@ -75,6 +75,33 @@ export function QueryLibraryPanel({
 }: QueryLibraryPanelProps) {
   const [notice, setNotice] = useState<{ text: string; isError: boolean } | null>(null);
   const now = new Date();
+  const panelRef = useRef<HTMLDivElement>(null);
+  // After an entry leaves, focus moves to the entry now at its place, so keyboard users stay in the list.
+  const [focusAfterRemoval, setFocusAfterRemoval] = useState<{ section: 'saved' | 'recent'; index: number } | null>(null);
+  useEffect(() => {
+    if (!focusAfterRemoval) return;
+    const entries = panelRef.current?.querySelectorAll<HTMLElement>(
+      `[data-query-section="${focusAfterRemoval.section}"] [data-query-entry]`,
+    ) ?? [];
+    const target = entries[Math.min(focusAfterRemoval.index, entries.length - 1)] ?? panelRef.current;
+    target?.focus();
+    setFocusAfterRemoval(null);
+  }, [focusAfterRemoval]);
+
+  function deleteSaved(name: string) {
+    setFocusAfterRemoval({ section: 'saved', index: saved.findIndex((item) => item.name === name) });
+    onDeleteSaved(name);
+  }
+
+  function removeRecent(query: string) {
+    setFocusAfterRemoval({ section: 'recent', index: recent.findIndex((item) => item.query === query) });
+    onRemoveRecent(query);
+  }
+
+  function clearRecent() {
+    setFocusAfterRemoval({ section: 'recent', index: 0 });
+    onClearRecent();
+  }
 
   async function copyQuery(query: string) {
     try {
@@ -92,12 +119,19 @@ export function QueryLibraryPanel({
       onClose();
       return;
     }
-    if ((event.target as HTMLElement).closest('form')) return;
+    if ((event.target as HTMLElement).closest('.query-save-form')) return;
     moveFocusAmongEntries(event, '[data-query-entry]');
   }
 
   return (
-    <div aria-label="Queries" className="query-panel query-library" onKeyDown={handleKeyDown} role="region">
+    <div
+      aria-label="Queries"
+      className="query-panel query-library"
+      onKeyDown={handleKeyDown}
+      ref={panelRef}
+      role="region"
+      tabIndex={-1}
+    >
       {saveDraft !== null && (
         <SaveQueryForm
           existingNames={saved.map((item) => item.name)}
@@ -106,7 +140,7 @@ export function QueryLibraryPanel({
           query={saveDraft}
         />
       )}
-      <section className="query-library-section">
+      <section className="query-library-section" data-query-section="saved">
         <QuerySectionHeader count={saved.length} icon={<Bookmark aria-hidden="true" size={14} strokeWidth={2} />} title="Saved" />
         {saved.length === 0 ? (
           <QueryEmptyState hint="Run a search, then choose Save query to keep it here." title="No saved queries" />
@@ -125,7 +159,7 @@ export function QueryLibraryPanel({
                 <QueryEntryAction label={`Copy ${item.name}`} onClick={() => void copyQuery(item.query)}>
                   <Copy aria-hidden="true" size={14} strokeWidth={2} />
                 </QueryEntryAction>
-                <QueryEntryAction label={`Delete saved query ${item.name}`} onClick={() => onDeleteSaved(item.name)}>
+                <QueryEntryAction label={`Delete saved query ${item.name}`} onClick={() => deleteSaved(item.name)}>
                   <Trash2 aria-hidden="true" size={14} strokeWidth={2} />
                 </QueryEntryAction>
               </QueryEntry>
@@ -133,10 +167,10 @@ export function QueryLibraryPanel({
           </ul>
         )}
       </section>
-      <section className="query-library-section">
+      <section className="query-library-section" data-query-section="recent">
         <QuerySectionHeader
           action={recent.length > 0 && (
-            <button aria-label="Clear recent queries" className="text-button" onClick={onClearRecent} type="button">Clear</button>
+            <button aria-label="Clear recent queries" className="text-button" onClick={clearRecent} type="button">Clear</button>
           )}
           count={recent.length}
           icon={<History aria-hidden="true" size={14} strokeWidth={2} />}
@@ -161,7 +195,7 @@ export function QueryLibraryPanel({
                 <QueryEntryAction label={`Save ${item.query}`} onClick={() => onStartSave(item.query)}>
                   <BookmarkPlus aria-hidden="true" size={14} strokeWidth={2} />
                 </QueryEntryAction>
-                <QueryEntryAction label={`Remove ${item.query} from Recent`} onClick={() => onRemoveRecent(item.query)}>
+                <QueryEntryAction label={`Remove ${item.query} from Recent`} onClick={() => removeRecent(item.query)}>
                   <X aria-hidden="true" size={14} strokeWidth={2} />
                 </QueryEntryAction>
               </QueryEntry>
@@ -265,7 +299,9 @@ interface SaveQueryFormProps {
 function SaveQueryForm({ query, existingNames, onSave, onCancel }: SaveQueryFormProps) {
   const [name, setName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => inputRef.current?.focus(), [query]);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  // Focus lands in the save state, so Escape reaches it and leaves only that state.
+  useEffect(() => (inputRef.current ?? closeButtonRef.current)?.focus(), [query]);
   const trimmedName = name.trim();
   const isReplacing = existingNames.includes(trimmedName);
 
@@ -277,7 +313,7 @@ function SaveQueryForm({ query, existingNames, onSave, onCancel }: SaveQueryForm
   }
 
   // Escape leaves the form only; the panel stays open.
-  function cancelOnEscape(event: KeyboardEvent<HTMLFormElement>) {
+  function cancelOnEscape(event: KeyboardEvent<HTMLElement>) {
     if (event.key !== 'Escape') return;
     event.stopPropagation();
     onCancel();
@@ -285,9 +321,9 @@ function SaveQueryForm({ query, existingNames, onSave, onCancel }: SaveQueryForm
 
   if (!query.trim()) {
     return (
-      <div className="query-save-form">
+      <div className="query-save-form" onKeyDown={cancelOnEscape}>
         <QueryEmptyState hint="Add a filter or write a query, then save it." title="Nothing to save yet" />
-        <button className="button quiet" onClick={onCancel} type="button">Close</button>
+        <button className="button quiet" onClick={onCancel} ref={closeButtonRef} type="button">Close</button>
       </div>
     );
   }
