@@ -207,6 +207,7 @@ assert.match(footer, />Company</);
 assert.match(footer, />Legal</);
 assert.match(footer, /href="https:\/\/superdurable\.io\/dex-cloud\/"[^>]*>Dex Cloud</);
 assert.match(footer, /href="https:\/\/github\.com\/superdurable\/dex"[^>]*>GitHub</);
+assert.match(footer, /href="https:\/\/superdurable\.io\/dex-app-structure\/"[^>]*>App structure</);
 assert.doesNotMatch(footer, /Dex Engine|Sign up/);
 assert.match(footer, /href="\/quick-start\/"/);
 assert.match(footer, /href="https:\/\/superdurable\.io\/about\/#contact"/);

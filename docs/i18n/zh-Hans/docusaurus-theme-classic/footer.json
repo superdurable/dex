@@ -31,6 +31,10 @@
     "message": "快速开始",
     "description": "The label of footer link with label=Quick start linking to /quick-start"
   },
+  "link.item.label.App structure": {
+    "message": "应用结构",
+    "description": "The label of footer link with label=App structure linking to https://superdurable.io/dex-app-structure/"
+  },
   "link.item.label.GitHub": {
     "message": "GitHub",
     "description": "The label of footer link with label=GitHub linking to https://github.com/superdurable/dex"
