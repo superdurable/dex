@@ -41,12 +41,14 @@ public enum StopType {
      * adds its output to the results. The server ignores the reason.
      *
      * <pre>{@code
+     * import java.util.Collections;
+     *
      * client.stopFlow(
      *         "session-42",
      *         new StopFlowOptions(
      *                 StopType.GRACEFUL_COMPLETE,
      *                 null,
-     *                 Map.of("summary", "user ended the session")));
+     *                 Collections.singletonMap("summary", "user ended the session")));
      * }</pre>
      *
      * <p>It requires Dex Server 0.1.34 or newer. Older servers reject it with an invalid argument

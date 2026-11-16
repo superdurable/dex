@@ -21,6 +21,7 @@ import {
   InitialAttribute,
   Registry,
   StepList,
+  StopType,
   SubFlow,
   ValueMappingError,
   Wait,
@@ -325,6 +326,25 @@ test("Client negotiates lazily once before any startFlow write", async () => {
     assert.equal(writes.get("api-key")?.isHardDeleteOnNull, true);
     assert.equal(writes.get("tokens/billing")?.isHardDeleteOnNull, true);
     assert.equal(writes.get("plain")?.isHardDeleteOnNull, false);
+  } finally {
+    await client.close();
+    await fake.close();
+  }
+});
+
+test("stopFlow rejects an output with CANCEL before contacting the server", async () => {
+  const flow = new HardDeleteUnitFlow(new HardDeleteChildFlow());
+  const fake = await startFakeFlowService(4);
+  const client = new Client(new Registry([flow, flow.child]), new MemoryBlobCache(), {
+    serverAddress: fake.address,
+  });
+  try {
+    await assert.rejects(
+      client.stopFlow("flow", { type: StopType.CANCEL, output: "output" }),
+      (failure: unknown) =>
+        failure instanceof TypeError && failure.message.includes("StopFlowOptions.output requires"),
+    );
+    assert.deepEqual(fake.calls, []);
   } finally {
     await client.close();
     await fake.close();
