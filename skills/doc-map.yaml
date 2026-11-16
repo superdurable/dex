@@ -180,6 +180,7 @@ unmapped:
   # Operations guides for people running Dex; the Skills cover code, not hosting choices or deploy runbooks.
   - docs/content/components/dex-cloud.mdx
   - docs/content/components/managed-dex-app.mdx
+  - docs/content/components/dex-app-manifest.mdx
   - docs/content/components/self-host.mdx
   - docs/content/components/operate-and-debug.mdx
   - docs/content/concepts/change-flow-code.mdx
