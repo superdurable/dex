@@ -28,10 +28,26 @@ vi.mock('./useAgentSession', () => ({
     loadEarlierMessages: vi.fn(),
   }),
 }));
-/** The protocol version a re-read of the server reports; a test may lower it after the page loads. */
-const serverProtocol = { version: 6 };
+/**
+ * The protocol a re-read of the server reports, as the provider does: each read knows whether it is the newest.
+ * With isHolding, reads wait in pending until a test answers them, in any order.
+ */
+const serverProtocol = {
+  version: 6,
+  isHolding: false,
+  pending: [] as ((version: number) => void)[],
+  latestRead: 0,
+  read() {
+    const readNumber = ++serverProtocol.latestRead;
+    const answer = (version: number) => ({ version, isLatest: () => readNumber === serverProtocol.latestRead });
+    if (!serverProtocol.isHolding) return Promise.resolve(answer(serverProtocol.version));
+    return new Promise<ReturnType<typeof answer>>((resolveRead) => {
+      serverProtocol.pending.push((version) => resolveRead(answer(version)));
+    });
+  },
+};
 vi.mock('../catalog/WebCatalogProvider', () => ({
-  useWebCatalog: () => ({ revisionFor: () => '', refreshServerProtocolVersion: async () => serverProtocol.version }),
+  useWebCatalog: () => ({ revisionFor: () => '', refreshServerProtocolVersion: () => serverProtocol.read() }),
 }));
 
 afterEach(() => {
@@ -744,6 +760,24 @@ describe('SessionView fork', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     } finally {
       serverProtocol.version = 6;
+    }
+  });
+
+  it('opens no fork dialog when an older read of 6 answers after a newer read of 5', async () => {
+    loaded = sessionOf({ latestTurnEndEventId: '14', items: [agentMessage(3, 'turn-1', '14')] });
+    renderForkable();
+    serverProtocol.isHolding = true;
+    try {
+      fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
+      fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
+      const [olderRead, newerRead] = serverProtocol.pending;
+      newerRead(5);
+      olderRead(6);
+      await act(async () => { await new Promise((settled) => setTimeout(settled, 0)); });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      serverProtocol.isHolding = false;
+      serverProtocol.pending = [];
     }
   });
 

@@ -8,7 +8,7 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, configure, within, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, configure, within, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
@@ -397,6 +397,8 @@ describe('clone fork on the run page', () => {
       serverProtocolVersion?: number;
       /** A protocol a test changes after the page loads; it overrides serverProtocolVersion. */
       serverProtocol?: { version: number };
+      /** While isHolding, each GET /api/server-info waits in pending until a test answers it with a version. */
+      heldServerInfoReads?: { isHolding: boolean; pending: ((version: number) => void)[] };
       timeTravelRequests?: Record<string, unknown>[];
     } = {},
   ) {
@@ -411,6 +413,12 @@ describe('clone fork on the run page', () => {
       const url = new URL(input, 'http://dex.test');
       if (url.pathname === '/api/flow-definition-types') return json({ configured: true, operatorAPI: true, flowTypes: [{ flowType: 'OrderFlow', source: 'directory' }] });
       if (url.pathname === '/api/server-info') {
+        const heldReads = options.heldServerInfoReads;
+        if (heldReads?.isHolding) {
+          return new Promise<Response>((resolveRead) => {
+            heldReads.pending.push((version) => resolveRead(json({ serverEngine: 'zd', currentProtocolVersion: version })));
+          });
+        }
         return json({ serverEngine: 'zd', currentProtocolVersion: options.serverProtocol?.version ?? options.serverProtocolVersion ?? 6 });
       }
       if (url.pathname === '/api/flow-definitions/by-type') return json({ flowType: 'OrderFlow', definitions: [], v2: { flowType: 'OrderFlow', definition: { actions: [], display: { fields: [] } } } });
@@ -554,6 +562,33 @@ describe('clone fork on the run page', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Time travel' }));
     await waitFor(() => expect(timeTravelRequests).toHaveLength(1));
     expect(timeTravelRequests[0]).toMatchObject({ subFlowResetPolicy: 4 });
+  });
+
+  it('opens no Clone fork dialog when an older read of 6 answers after a newer read of 5', async () => {
+    const heldServerInfoReads = { isHolding: false, pending: [] as ((version: number) => void)[] };
+    cloneForkDex({}, { heldServerInfoReads });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Clone fork/ }));
+    // The first dialog proves the page is ready; close it and hold the next reads.
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' })).getByRole('button', { name: 'Cancel' }));
+
+    heldServerInfoReads.isHolding = true;
+    fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Clone fork/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Clone fork/ }));
+    await waitFor(() => expect(heldServerInfoReads.pending).toHaveLength(2));
+    const [olderRead, newerRead] = heldServerInfoReads.pending;
+    await act(async () => {
+      newerRead(5);
+      await new Promise((settled) => setTimeout(settled, 0));
+      olderRead(6);
+      await new Promise((settled) => setTimeout(settled, 0));
+    });
+    expect(screen.queryByRole('dialog', { name: 'Clone fork to a new Flow' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
+    expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
   });
 
   it('reads the server protocol again when a dialog opens and follows a rollback to 5', async () => {

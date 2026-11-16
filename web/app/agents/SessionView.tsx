@@ -77,10 +77,10 @@ export function SessionView({
   /** The point is pinned when a fork action is clicked; later reads never move it. */
   const [fork, setFork] = useState<PinnedSessionFork | null>(null);
   const { revisionFor, refreshServerProtocolVersion } = useWebCatalog();
-  /** Opens the fork dialog once the server, read again now, still supports clone fork. */
+  /** Opens the fork dialog when the newest read of the server protocol still supports clone fork. */
   const openFork = (pinnedFork: PinnedSessionFork) => {
-    void refreshServerProtocolVersion().then((version) => {
-      if (supportsRunHistoryForks(version)) setFork(pinnedFork);
+    void refreshServerProtocolVersion().then((read) => {
+      if (read.isLatest() && supportsRunHistoryForks(read.version)) setFork(pinnedFork);
     });
   };
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);

@@ -80,7 +80,7 @@ import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { DesignCanvasErrorBoundary } from '../design/DesignCanvasErrorBoundary';
 import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostics';
-import { useFlowTypeDefinitions, useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
+import { useFlowTypeDefinitions, useOptionalWebCatalog, type ServerProtocolRead } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { FLOWS_PATH, RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
@@ -945,7 +945,7 @@ export function RunDetailsPage({
   const canUseOperatorAPI = webCatalog?.canUseOperatorAPI ?? false;
   const refreshServerProtocolVersion = webCatalog?.refreshServerProtocolVersion;
   /** Reads the server protocol again before a dialog whose options depend on it; null without a Dex server to ask. */
-  const refreshProtocolBeforeDialog = useCallback((): Promise<number> | null => (
+  const refreshProtocolBeforeDialog = useCallback((): Promise<ServerProtocolRead> | null => (
     canUseOperatorAPI && refreshServerProtocolVersion ? refreshServerProtocolVersion() : null
   ), [canUseOperatorAPI, refreshServerProtocolVersion]);
 
@@ -955,8 +955,14 @@ export function RunDetailsPage({
       setTimeTravelOpen(true);
     };
     const refresh = refreshProtocolBeforeDialog();
-    if (refresh) void refresh.then(open);
-    else open();
+    if (!refresh) {
+      open();
+      return;
+    }
+    // Only the newest read opens a dialog, so its options match the version on screen.
+    void refresh.then((read) => {
+      if (read.isLatest()) open();
+    });
   }, [refreshProtocolBeforeDialog]);
 
   const closeTimeTravel = useCallback(() => {
@@ -965,9 +971,9 @@ export function RunDetailsPage({
   }, []);
 
   const openCloneFork = useCallback((event: FlowHistoryEvent | null) => {
-    // An older server hides the action, so the dialog stays closed.
-    void (refreshProtocolBeforeDialog() ?? Promise.resolve(0)).then((version) => {
-      if (!supportsRunHistoryForks(version)) return;
+    // An older server or a superseded read leaves the dialog closed.
+    void refreshProtocolBeforeDialog()?.then((read) => {
+      if (!read.isLatest() || !supportsRunHistoryForks(read.version)) return;
       setCloneForkEvent(event);
       setCloneForkOpen(true);
     });
