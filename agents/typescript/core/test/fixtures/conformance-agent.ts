@@ -6,7 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import type {
   DeferredToolExecution,
@@ -16,7 +19,7 @@ import type {
 } from "../../src/agent-framework-runner.js";
 import { createAgentSessionFlow, type AgentSessionFlow, type AgentSessionOptions } from "../../src/agent-session-flow.js";
 import { BuiltinLoopAgentRunner, functionTool, type AgentDefinition, type ModelRequest } from "../../src/builtin-loop/index.js";
-import { ScriptedModelClient, type ScriptedModelReply } from "../../src/testing/index.js";
+import { FileGate, ScriptedModelClient, type ScriptedModelReply } from "../../src/testing/index.js";
 import { readConformanceJson } from "./conformance-suite.js";
 
 // The same agent as the Python core's tests/conformance_agent.py; see that module for the reply rules.
@@ -24,7 +27,14 @@ import { readConformanceJson } from "./conformance-suite.js";
 export interface ScriptedReply {
   readonly text?: string;
   readonly reasoning?: string;
-  readonly tool_calls?: readonly { readonly tool_name: string; readonly arguments: Readonly<Record<string, unknown>> }[];
+  readonly tool_calls?: readonly ScriptedReplyToolCall[];
+}
+
+/** A scripted tool call; with `gate`, the call waits at that FileGate in the gate directory before it runs. */
+export interface ScriptedReplyToolCall {
+  readonly tool_name: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+  readonly gate?: string;
 }
 
 export interface ConformanceScenario {
@@ -45,9 +55,26 @@ export function readConformanceScenarios(): ConformanceScenario[] {
 }
 
 class ConformanceRunner extends BuiltinLoopAgentRunner {
+  public constructor(
+    definition: AgentDefinition,
+    private readonly gateDirectory: string,
+    private readonly gatedCalls: readonly ScriptedReplyToolCall[],
+  ) {
+    super(definition);
+  }
+
   public override async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     if (call.toolCall.toolName === "start_report") {
       return { kind: "tool_task_started", taskId: `task-${call.toolCall.toolCallId}`, pollIntervalSeconds: 1 };
+    }
+    const callArguments: unknown = JSON.parse(call.toolCall.arguments);
+    for (const gated of this.gatedCalls) {
+      if (gated.gate !== undefined && gated.tool_name === call.toolCall.toolName &&
+        isDeepStrictEqual(gated.arguments, callArguments)) {
+        const gate = new FileGate(this.gateDirectory, gated.gate);
+        gate.markReached();
+        await gate.waitForRelease();
+      }
     }
     return super.executeDeferredToolCall(call);
   }
@@ -62,6 +89,8 @@ export interface ConformanceAgents {
   readonly flows: Readonly<Record<keyof typeof conformanceFlowTypes, AgentSessionFlow<BuiltinLoopAgentRunner>>>;
   /** Model requests in the transcript's form, by session Flow ID. */
   readonly modelRequests: Map<string, unknown[]>;
+  /** Directory of the FileGates that gated tool calls wait at. */
+  readonly gateDirectory: string;
 }
 
 export function createConformanceAgents(): ConformanceAgents {
@@ -74,6 +103,10 @@ export function createConformanceAgents(): ConformanceAgents {
       replies.set(userText, scripted);
     }
   }
+  const gatedCalls = [...replies.values()].flatMap((scripted) =>
+    scripted.flatMap((reply) => (reply.tool_calls ?? []).filter((call) => call.gate !== undefined)),
+  );
+  const gateDirectory = mkdtempSync(join(tmpdir(), "conformance-gates-"));
   const modelRequests = new Map<string, unknown[]>();
   const model = new ScriptedModelClient((request) => {
     const { flowId, ...described } = describeModelRequest(request);
@@ -144,9 +177,13 @@ export function createConformanceAgents(): ConformanceAgents {
       planModeEnabled: true,
       ...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
     };
-    return createAgentSessionFlow(new ConformanceRunner(definition), conformanceFlowTypes[profile], options);
+    return createAgentSessionFlow(
+      new ConformanceRunner(definition, gateDirectory, gatedCalls),
+      conformanceFlowTypes[profile],
+      options,
+    );
   };
-  return { flows: { chat: createFlow("chat"), compacting: createFlow("compacting") }, modelRequests };
+  return { flows: { chat: createFlow("chat"), compacting: createFlow("compacting") }, modelRequests, gateDirectory };
 }
 
 function toScriptedModelReply(scripted: ScriptedReply): ScriptedModelReply {

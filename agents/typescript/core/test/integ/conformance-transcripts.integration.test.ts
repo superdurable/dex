@@ -16,6 +16,7 @@ import { encodeAgentSnapshot } from "../../src/agent-session-codecs.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
+  FileGate,
   PrivateDexEngine,
   executeCompletedEvent,
   pollUntil,
@@ -105,6 +106,21 @@ describe("the conformance suite's scripted-turn transcripts", () => {
         return sessions.steerUserMessage(sessionId, action["text"] as string);
       case "execute_plan":
         return sessions.executePlan(sessionId, action["revision"] as number);
+      case "wait_for_gate":
+        await new FileGate(agents.gateDirectory, action["gate"] as string).waitUntilReached();
+        return undefined;
+      case "release_gate":
+        new FileGate(agents.gateDirectory, action["gate"] as string).release();
+        return undefined;
+      case "wait_for_queued_messages": {
+        const count = action["count"] as number;
+        const snapshot = await sessions.waitForAgentSnapshot(
+          sessionId,
+          (candidate) => candidate.queuedMessageCount >= count,
+          `${count} queued messages`,
+        );
+        return snapshot.queuedMessageCount;
+      }
       case "graceful_complete":
         await environment.client.stopFlow(sessionId, { type: StopType.GRACEFUL_COMPLETE });
         return undefined;

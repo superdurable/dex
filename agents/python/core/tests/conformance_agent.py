@@ -12,7 +12,9 @@ Every core builds the same agent from ``agents/conformance/transcripts``. The
 model answers from the scenarios' ``replies``: the key is the request's last
 user text, and the reply index advances by each reply's tool call count as
 the tool results arrive. ``start_report`` starts a remote task that the first
-poll finishes. Every model request is appended to ``model-requests.jsonl``.
+poll finishes. A scripted tool call with ``gate`` waits at that ``FileGate`` in
+the state directory before it runs. Every model request is appended to
+``model-requests.jsonl``.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +48,12 @@ from dex_agents.builtin_loop import (
     builtin_agent_session_options,
     function_tool,
 )
-from dex_agents.testing import ScriptedModelClient, ScriptedModelReply, ScriptedToolCall
+from dex_agents.testing import (
+    FileGate,
+    ScriptedModelClient,
+    ScriptedModelReply,
+    ScriptedToolCall,
+)
 
 TRANSCRIPTS_DIR = Path(__file__).resolve().parents[3] / "conformance" / "transcripts"
 STATE_DIR_ENVIRONMENT_VARIABLE = "CONFORMANCE_AGENT_STATE_DIR"
@@ -75,14 +83,46 @@ def read_replies() -> dict[str, list[dict[str, Any]]]:
     return replies
 
 
+@dataclass(frozen=True)
+class GatedToolCall:
+    """A scripted tool call that waits at the ``FileGate`` named ``gate`` before it runs."""
+
+    tool_name: str
+    arguments: Mapping[str, Any]
+    gate: str
+
+
+def read_gated_tool_calls() -> list[GatedToolCall]:
+    return [
+        GatedToolCall(call["tool_name"], call["arguments"], call["gate"])
+        for scripted in read_replies().values()
+        for reply in scripted
+        for call in reply.get("tool_calls", [])
+        if "gate" in call
+    ]
+
+
 class ConformanceRunner(BuiltinLoopAgentRunner):
     """Stepwise, plus ``start_report``, which starts a task the first poll finishes."""
+
+    def __init__(
+        self, definition: AgentDefinition, state_dir: Path, gated_calls: list[GatedToolCall]
+    ) -> None:
+        super().__init__(definition)
+        self._state_dir = state_dir
+        self._gated_calls = gated_calls
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         if call.tool_call.tool_name == "start_report":
             return ToolTaskStarted(
                 task_id=f"task-{call.tool_call.tool_call_id}", poll_interval_seconds=1
             )
+        arguments = json.loads(call.tool_call.arguments)
+        for gated in self._gated_calls:
+            if gated.tool_name == call.tool_call.tool_name and gated.arguments == arguments:
+                gate = FileGate(self._state_dir, gated.gate)
+                gate.mark_reached()
+                await gate.wait_for_release()
         return await super().execute_deferred_tool_call(call)
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
@@ -119,6 +159,7 @@ def build_conformance_flows(state_dir: Path) -> list[AgentSessionFlow]:
             index += 1
         return scripted_reply(scripted[index])
 
+    gated_calls = read_gated_tool_calls()
     flows = []
     for profile, flow_type in FLOW_TYPES.items():
         definition = AgentDefinition(
@@ -132,7 +173,7 @@ def build_conformance_flows(state_dir: Path) -> list[AgentSessionFlow]:
         )
         flows.append(
             AgentSessionFlow(
-                ConformanceRunner(definition),
+                ConformanceRunner(definition, state_dir, gated_calls),
                 flow_type=flow_type,
                 options=builtin_agent_session_options(definition),
             )

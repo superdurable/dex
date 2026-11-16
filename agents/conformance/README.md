@@ -248,11 +248,15 @@ The agent, as built in
   scenarios' `replies`, keyed by the request's last user text. The reply
   index advances past each reply's tool call count as tool results arrive.
   Tool call IDs keep the default `<step_execution_id>-<index>`.
+- A scripted tool call with `gate` waits at the file gate of that name before
+  it runs, until the scenario's `release_gate` action.
 
 Actions are `start_session`, `send_user_message`, `resolve_interrupt`,
 `answer_question`, `steer_user_message`, `execute_plan`, `snapshot` (stores
 the `get_agent_snapshot` output under a label), `wait_for_idle`,
-`wait_for_interrupt`, `graceful_complete` (`StopFlow` with graceful
+`wait_for_interrupt`, `wait_for_queued_messages` (returns the queued message
+count once it reaches `count`), `wait_for_gate` and `release_gate` (for a
+scripted tool call with `gate`), `graceful_complete` (`StopFlow` with graceful
 complete), and `wait_for_flow_closed` (returns the closed Flow's status in
 lowercase, such as `completed`). An action with `returns` must return that
 value.

@@ -1,6 +1,6 @@
 {
   "name": "graceful_complete",
-  "description": "A graceful complete request ends the session once the running turn and the message queued before it finish.",
+  "description": "A graceful complete request that arrives while a tool call runs and a message is queued ends the session once that turn and the queued message's turn finish.",
   "agent": "chat",
   "replies": {
     "Where is order 9?": [
@@ -10,7 +10,8 @@
             "tool_name": "lookup_order",
             "arguments": {
               "query": "9"
-            }
+            },
+            "gate": "graceful-complete-lookup"
           }
         ]
       },
@@ -34,12 +35,25 @@
       "returns": true
     },
     {
+      "action": "wait_for_gate",
+      "gate": "graceful-complete-lookup"
+    },
+    {
       "action": "send_user_message",
       "text": "Thanks, that is all.",
       "returns": true
     },
     {
+      "action": "wait_for_queued_messages",
+      "count": 1,
+      "returns": 1
+    },
+    {
       "action": "graceful_complete"
+    },
+    {
+      "action": "release_gate",
+      "gate": "graceful-complete-lookup"
     },
     {
       "action": "wait_for_flow_closed",

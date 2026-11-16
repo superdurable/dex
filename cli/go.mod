@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	github.com/superdurable/dex/sdk-go v1.45.1-0.20261112014933-d42ec7ae6850
+	github.com/superdurable/dex/sdk-go v1.45.6
 	github.com/superdurable/dex/web v0.0.0
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/tools v0.49.0

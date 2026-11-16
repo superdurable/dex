@@ -114,9 +114,13 @@ await client.stop_flow("session-42", StopFlowOptions(type=StopType.GRACEFUL_COMP
 - User messages queued before the request still run their turns. Then the
   session Flow completes at its next wait for a user message.
 - Servers before 0.1.34 reject the request as an invalid argument.
-- Send it only after every Worker of the session's Flow type runs 0.6.14 or
-  later. A session that an earlier Worker serves can retry its wait for a
-  user message instead of completing.
+- It ends a session whose idle wait for a user message a Worker at 0.6.14 or
+  later registered on server-zd 0.1.34 or later. A session idle since before
+  the upgrade keeps waiting. It completes this way after its next turn
+  returns it to the idle wait. Cancel it to end it sooner.
+- Upgrade every Worker of the session's Flow type to 0.6.14 or later before
+  you send it. A session that an earlier Worker serves can retry its wait for
+  a user message instead of completing.
 - The other stop types end the session at once, also during a turn.
 
 ## Built-in agent loop

@@ -13,8 +13,9 @@ from __future__ import annotations
 from dex import FlowStatus, StopFlowOptions, StopType
 
 from dex_agents import MessageRole
-from dex_agents.testing import FileGate, wait_until
+from dex_agents.testing import WAIT_FOR_COMPLETED_EVENT, FileGate, wait_until
 from tests.conftest import ScriptedAgentHarness
+from tests.scripted_agent import WITHOUT_GRACEFUL_COMPLETION_CONDITION_ENVIRONMENT_VARIABLE
 
 
 async def test_a_tool_that_stops_its_own_session_completes_it_after_the_turn(
@@ -83,6 +84,52 @@ async def test_without_a_request_the_session_keeps_waiting_for_messages(
     snapshot = await harness.wait_for_turns(session_id, 2)
     assert snapshot.messages[-1].text == "said: two"
     assert (await harness.stack.client.describe_flow(session_id)).status is FlowStatus.RUNNING
+
+
+async def test_a_session_idle_since_before_the_upgrade_completes_after_its_next_turn(
+    harness: ScriptedAgentHarness,
+) -> None:
+    earlier_worker = await harness.stack.start_worker(
+        {WITHOUT_GRACEFUL_COMPLETION_CONDITION_ENVIRONMENT_VARIABLE: "1"}
+    )
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "say before")
+    await harness.wait_for_turns(session_id, 1)
+    await wait_until(
+        "the idle wait without the graceful completion condition",
+        lambda: _has_completed_wait_for(harness, session_id, "AwaitUserMessage-1"),
+    )
+    earlier_worker.kill()
+    await harness.stack.start_worker()
+
+    await harness.stack.client.stop_flow(
+        session_id, StopFlowOptions(type=StopType.GRACEFUL_COMPLETE)
+    )
+    assert (await harness.stack.client.describe_flow(session_id)).status is FlowStatus.RUNNING
+    # The wait registered before the upgrade still takes this message, so the session is running.
+    assert await harness.sessions.send_user_message(session_id, "say after")
+
+    assert await _wait_for_closed_status(harness, session_id) is FlowStatus.COMPLETED
+    snapshot = await harness.sessions.get_agent_snapshot(session_id)
+    assert snapshot.state is not None
+    assert snapshot.state.turn_count == 2
+    assert [(message.role, message.text) for message in snapshot.messages] == [
+        (MessageRole.USER, "say before"),
+        (MessageRole.ASSISTANT, "said: before"),
+        (MessageRole.USER, "say after"),
+        (MessageRole.ASSISTANT, "said: after"),
+    ]
+
+
+async def _has_completed_wait_for(
+    harness: ScriptedAgentHarness, session_id: str, step_execution_id: str
+) -> bool:
+    history = await harness.stack.read_step_history(session_id)
+    return any(
+        entry.step_execution_id == step_execution_id
+        and entry.event_type == WAIT_FOR_COMPLETED_EVENT
+        for entry in history
+    )
 
 
 async def _wait_for_closed_status(harness: ScriptedAgentHarness, session_id: str) -> FlowStatus:

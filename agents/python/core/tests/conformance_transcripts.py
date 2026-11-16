@@ -31,6 +31,7 @@ from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     WAIT_FOR_COMPLETED_EVENT,
     AgentTestStack,
+    FileGate,
     wait_for_agent_snapshot,
     wait_until,
 )
@@ -98,7 +99,7 @@ async def run_scenario(
     session_id = f"conformance-{scenario['name']}"
     snapshots: dict[str, Any] = {}
     for action in scenario["actions"]:
-        result = await run_action(stack, sessions, session_id, action, snapshots)
+        result = await run_action(stack, sessions, session_id, action, snapshots, agent_state_dir)
         if "returns" in action:
             assert result == action["returns"], f"{scenario['name']}: {action} returned {result}"
     steps, events = await read_settled_history(stack, flow, session_id)
@@ -120,8 +121,24 @@ async def run_action(
     session_id: str,
     action: dict[str, Any],
     snapshots: dict[str, Any],
+    agent_state_dir: Path,
 ) -> Any:
     kind = action["action"]
+    if kind == "wait_for_gate":
+        await FileGate(agent_state_dir, action["gate"]).wait_until_reached()
+        return None
+    if kind == "release_gate":
+        FileGate(agent_state_dir, action["gate"]).release()
+        return None
+    if kind == "wait_for_queued_messages":
+        count = action["count"]
+        snapshot = await wait_for_agent_snapshot(
+            sessions,
+            session_id,
+            lambda snapshot: snapshot if snapshot.queued_message_count >= count else None,
+            description=f"{count} queued messages",
+        )
+        return snapshot.queued_message_count
     if kind == "graceful_complete":
         await stack.client.stop_flow(session_id, StopFlowOptions(type=StopType.GRACEFUL_COMPLETE))
         return None

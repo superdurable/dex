@@ -29,8 +29,7 @@ const (
 	holdTurnText                    = "hold the turn"
 )
 
-// A tool that stops its own session with GracefulComplete lets the turn finish, and the session
-// Flow then completes with the tool result and the final answer stored.
+// A tool's GracefulComplete stop lets its turn finish, then the session completes.
 func TestToolThatStopsItsOwnSessionCompletesItAfterTheTurn(t *testing.T) {
 	t.Parallel()
 	stack, _ := newGracefulCompletionStack(t)
