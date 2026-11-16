@@ -27,6 +27,8 @@ from dex import (
     Registry,
     RequestTimeoutError,
     StepExecutionId,
+    StopFlowOptions,
+    StopType,
     WaitForStepCompletionOptions,
 )
 from dex._server_protocol import negotiate_server_protocol
@@ -191,6 +193,28 @@ async def _unreachable_server_raises_service_error(is_async: bool) -> None:
                 await health_check(client)
             assert failure.value.code is grpc.StatusCode.UNAVAILABLE
             assert "incompatible" not in str(failure.value)
+    finally:
+        await close_client(client)
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_stop_output_with_cancel_fails_before_contacting_server(is_async: bool) -> None:
+    asyncio.run(_stop_output_with_cancel_fails_before_contacting_server(is_async))
+
+
+async def _stop_output_with_cancel_fails_before_contacting_server(
+    is_async: bool,
+) -> None:
+    client = create_client(is_async, 1)
+    options = StopFlowOptions(type=StopType.CANCEL, output="output")
+    try:
+        started_at = time.monotonic()
+        with pytest.raises(ValueError, match="StopFlowOptions.output requires"):
+            if isinstance(client, AsyncClient):
+                await client.stop_flow("flow", options)
+            else:
+                client.stop_flow("flow", options)
+        assert time.monotonic() - started_at < 1
     finally:
         await close_client(client)
 

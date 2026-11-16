@@ -188,6 +188,22 @@ mod hard_delete {
     }
 
     #[test]
+    fn stop_flow_rejects_output_with_cancel_before_contacting_dex() {
+        let cache_directory = tempfile::tempdir().expect("blob cache directory");
+        let client = client_for("127.0.0.1:1", &cache_directory);
+        let started_at = std::time::Instant::now();
+        let result = client.stop_flow(
+            "flow-1",
+            crate::StopFlowOptions::cancel().output("output".to_string()),
+        );
+        let Err(SdkError::InvalidArgument { message }) = result else {
+            panic!("expected a local InvalidArgument, got {result:?}");
+        };
+        assert!(message.contains("StopFlowOptions::output requires"));
+        assert!(started_at.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
     fn start_flow_negotiates_once_and_rejects_hard_delete_writes_to_old_servers() {
         let runtime = tokio::runtime::Runtime::new().expect("server runtime");
         let listener = runtime

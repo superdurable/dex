@@ -18,10 +18,9 @@ use dex_protocol::dex::{
     FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
     GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest,
     ListStreamMessagesRequest, ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest,
-    SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
-    StopType as ProtoStopType, UpdateFlowConfigRequest, WaitForAttributeRequest,
-    WaitForFlowRequest, WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget,
-    WriteStreamRequest,
+    SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability,
+    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForFlowRequest,
+    WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
 };
 use tokio::runtime::Runtime;
 use tonic::{Code, Request};
@@ -42,7 +41,6 @@ pub use clone_fork_flow::{CloneForkFlowOptions, CloneForkFlowResult};
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
 use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
-use crate::stop_flow_options::StopType;
 use crate::time_travel_options::{SubFlowResetPolicy, TimeTravelPoint};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
@@ -644,35 +642,30 @@ impl Client {
         })
     }
 
-    /// Cancels, terminates, or fails an active Flow according to `options`.
+    /// Cancels, terminates, fails, or completes an active Flow according to `options`.
     ///
     /// Success acknowledges the stop request. Use [`Self::wait_for_flow`] to observe its terminal
     /// status. This does not stop the Worker or undo effects in an external service.
+    /// [`StopFlowOptions::graceful_complete`] and [`StopFlowOptions::force_complete`] complete the
+    /// Flow with [`StopFlowOptions::output`] as a result, like the graceful and force complete Step
+    /// decisions.
+    ///
+    /// Changed in 1.45.3: accepts [`StopFlowOptions::graceful_complete`],
+    /// [`StopFlowOptions::force_complete`], and [`StopFlowOptions::output`].
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::FlowNotActiveOrNotFound`] when no active run exists or another service error.
+    /// Returns [`SdkError::InvalidArgument`] without sending a request when `options` carries an
+    /// output for a stop type that does not complete the Flow, [`SdkError::ValueMapping`] when the
+    /// output could not be encoded, [`SdkError::FlowNotActiveOrNotFound`] when no active run exists,
+    /// or another service error.
     pub fn stop_flow(&self, flow_id: &str, options: StopFlowOptions) -> SdkResult<()> {
-        let stop_type = match options.stop_type {
-            StopType::Cancel => ProtoStopType::Cancel,
-            StopType::Terminate => ProtoStopType::Terminate,
-            StopType::Fail => ProtoStopType::Fail,
-        };
+        let request = options.into_request(flow_id)?;
         self.call_empty(
             "stop_flow",
             Some(flow_id),
             FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .stop_flow(StopFlowRequest {
-                        flow_id: flow_id.to_string(),
-                        run_id: String::new(),
-                        reason: options.reason.unwrap_or_default(),
-                        stop_type: stop_type as i32,
-                        output: None,
-                    })
-                    .await
-            },
+            |mut service| async move { service.stop_flow(request).await },
         )
     }
 

@@ -259,6 +259,18 @@ final class ServerProtocolCompatibilityTest {
     }
 
     @Test
+    void stopOutputWithANonCompleteTypeFailsBeforeContactingTheServer() throws Exception {
+        try (Client client = new Client(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache(),
+                new ClientOptions("127.0.0.1:1"))) {
+            final long startedAt = System.nanoTime();
+            final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                    () -> client.stopFlow("flow", new StopFlowOptions(StopType.CANCEL, null, "output")));
+            assertTrue(failure.getMessage().contains("StopFlowOptions output requires"));
+            assertTrue(System.nanoTime() - startedAt < TimeUnit.SECONDS.toNanos(1));
+        }
+    }
+
+    @Test
     void reportsNewerAndInvalidServerProtocolsWithoutClaimingAnOlderServer() {
         final IllegalStateException newer = assertThrows(IllegalStateException.class,
                 () -> ServerProtocolCompatibility.negotiate(ServerInfo.newBuilder().setServerVersion("next")
