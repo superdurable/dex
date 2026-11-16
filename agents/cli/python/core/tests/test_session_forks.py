@@ -11,21 +11,41 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pexpect
 import pytest
-from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob_cache
+from dex import (
+    AsyncClient,
+    AsyncWorker,
+    BlobCacheConfig,
+    ClientOptions,
+    PullWorkerOptions,
+    Registry,
+    WorkerOptions,
+    open_blob_cache,
+)
 
-from dex_agents import AGENT_STATE, SESSION_TERMINAL_LEASE, AgentSessionForkingFlow, AgentState
+from dex_agents import (
+    AGENT_STATE,
+    SESSION_TERMINAL_LEASE,
+    AgentSessionClient,
+    AgentSessionForkingFlow,
+    AgentState,
+)
+from dex_agents.testing import wait_until
 from dex_agents_cli_core.session_forks import (
     CHAT_FORK_USAGE_LINE,
     build_chat_fork_failure_line,
     build_fork_usage_error,
     build_forked_line,
+    build_open_failure_error,
     build_open_prompt,
     build_resume_hint,
     fork_task_queue,
@@ -36,7 +56,13 @@ from dex_agents_cli_core.session_forks import (
 )
 from dex_agents_cli_core.session_task_queues import session_task_queue
 from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
-from tests.scripted_harness import SCRIPTED_FLOW_TYPE
+from tests.scripted_harness import SCRIPTED_FLOW_TYPE, build_session_flow_without_tools
+from tests.test_session_task_queues import (
+    _exit_chat,
+    _new_environment,
+    _open_chat,
+    _start_legacy_session,
+)
 
 AGENTS_DIR = Path(__file__).resolve().parents[4]
 FIXTURE: dict[str, Any] = json.loads(
@@ -68,6 +94,7 @@ def test_the_cli_lines_match_the_shared_templates() -> None:
         "unsupported_server": unsupported_server_error(COMMAND),
         "other_harness": other_harness_fork_error("b-2", "Other", COMMAND),
         "missing_session": missing_session_error("b-2", COMMAND),
+        "open_failure": build_open_failure_error("b-2", "no"),
     }
     for name, line in rendered.items():
         assert line == CLI[name].format(**values), name
@@ -77,35 +104,135 @@ def test_the_cli_lines_match_the_shared_templates() -> None:
 
 @pytest.mark.parametrize("case", CLI["task_queues"], ids=lambda case: case["name"])
 def test_the_fork_task_queue_matches_the_shared_cases(case: dict[str, Any]) -> None:
-    assert session_task_queue(case["source_session_id"]) == case["source_task_queue"] or (
-        case["source_task_queue"] == ""
-    )
     assert (
-        fork_task_queue(case["source_session_id"], case["source_task_queue"], case["session_id"])
+        fork_task_queue(case["source_flow_type"], case["harness_flow_type"], case["session_id"])
         == case["expected_task_queue"]
     )
+
+
+async def test_a_harness_session_on_a_shared_queue_forks_onto_its_own_queue_and_opens(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    source_id = f"scripted-shared-{os.urandom(4).hex()}"
+    flow = build_session_flow_without_tools(SCRIPTED_FLOW_TYPE)
+    blob_cache = open_blob_cache(BlobCacheConfig(str(tmp_path / "shared-cache"), 64 * 1024 * 1024))
+    client = AsyncClient(
+        Registry([flow], allow_async_handlers=True),
+        blob_cache,
+        ClientOptions(server_address=cli_home.address),
+    )
+    # Another client's Worker on the default task queue; the command never pulls it for this type.
+    worker = AsyncWorker(
+        Registry([flow], allow_async_handlers=True),
+        blob_cache,
+        WorkerOptions(
+            server_address=cli_home.address,
+            pull=PullWorkerOptions(app_worker_id=f"shared-{os.urandom(3).hex()}"),
+        ),
+    )
+    serving = asyncio.create_task(worker.start())
+    try:
+        await worker.wait_pull_registered(timeout=30)
+        sessions = AgentSessionClient(client, flow)
+        await sessions.start_session(source_id, "first")
+        await wait_until(
+            "the shared-queue session's first turn",
+            lambda: _finished_turns(sessions, source_id, 1),
+            timeout=timedelta(seconds=60),
+        )
+    finally:
+        await worker.stop()
+        with contextlib.suppress(asyncio.CancelledError):
+            await serving
+        await client.close()
+        blob_cache.close()
+
+    forked = await asyncio.to_thread(cli_home.run, "fork", source_id)
+    assert forked.returncode == 0, forked.stderr
+    found = re.search(r"into session (\S+)\.", forked.stdout)
+    assert found is not None, forked.stdout
+    fork_id = found.group(1)
+    _, _, fork_queue = await _read_state(cli_home, tmp_path, fork_id)
+    assert fork_queue == session_task_queue(fork_id)
+
+    opened = cli_home.spawn("--resume", fork_id)
+    await expect(opened, f"Session {fork_id}")
+    await expect(opened, PROMPT)
+    opened.sendline("second")
+    await expect(opened, "echo: second")
+    await expect(opened, PROMPT)
+    opened.sendline("/exit")
+    assert await wait_for_exit(opened) == 0
+
+
+async def test_an_environment_hashed_session_forks_onto_its_queue_and_opens(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    environment = _new_environment(tmp_path, "legacy")
+    source_id = await _start_legacy_session(cli_home, tmp_path, environment)
+    chat, _ = await _open_chat(cli_home, *environment.arguments("--resume", source_id))
+    chat.sendline("first")
+    await expect(chat, "echo: first")
+    await expect(chat, PROMPT)
+    await _exit_chat(chat)
+
+    forked = await asyncio.to_thread(cli_home.run, *environment.arguments("fork", source_id))
+    assert forked.returncode == 0, forked.stderr
+    found = re.search(
+        rf"Forked session {source_id} after message 2 into session (\S+)\.", forked.stdout
+    )
+    assert found is not None, forked.stdout
+    fork_id = found.group(1)
+    fork_messages, _, fork_queue = await _read_state(
+        cli_home, tmp_path, fork_id, environment.legacy_flow_type
+    )
+    assert (fork_messages, fork_queue) == (3, "")
+
+    opened, opened_id = await _open_chat(cli_home, *environment.arguments("--resume", fork_id))
+    assert opened_id == fork_id
+    opened.sendline("second")
+    await expect(opened, "echo: second")
+    await expect(opened, PROMPT)
+    await _exit_chat(opened)
+
+
+async def _finished_turns(
+    sessions: AgentSessionClient, session_id: str, turn_count: int
+) -> AgentState | None:
+    stored = await sessions.get_agent_snapshot(session_id)
+    state = stored.state
+    is_done = state is not None and state.turn_count >= turn_count and not state.active_turn_id
+    return state if is_done else None
 
 
 def test_a_new_session_id_has_the_cli_format() -> None:
     assert _SESSION_ID.fullmatch(new_cli_session_id("builtin"))
 
 
-async def _read_state(cli_home: CliHome, tmp_path: Path, session_id: str) -> tuple[Any, ...]:
-    """Return the next message sequence, the lease, and the task queue; no Worker is needed."""
+async def _read_state(
+    cli_home: CliHome, tmp_path: Path, session_id: str, flow_type: str = SCRIPTED_FLOW_TYPE
+) -> tuple[Any, ...]:
+    """Return the next message sequence, the lease, and the task queue; no Worker is needed.
+
+    The session must have ``flow_type``.
+    """
     cache_dir = tmp_path / "reader-cache"
     cache_dir.mkdir(exist_ok=True)
     blob_cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 * 1024 * 1024))
     client = AsyncClient(
-        Registry([AgentSessionForkingFlow(SCRIPTED_FLOW_TYPE)], allow_async_handlers=True),
+        Registry([AgentSessionForkingFlow(flow_type)], allow_async_handlers=True),
         blob_cache,
         ClientOptions(server_address=cli_home.address),
     )
     try:
+        info = await client.describe_flow(session_id)
         stored = await client.get_attributes(session_id, AGENT_STATE, SESSION_TERMINAL_LEASE)
         flow_state = await client.get_flow_state(session_id)
     finally:
         await client.close()
         blob_cache.close()
+    assert info.flow_type == flow_type
     state: AgentState = stored[AGENT_STATE]
     return state.next_message_sequence, stored.get(SESSION_TERMINAL_LEASE), flow_state.task_queue
 

@@ -125,6 +125,7 @@ import {
   forkedLine,
   isYesAnswer,
   newCliSessionId,
+  openFailureError,
   openPrompt,
   parseForkMessageNumber,
   resumeHint,
@@ -547,8 +548,16 @@ export class AgentCliCommand {
       case "sessions":
         return this.listSessions(effective, loaded, server, connection);
       case "fork": {
-        this.forkedSessionId = await this.forkSession(effective, loaded, server, connection);
-        return this.forkedSessionId === undefined ? 0 : this.chatWithAgent(effective, loaded, server, connection);
+        const forkedSessionId = await this.forkSession(effective, loaded, server, connection);
+        if (forkedSessionId === undefined) {
+          return 0;
+        }
+        this.forkedSessionId = forkedSessionId;
+        try {
+          return await this.chatWithAgent(effective, loaded, server, connection);
+        } catch (error: unknown) {
+          throw withForkOpenFailure(forkedSessionId, error);
+        }
       }
       default:
         return this.chatWithAgent(effective, loaded, server, connection);
@@ -617,6 +626,7 @@ export class AgentCliCommand {
         forkCliSession(
           client,
           flows,
+          this.harness.flowType,
           sourceSessionId,
           newCliSessionId(this.harness.name),
           this.parsed.forkAfterMessage,
@@ -852,7 +862,10 @@ export class AgentCliCommand {
       try {
         session = await opener.describeOpenableSession(ended.switchSessionId);
       } catch (error: unknown) {
-        throw error instanceof UnopenableSessionError ? new UsageError(error.message) : error;
+        throw withForkOpenFailure(
+          ended.switchSessionId,
+          error instanceof UnopenableSessionError ? new UsageError(error.message) : error,
+        );
       }
       isResumed = true;
     }
@@ -917,6 +930,7 @@ export class AgentCliCommand {
           forkCliSession(
             opened.client,
             forkFlows,
+            this.harness.flowType,
             sessionId,
             newCliSessionId(this.harness.name),
             afterMessage,
@@ -1990,6 +2004,12 @@ async function describeEndedLease(opener: SessionOpener, sessionId: string): Pro
   return lease !== undefined && lease.holderId !== opener.holderId
     ? leaseLostLine(sessionId, describeLeaseHolder(lease))
     : leaseUnconfirmedLine(sessionId);
+}
+
+/** Returns `error` with a message that names the fork that exists but could not be opened, keeping its exit code. */
+function withForkOpenFailure(sessionId: string, error: unknown): Error {
+  const message = openFailureError(sessionId, describe(error));
+  return error instanceof UsageError ? new UsageError(message, { cause: error }) : new Error(message, { cause: error });
 }
 
 function newSessionId(harness: AgentHarness): string {

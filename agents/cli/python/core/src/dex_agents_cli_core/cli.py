@@ -152,6 +152,7 @@ from dex_agents_cli_core.session_forks import (
     SessionForkFailure,
     build_fork_usage_error,
     build_forked_line,
+    build_open_failure_error,
     build_open_prompt,
     build_resume_hint,
     fork_cli_session,
@@ -349,7 +350,10 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
                 if exit_code != 0 or not forked or not _ask_to_open(forked[0], harness):
                     return exit_code
                 opened = replace(arguments, command="run", resume_session_id=forked[0])
-                return server.run(_run(opened, loaded, environment, harness, log_path, server))
+                try:
+                    return server.run(_run(opened, loaded, environment, harness, log_path, server))
+                except (CommandError, CommandFailure, DexServerError) as error:
+                    raise type(error)(build_open_failure_error(forked[0], str(error))) from error
             case _:
                 return server.run(_run(arguments, loaded, environment, harness, log_path, server))
     except _InitCancelled as cancelled:
@@ -1144,11 +1148,19 @@ async def _run_plain_chat(
     lease = HeldSessionLease(session_worker.opener)
     resume_session_id = arguments.resume_session_id
     is_terminal_started = False
+    is_fork_opening = False
     try:
         while True:
-            session = await session_worker.open_session(resume_session_id)
+            try:
+                session = await session_worker.open_session(resume_session_id)
+                await _wait_for_session_lease(session, lease, environment)
+            except (CommandError, CommandFailure, DexServerError) as error:
+                if not is_fork_opening or resume_session_id is None:
+                    raise
+                raise type(error)(
+                    build_open_failure_error(resume_session_id, str(error))
+                ) from error
             session_id = session.session_id
-            await _wait_for_session_lease(session, lease, environment)
             for line in await session_worker.opener.complete_takeover(session_id):
                 print(line, file=sys.stderr)
             # The pull permit runs from the acquire on; it may end the lease during the takeover.
@@ -1179,6 +1191,7 @@ async def _run_plain_chat(
             await lease.release()
             lease = HeldSessionLease(session_worker.opener)
             resume_session_id = chat.switch_session_id
+            is_fork_opening = True
     finally:
         with contextlib.suppress(RuntimeError):
             terminal.stop()
@@ -1200,6 +1213,7 @@ def _chat_session_forker(
         return fork_cli_session(
             session_worker.client,
             flows,
+            session_worker.harness.flow_type,
             source_session_id,
             new_cli_session_id(session_worker.harness.name),
             after_message=after_message,
@@ -1977,6 +1991,7 @@ async def _fork_session(
         fork = await fork_cli_session(
             client,
             flows,
+            harness.flow_type,
             source_session_id,
             session_id,
             after_message=arguments.fork_after_message,

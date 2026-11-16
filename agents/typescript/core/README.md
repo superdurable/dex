@@ -1427,8 +1427,8 @@ await sendAgentUserMessage(client, flow, fork.sessionId, { text: "Try the other 
 - The fork deletes `SessionTerminalLease` and `SessionLastTerminalEnvironment` in the change that creates it, and
   never reuses a Flow ID. Pass `taskQueue` when Workers pick sessions by task queue.
 - A point inside a turn, during a running turn, before a turn that steering started, or beyond the retained
-  `AgentEvents` throws `AgentSessionForkError`, whose `code` names the rule. After the copy the fork must show no
-  running turn and exactly the kept messages; otherwise it is stopped and the call throws `session_changed`.
+  `AgentEvents` throws `AgentSessionForkError`, whose `code` names the rule, and creates nothing. The point fixes
+  the copied state, so the call returns once Dex created the fork.
 - The fork has no Flow history and no `AgentEvents` of the source.
 - Pass `createAgentSessionForkingFlow(flowType)` to fork from a Client that has no session Flow of that type.
 

@@ -13,7 +13,6 @@ import {
   IdReusePolicy,
   InitialAttribute,
   StepList,
-  StopType,
   TimeTravelStepMethod,
   TimeTravelType,
   type Attribute,
@@ -63,11 +62,10 @@ export type AgentSessionForkErrorCode =
   | "inside_turn"
   | "steered_turn"
   | "point_unavailable"
-  | "point_refused"
-  | "session_changed";
+  | "point_refused";
 
 /**
- * A session fork was refused; nothing was created, or the created fork was stopped.
+ * A session fork was refused before anything was created.
  *
  * The message is one sentence for the user.
  *
@@ -210,8 +208,8 @@ export function createAgentSessionForkingFlow(flowType: string): AgentSessionFor
  * `AgentEvents`, and the point must still be in the source run's history window. A message inside a turn, or one
  * whose next turn steering started, has no such point.
  *
- * After the copy, the new session's `AgentState` must show no running turn and exactly the kept messages. Otherwise
- * the new session is stopped and the call throws `session_changed`.
+ * The point fixes the copied state, so the call reads nothing of the new session after the copy. It returns once Dex
+ * created the new session.
  *
  * Changes the source received after the point are not copied, such as a settings update or a message queued while
  * it waited. Messages queued before the point and not yet taken by a turn are copied, so the new session runs them as
@@ -229,8 +227,8 @@ export function createAgentSessionForkingFlow(flowType: string): AgentSessionFor
  * @param sessionId - The new session's Flow ID. It must differ from the source.
  * @param options - The point, the task queue, and the request ID.
  * @returns The new session and the copied point.
- * @throws {AgentSessionForkError} When the point is not between turns, cannot be found, or Dex refuses it, or the
- * session changed during the fork.
+ * @throws {AgentSessionForkError} When the point is not between turns, cannot be found, or Dex refuses it. Nothing
+ * was created.
  * @throws {Error} When the server is older than server-zd 0.1.33, which has no clone fork. Nothing was created.
  * @throws {FlowAlreadyStartedError} When `sessionId` is in use.
  * @throws {FlowNotFoundError} When the source session does not exist.
@@ -266,7 +264,6 @@ export async function forkAgentSession(
     turnStarts,
   );
   const result = await cloneFork(client, flow, sourceSessionId, sessionId, point, options);
-  await requireForkBetweenTurns(client, flow, sourceSessionId, sessionId, point);
   return {
     sessionId,
     runId: result.runId,
@@ -448,33 +445,4 @@ async function cloneFork(
     }
     throw failure;
   }
-}
-
-/** Stops the fork unless it shows no running turn and exactly the kept messages. */
-async function requireForkBetweenTurns(
-  client: Client,
-  flow: AgentSessionForkSource,
-  sourceSessionId: string,
-  sessionId: string,
-  point: AgentSessionForkPoint,
-): Promise<void> {
-  const [state] = await client.getAttributes(sessionId, flow.agentState);
-  if (
-    state !== undefined &&
-    !state.activeTurnId &&
-    state.status === "waiting_for_user_message" &&
-    state.nextMessageSequence === point.afterMessage + 1
-  ) {
-    return;
-  }
-  try {
-    await client.stopFlow(sessionId, { type: StopType.TERMINATE, reason: "the fork did not land between turns" });
-  } catch (failure) {
-    // The refusal below matters more; an unstopped fork waits on a task queue nobody may pull.
-    console.warn(`dex-agents: cannot stop the fork ${sessionId}:`, failure);
-  }
-  throw new AgentSessionForkError(
-    "session_changed",
-    `session ${sourceSessionId} changed while it was forked, so the fork was stopped; try again`,
-  );
 }

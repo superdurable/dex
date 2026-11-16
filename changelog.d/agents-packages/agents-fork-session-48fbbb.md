@@ -12,12 +12,13 @@ section: Added
   change, never reuses a Flow ID, and takes an optional task queue. A point
   inside a turn, during a running turn, before a steered turn, or beyond the
   retained events raises **AgentSessionForkError** with a code and one
-  sentence. After the copy the fork must show no running turn and exactly the
-  kept messages; otherwise it is stopped. **AgentSessionForkingFlow**
+  sentence, and creates nothing. **AgentSessionForkingFlow**
   (**createAgentSessionForkingFlow**) lets a Client fork sessions without
   building the agent. The rules are in **agents/conformance/session_fork.json**.
 - Python and TypeScript CLI commands: **fork SESSION_ID [--at N]** and the
-  plain chat's **/fork [N]** fork a session into a new session ID with its own
-  task queue, then offer to open it. A session from before 0.6.8 keeps its
-  task queue in the fork. A server without clone fork stops the fork with one
-  line that names **dexcli** 1.47.8.
+  plain chat's **/fork [N]** fork a session into a new session ID, then offer
+  to open it. A session of the command's own Flow type gets the new session's
+  own task queue, also when the source ran on a shared one; a session from
+  before 0.6.8 keeps its task queue. When the fork exists but cannot be
+  opened, the error names the new session. A server without clone fork stops
+  the fork with one line that names **dexcli** 1.47.8.

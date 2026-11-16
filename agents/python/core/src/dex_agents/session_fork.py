@@ -14,7 +14,6 @@ The rules match the TypeScript core; see ``agents/conformance/session_fork.json`
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -26,8 +25,6 @@ from dex import (
     Flow,
     IdReusePolicy,
     PersistenceSchema,
-    StopFlowOptions,
-    StopType,
     Stream,
     TimeTravelStepMethod,
     TimeTravelType,
@@ -50,16 +47,15 @@ SESSION_FORK_TURN_START_STEP_TYPE = "AwaitUserMessage"
 _EVENT_PAGE_SIZE = 200
 # Bounds the backward read of AgentEvents; the Stream's capacity bounds it too.
 _MAXIMUM_EVENT_PAGES = 100
-_LOGGER = logging.getLogger(__name__)
 
 
 class AgentSessionForkError(Exception):
-    """A session fork was refused; nothing was created, or the created fork was stopped.
+    """A session fork was refused before anything was created.
 
     ``code`` names the rule, as ``agents/conformance/session_fork.json`` does:
     ``not_started``, ``turn_in_progress``, ``no_messages``,
     ``message_out_of_range``, ``inside_turn``, ``steered_turn``,
-    ``point_unavailable``, ``point_refused``, or ``session_changed``. The message
+    ``point_unavailable``, or ``point_refused``. The message
     is one sentence for the user.
 
     .. versionadded:: 0.6.13
@@ -206,9 +202,8 @@ async def fork_agent_session(
     turn steering started, has no such point. The new Flow ID must be unused:
     the fork never reuses an ID.
 
-    After the copy, the new session's ``AgentState`` must show no running
-    turn and exactly the kept messages. Otherwise the new session is stopped
-    and the call raises ``session_changed``.
+    The point fixes the copied state, so the call reads nothing of the new
+    session after the copy. It returns once Dex created the new session.
 
     Changes the source received after the point are not copied, such as a
     settings update or a message queued while it waited. Messages queued
@@ -242,7 +237,7 @@ async def fork_agent_session(
 
     Raises:
         AgentSessionForkError: If the point is not between turns, cannot be
-            found, or Dex refuses it, or the session changed during the fork.
+            found, or Dex refuses it.
         CloneForkFlowUnsupportedError: If the server is older than server-zd
             0.1.33. Nothing was created.
         FlowAlreadyStartedError: If ``session_id`` is in use.
@@ -281,7 +276,6 @@ async def fork_agent_session(
     result = await _clone_fork(
         client, flow, source_session_id, session_id, point, task_queue, request_id
     )
-    await _require_fork_between_turns(client, source_session_id, session_id, point)
     return AgentSessionFork(
         session_id=session_id,
         run_id=result.run_id,
@@ -474,30 +468,3 @@ async def _clone_fork(
             f"Dex cannot fork session {source_session_id} after message "
             f"{point.after_message}: {error.detail}",
         ) from error
-
-
-async def _require_fork_between_turns(
-    client: AsyncClient, source_session_id: str, session_id: str, point: AgentSessionForkPoint
-) -> None:
-    """Stop the fork unless it shows no running turn and exactly the kept messages."""
-    stored = await client.get_attributes(session_id, AGENT_STATE)
-    state: AgentState | None = stored.get(AGENT_STATE)
-    if (
-        state is not None
-        and not state.active_turn_id
-        and state.status is AgentSessionStatus.WAITING_FOR_USER_MESSAGE
-        and state.next_message_sequence == point.after_message + 1
-    ):
-        return
-    try:
-        await client.stop_flow(
-            session_id,
-            StopFlowOptions(type=StopType.TERMINATE, reason="the fork did not land between turns"),
-        )
-    except DexServiceError as error:
-        _LOGGER.warning("cannot stop the fork: session=%s: %s", session_id, error)
-    raise AgentSessionForkError(
-        "session_changed",
-        f"session {source_session_id} changed while it was forked, so the fork was stopped; "
-        "try again",
-    )

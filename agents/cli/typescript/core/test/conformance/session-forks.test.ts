@@ -23,6 +23,7 @@ import {
   forkedLine,
   missingSessionError,
   newCliSessionId,
+  openFailureError,
   openPrompt,
   otherHarnessForkError,
   parseForkMessageNumber,
@@ -36,8 +37,8 @@ interface SessionForkCliFixture {
   readonly cli: Readonly<Record<string, string>> & {
     readonly task_queues: readonly {
       readonly name: string;
-      readonly source_session_id: string;
-      readonly source_task_queue: string;
+      readonly source_flow_type: string;
+      readonly harness_flow_type: string;
       readonly session_id: string;
       readonly expected_task_queue: string;
     }[];
@@ -78,6 +79,7 @@ describe("session fork CLI lines", () => {
       unsupported_server: unsupportedServerError(commandName),
       other_harness: otherHarnessForkError("b-2", "Other", commandName),
       missing_session: missingSessionError("b-2", commandName),
+      open_failure: openFailureError("b-2", "no"),
     };
     for (const [name, line] of Object.entries(rendered)) {
       assert.equal(line, format(fixture.cli[name], values), name);
@@ -90,7 +92,7 @@ describe("session fork CLI lines", () => {
   for (const testCase of fixture.cli.task_queues) {
     test(testCase.name, () => {
       assert.equal(
-        forkTaskQueue(testCase.source_session_id, testCase.source_task_queue, testCase.session_id),
+        forkTaskQueue(testCase.source_flow_type, testCase.harness_flow_type, testCase.session_id),
         testCase.expected_task_queue,
       );
     });

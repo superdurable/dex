@@ -45,14 +45,20 @@ def new_cli_session_id(harness_name: str, now: datetime | None = None) -> str:
     return f"{harness_name}-{moment:%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
 
 
-def fork_task_queue(source_session_id: str, source_task_queue: str, session_id: str) -> str:
+def fork_task_queue(source_flow_type: str, harness_flow_type: str, session_id: str) -> str:
     """Return the task queue of a fork, or ``""`` to keep the source's.
 
-    A session on its own task queue gives the fork the fork's own one, so
-    only a command that opens the fork runs it. Any other session, such as one
-    on the default task queue from before 0.6.8, keeps its task queue.
+    A session of the harness's Flow type opens only on its own task queue, so
+    its fork always gets the fork's own one, also when the source ran on a
+    shared queue. An environment-hashed session from before 0.6.8 keeps its
+    task queue, the default one that the command's other Worker pulls.
+
+    Args:
+        source_flow_type: The source session's Flow type.
+        harness_flow_type: The harness's Flow type.
+        session_id: The fork's session ID.
     """
-    if source_task_queue == session_task_queue(source_session_id):
+    if source_flow_type == harness_flow_type:
         return session_task_queue(session_id)
     return ""
 
@@ -60,6 +66,7 @@ def fork_task_queue(source_session_id: str, source_task_queue: str, session_id: 
 async def fork_cli_session(
     client: AsyncClient,
     flows: Mapping[str, AgentSessionFlow | AgentSessionForkingFlow],
+    harness_flow_type: str,
     source_session_id: str,
     session_id: str,
     *,
@@ -71,6 +78,7 @@ async def fork_cli_session(
     Args:
         client: A Client whose Registry has every Flow of ``flows``.
         flows: The session Flows this command runs, by Flow type.
+        harness_flow_type: The harness's Flow type; see ``fork_task_queue``.
         source_session_id: The session to fork.
         session_id: The new session's ID.
         after_message: The last message the fork keeps, or ``None`` for the current state.
@@ -88,7 +96,6 @@ async def fork_cli_session(
         raise SessionForkFailure(
             other_harness_fork_error(source_session_id, info.flow_type, command_name)
         )
-    state = await client.get_flow_state(source_session_id)
     try:
         return await fork_agent_session(
             client,
@@ -96,12 +103,17 @@ async def fork_cli_session(
             source_session_id,
             session_id,
             after_message=after_message,
-            task_queue=fork_task_queue(source_session_id, state.task_queue, session_id),
+            task_queue=fork_task_queue(info.flow_type, harness_flow_type, session_id),
         )
     except AgentSessionForkError as error:
         raise SessionForkFailure(str(error)) from error
     except CloneForkFlowUnsupportedError as error:
         raise SessionForkFailure(unsupported_server_error(command_name)) from error
+
+
+def build_open_failure_error(session_id: str, error: str) -> str:
+    """Return the error when a fork exists but could not be opened."""
+    return f"session {session_id} was forked, but it could not be opened: {error}"
 
 
 def build_forked_line(source_session_id: str, after_message: int, session_id: str) -> str:

@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { startAgentSession } from "@superdurable/dex-agents";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { sessionTaskQueue } from "../../src/index.js";
@@ -103,6 +104,59 @@ describe("session forks", () => {
     resumed.writeLine("/exit");
     assert.equal(await resumed.waitForExit(), 0);
     assert.equal((await readFork(home, sourceId)).nextMessageSequence, 7);
+  });
+
+  test("a harness session on a shared task queue forks onto its own queue and opens", async () => {
+    const home = newHome();
+    const sourceId = `scripted-shared-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const shared = await sessionClients.openWithSharedQueueWorker(home);
+    try {
+      await startAgentSession(shared.sessions.client, shared.sessions.flow, sourceId, { initialMessage: "first" });
+      await shared.sessions.waitForCompletedTurns(sourceId, 1);
+    } finally {
+      await shared.environment.close();
+    }
+
+    const fork = start(home, ["fork", sourceId]);
+    assert.equal(await fork.waitForExit(), 0, fork.stderr.all);
+    const forkId = /into session (\S+)\./.exec(fork.stdout.all)?.[1];
+    assert.ok(forkId !== undefined, fork.stdout.all);
+    assert.equal((await readFork(home, forkId)).taskQueue, sessionTaskQueue(forkId));
+
+    const opened = start(home, ["--resume", forkId]);
+    assert.equal(await opened.waitForSession(), forkId);
+    opened.writeLine("second");
+    await opened.stdout.waitFor("echo: second");
+    opened.writeLine("/exit");
+    assert.equal(await opened.waitForExit(), 0);
+  });
+
+  test("an environment-hashed session forks onto its task queue and opens", async () => {
+    const home = newHome();
+    const legacy = await sessionClients.ofLegacy(home);
+    const sourceId = `scripted-legacy-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    await startAgentSession(legacy.client, legacy.flow, sourceId);
+    const chat = start(home, ["--resume", sourceId]);
+    assert.equal(await chat.waitForSession(), sourceId);
+    chat.writeLine("first");
+    await chat.stdout.waitFor("echo: first");
+    chat.writeLine("/exit");
+    assert.equal(await chat.waitForExit(), 0);
+
+    const fork = start(home, ["fork", sourceId]);
+    assert.equal(await fork.waitForExit(), 0, fork.stderr.all);
+    const forkId = new RegExp(`Forked session ${sourceId} after message 2 into session (\\S+)\\.`).exec(fork.stdout.all)?.[1];
+    assert.ok(forkId !== undefined, fork.stdout.all);
+    const info = await legacy.client.describeFlow(forkId);
+    assert.equal(info.flowType, home.legacySessionFlowType());
+    assert.equal((await legacy.client.getFlowState(forkId)).taskQueue, "");
+
+    const opened = start(home, ["--resume", forkId]);
+    assert.equal(await opened.waitForSession(), forkId);
+    opened.writeLine("second");
+    await opened.stdout.waitFor("echo: second");
+    opened.writeLine("/exit");
+    assert.equal(await opened.waitForExit(), 0);
   });
 
   test("the fork subcommand says how to open the fork, or opens it at a terminal", async () => {

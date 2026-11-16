@@ -573,8 +573,8 @@ class AgentSessionClient:
             The new session and the copied point.
 
         Raises:
-            AgentSessionForkError: If no point between turns fits, Dex refuses
-                it, or the session changed during the fork.
+            AgentSessionForkError: If no point between turns fits, or Dex
+                refuses it.
             CloneForkFlowUnsupportedError: If the server has no clone fork.
             FlowAlreadyStartedError: If ``session_id`` is in use.
             FlowNotFoundError: If the source session does not exist.

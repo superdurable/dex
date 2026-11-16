@@ -15,12 +15,17 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
+import { DexServiceError, ErrorSubStatus, type Client } from "@superdurable/dex";
+
 import {
   AgentSessionForkError,
+  createAgentSessionForkingFlow,
   forkAgentSession,
   planAgentSessionForkPoint,
   startAgentSession,
+  type AgentEvent,
   type AgentSessionStatus,
+  type AgentState,
 } from "../../src/index.js";
 import { AgentSessionTestClient, AgentTestEnvironment, FileGate, PrivateDexEngine } from "../../src/testing/index.js";
 import { readConformanceJson } from "../fixtures/conformance-suite.js";
@@ -70,6 +75,65 @@ describe("session fork points", () => {
       assert.deepEqual(plan(), { afterMessage: expected.after_message, stepExecutionId: expected.step_execution_id });
     });
   }
+});
+
+describe("session fork refusals without an engine", () => {
+  /** A Client stand-in whose source is idle and whose clone fork throws `cloneFailure`. */
+  function scriptedClient(cloneFailure: Error | null, events: readonly AgentEvent[]): { client: Client; cloneCalls: () => number } {
+    let cloneCalls = 0;
+    const state: AgentState = {
+      status: "waiting_for_user_message",
+      turnCount: 3,
+      activeTurnId: null,
+      nextMessageSequence: 7,
+      lastTurnError: null,
+      interactionMode: "chat",
+      acceptsTurnControl: false,
+    };
+    const client = {
+      getAttributes: () => Promise.resolve([state]),
+      getFlowState: () =>
+        Promise.resolve({
+          activeStepExecutions: [{ stepType: "AwaitUserMessage", stepExecutionId: "AwaitUserMessage-4" }],
+          taskQueue: "",
+        }),
+      listStreamMessages: () =>
+        Promise.resolve({ messages: events.map((value) => ({ value })), nextPageToken: "" }),
+      cloneForkFlow: () => {
+        cloneCalls += 1;
+        return Promise.reject(cloneFailure ?? new Error("the test expects a refusal"));
+      },
+    };
+    return { client: client as unknown as Client, cloneCalls: () => cloneCalls };
+  }
+
+  function turnStarted(sequence: number, stepExecutionId: string): AgentEvent {
+    return { type: "turn_started", turnId: null, attempt: 1, payload: JSON.stringify({ sequence }), stepExecutionId };
+  }
+
+  test("a point outside the history window is refused with the server's detail", async () => {
+    const detail = "the point is outside the history window";
+    const scripted = scriptedClient(
+      new DexServiceError(9, ErrorSubStatus.UNCATEGORIZED, detail, "cloneForkFlow", "fork-1"),
+      [turnStarted(5, "AwaitUserMessage-3")],
+    );
+    await assert.rejects(
+      forkAgentSession(scripted.client, createAgentSessionForkingFlow("T"), sourceSessionId, "fork-1", { afterMessage: 4 }),
+      (error: unknown) =>
+        error instanceof AgentSessionForkError &&
+        error.code === "point_refused" &&
+        error.message === format(suite.errors.point_refused ?? "", { session_id: sourceSessionId, after_message: 4, detail }),
+    );
+  });
+
+  test("events trimmed past the message refuse the fork before any copy", async () => {
+    const scripted = scriptedClient(null, [turnStarted(5, "AwaitUserMessage-3")]);
+    await assert.rejects(
+      forkAgentSession(scripted.client, createAgentSessionForkingFlow("T"), sourceSessionId, "fork-1", { afterMessage: 2 }),
+      (error: unknown) => error instanceof AgentSessionForkError && error.code === "point_unavailable",
+    );
+    assert.equal(scripted.cloneCalls(), 0);
+  });
 });
 
 describe("session forks on an engine", () => {

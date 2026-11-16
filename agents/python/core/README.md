@@ -1411,9 +1411,9 @@ await sessions.send_user_message(fork.session_id, "Try the other plan")
   `task_queue` when Workers pick sessions by task queue.
 - A point inside a turn, during a running turn, before a turn that steering
   started, or beyond the retained `AgentEvents` raises
-  `AgentSessionForkError`, whose `code` names the rule. After the copy the
-  fork must show no running turn and exactly the kept messages; otherwise it
-  is stopped and the call raises `session_changed`.
+  `AgentSessionForkError`, whose `code` names the rule, and creates nothing.
+  The point fixes the copied state, so the call returns once Dex created the
+  fork.
 - The fork has no Flow history and no `AgentEvents` of the source.
 - Register `AgentSessionForkingFlow(flow_type)` to fork from a Client that has
   no `AgentSessionFlow` of that type.

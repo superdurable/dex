@@ -13,8 +13,7 @@
     "inside_turn": "message {after_message} of session {session_id} is inside a turn; fork after the last message of a turn",
     "steered_turn": "steering ended the turn of message {after_message} of session {session_id}, so no point between turns follows it; fork after another message",
     "point_unavailable": "the events of session {session_id} no longer show where the turn after message {after_message} started; fork after a later message",
-    "point_refused": "Dex cannot fork session {session_id} after message {after_message}: {detail}",
-    "session_changed": "session {session_id} changed while it was forked, so the fork was stopped; try again"
+    "point_refused": "Dex cannot fork session {session_id} after message {after_message}: {detail}"
   },
   "points": [
     {
@@ -151,20 +150,21 @@
   "cli": {
     "task_queues": [
       {
-        "name": "a session on its own task queue gets the fork's own task queue",
-        "source_session_id": "builtin-20261115-101500-a1b2c3",
-        "source_task_queue": "s-99f318b3ccde913124ce",
+        "name": "a session of the harness's Flow type gets the fork's own task queue, whatever queue it ran on",
+        "source_flow_type": "DexAgentsCliBuiltinSession",
+        "harness_flow_type": "DexAgentsCliBuiltinSession",
         "session_id": "builtin-20261115-101730-d4e5f6",
         "expected_task_queue": "s-414c03475fa436010fa8"
       },
       {
-        "name": "a session on the default task queue keeps it",
-        "source_session_id": "builtin-20261115-101500-a1b2c3",
-        "source_task_queue": "",
+        "name": "an environment-hashed session from before 0.6.8 keeps its task queue",
+        "source_flow_type": "DexAgentsCliBuiltinSession-k3x9q2",
+        "harness_flow_type": "DexAgentsCliBuiltinSession",
         "session_id": "builtin-20261115-101730-d4e5f6",
         "expected_task_queue": ""
       }
     ],
+    "open_failure": "session {session_id} was forked, but it could not be opened: {error}",
     "forked": "Forked session {source_session_id} after message {after_message} into session {session_id}.",
     "open_prompt": "Open session {session_id} now? [Y/n] ",
     "resume_hint": "Resume it with: {command_name} --resume {session_id}",

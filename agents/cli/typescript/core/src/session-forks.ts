@@ -49,17 +49,22 @@ export function newCliSessionId(harnessName: string, now: Date = new Date()): st
 /**
  * Returns the task queue of a fork, or `""` to keep the source's.
  *
- * A session on its own task queue gives the fork the fork's own one, so only a command that opens the fork runs it.
- * Any other session, such as one on the default task queue from before 0.6.8, keeps its task queue.
+ * A session of the harness's Flow type opens only on its own task queue, so its fork always gets the fork's own one,
+ * also when the source ran on a shared queue. An environment-hashed session from before 0.6.8 keeps its task queue,
+ * the default one that the command's other Worker pulls.
+ * @param sourceFlowType - The source session's Flow type.
+ * @param harnessFlowType - The harness's Flow type.
+ * @param sessionId - The fork's session ID.
  */
-export function forkTaskQueue(sourceSessionId: string, sourceTaskQueue: string, sessionId: string): string {
-  return sourceTaskQueue === sessionTaskQueue(sourceSessionId) ? sessionTaskQueue(sessionId) : "";
+export function forkTaskQueue(sourceFlowType: string, harnessFlowType: string, sessionId: string): string {
+  return sourceFlowType === harnessFlowType ? sessionTaskQueue(sessionId) : "";
 }
 
 /**
  * Forks a session of one of `flows`' Flow types into `sessionId`.
  * @param client - A Client whose Registry has every Flow of `flows`.
  * @param flows - The session Flows this command runs, by Flow type.
+ * @param harnessFlowType - The harness's Flow type; see {@link forkTaskQueue}.
  * @param sourceSessionId - The session to fork.
  * @param sessionId - The new session's ID.
  * @param afterMessage - The last message the fork keeps, or `null` for the current state.
@@ -69,6 +74,7 @@ export function forkTaskQueue(sourceSessionId: string, sourceTaskQueue: string, 
 export async function forkCliSession(
   client: Client,
   flows: ReadonlyMap<string, AgentSessionForkSource>,
+  harnessFlowType: string,
   sourceSessionId: string,
   sessionId: string,
   afterMessage: number | null,
@@ -87,11 +93,10 @@ export async function forkCliSession(
   if (flow === undefined) {
     throw new SessionForkFailure(otherHarnessForkError(sourceSessionId, flowType, commandName));
   }
-  const state = await client.getFlowState(sourceSessionId);
   try {
     return await forkAgentSession(client, flow, sourceSessionId, sessionId, {
       afterMessage,
-      taskQueue: forkTaskQueue(sourceSessionId, state.taskQueue, sessionId),
+      taskQueue: forkTaskQueue(flowType, harnessFlowType, sessionId),
     });
   } catch (error: unknown) {
     if (error instanceof AgentSessionForkError) {
@@ -102,6 +107,11 @@ export async function forkCliSession(
     }
     throw error;
   }
+}
+
+/** Returns the error when a fork exists but could not be opened. */
+export function openFailureError(sessionId: string, error: string): string {
+  return `session ${sessionId} was forked, but it could not be opened: ${error}`;
 }
 
 /** Returns the line written once a fork exists. */
