@@ -378,8 +378,7 @@ pub(crate) fn apply_flow_stop(
     )?))
 }
 
-/// Completes the run as the GracefulComplete or ForceComplete Step decision does, with `output`
-/// as a Flow result that names no Step. Like a cancel, it keeps no stop reason.
+/// Completes the run like the matching Step decision; `output` names no Step, and the reason is dropped.
 fn apply_flow_stop_by_completion(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,

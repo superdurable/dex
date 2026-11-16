@@ -376,17 +376,73 @@ fn a_graceful_complete_stop_without_active_steps_completes_at_once() {
 }
 
 #[test]
-fn a_cancel_after_a_graceful_complete_stop_closes_without_outputs() {
+fn a_later_stop_after_a_graceful_complete_stop_closes_without_outputs() {
+    for (stop_type, status) in [
+        (StopType::Cancel, FlowStatus::Canceled),
+        (StopType::Terminate, FlowStatus::Terminated),
+        (StopType::Fail, FlowStatus::Failed),
+    ] {
+        let mut harness = Harness::new("order-1");
+        harness.start_with_charge_step_active();
+        harness.stop_flow(StopType::GracefulComplete, Some(stop_output()));
+        let record = harness.run_record();
+        let close = record.close.expect("the output is collected");
+        let value_id = table_value_id(close.results[0].completed_step_output.as_ref());
+
+        let closed = harness.stop_flow(stop_type, None);
+
+        harness.assert_no_outputs_after_close(&closed, status, value_id);
+    }
+}
+
+#[test]
+fn a_graceful_complete_stop_waits_for_the_steps_an_active_step_moves_to() {
     let mut harness = Harness::new("order-1");
     harness.start_with_charge_step_active();
     harness.stop_flow(StopType::GracefulComplete, Some(stop_output()));
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    let go_to_ship = StepDecision {
+        next_steps: vec![StepMovement {
+            step_type: "ShipStep".to_owned(),
+            step_options: Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            }),
+            ..StepMovement::default()
+        }],
+        ..StepDecision::default()
+    };
+
+    harness.complete_execute("ChargeStep-1", 1, go_to_ship);
+
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+    harness.start_attempt("ShipStep-1", StepMethod::Execute, 1);
+    let closed = harness.complete_execute("ShipStep-1", 1, StepDecision::default());
     let record = harness.run_record();
-    let close = record.close.expect("the output is collected");
-    let value_id = table_value_id(close.results[0].completed_step_output.as_ref());
+    assert_eq!(record.status, FlowStatus::Completed as i32);
+    assert_eq!(record.close.expect("the run is closed").results.len(), 1);
+    assert_eq!(flow_closed_event(&closed).results.len(), 1);
+}
 
-    let closed = harness.stop_flow(StopType::Cancel, None);
+#[test]
+fn a_graceful_complete_stop_output_over_the_run_state_limit_is_rejected_without_changes() {
+    let mut harness = Harness::new("order-1");
+    harness.start_with_charge_step_active();
+    harness.set_max_run_state_bytes(1);
+    let before = harness.state.rows.clone();
 
-    harness.assert_no_outputs_after_close(&closed, FlowStatus::Canceled, value_id);
+    let rejected = harness.stop_flow(StopType::GracefulComplete, Some(stop_output()));
+
+    assert!(is_error(&rejected.reply, 8), "{:?}", rejected.reply);
+    assert!(rejected.writes.is_empty());
+    assert_eq!(harness.state.rows, before);
+    let requested = harness.stop_flow(StopType::GracefulComplete, None);
+    assert!(
+        matches!(requested.reply.reply, Some(command_reply::Reply::Ok(_))),
+        "a stop without output only sets the request flag: {:?}",
+        requested.reply
+    );
+    assert!(harness.run_record().is_graceful_completion_requested);
 }
 
 #[test]

@@ -323,6 +323,14 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         | Command::ChannelPublish(_)
         | Command::StepAttemptHeartbeat(_)
         | Command::StepMethodCompleted(_) => true,
+        // A complete stop's output joins the Flow results; repeated graceful stops would grow state.
+        Command::FlowStop(command) => {
+            flow_close::is_complete_stop_type(command)
+                && command
+                    .request
+                    .as_ref()
+                    .is_some_and(|request| request.output.is_some())
+        }
         // Delivery retries rejections forever. Parents counted child starts; child results
         // have their own limit.
         Command::InboxMessage(_) => false,

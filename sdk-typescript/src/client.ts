@@ -894,6 +894,7 @@ export class Client {
           runId: "",
           reason: options.reason ?? "",
           stopType: mapStopType(options.type),
+          output: undefined,
         },
         callback,
       ),
