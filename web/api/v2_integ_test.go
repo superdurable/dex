@@ -1092,10 +1092,11 @@ func TestV2CatalogServerEngineSurvivesUnavailableFlowService(t *testing.T) {
 	}
 }
 
+// blockingServerInfoClient holds each GetServerInfo lookup until the test sends its answer.
 type blockingServerInfoClient struct {
 	dexpb.FlowServiceClient
 	lookups chan struct{}
-	release chan struct{}
+	answers chan *dexpb.ServerInfo
 }
 
 func (client *blockingServerInfoClient) GetServerInfo(
@@ -1104,33 +1105,114 @@ func (client *blockingServerInfoClient) GetServerInfo(
 	...grpc.CallOption,
 ) (*dexpb.ServerInfo, error) {
 	client.lookups <- struct{}{}
-	<-client.release
-	return &dexpb.ServerInfo{ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}, nil
+	return <-client.answers, nil
 }
 
-func TestServerEngineResolverDoesNotSerializeLookups(t *testing.T) {
-	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), release: make(chan struct{})}
-	releaseLookups := sync.OnceFunc(func() { close(client.release) })
-	defer releaseLookups()
-	resolver := NewServerEngineResolver(client)
-	engines := make(chan dexpb.ServerEngine, 2)
-	for range 2 {
-		go func() {
-			engines <- resolver.ResolveServerEngine(context.Background())
-		}()
+// waitForServerInfoRefresh waits until the in-flight GetServerInfo lookup, if any, has ended.
+func waitForServerInfoRefresh(t *testing.T, resolver *ServerEngineResolver) {
+	t.Helper()
+	resolver.mutex.Lock()
+	refreshDone := resolver.inFlightRefresh
+	resolver.mutex.Unlock()
+	if refreshDone == nil {
+		return
 	}
-	for range 2 {
-		select {
-		case <-client.lookups:
-		case <-time.After(5 * time.Second):
-			t.Fatal("a GetServerInfo lookup waited for another lookup to finish")
+	select {
+	case <-refreshDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the GetServerInfo refresh never ended")
+	}
+}
+
+// newTestServerProtocolResolver returns a resolver on a test clock and a function that advances the clock.
+func newTestServerProtocolResolver(client dexpb.FlowServiceClient) (*ServerEngineResolver, func(time.Duration)) {
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	var clockMutex sync.Mutex
+	resolver := newServerEngineResolverWithClock(client, func() time.Time {
+		clockMutex.Lock()
+		defer clockMutex.Unlock()
+		return now
+	})
+	return resolver, func(duration time.Duration) {
+		clockMutex.Lock()
+		defer clockMutex.Unlock()
+		now = now.Add(duration)
+	}
+}
+
+func TestServerEngineResolverNeverBlocksOnceCached(t *testing.T) {
+	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), answers: make(chan *dexpb.ServerInfo, 2)}
+	resolver, advanceClock := newTestServerProtocolResolver(client)
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 6, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
+	if version, isResolved := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 6 || !isResolved {
+		t.Fatalf("protocol = %d resolved = %t, want 6", version, isResolved)
+	}
+	<-client.lookups
+
+	// The stale value answers at once while one slow background lookup runs.
+	advanceClock(serverProtocolCacheTTL)
+	for range 3 {
+		if version, isResolved := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 6 || !isResolved {
+			t.Fatalf("protocol = %d resolved = %t, want the cached 6", version, isResolved)
 		}
-	}
-	releaseLookups()
-	for range 2 {
-		if engine := <-engines; engine != dexpb.ServerEngine_SERVER_ENGINE_ZD {
+		if engine := resolver.ResolveServerEngine(context.Background()); engine != dexpb.ServerEngine_SERVER_ENGINE_ZD {
 			t.Fatalf("server engine = %s", engine)
 		}
+	}
+	<-client.lookups
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 6, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
+	waitForServerInfoRefresh(t, resolver)
+	if len(client.lookups) != 0 {
+		t.Fatal("stale reads started more than one GetServerInfo lookup")
+	}
+}
+
+func TestServerProtocolRollbackIsServedAfterTheBackgroundRefresh(t *testing.T) {
+	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), answers: make(chan *dexpb.ServerInfo, 2)}
+	resolver, advanceClock := newTestServerProtocolResolver(client)
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 6}
+	if version, _ := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 6 {
+		t.Fatalf("protocol = %d, want 6", version)
+	}
+	<-client.lookups
+
+	advanceClock(serverProtocolCacheTTL)
+	if version, _ := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 6 {
+		t.Fatalf("protocol = %d, want the stale 6 while the refresh runs", version)
+	}
+	<-client.lookups
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 5}
+	waitForServerInfoRefresh(t, resolver)
+	if version, _ := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 5 || len(client.lookups) != 0 {
+		t.Fatalf("protocol = %d lookups = %d, want the refreshed 5 from the cache", version, len(client.lookups))
+	}
+}
+
+func TestServerProtocolFirstWaiterHonorsCancellation(t *testing.T) {
+	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), answers: make(chan *dexpb.ServerInfo, 2)}
+	resolver, _ := newTestServerProtocolResolver(client)
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	type protocolAnswer struct {
+		version    uint32
+		isResolved bool
+	}
+	answers := make(chan protocolAnswer, 1)
+	go func() {
+		version, isResolved := resolver.ResolveCurrentProtocolVersion(requestContext)
+		answers <- protocolAnswer{version, isResolved}
+	}()
+	<-client.lookups
+	cancelRequest()
+	if answer := <-answers; answer.version != 0 || answer.isResolved {
+		t.Fatalf("canceled first waiter = %+v, want an unknown protocol", answer)
+	}
+
+	// The shared first lookup goes on and fills the cache for later callers.
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 6}
+	waitForServerInfoRefresh(t, resolver)
+	if version, isResolved := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 6 || !isResolved ||
+		len(client.lookups) != 0 {
+		t.Fatalf("protocol = %d resolved = %t lookups = %d, want the cached 6", version, isResolved, len(client.lookups))
 	}
 }
 

@@ -6,9 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { supportsRunHistoryForks } from '@/lib/serverInfo';
 import type { V2CatalogEntry } from '@/lib/types';
 import type { AgentSessionSchema } from '../../agents/sessionSchema';
 import { SessionView } from '../../agents/SessionView';
+import { useOptionalWebCatalog } from '../../catalog/WebCatalogProvider';
 import { ChevronDown, UserRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { sessionRunPath } from '../../routes';
@@ -35,6 +37,9 @@ export function AgentSessionTab({
   workingAs: RunWorkingAs;
 }) {
   const navigate = useNavigate();
+  const webCatalog = useOptionalWebCatalog();
+  // A session fork is a Clone Fork, which older servers lack.
+  const canForkSession = supportsRunHistoryForks(webCatalog?.serverProtocolVersion ?? 0);
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Agent session">
       <header className="xp-head">
@@ -50,7 +55,7 @@ export function AgentSessionTab({
         onChooseWorkingAs={workingAs.setPermission}
         workingAsOptions={workingAs.permissionOptions}
         workingAsPermission={workingAs.permission}
-        onSessionForked={(sessionId) => navigate(sessionRunPath(sessionId))}
+        onSessionForked={canForkSession ? (sessionId) => navigate(sessionRunPath(sessionId)) : undefined}
       />
     </section>
   );

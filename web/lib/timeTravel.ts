@@ -22,7 +22,7 @@ export const TIME_TRAVEL_STEP_METHOD = {
   EXECUTE: 2,
 } as const;
 
-/** SubFlowResetPolicy numbers; Dex Web always sends one, so the default is explicit. */
+/** SubFlowResetPolicy numbers; Dex Web always sends one to a server that supports it, so the default is explicit. */
 export const SUB_FLOW_RESET_POLICY = {
   ALWAYS_RESTART: 1,
   ALWAYS_FAIL: 2,

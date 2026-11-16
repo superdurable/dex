@@ -231,6 +231,8 @@ export interface V2Catalog {
   flows: V2CatalogEntry[];
   definitionRevision: string;
   serverEngine?: ServerEngine;
+  /** The server's current protocol version; 0 or absent when the server does not report one. */
+  currentProtocolVersion?: number;
 }
 
 export interface V2Flow {

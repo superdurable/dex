@@ -27,6 +27,7 @@ import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
 import { cloneForkSourceOf, type CloneForkSource } from '@/lib/cloneFork';
+import { supportsRunHistoryForks } from '@/lib/serverInfo';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
@@ -79,7 +80,7 @@ import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { DesignCanvasErrorBoundary } from '../design/DesignCanvasErrorBoundary';
 import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostics';
-import { useFlowTypeDefinitions, useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
+import { useFlowTypeDefinitions, useOptionalWebCatalog, type ServerProtocolRead } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { FLOWS_PATH, RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
@@ -287,6 +288,7 @@ export function RunDetailsPage({
   const isCatalogReady = webCatalog === null || (webCatalog.ready && runDefinitions?.status !== 'loading');
   const designDefinition = designDefinitionFor(runDefinitions?.value, summary?.flowType);
   const catalogEntry = catalogEntryFor(runDefinitions?.value, webCatalog?.canUseV2 ?? false);
+  const hasRunHistoryForks = supportsRunHistoryForks(webCatalog?.serverProtocolVersion ?? 0);
   const workingAsDefinitions = useMemo(
     () => (catalogEntry ? [catalogEntry.definition] : noOperatorDefinitions),
     [catalogEntry],
@@ -940,10 +942,28 @@ export function RunDetailsPage({
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
   }, [summary]);
+  const canUseOperatorAPI = webCatalog?.canUseOperatorAPI ?? false;
+  const refreshServerProtocolVersion = webCatalog?.refreshServerProtocolVersion;
+  /** Reads the server protocol again before a dialog whose options depend on it; null without a Dex server to ask. */
+  const refreshProtocolBeforeDialog = useCallback((): Promise<ServerProtocolRead> | null => (
+    canUseOperatorAPI && refreshServerProtocolVersion ? refreshServerProtocolVersion() : null
+  ), [canUseOperatorAPI, refreshServerProtocolVersion]);
+
   const openTimeTravel = useCallback((event: FlowHistoryEvent | null) => {
-    setTimeTravelEvent(event);
-    setTimeTravelOpen(true);
-  }, []);
+    const open = () => {
+      setTimeTravelEvent(event);
+      setTimeTravelOpen(true);
+    };
+    const refresh = refreshProtocolBeforeDialog();
+    if (!refresh) {
+      open();
+      return;
+    }
+    // Only the newest read opens a dialog, so its options match the version on screen.
+    void refresh.then((read) => {
+      if (read.isLatest()) open();
+    });
+  }, [refreshProtocolBeforeDialog]);
 
   const closeTimeTravel = useCallback(() => {
     setTimeTravelOpen(false);
@@ -951,9 +971,13 @@ export function RunDetailsPage({
   }, []);
 
   const openCloneFork = useCallback((event: FlowHistoryEvent | null) => {
-    setCloneForkEvent(event);
-    setCloneForkOpen(true);
-  }, []);
+    // An older server or a superseded read leaves the dialog closed.
+    void refreshProtocolBeforeDialog()?.then((read) => {
+      if (!read.isLatest() || !supportsRunHistoryForks(read.version)) return;
+      setCloneForkEvent(event);
+      setCloneForkOpen(true);
+    });
+  }, [refreshProtocolBeforeDialog]);
 
   const closeCloneFork = useCallback(() => {
     setCloneForkOpen(false);
@@ -997,7 +1021,7 @@ export function RunDetailsPage({
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const cloneForkSource = cloneForkSourceOf(flowStartEvent);
   // An agent session forks through its agents package, which also moves the session's task queue.
-  const canCloneFork = isCatalogReady && catalogEntry !== null && runSessionSchema === null;
+  const canCloneFork = isCatalogReady && hasRunHistoryForks && catalogEntry !== null && runSessionSchema === null;
   const sourceTaskQueue = (() => {
     const startFlowConfig = flowStartEvent?.payload.flowConfig as Record<string, unknown> | undefined;
     const closedConfig = closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
@@ -1388,6 +1412,7 @@ export function RunDetailsPage({
           initialEvent={timeTravelEvent}
           runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
           timezone={timezone}
+          supportsRunHistoryForks={hasRunHistoryForks}
           onClose={closeTimeTravel}
           onTimeTraveled={handleTimeTraveled}
         />

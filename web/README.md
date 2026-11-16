@@ -651,7 +651,9 @@ dex-web --bind-address 0.0.0.0 --port 8802 \
 ```
 
 Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in
-`GET /api/v2/catalog`. Start Flow always uses pull Workers. The dialog requires
+`GET /api/v2/catalog`. `GET /api/server-info` and the catalog also report
+`currentProtocolVersion`; Clone Fork, the Event ID time travel point, and SubFlow
+reset policies need protocol 6 (server-zd 0.1.33). Start Flow always uses pull Workers. The dialog requires
 only the Flow ID and Start input; requests can omit Worker target fields.
 
 On server-zd, Time Travel keeps the run ID and creates a new run attempt. The

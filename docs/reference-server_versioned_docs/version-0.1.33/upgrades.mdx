@@ -107,6 +107,20 @@ uses a named task queue, as
 [Roll back the server](/reference/server/0.1.33/workers#named-task-queue-rollback)
 describes.
 
+server-zd 0.1.33 and later provide protocol version 6, which adds
+CloneForkFlow, the event ID point of ResetFlow, and SubFlow reset policies.
+After 0.1.33 writes to a storage prefix, keep running 0.1.33 or later on it. A
+0.1.32 server on that prefix fails on what 0.1.33 wrote:
+
+- After a CloneForkFlow call, it halts the partition at the first
+  CloneForkFlow record.
+- After a Time Travel that used a SubFlow reset policy to terminate a SubFlow,
+  it cannot deliver that termination.
+- After a Time Travel or a CloneForkFlow call wrote the new run fields, it
+  drops those fields when it rewrites the run.
+
+Roll forward, or restore a backup taken before the upgrade into a new prefix.
+
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,
 use isolated blue and green environments, so deployments with ranges that do not
