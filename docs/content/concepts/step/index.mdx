@@ -208,17 +208,25 @@ impl Step for StepSecond {
 
 ## Waiting {#waiting}
 
-Dex keeps a wait in the Flow's state, so it holds no Worker or thread, and wakes the Step when a condition is met. A Step can wait on three kinds of
+Dex keeps a wait in the Flow's state, so it holds no Worker or thread, and wakes the Step when a condition is met. A Step can wait on four kinds of
 condition:
 
 - a [Timer](/concepts/primitives/timer) fires;
 - a message arrives on a [Channel](/concepts/primitives/channel);
-- a [SubFlow](/concepts/primitives/subflow) completes.
+- a [SubFlow](/concepts/primitives/subflow) completes;
+- the Flow has a graceful completion request, from `GracefulComplete` or a
+  stop with graceful complete.
 
 Combine conditions with `AnyOf` or `AllOf`. `AnyCombinationOf` accepts
 any one of several groups of conditions. After the wait, `Execute` reads what
 satisfied it, such as the Channel messages it consumed. See
 [Waits](/reference/python/waits).
+
+A Step that waits for the next message can also wait for a graceful
+completion request. It then stops waiting when the Flow is asked to complete gracefully.
+Its `Execute` handles consumed messages first. When no message was consumed
+and the request exists, it returns `DeadEnd`. See
+[Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
 
 To wait for parallel branches, use a **Join**. It is not another kind of
 condition: it waits on a [ChannelMap](/concepts/primitives/channel#channelmap) that the branches report to. See

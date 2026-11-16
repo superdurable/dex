@@ -57,7 +57,9 @@ Connector 的结果包含操作输出、回执、选中的分支，以及（如�
 
 Dex 每次重试 Mutation 所在的 Step，Mutation 都发送同一个幂等 key。
 
-Mutation 的结果无法确认时，Connector 会选择 uncertainty 分支。把它连到一个先查询服务商、再核对结果的 Step。不要盲目地再发一次 Mutation。
+Connector 操作可以声明一个有上限的重发次数。这样的 Mutation 仍然是非幂等写操作。它的结果无法确认时，Connector 可以在这个上限内重新发送它。服务商支持回读时，它会先回读这次写入。见 [Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）。
+
+Mutation 的结果仍然无法确认时，Connector 会选择 uncertainty 分支。把它连到一个先查询服务商、再核对结果的 Step。重发交给 Connector；应用代码不要自己再发一次 Mutation。
 
 ## Trigger 启动或更新 Flow
 

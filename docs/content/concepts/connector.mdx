@@ -86,9 +86,16 @@ repeated call does:
 
 A Mutation sends the same idempotency key every time Dex retries its Step.
 
-When a Mutation's outcome is unknown, the Connector selects an uncertainty
-branch. Connect it to a Step that queries the provider and reconciles. Do not
-send the Mutation again blindly.
+A Connector operation can declare a bounded resend limit. Such a Mutation is
+still a non-idempotent write. When its outcome is unknown, the Connector may
+send it again within that limit. It reads the write back first when the
+provider supports it. See
+[Bounded resends](/reference/agents/connector-tools#bounded-resends).
+
+When a Mutation's outcome is still unknown, the Connector selects an
+uncertainty branch. Connect it to a Step that queries the provider and
+reconciles. Leave resending to the Connector; your application code does not
+send the Mutation again on its own.
 
 ## Triggers start or update Flows
 
