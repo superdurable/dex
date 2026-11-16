@@ -432,6 +432,7 @@ history migrates over several commits and reads stay whole meanwhile.
 
 ```text
 StartAgentSession -> AwaitUserMessage -> RunModel
+AwaitUserMessage -> DeadEnd   graceful completion request, no message
 RunModel -> TurnCompleted -> AwaitUserMessage
 RunModel -> ToolCallsRequested -> GoToMany(
               AwaitToolApproval(id) -> CallTool(id) or CallSingleAttemptTool(id)   per call needing approval

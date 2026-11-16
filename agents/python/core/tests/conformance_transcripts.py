@@ -24,7 +24,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from dex import CodecRegistry
+from dex import CodecRegistry, FlowStatus, StopFlowOptions, StopType
 
 from dex_agents import AgentSessionClient, AgentSessionFlow, AgentSnapshot
 from dex_agents.testing import (
@@ -32,6 +32,7 @@ from dex_agents.testing import (
     WAIT_FOR_COMPLETED_EVENT,
     AgentTestStack,
     wait_for_agent_snapshot,
+    wait_until,
 )
 from tests.conformance_agent import (
     FLOW_TYPES,
@@ -97,7 +98,7 @@ async def run_scenario(
     session_id = f"conformance-{scenario['name']}"
     snapshots: dict[str, Any] = {}
     for action in scenario["actions"]:
-        result = await run_action(sessions, session_id, action, snapshots)
+        result = await run_action(stack, sessions, session_id, action, snapshots)
         if "returns" in action:
             assert result == action["returns"], f"{scenario['name']}: {action} returned {result}"
     steps, events = await read_settled_history(stack, flow, session_id)
@@ -114,12 +115,21 @@ async def run_scenario(
 
 
 async def run_action(
+    stack: AgentTestStack,
     sessions: AgentSessionClient,
     session_id: str,
     action: dict[str, Any],
     snapshots: dict[str, Any],
 ) -> Any:
     kind = action["action"]
+    if kind == "graceful_complete":
+        await stack.client.stop_flow(session_id, StopFlowOptions(type=StopType.GRACEFUL_COMPLETE))
+        return None
+    if kind == "wait_for_flow_closed":
+        return await wait_until(
+            "the session Flow to close",
+            lambda: _read_closed_flow_status(stack, session_id),
+        )
     if kind == "start_session":
         return await sessions.start_session(session_id)
     if kind == "send_user_message":
@@ -168,6 +178,12 @@ async def run_action(
             description=f"pending interrupt {interrupt_id}",
         )
     raise ValueError(f"unknown scenario action {kind!r}")
+
+
+async def _read_closed_flow_status(stack: AgentTestStack, session_id: str) -> str | None:
+    """Return the Flow status value, such as ``completed``, once the session Flow closed."""
+    info = await stack.client.describe_flow(session_id)
+    return None if info.status is FlowStatus.RUNNING else info.status.value
 
 
 async def read_settled_history(

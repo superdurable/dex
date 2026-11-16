@@ -270,7 +270,7 @@
       "name": "AwaitUserMessage",
       "phase": "wait_for+execute",
       "metadata": {
-        "explanation": "Wait for a steer, a queued user message, or a plan execution."
+        "explanation": "Wait for a steer, a queued user message, a plan execution, or a completion request."
       }
     },
     {
@@ -331,6 +331,16 @@
       "phase": "execute",
       "decision": {
         "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUserMessage:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:AwaitUserMessage",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
       }
     },
     {

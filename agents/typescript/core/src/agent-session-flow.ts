@@ -308,8 +308,13 @@ export interface ResolvedAgentSessionOptions {
  * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `steer_user_message`,
  * `delete_queued_message`, `cancel_turn`, `resolve_interrupt`, `answer_question`, `execute_plan`,
  * `update_session_settings`, `acquire_session_terminal_lease`, `release_session_terminal_lease`, `get_agent_snapshot`,
- * and `list_agent_messages`, the same as the Python core. The session never completes on its
- * own: it waits for the next user message after every turn. Stop it with `Client.stopFlow`.
+ * and `list_agent_messages`, the same as the Python core. After every turn the session waits for the next user
+ * message. To end it as `COMPLETED`, call `Client.stopFlow` with `StopType.GRACEFUL_COMPLETE`, from a client or from
+ * one of the session's own tools. The running turn finishes first, and so do user messages queued before the request.
+ * Then the session Flow completes. This needs server-zd 0.1.34 or later; older servers reject the request, and the
+ * session keeps waiting. Other stop types end the session at once.
+ *
+ * Changed in 0.6.14: a graceful complete request ends the session at its next wait for a user message.
  *
  * `steer_user_message` ends the running turn at its next safe Step boundary. It never interrupts a model call or a
  * tool call that has already started. `cancel_turn` aborts the running model call and every wait for a person, a

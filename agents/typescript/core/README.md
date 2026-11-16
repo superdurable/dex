@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.5
+npm i @superdurable/dex-agents @superdurable/dex@1.45.6
 ```
 
-`@superdurable/dex` 1.45.5 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.45.6 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -128,6 +128,27 @@ persistence definitions are properties of the Flow (`flow.agentState`,
 Enable built-in tools and call `answer_question` only after every Worker of the
 Flow type runs 0.2.0, because a 0.1.0 Worker cannot decode the new non-final
 statuses.
+
+## Ending a session
+
+After every turn a session waits for the next user message. Since 0.6.14, `client.stopFlow` with
+`StopType.GRACEFUL_COMPLETE` ends a session as `COMPLETED`. Call it from a client, or from one of the session's own
+tools. It needs server-zd 0.1.34 or later.
+
+```ts
+import { StopType } from "@superdurable/dex";
+
+await client.stopFlow("session-42", { type: StopType.GRACEFUL_COMPLETE });
+```
+
+- The running turn finishes first. Its tool results and final assistant message are stored, and
+  `get_agent_snapshot` serves them after the close.
+- User messages queued before the request still run their turns. Then the session Flow completes at its next wait
+  for a user message.
+- Servers before 0.1.34 reject the request as an invalid argument.
+- Send it only after every Worker of the session's Flow type runs 0.6.14 or later. A session that an earlier Worker
+  serves can retry its wait for a user message instead of completing.
+- The other stop types end the session at once, also during a turn.
 
 ## Built-in agent loop
 
@@ -1481,6 +1502,7 @@ StartAgentSession -> RunModel (initial message) | AwaitUserMessage
 AwaitUserMessage  -> RunModel                              (a message, or an approved plan revision)
                    | ApplyTurnControl                      (steer)
                    | AwaitUserMessage                      (a stale approval)
+                   | deadEnd                               (a graceful completion request, no message)
 RunModel          -> ApplyTurnControl                      (steered or cancelled: ends the turn, no model call)
                    | AwaitUserMessage                      (final answer)
                    | CompactContext({ through_sequence }) -> RunModel (compaction policy, input over the threshold)
@@ -1513,7 +1535,7 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | Step type | Input | Behavior | Options |
 | --- | --- | --- | --- |
 | `StartAgentSession` | `AgentSessionStartInput` | Initializes `AgentState`, `AgentUsage`, `PendingInterrupts`; starts a turn when `initial_message` is set | |
-| `AwaitUserMessage` | none | Waits for any of, in this order, a `TurnControlRequests` message, one queued message, or, while the plan is `draft` or `active`, an approval in `PlanExecutions[<revision>]`. A steer: moves to `ApplyTurnControl`. A message: appends it and starts a `chat` or `planning` `turn-<n>`. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn | Locks `TurnCancellationRequest` in Execute, so no turn starts while `cancel_turn` decides |
+| `AwaitUserMessage` | none | Waits for any of, in this order, a `TurnControlRequests` message, one queued message, or, while the plan is `draft` or `active`, an approval in `PlanExecutions[<revision>]`, and, on a server with protocol 7 or later, the graceful completion condition last. A steer: moves to `ApplyTurnControl`. A message: appends it and starts a `chat` or `planning` `turn-<n>`. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. No consumed message and a graceful completion request: ends with `deadEnd`, so the session Flow completes | Locks `TurnCancellationRequest` in Execute, so no turn starts while `cancel_turn` decides |
 | `RunModel` | none | Ends the turn and moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `runModelStep`. On `TurnCompleted`, appends the messages and clears the turn. On `ToolCallsRequested`, stores the run state, records, and interrupts, then moves to one Step per call plus `ResumeTurn`. A `write_todos` call, and every call but `write_todos` of a planning turn, is final in this commit | 15 min method timeout, 2 min heartbeat timeout, 3 attempts within 30 min, failure route `RecordTurnFailure` |
 | `CompactContext` | `CompactContextInput` | Calls `summarizeContext` once for the messages after the current summary through `through_sequence`, stores `ContextSummary`, and moves to `RunModel` | `RunModel`'s options and failure route |
 | `AwaitToolApproval` | tool call ID | Waits for the call's `ToolCallCancellations` instance, its `InterruptResolutions` instance, or its deadline Timer. A cancellation records `rejected` with its reason. Approved: moves to the call's tool Step. Rejected or expired: records `rejected` | Locks `PendingInterrupts` in Execute |
@@ -1663,7 +1685,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.45.5 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.45.6 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
@@ -2733,7 +2755,8 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 - A failed turn keeps its user message in history without an assistant reply;
   only the turn failure note records what its tools did.
 - Deadlines use the Worker clock when the Timer is computed.
-- Sessions never complete on their own; stop them with `Client.stopFlow`.
+- A session that does not fail stays open until `Client.stopFlow` closes it. With `StopType.GRACEFUL_COMPLETE`, it completes at its next wait
+  for a user message; see [Ending a session](#ending-a-session).
 - `AgentEvents` is best effort and its byte budget is shared by every session
   of the Flow type; rebuild from `get_agent_snapshot`.
 - `@superdurable/dex-agents/mcp` uses `@modelcontextprotocol/sdk` 1.x, which

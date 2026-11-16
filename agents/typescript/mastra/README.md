@@ -25,7 +25,7 @@ npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex
 The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `@mastra/core` is a peer dependency too.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.5, and
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.6, and
 `@mastra/core` `^1.81.0` (the tests run 1.81.0).
 
 Develop the package inside this repository with `./ci.sh`. There
@@ -478,8 +478,8 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
 - Tool call IDs come from the model provider. They must be slash-free and unique
   within a turn, as the core requires.
 - The core's limits apply: a crashed `RunModel` reruns its model call, each
-  model call and tool call adds a Step round trip, sessions never complete on
-  their own, and `AgentEvents` is best effort.
+  model call and tool call adds a Step round trip, sessions stay open until
+  `Client.stopFlow` ends them, and `AgentEvents` is best effort.
 
 ## Development
 

@@ -27,7 +27,7 @@ npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdura
 The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `@openai/agents` is a peer dependency too.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.5, and
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.45.6, and
 `@openai/agents` `^0.21.0` (tested with 0.21.0).
 
 Develop the package inside this repository with `./ci.sh`. There
@@ -469,5 +469,5 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   references instead; see [Images](#images).
 - `reasoning_delta` comes only from Responses API reasoning summary events.
 - The limits of `@superdurable/dex-agents` apply: a `RunModel` rerun repeats
-  its model call, and sessions never complete on their own. See
+  its model call, and sessions stay open until `Client.stopFlow` ends them. See
   [Compaction](#compaction) for long sessions.

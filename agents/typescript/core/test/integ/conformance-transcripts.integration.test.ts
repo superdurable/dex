@@ -10,12 +10,15 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, before, describe, test } from "node:test";
 
+import { StopType } from "@superdurable/dex";
+
 import { encodeAgentSnapshot } from "../../src/agent-session-codecs.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
   PrivateDexEngine,
   executeCompletedEvent,
+  pollUntil,
   readStepHistory,
   waitForCompletedEvent,
   type StepHistoryEntry,
@@ -102,6 +105,17 @@ describe("the conformance suite's scripted-turn transcripts", () => {
         return sessions.steerUserMessage(sessionId, action["text"] as string);
       case "execute_plan":
         return sessions.executePlan(sessionId, action["revision"] as number);
+      case "graceful_complete":
+        await environment.client.stopFlow(sessionId, { type: StopType.GRACEFUL_COMPLETE });
+        return undefined;
+      case "wait_for_flow_closed":
+        return pollUntil(
+          async () => {
+            const info = await environment.client.describeFlow(sessionId);
+            return info.status === "running" ? undefined : info.status;
+          },
+          { description: "the session Flow to close" },
+        );
       case "snapshot":
         snapshots[action["label"] as string] = encodeAgentSnapshot(await sessions.getAgentSnapshot(sessionId));
         return undefined;

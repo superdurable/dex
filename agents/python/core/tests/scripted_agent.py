@@ -37,6 +37,9 @@ API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools,
 ``SCRIPTED_AGENT_MESSAGE_WINDOW`` sets ``<window size>,<chunk size>``, or
 ``SCRIPTED_AGENT_SUMMARY_INDEXED`` turns on the indexed session summary.
 
+The ``complete_session`` tool asks Dex to gracefully complete its own session
+through a Client of the Worker's server.
+
 Every tool accepts ``"gate"``, which waits at that ``FileGate`` first,
 ``"fail_attempts"``, which raises on attempts up to that number, and
 ``"blocking_gate"``, which marks that ``FileGate`` and blocks the event loop for
@@ -49,6 +52,7 @@ import asyncio
 import json
 import os
 import re
+import tempfile
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
@@ -95,6 +99,7 @@ TOOL_POLICIES = {
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
     "charge": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
     "slow_write": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+    "complete_session": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
 }
 
 
@@ -197,6 +202,9 @@ class ScriptedRunner(AgentFrameworkRunner):
             )
         if record.tool_name == "slow_write":
             return ToolExecutionResult(output=f"wrote {arguments['message']}")
+        if record.tool_name == "complete_session":
+            await _request_graceful_completion(call.flow_id)
+            return ToolExecutionResult(output=f"completing {call.flow_id}")
         raise ToolExecutionError(f"unknown tool {record.tool_name}")
 
     def _request_tool_calls(self, turn: AgentTurnContext, command: str) -> AgentTurnOutcome:
@@ -376,6 +384,35 @@ def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
 
 
 _SENDER_NAMED_COMMAND = re.compile(r"^\w+: ")
+
+
+async def _request_graceful_completion(session_id: str) -> None:
+    # Imported here, so the released 0.1.0 Worker can load this module.
+    from dex import (
+        AsyncClient,
+        BlobCacheConfig,
+        ClientOptions,
+        Registry,
+        StopFlowOptions,
+        StopType,
+        open_blob_cache,
+    )
+
+    from dex_agents.testing import SERVER_ADDRESS_ENVIRONMENT_VARIABLE
+
+    with tempfile.TemporaryDirectory(prefix="scripted-stop-client-") as cache_dir:
+        blob_cache = open_blob_cache(BlobCacheConfig(cache_dir, 16 * 1024 * 1024))
+        registry = Registry([build_scripted_agent_flow(Path(cache_dir))], allow_async_handlers=True)
+        client = AsyncClient(
+            registry,
+            blob_cache,
+            ClientOptions(server_address=os.environ[SERVER_ADDRESS_ENVIRONMENT_VARIABLE]),
+        )
+        try:
+            await client.stop_flow(session_id, StopFlowOptions(type=StopType.GRACEFUL_COMPLETE))
+        finally:
+            await client.close()
+            blob_cache.close()
 
 
 def _chain_batches(command: str) -> list[str]:

@@ -94,11 +94,29 @@ point inside the [history window](/reference/server/configuration#history-window
 or the beginning of the run. Operators can tune **history.windowEvents** and
 the per-run history window.
 
-A session never completes by itself. Stop it with **StopFlow** when it is done.
+After every turn, a session waits for the next user message until a stop ends
+it. See [End a session](#end-a-session).
 A stopped session, and its **get_agent_snapshot** RPC, stays available for the
 [retention](/reference/server/configuration#retention) period. Then Dex purges
 it. To keep a transcript after that, copy it with **list_agent_messages**
 first.
+
+## End a session {#end-a-session}
+
+Since 0.6.14, [**StopFlow**](/reference/server/runtime-client#stop-a-flow)
+with graceful complete ends a session as **COMPLETED**. Call it from a client,
+or from one of the session's own tools. It needs server-zd 0.1.34 or later.
+
+- The running turn finishes first. Its tool results and its final assistant
+  message are stored, and **get_agent_snapshot** returns them after the close.
+- User messages queued before the request still run their turns. Then the
+  session Flow completes at its next wait for a user message.
+- Servers before 0.1.34 reject graceful complete as **INVALID_ARGUMENT**.
+- Send graceful complete only after every Worker of the session's Flow type
+  runs 0.6.14 or later. A session that an earlier Worker serves can retry its
+  wait for a user message instead of completing.
+- Cancel, terminate, fail, and force complete end the session at once, also
+  during a turn.
 
 ## Compaction {#compaction}
 

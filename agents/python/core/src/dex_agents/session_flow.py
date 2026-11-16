@@ -65,7 +65,10 @@ from dex import (
     force_fail,
     go_to,
     go_to_many,
+    graceful_completion_requested,
+    is_graceful_completion_condition_completed,
     rpc,
+    supports_graceful_completion_condition,
 )
 from dex.condition import Condition
 
@@ -540,9 +543,17 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     Every model call runs in its own ``RunModel`` Step and every tool call in
     its own tool call Step, so each has its own retry policy, timeout, failure
-    route, and history entry. The session never completes on its own: it waits
-    for the next user message after every turn. Stop it with
-    ``AsyncClient.stop_flow``.
+    route, and history entry. After every turn the session waits for the next
+    user message. To end it as ``COMPLETED``, call ``AsyncClient.stop_flow``
+    with ``StopType.GRACEFUL_COMPLETE``, from a client or from one of the
+    session's own tools. The running turn finishes first, and so do user
+    messages queued before the request. Then the session Flow completes. This
+    needs server-zd 0.1.34 or later; older servers reject the request, and
+    the session keeps waiting. Other stop types end the session at once.
+
+    .. versionchanged:: 0.6.14
+       A graceful complete request ends the session at its next wait for a
+       user message.
 
     ``steer_user_message`` ends the running turn at its next safe Step
     boundary. It never interrupts a model call or a tool call that has already
@@ -1512,6 +1523,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         # Keyed by revision, so an approval of an earlier revision never starts a turn.
         if plan is not None and plan.status in EXECUTABLE_PLAN_STATUSES:
             conditions.append(PLAN_EXECUTIONS.for_one(plan_execution_key(plan.revision)))
+        # Servers before protocol 7 cannot take it; the session then waits for the next message.
+        if supports_graceful_completion_condition(context):
+            conditions.append(graceful_completion_requested())
         return Wait.any_of(*conditions)
 
     def _start_user_message_turn(self, context: AsyncContext, step_type: str) -> StepDecision:
@@ -1525,6 +1539,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             else ()
         )
         if not executions:
+            # The condition also reports a request when a message won, so messages go first.
+            if is_graceful_completion_condition_completed(context):
+                return dead_end()
             raise RuntimeError("the user message wait completed without a message")
         if PENDING_PLAN_EXECUTION.get(context) is not None:
             PENDING_PLAN_EXECUTION.delete(context)
@@ -3275,7 +3292,7 @@ class StartAgentSession(Step[AgentSessionStartInput]):
 
 
 class AwaitUserMessage(Step[None]):
-    """Wait for a steer, a queued user message, or a plan execution."""
+    """Wait for a steer, a queued user message, a plan execution, or a completion request."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
