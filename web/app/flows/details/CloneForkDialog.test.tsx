@@ -13,6 +13,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
+import { sessionTaskQueue } from '../../agents/sessionFork';
 import { CloneForkDialog } from './CloneForkDialog';
 import { FlowStatePanel } from './FlowStatePanel';
 
@@ -52,6 +53,7 @@ function renderDialog(overrides: Partial<Parameters<typeof CloneForkDialog>[0]> 
       initialEvent={event}
       runAttempt={0}
       sourceTaskQueue="orders"
+      sourceTaskQueueStatus="loaded"
       isAgentSessionDefinition={false}
       isSourceRunning
       timezone="UTC"
@@ -218,5 +220,62 @@ describe('Clone fork validation', () => {
     const point = screen.getByRole('combobox', { name: 'Clone fork point' }) as HTMLSelectElement;
     expect(point.value).toBe('beginning');
     expect([...point.options].map((option) => option.value)).not.toContain('current');
+  });
+});
+
+describe('Clone fork of a possible agent session', () => {
+  function fillRequiredFields() {
+    fireEvent.change(screen.getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'branch' } });
+  }
+
+  it('blocks a candidate session task queue that Web Crypto cannot check', async () => {
+    vi.stubGlobal('crypto', {});
+    renderDialog({ sourceTaskQueue: 's-0123456789abcdef0123' });
+    fillRequiredFields();
+    expect(await screen.findByText(/cannot check whether this run is on its own agent session task queue/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('waits for the source task queue of a session definition', () => {
+    renderDialog({ sourceTaskQueue: null, sourceTaskQueueStatus: 'loading', isAgentSessionDefinition: true });
+    fillRequiredFields();
+    expect((screen.getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('blocks a clone fork when the source task queue could not be read', () => {
+    renderDialog({ sourceTaskQueue: null, sourceTaskQueueStatus: 'failed', isAgentSessionDefinition: true });
+    fillRequiredFields();
+    expect(screen.getByText(/could not read the source run's task queue/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('moves a session to its derived task queue once the source task queue loads', async () => {
+    const fetchMock = stubCloneFork();
+    const ownTaskQueue = await sessionTaskQueue('order-1');
+    const props = {
+      open: true,
+      summary,
+      events: [event],
+      initialEvent: event,
+      runAttempt: 0,
+      isAgentSessionDefinition: true,
+      isSourceRunning: true,
+      timezone: 'UTC' as const,
+      onClose: vi.fn(),
+      onCloneForked: vi.fn(),
+    };
+    const { rerender } = render(<CloneForkDialog {...props} sourceTaskQueue={null} sourceTaskQueueStatus="loading" />);
+    fillRequiredFields();
+    const button = screen.getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    rerender(<CloneForkDialog {...props} sourceTaskQueue={ownTaskQueue} sourceTaskQueueStatus="loaded" />);
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(requestBody(fetchMock)).toMatchObject({
+      taskQueue: await sessionTaskQueue('order-1-copy'),
+      deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
+    });
   });
 });

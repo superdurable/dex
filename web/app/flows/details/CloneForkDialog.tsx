@@ -46,6 +46,9 @@ const cloneForkPoints: { kind: HistoryPointKind; value: number; label: string }[
   { kind: 'event-id', value: CLONE_FORK_POINT_TYPE.EVENT_ID, label: 'Event ID' },
 ];
 
+/** Whether the source run's task queue is read yet; 'failed' when its configuration could not be read. */
+export type SourceTaskQueueStatus = 'loading' | 'loaded' | 'failed';
+
 /** Whether the source runs on its own session task queue; 'unavailable' when Web Crypto cannot tell. */
 type SessionQueueCheck = 'pending' | 'own' | 'other' | 'unavailable';
 
@@ -67,6 +70,7 @@ export function CloneForkDialog({
   initialEvent,
   runAttempt,
   sourceTaskQueue,
+  sourceTaskQueueStatus,
   isAgentSessionDefinition,
   isSourceRunning,
   timezone,
@@ -82,6 +86,8 @@ export function CloneForkDialog({
   runAttempt: number;
   /** The source run's task queue, or null when its configuration is unavailable. */
   sourceTaskQueue: string | null;
+  /** Whether sourceTaskQueue is read; a null queue means the default task queue only once loaded. */
+  sourceTaskQueueStatus: SourceTaskQueueStatus;
   /** Whether the source's Flow definition is an agent session; null while the definition loads. */
   isAgentSessionDefinition: boolean | null;
   /** The current state can be copied only while the source run is running. */
@@ -103,7 +109,9 @@ export function CloneForkDialog({
   const [error, setError] = useState('');
   const [hashedSessionQueueCheck, setHashedSessionQueueCheck] =useState<SessionQueueCheck>('pending');
   const canBeOwnSessionQueue = sourceTaskQueue?.startsWith(SESSION_TASK_QUEUE_PREFIX) === true;
-  const sessionQueueCheck: SessionQueueCheck = canBeOwnSessionQueue ? hashedSessionQueueCheck : 'other';
+  const sessionQueueCheck: SessionQueueCheck = sourceTaskQueueStatus === 'loading'
+    ? 'pending'
+    : canBeOwnSessionQueue ? hashedSessionQueueCheck : 'other';
   const [derivedTaskQueue, setDerivedTaskQueue] = useState<DerivedSessionTaskQueue | null>(null);
   const stepTypes = useStepTypesOf(events);
   const points = isSourceRunning ? cloneForkPoints : cloneForkPoints.filter((point) => point.kind !== 'current');
@@ -158,6 +166,11 @@ export function CloneForkDialog({
     setError('');
   }, [initialEvent?.eventId, open]);
 
+  // A source task queue read after the dialog opened fills the field it would have opened with.
+  useEffect(() => {
+    if (open) setTaskQueue(sourceTaskQueue ?? '');
+  }, [open, sourceTaskQueue]);
+
   const modalRef = useModalFocus<HTMLDivElement>(open, onClose);
   if (!open) return null;
 
@@ -170,10 +183,12 @@ export function CloneForkDialog({
   const sessionTaskQueueOfNewFlow = isOnOwnSessionQueue && derivedTaskQueue?.flowId === trimmedFlowId
     ? derivedTaskQueue.taskQueue
     : null;
-  // A session definition without Web Crypto cannot tell whether the fork must move to its own task queue.
-  const sessionQueueError = isAgentSessionDefinition === true && sessionQueueCheck === 'unavailable'
-    ? 'This browser cannot compute the session task queue: Web Crypto needs HTTPS or localhost.'
-    : '';
+  // Without the source's task queue, Dex Web cannot tell whether the fork needs the session rules.
+  const sessionQueueError = sourceTaskQueueStatus === 'failed'
+    ? 'Dex Web could not read the source run\'s task queue, so it cannot tell whether this run is an agent session. Reload the run and try again.'
+    : sessionQueueCheck === 'unavailable'
+      ? 'This browser cannot check whether this run is on its own agent session task queue: Web Crypto needs HTTPS or localhost.'
+      : '';
   const isSessionCheckPending = isAgentSessionDefinition === null
     || sessionQueueCheck === 'pending'
     || (isOnOwnSessionQueue && sessionTaskQueueOfNewFlow === null);
