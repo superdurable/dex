@@ -34,7 +34,8 @@ pub(crate) use retry_backoff::{
 pub(crate) use step_creation::{NewStepExecution, create_step_execution};
 pub(crate) use step_decisions::{
     ConsumedMessagesOnCancel, apply_execute_completed, cancel_steps_by_type,
-    complete_gracefully_if_ready, finish_step, is_active,
+    complete_gracefully_if_ready, finish_step, force_complete_flow, is_active,
+    request_graceful_completion,
 };
 pub(crate) use step_results::{
     StepCommandOutcome, apply_attempt_failed, apply_attempt_heartbeat, apply_attempt_returned,

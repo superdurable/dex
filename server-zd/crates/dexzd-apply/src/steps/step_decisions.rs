@@ -140,18 +140,14 @@ fn apply_step_decision(
                 }
             }
             CloseDecisionType::GracefulComplete => {
-                if let Err(rejection) = collect_output(transaction, cursor, &output())? {
+                if let Err(rejection) = request_graceful_completion(transaction, cursor, &output())?
+                {
                     return Ok(Err(rejection));
                 }
-                cursor.record.is_graceful_completion_requested = true;
                 can_go_next = false;
             }
             CloseDecisionType::ForceComplete => {
-                if let Err(rejection) = collect_output(transaction, cursor, &output())? {
-                    return Ok(Err(rejection));
-                }
-                close_flow(transaction, cursor, scope, FlowClosing::completed())?;
-                return Ok(Ok(()));
+                return force_complete_flow(transaction, cursor, scope, &output());
             }
             CloseDecisionType::ForceFail => {
                 if let Some(input) = &close.close_input {
@@ -212,6 +208,39 @@ fn apply_step_decision(
         }
     }
     complete_gracefully_if_ready(transaction, cursor, scope)?;
+    Ok(Ok(()))
+}
+
+/// Keeps `output` as a Flow result and requests graceful completion; active Steps keep running.
+/// Used by the GracefulComplete Step decision and StopFlow.
+///
+/// Returns the rejection of an output that is too large for a Flow result.
+pub(crate) fn request_graceful_completion(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    output: &StepCompletionOutput,
+) -> Result<Result<(), ValueRejection>, ApplyError> {
+    if let Err(rejection) = collect_output(transaction, cursor, output)? {
+        return Ok(Err(rejection));
+    }
+    cursor.record.is_graceful_completion_requested = true;
+    Ok(Ok(()))
+}
+
+/// Keeps `output` as a Flow result and closes the Flow as completed, canceling every active
+/// Step. Used by the ForceComplete Step decision and StopFlow.
+///
+/// Returns the rejection of an output that is too large for a Flow result.
+pub(crate) fn force_complete_flow(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    output: &StepCompletionOutput,
+) -> Result<Result<(), ValueRejection>, ApplyError> {
+    if let Err(rejection) = collect_output(transaction, cursor, output)? {
+        return Ok(Err(rejection));
+    }
+    close_flow(transaction, cursor, scope, FlowClosing::completed())?;
     Ok(Ok(()))
 }
 

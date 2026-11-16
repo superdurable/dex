@@ -173,6 +173,10 @@ export enum StopType {
   STOP_TYPE_CANCEL = 1,
   STOP_TYPE_TERMINATE = 2,
   STOP_TYPE_FAIL = 3,
+  /** STOP_TYPE_GRACEFUL_COMPLETE - Completes after every active Step finishes, like the GracefulComplete Step decision. */
+  STOP_TYPE_GRACEFUL_COMPLETE = 4,
+  /** STOP_TYPE_FORCE_COMPLETE - Completes at once and cancels active Steps, like the ForceComplete Step decision. */
+  STOP_TYPE_FORCE_COMPLETE = 5,
   UNRECOGNIZED = -1,
 }
 
@@ -1103,6 +1107,8 @@ export interface StopFlowRequest {
   runId: string;
   reason: string;
   stopType: StopType;
+  /** Flow result output; only the complete stop types accept it. */
+  output: Value | undefined;
 }
 
 export interface GetAttributesRequest {
@@ -6421,7 +6427,7 @@ export const StreamMessage: MessageFns<StreamMessage> = {
 };
 
 function createBaseStopFlowRequest(): StopFlowRequest {
-  return { flowId: "", runId: "", reason: "", stopType: 0 };
+  return { flowId: "", runId: "", reason: "", stopType: 0, output: undefined };
 }
 
 export const StopFlowRequest: MessageFns<StopFlowRequest> = {
@@ -6437,6 +6443,9 @@ export const StopFlowRequest: MessageFns<StopFlowRequest> = {
     }
     if (message.stopType !== 0) {
       writer.uint32(32).int32(message.stopType);
+    }
+    if (message.output !== undefined) {
+      Value.encode(message.output, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -6480,6 +6489,14 @@ export const StopFlowRequest: MessageFns<StopFlowRequest> = {
           message.stopType = reader.int32() as any;
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.output = Value.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6498,6 +6515,9 @@ export const StopFlowRequest: MessageFns<StopFlowRequest> = {
     message.runId = object.runId ?? "";
     message.reason = object.reason ?? "";
     message.stopType = object.stopType ?? 0;
+    message.output = (object.output !== undefined && object.output !== null)
+      ? Value.fromPartial(object.output)
+      : undefined;
     return message;
   },
 };

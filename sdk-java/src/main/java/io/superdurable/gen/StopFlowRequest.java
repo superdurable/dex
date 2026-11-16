@@ -52,6 +52,7 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.StopFlowRequest.class, io.superdurable.gen.StopFlowRequest.Builder.class);
   }
 
+  private int bitField0_;
   public static final int FLOW_ID_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object flowId_ = "";
@@ -187,6 +188,44 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.StopType.UNRECOGNIZED : result;
   }
 
+  public static final int OUTPUT_FIELD_NUMBER = 5;
+  private io.superdurable.gen.Value output_;
+  /**
+   * <pre>
+   * Flow result output; only the complete stop types accept it.
+   * </pre>
+   *
+   * <code>.dex.Value output = 5;</code>
+   * @return Whether the output field is set.
+   */
+  @java.lang.Override
+  public boolean hasOutput() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Flow result output; only the complete stop types accept it.
+   * </pre>
+   *
+   * <code>.dex.Value output = 5;</code>
+   * @return The output.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.Value getOutput() {
+    return output_ == null ? io.superdurable.gen.Value.getDefaultInstance() : output_;
+  }
+  /**
+   * <pre>
+   * Flow result output; only the complete stop types accept it.
+   * </pre>
+   *
+   * <code>.dex.Value output = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ValueOrBuilder getOutputOrBuilder() {
+    return output_ == null ? io.superdurable.gen.Value.getDefaultInstance() : output_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -213,6 +252,9 @@ private static final long serialVersionUID = 0L;
     if (stopType_ != io.superdurable.gen.StopType.STOP_TYPE_UNSPECIFIED.getNumber()) {
       output.writeEnum(4, stopType_);
     }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(5, getOutput());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -229,6 +271,10 @@ private static final long serialVersionUID = 0L;
     if (stopType_ != io.superdurable.gen.StopType.STOP_TYPE_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(4, stopType_);
+    }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, getOutput());
     }
     return size;
   }
@@ -261,6 +307,11 @@ private static final long serialVersionUID = 0L;
     if (!getReason()
         .equals(other.getReason())) return false;
     if (stopType_ != other.stopType_) return false;
+    if (hasOutput() != other.hasOutput()) return false;
+    if (hasOutput()) {
+      if (!getOutput()
+          .equals(other.getOutput())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -280,6 +331,10 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getReason().hashCode();
     hash = (37 * hash) + STOP_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + stopType_;
+    if (hasOutput()) {
+      hash = (37 * hash) + OUTPUT_FIELD_NUMBER;
+      hash = (53 * hash) + getOutput().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -399,13 +454,19 @@ private static final long serialVersionUID = 0L;
 
     // Construct using io.superdurable.gen.StopFlowRequest.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetOutputFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -415,6 +476,11 @@ private static final long serialVersionUID = 0L;
       runId_ = "";
       reason_ = "";
       stopType_ = 0;
+      output_ = null;
+      if (outputBuilder_ != null) {
+        outputBuilder_.dispose();
+        outputBuilder_ = null;
+      }
       return this;
     }
 
@@ -460,6 +526,14 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.stopType_ = stopType_;
       }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.output_ = outputBuilder_ == null
+            ? output_
+            : outputBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -491,6 +565,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.stopType_ != 0) {
         setStopTypeValue(other.getStopTypeValue());
+      }
+      if (other.hasOutput()) {
+        mergeOutput(other.getOutput());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -538,6 +615,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 32
+            case 42: {
+              input.readMessage(
+                  internalGetOutputFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -821,6 +905,163 @@ private static final long serialVersionUID = 0L;
       stopType_ = 0;
       onChanged();
       return this;
+    }
+
+    private io.superdurable.gen.Value output_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> outputBuilder_;
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     * @return Whether the output field is set.
+     */
+    public boolean hasOutput() {
+      return ((bitField0_ & 0x00000010) != 0);
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     * @return The output.
+     */
+    public io.superdurable.gen.Value getOutput() {
+      if (outputBuilder_ == null) {
+        return output_ == null ? io.superdurable.gen.Value.getDefaultInstance() : output_;
+      } else {
+        return outputBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    public Builder setOutput(io.superdurable.gen.Value value) {
+      if (outputBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        output_ = value;
+      } else {
+        outputBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    public Builder setOutput(
+        io.superdurable.gen.Value.Builder builderForValue) {
+      if (outputBuilder_ == null) {
+        output_ = builderForValue.build();
+      } else {
+        outputBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    public Builder mergeOutput(io.superdurable.gen.Value value) {
+      if (outputBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0) &&
+          output_ != null &&
+          output_ != io.superdurable.gen.Value.getDefaultInstance()) {
+          getOutputBuilder().mergeFrom(value);
+        } else {
+          output_ = value;
+        }
+      } else {
+        outputBuilder_.mergeFrom(value);
+      }
+      if (output_ != null) {
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    public Builder clearOutput() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      output_ = null;
+      if (outputBuilder_ != null) {
+        outputBuilder_.dispose();
+        outputBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    public io.superdurable.gen.Value.Builder getOutputBuilder() {
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return internalGetOutputFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    public io.superdurable.gen.ValueOrBuilder getOutputOrBuilder() {
+      if (outputBuilder_ != null) {
+        return outputBuilder_.getMessageOrBuilder();
+      } else {
+        return output_ == null ?
+            io.superdurable.gen.Value.getDefaultInstance() : output_;
+      }
+    }
+    /**
+     * <pre>
+     * Flow result output; only the complete stop types accept it.
+     * </pre>
+     *
+     * <code>.dex.Value output = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        internalGetOutputFieldBuilder() {
+      if (outputBuilder_ == null) {
+        outputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>(
+                getOutput(),
+                getParentForChildren(),
+                isClean());
+        output_ = null;
+      }
+      return outputBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StopFlowRequest)

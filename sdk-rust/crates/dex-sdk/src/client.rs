@@ -669,6 +669,7 @@ impl Client {
                         run_id: String::new(),
                         reason: options.reason.unwrap_or_default(),
                         stop_type: stop_type as i32,
+                        output: None,
                     })
                     .await
             },

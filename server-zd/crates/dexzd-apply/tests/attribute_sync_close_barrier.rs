@@ -1372,6 +1372,47 @@ fn an_admitted_transactional_rpc_holds_a_close_without_outbox_entries() {
 }
 
 #[test]
+fn a_force_complete_stop_waits_for_an_admitted_transactional_rpc_like_the_step_decision() {
+    let mut harness = Harness::new();
+    harness.start(&[], Vec::new(), 60);
+    harness.start_execute("ChargeStep-1");
+
+    let held = harness.apply_while_rpc_in_flight(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::ForceComplete as i32,
+            ..StopFlowRequest::default()
+        }),
+    }));
+
+    assert!(is_ok(&held.reply), "{:?}", held.reply);
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(record.pending_close.is_some());
+    assert!(is_held_by_rpcs(&held));
+    let checked = harness.check_pending_close();
+    assert!(wakes(&checked).contains(&WaitableChange::FlowClosed));
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+#[test]
+fn a_complete_stop_during_a_pending_close_is_rejected_but_a_cancel_still_applies() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.force_complete(Vec::new());
+    assert!(harness.run_record().pending_close.is_some());
+
+    for stop_type in [StopType::GracefulComplete, StopType::ForceComplete] {
+        let rejected = harness.stop(stop_type);
+        assert_flow_closing(&rejected.reply);
+        assert!(rejected.writes.is_empty(), "{stop_type:?} changes nothing");
+    }
+
+    let canceled = harness.stop(StopType::Cancel);
+    assert!(is_ok(&canceled.reply));
+    assert_eq!(harness.run_record().status, FlowStatus::Canceled as i32);
+}
+
+#[test]
 fn the_last_ack_waits_for_an_admitted_transactional_rpc_whose_writes_join_the_outbox() {
     let mut harness = Harness::new();
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);

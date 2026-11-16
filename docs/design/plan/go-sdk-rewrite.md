@@ -2823,11 +2823,14 @@ const (
 	CancelFlow StopType = iota + 1
 	TerminateFlow
 	FailFlow
+	GracefulCompleteFlow
+	ForceCompleteFlow
 )
 
 type StopOptions struct {
 	Type   StopType
 	Reason string
+	Output any
 }
 
 type StepExecutionID struct {

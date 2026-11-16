@@ -329,6 +329,54 @@ fn worker_step_decision_accepts_step_failure_target_without_consistency_check() 
 }
 
 #[test]
+fn stop_flow_accepts_an_output_only_for_the_complete_stop_types() {
+    let config = config();
+    let stop = |stop_type: dex::StopType, output: Option<Value>| dex::StopFlowRequest {
+        flow_id: "flow".into(),
+        stop_type: stop_type as i32,
+        output,
+        ..dex::StopFlowRequest::default()
+    };
+    for stop_type in [
+        dex::StopType::GracefulComplete,
+        dex::StopType::ForceComplete,
+    ] {
+        let request = stop(stop_type, Some(scalar_string("done")));
+        assert!(validate_client_request(ClientRequest::StopFlow(&request), &config).is_ok());
+        let request = stop(stop_type, Some(internal_blob()));
+        assert_invalid(
+            validate_client_request(ClientRequest::StopFlow(&request), &config),
+            "internal_blob_id",
+        );
+    }
+    for stop_type in [
+        dex::StopType::Unspecified,
+        dex::StopType::Cancel,
+        dex::StopType::Terminate,
+        dex::StopType::Fail,
+    ] {
+        let request = stop(stop_type, None);
+        assert!(validate_client_request(ClientRequest::StopFlow(&request), &config).is_ok());
+        let request = stop(stop_type, Some(scalar_string("done")));
+        assert_invalid(
+            validate_client_request(ClientRequest::StopFlow(&request), &config),
+            "accept an output",
+        );
+    }
+    let mut unknown = stop(dex::StopType::Cancel, None);
+    unknown.stop_type = 99;
+    assert_invalid(
+        validate_client_request(ClientRequest::StopFlow(&unknown), &config),
+        "stop type is required",
+    );
+    let missing_flow_id = dex::StopFlowRequest::default();
+    assert_invalid(
+        validate_client_request(ClientRequest::StopFlow(&missing_flow_id), &config),
+        "flow ID is required",
+    );
+}
+
+#[test]
 fn client_request_variants_preserve_go_messages() {
     let config = config();
     let attributes = dex::SetAttributesRequest {

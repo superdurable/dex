@@ -10,8 +10,8 @@ use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, CloneForkFlowRequest, DeleteChannelMessageRequest,
     FlowCloneForkPointType, FlowConfig, FlowResetStepMethod, FlowResetType, IdReusePolicy,
     InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
-    SkipTimerRequest, StartFlowRequest, SubFlowResetPolicy, UpdateFlowConfigRequest,
-    WaitForAttributeRequest, WaitForStepCompletionRequest, value,
+    SkipTimerRequest, StartFlowRequest, StopFlowRequest, StopType, SubFlowResetPolicy,
+    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForStepCompletionRequest, value,
 };
 
 use crate::shared::{
@@ -36,6 +36,8 @@ pub enum ClientRequest<'a> {
     InvokeRpc(&'a InvokeRpcRequest),
     /// Change Flow configuration.
     UpdateFlowConfig(&'a UpdateFlowConfigRequest),
+    /// Stop a Flow.
+    StopFlow(&'a StopFlowRequest),
     /// Skip a pending timer.
     SkipTimer(&'a SkipTimerRequest),
     /// Reset a Flow.
@@ -60,6 +62,7 @@ pub fn validate_client_request(
         ClientRequest::DeleteChannelMessage(request) => validate_delete_channel_message(request),
         ClientRequest::InvokeRpc(request) => validate_invoke_rpc(request),
         ClientRequest::UpdateFlowConfig(request) => validate_update_flow_config(request, config),
+        ClientRequest::StopFlow(request) => validate_stop_flow(request),
         ClientRequest::SkipTimer(request) => validate_skip_timer(request),
         ClientRequest::ResetFlow(request) => validate_reset_flow(request),
         ClientRequest::CloneForkFlow(request) => validate_clone_fork_flow(request, config),
@@ -251,6 +254,27 @@ fn validate_update_flow_config(
         ));
     }
     validate_flow_config("flow_config", flow_config, config, false)
+}
+
+fn validate_stop_flow(request: &StopFlowRequest) -> Result<(), ValidationError> {
+    if request.flow_id.is_empty() {
+        return Err(invalid("flow_id", "flow ID is required"));
+    }
+    let Ok(stop_type) = StopType::try_from(request.stop_type) else {
+        return Err(invalid("stop_type", "stop type is required"));
+    };
+    if request.output.is_some()
+        && !matches!(
+            stop_type,
+            StopType::GracefulComplete | StopType::ForceComplete
+        )
+    {
+        return Err(invalid(
+            "output",
+            "only the graceful complete and force complete stop types accept an output",
+        ));
+    }
+    validate_blob_value("output", request.output.as_ref())
 }
 
 fn validate_skip_timer(request: &SkipTimerRequest) -> Result<(), ValidationError> {

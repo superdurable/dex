@@ -1172,8 +1172,9 @@ func mapHealthInfo(info *dexpb.HealthInfo) (HealthInfo, error) {
 	}, nil
 }
 
-func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
+func mapStopFlowRequest(flowID string, options StopOptions) (*dexpb.StopFlowRequest, error) {
 	var stopType dexpb.StopType
+	isCompleteStopType := false
 	switch options.Type {
 	case 0, CancelFlow:
 		stopType = dexpb.StopType_STOP_TYPE_CANCEL
@@ -1181,11 +1182,32 @@ func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
 		stopType = dexpb.StopType_STOP_TYPE_TERMINATE
 	case FailFlow:
 		stopType = dexpb.StopType_STOP_TYPE_FAIL
+	case GracefulCompleteFlow:
+		stopType = dexpb.StopType_STOP_TYPE_GRACEFUL_COMPLETE
+		isCompleteStopType = true
+	case ForceCompleteFlow:
+		stopType = dexpb.StopType_STOP_TYPE_FORCE_COMPLETE
+		isCompleteStopType = true
 	default:
-		return dexpb.StopType_STOP_TYPE_UNSPECIFIED, "",
-			fmt.Errorf("dex: unsupported stop type %d", options.Type)
+		return nil, fmt.Errorf("dex: unsupported stop type %d", options.Type)
 	}
-	return stopType, options.Reason, nil
+	request := &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: stopType,
+		Reason:   options.Reason,
+	}
+	if options.Output == nil {
+		return request, nil
+	}
+	if !isCompleteStopType {
+		return nil, fmt.Errorf("dex: StopOptions.Output requires GracefulCompleteFlow or ForceCompleteFlow")
+	}
+	output, err := encodeValue(options.Output)
+	if err != nil {
+		return nil, err
+	}
+	request.Output = output
+	return request, nil
 }
 
 func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, error) {

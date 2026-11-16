@@ -781,14 +781,20 @@ func resolveClientRequestID(operation string, override *string) (string, error) 
 	return *override, nil
 }
 
-// StopFlow requests cancellation or termination of the active Flow identified by flowID.
+// StopFlow requests cancellation, termination, failure, or completion of the active Flow
+// identified by flowID.
 //
-// options selects the stop mode and optional reason. The method returns after the
+// options selects the stop mode, optional reason, and optional output. The method returns after the
 // server accepts the request; it does not wait for the Flow to close. Zero options request cooperative cancellation.
 // Termination stops the Flow immediately without cleanup; FailFlow marks it failed with Reason.
+// GracefulCompleteFlow and ForceCompleteFlow complete the Flow with StopOptions.Output as a
+// result, like the GracefulComplete and ForceComplete Step decisions; see their docs.
 // A stopped handler can still perform external work if it ignores cancellation. It returns
 // FlowNotActiveOrNotFoundError when no active execution exists, plus validation, context,
 // transport, or server errors.
+//
+// Changed in 1.45.6: StopFlow accepts GracefulCompleteFlow, ForceCompleteFlow, and
+// StopOptions.Output.
 func (client *Client) StopFlow(
 	ctx context.Context,
 	flowID string,
@@ -797,15 +803,11 @@ func (client *Client) StopFlow(
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
 	}
-	stopType, reason, err := mapStopOptions(options)
+	request, err := mapStopFlowRequest(flowID, options)
 	if err != nil {
 		return err
 	}
-	_, err = client.service.StopFlow(ctx, &dexpb.StopFlowRequest{
-		FlowId:   flowID,
-		StopType: stopType,
-		Reason:   reason,
-	})
+	_, err = client.service.StopFlow(ctx, request)
 	return translateRPCError(err, "StopFlow", flowID, flowTargetActive)
 }
 

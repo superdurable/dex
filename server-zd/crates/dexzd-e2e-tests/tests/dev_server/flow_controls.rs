@@ -388,9 +388,9 @@ async fn stop_flow_with_an_unknown_stop_type_is_invalid_argument() {
     )
     .await;
     for (target_flow_id, stop_type) in [
-        (flow_id, 4),
+        (flow_id, 6),
         (flow_id, -1),
-        ("missing-flow-with-unknown-stop-type", 4),
+        ("missing-flow-with-unknown-stop-type", 6),
     ] {
         let rejection = flow_client
             .stop_flow(StopFlowRequest {

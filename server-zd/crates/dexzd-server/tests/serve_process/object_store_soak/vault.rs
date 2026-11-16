@@ -554,6 +554,7 @@ async fn stop_until_terminated(
             run_id: run_id.to_owned(),
             reason: "soak hard delete".to_owned(),
             stop_type: StopType::Terminate as i32,
+            output: None,
         });
         let failure = match tokio::time::timeout(CALL_TIMEOUT, stop).await {
             Ok(Ok(_)) => return Ok(()),

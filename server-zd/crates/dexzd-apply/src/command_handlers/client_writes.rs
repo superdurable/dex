@@ -12,7 +12,8 @@
 use dexzd_keyspace::row_keys::RequestKind;
 use dexzd_protocol::dex::{
     ChannelExternalDeleteEvent, ChannelExternalPublishEvent, ErrorSubStatus, FlowErrorType,
-    RpcExecutionCompletedEvent, StopType, WorkerTarget, flow_history_event,
+    RpcExecutionCompletedEvent, StepCompletionOutput, StopType, Value, WorkerTarget,
+    flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, CommandReply,
@@ -28,7 +29,7 @@ use crate::command_handlers::flow_close::{
     FlowClosing, close_flow_immediately, is_terminal_cleanup_in_progress,
 };
 use crate::command_handlers::flow_data::{
-    EffectValueReferences, apply_attribute_writes, apply_channel_deletions,
+    EffectValueReferences, FlowDataRejection, apply_attribute_writes, apply_channel_deletions,
     apply_channel_publications, find_pending_message,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
@@ -36,7 +37,9 @@ use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::history_offload::segment_expiry::update_history_object_delete_pending;
 use crate::projections::history_events::reference_effect_values;
 use crate::state_access::FlowTransaction;
-use crate::steps::wait_conditions;
+use crate::steps::{
+    complete_gracefully_if_ready, force_complete_flow, request_graceful_completion, wait_conditions,
+};
 use crate::values::is_null_value;
 
 /// Returns the recorded reply for a repeated request ID, or a rejection for a reused ID with
@@ -356,8 +359,51 @@ pub(crate) fn apply_flow_stop(
             };
             FlowClosing::failed(FlowErrorType::ClientApiFailingFlow, reason)
         }
+        StopType::GracefulComplete | StopType::ForceComplete => {
+            return apply_flow_stop_by_completion(
+                transaction,
+                cursor,
+                scope,
+                stop_type,
+                request.output,
+            );
+        }
     };
     close_flow_immediately(transaction, &mut cursor, scope, closing)?;
+    Ok(HandlerResult::Applied(cursor.finish(
+        transaction,
+        scope,
+        ok_reply(),
+        HistoryKind::SEMANTIC,
+    )?))
+}
+
+/// Completes the run like the matching Step decision; `output` names no Step, and the reason is dropped.
+fn apply_flow_stop_by_completion(
+    transaction: &mut FlowTransaction<'_>,
+    mut cursor: RunCursor,
+    scope: &CommandScope<'_>,
+    stop_type: StopType,
+    output: Option<Value>,
+) -> Result<HandlerResult, ApplyError> {
+    // A pending close already canceled every Step and decided how the run ends.
+    if is_terminal_cleanup_in_progress(&cursor) {
+        return Ok(HandlerResult::Rejected(terminal_cleanup_reply()));
+    }
+    let output = StepCompletionOutput {
+        completed_step_type: String::new(),
+        completed_step_execution_id: String::new(),
+        completed_step_output: output,
+    };
+    let completion = if stop_type == StopType::GracefulComplete {
+        request_graceful_completion(transaction, &mut cursor, &output)?
+    } else {
+        force_complete_flow(transaction, &mut cursor, scope, &output)?
+    };
+    if let Err(rejection) = completion {
+        return Ok(HandlerResult::from(FlowDataRejection::Value(rejection)));
+    }
+    complete_gracefully_if_ready(transaction, &mut cursor, scope)?;
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,
         scope,

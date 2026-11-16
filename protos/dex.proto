@@ -820,6 +820,10 @@ enum StopType {
   STOP_TYPE_CANCEL = 1;
   STOP_TYPE_TERMINATE = 2;
   STOP_TYPE_FAIL = 3;
+  // Completes after every active Step finishes, like the GracefulComplete Step decision.
+  STOP_TYPE_GRACEFUL_COMPLETE = 4;
+  // Completes at once and cancels active Steps, like the ForceComplete Step decision.
+  STOP_TYPE_FORCE_COMPLETE = 5;
 }
 
 message StopFlowRequest {
@@ -827,6 +831,8 @@ message StopFlowRequest {
   string run_id = 2;
   string reason = 3;
   StopType stop_type = 4;
+  // Flow result output; only the complete stop types accept it.
+  Value output = 5;
 }
 
 message GetAttributesRequest {

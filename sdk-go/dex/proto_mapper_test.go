@@ -615,7 +615,7 @@ func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
 	_, err := mapFlowConfig(&FlowConfig{StepDurability: &unknown})
 	require.ErrorContains(t, err, "unsupported step durability")
 
-	_, _, err = mapStopOptions(StopOptions{Type: StopType(99)})
+	_, err = mapStopFlowRequest("order-1", StopOptions{Type: StopType(99)})
 	require.ErrorContains(t, err, "unsupported stop type")
 
 	_, err = mapTimeTravelOptions(TimeTravelOptions{Type: TimeTravelType(99)})
