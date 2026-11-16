@@ -47,8 +47,13 @@ class GracefulWaitStep implements Step<string> {
     return "GracefulWaitStep";
   }
 
-  public waitFor(_context: Context, input: string): Wait {
+  public waitFor(context: Context, input: string): Wait {
     switch (input) {
+      case "if-supported":
+        if (context.supportsGracefulCompletionCondition()) {
+          return Wait.anyOf(messages.forOne(), GracefulCompletion.requested("graceful"));
+        }
+        return Wait.until(messages.forOne());
       case "twice":
         return Wait.anyOf(GracefulCompletion.requested(), GracefulCompletion.requested("second"));
       case "combination":
@@ -134,6 +139,17 @@ test("isGracefulCompletionConditionCompleted reads the graceful completion resul
 
   const absent = await dispatcher.invokeExecute(executeRequest(undefined));
   assert.deepEqual(nextStepTypes(absent.stepDecision), ["GracefulWaitStep"]);
+});
+
+// The passthrough hydrator has no FlowService, so the support check cannot send a request.
+test("supportsGracefulCompletionCondition reads the negotiated protocol without a request", async () => {
+  const supported = await newDispatcher(7).invokeWaitFor(waitForRequest("if-supported"));
+  assert.deepEqual(supported.waitingCondition?.gracefulCompletionConditions, [{ conditionId: "graceful" }]);
+  assert.equal(supported.waitingCondition?.channelConditions.length, 1);
+
+  const unsupported = await newDispatcher(6).invokeWaitFor(waitForRequest("if-supported"));
+  assert.deepEqual(unsupported.waitingCondition?.gracefulCompletionConditions, []);
+  assert.equal(unsupported.waitingCondition?.channelConditions.length, 1);
 });
 
 function newDispatcher(negotiatedServerProtocolVersion: number): WorkerDispatcher {

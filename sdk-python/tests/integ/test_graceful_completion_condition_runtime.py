@@ -43,6 +43,8 @@ def test_graceful_stop_wakes_a_step_waiting_on_the_graceful_condition() -> None:
         result = environment.client.wait_for_flow(flow_id, timedelta(seconds=15))
         assert result.status is FlowStatus.COMPLETED
         assert flow.observations == [((), True)]
+        assert flow.support_observations
+        assert all(flow.support_observations)
 
 
 def test_message_published_before_the_stop_is_consumed_first() -> None:

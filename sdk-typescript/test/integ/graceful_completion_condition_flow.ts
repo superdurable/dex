@@ -14,6 +14,7 @@ import {
   GracefulCompletion,
   StepList,
   Wait,
+  booleanCodec,
   deadEnd,
   goTo,
   jsonCodec,
@@ -39,6 +40,7 @@ export const gracefulWaiterExecutions = new Attribute(
   "graceful-waiter-executions",
   jsonCodec<GracefulWaiterExecution[]>(),
 );
+export const gracefulWaiterSupportsCondition = new Attribute("graceful-waiter-supports-condition", booleanCodec);
 
 class GracefulConditionGateStep implements Step<void> {
   public readonly inputCodec = voidCodec;
@@ -65,8 +67,13 @@ class GracefulMessageWaiterStep implements Step<void> {
     return "GracefulMessageWaiterStep";
   }
 
-  public waitFor(): Wait {
-    return Wait.anyOf(gracefulConditionMessages.forOne(), GracefulCompletion.requested("graceful"));
+  public waitFor(context: Context): Wait {
+    const isSupported = context.supportsGracefulCompletionCondition();
+    gracefulWaiterSupportsCondition.set(context, isSupported);
+    if (isSupported) {
+      return Wait.anyOf(gracefulConditionMessages.forOne(), GracefulCompletion.requested("graceful"));
+    }
+    return Wait.until(gracefulConditionMessages.forOne());
   }
 
   public execute(context: Context): StepDecision {
@@ -98,7 +105,7 @@ export class GracefulCompletionConditionFlow implements Flow<void> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [gracefulWaiterExecutions],
+      attributes: [gracefulWaiterExecutions, gracefulWaiterSupportsCondition],
       channels: [gracefulConditionMessages, gracefulConditionGate],
     };
   }

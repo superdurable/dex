@@ -50,6 +50,10 @@ export function negotiateServerProtocol(
   return Math.min(serverCurrent, maximumSupportedServerProtocolVersion);
 }
 
+export function supportsGracefulCompletionCondition(negotiatedServerProtocolVersion: number): boolean {
+  return negotiatedServerProtocolVersion >= gracefulCompletionConditionMinimumServerProtocolVersion;
+}
+
 // An older Server drops the condition, so a Wait could complete without waiting.
 export function requireGracefulCompletionConditionSupport(
   negotiatedServerProtocolVersion: number,
@@ -57,7 +61,7 @@ export function requireGracefulCompletionConditionSupport(
 ): void {
   if (
     (waitingCondition?.gracefulCompletionConditions.length ?? 0) === 0
-    || negotiatedServerProtocolVersion >= gracefulCompletionConditionMinimumServerProtocolVersion
+    || supportsGracefulCompletionCondition(negotiatedServerProtocolVersion)
   ) {
     return;
   }

@@ -622,7 +622,8 @@ completion request, from `Client.StopFlow` with `GracefulCompleteFlow` or a `Gra
 decision. Wait for it next to a message with `AnyOf`. In Execute, handle a consumed message
 first; when there is none and `IsGracefulCompletionConditionCompleted(ctx)` is true, return
 `DeadEnd()`. It needs
-Server protocol 7; see the
+Server protocol 7. `SupportsGracefulCompletionCondition(ctx)` reports that from the Worker's
+negotiated protocol without a request, so WaitFor can add the condition only when supported; see the
 [Waits reference](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests).
 
 ## Registration

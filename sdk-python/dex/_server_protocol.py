@@ -125,6 +125,9 @@ class NegotiatedServerProtocol:
             CLONE_FORK_FLOW_SERVER_ZD_RELEASE,
         )
 
+    def supports_graceful_completion_condition(self) -> bool:
+        return self._version >= GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION
+
     def require_graceful_completion_condition_support(
         self,
         waiting: pb.WaitingCondition,
@@ -132,7 +135,7 @@ class NegotiatedServerProtocol:
         # An older Server drops the condition, so fail closed instead.
         if (
             not waiting.graceful_completion_conditions
-            or self._version >= GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION
+            or self.supports_graceful_completion_condition()
         ):
             return
         raise GracefulCompletionConditionUnsupportedError(

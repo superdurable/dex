@@ -113,6 +113,23 @@ final class GracefulCompletionConditionTest {
         assertFalse(OBSERVED_COMPLETION.get());
     }
 
+    // UNUSED_CHANNEL points at a closed port, so the check sending a request would fail the call.
+    @Test
+    void supportsGracefulCompletionConditionReadsTheNegotiatedProtocol() throws Throwable {
+        final WaitingCondition supported = dispatcher(negotiated(7))
+                .invokeWaitFor(waitForRequest("if-supported"), null).getWaitingCondition();
+        assertEquals(1, supported.getGracefulCompletionConditionsCount());
+        assertEquals(1, supported.getChannelConditionsCount());
+
+        for (NegotiatedServerProtocol olderProtocol
+                : Arrays.asList(negotiated(6), new NegotiatedServerProtocol())) {
+            final WaitingCondition unsupported = dispatcher(olderProtocol)
+                    .invokeWaitFor(waitForRequest("if-supported"), null).getWaitingCondition();
+            assertEquals(0, unsupported.getGracefulCompletionConditionsCount());
+            assertEquals(1, unsupported.getChannelConditionsCount());
+        }
+    }
+
     private static NegotiatedServerProtocol negotiated(final int version) {
         final NegotiatedServerProtocol protocol = new NegotiatedServerProtocol();
         protocol.recordNegotiatedVersion(version);
@@ -180,6 +197,11 @@ final class GracefulCompletionConditionTest {
                     return Wait.anyCombinationOf(
                             ConditionCombination.of(MESSAGES.forOne("message"), graceful),
                             ConditionCombination.of(graceful));
+                case "if-supported":
+                    if (context.supportsGracefulCompletionCondition()) {
+                        return Wait.anyOf(MESSAGES.forOne(), GracefulCompletion.requested());
+                    }
+                    return Wait.until(MESSAGES.forOne());
                 case "two-graceful":
                     return Wait.anyOf(GracefulCompletion.requested(), GracefulCompletion.requested());
                 default:

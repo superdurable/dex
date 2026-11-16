@@ -101,6 +101,7 @@ class WorkerDispatcher:
             loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
             deadline=deadline,
+            server_protocol=self._server_protocol,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
@@ -166,6 +167,7 @@ class WorkerDispatcher:
             loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
             deadline=deadline,
+            server_protocol=self._server_protocol,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision = step.step.execute(context, input)
@@ -233,6 +235,7 @@ class WorkerDispatcher:
             loaded_channel_names=request.loaded_channel_names,
             loaded_channel_map_instances=request.loaded_channel_map_instances,
             deadline=deadline,
+            server_protocol=self._server_protocol,
         )
         decision = flow.flow.handle_timeout(context)
         if isgenerator(decision):
@@ -294,6 +297,7 @@ class WorkerDispatcher:
             loaded_channel_names=request.loaded_channel_names,
             loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
+            server_protocol=self._server_protocol,
         )
         arguments: list[object] = [context]
         if rpc.input_codec is not None:

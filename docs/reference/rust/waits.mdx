@@ -135,7 +135,11 @@ exists. When there is no message and
 When the request arrives, Dex checks only the Waits that include this
 condition. A Wait holds at most one. It needs Server protocol version 7, and
 against an older Server the Step fails with
-`GracefulCompletionConditionUnsupportedError`. The
+`GracefulCompletionConditionUnsupportedError`. To keep working with older
+Servers, add the condition only when
+[`ctx.supports_graceful_completion_condition()`](https://docs.rs/dex-sdk/latest/dex_sdk/struct.Context.html#method.supports_graceful_completion_condition)
+returns `true` in `wait_for`; it reads the Worker's negotiated protocol and
+sends no request. The
 [`Condition` API reference](https://docs.rs/dex-sdk/latest/dex_sdk/struct.Condition.html#method.graceful_completion_requested)
 shows an example. The server rules are in
 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).

@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Any, Callable, Protocol, Sequence, TypeVar, cast
 from urllib.parse import unquote
 
+from dex._server_protocol import NegotiatedServerProtocol
 from dex._utils import require_map_instance, require_name
 from dex._value_mapper import ValueMapper
 from dex.attribute import (
@@ -84,8 +85,15 @@ class InvocationContext:
         is_active: Callable[[], bool] | None = None,
         output_emitter: _StepOutputEmitter | None = None,
         deadline: datetime | None = None,
+        server_protocol: NegotiatedServerProtocol | None = None,
     ) -> None:
         self._deadline = None if method is InvocationMethod.RPC else deadline
+        # None means a test or fake context with no negotiated Server.
+        self._server_protocol = (
+            server_protocol
+            if server_protocol is not None
+            else NegotiatedServerProtocol()
+        )
         self._method = method
         self._flow = flow
         self._metadata = metadata
@@ -216,6 +224,9 @@ class InvocationContext:
             result.condition_status == pb.CONDITION_STATUS_COMPLETED
             for result in self._condition_results.graceful_completion_results
         )
+
+    def supports_graceful_completion_condition(self) -> bool:
+        return self._server_protocol.supports_graceful_completion_condition()
 
     def wait_for_method_failed(self) -> bool:
         return bool(

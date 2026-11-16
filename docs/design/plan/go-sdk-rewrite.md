@@ -2330,7 +2330,11 @@ Since 1.45.6, a Wait can also wait for the Flow's graceful completion request:
 ```go
 func GracefulCompletionRequested(options ...ConditionOption) Condition
 func IsGracefulCompletionConditionCompleted(ctx Context) bool
+func SupportsGracefulCompletionCondition(ctx Context) bool
 ```
+
+`SupportsGracefulCompletionCondition` reads the Worker's negotiated protocol
+without a request, so WaitFor can add the condition only when the Server keeps it.
 
 The reader is a package function, like `SubFlowResult`, so `Context` keeps its
 method set. A Wait holds at most one such condition. It needs Server protocol 7;

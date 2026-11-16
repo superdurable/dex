@@ -109,6 +109,7 @@ func (service *workerService) invokeWaitForMethod(
 		request.LoadedAttributeMapInstances,
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
+		service.serverProtocol,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -220,6 +221,7 @@ func (service *workerService) invokeExecuteMethod(
 		request.LoadedAttributeMapInstances,
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
+		service.serverProtocol,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -307,6 +309,7 @@ func (service *workerService) invokeTimeoutHandler(
 		request.LoadedAttributeMapInstances,
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
+		service.serverProtocol,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -398,6 +401,7 @@ func (service *workerService) invokeWorkerRPC(
 		request.LoadedAttributeMapInstances,
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
+		service.serverProtocol,
 	)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)

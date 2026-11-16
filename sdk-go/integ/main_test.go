@@ -180,6 +180,7 @@ func integrationFlows() []dex.Flow {
 		workerOriginStackWaitForFlow{},
 		messageSizeFlow{},
 		webDebugChannelFlow{},
+		gracefulSupportFlow{},
 		&webv2approval.ApprovalFlow{},
 		&webv2reply.ReplyFlow{},
 	}

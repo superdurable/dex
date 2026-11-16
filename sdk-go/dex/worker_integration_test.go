@@ -1094,6 +1094,7 @@ func TestBufferedTextStreamFlushesOnTimerAndInvocationFinish(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		&negotiatedServerProtocol{},
 	)
 	require.NoError(t, err)
 	writer, err := NewBufferedTextStream(
@@ -1136,6 +1137,7 @@ func TestInvocationContextExposesRecoveryError(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		&negotiatedServerProtocol{},
 	)
 	require.NoError(t, err)
 	require.Equal(t, &RecoveryErrorInfo{

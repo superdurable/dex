@@ -47,6 +47,10 @@ class GracefulConditionMessageOrStopStep(Step[None]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: None) -> Wait:
+        is_supported = context.supports_graceful_completion_condition()
+        self.flow.support_observations.append(is_supported)
+        if not is_supported:
+            return Wait.until(self.flow.messages.for_one())
         return Wait.any_of(
             self.flow.messages.for_one(),
             graceful_completion_requested(),
@@ -69,6 +73,7 @@ class GracefulCompletionConditionFlow(Flow[str]):
 
     def __init__(self) -> None:
         self.observations: list[tuple[tuple[str, ...], bool]] = []
+        self.support_observations: list[bool] = []
         self.gate_step = GracefulConditionGateStep(self)
         self.message_or_stop = GracefulConditionMessageOrStopStep(self)
 

@@ -132,12 +132,17 @@ func (protocol *negotiatedServerProtocol) requireCloneForkFlowSupport() error {
 	}
 }
 
+// supportsGracefulCompletionCondition reports whether the negotiated Server keeps the graceful completion condition.
+func (protocol *negotiatedServerProtocol) supportsGracefulCompletionCondition() bool {
+	return protocol.version.Load() >= gracefulCompletionConditionProtocolVersion
+}
+
 // requireGracefulCompletionConditionSupport fails closed because an older Server drops the condition.
 func (protocol *negotiatedServerProtocol) requireGracefulCompletionConditionSupport(
 	waiting *dexpb.WaitingCondition,
 ) error {
 	if len(waiting.GetGracefulCompletionConditions()) == 0 ||
-		protocol.version.Load() >= gracefulCompletionConditionProtocolVersion {
+		protocol.supportsGracefulCompletionCondition() {
 		return nil
 	}
 	return &GracefulCompletionConditionUnsupportedError{

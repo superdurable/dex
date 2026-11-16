@@ -165,6 +165,35 @@ export interface Context {
    */
   isGracefulCompletionConditionCompleted(): boolean;
   /**
+   * Reports whether the connected Dex Server supports the graceful completion condition.
+   *
+   * Use it in `waitFor` to add `GracefulCompletion.requested()` only when the Server supports it.
+   * With an older Server, a Wait that contains the condition fails with
+   * `GracefulCompletionConditionUnsupportedError` after `waitFor` returns, and Step code cannot
+   * catch that error. Check this method first and keep the Wait without the condition instead.
+   *
+   * It reads the Server protocol version that the Worker negotiated with `GetServerInfo` when it
+   * started. It never sends a request, so it is cheap to call on every invocation. It returns
+   * true when that version is 7 or later. It works in `waitFor`, `execute`, and RPC handlers
+   * alike. The Worker negotiates before it receives any task, so a Context that Dex created always
+   * sees the negotiated version.
+   *
+   * @example
+   * ```ts
+   * public waitFor(context: Context): Wait {
+   *   if (context.supportsGracefulCompletionCondition()) {
+   *     return Wait.anyOf(userMessages.forOne(), GracefulCompletion.requested());
+   *   }
+   *   return Wait.until(userMessages.forOne());
+   * }
+   * ```
+   *
+   * @returns Whether the Worker's negotiated Server protocol supports the graceful completion
+   * condition.
+   * @since 1.45.6
+   */
+  supportsGracefulCompletionCondition(): boolean;
+  /**
    * Reports whether `waitFor` failed before the current `execute` call.
    * @returns Whether failure policy proceeded to execution.
    */

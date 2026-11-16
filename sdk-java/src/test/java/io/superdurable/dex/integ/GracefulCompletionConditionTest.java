@@ -62,6 +62,8 @@ public final class GracefulCompletionConditionTest {
             assertEquals(1, workflow.observations.size());
             assertEquals(Collections.emptyList(), workflow.observations.get(0).consumedMessages);
             assertTrue(workflow.observations.get(0).isGracefulCompleted);
+            assertTrue(!workflow.supportObservations.isEmpty());
+            assertTrue(workflow.supportObservations.stream().allMatch(Boolean::booleanValue));
         }
     }
 

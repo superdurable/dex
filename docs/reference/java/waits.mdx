@@ -127,7 +127,11 @@ exists. When there is no message and
 When the request arrives, Dex checks only the Waits that include this
 condition. A Wait holds at most one. It needs Server protocol version 7, and
 against an older Server the Step fails with
-`GracefulCompletionConditionUnsupportedException`. The
+`GracefulCompletionConditionUnsupportedException`. To keep working with older
+Servers, add the condition only when
+[`context.supportsGracefulCompletionCondition()`](pathname:///api/java/latest/io/superdurable/dex/Context.html#supportsGracefulCompletionCondition())
+returns true in `waitFor`; it reads the Worker's negotiated protocol and
+sends no request. The
 [`GracefulCompletion` API reference](pathname:///api/java/latest/io/superdurable/dex/GracefulCompletion.html)
 shows an example. The server rules are in
 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).

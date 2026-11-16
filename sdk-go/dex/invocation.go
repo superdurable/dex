@@ -37,6 +37,8 @@ type invocationContext struct {
 	flow          *registeredFlow
 	outputEmitter *stepOutputEmitter
 	active        bool
+	// serverProtocol is the Worker's negotiated Server protocol.
+	serverProtocol *negotiatedServerProtocol
 
 	flowID              string
 	runID               string
@@ -89,7 +91,11 @@ func newInvocationContext(
 	loadedAttributeMapInstances []string,
 	loadedChannelNames []string,
 	loadedChannelMapInstances []string,
+	serverProtocol *negotiatedServerProtocol,
 ) (*invocationContext, error) {
+	if serverProtocol == nil {
+		panic("dex: invocation Context requires the negotiated Server protocol")
+	}
 	attributeValues, err := buildInvocationValues("attribute", attributes)
 	if err != nil {
 		return nil, err
@@ -120,6 +126,7 @@ func newInvocationContext(
 		flow:                        flow,
 		outputEmitter:               outputEmitter,
 		active:                      true,
+		serverProtocol:              serverProtocol,
 		flowID:                      metadata.FlowId,
 		runID:                       metadata.RunId,
 		flowStartedAt:               time.Unix(metadata.FlowStartedTimestamp, 0),

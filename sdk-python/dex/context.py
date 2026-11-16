@@ -291,6 +291,40 @@ class Context(Protocol):
         """
         ...
 
+    def supports_graceful_completion_condition(self) -> bool:
+        """Report whether the connected Dex Server supports the graceful completion condition.
+
+        Use it in ``wait_for`` to add :func:`dex.graceful_completion_requested`
+        only when the Server supports it. With an older Server, a Wait that
+        contains the condition fails with
+        ``GracefulCompletionConditionUnsupportedError`` after ``wait_for``
+        returns, and Step code cannot catch that error. Check this method first
+        and keep the Wait without the condition instead.
+
+        It reads the Server protocol version that the Worker negotiated with
+        ``GetServerInfo`` when it started. It never sends a request, so it is
+        cheap to call on every invocation. It returns ``True`` when that version
+        is 7 or later. It works in ``wait_for``, ``execute``, and RPC handlers
+        alike. The Worker negotiates before it receives any task, so a Context
+        that Dex created always sees the negotiated version.
+
+        Example:
+            >>> def wait_for(self, context: dex.Context, input: None) -> dex.Wait:
+            ...     if context.supports_graceful_completion_condition():
+            ...         return dex.Wait.any_of(
+            ...             user_messages.for_one(),
+            ...             dex.graceful_completion_requested(),
+            ...         )
+            ...     return dex.Wait.until(user_messages.for_one())
+
+        Returns:
+            ``True`` when the Worker's negotiated Server protocol supports the
+            graceful completion condition; otherwise ``False``.
+
+        .. versionadded:: 1.45.4
+        """
+        ...
+
     def wait_for_method_failed(self) -> bool:
         """Report whether ``wait_for`` failed before this ``execute`` call.
 

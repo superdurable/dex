@@ -644,6 +644,7 @@ var _ = dex.AnyOf(
 	dex.GracefulCompletionRequested(dex.WithConditionID("graceful")),
 )
 var _ func(dex.Context) bool = dex.IsGracefulCompletionConditionCompleted
+var _ func(dex.Context) bool = dex.SupportsGracefulCompletionCondition
 var _ error = &dex.GracefulCompletionConditionUnsupportedError{
 	NegotiatedServerProtocol:      6,
 	RequiredServerProtocolVersion: 7,
