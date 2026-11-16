@@ -38,6 +38,21 @@ type ServerEngineResolver struct {
 	protocolVersion    uint32
 	protocolReadAt     time.Time
 	isProtocolResolved bool
+	// protocolGeneration is the generation of the refresh that stored protocolVersion.
+	protocolGeneration uint64
+	refreshGeneration  uint64
+	// inFlightRefresh is the one GetServerInfo lookup that concurrent callers share, or nil.
+	inFlightRefresh *serverInfoRefresh
+}
+
+// serverInfoRefresh is one shared GetServerInfo lookup; its result fields are set before done closes.
+type serverInfoRefresh struct {
+	generation      uint64
+	done            chan struct{}
+	waiterCount     int
+	engine          dexpb.ServerEngine
+	protocolVersion uint32
+	isResolved      bool
 }
 
 // NewServerEngineResolver returns a resolver that looks up the engine on first use.
@@ -73,24 +88,63 @@ func (r *ServerEngineResolver) ResolveCurrentProtocolVersion(ctx context.Context
 }
 
 // resolveServerInfo returns the engine, the protocol version, and whether the protocol version is known.
-// It makes at most one GetServerInfo call. A failed call returns protocol 0 and false.
+// Concurrent callers share one GetServerInfo lookup. A failed lookup returns protocol 0 and false.
 func (r *ServerEngineResolver) resolveServerInfo(ctx context.Context) (dexpb.ServerEngine, uint32, bool) {
-	if engine, protocolVersion, isFresh := r.cachedServerInfo(); isFresh {
-		return engine, protocolVersion, true
+	refresh, isLeader, cached := r.joinOrStartRefresh()
+	if refresh == nil {
+		return cached.engine, cached.protocolVersion, true
 	}
+	if isLeader {
+		r.runRefresh(ctx, refresh)
+	} else {
+		select {
+		case <-refresh.done:
+		case <-ctx.Done():
+			engine, _ := r.cachedServerEngine()
+			return engine, 0, false
+		}
+	}
+	return refresh.engine, refresh.protocolVersion, refresh.isResolved
+}
+
+// joinOrStartRefresh returns a nil refresh and the cached answer while the protocol version is fresh.
+// Otherwise it returns the in-flight refresh, or a new one that the caller leads.
+func (r *ServerEngineResolver) joinOrStartRefresh() (*serverInfoRefresh, bool, serverInfoRefresh) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.isProtocolResolved && r.now().Sub(r.protocolReadAt) < serverProtocolCacheTTL {
+		return nil, false, serverInfoRefresh{engine: r.engine, protocolVersion: r.protocolVersion}
+	}
+	if r.inFlightRefresh != nil {
+		r.inFlightRefresh.waiterCount++
+		return r.inFlightRefresh, false, serverInfoRefresh{}
+	}
+	r.refreshGeneration++
+	r.inFlightRefresh = &serverInfoRefresh{generation: r.refreshGeneration, done: make(chan struct{})}
+	return r.inFlightRefresh, true, serverInfoRefresh{}
+}
+
+// runRefresh looks up the server info for every caller of the refresh, then releases them.
+func (r *ServerEngineResolver) runRefresh(ctx context.Context, refresh *serverInfoRefresh) {
 	// The lookup runs unlocked so a slow FlowService does not serialize concurrent requests.
-	lookupContext, cancel := context.WithTimeout(ctx, serverEngineLookupTimeout)
+	// It ignores the leader's cancellation because other callers wait for its answer.
+	lookupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), serverEngineLookupTimeout)
 	defer cancel()
 	serverInfo, err := r.client.GetServerInfo(lookupContext, &emptypb.Empty{})
 	if status.Code(err) == codes.Unimplemented {
-		return r.cacheServerInfo(&dexpb.ServerInfo{})
+		serverInfo, err = &dexpb.ServerInfo{}, nil
 	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	if err != nil {
 		// Web-only Dex can start before the FlowService; definition pages must not fail, so retry next request.
-		engine, _ := r.cachedServerEngine()
-		return engine, 0, false
+		refresh.engine = r.engine
+	} else {
+		r.cacheServerInfo(serverInfo, refresh.generation)
+		refresh.engine, refresh.protocolVersion, refresh.isResolved = r.engine, serverInfo.GetCurrentProtocolVersion(), true
 	}
-	return r.cacheServerInfo(serverInfo)
+	r.inFlightRefresh = nil
+	close(refresh.done)
 }
 
 func (r *ServerEngineResolver) cachedServerEngine() (dexpb.ServerEngine, bool) {
@@ -99,25 +153,19 @@ func (r *ServerEngineResolver) cachedServerEngine() (dexpb.ServerEngine, bool) {
 	return r.engine, r.isResolved
 }
 
-// cachedServerInfo reports false once the protocol version is older than serverProtocolCacheTTL.
-func (r *ServerEngineResolver) cachedServerInfo() (dexpb.ServerEngine, uint32, bool) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	isFresh := r.isProtocolResolved && r.now().Sub(r.protocolReadAt) < serverProtocolCacheTTL
-	return r.engine, r.protocolVersion, isFresh
-}
-
-// cacheServerInfo keeps the first cached engine when concurrent lookups race; the newest protocol version wins.
-func (r *ServerEngineResolver) cacheServerInfo(serverInfo *dexpb.ServerInfo) (dexpb.ServerEngine, uint32, bool) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+// cacheServerInfo keeps the first cached engine when concurrent lookups race.
+// It stores a protocol version only from a refresh that started after the one it replaces; the caller holds the mutex.
+func (r *ServerEngineResolver) cacheServerInfo(serverInfo *dexpb.ServerInfo, generation uint64) {
 	if !r.isResolved {
 		r.engine, r.isResolved = serverInfo.GetServerEngine(), true
+	}
+	if generation <= r.protocolGeneration {
+		return
 	}
 	r.protocolVersion = serverInfo.GetCurrentProtocolVersion()
 	r.protocolReadAt = r.now()
 	r.isProtocolResolved = true
-	return r.engine, r.protocolVersion, true
+	r.protocolGeneration = generation
 }
 
 func serverEngineName(engine dexpb.ServerEngine) string {

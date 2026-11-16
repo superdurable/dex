@@ -942,10 +942,22 @@ export function RunDetailsPage({
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
   }, [summary]);
+  const canUseOperatorAPI = webCatalog?.canUseOperatorAPI ?? false;
+  const refreshServerProtocolVersion = webCatalog?.refreshServerProtocolVersion;
+  /** Reads the server protocol again before a dialog whose options depend on it; null without a Dex server to ask. */
+  const refreshProtocolBeforeDialog = useCallback((): Promise<number> | null => (
+    canUseOperatorAPI && refreshServerProtocolVersion ? refreshServerProtocolVersion() : null
+  ), [canUseOperatorAPI, refreshServerProtocolVersion]);
+
   const openTimeTravel = useCallback((event: FlowHistoryEvent | null) => {
-    setTimeTravelEvent(event);
-    setTimeTravelOpen(true);
-  }, []);
+    const open = () => {
+      setTimeTravelEvent(event);
+      setTimeTravelOpen(true);
+    };
+    const refresh = refreshProtocolBeforeDialog();
+    if (refresh) void refresh.then(open);
+    else open();
+  }, [refreshProtocolBeforeDialog]);
 
   const closeTimeTravel = useCallback(() => {
     setTimeTravelOpen(false);
@@ -953,9 +965,13 @@ export function RunDetailsPage({
   }, []);
 
   const openCloneFork = useCallback((event: FlowHistoryEvent | null) => {
-    setCloneForkEvent(event);
-    setCloneForkOpen(true);
-  }, []);
+    // An older server hides the action, so the dialog stays closed.
+    void (refreshProtocolBeforeDialog() ?? Promise.resolve(0)).then((version) => {
+      if (!supportsRunHistoryForks(version)) return;
+      setCloneForkEvent(event);
+      setCloneForkOpen(true);
+    });
+  }, [refreshProtocolBeforeDialog]);
 
   const closeCloneFork = useCallback(() => {
     setCloneForkOpen(false);

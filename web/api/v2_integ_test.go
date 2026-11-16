@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1092,10 +1093,11 @@ func TestV2CatalogServerEngineSurvivesUnavailableFlowService(t *testing.T) {
 	}
 }
 
+// blockingServerInfoClient holds each GetServerInfo lookup until the test sends its answer.
 type blockingServerInfoClient struct {
 	dexpb.FlowServiceClient
 	lookups chan struct{}
-	release chan struct{}
+	answers chan *dexpb.ServerInfo
 }
 
 func (client *blockingServerInfoClient) GetServerInfo(
@@ -1104,14 +1106,27 @@ func (client *blockingServerInfoClient) GetServerInfo(
 	...grpc.CallOption,
 ) (*dexpb.ServerInfo, error) {
 	client.lookups <- struct{}{}
-	<-client.release
-	return &dexpb.ServerInfo{ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}, nil
+	return <-client.answers, nil
 }
 
-func TestServerEngineResolverDoesNotSerializeLookups(t *testing.T) {
-	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), release: make(chan struct{})}
-	releaseLookups := sync.OnceFunc(func() { close(client.release) })
-	defer releaseLookups()
+// waitForRefreshWaiters yields until n callers wait on the in-flight refresh.
+func waitForRefreshWaiters(t *testing.T, resolver *ServerEngineResolver, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resolver.mutex.Lock()
+		isWaiting := resolver.inFlightRefresh != nil && resolver.inFlightRefresh.waiterCount == n
+		resolver.mutex.Unlock()
+		if isWaiting {
+			return
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("%d callers never joined the in-flight GetServerInfo lookup", n)
+}
+
+func TestServerEngineResolverSharesOneLookup(t *testing.T) {
+	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), answers: make(chan *dexpb.ServerInfo, 2)}
 	resolver := NewServerEngineResolver(client)
 	engines := make(chan dexpb.ServerEngine, 2)
 	for range 2 {
@@ -1119,18 +1134,68 @@ func TestServerEngineResolverDoesNotSerializeLookups(t *testing.T) {
 			engines <- resolver.ResolveServerEngine(context.Background())
 		}()
 	}
-	for range 2 {
-		select {
-		case <-client.lookups:
-		case <-time.After(5 * time.Second):
-			t.Fatal("a GetServerInfo lookup waited for another lookup to finish")
-		}
-	}
-	releaseLookups()
+	<-client.lookups
+	waitForRefreshWaiters(t, resolver, 1)
+	client.answers <- &dexpb.ServerInfo{ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
 	for range 2 {
 		if engine := <-engines; engine != dexpb.ServerEngine_SERVER_ENGINE_ZD {
 			t.Fatalf("server engine = %s", engine)
 		}
+	}
+	if len(client.lookups) != 0 {
+		t.Fatal("a second caller started its own GetServerInfo lookup")
+	}
+}
+
+func TestServerProtocolRollbackIsNotOverwrittenByAnOlderRead(t *testing.T) {
+	client := &blockingServerInfoClient{lookups: make(chan struct{}, 4), answers: make(chan *dexpb.ServerInfo, 4)}
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	var clockMutex sync.Mutex
+	resolver := newServerEngineResolverWithClock(client, func() time.Time {
+		clockMutex.Lock()
+		defer clockMutex.Unlock()
+		return now
+	})
+	advanceClock := func(duration time.Duration) {
+		clockMutex.Lock()
+		defer clockMutex.Unlock()
+		now = now.Add(duration)
+	}
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 6}
+	if version, _ := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 6 {
+		t.Fatalf("protocol = %d, want 6", version)
+	}
+	<-client.lookups
+
+	// After the TTL, the first caller's lookup starts while the server still reports 6.
+	advanceClock(serverProtocolCacheTTL)
+	versions := make(chan uint32, 2)
+	resolve := func() {
+		version, _ := resolver.ResolveCurrentProtocolVersion(context.Background())
+		versions <- version
+	}
+	go resolve()
+	<-client.lookups
+	// The rollback lands; a second caller joins the in-flight lookup instead of racing it.
+	go resolve()
+	waitForRefreshWaiters(t, resolver, 1)
+	client.answers <- &dexpb.ServerInfo{CurrentProtocolVersion: 5}
+	for range 2 {
+		if version := <-versions; version != 5 {
+			t.Fatalf("protocol = %d, want 5 from the shared lookup", version)
+		}
+	}
+	if version, _ := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 5 || len(client.lookups) != 0 {
+		t.Fatalf("protocol = %d lookups = %d, want the cached 5", version, len(client.lookups))
+	}
+
+	// A refresh that started before the stored one never replaces it.
+	resolver.mutex.Lock()
+	resolver.cacheServerInfo(&dexpb.ServerInfo{CurrentProtocolVersion: 6}, resolver.protocolGeneration-1)
+	storedVersion := resolver.protocolVersion
+	resolver.mutex.Unlock()
+	if storedVersion != 5 {
+		t.Fatalf("protocol = %d after an older read, want 5", storedVersion)
 	}
 }
 

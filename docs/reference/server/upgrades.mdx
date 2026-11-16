@@ -109,10 +109,14 @@ describes.
 
 server-zd 0.1.33 and later provide protocol version 6, which adds
 CloneForkFlow, the event ID point of ResetFlow, and SubFlow reset policies.
-After 0.1.33 writes to a storage prefix, keep running 0.1.33 or later on it.
-Once a CloneForkFlow or a Time Travel has run on 0.1.33, a 0.1.32 server
-halts the partition at the first CloneForkFlow record. It also cannot deliver
-the SubFlow terminations that a Time Travel's SubFlow reset policy requested.
+After 0.1.33 writes to a storage prefix, keep running 0.1.33 or later on it. A
+0.1.32 server on that prefix meets three problems:
+
+- It halts the partition at the first CloneForkFlow record.
+- It cannot deliver the SubFlow terminations that a Time Travel's SubFlow reset
+  policy requested.
+- It drops the run fields that 0.1.33 wrote whenever it rewrites the run.
+
 Roll forward, or restore a backup taken before the upgrade into a new prefix.
 
 A later release that raises the minimum protocol version needs the same care.

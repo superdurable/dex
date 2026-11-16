@@ -395,6 +395,8 @@ describe('clone fork on the run page', () => {
       closed?: boolean;
       taskQueue?: string | null;
       serverProtocolVersion?: number;
+      /** A protocol a test changes after the page loads; it overrides serverProtocolVersion. */
+      serverProtocol?: { version: number };
       timeTravelRequests?: Record<string, unknown>[];
     } = {},
   ) {
@@ -408,7 +410,9 @@ describe('clone fork on the run page', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, 'http://dex.test');
       if (url.pathname === '/api/flow-definition-types') return json({ configured: true, operatorAPI: true, flowTypes: [{ flowType: 'OrderFlow', source: 'directory' }] });
-      if (url.pathname === '/api/server-info') return json({ serverEngine: 'zd', currentProtocolVersion: options.serverProtocolVersion ?? 6 });
+      if (url.pathname === '/api/server-info') {
+        return json({ serverEngine: 'zd', currentProtocolVersion: options.serverProtocol?.version ?? options.serverProtocolVersion ?? 6 });
+      }
       if (url.pathname === '/api/flow-definitions/by-type') return json({ flowType: 'OrderFlow', definitions: [], v2: { flowType: 'OrderFlow', definition: { actions: [], display: { fields: [] } } } });
       if (url.pathname === '/api/flows/time-travel') {
         timeTravelRequests.push(JSON.parse(String(init?.body)));
@@ -468,7 +472,7 @@ describe('clone fork on the run page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /^Clone fork/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Clone fork to a new Flow' });
+    const dialog = await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' });
     expect((within(dialog).getByRole('combobox', { name: 'Clone fork point' }) as HTMLSelectElement).value).toBe('current');
     await waitFor(() => expect((within(dialog).getByRole('textbox', { name: /^Task queue/ }) as HTMLInputElement).value).toBe('orders'));
     fireEvent.change(within(dialog).getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
@@ -526,7 +530,7 @@ describe('clone fork on the run page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
     expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
     fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
-    const dialog = screen.getByRole('dialog');
+    const dialog = await screen.findByRole('dialog');
     const points = within(dialog).getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
     expect([...points.options].map((option) => option.textContent)).not.toContain('Event ID');
     expect(within(dialog).queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
@@ -543,13 +547,39 @@ describe('clone fork on the run page', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
     await screen.findByRole('menuitem', { name: /^Clone fork/ });
     fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
-    const dialog = screen.getByRole('dialog');
+    const dialog = await screen.findByRole('dialog');
     const points = within(dialog).getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
     expect([...points.options].map((option) => option.textContent)).toContain('Event ID');
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Time travel' }));
     await waitFor(() => expect(timeTravelRequests).toHaveLength(1));
     expect(timeTravelRequests[0]).toMatchObject({ subFlowResetPolicy: 4 });
+  });
+
+  it('reads the server protocol again when a dialog opens and follows a rollback to 5', async () => {
+    const serverProtocol = { version: 6 };
+    const timeTravelRequests: Record<string, unknown>[] = [];
+    cloneForkDex({}, { serverProtocol, timeTravelRequests });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    const cloneForkItem = await screen.findByRole('menuitem', { name: /^Clone fork/ });
+
+    serverProtocol.version = 5;
+    fireEvent.click(cloneForkItem);
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'Clone fork to a new Flow' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More run actions' }));
+    expect(screen.queryByRole('menuitem', { name: /^Clone fork/ })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Time travel/ }));
+    const dialog = await screen.findByRole('dialog');
+    const points = within(dialog).getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
+    expect([...points.options].map((option) => option.textContent)).not.toContain('Event ID');
+    expect(within(dialog).queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Time travel' }));
+    await waitFor(() => expect(timeTravelRequests).toHaveLength(1));
+    expect(timeTravelRequests[0]).not.toHaveProperty('subFlowResetPolicy');
   });
 
   it.each([

@@ -28,7 +28,11 @@ vi.mock('./useAgentSession', () => ({
     loadEarlierMessages: vi.fn(),
   }),
 }));
-vi.mock('../catalog/WebCatalogProvider', () => ({ useWebCatalog: () => ({ revisionFor: () => '' }) }));
+/** The protocol version a re-read of the server reports; a test may lower it after the page loads. */
+const serverProtocol = { version: 6 };
+vi.mock('../catalog/WebCatalogProvider', () => ({
+  useWebCatalog: () => ({ revisionFor: () => '', refreshServerProtocolVersion: async () => serverProtocol.version }),
+}));
 
 afterEach(() => {
   cleanup();
@@ -729,6 +733,20 @@ describe('SessionView fork', () => {
     expect(requestBody()).toMatchObject({ pointType: 6, eventId: '9007199254740993' });
   });
 
+  it('opens no fork dialog when the server reports protocol 5 at the click', async () => {
+    loaded = sessionOf({ latestTurnEndEventId: '14', items: [agentMessage(3, 'turn-1', '14')] });
+    renderForkable();
+    serverProtocol.version = 5;
+    try {
+      fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkSession }));
+      // One macrotask settles the re-read; at protocol 6 the dialog is open by then.
+      await act(async () => { await new Promise((settled) => setTimeout(settled, 0)); });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      serverProtocol.version = 6;
+    }
+  });
+
   it('offers no fork without a place to open the new session', () => {
     loaded = sessionOf({ latestTurnEndEventId: '14', items: [agentMessage(3, 'turn-1', '14')] });
     render(renderSession());
@@ -744,7 +762,7 @@ describe('SessionView fork', () => {
     const onSessionForked = renderForkable();
 
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.forkFromMessage }));
-    const sessionIdInput = screen.getByLabelText(/^New session ID/) as HTMLInputElement;
+    const sessionIdInput = await screen.findByLabelText(/^New session ID/) as HTMLInputElement;
     expect(sessionIdInput.value).toMatch(/^builtin-\d{8}-\d{6}-[0-9a-f]{6}$/);
     fireEvent.change(sessionIdInput, { target: { value: 'x' } });
     await waitFor(() => expect(screen.getByText('s-2d711642b726b0440162')).toBeTruthy());

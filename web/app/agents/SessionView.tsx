@@ -27,6 +27,7 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
+import { supportsRunHistoryForks } from '@/lib/serverInfo';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { isOpenFlowStatusCode } from '../work-queue/liveness';
 import type { SettledOutcome } from './ApprovalCard';
@@ -75,7 +76,13 @@ export function SessionView({
   const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
   /** The point is pinned when a fork action is clicked; later reads never move it. */
   const [fork, setFork] = useState<PinnedSessionFork | null>(null);
-  const { revisionFor } = useWebCatalog();
+  const { revisionFor, refreshServerProtocolVersion } = useWebCatalog();
+  /** Opens the fork dialog once the server, read again now, still supports clone fork. */
+  const openFork = (pinnedFork: PinnedSessionFork) => {
+    void refreshServerProtocolVersion().then((version) => {
+      if (supportsRunHistoryForks(version)) setFork(pinnedFork);
+    });
+  };
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);
   const [steerText, setSteerText] = useState('');
   /** Kept outside the card: the reload that follows removes the card's own controls. */
@@ -158,7 +165,7 @@ export function SessionView({
       <SessionHeader
         session={session}
         onForkCurrent={onSessionForked && sessionForkPoint
-          ? () => setFork({ point: sessionForkPoint, isFromMessage: false, runId: session.summary.runId, taskQueue: session.taskQueue })
+          ? () => openFork({ point: sessionForkPoint, isFromMessage: false, runId: session.summary.runId, taskQueue: session.taskQueue })
           : undefined}
         onReload={reload}
         onShowWaitingCall={showWaitingCall}
@@ -220,7 +227,7 @@ export function SessionView({
             renderControls={renderControls}
             onTellAgent={sessionActionPermission(schema) !== null ? tellAgent : undefined}
             onForkAfter={onSessionForked
-              ? (eventId) => setFork({
+              ? (eventId) => openFork({
                 point: { kind: 'event', eventId }, isFromMessage: true, runId: session.summary.runId, taskQueue: session.taskQueue,
               })
               : undefined}
