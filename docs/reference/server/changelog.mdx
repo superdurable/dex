@@ -8,6 +8,16 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.34 {#v0-1-34}
+
+Released 2026-11-16 as [server-zd/v0.1.34](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.34).
+
+### Added
+
+- **WaitingCondition.graceful_completion_conditions** adds a wait condition that completes once the Flow has a graceful completion request, from a **GracefulComplete** Step decision or **StopFlow** with **STOP_TYPE_GRACEFUL_COMPLETE**. A request made before the wait starts completes it at once, and a new request wakes only the Steps whose wait includes it. It works with every wait type; in an any-of wait it comes after Timer, Channel, and SubFlow conditions. **ConditionResults.graceful_completion_results** reports its status to **Execute**, and **WaitingConditionState.graceful_completion_conditions** shows it in the Flow state. A wait holds at most one. [Reference](/reference/server/step-and-flow-close#graceful-completion-condition).
+- The server reports protocol version 7, which adds the graceful completion wait condition. Before you roll back to an older server, stop the Flows whose Steps wait on it. [Reference](/reference/server/upgrades).
+- **StopFlow** accepts **STOP_TYPE_GRACEFUL_COMPLETE** and **STOP_TYPE_FORCE_COMPLETE**, which complete a Flow from the client API with the same semantics as the **GracefulComplete** and **ForceComplete** Step decisions. The new optional **StopFlowRequest.output** becomes a Flow result whose Step type and Step execution ID are empty. A complete stop during a pending close returns **FAILED_PRECONDITION** with **FLOW_CLOSING**, and an output with any other stop type returns **INVALID_ARGUMENT**. An output that grows the active run state past its maximum returns **RESOURCE_EXHAUSTED**.
+
 ## 0.1.33 {#v0-1-33}
 
 Released 2026-11-15 as [server-zd/v0.1.33](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.33).

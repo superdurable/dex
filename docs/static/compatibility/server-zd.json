@@ -1,8 +1,127 @@
 {
   "$schema": "https://docs.superdurable.io/compatibility/server-zd.schema.json",
   "schemaVersion": 1,
-  "generatedAt": "2026-11-15",
+  "generatedAt": "2026-11-16",
   "servers": [
+    {
+      "serverZd": "0.1.34",
+      "protocolVersion": {
+        "min": 1,
+        "max": 7
+      },
+      "sdks": {
+        "go": {
+          "oldest": "0.9.0",
+          "newest": "1.45.6"
+        },
+        "python": {
+          "oldest": "0.9.0",
+          "newest": "1.45.4"
+        },
+        "typescript": {
+          "oldest": "0.9.0",
+          "newest": "1.45.6"
+        },
+        "java": {
+          "oldest": "0.9.0",
+          "newest": "1.45.3"
+        },
+        "rust": {
+          "oldest": "0.9.0",
+          "newest": "1.45.3"
+        }
+      },
+      "dexcli": {
+        "oldest": "0.9.0",
+        "newest": "1.47.8"
+      },
+      "agents": {
+        "npm": {
+          "oldest": {
+            "version": "0.1.0",
+            "pinnedSdk": "1.30.0"
+          },
+          "newest": {
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.5"
+          }
+        },
+        "pypi": {
+          "oldest": {
+            "version": "0.1.0",
+            "pinnedSdk": "1.30.0"
+          },
+          "newest": {
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.3"
+          }
+        }
+      },
+      "agentsCli": {
+        "npm": {
+          "oldest": "0.5.0",
+          "newest": "0.6.13"
+        },
+        "pypi": {
+          "oldest": "0.5.0",
+          "newest": "0.6.13"
+        }
+      },
+      "agentsCliCommands": {
+        "npm": {
+          "@superdurable/dex-agents-builtin-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.13"
+          },
+          "@superdurable/dex-agents-claude-sdk-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.13"
+          },
+          "@superdurable/dex-agents-mastra-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.13"
+          },
+          "@superdurable/dex-agents-openai-sdk-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.13"
+          },
+          "@superdurable/dex-agents-pi-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.13"
+          },
+          "@superdurable/dex-agents-vercel-ai-cli": {
+            "oldest": "0.5.0",
+            "newest": "0.6.13"
+          }
+        },
+        "pypi": {
+          "dex-agents-builtin-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.13"
+          },
+          "dex-agents-claude-sdk-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.13"
+          },
+          "dex-agents-deepagents-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.13"
+          },
+          "dex-agents-google-adk-cli": {
+            "oldest": "0.6.8",
+            "newest": "0.6.13"
+          },
+          "dex-agents-openai-sdk-cli": {
+            "oldest": "0.6.0",
+            "newest": "0.6.13"
+          },
+          "dex-agents-pydantic-ai-cli": {
+            "oldest": "0.6.1",
+            "newest": "0.6.13"
+          }
+        }
+      }
+    },
     {
       "serverZd": "0.1.33",
       "protocolVersion": {
@@ -12,23 +131,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.3"
+          "newest": "1.45.4"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         }
       },
       "dexcli": {
@@ -131,23 +250,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.3"
+          "newest": "1.45.4"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         }
       },
       "dexcli": {
@@ -250,23 +369,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.3"
+          "newest": "1.45.4"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         }
       },
       "dexcli": {
@@ -369,23 +488,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.3"
+          "newest": "1.45.4"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         }
       },
       "dexcli": {
@@ -488,23 +607,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.3"
+          "newest": "1.45.4"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         }
       },
       "dexcli": {
@@ -604,23 +723,23 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.3"
+          "newest": "1.45.4"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.5"
+          "newest": "1.45.6"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         }
       },
       "dexcli": {
