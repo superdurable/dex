@@ -105,7 +105,7 @@ describe("session forks", () => {
     assert.equal((await readFork(home, sourceId)).nextMessageSequence, 7);
   });
 
-  test("the fork subcommand forks without a terminal and says how to open the fork", async () => {
+  test("the fork subcommand says how to open the fork, or opens it at a terminal", async () => {
     const home = newHome();
     const chat = start(home);
     const sourceId = await chat.waitForSession();
@@ -132,5 +132,24 @@ describe("session forks", () => {
     const missing = start(home, ["fork"]);
     assert.equal(await missing.waitForExit(), 2);
     assert.ok(missing.stderr.all.includes(forkUsageError(commandName)), missing.stderr.all);
+
+    const opening = CliProcess.startInTerminal(home, ["fork", sourceId]);
+    processes.push(opening);
+    const forkedLine = await opening.stdout.waitFor(
+      new RegExp(`Forked session ${sourceId} after message 2 into session \\S+\\.`),
+    );
+    const openedId = /into session (\S+)\.$/.exec(forkedLine)?.[1] ?? "";
+    await opening.stdout.waitFor(openPrompt(openedId));
+    opening.writeLine("");
+    assert.equal(await opening.waitForSession(), openedId);
+    opening.writeLine("second");
+    await opening.stdout.waitFor("echo: second");
+    opening.writeLine("/exit");
+    assert.equal(await opening.waitForExit(), 0);
+    assert.deepEqual(await readFork(home, openedId), {
+      nextMessageSequence: 5,
+      hasLease: false,
+      taskQueue: sessionTaskQueue(openedId),
+    });
   });
 });

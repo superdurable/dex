@@ -164,7 +164,7 @@ async def test_fork_in_the_chat_opens_the_fork_and_the_source_keeps_working(
     assert source_messages == 7
 
 
-async def test_the_fork_subcommand_forks_without_a_terminal_and_says_how_to_open_it(
+async def test_the_fork_subcommand_says_how_to_open_the_fork_or_opens_it_at_a_terminal(
     cli_home: CliHome, tmp_path: Path
 ) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
@@ -196,3 +196,20 @@ async def test_the_fork_subcommand_forks_without_a_terminal_and_says_how_to_open
     missing = cli_home.run("fork")
     assert missing.returncode == 2
     assert build_fork_usage_error(COMMAND) in missing.stderr
+
+    opening = cli_home.spawn("fork", source_id)
+    match = await _expect_regex(
+        opening, rf"Forked session {source_id} after message 2 into session (\S+)\."
+    )
+    opened_id = match.group(1)
+    await expect(opening, build_open_prompt(opened_id))
+    opening.sendline("")
+    await expect(opening, f"Session {opened_id}")
+    await expect(opening, PROMPT)
+    opening.sendline("second")
+    await expect(opening, "echo: second")
+    await expect(opening, PROMPT)
+    opening.sendline("/exit")
+    assert await wait_for_exit(opening) == 0
+    opened_messages, opened_lease, _ = await _read_state(cli_home, tmp_path, opened_id)
+    assert (opened_messages, opened_lease) == (5, None)
