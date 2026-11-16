@@ -20,7 +20,7 @@ Dex Cloud 提供两种产品：
 | 你提供 | Worker 代码和它的部署 | 一个符合 Dex app 结构的 GitHub 仓库 |
 | 从这里开始 | [在 Dex Cloud 上运行](/components/dex-cloud) | 本页 |
 
-如果你希望 Dex Cloud 运行应用和 Worker，就选 Managed Dex App。导入前，先查看[支持的 stack](/components/dex-app-manifest#template-manifest)。如果你自己部署 Worker，就选 Managed Dex Server。
+如果你希望 Dex Cloud 运行应用和 Worker，就选 Managed Dex App。导入前，先查看[支持的 stack](/reference/dex-app/manifest#template-manifest)（英文）。如果你自己部署 Worker，就选 Managed Dex Server。
 
 ## 从示例开始 {#example}
 
@@ -28,7 +28,7 @@ Dex Cloud 提供两种产品：
 
 ## 遵守仓库规则 {#repository-rules}
 
-按照[仓库结构和导入规则](/components/dex-app-manifest#repository-layout)准备仓库。
+按照[仓库结构和导入规则](/reference/dex-app/manifest#repository-layout)（英文）准备仓库。
 
 ## 导入仓库 {#import}
 
@@ -65,11 +65,11 @@ Dex Cloud 按 build profile 构建应用。你的仓库里不需要 Dockerfile�
 
 导入检查把每个问题列为一条 finding。每条 finding 写明问题在哪里、错在哪里以及如何修复，并链接到对应的规则。
 
-每个 finding 代码在 [reference 页面](/components/dex-app-manifest#import-report)上都有自己的小节，例如 [`flow_source_missing`](/components/dex-app-manifest#flow_source_missing)。修复仓库，推送到 `main`，然后再检查一次。
+每个 finding 代码在 [reference 页面](/reference/dex-app/manifest#import-report)（英文）上都有自己的小节，例如 [`flow_source_missing`](/reference/dex-app/manifest#flow_source_missing)。修复仓库，推送到 `main`，然后再检查一次。
 
 如果检查结果说无法读取仓库，就在 GitHub 上给 SuperDurable Dex Cloud GitHub App 授予该仓库的访问权限。
 
 ## 下一步 {#next}
 
-- [Dex app manifest 和仓库结构](/components/dex-app-manifest)：manifest 的每个字段、规则、限制和 finding。
 - [在生产环境运行 Dex](/components/production)：关于 Flow 代码和代码变更的检查项同样适用于 Managed Dex App。
+- [Dex app manifest and repository layout](/reference/dex-app/manifest)（英文）：manifest 的每个字段、规则、限制和 finding。

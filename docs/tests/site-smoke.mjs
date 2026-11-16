@@ -472,7 +472,7 @@ for (const filePath of htmlIndexFiles) {
     expectedAlternateLanguageLinks(route),
     `${route} has incorrect alternate-language URLs`,
   );
-  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust|agents)\/(?:(\d+\.\d+\.(?:x|\d+))\/)?/);
+  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust|agents|dex-app)\/(?:(\d+\.\d+\.(?:x|\d+)|v\d+)\/)?/);
   const isArchivedReference = Boolean(referenceMatch?.[2]);
   const selectorMarkers = html.match(/data-reference-version-selector=/g) ?? [];
   assert.equal(selectorMarkers.length, referenceMatch ? 1 : 0, `${route} has an incorrect sidebar version selector`);

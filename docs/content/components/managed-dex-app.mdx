@@ -20,7 +20,7 @@ Dex Cloud offers two products:
 | You provide | Worker code and its deployment | A GitHub repository in the Dex app structure |
 | Start here | [Run on Dex Cloud](/components/dex-cloud) | This page |
 
-Choose a Managed Dex App when you want Dex Cloud to run your application and Workers. Check the [supported stacks](/components/dex-app-manifest#template-manifest) before importing. Choose a managed Dex Server when you deploy your own Workers.
+Choose a Managed Dex App when you want Dex Cloud to run your application and Workers. Check the [supported stacks](/reference/dex-app/manifest#template-manifest) before importing. Choose a managed Dex Server when you deploy your own Workers.
 
 ## Start from the example {#example}
 
@@ -28,7 +28,7 @@ The minimal example is [`superdurable-apps/cloud-dex-app-example`](https://githu
 
 ## Follow the repository rules {#repository-rules}
 
-Prepare your repository using the [repository layout and import rules](/components/dex-app-manifest#repository-layout).
+Prepare your repository using the [repository layout and import rules](/reference/dex-app/manifest#repository-layout).
 
 ## Import a repository {#import}
 
@@ -65,11 +65,11 @@ You and your team keep pushing to `main` as before. When you ask the coding agen
 
 The import check lists each problem as a finding. Each finding names where it is, what is wrong and how to fix it, with a link to its rule.
 
-Each finding code has its own section on [the reference page](/components/dex-app-manifest#import-report), such as [`flow_source_missing`](/components/dex-app-manifest#flow_source_missing). Fix the repository, push to `main`, and check again.
+Each finding code has its own section on [the reference page](/reference/dex-app/manifest#import-report), such as [`flow_source_missing`](/reference/dex-app/manifest#flow_source_missing). Fix the repository, push to `main`, and check again.
 
 If the check says the repository cannot be read, give the SuperDurable Dex Cloud GitHub App access to it on GitHub.
 
 ## Next {#next}
 
-- [Dex app manifest and repository layout](/components/dex-app-manifest): every manifest field, rule, limit, and finding.
 - [Run Dex in Production](/components/production): the checklist items for your Flow code and code changes apply to a Managed Dex App too.
+- [Dex app manifest and repository layout](/reference/dex-app/manifest): every manifest field, rule, limit, and finding.

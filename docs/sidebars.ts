@@ -10,6 +10,7 @@ const referenceComponents = [
   {component: 'typescript', label: 'TypeScript SDK'},
   {component: 'rust', label: 'Rust SDK'},
   {component: 'agents', label: 'Agents packages'},
+  {component: 'dex-app', label: 'Dex app'},
 ];
 
 const sidebars: SidebarsConfig = {
@@ -50,7 +51,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'components/dex-cloud',
         'components/managed-dex-app',
-        'components/dex-app-manifest',
         'components/self-host',
         'components/production',
         'components/operate-and-debug',

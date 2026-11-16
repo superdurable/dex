@@ -75,7 +75,12 @@ Edit only the current reference content under `reference/<component>/`.
 `reference/versions.json` records the latest released version for each component.
 SDKs, CLI, and Web use minor versions such as `1.35.x`. Server uses each
 `0.1.N` release before 1.0, then minor versions. Release train numbers can skip
-for a component; never invent a missing minor.
+for a component; never invent a missing minor. The Dex app reference
+(`dex-app`) follows the manifest schema version, such as `v1`, and gets a new
+version only when the manifest format changes incompatibly. Edit the current
+content for the new schema, then run
+`node scripts/snapshot-reference.mjs dex-app v2`; schema-compatible changes
+edit the current version in place.
 
 The left sidebar selector uses Docusaurus's version metadata. Choosing a
 version opens it immediately. The
