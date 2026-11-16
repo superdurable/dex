@@ -18,7 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 import pytest
 from dex import DexServiceError, ErrorSubStatus
 
