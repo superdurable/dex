@@ -164,8 +164,7 @@ pub(crate) fn on_channels_changed(
     Ok(())
 }
 
-/// Re-evaluates the Steps whose wait has a graceful completion condition, in the order they
-/// started waiting. Other waiting Steps stay unchanged.
+/// Re-evaluates only waits with a graceful completion condition, in started-waiting order.
 pub(crate) fn on_graceful_completion_requested(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

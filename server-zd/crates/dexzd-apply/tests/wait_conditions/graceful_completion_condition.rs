@@ -6,11 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The graceful completion condition completes once the Flow has a graceful completion request,
-//! from StopFlow or a Step decision, and wakes only the Steps that wait on it.
+//! A graceful completion request completes the graceful completion condition and wakes only its waiters.
 
 use super::*;
 
+use dexzd_apply::ApplyEffect;
 use dexzd_protocol::dex::{GracefulCompletionCondition, GracefulCompletionResult};
 
 impl Harness {
@@ -316,6 +316,71 @@ fn any_combination_resolves_the_condition_by_its_id() {
         harness.consumed_texts("WaitStep-1"),
         vec![(WAITING, Vec::new())]
     );
+}
+
+#[test]
+fn a_repeated_request_does_not_dispatch_a_woken_step_again() {
+    let mut harness = Harness::new();
+    harness.start_two_waiting_steps();
+    wait_on_other_channel(&mut harness);
+    harness.wait_on(
+        "WaitStep-1",
+        with_graceful(
+            condition(WaitingConditionType::AnyCompleted, Vec::new(), Vec::new()),
+            "",
+        ),
+        Vec::new(),
+    );
+    let first = harness.stop_gracefully();
+    assert_eq!(pending_executes(&first), vec!["WaitStep-1".to_owned()]);
+    let woken = harness.step("WaitStep-1");
+
+    let repeated = harness.stop_gracefully();
+    assert!(pending_executes(&repeated).is_empty());
+    assert_eq!(harness.step("WaitStep-1"), woken);
+
+    harness.start_attempt("WaitStep-1", StepMethod::Execute, 1);
+    let executing = harness.step("WaitStep-1");
+    let repeated = harness.stop_gracefully();
+    assert!(pending_executes(&repeated).is_empty());
+    assert_eq!(harness.step("WaitStep-1"), executing);
+}
+
+#[test]
+fn waiters_on_the_condition_wake_in_started_waiting_order() {
+    let mut harness = Harness::new();
+    harness.start_two_waiting_steps();
+    let graceful_only = || {
+        with_graceful(
+            condition(WaitingConditionType::AnyCompleted, Vec::new(), Vec::new()),
+            "",
+        )
+    };
+    harness.wait_on("WaitStep-2", graceful_only(), Vec::new());
+    harness.wait_on("WaitStep-1", graceful_only(), Vec::new());
+
+    let stopped = harness.stop_gracefully();
+
+    assert_eq!(
+        pending_executes(&stopped),
+        vec!["WaitStep-2".to_owned(), "WaitStep-1".to_owned()]
+    );
+}
+
+/// Step execution IDs whose Execute became pending, in effect order.
+fn pending_executes(outcome: &ApplyOutcome) -> Vec<String> {
+    outcome
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            ApplyEffect::InvocationPending { invocation, .. }
+                if invocation.method == StepMethod::Execute as i32 =>
+            {
+                Some(invocation.step_execution_id.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]

@@ -32,12 +32,12 @@ completing decision.
 
 ### Wait for a completion request {#graceful-completion-condition}
 
-Since 0.1.34. A Step's **WaitFor** can include a graceful completion condition.
+Since 0.1.34. A Step's `WaitFor` can include a graceful completion condition.
 It completes once the Flow has a graceful completion request: a
-**GracefulComplete** decision, or a [StopFlow](/reference/server/runtime-client#stop-a-flow)
+`GracefulComplete` decision, or a [`StopFlow`](/reference/server/runtime-client#stop-a-flow)
 call with graceful complete. Use it for a Step that would otherwise wait
 indefinitely, such as one that waits for the next user message. That Step
-handles a consumed message first. Otherwise it returns **DeadEnd** when the
+handles a consumed message first. Otherwise it returns `DeadEnd` when the
 condition completed, and the Flow completes once no Step is active.
 
 - A request that came before the wait starts completes the condition at once.
@@ -49,7 +49,7 @@ condition completed, and the Flow completes once no Step is active.
   any-combination wait, it needs a condition ID like the other conditions.
 - A wait holds at most one graceful completion condition. A Worker response
   with more fails as an invalid Worker response and is retried.
-- **Execute** receives its status in the condition results. It is completed
+- `Execute` receives its status in the condition results. It is completed
   whenever the Flow had a request as the wait completed, even when another
   condition satisfied the wait.
 

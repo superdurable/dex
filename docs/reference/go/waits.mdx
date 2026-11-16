@@ -123,25 +123,25 @@ Example: [examples/go/primitives/subflow/parent_flow.go](https://github.com/supe
 
 ## Graceful completion requests {#graceful-completion-requests}
 
-Since 1.45.6. **GracefulCompletionRequested** returns a condition that
+Since 1.45.6. `GracefulCompletionRequested` returns a condition that
 completes once the Flow has a graceful completion request. The request comes
-from a Step that returns **GracefulComplete**, or from **Client.StopFlow** with
-**GracefulCompleteFlow**. A request made before the Wait starts completes the
+from a Step that returns `GracefulComplete`, or from `Client.StopFlow` with
+`GracefulCompleteFlow`. A request made before the Wait starts completes the
 condition at once.
 
 Use it in a Step that would otherwise wait indefinitely, such as one that waits
-for the next user message. Combine it with that message in **AnyOf**. In
-**Execute**, handle a message that the Wait consumed first. A ready message
-wins the **AnyOf**, but the condition still reports completed when a request
+for the next user message. Combine it with that message in `AnyOf`. In
+`Execute`, handle a message that the Wait consumed first. A ready message
+wins the `AnyOf`, but the condition still reports completed when a request
 exists. When there is no message and
-**IsGracefulCompletionConditionCompleted** is true, return **DeadEnd**. The
+`IsGracefulCompletionConditionCompleted` is true, return `DeadEnd`. The
 Flow completes once no other Step is active.
 
 When the request arrives, Dex checks only the Waits that include this
 condition. A Wait holds at most one. It needs Server protocol version 7, and
 against an older Server the Step fails with
-**GracefulCompletionConditionUnsupportedError**. The
-[GracefulCompletionRequested API reference](pathname:///api/go/latest/dex/#func-gracefulcompletionrequested)
+`GracefulCompletionConditionUnsupportedError`. The
+[`GracefulCompletionRequested` API reference](pathname:///api/go/latest/dex/#func-gracefulcompletionrequested)
 shows an example. The server rules are in
 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
 
