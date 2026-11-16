@@ -217,6 +217,25 @@ fn do_validate_waiting_condition(
             true,
         )?;
     }
+    // A second one could only repeat the first.
+    if waiting.graceful_completion_conditions.len() > 1 {
+        return Err(invalid(
+            "waiting_condition.graceful_completion_conditions",
+            format!(
+                "a wait has {} graceful completion conditions; at most one is allowed",
+                waiting.graceful_completion_conditions.len()
+            ),
+        ));
+    }
+    for (index, graceful) in waiting.graceful_completion_conditions.iter().enumerate() {
+        register_id(
+            &mut declared_ids,
+            &format!("waiting_condition.graceful_completion_conditions[{index}]"),
+            &graceful.condition_id,
+            "graceful completion",
+            requires_ids,
+        )?;
+    }
     match WaitingConditionType::try_from(waiting.waiting_condition_type) {
         Ok(WaitingConditionType::AllCompleted | WaitingConditionType::AnyCompleted) => {
             if !waiting.condition_combinations.is_empty() {

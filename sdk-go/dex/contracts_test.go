@@ -639,6 +639,15 @@ var _ = dex.AnyOf(
 	commandChannel.ForOne(),
 	dex.Timer(time.Minute, dex.WithConditionID("any")),
 )
+var _ = dex.AnyOf(
+	commandChannel.ForOne(),
+	dex.GracefulCompletionRequested(dex.WithConditionID("graceful")),
+)
+var _ func(dex.Context) bool = dex.IsGracefulCompletionConditionCompleted
+var _ error = &dex.GracefulCompletionConditionUnsupportedError{
+	NegotiatedServerProtocol:      6,
+	RequiredServerProtocolVersion: 7,
+}
 var _ = dex.ForceComplete("done")
 var _ = dex.GracefulComplete("done")
 var _ = dex.ForceFail("failed")

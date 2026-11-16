@@ -510,6 +510,7 @@ message ConditionResultsRecord {
   repeated dex.TimerResult timer_results = 2;
   bool wait_for_failed = 3;
   repeated StoredFlowResult sub_flow_results = 4;
+  repeated dex.GracefulCompletionResult graceful_completion_results = 5;
 }
 
 message ChannelResultRecord {

@@ -5,7 +5,8 @@
     {"since": "0.1.0", "protocol": {"min": 1, "max": 3}},
     {"since": "0.1.17", "protocol": {"min": 1, "max": 4}},
     {"since": "0.1.30", "protocol": {"min": 1, "max": 5}},
-    {"since": "0.1.33", "protocol": {"min": 1, "max": 6}}
+    {"since": "0.1.33", "protocol": {"min": 1, "max": 6}},
+    {"since": "0.1.34", "protocol": {"min": 1, "max": 7}}
   ],
   "clients": {
     "go": [
@@ -14,7 +15,8 @@
       {"since": "1.11.0", "protocol": {"min": 2, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
       {"since": "1.45.2", "protocol": {"min": 4, "max": 5}},
-      {"since": "1.45.5", "protocol": {"min": 4, "max": 6}}
+      {"since": "1.45.5", "protocol": {"min": 4, "max": 6}},
+      {"since": "1.45.6", "protocol": {"min": 4, "max": 7}}
     ],
     "python": [
       {"since": "0.9.0", "protocol": {"min": 1, "max": 1}},
@@ -50,7 +52,8 @@
       {"since": "1.11.0", "protocol": {"min": 2, "max": 3}},
       {"since": "1.35.0", "protocol": {"min": 4, "max": 4}},
       {"since": "1.47.4", "protocol": {"min": 4, "max": 5}},
-      {"since": "1.47.8", "protocol": {"min": 4, "max": 6}}
+      {"since": "1.47.8", "protocol": {"min": 4, "max": 6}},
+      {"since": "1.47.9", "protocol": {"min": 4, "max": 7}}
     ],
     "agents": [
       {"since": "0.1.0"},

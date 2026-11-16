@@ -33,6 +33,7 @@ private static final long serialVersionUID = 0L;
     channelConditions_ = java.util.Collections.emptyList();
     conditionCombinations_ = java.util.Collections.emptyList();
     subFlowConditions_ = java.util.Collections.emptyList();
+    gracefulCompletionConditions_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -235,6 +236,47 @@ private static final long serialVersionUID = 0L;
     return subFlowConditions_.get(index);
   }
 
+  public static final int GRACEFUL_COMPLETION_CONDITIONS_FIELD_NUMBER = 6;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.GracefulCompletionCondition> gracefulCompletionConditions_;
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.GracefulCompletionCondition> getGracefulCompletionConditionsList() {
+    return gracefulCompletionConditions_;
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.GracefulCompletionConditionOrBuilder> 
+      getGracefulCompletionConditionsOrBuilderList() {
+    return gracefulCompletionConditions_;
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  @java.lang.Override
+  public int getGracefulCompletionConditionsCount() {
+    return gracefulCompletionConditions_.size();
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.GracefulCompletionCondition getGracefulCompletionConditions(int index) {
+    return gracefulCompletionConditions_.get(index);
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.GracefulCompletionConditionOrBuilder getGracefulCompletionConditionsOrBuilder(
+      int index) {
+    return gracefulCompletionConditions_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -263,6 +305,9 @@ private static final long serialVersionUID = 0L;
     }
     for (int i = 0; i < subFlowConditions_.size(); i++) {
       output.writeMessage(5, subFlowConditions_.get(i));
+    }
+    for (int i = 0; i < gracefulCompletionConditions_.size(); i++) {
+      output.writeMessage(6, gracefulCompletionConditions_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -308,6 +353,15 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+
+        {
+          final int count = gracefulCompletionConditions_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(gracefulCompletionConditions_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -341,6 +395,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getConditionCombinationsList())) return false;
     if (!getSubFlowConditionsList()
         .equals(other.getSubFlowConditionsList())) return false;
+    if (!getGracefulCompletionConditionsList()
+        .equals(other.getGracefulCompletionConditionsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -369,6 +425,10 @@ private static final long serialVersionUID = 0L;
     if (getSubFlowConditionsCount() > 0) {
       hash = (37 * hash) + SUB_FLOW_CONDITIONS_FIELD_NUMBER;
       hash = (53 * hash) + getSubFlowConditionsList().hashCode();
+    }
+    if (getGracefulCompletionConditionsCount() > 0) {
+      hash = (37 * hash) + GRACEFUL_COMPLETION_CONDITIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getGracefulCompletionConditionsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -530,6 +590,13 @@ private static final long serialVersionUID = 0L;
         subFlowConditionsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000010);
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        gracefulCompletionConditions_ = java.util.Collections.emptyList();
+      } else {
+        gracefulCompletionConditions_ = null;
+        gracefulCompletionConditionsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000020);
       return this;
     }
 
@@ -598,6 +665,15 @@ private static final long serialVersionUID = 0L;
         result.subFlowConditions_ = subFlowConditions_;
       } else {
         result.subFlowConditions_ = subFlowConditionsBuilder_.build();
+      }
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000020) != 0)) {
+          gracefulCompletionConditions_ = java.util.Collections.unmodifiableList(gracefulCompletionConditions_);
+          bitField0_ = (bitField0_ & ~0x00000020);
+        }
+        result.gracefulCompletionConditions_ = gracefulCompletionConditions_;
+      } else {
+        result.gracefulCompletionConditions_ = gracefulCompletionConditionsBuilder_.build();
       }
     }
 
@@ -727,6 +803,32 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        if (!other.gracefulCompletionConditions_.isEmpty()) {
+          if (gracefulCompletionConditions_.isEmpty()) {
+            gracefulCompletionConditions_ = other.gracefulCompletionConditions_;
+            bitField0_ = (bitField0_ & ~0x00000020);
+          } else {
+            ensureGracefulCompletionConditionsIsMutable();
+            gracefulCompletionConditions_.addAll(other.gracefulCompletionConditions_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.gracefulCompletionConditions_.isEmpty()) {
+          if (gracefulCompletionConditionsBuilder_.isEmpty()) {
+            gracefulCompletionConditionsBuilder_.dispose();
+            gracefulCompletionConditionsBuilder_ = null;
+            gracefulCompletionConditions_ = other.gracefulCompletionConditions_;
+            bitField0_ = (bitField0_ & ~0x00000020);
+            gracefulCompletionConditionsBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetGracefulCompletionConditionsFieldBuilder() : null;
+          } else {
+            gracefulCompletionConditionsBuilder_.addAllMessages(other.gracefulCompletionConditions_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -810,6 +912,19 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 42
+            case 50: {
+              io.superdurable.gen.GracefulCompletionCondition m =
+                  input.readMessage(
+                      io.superdurable.gen.GracefulCompletionCondition.parser(),
+                      extensionRegistry);
+              if (gracefulCompletionConditionsBuilder_ == null) {
+                ensureGracefulCompletionConditionsIsMutable();
+                gracefulCompletionConditions_.add(m);
+              } else {
+                gracefulCompletionConditionsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1837,6 +1952,246 @@ private static final long serialVersionUID = 0L;
         subFlowConditions_ = null;
       }
       return subFlowConditionsBuilder_;
+    }
+
+    private java.util.List<io.superdurable.gen.GracefulCompletionCondition> gracefulCompletionConditions_ =
+      java.util.Collections.emptyList();
+    private void ensureGracefulCompletionConditionsIsMutable() {
+      if (!((bitField0_ & 0x00000020) != 0)) {
+        gracefulCompletionConditions_ = new java.util.ArrayList<io.superdurable.gen.GracefulCompletionCondition>(gracefulCompletionConditions_);
+        bitField0_ |= 0x00000020;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.GracefulCompletionCondition, io.superdurable.gen.GracefulCompletionCondition.Builder, io.superdurable.gen.GracefulCompletionConditionOrBuilder> gracefulCompletionConditionsBuilder_;
+
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public java.util.List<io.superdurable.gen.GracefulCompletionCondition> getGracefulCompletionConditionsList() {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(gracefulCompletionConditions_);
+      } else {
+        return gracefulCompletionConditionsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public int getGracefulCompletionConditionsCount() {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        return gracefulCompletionConditions_.size();
+      } else {
+        return gracefulCompletionConditionsBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionCondition getGracefulCompletionConditions(int index) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        return gracefulCompletionConditions_.get(index);
+      } else {
+        return gracefulCompletionConditionsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder setGracefulCompletionConditions(
+        int index, io.superdurable.gen.GracefulCompletionCondition value) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.set(index, value);
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder setGracefulCompletionConditions(
+        int index, io.superdurable.gen.GracefulCompletionCondition.Builder builderForValue) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder addGracefulCompletionConditions(io.superdurable.gen.GracefulCompletionCondition value) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.add(value);
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder addGracefulCompletionConditions(
+        int index, io.superdurable.gen.GracefulCompletionCondition value) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.add(index, value);
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder addGracefulCompletionConditions(
+        io.superdurable.gen.GracefulCompletionCondition.Builder builderForValue) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.add(builderForValue.build());
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder addGracefulCompletionConditions(
+        int index, io.superdurable.gen.GracefulCompletionCondition.Builder builderForValue) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder addAllGracefulCompletionConditions(
+        java.lang.Iterable<? extends io.superdurable.gen.GracefulCompletionCondition> values) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        ensureGracefulCompletionConditionsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, gracefulCompletionConditions_);
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder clearGracefulCompletionConditions() {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        gracefulCompletionConditions_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000020);
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public Builder removeGracefulCompletionConditions(int index) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        ensureGracefulCompletionConditionsIsMutable();
+        gracefulCompletionConditions_.remove(index);
+        onChanged();
+      } else {
+        gracefulCompletionConditionsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionCondition.Builder getGracefulCompletionConditionsBuilder(
+        int index) {
+      return internalGetGracefulCompletionConditionsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionConditionOrBuilder getGracefulCompletionConditionsOrBuilder(
+        int index) {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        return gracefulCompletionConditions_.get(index);  } else {
+        return gracefulCompletionConditionsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.GracefulCompletionConditionOrBuilder> 
+         getGracefulCompletionConditionsOrBuilderList() {
+      if (gracefulCompletionConditionsBuilder_ != null) {
+        return gracefulCompletionConditionsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(gracefulCompletionConditions_);
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionCondition.Builder addGracefulCompletionConditionsBuilder() {
+      return internalGetGracefulCompletionConditionsFieldBuilder().addBuilder(
+          io.superdurable.gen.GracefulCompletionCondition.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionCondition.Builder addGracefulCompletionConditionsBuilder(
+        int index) {
+      return internalGetGracefulCompletionConditionsFieldBuilder().addBuilder(
+          index, io.superdurable.gen.GracefulCompletionCondition.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+     */
+    public java.util.List<io.superdurable.gen.GracefulCompletionCondition.Builder> 
+         getGracefulCompletionConditionsBuilderList() {
+      return internalGetGracefulCompletionConditionsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.GracefulCompletionCondition, io.superdurable.gen.GracefulCompletionCondition.Builder, io.superdurable.gen.GracefulCompletionConditionOrBuilder> 
+        internalGetGracefulCompletionConditionsFieldBuilder() {
+      if (gracefulCompletionConditionsBuilder_ == null) {
+        gracefulCompletionConditionsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.GracefulCompletionCondition, io.superdurable.gen.GracefulCompletionCondition.Builder, io.superdurable.gen.GracefulCompletionConditionOrBuilder>(
+                gracefulCompletionConditions_,
+                ((bitField0_ & 0x00000020) != 0),
+                getParentForChildren(),
+                isClean());
+        gracefulCompletionConditions_ = null;
+      }
+      return gracefulCompletionConditionsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.WaitingConditionState)

@@ -2133,6 +2133,8 @@ export interface WaitingCondition {
   channelConditions: ChannelCondition[];
   conditionCombinations: ConditionCombination[];
   subFlowConditions: SubFlowCondition[];
+  /** At most one. Requires Server protocol version 7 or later. */
+  gracefulCompletionConditions: GracefulCompletionCondition[];
 }
 
 export interface WaitingConditionState {
@@ -2141,6 +2143,7 @@ export interface WaitingConditionState {
   channelConditions: ChannelCondition[];
   conditionCombinations: ConditionCombination[];
   subFlowConditions: SubFlowConditionState[];
+  gracefulCompletionConditions: GracefulCompletionCondition[];
 }
 
 export interface SubFlowOptions {
@@ -2189,14 +2192,27 @@ export interface ChannelCondition {
   atMost?: number | undefined;
 }
 
+/** Completes once the Flow has a graceful completion request, from StopFlow or a Step decision. */
+export interface GracefulCompletionCondition {
+  /** Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED. */
+  conditionId: string;
+}
+
 export interface ConditionResults {
   channelResults: ChannelResult[];
   timerResults: TimerResult[];
   waitForFailed: boolean;
   subFlowResults: FlowResult[];
+  gracefulCompletionResults: GracefulCompletionResult[];
 }
 
 export interface TimerResult {
+  conditionId: string;
+  conditionStatus: ConditionStatus;
+}
+
+/** COMPLETED when the Flow had a graceful completion request as the wait completed. */
+export interface GracefulCompletionResult {
   conditionId: string;
   conditionStatus: ConditionStatus;
 }
@@ -14973,6 +14989,7 @@ function createBaseWaitingCondition(): WaitingCondition {
     channelConditions: [],
     conditionCombinations: [],
     subFlowConditions: [],
+    gracefulCompletionConditions: [],
   };
 }
 
@@ -14992,6 +15009,9 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
     }
     for (const v of message.subFlowConditions) {
       SubFlowCondition.encode(v!, writer.uint32(42).fork()).join();
+    }
+    for (const v of message.gracefulCompletionConditions) {
+      GracefulCompletionCondition.encode(v!, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -15043,6 +15063,14 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
           message.subFlowConditions.push(SubFlowCondition.decode(reader, reader.uint32()));
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.gracefulCompletionConditions.push(GracefulCompletionCondition.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15062,6 +15090,8 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
     message.channelConditions = object.channelConditions?.map((e) => ChannelCondition.fromPartial(e)) || [];
     message.conditionCombinations = object.conditionCombinations?.map((e) => ConditionCombination.fromPartial(e)) || [];
     message.subFlowConditions = object.subFlowConditions?.map((e) => SubFlowCondition.fromPartial(e)) || [];
+    message.gracefulCompletionConditions =
+      object.gracefulCompletionConditions?.map((e) => GracefulCompletionCondition.fromPartial(e)) || [];
     return message;
   },
 };
@@ -15073,6 +15103,7 @@ function createBaseWaitingConditionState(): WaitingConditionState {
     channelConditions: [],
     conditionCombinations: [],
     subFlowConditions: [],
+    gracefulCompletionConditions: [],
   };
 }
 
@@ -15092,6 +15123,9 @@ export const WaitingConditionState: MessageFns<WaitingConditionState> = {
     }
     for (const v of message.subFlowConditions) {
       SubFlowConditionState.encode(v!, writer.uint32(42).fork()).join();
+    }
+    for (const v of message.gracefulCompletionConditions) {
+      GracefulCompletionCondition.encode(v!, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -15143,6 +15177,14 @@ export const WaitingConditionState: MessageFns<WaitingConditionState> = {
           message.subFlowConditions.push(SubFlowConditionState.decode(reader, reader.uint32()));
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.gracefulCompletionConditions.push(GracefulCompletionCondition.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15162,6 +15204,8 @@ export const WaitingConditionState: MessageFns<WaitingConditionState> = {
     message.channelConditions = object.channelConditions?.map((e) => ChannelCondition.fromPartial(e)) || [];
     message.conditionCombinations = object.conditionCombinations?.map((e) => ConditionCombination.fromPartial(e)) || [];
     message.subFlowConditions = object.subFlowConditions?.map((e) => SubFlowConditionState.fromPartial(e)) || [];
+    message.gracefulCompletionConditions =
+      object.gracefulCompletionConditions?.map((e) => GracefulCompletionCondition.fromPartial(e)) || [];
     return message;
   },
 };
@@ -15655,8 +15699,60 @@ export const ChannelCondition: MessageFns<ChannelCondition> = {
   },
 };
 
+function createBaseGracefulCompletionCondition(): GracefulCompletionCondition {
+  return { conditionId: "" };
+}
+
+export const GracefulCompletionCondition: MessageFns<GracefulCompletionCondition> = {
+  encode(message: GracefulCompletionCondition, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.conditionId !== "") {
+      writer.uint32(10).string(message.conditionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GracefulCompletionCondition {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGracefulCompletionCondition();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.conditionId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GracefulCompletionCondition>, I>>(base?: I): GracefulCompletionCondition {
+    return GracefulCompletionCondition.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GracefulCompletionCondition>, I>>(object: I): GracefulCompletionCondition {
+    const message = createBaseGracefulCompletionCondition();
+    message.conditionId = object.conditionId ?? "";
+    return message;
+  },
+};
+
 function createBaseConditionResults(): ConditionResults {
-  return { channelResults: [], timerResults: [], waitForFailed: false, subFlowResults: [] };
+  return {
+    channelResults: [],
+    timerResults: [],
+    waitForFailed: false,
+    subFlowResults: [],
+    gracefulCompletionResults: [],
+  };
 }
 
 export const ConditionResults: MessageFns<ConditionResults> = {
@@ -15672,6 +15768,9 @@ export const ConditionResults: MessageFns<ConditionResults> = {
     }
     for (const v of message.subFlowResults) {
       FlowResult.encode(v!, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.gracefulCompletionResults) {
+      GracefulCompletionResult.encode(v!, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -15715,6 +15814,14 @@ export const ConditionResults: MessageFns<ConditionResults> = {
           message.subFlowResults.push(FlowResult.decode(reader, reader.uint32()));
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.gracefulCompletionResults.push(GracefulCompletionResult.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15733,6 +15840,8 @@ export const ConditionResults: MessageFns<ConditionResults> = {
     message.timerResults = object.timerResults?.map((e) => TimerResult.fromPartial(e)) || [];
     message.waitForFailed = object.waitForFailed ?? false;
     message.subFlowResults = object.subFlowResults?.map((e) => FlowResult.fromPartial(e)) || [];
+    message.gracefulCompletionResults =
+      object.gracefulCompletionResults?.map((e) => GracefulCompletionResult.fromPartial(e)) || [];
     return message;
   },
 };
@@ -15789,6 +15898,64 @@ export const TimerResult: MessageFns<TimerResult> = {
   },
   fromPartial<I extends Exact<DeepPartial<TimerResult>, I>>(object: I): TimerResult {
     const message = createBaseTimerResult();
+    message.conditionId = object.conditionId ?? "";
+    message.conditionStatus = object.conditionStatus ?? 0;
+    return message;
+  },
+};
+
+function createBaseGracefulCompletionResult(): GracefulCompletionResult {
+  return { conditionId: "", conditionStatus: 0 };
+}
+
+export const GracefulCompletionResult: MessageFns<GracefulCompletionResult> = {
+  encode(message: GracefulCompletionResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.conditionId !== "") {
+      writer.uint32(10).string(message.conditionId);
+    }
+    if (message.conditionStatus !== 0) {
+      writer.uint32(16).int32(message.conditionStatus);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GracefulCompletionResult {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGracefulCompletionResult();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.conditionId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.conditionStatus = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GracefulCompletionResult>, I>>(base?: I): GracefulCompletionResult {
+    return GracefulCompletionResult.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GracefulCompletionResult>, I>>(object: I): GracefulCompletionResult {
+    const message = createBaseGracefulCompletionResult();
     message.conditionId = object.conditionId ?? "";
     message.conditionStatus = object.conditionStatus ?? 0;
     return message;

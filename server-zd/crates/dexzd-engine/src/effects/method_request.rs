@@ -641,6 +641,7 @@ impl WireValues {
             timer_results: results.timer_results.clone(),
             wait_for_failed: results.wait_for_failed,
             sub_flow_results,
+            graceful_completion_results: results.graceful_completion_results.clone(),
         })
     }
 

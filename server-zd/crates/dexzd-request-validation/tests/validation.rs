@@ -11,9 +11,9 @@ use std::time::Duration;
 use dexzd_protocol::dex::{
     self, AttributeMatch, AttributeWrite, ChannelCondition, ChannelMessage, CloseDecision,
     ConditionCombination, FlowConfig, FlowStartOptions, FlowTimeoutHandlerOptions,
-    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse,
-    StepDecision, StepMovement, StepOptions, SubFlowCondition, SubFlowOptions, TimerCondition,
-    Value, WaitingCondition, WorkerTarget, value,
+    GracefulCompletionCondition, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse,
+    InvokeWorkerRpcResponse, StepDecision, StepMovement, StepOptions, SubFlowCondition,
+    SubFlowOptions, TimerCondition, Value, WaitingCondition, WorkerTarget, value,
 };
 use dexzd_request_validation::{
     ClientRequest, ValidationCategory, ValidationConfig, ValidationError, WorkerResponse,
@@ -1120,6 +1120,74 @@ fn waiting_condition_ids_and_server_owned_timer_state_are_rejected() {
         ),
     ];
     for (waiting, expected) in conditions {
+        assert_waiting_invalid(
+            validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn graceful_completion_conditions_follow_the_condition_id_rules_and_allow_one() {
+    let config = config();
+    let graceful = |condition_id: &str| GracefulCompletionCondition {
+        condition_id: condition_id.into(),
+    };
+    let valid = [
+        WaitingCondition {
+            waiting_condition_type: 2,
+            graceful_completion_conditions: vec![graceful("")],
+            ..WaitingCondition::default()
+        },
+        WaitingCondition {
+            waiting_condition_type: 3,
+            graceful_completion_conditions: vec![graceful("graceful")],
+            condition_combinations: vec![ConditionCombination {
+                condition_ids: vec!["graceful".into()],
+            }],
+            ..WaitingCondition::default()
+        },
+    ];
+    for waiting in valid {
+        assert!(
+            validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config)
+                .is_ok()
+        );
+    }
+    let invalid = [
+        (
+            WaitingCondition {
+                waiting_condition_type: 2,
+                graceful_completion_conditions: vec![graceful(""), graceful("")],
+                ..WaitingCondition::default()
+            },
+            "at most one is allowed",
+        ),
+        (
+            WaitingCondition {
+                waiting_condition_type: 1,
+                timer_conditions: vec![TimerCondition {
+                    condition_id: "same".into(),
+                    ..TimerCondition::default()
+                }],
+                graceful_completion_conditions: vec![graceful("same")],
+                ..WaitingCondition::default()
+            },
+            "duplicate condition_id",
+        ),
+        (
+            WaitingCondition {
+                waiting_condition_type: 3,
+                graceful_completion_conditions: vec![graceful("")],
+                condition_combinations: vec![ConditionCombination {
+                    condition_ids: vec!["id".into()],
+                }],
+                ..WaitingCondition::default()
+            },
+            "graceful completion condition has an empty condition_id",
+        ),
+    ];
+    for (waiting, expected) in invalid {
         assert_waiting_invalid(
             validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config),
             expected,

@@ -1065,6 +1065,7 @@ fn map_wait(
         channel_conditions: mapper.channels,
         sub_flow_conditions: mapper.sub_flows,
         condition_combinations: combinations,
+        graceful_completion_conditions: Vec::new(),
     }))
 }
 

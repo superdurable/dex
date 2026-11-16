@@ -31,6 +31,7 @@ private static final long serialVersionUID = 0L;
     channelResults_ = java.util.Collections.emptyList();
     timerResults_ = java.util.Collections.emptyList();
     subFlowResults_ = java.util.Collections.emptyList();
+    gracefulCompletionResults_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -185,6 +186,47 @@ private static final long serialVersionUID = 0L;
     return subFlowResults_.get(index);
   }
 
+  public static final int GRACEFUL_COMPLETION_RESULTS_FIELD_NUMBER = 5;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.GracefulCompletionResult> gracefulCompletionResults_;
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.GracefulCompletionResult> getGracefulCompletionResultsList() {
+    return gracefulCompletionResults_;
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.GracefulCompletionResultOrBuilder> 
+      getGracefulCompletionResultsOrBuilderList() {
+    return gracefulCompletionResults_;
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  @java.lang.Override
+  public int getGracefulCompletionResultsCount() {
+    return gracefulCompletionResults_.size();
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.GracefulCompletionResult getGracefulCompletionResults(int index) {
+    return gracefulCompletionResults_.get(index);
+  }
+  /**
+   * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.GracefulCompletionResultOrBuilder getGracefulCompletionResultsOrBuilder(
+      int index) {
+    return gracefulCompletionResults_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -210,6 +252,9 @@ private static final long serialVersionUID = 0L;
     }
     for (int i = 0; i < subFlowResults_.size(); i++) {
       output.writeMessage(4, subFlowResults_.get(i));
+    }
+    for (int i = 0; i < gracefulCompletionResults_.size(); i++) {
+      output.writeMessage(5, gracefulCompletionResults_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -246,6 +291,15 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+
+        {
+          final int count = gracefulCompletionResults_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(gracefulCompletionResults_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -278,6 +332,8 @@ private static final long serialVersionUID = 0L;
         != other.getWaitForFailed()) return false;
     if (!getSubFlowResultsList()
         .equals(other.getSubFlowResultsList())) return false;
+    if (!getGracefulCompletionResultsList()
+        .equals(other.getGracefulCompletionResultsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -303,6 +359,10 @@ private static final long serialVersionUID = 0L;
     if (getSubFlowResultsCount() > 0) {
       hash = (37 * hash) + SUB_FLOW_RESULTS_FIELD_NUMBER;
       hash = (53 * hash) + getSubFlowResultsList().hashCode();
+    }
+    if (getGracefulCompletionResultsCount() > 0) {
+      hash = (37 * hash) + GRACEFUL_COMPLETION_RESULTS_FIELD_NUMBER;
+      hash = (53 * hash) + getGracefulCompletionResultsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -457,6 +517,13 @@ private static final long serialVersionUID = 0L;
         subFlowResultsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000008);
+      if (gracefulCompletionResultsBuilder_ == null) {
+        gracefulCompletionResults_ = java.util.Collections.emptyList();
+      } else {
+        gracefulCompletionResults_ = null;
+        gracefulCompletionResultsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000010);
       return this;
     }
 
@@ -516,6 +583,15 @@ private static final long serialVersionUID = 0L;
         result.subFlowResults_ = subFlowResults_;
       } else {
         result.subFlowResults_ = subFlowResultsBuilder_.build();
+      }
+      if (gracefulCompletionResultsBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0)) {
+          gracefulCompletionResults_ = java.util.Collections.unmodifiableList(gracefulCompletionResults_);
+          bitField0_ = (bitField0_ & ~0x00000010);
+        }
+        result.gracefulCompletionResults_ = gracefulCompletionResults_;
+      } else {
+        result.gracefulCompletionResults_ = gracefulCompletionResultsBuilder_.build();
       }
     }
 
@@ -619,6 +695,32 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
+      if (gracefulCompletionResultsBuilder_ == null) {
+        if (!other.gracefulCompletionResults_.isEmpty()) {
+          if (gracefulCompletionResults_.isEmpty()) {
+            gracefulCompletionResults_ = other.gracefulCompletionResults_;
+            bitField0_ = (bitField0_ & ~0x00000010);
+          } else {
+            ensureGracefulCompletionResultsIsMutable();
+            gracefulCompletionResults_.addAll(other.gracefulCompletionResults_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.gracefulCompletionResults_.isEmpty()) {
+          if (gracefulCompletionResultsBuilder_.isEmpty()) {
+            gracefulCompletionResultsBuilder_.dispose();
+            gracefulCompletionResultsBuilder_ = null;
+            gracefulCompletionResults_ = other.gracefulCompletionResults_;
+            bitField0_ = (bitField0_ & ~0x00000010);
+            gracefulCompletionResultsBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetGracefulCompletionResultsFieldBuilder() : null;
+          } else {
+            gracefulCompletionResultsBuilder_.addAllMessages(other.gracefulCompletionResults_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -689,6 +791,19 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 34
+            case 42: {
+              io.superdurable.gen.GracefulCompletionResult m =
+                  input.readMessage(
+                      io.superdurable.gen.GracefulCompletionResult.parser(),
+                      extensionRegistry);
+              if (gracefulCompletionResultsBuilder_ == null) {
+                ensureGracefulCompletionResultsIsMutable();
+                gracefulCompletionResults_.add(m);
+              } else {
+                gracefulCompletionResultsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1456,6 +1571,246 @@ private static final long serialVersionUID = 0L;
         subFlowResults_ = null;
       }
       return subFlowResultsBuilder_;
+    }
+
+    private java.util.List<io.superdurable.gen.GracefulCompletionResult> gracefulCompletionResults_ =
+      java.util.Collections.emptyList();
+    private void ensureGracefulCompletionResultsIsMutable() {
+      if (!((bitField0_ & 0x00000010) != 0)) {
+        gracefulCompletionResults_ = new java.util.ArrayList<io.superdurable.gen.GracefulCompletionResult>(gracefulCompletionResults_);
+        bitField0_ |= 0x00000010;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.GracefulCompletionResult, io.superdurable.gen.GracefulCompletionResult.Builder, io.superdurable.gen.GracefulCompletionResultOrBuilder> gracefulCompletionResultsBuilder_;
+
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public java.util.List<io.superdurable.gen.GracefulCompletionResult> getGracefulCompletionResultsList() {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(gracefulCompletionResults_);
+      } else {
+        return gracefulCompletionResultsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public int getGracefulCompletionResultsCount() {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        return gracefulCompletionResults_.size();
+      } else {
+        return gracefulCompletionResultsBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionResult getGracefulCompletionResults(int index) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        return gracefulCompletionResults_.get(index);
+      } else {
+        return gracefulCompletionResultsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder setGracefulCompletionResults(
+        int index, io.superdurable.gen.GracefulCompletionResult value) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.set(index, value);
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder setGracefulCompletionResults(
+        int index, io.superdurable.gen.GracefulCompletionResult.Builder builderForValue) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder addGracefulCompletionResults(io.superdurable.gen.GracefulCompletionResult value) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.add(value);
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder addGracefulCompletionResults(
+        int index, io.superdurable.gen.GracefulCompletionResult value) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.add(index, value);
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder addGracefulCompletionResults(
+        io.superdurable.gen.GracefulCompletionResult.Builder builderForValue) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.add(builderForValue.build());
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder addGracefulCompletionResults(
+        int index, io.superdurable.gen.GracefulCompletionResult.Builder builderForValue) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder addAllGracefulCompletionResults(
+        java.lang.Iterable<? extends io.superdurable.gen.GracefulCompletionResult> values) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        ensureGracefulCompletionResultsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, gracefulCompletionResults_);
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder clearGracefulCompletionResults() {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        gracefulCompletionResults_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000010);
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public Builder removeGracefulCompletionResults(int index) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        ensureGracefulCompletionResultsIsMutable();
+        gracefulCompletionResults_.remove(index);
+        onChanged();
+      } else {
+        gracefulCompletionResultsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionResult.Builder getGracefulCompletionResultsBuilder(
+        int index) {
+      return internalGetGracefulCompletionResultsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionResultOrBuilder getGracefulCompletionResultsOrBuilder(
+        int index) {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        return gracefulCompletionResults_.get(index);  } else {
+        return gracefulCompletionResultsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.GracefulCompletionResultOrBuilder> 
+         getGracefulCompletionResultsOrBuilderList() {
+      if (gracefulCompletionResultsBuilder_ != null) {
+        return gracefulCompletionResultsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(gracefulCompletionResults_);
+      }
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionResult.Builder addGracefulCompletionResultsBuilder() {
+      return internalGetGracefulCompletionResultsFieldBuilder().addBuilder(
+          io.superdurable.gen.GracefulCompletionResult.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public io.superdurable.gen.GracefulCompletionResult.Builder addGracefulCompletionResultsBuilder(
+        int index) {
+      return internalGetGracefulCompletionResultsFieldBuilder().addBuilder(
+          index, io.superdurable.gen.GracefulCompletionResult.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.GracefulCompletionResult graceful_completion_results = 5;</code>
+     */
+    public java.util.List<io.superdurable.gen.GracefulCompletionResult.Builder> 
+         getGracefulCompletionResultsBuilderList() {
+      return internalGetGracefulCompletionResultsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.GracefulCompletionResult, io.superdurable.gen.GracefulCompletionResult.Builder, io.superdurable.gen.GracefulCompletionResultOrBuilder> 
+        internalGetGracefulCompletionResultsFieldBuilder() {
+      if (gracefulCompletionResultsBuilder_ == null) {
+        gracefulCompletionResultsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.GracefulCompletionResult, io.superdurable.gen.GracefulCompletionResult.Builder, io.superdurable.gen.GracefulCompletionResultOrBuilder>(
+                gracefulCompletionResults_,
+                ((bitField0_ & 0x00000010) != 0),
+                getParentForChildren(),
+                isClean());
+        gracefulCompletionResults_ = null;
+      }
+      return gracefulCompletionResultsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ConditionResults)

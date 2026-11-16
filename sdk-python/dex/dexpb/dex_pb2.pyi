@@ -2087,32 +2087,36 @@ class ConditionCombination(_message.Message):
     def __init__(self, condition_ids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class WaitingCondition(_message.Message):
-    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions")
+    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions", "graceful_completion_conditions")
     WAITING_CONDITION_TYPE_FIELD_NUMBER: _ClassVar[int]
     TIMER_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     CONDITION_COMBINATIONS_FIELD_NUMBER: _ClassVar[int]
     SUB_FLOW_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    GRACEFUL_COMPLETION_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     waiting_condition_type: WaitingConditionType
     timer_conditions: _containers.RepeatedCompositeFieldContainer[TimerCondition]
     channel_conditions: _containers.RepeatedCompositeFieldContainer[ChannelCondition]
     condition_combinations: _containers.RepeatedCompositeFieldContainer[ConditionCombination]
     sub_flow_conditions: _containers.RepeatedCompositeFieldContainer[SubFlowCondition]
-    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowCondition, _Mapping]]] = ...) -> None: ...
+    graceful_completion_conditions: _containers.RepeatedCompositeFieldContainer[GracefulCompletionCondition]
+    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowCondition, _Mapping]]] = ..., graceful_completion_conditions: _Optional[_Iterable[_Union[GracefulCompletionCondition, _Mapping]]] = ...) -> None: ...
 
 class WaitingConditionState(_message.Message):
-    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions")
+    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions", "graceful_completion_conditions")
     WAITING_CONDITION_TYPE_FIELD_NUMBER: _ClassVar[int]
     TIMER_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     CONDITION_COMBINATIONS_FIELD_NUMBER: _ClassVar[int]
     SUB_FLOW_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    GRACEFUL_COMPLETION_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     waiting_condition_type: WaitingConditionType
     timer_conditions: _containers.RepeatedCompositeFieldContainer[TimerCondition]
     channel_conditions: _containers.RepeatedCompositeFieldContainer[ChannelCondition]
     condition_combinations: _containers.RepeatedCompositeFieldContainer[ConditionCombination]
     sub_flow_conditions: _containers.RepeatedCompositeFieldContainer[SubFlowConditionState]
-    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowConditionState, _Mapping]]] = ...) -> None: ...
+    graceful_completion_conditions: _containers.RepeatedCompositeFieldContainer[GracefulCompletionCondition]
+    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowConditionState, _Mapping]]] = ..., graceful_completion_conditions: _Optional[_Iterable[_Union[GracefulCompletionCondition, _Mapping]]] = ...) -> None: ...
 
 class SubFlowOptions(_message.Message):
     __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_timeout_policy", "timeout_handler_options")
@@ -2180,19 +2184,35 @@ class ChannelCondition(_message.Message):
     at_most: int
     def __init__(self, condition_id: _Optional[str] = ..., channel_name: _Optional[str] = ..., at_least: _Optional[int] = ..., at_most: _Optional[int] = ...) -> None: ...
 
+class GracefulCompletionCondition(_message.Message):
+    __slots__ = ("condition_id",)
+    CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
+    condition_id: str
+    def __init__(self, condition_id: _Optional[str] = ...) -> None: ...
+
 class ConditionResults(_message.Message):
-    __slots__ = ("channel_results", "timer_results", "wait_for_failed", "sub_flow_results")
+    __slots__ = ("channel_results", "timer_results", "wait_for_failed", "sub_flow_results", "graceful_completion_results")
     CHANNEL_RESULTS_FIELD_NUMBER: _ClassVar[int]
     TIMER_RESULTS_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_FAILED_FIELD_NUMBER: _ClassVar[int]
     SUB_FLOW_RESULTS_FIELD_NUMBER: _ClassVar[int]
+    GRACEFUL_COMPLETION_RESULTS_FIELD_NUMBER: _ClassVar[int]
     channel_results: _containers.RepeatedCompositeFieldContainer[ChannelResult]
     timer_results: _containers.RepeatedCompositeFieldContainer[TimerResult]
     wait_for_failed: bool
     sub_flow_results: _containers.RepeatedCompositeFieldContainer[FlowResult]
-    def __init__(self, channel_results: _Optional[_Iterable[_Union[ChannelResult, _Mapping]]] = ..., timer_results: _Optional[_Iterable[_Union[TimerResult, _Mapping]]] = ..., wait_for_failed: _Optional[bool] = ..., sub_flow_results: _Optional[_Iterable[_Union[FlowResult, _Mapping]]] = ...) -> None: ...
+    graceful_completion_results: _containers.RepeatedCompositeFieldContainer[GracefulCompletionResult]
+    def __init__(self, channel_results: _Optional[_Iterable[_Union[ChannelResult, _Mapping]]] = ..., timer_results: _Optional[_Iterable[_Union[TimerResult, _Mapping]]] = ..., wait_for_failed: _Optional[bool] = ..., sub_flow_results: _Optional[_Iterable[_Union[FlowResult, _Mapping]]] = ..., graceful_completion_results: _Optional[_Iterable[_Union[GracefulCompletionResult, _Mapping]]] = ...) -> None: ...
 
 class TimerResult(_message.Message):
+    __slots__ = ("condition_id", "condition_status")
+    CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
+    CONDITION_STATUS_FIELD_NUMBER: _ClassVar[int]
+    condition_id: str
+    condition_status: ConditionStatus
+    def __init__(self, condition_id: _Optional[str] = ..., condition_status: _Optional[_Union[ConditionStatus, str]] = ...) -> None: ...
+
+class GracefulCompletionResult(_message.Message):
     __slots__ = ("condition_id", "condition_status")
     CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
     CONDITION_STATUS_FIELD_NUMBER: _ClassVar[int]

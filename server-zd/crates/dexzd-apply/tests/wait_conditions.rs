@@ -39,6 +39,8 @@ use prost::Message;
 
 #[path = "wait_conditions/canceled_step_messages.rs"]
 mod canceled_step_messages;
+#[path = "wait_conditions/graceful_completion_condition.rs"]
+mod graceful_completion_condition;
 
 const SECOND: i64 = 1_000_000;
 const INVALID_ARGUMENT: i32 = 3;

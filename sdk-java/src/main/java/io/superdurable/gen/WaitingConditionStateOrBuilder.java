@@ -116,4 +116,28 @@ public interface WaitingConditionStateOrBuilder extends
    */
   io.superdurable.gen.SubFlowConditionStateOrBuilder getSubFlowConditionsOrBuilder(
       int index);
+
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  java.util.List<io.superdurable.gen.GracefulCompletionCondition> 
+      getGracefulCompletionConditionsList();
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  io.superdurable.gen.GracefulCompletionCondition getGracefulCompletionConditions(int index);
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  int getGracefulCompletionConditionsCount();
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.GracefulCompletionConditionOrBuilder> 
+      getGracefulCompletionConditionsOrBuilderList();
+  /**
+   * <code>repeated .dex.GracefulCompletionCondition graceful_completion_conditions = 6;</code>
+   */
+  io.superdurable.gen.GracefulCompletionConditionOrBuilder getGracefulCompletionConditionsOrBuilder(
+      int index);
 }

@@ -617,6 +617,14 @@ func (ParentStep) Execute(ctx dex.Context, _ ChargeInput) (*dex.StepDecision, er
 target Attributes, Flow config, Condition ID, and reuse. Parent completion does not cancel an
 unfinished SubFlow.
 
+`GracefulCompletionRequested()` is a Condition that completes once the Flow has a graceful
+completion request, from `Client.StopFlow` with `GracefulCompleteFlow` or a `GracefulComplete`
+decision. Wait for it next to a message with `AnyOf`. In Execute, handle a consumed message
+first; when there is none and `IsGracefulCompletionConditionCompleted(ctx)` is true, return
+`DeadEnd()`. It needs
+Server protocol 7; see the
+[Waits reference](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests).
+
 ## Registration
 
 Registration uses Go type names without package or pointer by default:
