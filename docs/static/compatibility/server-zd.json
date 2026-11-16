@@ -42,8 +42,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.4"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.5"
           }
         },
         "pypi": {
@@ -52,72 +52,72 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.2"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.3"
           }
         }
       },
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         }
       },
       "agentsCliCommands": {
         "npm": {
           "@superdurable/dex-agents-builtin-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-claude-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-mastra-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-openai-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-pi-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-vercel-ai-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         },
         "pypi": {
           "dex-agents-builtin-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-claude-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-deepagents-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-google-adk-cli": {
             "oldest": "0.6.8",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-openai-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-pydantic-ai-cli": {
             "oldest": "0.6.1",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         }
       }
@@ -161,8 +161,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.4"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.5"
           }
         },
         "pypi": {
@@ -171,72 +171,72 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.2"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.3"
           }
         }
       },
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         }
       },
       "agentsCliCommands": {
         "npm": {
           "@superdurable/dex-agents-builtin-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-claude-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-mastra-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-openai-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-pi-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-vercel-ai-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         },
         "pypi": {
           "dex-agents-builtin-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-claude-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-deepagents-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-google-adk-cli": {
             "oldest": "0.6.8",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-openai-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-pydantic-ai-cli": {
             "oldest": "0.6.1",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         }
       }
@@ -280,8 +280,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.4"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.5"
           }
         },
         "pypi": {
@@ -290,72 +290,72 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.2"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.3"
           }
         }
       },
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         }
       },
       "agentsCliCommands": {
         "npm": {
           "@superdurable/dex-agents-builtin-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-claude-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-mastra-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-openai-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-pi-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-vercel-ai-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         },
         "pypi": {
           "dex-agents-builtin-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-claude-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-deepagents-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-google-adk-cli": {
             "oldest": "0.6.8",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-openai-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-pydantic-ai-cli": {
             "oldest": "0.6.1",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         }
       }
@@ -399,8 +399,8 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.4"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.5"
           }
         },
         "pypi": {
@@ -409,72 +409,72 @@
             "pinnedSdk": "1.30.0"
           },
           "newest": {
-            "version": "0.6.12",
-            "pinnedSdk": "1.45.2"
+            "version": "0.6.13",
+            "pinnedSdk": "1.45.3"
           }
         }
       },
       "agentsCli": {
         "npm": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         },
         "pypi": {
           "oldest": "0.5.0",
-          "newest": "0.6.12"
+          "newest": "0.6.13"
         }
       },
       "agentsCliCommands": {
         "npm": {
           "@superdurable/dex-agents-builtin-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-claude-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-mastra-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-openai-sdk-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-pi-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "@superdurable/dex-agents-vercel-ai-cli": {
             "oldest": "0.5.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         },
         "pypi": {
           "dex-agents-builtin-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-claude-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-deepagents-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-google-adk-cli": {
             "oldest": "0.6.8",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-openai-sdk-cli": {
             "oldest": "0.6.0",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           },
           "dex-agents-pydantic-ai-cli": {
             "oldest": "0.6.1",
-            "newest": "0.6.12"
+            "newest": "0.6.13"
           }
         }
       }
