@@ -1,0 +1,71 @@
+---
+description: "Install a Dex Agents adapter with its framework, from PyPI or npm. Each adapter brings in the dex-agents core and the Dex SDK it supports."
+title: Install the packages
+sidebar_label: Install
+---
+
+# Install the packages {#install}
+
+## Python {#python}
+
+Install an adapter with its framework. Python adapters are on PyPI. Each one
+brings in the **dex-agents** core and the Dex SDK it supports. They need Python
+3.11 or later.
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+pip install dex-agents-langgraph
+pip install dex-agents-openai-agents
+pip install dex-agents-google-adk
+pip install dex-agents-claude-agent-sdk
+```
+
+## TypeScript {#typescript}
+
+TypeScript adapters are on npm. The core and the Dex SDK are peer packages, so
+the application owns exactly one copy of each. They need Node 22 or 24.
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
+```
+
+Since 0.5.0, the Pi package, **@superdurable/dex-agents-pi**, runs Pi agents on
+the built-in agent loop. It peer-depends on **@earendil-works/pi-ai**, which
+needs Node 22.19 or later. It reads Pi tools through structural types, so it
+does not depend on **@earendil-works/pi-agent-core** or
+**@earendil-works/pi-durable**. Install them when your tools use them.
+
+## The core only {#core-only}
+
+To write a runner of your own, install only the core:
+
+```bash
+pip install dex-agents
+npm i @superdurable/dex-agents @superdurable/dex
+```
+
+To use Connector operations as tools, install the core with the Connector SDK.
+See [Connector tools](/reference/agents/0.6.x/connector-tools#install).
+
+To chat with an agent in your terminal without writing an application, install
+one of the CLI commands. See [CLI commands](/reference/agents/0.6.x/cli#install).
+
+## Versions {#versions}
+
+All agents packages share one version line. A Python adapter requires the core
+of the same version. An npm adapter peer-depends on it. Each release pins the
+Dex SDK it supports and the framework range it was tested with. See the
+[compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
+Without a version, pip and npm install the newest agents release and the Dex
+SDK it pins.
+
+The packages are before 1.0, so a minor release may change their API. Pin
+exact versions in your lockfile. Read the [change log](/reference/agents/0.6.x/changelog)
+before an upgrade.
+
+Build the same session Flow in every process that starts sessions or calls
+their RPCs.
