@@ -365,10 +365,8 @@ body {
 }
 
 .app-bar-server-info-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  gap: 2px;
   color: var(--ui-ink-2);
   font-weight: 600;
 }
@@ -376,7 +374,6 @@ body {
 .app-bar-server-info-summary {
   color: var(--ui-ink);
   font-variant-numeric: tabular-nums;
-  text-align: right;
   overflow-wrap: anywhere;
 }
 
