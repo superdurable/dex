@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import type { TimezonePreference } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import {
@@ -85,7 +85,8 @@ export function TimeTravelDialog({
   const stepTypes = useStepTypesOf(events);
   const pointKind = pointKindOf(timeTravelType);
 
-  useEffect(() => {
+  // A layout effect resets the fields before anyone can type, even when the dialog opens outside an event.
+  useLayoutEffect(() => {
     if (!open) return;
     const eventTarget = eventTimeTravelTarget(initialEvent);
     setTimeTravelType(eventTarget ? TIME_TRAVEL_TYPE.STEP_EXECUTION_ID : TIME_TRAVEL_TYPE.BEGINNING);

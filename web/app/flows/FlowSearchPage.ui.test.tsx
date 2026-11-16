@@ -426,7 +426,8 @@ describe('Flow search Queries panel', () => {
     renderFlowSearchPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy WorkflowId = "a"' }));
-    expect((await screen.findByRole('status')).textContent).toContain('cannot use the clipboard');
+    // The status line is always present, so wait for its text rather than for the element.
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('cannot use the clipboard'));
   });
 
   it('names a query inline and asks for a query first when there is none', async () => {
