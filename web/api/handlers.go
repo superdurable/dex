@@ -574,10 +574,10 @@ func (h *handler) requireRunHistoryForkProtocol(response http.ResponseWriter, re
 
 func (h *handler) getServerInfo(response http.ResponseWriter, request *http.Request) {
 	// An unanswered lookup reports the unspecified engine and protocol 0, so the browser hides newer options.
-	serverInfo, _ := h.serverEngine.resolveServerInfo(request.Context())
+	serverEngine, currentProtocolVersion, _ := h.serverEngine.resolveServerInfo(request.Context())
 	writeJSON(response, http.StatusOK, serverInfoResponse{
-		ServerEngine:           serverEngineName(serverInfo.GetServerEngine()),
-		CurrentProtocolVersion: serverInfo.GetCurrentProtocolVersion(),
+		ServerEngine:           serverEngineName(serverEngine),
+		CurrentProtocolVersion: currentProtocolVersion,
 	})
 }
 

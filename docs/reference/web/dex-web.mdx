@@ -733,11 +733,13 @@ Changed in 1.45.8: the dialog shows **Event ID** and **SubFlow reset policy**
 when the connected server reports protocol version 6 or later. server-zd
 0.1.33 and later provide it. On an older server, or before Dex Web reads the
 version, both are hidden and the request carries no **subFlowResetPolicy**, so
-the server applies its own default. Dex Web keeps the first version the server
-reports until Dex Web restarts, so restart Dex Web after you upgrade the server.
-The browser reads it from **GET /api/server-info**, which returns
-**serverEngine** and **currentProtocolVersion**; 0 means the server reports
-none. On an older
+the server applies its own default. Each page load reads the version from
+**GET /api/server-info**, which returns **serverEngine** and
+**currentProtocolVersion**; 0 means the server reports none or cannot answer.
+Dex Web reads the version from the server again after 60 seconds, so a page
+loaded a minute after a server upgrade or rollback follows the new version.
+Behind a load balancer that mixes server versions during a rollout, the version
+Dex Web read can belong to another server than the one that handles the request. On an older
 server, **POST /api/flows/time-travel** with **timeTravelType** 6 or a non-zero
 **subFlowResetPolicy** returns HTTP 400 with code
 **SERVER_PROTOCOL_UNSUPPORTED**.

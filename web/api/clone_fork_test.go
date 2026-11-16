@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
@@ -304,6 +305,41 @@ func TestRunHistoryForkOptionsWaitForAnUnavailableFlowService(t *testing.T) {
 		`{"sourceFlowId":"order-1","flowId":"order-1-fork","reason":"branch"}`)
 	if response.Code != http.StatusServiceUnavailable || len(client.cloneForkRequests) != 0 {
 		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestServerProtocolVersionIsReadAgainAfterTheTTL(t *testing.T) {
+	client := &runHistoryOperationsTestClient{serverInfo: &dexpb.ServerInfo{
+		CurrentProtocolVersion: 5, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD,
+	}}
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	resolver := newServerEngineResolverWithClock(client, func() time.Time { return now })
+	assertProtocol := func(want uint32, wantCalls int) {
+		t.Helper()
+		version, isResolved := resolver.ResolveCurrentProtocolVersion(context.Background())
+		if version != want || !isResolved || client.serverInfoCalls != wantCalls {
+			t.Fatalf("protocol = %d resolved = %t calls = %d, want %d after %d calls",
+				version, isResolved, client.serverInfoCalls, want, wantCalls)
+		}
+	}
+	assertProtocol(5, 1)
+	client.serverInfo = &dexpb.ServerInfo{CurrentProtocolVersion: 6, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
+	now = now.Add(serverProtocolCacheTTL - time.Second)
+	assertProtocol(5, 1)
+	now = now.Add(time.Second)
+	assertProtocol(6, 2)
+
+	client.serverInfo = &dexpb.ServerInfo{CurrentProtocolVersion: 5, ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_TEMPORAL}
+	now = now.Add(serverProtocolCacheTTL)
+	assertProtocol(5, 3)
+	if engine := resolver.ResolveServerEngine(context.Background()); engine != dexpb.ServerEngine_SERVER_ENGINE_ZD {
+		t.Fatalf("server engine = %s, want the first answer kept", engine)
+	}
+
+	client.serverInfoError = status.Error(codes.Unavailable, "restarting")
+	now = now.Add(serverProtocolCacheTTL)
+	if version, isResolved := resolver.ResolveCurrentProtocolVersion(context.Background()); version != 0 || isResolved {
+		t.Fatalf("protocol = %d resolved = %t, want unknown after a failed read", version, isResolved)
 	}
 }
 

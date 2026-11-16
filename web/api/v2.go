@@ -405,13 +405,14 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 		entries = append(entries, NewV2CatalogEntry(flowType, snapshot.Definitions[flowType], snapshot.revisionFor(flowType)))
 	}
 	setDefinitionETag(response, snapshot.Revision)
-	serverInfo, _ := h.serverEngine.resolveServerInfo(request.Context())
+	// An unknown protocol reports 0, which the browser treats as an older server.
+	serverEngine, currentProtocolVersion, _ := h.serverEngine.resolveServerInfo(request.Context())
 	writeJSON(response, http.StatusOK, map[string]interface{}{
 		"enabled":                len(entries) > 0,
 		"flows":                  entries,
 		"definitionRevision":     snapshot.Revision,
-		"serverEngine":           serverEngineName(serverInfo.GetServerEngine()),
-		"currentProtocolVersion": serverInfo.GetCurrentProtocolVersion(),
+		"serverEngine":           serverEngineName(serverEngine),
+		"currentProtocolVersion": currentProtocolVersion,
 	})
 }
 
