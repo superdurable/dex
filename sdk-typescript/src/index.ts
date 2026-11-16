@@ -18,6 +18,10 @@ export type { ApiKeyCredentialOptions, Credential } from "./credential.js";
 export * from "./errors.js";
 export { Registry } from "./flow.js";
 export { FlowDefinitionUploadOutcome } from "./flow-definition.js";
+export {
+  isGracefulCompletionConditionCompleted,
+  supportsGracefulCompletionCondition,
+} from "./graceful-completion-context.js";
 export type { FlowDefinitionDocument, FlowDefinitionUploadResult } from "./flow-definition.js";
 export { Join, joinRoundCodec } from "./join.js";
 export type { JoinRound } from "./join.js";

@@ -118,7 +118,7 @@ export const Timer = Object.freeze({
  * Use it to let a long-waiting Step end when someone asks the Flow to complete. A typical Step
  * waits for the next message or this Condition with `Wait.anyOf`. Its `execute` first handles a
  * message that the Wait consumed. When there is none and
- * {@link Context.isGracefulCompletionConditionCompleted} returns true, it returns `deadEnd()`.
+ * `isGracefulCompletionConditionCompleted(context)` returns true, it returns `deadEnd()`.
  * The Flow then completes once no other Step is active.
  *
  * In `Wait.anyOf`, this Condition comes after Timers, Channels, and SubFlows, so a ready message
@@ -146,7 +146,7 @@ export const Timer = Object.freeze({
  *     if (received.length > 0) {
  *       return goTo(new HandleMessageStep(), received[0]);
  *     }
- *     if (context.isGracefulCompletionConditionCompleted()) {
+ *     if (isGracefulCompletionConditionCompleted(context)) {
  *       return deadEnd();
  *     }
  *     return goTo(new WaitForMessageStep(), undefined);

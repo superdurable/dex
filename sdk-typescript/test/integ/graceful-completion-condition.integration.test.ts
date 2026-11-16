@@ -17,6 +17,7 @@ import { awaitGracefulCompletionConditionWaiting } from "./flow-service-client.j
 import {
   GracefulCompletionConditionFlow,
   gracefulWaiterExecutions,
+  gracefulWaiterSupportsCondition,
 } from "./graceful_completion_condition_flow.js";
 
 test("stopFlow GRACEFUL_COMPLETE wakes a Step waiting on the graceful completion condition", async () => {
@@ -31,8 +32,13 @@ test("stopFlow GRACEFUL_COMPLETE wakes a Step waiting on the graceful completion
 
     const result = await client.waitForFlow(id, 15_000);
     assert.equal(result.status, "completed");
-    const [executions] = await client.getAttributes(id, gracefulWaiterExecutions);
+    const [executions, isSupported] = await client.getAttributes(
+      id,
+      gracefulWaiterExecutions,
+      gracefulWaiterSupportsCondition,
+    );
     assert.deepEqual(executions, [{ messages: [], isGracefulCompleted: true }]);
+    assert.equal(isSupported, true);
   });
 });
 

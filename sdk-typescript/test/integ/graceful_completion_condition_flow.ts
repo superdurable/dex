@@ -14,11 +14,14 @@ import {
   GracefulCompletion,
   StepList,
   Wait,
+  booleanCodec,
   deadEnd,
   goTo,
+  isGracefulCompletionConditionCompleted,
   jsonCodec,
   rpc,
   stringCodec,
+  supportsGracefulCompletionCondition,
   voidCodec,
   type Context,
   type Flow,
@@ -39,6 +42,7 @@ export const gracefulWaiterExecutions = new Attribute(
   "graceful-waiter-executions",
   jsonCodec<GracefulWaiterExecution[]>(),
 );
+export const gracefulWaiterSupportsCondition = new Attribute("graceful-waiter-supports-condition", booleanCodec);
 
 class GracefulConditionGateStep implements Step<void> {
   public readonly inputCodec = voidCodec;
@@ -65,13 +69,18 @@ class GracefulMessageWaiterStep implements Step<void> {
     return "GracefulMessageWaiterStep";
   }
 
-  public waitFor(): Wait {
-    return Wait.anyOf(gracefulConditionMessages.forOne(), GracefulCompletion.requested("graceful"));
+  public waitFor(context: Context): Wait {
+    const isSupported = supportsGracefulCompletionCondition(context);
+    gracefulWaiterSupportsCondition.set(context, isSupported);
+    if (isSupported) {
+      return Wait.anyOf(gracefulConditionMessages.forOne(), GracefulCompletion.requested("graceful"));
+    }
+    return Wait.until(gracefulConditionMessages.forOne());
   }
 
   public execute(context: Context): StepDecision {
     const messages = gracefulConditionMessages.results(context);
-    const isGracefulCompleted = context.isGracefulCompletionConditionCompleted();
+    const isGracefulCompleted = isGracefulCompletionConditionCompleted(context);
     const executions = gracefulWaiterExecutions.get(context) ?? [];
     gracefulWaiterExecutions.set(context, [...executions, { messages, isGracefulCompleted }]);
     if (messages.length > 0) {
@@ -98,7 +107,7 @@ export class GracefulCompletionConditionFlow implements Flow<void> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [gracefulWaiterExecutions],
+      attributes: [gracefulWaiterExecutions, gracefulWaiterSupportsCondition],
       channels: [gracefulConditionMessages, gracefulConditionGate],
     };
   }

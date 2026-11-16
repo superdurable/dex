@@ -154,6 +154,41 @@ public interface Context {
     }
 
     /**
+     * Reports whether the connected Dex Server supports the graceful completion condition.
+     *
+     * <p>Use it in waitFor to add {@link GracefulCompletion#requested()} only when the Server
+     * supports it. With an older Server, a Wait that contains the condition fails with
+     * {@link io.superdurable.dex.exceptions.GracefulCompletionConditionUnsupportedException} after
+     * waitFor returns, and Step code cannot catch that exception. Check this method first and
+     * keep the Wait without the condition instead.
+     *
+     * <p>It reads the Server protocol version that the Worker negotiated with GetServerInfo when
+     * it started. It never sends a request, so it is cheap to call on every invocation. It
+     * returns {@code true} when that version is 7 or later. It works in waitFor, execute, and RPC
+     * handlers alike. The Worker negotiates before it receives any task, so a Context that Dex
+     * created always sees the negotiated version. The default implementation returns
+     * {@code false}, so a Context that Dex did not create, such as a test fake, reports no
+     * support.
+     *
+     * <pre>{@code
+     * @Override
+     * public Wait waitFor(Context context, Void input) {
+     *     if (context.supportsGracefulCompletionCondition()) {
+     *         return Wait.anyOf(USER_MESSAGES.forOne(), GracefulCompletion.requested());
+     *     }
+     *     return Wait.until(USER_MESSAGES.forOne());
+     * }
+     * }</pre>
+     *
+     * @return {@code true} when the Worker's negotiated Server protocol supports the graceful
+     *         completion condition; otherwise {@code false}
+     * @since 1.45.3
+     */
+    default boolean supportsGracefulCompletionCondition() {
+        return false;
+    }
+
+    /**
      * Reports whether execute is running after a failed wait-for method.
      *
      * <p>This can be {@code true} only when the Step uses

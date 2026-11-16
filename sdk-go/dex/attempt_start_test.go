@@ -370,7 +370,7 @@ func TestRecoveryAttemptProgressMapping(t *testing.T) {
 	} {
 		metadata := workerStepContext()
 		metadata.RecoveryError = &dexpb.RecoveryErrorInfo{AttemptProgress: scenario.progress}
-		invocation, err := newInvocationContext(context.Background(), invocationExecute, nil, nil, metadata, nil, nil, nil, nil, nil, nil, nil, nil)
+		invocation, err := newInvocationContext(context.Background(), invocationExecute, nil, nil, metadata, nil, nil, nil, nil, nil, nil, nil, nil, &negotiatedServerProtocol{})
 		require.NoError(t, err)
 		require.Equal(t, scenario.expected, invocation.RecoveryError().AttemptProgress)
 	}

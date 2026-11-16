@@ -76,15 +76,23 @@ final class NegotiatedServerProtocol {
                         + "; upgrade the Dex Server");
     }
 
+    boolean supportsGracefulCompletionCondition() {
+        return supportsGracefulCompletionCondition(negotiatedVersion);
+    }
+
     // An older Server drops the condition, so fail closed instead.
     void requireGracefulCompletionConditionSupport(final WaitingCondition waiting) {
         final int version = negotiatedVersion;
         if (waiting.getGracefulCompletionConditionsCount() == 0
-                || version >= ServerProtocolCompatibility.GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION) {
+                || supportsGracefulCompletionCondition(version)) {
             return;
         }
         throw new GracefulCompletionConditionUnsupportedException(
                 version, ServerProtocolCompatibility.GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION);
+    }
+
+    private static boolean supportsGracefulCompletionCondition(final int version) {
+        return version >= ServerProtocolCompatibility.GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION;
     }
 
     // An older Server ignores task_queue and would silently use the default task queue.

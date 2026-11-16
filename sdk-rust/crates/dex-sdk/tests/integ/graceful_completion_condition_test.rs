@@ -79,6 +79,13 @@ fn test_graceful_stop_wakes_a_step_waiting_on_the_graceful_completion_condition(
         }],
         fixture.probe.observations()
     );
+    let support_observations = fixture.probe.support_observations();
+    assert!(!support_observations.is_empty());
+    assert!(
+        support_observations
+            .iter()
+            .all(|is_supported| *is_supported)
+    );
 }
 
 #[test]

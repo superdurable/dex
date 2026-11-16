@@ -36,6 +36,7 @@ pub(crate) struct GracefulConditionProbe {
     pub(crate) release_wait_for: StopCompleteLatch,
     should_block_wait_for: Arc<AtomicBool>,
     observations: Arc<Mutex<Vec<GracefulReaderObservation>>>,
+    support_observations: Arc<Mutex<Vec<bool>>>,
 }
 
 impl GracefulConditionProbe {
@@ -47,6 +48,13 @@ impl GracefulConditionProbe {
 
     pub(crate) fn observations(&self) -> Vec<GracefulReaderObservation> {
         self.observations.lock().expect("observations lock").clone()
+    }
+
+    pub(crate) fn support_observations(&self) -> Vec<bool> {
+        self.support_observations
+            .lock()
+            .expect("support observations lock")
+            .clone()
     }
 }
 
@@ -91,7 +99,13 @@ struct GracefulMessageReader {
 impl Step for GracefulMessageReader {
     type Input = ();
 
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+    fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        let is_supported = context.supports_graceful_completion_condition();
+        self.probe
+            .support_observations
+            .lock()
+            .expect("support observations lock")
+            .push(is_supported);
         if self
             .probe
             .should_block_wait_for
@@ -99,6 +113,9 @@ impl Step for GracefulMessageReader {
         {
             self.probe.wait_for_started.open();
             self.probe.release_wait_for.wait(Duration::from_secs(20));
+        }
+        if !is_supported {
+            return Ok(Wait::until(GRACEFUL_MESSAGES.for_one()));
         }
         Ok(Wait::any_of([
             GRACEFUL_MESSAGES.for_one(),

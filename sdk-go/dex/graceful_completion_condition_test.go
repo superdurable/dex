@@ -111,6 +111,63 @@ func TestExecuteReadsTheGracefulCompletionConditionResult(t *testing.T) {
 	require.False(t, IsGracefulCompletionConditionCompleted(nil))
 }
 
+// The Worker service has no FlowService client, so these reads cannot send a request.
+func TestWaitForAddsTheGracefulCompletionConditionOnlyWhenSupported(t *testing.T) {
+	waitFor := func(t *testing.T, serverProtocolVersion uint32) *dexpb.WaitingCondition {
+		t.Helper()
+		client, closeService := newWorkerClientForServerProtocol(
+			t, []Flow{gracefulSupportTestFlow{}}, nil, serverProtocolVersion,
+		)
+		defer closeService()
+		outputs, err := collectWaitForOutputs(client, &dexpb.InvokeWaitForMethodRequest{
+			Context:   workerStepContext(),
+			FlowType:  GetFinalFlowType(gracefulSupportTestFlow{}),
+			StepType:  GetFinalStepType(gracefulSupportTestStep{}),
+			StepInput: mustEncodeWorkerTestValue(t, nil),
+		})
+		require.NoError(t, err)
+		require.Len(t, outputs, 1)
+		return outputs[0].GetResult().GetWaitingCondition()
+	}
+
+	supported := waitFor(t, 7)
+	require.Len(t, supported.GetChannelConditions(), 1)
+	require.Len(t, supported.GetGracefulCompletionConditions(), 1)
+
+	unsupported := waitFor(t, 6)
+	require.Len(t, unsupported.GetChannelConditions(), 1)
+	require.Empty(t, unsupported.GetGracefulCompletionConditions())
+
+	require.False(t, SupportsGracefulCompletionCondition(nil))
+}
+
+type gracefulSupportTestFlow struct {
+	FlowDefaults
+}
+
+func (gracefulSupportTestFlow) GetSteps() []StepDef {
+	return []StepDef{DefineStartStep(gracefulSupportTestStep{})}
+}
+
+func (gracefulSupportTestFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{Channels: []ChannelDef{gracefulTestMessages}}
+}
+
+type gracefulSupportTestStep struct {
+	StepDefaults
+}
+
+func (gracefulSupportTestStep) WaitFor(ctx Context, _ None) (*Wait, error) {
+	if SupportsGracefulCompletionCondition(ctx) {
+		return AnyOf(gracefulTestMessages.ForOne(), GracefulCompletionRequested()), nil
+	}
+	return AnyOf(gracefulTestMessages.ForOne()), nil
+}
+
+func (gracefulSupportTestStep) Execute(Context, None) (*StepDecision, error) {
+	return DeadEnd(), nil
+}
+
 type gracefulConditionTestFlow struct {
 	FlowDefaults
 }

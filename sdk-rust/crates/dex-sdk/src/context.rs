@@ -422,6 +422,50 @@ impl Context {
             })
     }
 
+    /// Returns whether the connected Dex Server supports the graceful completion condition.
+    ///
+    /// Use it in `wait_for` to add [`crate::Condition::graceful_completion_requested`] only when
+    /// the Server supports it. With an older Server, a Wait that contains the condition fails with
+    /// [`crate::GracefulCompletionConditionUnsupportedError`] after `wait_for` returns, and Step
+    /// code cannot handle that error. Check this method first and keep the Wait without the
+    /// condition instead.
+    ///
+    /// It reads the Server protocol version that the Worker negotiated with `GetServerInfo` when
+    /// it started. It never sends a request, so it is cheap to call on every invocation. It
+    /// returns `true` when that version is 7 or later. It works in `wait_for`, `execute`, and RPC
+    /// handlers alike. The Worker negotiates before it receives any task, so a Context that Dex
+    /// created always sees the negotiated version.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::sync::LazyLock;
+    ///
+    /// use dex_sdk::{Channel, Condition, Context, HandlerResult, Wait};
+    ///
+    /// static USER_MESSAGES: LazyLock<Channel<String>> =
+    ///     LazyLock::new(|| Channel::new("user-messages"));
+    ///
+    /// fn wait_for_message(context: &mut Context) -> HandlerResult<Wait> {
+    ///     if context.supports_graceful_completion_condition() {
+    ///         return Ok(Wait::any_of([
+    ///             USER_MESSAGES.for_one(),
+    ///             Condition::graceful_completion_requested(),
+    ///         ]));
+    ///     }
+    ///     Ok(Wait::until(USER_MESSAGES.for_one()))
+    /// }
+    /// ```
+    ///
+    /// Returns `true` when the Worker's negotiated Server protocol supports the graceful
+    /// completion condition, and `false` otherwise.
+    ///
+    /// Since 1.45.3.
+    pub fn supports_graceful_completion_condition(&self) -> bool {
+        self.negotiated_protocol_version
+            .supports_graceful_completion_condition()
+    }
+
     /// Returns whether `execute` is running because `wait_for` exhausted retries with Proceed.
     pub fn wait_for_method_failed(&self) -> bool {
         self.condition_results

@@ -28,6 +28,8 @@ from dex import (
     Wait,
     dead_end,
     graceful_completion_requested,
+    is_graceful_completion_condition_completed,
+    supports_graceful_completion_condition,
 )
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._server_protocol import NegotiatedServerProtocol
@@ -57,11 +59,16 @@ class GracefulWaitStep(Step[str]):
                     graceful_completion_requested(condition_id="graceful")
                 ),
             )
+        if input == "if-supported" and supports_graceful_completion_condition(context):
+            return Wait.any_of(
+                MESSAGES.for_one(),
+                graceful_completion_requested(condition_id="graceful"),
+            )
         return Wait.until(MESSAGES.for_one())
 
     def execute(self, context: Context, input: str) -> StepDecision:
         GracefulConditionFlow.observed.append(
-            context.is_graceful_completion_condition_completed()
+            is_graceful_completion_condition_completed(context)
         )
         return dead_end()
 
@@ -177,6 +184,43 @@ def test_wait_without_graceful_completion_condition_maps_below_protocol_7() -> N
 
     assert len(waiting.channel_conditions) == 1
     assert not waiting.graceful_completion_conditions
+
+
+@pytest.mark.parametrize("protocol_version,expected_count", [(7, 1), (6, 0)])
+def test_supports_graceful_completion_condition_reads_the_negotiated_protocol(
+    protocol_version: int, expected_count: int
+) -> None:
+    # The passthrough hydrator has no FlowService, so the check cannot send a request.
+    dispatcher, values = _dispatcher(protocol_version)
+
+    waiting = _wait_for_result(dispatcher, values, "if-supported").waiting_condition
+
+    assert len(waiting.graceful_completion_conditions) == expected_count
+    assert len(waiting.channel_conditions) == 1
+
+
+def test_async_supports_graceful_completion_condition() -> None:
+    asyncio.run(_async_supports_graceful_completion_condition())
+
+
+async def _async_supports_graceful_completion_condition() -> None:
+    registry = Registry((GracefulConditionFlow(),), allow_async_handlers=True)
+    values = ValueMapper(registry.codec_registry)
+    for protocol_version, expected_count in ((7, 1), (6, 0)):
+        dispatcher = AsyncWorkerDispatcher(
+            registry,
+            values,
+            cast(Any, AsyncPassthroughHydrator()),
+            _server_protocol(protocol_version),
+        )
+        outputs = [
+            output
+            async for output in dispatcher.invoke_wait_for(
+                _wait_for_request(values, "if-supported")
+            )
+        ]
+        waiting = outputs[-1].result.waiting_condition
+        assert len(waiting.graceful_completion_conditions) == expected_count
 
 
 def test_second_graceful_completion_condition_fails_wait_for() -> None:

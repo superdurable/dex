@@ -66,6 +66,7 @@ final class InvocationContext implements Context {
     private final Set<String> loadedChannelNames;
     private final Set<String> loadedChannelMapInstances;
     private final ScheduledExecutorService bufferedStreamScheduler;
+    private final NegotiatedServerProtocol serverProtocol;
     private final io.grpc.Context requestContext;
     private final io.grpc.Context.CancellationListener cancellationListener;
     private final Map<String, AttributeWrite> attributeWrites =
@@ -148,9 +149,47 @@ final class InvocationContext implements Context {
             final List<String> loadedAttributeMapInstances,
             final List<String> loadedChannelNames,
             final List<String> loadedChannelMapInstances) {
+        this(
+                method,
+                flow,
+                metadata,
+                values,
+                stepOutputEmitter,
+                attributes,
+                locals,
+                conditionResults,
+                channelInfos,
+                bufferedStreamScheduler,
+                loadedChannelMessages,
+                loadedAttributeMapInstances,
+                loadedChannelNames,
+                loadedChannelMapInstances,
+                new NegotiatedServerProtocol());
+    }
+
+    InvocationContext(
+            final Method method,
+            final Registry.RegisteredFlow flow,
+            final io.superdurable.gen.Context metadata,
+            final ValueMapper values,
+            final StepOutputEmitter stepOutputEmitter,
+            final List<KV> attributes,
+            final List<KV> locals,
+            final ConditionResults conditionResults,
+            final Map<String, ChannelInfo> channelInfos,
+            final ScheduledExecutorService bufferedStreamScheduler,
+            final Map<String, ChannelValues> loadedChannelMessages,
+            final List<String> loadedAttributeMapInstances,
+            final List<String> loadedChannelNames,
+            final List<String> loadedChannelMapInstances,
+            final NegotiatedServerProtocol serverProtocol) {
         if (metadata == null) {
             throw new IllegalArgumentException("Worker request Context is required");
         }
+        if (serverProtocol == null) {
+            throw new IllegalArgumentException("serverProtocol is required");
+        }
+        this.serverProtocol = serverProtocol;
         this.method = method;
         this.flow = flow;
         this.metadata = metadata;
@@ -256,6 +295,11 @@ final class InvocationContext implements Context {
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean supportsGracefulCompletionCondition() {
+        return serverProtocol.supportsGracefulCompletionCondition();
     }
 
     @Override

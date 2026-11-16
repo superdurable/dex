@@ -97,6 +97,12 @@ impl NegotiatedServerProtocolVersion {
         ))
     }
 
+    /// Returns `true` when the negotiated Server keeps the graceful completion condition, and
+    /// `false` when negotiation is missing or below protocol version 7.
+    pub(crate) fn supports_graceful_completion_condition(&self) -> bool {
+        self.version() >= GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION
+    }
+
     /// Rejects a graceful completion condition below protocol 7 because older Servers drop it.
     pub(crate) fn require_graceful_completion_condition_support(
         &self,
@@ -106,7 +112,7 @@ impl NegotiatedServerProtocolVersion {
         let has_graceful_condition = waiting
             .as_ref()
             .is_some_and(|waiting| !waiting.graceful_completion_conditions.is_empty());
-        if !has_graceful_condition || version >= GRACEFUL_COMPLETION_CONDITION_PROTOCOL_VERSION {
+        if !has_graceful_condition || self.supports_graceful_completion_condition() {
             return Ok(waiting);
         }
         let error = GracefulCompletionConditionUnsupportedError::new(

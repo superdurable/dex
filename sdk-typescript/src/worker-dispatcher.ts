@@ -132,6 +132,7 @@ export class WorkerDispatcher {
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
       deadline,
+      this.negotiatedServerProtocolVersion(),
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -209,6 +210,7 @@ export class WorkerDispatcher {
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
       deadline,
+      this.negotiatedServerProtocolVersion(),
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -269,6 +271,7 @@ export class WorkerDispatcher {
         request.loadedChannelNames,
         request.loadedChannelMapInstances,
         deadline,
+        this.negotiatedServerProtocolVersion(),
       );
       try {
         const decision = await flow.flow.handleTimeout(context);
@@ -316,6 +319,8 @@ export class WorkerDispatcher {
       request.loadedAttributeMapInstances,
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
+      undefined,
+      this.negotiatedServerProtocolVersion(),
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
     let response: InvokeWorkerRPCResponse;

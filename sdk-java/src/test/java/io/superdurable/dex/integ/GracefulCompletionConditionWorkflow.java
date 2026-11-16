@@ -31,6 +31,7 @@ class GracefulCompletionConditionWorkflow implements Flow<Boolean> {
     final Channel<Void> gate = Channel.define("gate", Void.class);
     final List<GracefulCompletionConditionObservation> observations =
             new CopyOnWriteArrayList<GracefulCompletionConditionObservation>();
+    final List<Boolean> supportObservations = new CopyOnWriteArrayList<Boolean>();
     private final GracefulCompletionConditionGateStep gateStep =
             new GracefulCompletionConditionGateStep();
     private final GracefulCompletionConditionWaitStep waitStep =
@@ -84,6 +85,11 @@ class GracefulCompletionConditionWorkflow implements Flow<Boolean> {
 
         @Override
         public Wait waitFor(final Context context, final Boolean input) {
+            final boolean isSupported = context.supportsGracefulCompletionCondition();
+            supportObservations.add(isSupported);
+            if (!isSupported) {
+                return Wait.until(messages.forOne());
+            }
             return Wait.anyOf(messages.forOne(), GracefulCompletion.requested());
         }
 

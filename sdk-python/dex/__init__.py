@@ -47,6 +47,10 @@ from dex.codec import (
 )
 from dex.condition import ConditionCombination, graceful_completion_requested
 from dex.context import AsyncContext, Context, RecoveryErrorInfo, StepAttemptProgress
+from dex.graceful_completion_context import (
+    is_graceful_completion_condition_completed,
+    supports_graceful_completion_condition,
+)
 from dex.credential import (
     ApiKeyCredential,
     ApiKeyExchangeError,
@@ -303,6 +307,8 @@ __all__ = [
     "graceful_complete",
     "graceful_completion_requested",
     "heartbeat",
+    "is_graceful_completion_condition_completed",
+    "supports_graceful_completion_condition",
     "go_to",
     "go_to_many",
     "open_blob_cache",

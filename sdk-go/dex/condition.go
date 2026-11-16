@@ -198,6 +198,45 @@ func IsGracefulCompletionConditionCompleted(ctx Context) bool {
 	return invocation.isGracefulCompletionConditionCompleted()
 }
 
+// SupportsGracefulCompletionCondition reports whether the connected Dex Server supports the
+// GracefulCompletionRequested condition.
+//
+// Use it in WaitFor to add the condition only when the Server supports it. With an older Server,
+// a Wait that contains the condition fails with GracefulCompletionConditionUnsupportedError after
+// WaitFor returns, and Step code cannot catch that error. Check this function first and keep the
+// Wait without the condition instead.
+//
+// It reads the Server protocol version that the Worker negotiated with GetServerInfo when it
+// started. It never sends a request, so it is cheap to call on every invocation. It returns true
+// when that version is 7 or later. It works in WaitFor, Execute, and RPC handlers alike. The Worker
+// negotiates before it receives any task, so a Context that Dex created always sees the
+// negotiated version. It returns false for a nil Context and for a Context that Dex did not
+// create, such as a test fake.
+//
+// Example:
+//
+//	func (waitForMessage) WaitFor(ctx dex.Context, _ struct{}) (*dex.Wait, error) {
+//		if dex.SupportsGracefulCompletionCondition(ctx) {
+//			return dex.AnyOf(
+//				UserMessages.ForOne(),
+//				dex.GracefulCompletionRequested(),
+//			), nil
+//		}
+//		return dex.AnyOf(UserMessages.ForOne()), nil
+//	}
+//
+// It returns true when the Worker's negotiated Server protocol supports the graceful completion
+// condition, and false otherwise.
+//
+// Since 1.45.6.
+func SupportsGracefulCompletionCondition(ctx Context) bool {
+	invocation, ok := ctx.(*invocationContext)
+	if !ok || invocation == nil {
+		return false
+	}
+	return invocation.serverProtocol.supportsGracefulCompletionCondition()
+}
+
 // SubFlowResult returns one SubFlow result from the current Execute invocation.
 //
 // Omit index to read the first SubFlow Condition. Indexes are zero-based in the stable SubFlow

@@ -485,3 +485,38 @@ fn graceful_completion_result_reads_completed_waiting_and_absent() {
         );
     }
 }
+
+// A Context holds no client, so the support check cannot send a request.
+#[test]
+fn supports_graceful_completion_condition_reads_the_negotiated_protocol() {
+    for (method, version, expected) in [
+        (InvocationMethod::WaitFor, 7, true),
+        (InvocationMethod::Execute, 7, true),
+        (InvocationMethod::WaitFor, 6, false),
+        (InvocationMethod::WaitFor, 0, false),
+    ] {
+        let registry = Registry::new().register(HardDeleteFlow).unwrap();
+        let negotiated_protocol_version = NegotiatedServerProtocolVersion::default();
+        negotiated_protocol_version.store(version);
+        let context = Context::new(
+            ContextInput {
+                method,
+                flow: registry.flow("HardDeleteFlow").unwrap().clone(),
+                metadata: ProtoContext::default(),
+                attributes: Vec::new(),
+                locals: Vec::new(),
+                condition_results: None,
+                channel_infos: HashMap::new(),
+                loaded_channel_messages: HashMap::new(),
+                loaded_attribute_map_instances: Vec::new(),
+                loaded_channel_names: Vec::new(),
+                loaded_channel_map_instances: Vec::new(),
+                negotiated_protocol_version,
+            },
+            None,
+            InvocationCancellation::new(),
+        )
+        .unwrap();
+        assert_eq!(context.supports_graceful_completion_condition(), expected);
+    }
+}

@@ -103,7 +103,8 @@ final class WorkerDispatcher {
                 request.getLoadedChannelMessagesMap(),
                 request.getLoadedAttributeMapInstancesList(),
                 request.getLoadedChannelNamesList(),
-                request.getLoadedChannelMapInstancesList());
+                request.getLoadedChannelMapInstancesList(),
+                serverProtocol);
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final Wait wait = callWaitFor(step.getStep(), context, input);
@@ -153,7 +154,8 @@ final class WorkerDispatcher {
                 request.getLoadedChannelMessagesMap(),
                 request.getLoadedAttributeMapInstancesList(),
                 request.getLoadedChannelNamesList(),
-                request.getLoadedChannelMapInstancesList());
+                request.getLoadedChannelMapInstancesList(),
+                serverProtocol);
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final StepDecision decision = callExecute(step.getStep(), context, input);
@@ -201,7 +203,8 @@ final class WorkerDispatcher {
                 request.getLoadedChannelMessagesMap(),
                 request.getLoadedAttributeMapInstancesList(),
                 request.getLoadedChannelNamesList(),
-                request.getLoadedChannelMapInstancesList());
+                request.getLoadedChannelMapInstancesList(),
+                serverProtocol);
         final StepDecision decision = flow.getFlow().handleTimeout(context);
         serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
         return InvokeExecuteMethodResponse.newBuilder()
@@ -235,7 +238,8 @@ final class WorkerDispatcher {
                 request.getLoadedChannelMessagesMap(),
                 request.getLoadedAttributeMapInstancesList(),
                 request.getLoadedChannelNamesList(),
-                request.getLoadedChannelMapInstancesList());
+                request.getLoadedChannelMapInstancesList(),
+                serverProtocol);
         final Method method = rpc.getMethod();
         final Object[] arguments;
         if (method.getParameterTypes().length == 2) {

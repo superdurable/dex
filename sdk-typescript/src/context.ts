@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { Attribute, AttributeMap } from "./persistence.js";
-import type { Channel, ChannelMap, ChannelMessage, GracefulCompletion } from "./wait.js";
+import type { Channel, ChannelMap, ChannelMessage } from "./wait.js";
 import type { Codec } from "./codec.js";
 import type { Stream } from "./stream.js";
 
@@ -151,19 +151,6 @@ export interface Context {
    * @returns Whether the selected Timer fired.
    */
   hasTimerFired(index?: number): boolean;
-  /**
-   * Reports whether the current Wait's graceful completion condition completed.
-   *
-   * It reads the condition results of the current `execute` call. It returns true when the Flow had a graceful completion request as the Wait completed. That
-   * holds even when another `Wait.anyOf` condition won, such as a Timer that fired or a Channel
-   * that consumed a message. Read consumed Channel messages first, so a message that won is not
-   * dropped. It returns false when the Wait has no such condition, outside `execute`, and after
-   * `Wait.skipImmediately`. See {@link GracefulCompletion} for an example.
-   *
-   * @returns Whether the graceful completion condition completed.
-   * @since 1.45.6
-   */
-  isGracefulCompletionConditionCompleted(): boolean;
   /**
    * Reports whether `waitFor` failed before the current `execute` call.
    * @returns Whether failure policy proceeded to execution.

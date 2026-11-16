@@ -115,13 +115,17 @@ for the next user message. Combine it with that message in `Wait.any_of`. In
 `execute`, handle a message that the Wait consumed first. A ready message
 wins the `any_of`, but the condition still reports completed when a request
 exists. When there is no message and
-`context.is_graceful_completion_condition_completed()` is true, return
+`is_graceful_completion_condition_completed(context)` is true, return
 `dead_end()`. The Flow completes once no other Step is active.
 
 When the request arrives, Dex checks only the Waits that include this
 condition. A Wait holds at most one. It needs Server protocol version 7, and
 against an older Server the Step fails with
-`GracefulCompletionConditionUnsupportedError`. The
+`GracefulCompletionConditionUnsupportedError`. To keep working with older
+Servers, add the condition only when
+[`supports_graceful_completion_condition(context)`](pathname:///api/python/latest/dex.html#supports_graceful_completion_condition)
+returns `True` in `wait_for`; it reads the Worker's negotiated protocol and
+sends no request. The
 [`graceful_completion_requested` API reference](pathname:///api/python/latest/dex.html#graceful_completion_requested)
 shows an example. The server rules are in
 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).

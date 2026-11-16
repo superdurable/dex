@@ -40,6 +40,7 @@ import {
 import { physicalMapName, requireMapInstance, requireName } from "./validation.js";
 import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream } from "./stream.js";
+import { supportsGracefulCompletionCondition } from "./server-protocol.js";
 
 export type InvocationMethod = "waitFor" | "execute" | "rpc";
 
@@ -97,6 +98,7 @@ export class InvocationContext implements AsyncContext {
     loadedChannelNames: readonly string[] = [],
     loadedChannelMapInstances: readonly string[] = [],
     deadline?: Date,
+    private readonly negotiatedServerProtocolVersion: number = 0,
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -224,6 +226,10 @@ export class InvocationContext implements AsyncContext {
     return (this.conditionResults?.gracefulCompletionResults ?? []).some(
       (result) => result.conditionStatus === ConditionStatus.CONDITION_STATUS_COMPLETED,
     );
+  }
+
+  public supportsGracefulCompletionCondition(): boolean {
+    return supportsGracefulCompletionCondition(this.negotiatedServerProtocolVersion);
   }
 
   public waitForMethodFailed(): boolean {
