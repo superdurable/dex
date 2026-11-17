@@ -22,6 +22,7 @@ import {
   labelWithBreakHints,
   labelWidthUnits,
   denseStripHeight,
+  endNoteRunWidth,
   tidyStripHeight,
   timelineLabelText,
 } from './HorizontalTimeline';
@@ -831,6 +832,17 @@ describe('horizontal Timeline', () => {
     expect(document.querySelector('.htl-end-note')).toBeNull();
   });
 
+  it.each(['dense', 'tidy'])('shows a page that fits from #1, leaving only the end note\'s own width at the right, in %s mode', (labelMode) => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, labelMode);
+    const endNote = { label: 'Now · waiting', eventId: 16, isOpen: true };
+    // 16 Tidy slots of 64 px fit 1200 px beside this short note, though not beside a fixed 240 px room.
+    expect(16 * 64 + endNoteRunWidth(endNote.label)).toBeLessThanOrEqual(1200);
+    render(<HorizontalTimeline endNote={endNote} events={events(16)} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(option(1)).not.toBeNull();
+    expect(screen.getByRole('slider', { name: 'Timeline overview' }).getAttribute('aria-valuemax')).toBe('0');
+    expect(document.querySelector('.htl-in-view')).toBeNull();
+  });
+
   const labelModeEvents: FlowHistoryEvent[] = [
     ...events(3),
     { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
@@ -845,6 +857,17 @@ describe('horizontal Timeline', () => {
     expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-45deg');
     expect(screen.getByRole('button', { name: 'Dense' }).getAttribute('aria-pressed')).toBe('true');
     expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -45deg))');
+  });
+
+  it.each(['dense', 'tidy'])('shows no cut label for an event scrolled past the left edge in %s mode', (labelMode) => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, labelMode);
+    render(<Harness pageEvents={events(1000)} />);
+    const rendered = [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+    const slotWidth = Number.parseFloat(timelineStrip().style.getPropertyValue('--htl-slot-width'));
+    const pastLeftEdge = rendered.filter((option) => Number.parseFloat(option.style.left) + slotWidth / 2 < 0);
+    expect(pastLeftEdge.length).toBeGreaterThan(0);
+    pastLeftEdge.forEach((option) => expect(option.querySelector('.htl-label')).toBeNull());
+    expect(option(1000)?.querySelector('.htl-label')?.textContent).toBe('Charge');
   });
 
   it('gives every event its own straight label in words in Tidy mode', () => {
@@ -878,11 +901,10 @@ describe('horizontal Timeline', () => {
     const intro = screen.getByRole('note', { name: 'Timeline label modes' });
     expect(intro.textContent).toContain('Dense');
     expect(intro.textContent).toContain('Tidy');
-    // The note is not modal, and clicks pass through it to the events it covers.
-    const designCss = readFileSync('app/v1-design.css', 'utf8');
-    const block = (selector: string) => designCss.slice(designCss.indexOf(`${selector} {`), designCss.indexOf('}', designCss.indexOf(`${selector} {`)));
-    expect(block('.htl-mode-intro')).toContain('pointer-events: none');
-    expect(block('.v1-page .htl-mode-intro-dismiss')).toContain('pointer-events: auto');
+    // The note sits above the overview and the lane, in the page flow, so it covers no event.
+    expect(intro.closest('.htl-lane')).toBeNull();
+    expect(intro.compareDocumentPosition(screen.getByRole('slider', { name: 'Timeline overview' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Timeline labels' }).getAttribute('aria-describedby')).toBe(intro.id);
     fireEvent.click(option(2)!);
     expect(onSelectEvent).toHaveBeenCalledWith(expect.objectContaining({ eventId: 2 }));
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
