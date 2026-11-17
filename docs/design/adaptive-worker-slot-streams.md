@@ -1,6 +1,6 @@
 # Adaptive pull Worker slot streams
 
-- **Status:** proposal. Nothing in this document is decided. The owner decides the items in [Pending decisions](#pending-decisions).
+- **Status:** accepted. The owner decided every item in [Decisions](#decisions) on 2026-11-17.
 - **Tracking issue:** [#1989](https://github.com/superdurable/dex/issues/1989) and its 2026-11-17 comment.
 - **Code read:** `origin/main` at `35ee8dcdccf64fb9db38d8b0cc0a7aacefa29d4f` (2026-11-17). Every `path:line` below refers to that commit.
 - **Scope:** design only. It proposes no product code in this change.
@@ -13,7 +13,7 @@ Today a pull Worker opens one reserved-slot stream per task slot at start. The s
 - Every shrink window, the Worker closes half of the idle surplus above the window's peak busy count plus 25% headroom. It closes with the existing clean half-close.
 - Reserved RPC-only slots stay fixed.
 
-The recommendation is Option A: SDK-only, with no protocol or server change. It keeps the #1253 attempt semantics unchanged. The server already tells the Worker what it needs to know: a hand-out that takes the last idle stream. Option B, a server hint, is a later, optional addition. Option C, multiplexing slots over a few streams, removes more server cost. It does so by rewriting the hand-out, half-close, and failure semantics of #1253, so it is held back until a benchmark shows that busy streams, not idle ones, limit the server.
+The owner chose Option A: SDK-only, with no protocol or server change. It keeps the #1253 attempt semantics unchanged. The server already tells the Worker what it needs to know: a hand-out that takes the last idle stream. Option B, a server hint, is a later, optional addition. Option C, multiplexing slots over a few streams, removes more server cost. It does so by rewriting the hand-out, half-close, and failure semantics of #1253, so it is held back until a benchmark shows that busy streams, not idle ones, limit the server.
 
 A Worker with its floor equal to its ceiling behaves exactly as today. Phase 1 ships the mechanism opt-in, with that equality as the default. A later phase changes the defaults to a floor of the CPU count and a ceiling of 100. The default change from the CPU count to 100 must not ship before adaptive streams. See [Rollout](#rollout-and-api-changes).
 
@@ -71,7 +71,7 @@ All five SDKs open every slot stream at start and keep the count fixed. None has
 
 "Same" means the same rule as the Go column. Every SDK keeps a deprecated, no-op idle-streams-per-queue option. Readiness waits for one registered stream of each slot kind in Go, Python, Java, and Rust. In TypeScript, readiness returns after the first registered slot (`pull-worker.ts:218-223`). Each slot runs its handler concurrently with its stream loop: goroutines in Go, asyncio tasks with a thread pool in Python, a fixed handler pool in Java, promises in TypeScript, and tokio tasks in Rust. The Python and Java handler pools are sized by the slot count (`sdk-python/dex/worker.py:128-131`; `sdk-java/src/main/java/io/superdurable/dex/Worker.java:415-431`). These SDK facts come from a survey of the files at the commit above.
 
-The unmerged branch `sdk/worker-slot-defaults` (commit `b782e79c3`, WIP) changes the default to 100 in Go, Python, and Java. Before the first acknowledgement it opens one stream. It clamps an unset default to the server cap with an info log. That branch is on hold. Today's default stays the CPU count.
+The unmerged branch `sdk/worker-slot-defaults` (commit `b782e79c3`, WIP) changes the default to 100 in Go, Python, and Java. Before the first acknowledgement it opens one stream. It clamps an unset default to the server cap with an info log. Decision D4 raises that log to WARN. That branch is on hold. Today's default stays the CPU count.
 
 ### History
 
@@ -202,9 +202,9 @@ These are the paths that #1253 hardened.
 | Reset blast radius | one attempt | one attempt | all tasks on the stream | one attempt |
 | Five-SDK work | moderate | moderate plus hint | large | none |
 
-**Recommendation:** Option A now. Keep B as an optional later phase if the burst benchmark shows A's ramp or overshoot is a problem, or if per-Worker schedule-to-start is wanted. Revisit C only if the idle-stream benchmark shows that busy streams, not idle ones, limit a node.
+**Decision (D1):** Option A now. Keep B as an optional later phase if the burst benchmark shows A's ramp or overshoot is a problem, or if per-Worker schedule-to-start is wanted. Revisit C only if the idle-stream benchmark shows that busy streams, not idle ones, limit a node.
 
-## Recommended design (Option A)
+## Design (Option A)
 
 ### Terms
 
@@ -222,7 +222,7 @@ The rules below apply only to Step-and-RPC streams. RPC-only streams stay at `R`
 ### Floor and ceiling defaults
 
 - **Ceiling.** `MaxConcurrentTasks` keeps its meaning and its current default, the CPU count. Phase 2 changes the default to 100 (see [Rollout](#rollout-and-api-changes)).
-- **Floor.** A new option, proposed as `MinOpenSlots` (pending decision D7). It counts Step-and-RPC streams and must satisfy `1 ≤ L ≤ MaxConcurrentTasks - R`.
+- **Floor.** A new option, `MinOpenSlots` (decision D7). It counts Step-and-RPC streams and must satisfy `1 ≤ L ≤ MaxConcurrentTasks - R`.
   - **Phase 1 default:** `MaxConcurrentTasks - R`, so the Worker stays fixed and identical to today. Adaptation is opt-in by setting a lower floor.
   - **Phase 2 default:** `min(MaxConcurrentTasks - R, max(1, CPU count - R))`. On a machine with at least 2 CPUs, a Worker with the default ceiling then still holds exactly today's default stream count while idle. Only the capacity above the CPU count adapts.
   - With 1 CPU, today's Worker holds 1 stream and no RPC slot. With a ceiling of 100, `R` becomes 1, so the Worker holds 2 streams.
@@ -245,7 +245,7 @@ The rules below apply only to Step-and-RPC streams. RPC-only streams stay at `R`
 - A low-water mark, such as growing when `I < S/4`, grows before tasks have to wait. It also keeps more idle streams.
 - The "freed slot received a task within T ms" signal duplicates the trigger above (see [Option A](#option-a-sdk-only-adaptive-streams-from-local-signals)). Its T would have to cover a commit for SYNC claims, so it is not used.
 
-The trigger and the step are pending decision D5.
+The trigger and the step are decision D5.
 
 **Opening a stream.**
 - A new stream runs the same registration as today.
@@ -254,7 +254,7 @@ The trigger and the step are pending decision D5.
 
 ### Shrink rule
 
-**Window.** The Worker tracks `peakBusy`, the highest `B` seen during the shrink window `W`, proposed as 30 s. A growth batch restarts the window, so the Worker never shrinks right after it grows.
+**Window.** The Worker tracks `peakBusy`, the highest `B` seen during the shrink window `W` of 30 s (decision D6). A growth batch restarts the window, so the Worker never shrinks right after it grows.
 
 **Target.** At the end of a window, `target = max(L, peakBusy + headroom)`, where `headroom = max(1, ceil(peakBusy / 4))`.
 
@@ -298,7 +298,9 @@ A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no re
 
 **A rejection of a floor stream or the first stream** keeps today's handling.
 
-**The server lowers the cap.** Every acknowledgement reports the cap. When a later acknowledgement reports a lower cap, the Worker lowers `E` and lets the shrink rule close the surplus. It never resets busy streams. The first-acknowledgement check stays unchanged: an explicit `MaxConcurrentTasks` above the cap fails start. Clamping an unset default is pending decision D4.
+**The server lowers the cap.** Every acknowledgement reports the cap. When a later acknowledgement reports a lower cap, the Worker lowers `E` and lets the shrink rule close the surplus. It never resets busy streams. The first-acknowledgement check stays unchanged: an explicit `MaxConcurrentTasks` above the cap fails start.
+
+**An unset default above the cap (decision D4).** When `MaxConcurrentTasks` is unset and the first acknowledgement reports a cap below the default, the Worker clamps the ceiling to the cap. It logs the clamp at WARN level, naming both values, and keeps running.
 
 ### Reconnect, server restart, and failover
 
@@ -324,7 +326,7 @@ The server picks the longest-idle stream across all Workers of a queue (`stream_
 A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker has any connected stream, even when all of them are busy (`step_reservation.rs:170-191, 254-259`).
 
 - **Below the ceiling, adaptation bounds that wait.** The hand-out that took the last idle stream triggers growth. The new stream re-idles at registration and wakes the sticky waiter (`worker_protocol.rs:149`; `worker_registry.rs:893-916`). The wait shrinks from up to 5 s to about one registration round trip.
-- **At the ceiling, adaptation changes nothing.** The S2 tail case ran at 256 slots per Worker, which was the ceiling. A matching-side change would address it, such as ending the sticky wait early when the sticky Worker has no idle slot and is at its cap. That change is separate work and out of scope here. It is listed in [Pending decisions](#pending-decisions) (D11) for the owner.
+- **At the ceiling, adaptation changes nothing.** The S2 tail case ran at 256 slots per Worker, which was the ceiling. A matching-side change would address it, such as ending the sticky wait early when the sticky Worker has no idle slot and is at its cap. That change is separate work and out of scope here. It is tracked in [#1992](https://github.com/superdurable/dex/issues/1992) (decision D11).
 
 ### Budgeting `maxConcurrentTasksCap` and `maxStreams`
 
@@ -349,14 +351,14 @@ A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker ha
 
 ### Observability
 
-**New SDK surface.** Every SDK adds the same set, pending decision D12:
+**New SDK surface.** Every SDK adds the same set (decision D12):
 - An accessor on the pull Worker that returns a snapshot: `open`, `registering`, `busy`, `idle`, `floor`, `effectiveCeiling`, `rpcOnlyOpen`, and the counters below. Today no SDK has pull metrics, so an accessor fits all five SDKs without choosing a metrics library.
 - Counters: `streamsGrown`, `streamsShrunk`, `growRejectedAtCap`, and `shrinkRaceDrops`. The last one counts tasks dropped because they arrived after a shrink decision.
-- Debug logs for each batch: grow with `from`, `to`, and `reason`, and shrink with `from`, `to`, and `peakBusy`. One info log when the effective ceiling is clamped by the cap or by a rejection.
+- Debug logs for each batch: grow with `from`, `to`, and `reason`, and shrink with `from`, `to`, and `peakBusy`. A WARN log when an unset default is clamped to the server cap (D4). One info log when a growth rejection clamps the effective ceiling.
 
 **Existing server metrics answer the operator questions without a new family:**
 - `dexzd_matching_worker_streams` (gauge, basic; `server-zd/crates/dexzd-metrics/src/lib.rs:415-419`) follows real concurrency plus floors.
-- `dexzd_step_schedule_to_start_latency_seconds` (histogram, advanced; `lib.rs:490-494`) shows ramp cost. Its buckets are 5 ms, 25 ms, 100 ms, 500 ms, 2.5 s, and 10 s (`server-zd/crates/dexzd-metrics/src/histogram.rs:18`). They cannot separate a 5 s sticky wait from other waits between 2.5 s and 10 s. Finer buckets are pending decision D9.
+- `dexzd_step_schedule_to_start_latency_seconds` (histogram, advanced; `lib.rs:490-494`) shows ramp cost. Its buckets are 5 ms, 25 ms, 100 ms, 500 ms, 2.5 s, and 10 s (`server-zd/crates/dexzd-metrics/src/histogram.rs:18`). They cannot separate a 5 s sticky wait from other waits between 2.5 s and 10 s. Decision D9 keeps these buckets in phase 1.
 - `dexzd_worker_stream_events_total{event="closed"}` (verbose; `server-zd/crates/dexzd-metrics/src/worker_stream.rs:18-25`) counts churn. Opens equal closes plus the gauge change.
 - `dexzd_step_attempts_returned_total{reason="not_delivered"}` counts shrink races.
 - `dexzd_step_task_queue_entries` and `dexzd_step_task_queue_oldest_age_seconds` show backlog during a ramp.
@@ -478,7 +480,7 @@ Results go under `benchmark/results/` with the server tunables, Worker options, 
 
 ## Rollout and API changes
 
-**Phase 0: measure.** Add `idle-slots` to `dexbench` and commit results (#1989 item 1). The results inform D2 and D8. No product change.
+**Phase 0: measure.** Add `idle-slots` to `dexbench` and commit results (#1989 item 1). The results size the phase 2 floor and feed the D8 evidence check. No product change.
 
 **Phase 1: opt-in adaptive streams, an SDK patch release in all five SDKs.**
 - Add `MinOpenSlots`, an optional field that defaults to `MaxConcurrentTasks - R`. With that default, behavior is identical to today. A lower value enables adaptation.
@@ -486,17 +488,23 @@ Results go under `benchmark/results/` with the server tunables, Worker options, 
 - Implement the state machine, soft growth rejection, the reconnect rules, the snapshot accessor, and the logs.
 - Doc comments carry "Since 1.NN.P" with the next patch version.
 - `MaxConcurrentTasks` keeps its meaning and default. The deprecated idle-streams-per-queue options stay no-ops. This is an additive change, so it fits a patch release under the repository's release rules.
+- From this phase on, the stream count can vary, so the texts that say a Worker opens one stream per slot become wrong. The phase 1 pull requests update them together with the behavior change:
+  - `skills/dex-sdk/references/core/application.md:63`, with a skills fragment;
+  - `docs/content/components/application.mdx:446` and its zh-Hans counterpart;
+  - `docs/design/worker-pull-mode.md:7, 19`.
+- Phase 2 updates the default values in the same pages.
 
 **Phase 2: adaptive by default, together with the new default ceiling.**
 - The floor default becomes `min(MaxConcurrentTasks - R, max(1, CPU count - R))`.
 - The `MaxConcurrentTasks` default becomes 100, and an unset default is clamped to the server cap.
 - These two changes ship in the same SDK release, after phase 0 and the phase 1 benchmarks.
-- Changing defaults is a behavior change under Beta compatibility, so it needs the owner's explicit authorization (D2, D3).
+- Changing defaults is a behavior change under Beta compatibility. The owner authorized these two default changes in D2 and D3 on 2026-11-17.
+- An unset default above the server cap is clamped with a WARN log (D4).
 - Migration: an application that needs every slot open at all times sets `MinOpenSlots` equal to its slot count.
 
 **The default of 100 relative to adaptive streams:**
-- *Before:* each idle Worker holds 100 fixed streams, so 1,000 Workers fill `maxStreams`, and 500 with rolling overlap. This document recommends against it.
-- *With:* the floor keeps idle cost at today's level, and the higher ceiling serves bursts. Recommended.
+- *Before:* each idle Worker holds 100 fixed streams, so 1,000 Workers fill `maxStreams`, and 500 with rolling overlap. Rejected.
+- *With:* the floor keeps idle cost at today's level, and the higher ceiling serves bursts. Chosen.
 - *After:* safe, but the higher ceiling waits a release.
 
 See D3.
@@ -507,23 +515,23 @@ See D3.
 
 **Not planned: Option C.** Reconsider it only if `idle-slots` shows that busy streams limit a node.
 
-## Pending decisions
+## Decisions
 
-Nothing here is decided. Each row has a recommendation for the owner.
+The owner decided every row on 2026-11-17. The options and costs stay here for the record.
 
-| # | Decision | Scenario | Options | Cost | Recommendation |
+| # | Decision | Scenario | Options | Cost | Decided (owner, 2026-11-17) |
 | --- | --- | --- | --- | --- | --- |
 | D1 | Which option | Server cost should follow real concurrency | A; A plus B; C; D | A: SDK work only. B: plus a protocol field and a server release. C: protocol and server rework of #1253 paths. D: none, but no headroom for a higher default | A now; B later if benchmarks need it; C only on evidence |
 | D2 | Opt-in or default-on, and the default floor | Existing Workers set or inherit a slot count | Opt-in first (floor = ceiling), then default floor = CPU count; default-on at once; always opt-in | Opt-in delays the server saving. Default-on changes burst behavior for explicit large slot counts without notice | Opt-in in phase 1. Default floor `min(ceiling, CPU count)` in phase 2 with owner authorization |
 | D3 | When the default ceiling moves from CPU count to 100 | Raising the default without raising server cost | Before, with, or after adaptive default-on | Before: 1,000 idle Workers fill `maxStreams`. With: one coordinated release. After: the higher ceiling waits a release | With phase 2; never before |
-| D4 | A ceiling above the server cap | Default 100 against a server with a lower cap | Fail start (today); clamp unset defaults only; clamp all values with a warning | Fail: breaks Workers on low-cap servers when the default rises. Clamp all: hides a misconfiguration | Clamp unset defaults with an info log; keep failing for explicit values |
+| D4 | A ceiling above the server cap | Default 100 against a server with a lower cap | Fail start (today); clamp unset defaults only; clamp all values with a warning | Fail: breaks Workers on low-cap servers when the default rises. Clamp all: hides a misconfiguration | Clamp unset defaults with a WARN log; keep failing for explicit values |
 | D5 | Grow trigger and step | A burst arrives at a Worker at its floor | `I = 0` and doubling; a low-water mark (`I < S/4`); 1.5x step; linear +1 | Low-water: more idle streams. 1.5x: about 1.7 times the rounds. Linear: E rounds | `I = 0`, doubling, one batch in flight |
 | D6 | Shrink window and step | Load drops or cycles | `W` of 30 s, 60 s, or 5 min; close half the surplus, or all of it; headroom of 25% or a fixed count | A short `W` and closing everything cause churn. A long `W` delays the saving | `W` = 30 s, half the surplus, 25% headroom (minimum 1) |
 | D7 | Public option name and shape | Users opt in or pin fixed slots | `MinOpenSlots` integer; `MinIdleSlots`; a mode enum `Fixed` or `Adaptive` | An enum cannot express a custom floor. "Idle" is wrong after growth | `MinOpenSlots` integer, the same idiom in each SDK |
 | D8 | Server hint (Option B) now or later | The SDK cannot see queue age | Ship `schedule_to_start` now; later on evidence; never | Now: a server release and five SDK changes before the data | Later, decided from the `burst` and `fairness` results |
 | D9 | Finer schedule-to-start buckets | 2.5 s to 10 s hides the 5 s sticky wait | Add buckets such as 1 s and 5 s; keep them | Changing the buckets of a released family changes its series and dashboards | Keep them in phase 1. Revisit with the S2 investigation |
 | D10 | Adaptive reserved RPC slots | RPC-only slots sit idle without RPCs | Keep fixed; make them adaptive too | Adaptive RPC slots defeat their purpose: RPC latency isolation | Keep fixed |
-| D11 | The at-ceiling sticky wait | S2 tail at 256 slots per Worker | Separate matching change, such as ending the sticky wait when the sticky Worker is at its cap with no idle slot; leave as is | A matching change to sticky semantics, outside this design | Track it as a separate server-zd investigation |
+| D11 | The at-ceiling sticky wait | S2 tail at 256 slots per Worker | Separate matching change, such as ending the sticky wait when the sticky Worker is at its cap with no idle slot; leave as is | A matching change to sticky semantics, outside this design | A separate server-zd investigation, tracked in [#1992](https://github.com/superdurable/dex/issues/1992) |
 | D12 | SDK observability surface | Operators need open, busy, and idle per Worker | Snapshot accessor plus logs; native metrics per SDK; logs only | Native metrics need a metrics library choice per SDK | Snapshot accessor plus debug logs; native metrics later |
 | D13 | TypeScript readiness difference | TypeScript is ready after one slot of any kind; the others wait for each kind | Align TypeScript in phase 1; leave it | Aligning it changes TypeScript readiness timing | Align it in phase 1, since phase 1 already reworks TypeScript stream creation |
 
@@ -538,7 +546,7 @@ The owner's goal is that server cost follows real concurrency, so the slot ceili
 - **C** removes even the cost of busy streams. It does so by changing hand-out, half-close, and reset handling, which #1253 made correct. A reset would then fail every running attempt on the stream as `NOT_COMPLETED` and spend their retries.
 - **D** keeps fixed cost. A default of 100 would then limit a node to 1,000 idle Workers.
 
-Recommendation: A, with B and C held behind benchmark evidence.
+Decided (owner, 2026-11-17): A, with B and C held behind benchmark evidence.
 
 ### D2: Opt-in or default-on, and the default floor
 
@@ -547,9 +555,9 @@ Today a Worker holds `MaxConcurrentTasks` streams at all times.
 - Opt-in in phase 1 keeps every existing Worker identical: the default floor equals the ceiling.
 - In phase 2, a default floor of the CPU count keeps a Worker with today's default exactly as it is now. It only stops idle cost from growing with a higher ceiling.
 
-Changing defaults needs the owner's explicit authorization under Beta compatibility.
+Changing defaults needs the owner's explicit authorization under Beta compatibility. This decision gives that authorization for the phase 2 floor default.
 
-Recommendation: opt-in now, then the CPU-count floor default in phase 2.
+Decided (owner, 2026-11-17): opt-in now, then the CPU-count floor default in phase 2.
 
 ### D3: When the default ceiling moves from CPU count to 100
 
@@ -565,7 +573,7 @@ The options:
 - shipping it with phase 2 makes one release carry both default changes;
 - shipping it after phase 2 is safe but later.
 
-Recommendation: with phase 2, never before.
+Decided (owner, 2026-11-17): with phase 2, never before.
 
 ### D4: A ceiling above the server cap
 
@@ -574,7 +582,7 @@ Today, a first acknowledgement whose cap is below `MaxConcurrentTasks` fails sta
 - Clamping an unset default, as the on-hold branch does, avoids that. It still reports an explicit misconfiguration.
 - Clamping every value also hides a deliberate setting.
 
-Recommendation: clamp unset defaults with an info log, and keep failing start for explicit values.
+Decided (owner, 2026-11-17): clamp unset defaults to the server cap with a WARN log that names both values, and keep failing start for explicit values above the cap. WARN, not info, because the Worker then runs with less capacity than its default.
 
 ### D5: Grow trigger and step
 
@@ -584,7 +592,7 @@ A Worker at its floor receives a burst.
 - A 1.5x step overshoots less but needs about 1.7 times the rounds.
 - Linear growth needs E rounds and is too slow for bursts.
 
-Recommendation: `I = 0`, doubling, one batch in flight. Confirm with the `burst` and `periodic` benchmarks.
+Decided (owner, 2026-11-17): `I = 0`, doubling, one batch in flight. Confirm with the `burst` and `periodic` benchmarks.
 
 ### D6: Shrink window and step
 
@@ -593,7 +601,7 @@ After load drops, surplus streams should close without churn under cycling load.
 - A shorter window, or closing all the surplus, reacts faster but churns streams under periodic load. Each close can cost a `NOT_DELIVERED` return.
 - A longer window delays the saving.
 
-Recommendation: 30 s, half the surplus, 25% headroom with a minimum of 1. Confirm with the `periodic` benchmark.
+Decided (owner, 2026-11-17): 30 s, half the surplus, 25% headroom with a minimum of 1. Confirm with the `periodic` benchmark.
 
 ### D7: Public option name and shape
 
@@ -602,9 +610,9 @@ Users need to opt in during phase 1, and to pin fixed slots after phase 2.
 - A mode enum cannot express a custom floor.
 - "Idle" is wrong for the floor, because the floor counts streams that may be busy.
 
-Proposed names: `MinOpenSlots` in Go, `min_open_slots` in Python and Rust, and `minOpenSlots` in Java and TypeScript. Validation: `1 ≤ MinOpenSlots ≤ MaxConcurrentTasks - ReservedRPCTasks`. As with the slot count, zero means the default, except in Rust, which uses `Option`.
+Names: `MinOpenSlots` in Go, `min_open_slots` in Python and Rust, and `minOpenSlots` in Java and TypeScript. Validation: `1 ≤ MinOpenSlots ≤ MaxConcurrentTasks - ReservedRPCTasks`. As with the slot count, zero means the default, except in Rust, which uses `Option`.
 
-Recommendation: the `MinOpenSlots` integer.
+Decided (owner, 2026-11-17): the `MinOpenSlots` integer.
 
 ### D8: Server hint now or later
 
@@ -612,25 +620,25 @@ The SDK cannot compute schedule-to-start. Task frames carry no schedule time (`p
 - A `schedule_to_start` Duration on `PollWorkerTask` would let the Worker grow on queue age and report it.
 - It needs a server release and five SDK changes before data shows A is insufficient.
 
-Recommendation: decide after the `burst` and `fairness` results.
+Decided (owner, 2026-11-17): later. Option B ships only if the `burst` and `fairness` results show a need.
 
 ### D9: Finer schedule-to-start buckets
 
 The 2.5 s to 10 s bucket of `dexzd_step_schedule_to_start_latency_seconds` cannot separate the 5 s sticky wait from other waits. Changing the buckets of a released family changes its series.
 
-Recommendation: keep them in phase 1. Revisit them with D11's investigation.
+Decided (owner, 2026-11-17): keep them in phase 1. Revisit them with D11's investigation.
 
 ### D10: Adaptive reserved RPC slots
 
 RPC-only slots exist so that RPCs still run while Steps hold every other slot. Adapting them would bring back the ramp delay for RPCs, which never queue. There are only a few of them, one by default.
 
-Recommendation: keep them fixed.
+Decided (owner, 2026-11-17): keep them fixed.
 
 ### D11: The at-ceiling sticky wait
 
 The S2 tail at 256 slots per Worker fits the stickyWait hypothesis: a Step waits for a sticky Worker whose slots are all busy, at its ceiling. Adaptive streams cannot help at the ceiling. A matching change could, such as ending the sticky wait when the sticky Worker has no idle slot and is at its cap. That changes sticky semantics and is outside this design.
 
-Recommendation: a separate server-zd investigation. The owner decides whether to track it.
+Decided (owner, 2026-11-17): a separate server-zd investigation, tracked in [#1992](https://github.com/superdurable/dex/issues/1992).
 
 ### D12: SDK observability surface
 
@@ -638,13 +646,13 @@ No SDK has pull Worker metrics today. Operators need open, busy, idle, and ceili
 - A snapshot accessor and debug logs fit all five SDKs the same way.
 - Native metrics need a metrics library choice per SDK.
 
-Recommendation: a snapshot accessor plus debug logs now.
+Decided (owner, 2026-11-17): a snapshot accessor plus debug logs now.
 
 ### D13: TypeScript readiness difference
 
 TypeScript reports ready after the first registered slot of any kind (`sdk-typescript/src/pull-worker.ts:218-223`). The other SDKs wait for one of each slot kind. Phase 1 reworks TypeScript stream creation anyway, and identical behavior is a requirement. Aligning it changes TypeScript readiness timing slightly.
 
-Recommendation: align it in phase 1 and note it in the TypeScript change log.
+Decided (owner, 2026-11-17): align it in phase 1 and note it in the TypeScript change log.
 
 ## Tests
 
