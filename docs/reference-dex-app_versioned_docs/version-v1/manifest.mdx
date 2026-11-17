@@ -240,6 +240,14 @@ connectors:
     operations: [postThreadReply]
 ~~~
 
+A TypeScript application installs each connector package with `npm install --save-exact`, at the `version` its entry names:
+
+~~~bash
+npm install --save-exact @superdurable/connector-slack@0.7.0
+~~~
+
+`package-lock.json` (`lockfileVersion` 2 or later) then holds the package at that version with a `sha512-` integrity. Preview and Live fetch that package's metadata from the public npm registry and verify it against the lockfile. A Flow source builds Steps from the package only when it passes that check. See [Connector Steps must be static](/reference/dex-app/v1/troubleshooting#connector-steps-must-be-static).
+
 A Trigger binding is configurable when a Flow of the application declares it with configuration enabled, in its graph's `v2.connectorTriggerBindings`, at the release that `dex-app.yaml` pins. The first matching entry in Flow type order counts. When you use Preview, it starts after every declared Trigger binding is configured (for connectors that are not optional or have a chosen connection). The import checks this only when every Flow source is a committed `.json` graph, because a `.go` or `.ts` source has a graph only after it is rendered.
 
 ## YAML rules {#yaml-rules}

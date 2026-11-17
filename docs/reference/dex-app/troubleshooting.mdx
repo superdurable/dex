@@ -36,6 +36,20 @@ Push to `main` and check again. In an existing project, the agent's commits fail
 npm view @superdurable/connector-hackernews versions
 ~~~
 
+## "Building processes failed … Fix the process definitions" on a TypeScript process with connector Steps {#connector-steps-must-be-static}
+
+Each connector Step of the Flow is reported as "must be static", or the failure gives the reason `CONNECTOR_PACKAGE`.
+
+**Cause.** The build accepts a connector package that `dex-app.yaml` declares and `package-lock.json` locks at that version with a `sha512-` integrity. Here one of these is missing: the [`connectors`](/reference/dex-app/manifest#connectors) entry, the install at the declared version, or the lockfile entry with its integrity.
+
+**Fix.** Install the package at the exact version, then make the `package` and `version` of its `dex-app.yaml` entry match:
+
+~~~bash
+npm install --save-exact <package>@<version>
+~~~
+
+Commit `package.json`, `package-lock.json`, and `dex-app.yaml` together.
+
 ## Two copies of `@superdurable/dex` or `@superdurable/connectors-sdk` after adding a connector {#duplicate-sdk-packages}
 
 **Cause.** The connector needs a newer `@superdurable/dex` or `@superdurable/connectors-sdk` than the application pins. npm then installs a second copy for the connector.
