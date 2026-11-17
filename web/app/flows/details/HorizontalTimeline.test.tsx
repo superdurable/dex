@@ -12,12 +12,12 @@ import { readFileSync } from 'node:fs';
 import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isSameCalendarDay } from '@/lib/format';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   HorizontalTimeline,
   horizontalTimelineLayout,
-  isSameCalendarDay,
   labelLineCount,
   labelWithBreakHints,
   labelWidthUnits,
@@ -194,6 +194,29 @@ describe('horizontal Timeline', () => {
     expect(document.querySelectorAll('.htl-arc')).toHaveLength(1);
 
     expect(screen.queryByRole('button', { name: /Review-1 WaitFor completed/ })).toBeNull();
+  });
+
+  it('keeps the selection and a link across the window marked on the whole-page overview after the lane scrolls away', () => {
+    const relations: TimelineSelectedRelations = {
+      links: [{
+        kind: 'lineage',
+        stepExecutionId: 'Charge-1000',
+        fromEventId: 5,
+        toEventId: 1000,
+        label: 'Charge-1000',
+        elapsedDurationMs: null,
+        lane: 0,
+      }],
+      stubs: [],
+      related: [],
+    };
+    render(<Harness pageEvents={events(1000)} initialEventId={1000} relations={relations} />);
+    expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
+    expect(document.querySelectorAll('.htl-overview-linked')).toHaveLength(1);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(option(1000)).toBeNull();
+    expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
+    expect(document.querySelectorAll('.htl-overview-linked')).toHaveLength(1);
   });
 
   it('brings a jumped-to event into view and highlights it', () => {

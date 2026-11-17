@@ -3823,7 +3823,8 @@ html:has(.v1-page .stream-scroll--entries) {
 }
 
 .event-value-name {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  max-width: 50%;
   min-width: 0;
   overflow: hidden;
   color: var(--ui-ink);
@@ -3834,14 +3835,15 @@ html:has(.v1-page .stream-scroll--entries) {
   white-space: nowrap;
 }
 
+/* A short value wraps beside its name, so a narrow column still shows all of it. */
 .event-value-inline {
   min-width: 0;
-  overflow: hidden;
+  flex: 1 1 auto;
   color: var(--ui-ink-2);
   font-family: var(--font-mono);
   font-size: 12.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .event-value-none {

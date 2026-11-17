@@ -14,7 +14,9 @@ section: Changed
 - The run page opens on the tab chosen last, on any run. An agent session opens
   on **Conversation** only when no tab was chosen yet.
 - The selected event's panel gives Input and Output equal width and Context a
-  narrow column. Each value sits under its name; objects, including JSON stored
-  as a string, are pretty-printed and capped at seven lines with **Copy** and
-  **Expand**. Channel conditions read as counts such as "1 or more", and Context
-  times show milliseconds without the date.
+  narrow column. Each value sits under its name; short values wrap beside it,
+  and objects, including JSON stored as a string, are pretty-printed and capped
+  at seven lines with **Copy** and **Expand**. Channel conditions read as counts
+  such as "exactly 1" or "1 or more". Context times show milliseconds, add the
+  date only when it differs from the event's, and show the full timestamp on
+  hover.

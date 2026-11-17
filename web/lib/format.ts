@@ -49,6 +49,35 @@ export function formatTimeWithMilliseconds(value: string | null, timezone: Timez
   return formatter.format(date);
 }
 
+/** Reports whether two instants fall on the same calendar day in the viewer's timezone. */
+export function isSameCalendarDay(startMs: number, endMs: number, timezone: TimezonePreference): boolean {
+  if (timezone === 'UTC') return new Date(startMs).toISOString().slice(0, 10) === new Date(endMs).toISOString().slice(0, 10);
+  return new Date(startMs).toDateString() === new Date(endMs).toDateString();
+}
+
+const monthDayFormatters = new Map<TimezonePreference, Intl.DateTimeFormat>();
+
+/**
+ * Time with milliseconds, such as "10:24:17.302 PM", led by the month and day, such as "Nov 16",
+ * when it falls on another calendar day than referenceTime.
+ */
+export function formatTimeBesideReference(value: string, referenceTime: string | null, timezone: TimezonePreference): string {
+  const timeOfDay = formatTimeWithMilliseconds(value, timezone);
+  const valueMs = Date.parse(value);
+  const referenceMs = referenceTime ? Date.parse(referenceTime) : Number.NaN;
+  if (Number.isNaN(valueMs) || Number.isNaN(referenceMs) || isSameCalendarDay(valueMs, referenceMs, timezone)) return timeOfDay;
+  let formatter = monthDayFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      timeZone: timezone === 'UTC' ? 'UTC' : undefined,
+    });
+    monthDayFormatters.set(timezone, formatter);
+  }
+  return `${formatter.format(valueMs)}, ${timeOfDay}`;
+}
+
 /** Time only, for a narrow column where the date would not fit and rarely differs. */
 export function formatTimeOfDay(value: string | null, timezone: TimezonePreference): string {
   if (!value) return '—';
